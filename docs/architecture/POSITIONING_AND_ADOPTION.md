@@ -30,10 +30,10 @@ adding a UI layer that's not a doc), **stop and re-read § 4 (Hard rules).**
 >
 > Companies have style guides, ADRs, lint rules, and CI gates. None of them apply to an AI
 > agent's output. Atelier is the layer that makes the company's existing rules actually
-> *retrieved* by the agent on every task, *checked* before code is written, *verified* on
-> outcome, and *audited* per task — with evidence.
+> _retrieved_ by the agent on every task, _checked_ before code is written, _verified_ on
+> outcome, and _audited_ per task — with evidence.
 
-### What this is *not* a claim of
+### What this is _not_ a claim of
 
 - Atelier is not a linter — those exist and Atelier doesn't replace them.
 - Atelier is not a wiki replacement — Confluence/Notion exist and Atelier doesn't replace
@@ -42,22 +42,22 @@ adding a UI layer that's not a doc), **stop and re-read § 4 (Hard rules).**
   replace them.
 - Atelier is not a code-review tool — humans still review.
 
-### What it *is* a claim of
+### What it _is_ a claim of
 
 Atelier provides the layer that all of those tools fail at when an AI agent is in the loop:
 
-| Existing tool | Why it fails for AI-driven coding | Atelier's role |
-|---|---|---|
-| Style guide / wiki | Agent doesn't read them | ReasonBlocks: agent retrieves on every task |
-| Lint / format | Catches syntax, not procedure | Rubric gates catch procedural decisions |
-| CI rules | Post-hoc, agent already committed | `lint` validates before code is written |
-| Code review | Doesn't scale to high-volume agent commits | Per-task trace + rubric verdict per change |
-| ADRs | Static, not retrieved at decision time | ReasonBlocks are retrieved at decision time |
+| Existing tool      | Why it fails for AI-driven coding          | Atelier's role                              |
+| ------------------ | ------------------------------------------ | ------------------------------------------- |
+| Style guide / wiki | Agent doesn't read them                    | ReasonBlocks: agent retrieves on every task |
+| Lint / format      | Catches syntax, not procedure              | Rubric gates catch procedural decisions     |
+| CI rules           | Post-hoc, agent already committed          | `lint` validates before code is written     |
+| Code review        | Doesn't scale to high-volume agent commits | Per-task trace + rubric verdict per change  |
+| ADRs               | Static, not retrieved at decision time     | ReasonBlocks are retrieved at decision time |
 
 ### One-line pitch
 
-> *"You already have the rules. Atelier makes the AI agent on your team actually follow
-> them, on every task, with evidence."*
+> _"You already have the rules. Atelier makes the AI agent on your team actually follow
+> them, on every task, with evidence."_
 
 Use this language in README, docs, replies to inbound interest. Do not invent a fancier
 version.
@@ -70,7 +70,7 @@ V3 shipped the technical surfaces that deliver on the positioning above. **The a
 gap is operational, not technical.** Three frictions block real-world rollout:
 
 1. **Empty-block-store problem.** A new user runs `atelier init` and gets an empty
-   `.atelier/blocks/` directory. They have to author institutional knowledge from a blank
+   `./.knowledge/blocks/` directory. They have to author institutional knowledge from a blank
    page. Most quit before writing the third block.
 2. **Existing-docs gap.** Companies have `STYLE.md`, `CONTRIBUTING.md`, exported Confluence
    pages full of procedural rules. None of it is in a form Atelier can use. Re-authoring it
@@ -89,7 +89,7 @@ boundary-safe.
 Per the V3 audit on 2026-05-05, all 8 V3 packets and 4 V3.1 packets are implemented in
 code. Specifically, these surfaces are live:
 
-- ReasonBlock store with versioned, retrievable blocks (`.atelier/blocks/*.md`).
+- ReasonBlock store with versioned, retrievable blocks (`./.knowledge/blocks/*.md`).
 - MCP tools: `reasoning`, `lint`,
   `verify`, `rescue`, `trace`,
   `memory_*` family, `lesson_inbox` / `lesson_decide`, `consolidation_inbox` /
@@ -191,7 +191,7 @@ Atelier uses. Manually re-authoring as ReasonBlocks is nobody's priority.
 **What to build.**
 
 - **CLI:** `atelier import-style-guide PATH [PATH ...] [--domain DOMAIN] [--dry-run]
-  [--limit N]`
+[--limit N]`
   - Accepts one or more Markdown files or directories (recurses into directories).
   - Uses local Ollama (already in scope per V3 WP-36) to extract procedural rules from the
     text and draft `LessonCandidate` rows.
@@ -242,7 +242,7 @@ No autonomous mutation of the ReasonBlock store.
 
 ### 5.3 — Starter ReasonBlock packs (`atelier init --stack`)
 
-**Why.** New users staring at an empty `.atelier/blocks/` directory don't know what a
+**Why.** New users staring at an empty `./.knowledge/blocks/` directory don't know what a
 ReasonBlock looks like for their stack. Templates remove the blank-page problem.
 
 **What to build.**
@@ -258,7 +258,7 @@ ReasonBlock looks like for their stack. Templates remove the blank-page problem.
   - `python-django/`, `rails/`, `go-stdlib/`, … — defer until requested.
 - **CLI flag:** extend the existing `atelier init` command with `--stack STACK` (and
   `--list-stacks`). On `init --stack python-fastapi`, copy the matching templates to the
-  user's `.atelier/blocks/` directory, prefixed with `template_` so the user can rename or
+  user's `./.knowledge/blocks/` directory, prefixed with `template_` so the user can rename or
   delete without confusion.
 - **Manifest:** each stack folder contains a `manifest.toml` with `name`, `description`,
   `version`, `blocks: list[&#123;file, title, summary&#125;]`. `--list-stacks` reads these
@@ -271,7 +271,7 @@ ReasonBlock looks like for their stack. Templates remove the blank-page problem.
 
 **Acceptance.**
 
-- `atelier init --stack python-fastapi` produces a populated `.atelier/blocks/` in under a
+- `atelier init --stack python-fastapi` produces a populated `./.knowledge/blocks/` in under a
   second.
 - Every shipped template parses cleanly under V3's ReasonBlock validation.
 - Templates are commented to make their adaptation obvious (TODO markers where users will
@@ -301,7 +301,7 @@ Reasons for this order:
 2. **Step 2 second** because it's the highest-leverage adoption tool — converts existing
    docs into agent-readable blocks. Depends on Step 1 only conceptually (tests showing
    imported candidates flow into the inbox).
-3. **Step 3 last** because the *code* is small but the *content* (well-curated templates
+3. **Step 3 last** because the _code_ is small but the _content_ (well-curated templates
    per stack) takes ongoing curation. Ship one stack to validate the mechanism; add stacks
    in response to demand, not on speculation.
 
@@ -333,9 +333,9 @@ product Atelier deliberately doesn't build.
   self-hosted via Docker. Adding a multi-tenant cloud is a different product.
 
 If you are uncertain whether a request fits Atelier or is one of these traps, the rule is:
-*if it requires Atelier to either (a) call a remote LLM on the user's hot path, (b) own
+_if it requires Atelier to either (a) call a remote LLM on the user's hot path, (b) own
 the user's agent loop, or (c) replace an existing developer-tool category (lint, CI, IDE,
-wiki, GitHub features), it is out of scope.*
+wiki, GitHub features), it is out of scope._
 
 ---
 
@@ -348,7 +348,7 @@ one open question. Template:
 >
 > I'm based in `<location>`. Atelier is a side project that grew out of frustration with
 > AI coding agents drifting from team conventions, so your story about `<their specific
-> pain point>` resonated. Would love to hear more about what practices you've been trying
+pain point>` resonated. Would love to hear more about what practices you've been trying
 > to get adopted at your company — I'm curious whether the shape of Atelier (procedural
 > rules an AI agent reads + verifies on every task) maps to your problem or is solving
 > something different.

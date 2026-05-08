@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+atelier-codex: Atelier preflight wrapper for Codex CLI
+
+Usage:
+  atelier-codex --task "..." [options]
+
+Options:
+  --task TEXT           Required task description
+  --domain TEXT         Optional domain id
+  --file PATH           Optional file hint (repeatable)
+  --tool NAME           Optional tool hint (repeatable)
+  --step TEXT           Optional plan step (repeatable)
+  --rubric ID           Optional rubric id to run after lint
+  --check K=V           Optional rubric check entry (true/false/null), repeatable
+  --json                Emit machine-readable JSON summaries
+  --workspace PATH      Workspace root (default: current directory)
+  --                    Remaining args are passed to codex after preflight
+
+Examples:
+  atelier-codex --task "Fix checkout bug" --step "Reproduce" --step "Patch"
+  atelier-codex --task "Publish product" --domain beseam.shopify.publish \
+    --step "Parse handle" --step "Update" --rubric rubric_shopify_publish \
+    --check post_publish_refetch_done=true
+EOF
+}
+
+TASK=""
+DOMAIN=""
+WORKSPACE="$PWD"
+AS_JSON=false
+RUBRIC_ID=""
+
+FILES=()
+TOOLS=()
+STEPS=()
+CHECKS=()
+CODEX_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --task)
+      TASK="$2"
+      shift 2
+      ;;
+    --domain)
+      DOMAIN="$2"
+      shift 2
+      ;;
+    --workspace)
+      WORKSPACE="$2"
+      shift 2
+      ;;
+    --file)
+      FILES+=("$2")
+      shift 2
+      ;;
+    --tool)
+      TOOLS+=("$2")
+      shift 2
+      ;;
+    --step)
+      STEPS+=("$2")
+      shift 2
+      ;;
+    --rubric)
+      RUBRIC_ID="$2"
+      shift 2
+      ;;
+    --check)
+      CHECKS+=("$2")
+      shift 2
+      ;;
+    --json)
+      AS_JSON=true
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      CODEX_ARGS=("$@")
+      break
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "$TASK" ]]; then
+  echo "--task is required" >&2
+  usage
+  exit 1
+fi
+
+WORKSPACE="$(cd "$WORKSPACE" && pwd)"
+cd "$WORKSPACE"
+
+if [[ ${#STEPS[@]} -eq 0 ]]; then
+  STEPS+=("Execute task safely according to Atelier reasoning context")
+fi
+
+context_cmd=(uv run atelier --root .atelier reasoning --task "$TASK" --limit 5 --json)
+if [[ -n "$DOMAIN" ]]; then
+  context_cmd+=(--domain "$DOMAIN")
+fi
+for f in "${FILES[@]}"; do
+  context_cmd+=(--file "$f")
+done
+for t in "${TOOLS[@]}"; do
+  context_cmd+=(--tool "$t")
+done
+
+if $AS_JSON; then
+  echo '{"phase":"context","status":"running"}'
+fi
+CONTEXT_OUT="$("${context_cmd[@]}")"
+if $AS_JSON; then
+  echo "$CONTEXT_OUT"
+else
+  echo "[atelier-codex] reasoning context loaded"
+fi
+
+plan_cmd=(uv run atelier --root .atelier lint --task "$TASK" --json)
+if [[ -n "$DOMAIN" ]]; then
+  plan_cmd+=(--domain "$DOMAIN")
+fi
+for f in "${FILES[@]}"; do
+  plan_cmd+=(--file "$f")
+done
+for t in "${TOOLS[@]}"; do
+  plan_cmd+=(--tool "$t")
+done
+for s in "${STEPS[@]}"; do
+  plan_cmd+=(--step "$s")
+done
+
+if $AS_JSON; then
+  echo '{"phase":"lint","status":"running"}'
+fi
+set +e
+PLAN_OUT="$("${plan_cmd[@]}" 2>&1)"
+PLAN_EXIT=$?
+set -e
+
+if $AS_JSON; then
+  echo "$PLAN_OUT"
+else
+  echo "[atelier-codex] plan validation complete (exit=$PLAN_EXIT)"
+fi
+
+if [[ $PLAN_EXIT -eq 2 ]]; then
+  echo "[atelier-codex] plan blocked by Atelier. Resolve before running Codex." >&2
+  exit 2
+fi
+if [[ $PLAN_EXIT -ne 0 ]]; then
+  echo "[atelier-codex] lint failed" >&2
+  echo "$PLAN_OUT" >&2
+  exit $PLAN_EXIT
+fi
+
+if [[ -n "$RUBRIC_ID" ]]; then
+  CHECKS_JSON="{}"
+  if [[ ${#CHECKS[@]} -gt 0 ]]; then
+    CHECKS_JSON="$(python3 - <<'PYEOF' "${CHECKS[@]}"
+import json
+import sys
+pairs = sys.argv[1:]
+out = {}
+for p in pairs:
+    if "=" not in p:
+        continue
+    k, v = p.split("=", 1)
+    vv = v.strip().lower()
+    if vv == "true":
+        out[k] = True
+    elif vv == "false":
+        out[k] = False
+    elif vv == "null":
+        out[k] = None
+    else:
+        out[k] = v
+print(json.dumps(out))
+PYEOF
+)"
+  fi
+  if $AS_JSON; then
+    echo '{"phase":"rubric","status":"running"}'
+  fi
+  set +e
+  RUBRIC_OUT="$(printf '%s' "$CHECKS_JSON" | uv run atelier --root .atelier verify "$RUBRIC_ID" --input - --json 2>&1)"
+  RUBRIC_EXIT=$?
+  set -e
+  if $AS_JSON; then
+    echo "$RUBRIC_OUT"
+  else
+    echo "[atelier-codex] rubric gate complete (exit=$RUBRIC_EXIT)"
+  fi
+  if [[ $RUBRIC_EXIT -eq 2 ]]; then
+    echo "[atelier-codex] rubric gate blocked execution." >&2
+    exit 2
+  fi
+  if [[ $RUBRIC_EXIT -ne 0 ]]; then
+    echo "[atelier-codex] verify failed" >&2
+    echo "$RUBRIC_OUT" >&2
+    exit $RUBRIC_EXIT
+  fi
+fi
+
+if [[ ${#CODEX_ARGS[@]} -gt 0 ]]; then
+  exec codex "${CODEX_ARGS[@]}"
+fi
+
+if ! $AS_JSON; then
+  echo "[atelier-codex] preflight passed. Start Codex with: codex"
+fi

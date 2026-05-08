@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from atelier.core.foundation.paths import default_store_root
 from atelier.core.foundation.extractor import CandidateBlock, extract_candidate
 from atelier.core.foundation.models import (
     CommandRecord,
@@ -371,8 +372,8 @@ class RuntimeSession:
 class ReasoningRuntime:
     """Top-level facade for product agents."""
 
-    def __init__(self, root: str | Path = ".atelier") -> None:
-        self.core_runtime = AtelierRuntimeCore(root)
+    def __init__(self, root: str | Path | None = None) -> None:
+        self.core_runtime = AtelierRuntimeCore(default_store_root() if root is None else root)
         self.store = self.core_runtime.store
 
     @contextmanager

@@ -181,14 +181,11 @@ def test_gemini_extension_manifest_exists() -> None:
     assert data.get("mcpServers", {}).get("atelier", {}).get("command") == "atelier-mcp"
 
 
-def test_gemini_extension_bundles_commands_and_skill() -> None:
+def test_gemini_extension_bundles_commands_and_context() -> None:
     cmd_dir = GEMINI_EXTENSION / "commands" / "atelier"
     assert cmd_dir.is_dir(), "Gemini extension must bundle commands/atelier/"
     assert (cmd_dir / "status.toml").exists(), "Gemini extension must bundle status.toml"
     assert (cmd_dir / "context.toml").exists(), "Gemini extension must bundle context.toml"
-    assert (GEMINI_EXTENSION / "skills" / "openai-docs" / "SKILL.md").exists(), (
-        "Gemini extension must bundle the openai-docs skill"
-    )
     assert (GEMINI_EXTENSION / "GEMINI.md").exists(), "Gemini extension must bundle GEMINI.md"
 
 
@@ -244,15 +241,9 @@ def test_codex_repo_marketplace_points_to_plugin() -> None:
     data = json.loads(marketplace.read_text())
     plugins = data.get("plugins", [])
     assert any(
-        plugin.get("name") == "atelier"
-        and plugin.get("source", {}).get("path") == "./integrations/codex/plugin"
+        plugin.get("name") == "atelier" and plugin.get("source", {}).get("path") == "./integrations/codex/plugin"
         for plugin in plugins
     ), "repo marketplace must expose the Codex plugin at ./integrations/codex/plugin"
-
-
-def test_codex_plugin_bundles_openai_docs_skill() -> None:
-    skill = CODEX_PLUGIN / "skills" / "openai-docs" / "SKILL.md"
-    assert skill.exists(), "Codex plugin bundle must include the openai-docs skill"
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +317,7 @@ def test_install_scripts_document_global_and_workspace_paths() -> None:
     assert 'AGENTS_FILE="${WORKSPACE}/AGENTS.md"' in codex
     assert 'PLUGIN_DIR="${CODEX_HOME}/plugins/atelier"' in codex
     assert 'PLUGIN_DIR="${WORKSPACE}/.codex/plugins/atelier"' in codex
-    assert '.agents/plugins/marketplace.json' in codex
+    assert ".agents/plugins/marketplace.json" in codex
 
     copilot = (SCRIPTS / "install_copilot.sh").read_text()
     assert "Code/User" in copilot

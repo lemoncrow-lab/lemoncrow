@@ -38,7 +38,7 @@ The MCP config registers Atelier as a stdio server:
       "args": [],
       "env": &#123;
         "ATELIER_WORKSPACE_ROOT": "<workspace>",
-        "ATELIER_ROOT": "<workspace>/.atelier"
+        "ATELIER_ROOT": "~/.atelier"
       &#125;
     &#125;
   &#125;

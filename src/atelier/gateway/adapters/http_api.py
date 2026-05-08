@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from atelier.core.foundation.paths import default_store_root, resolve_workspace_root
 from atelier.core.foundation.environments import load_environments_from_dir
 from atelier.core.foundation.memory_models import ArchivalPassage, MemoryBlock
 from atelier.core.foundation.models import (
@@ -64,8 +66,8 @@ from atelier.infra.runtime.cost_tracker import CostTracker
 # Configuration                                                               #
 # --------------------------------------------------------------------------- #
 
-DEFAULT_WORKSPACE = Path(os.environ.get("ATELIER_WORKSPACE_ROOT", ".")).resolve()
-DEFAULT_STORE_ROOT = Path(os.environ.get("ATELIER_STORE_ROOT", DEFAULT_WORKSPACE / ".atelier")).resolve()
+DEFAULT_WORKSPACE = resolve_workspace_root()
+DEFAULT_STORE_ROOT = Path(os.environ.get("ATELIER_STORE_ROOT", str(default_store_root()))).resolve()
 DEFAULT_ENV_DIR = Path(
     os.environ.get(
         "ATELIER_ENV_DIR",
@@ -325,6 +327,7 @@ def create_app(
     cost_tracker = CostTracker(store_root or DEFAULT_STORE_ROOT)
 
     from atelier.infra.storage.factory import make_memory_store
+
     mem_store = make_memory_store(store_root or DEFAULT_STORE_ROOT)
 
     app = FastAPI(
@@ -700,14 +703,14 @@ def create_app(
     @app.post("/v1/memory/recall")
     def memory_recall(req: MemoryRecallRequest) -> dict[str, Any]:
         """Recall relevant archived passages for a query."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         since_dt: datetime | None = None
         if req.since:
             try:
-                since_dt = datetime.fromisoformat(req.since).replace(tzinfo=timezone.utc)
+                since_dt = datetime.fromisoformat(req.since).replace(tzinfo=UTC)
             except ValueError:
-                raise HTTPException(status_code=400, detail=f"invalid since format: {req.since!r}")
+                raise HTTPException(status_code=400, detail=f"invalid since format: {req.since!r}") from None
         passages = mem_store.search_passages(
             req.agent_id,
             req.query,

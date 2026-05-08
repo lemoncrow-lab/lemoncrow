@@ -7,7 +7,6 @@ import os
 import re
 from collections import Counter
 from datetime import UTC, datetime
-from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +22,12 @@ from atelier.core.foundation.retriever import (
 )
 from atelier.core.foundation.store import ReasoningStore
 from atelier.infra.embeddings.factory import make_embedder
-from atelier.infra.embeddings.null_embedder import NullEmbedder
-from atelier.infra.storage.vector import cosine_similarity, get_cached_embedding, put_cached_embedding, vector_cache_key
+from atelier.infra.storage.vector import (
+    cosine_similarity,
+    get_cached_embedding,
+    put_cached_embedding,
+    vector_cache_key,
+)
 
 from .dead_ends import DeadEndTracker
 

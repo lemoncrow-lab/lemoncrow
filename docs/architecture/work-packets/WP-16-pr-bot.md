@@ -14,7 +14,7 @@ status: done
 
 Lemma's pitch is auto-PR for proposed fixes. We mirror that for ReasonBlock changes: when a
 `LessonCandidate` is approved, an opt-in bot opens a PR adding the new block markdown under
-`.atelier/blocks/` so the team can review on GitHub.
+`./.knowledge/blocks/` so the team can review on GitHub.
 
 This is **opt-in** and runs only when `ATELIER_LESSON_PR_BOT_ENABLED=true` and a `GITHUB_TOKEN`
 is present. CI must pass in both modes.
@@ -41,12 +41,14 @@ is present. CI must pass in both modes.
 
 1. PR bot uses `gh` CLI (already required for the project; do **not** add new Python deps).
 2. On approval:
-   - Write the new/updated block to `.atelier/blocks/<id>.md` exactly as `extract_reasonblock`
-     would.
-   - `git add` only that file.
-   - Create a branch `atelier/lesson/<lesson_id>`.
-   - Commit with `co-author: Atelier Lesson Bot <bot@atelier>`.
-   - `gh pr create` with body templated from the lesson's evidence trace IDs.
+
+- Write the new/updated block to `./.knowledge/blocks/<id>.md` exactly as `extract_reasonblock`
+  would.
+- `git add` only that file.
+- Create a branch `atelier/lesson/<lesson_id>`.
+- Commit with `co-author: Atelier Lesson Bot <bot@atelier>`.
+- `gh pr create` with body templated from the lesson's evidence trace IDs.
+
 3. Dry-run mode (`--dry-run`) prints the diff and the would-be PR body without writing.
 4. When disabled, all bot calls return `&#123; skipped: true, reason: "disabled" &#125;` — no `git` or `gh`
    subprocess invoked.

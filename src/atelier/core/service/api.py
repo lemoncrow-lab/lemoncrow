@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import time
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
@@ -92,6 +93,8 @@ from atelier.infra.storage.factory import create_store
 
 _APP_STORE: Any = None
 _HOST_REGISTRY: HostRegistry | None = None
+
+logger = logging.getLogger("atelier.service")
 
 
 def _get_store() -> Any:
@@ -332,6 +335,16 @@ def create_app(*, store: Any = None) -> FastAPI:
                temporary SQLite instance without touching the filesystem.
     """
     _store = store
+
+    # Validation: Ensure the data store exists
+    root = Path(cfg.atelier_root)
+    if not root.exists():
+        logger.error(
+            "Atelier root directory missing: %s. "
+            "The service requires an initialized store to function correctly. "
+            "Please run 'make install' or the installation script to bootstrap the environment.",
+            root,
+        )
 
     def get_store() -> Any:
         nonlocal _store

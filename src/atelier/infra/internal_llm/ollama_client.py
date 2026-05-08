@@ -25,7 +25,7 @@ def _resolve_model(model: str | None) -> str:
         return model
     if configured:
         return configured
-    return "qwen3.6:latest"
+    return "nemotron-cascade-2:latest"
 
 
 def summarize(text: str, *, model: str | None = None, max_tokens: int = 4096) -> str:

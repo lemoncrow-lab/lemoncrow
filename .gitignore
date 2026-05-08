@@ -137,8 +137,9 @@ eval_results/
 outputs/
 results/
 
-# Database dumps
+# Database dumps (ignore at root, but allow migrations)
 *.sql
+!src/**/*.sql
 *.sqlite3
 dump.rdb
 *.rdb
@@ -154,25 +155,33 @@ dump.rdb
 frontend/src/services/stub/
 
 # -----------------------
-# MCP & Agent Configs (runtime-generated)
+# Build Outputs
 # -----------------------
+# bin/ (unignored to support global installation wrappers)
+build/Release/
+
+# -----------------------
+# MCP & Agent Configs
+# -----------------------
+# Ignore local workspace-level agent configs at the root
 .mcp.json
 .mcp.json.runtime
 opencode.jsonc*
-.codex/config.toml
-.gemini/settings.json
+.codex/
+.gemini/
+.claude/
 .augment/
 .kilo/
 .kilocode/
 .clinerules/
-.agents/
 .letta/
+.agents/
 
-# -----------------------
-# Build Outputs
-# -----------------------
-bin/
-build/Release/
+# But ALWAYS track the integration templates and plugin manifests
+!integrations/**/.mcp.json
+!integrations/**/settings.json
+!integrations/**/config.toml
+!integrations/**/opencode.jsonc
 
 # -----------------------
 # Documentation Site

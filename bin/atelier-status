@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# atelier-status — universal one-line status of the current Atelier run.
+#
+# Works in any host CLI (Codex, Gemini, opencode, Copilot, plain shell) that
+# does not expose a native statusline hook. Reads the atelier ledger snapshot
+# from $ATELIER_STORE_ROOT/runs/ (or $PWD/.atelier/runs/) and prints a single
+# line:
+#
+#   atelier | run <id> | <domain> | <task...> | status=<s> | ev=<n> err=<n> blk=<n>
+#
+# Options:
+#   --run-id ID    Show specific run (default: most recent)
+#   --json         Emit JSON instead of formatted line
+#   --root DIR     Atelier store root (default: $ATELIER_STORE_ROOT or .atelier)
+#
+# Exit codes: 0 ok, 1 no run found, 2 ledger malformed.
+
+set -u
+
+RUN_ID=""
+JSON=0
+ROOT="${ATELIER_ROOT:-${ATELIER_STORE_ROOT:-${HOME}/.atelier}}"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --run-id) RUN_ID="$2"; shift 2 ;;
+    --json) JSON=1; shift ;;
+    --root) ROOT="$2"; shift 2 ;;
+    -h|--help)
+      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) echo "atelier-status: unknown option: $1" >&2; exit 64 ;;
+  esac
+done
+
+RUNS_DIR="${ROOT}/runs"
+if [ ! -d "$RUNS_DIR" ]; then
+  echo "atelier | no runs (store: ${ROOT})"
+  exit 1
+fi
+
+if [ -n "$RUN_ID" ]; then
+  LEDGER="${RUNS_DIR}/${RUN_ID}/ledger.json"
+else
+  # Pick most recently modified ledger.json under runs/
+  LEDGER=$(ls -t "${RUNS_DIR}"/*/ledger.json 2>/dev/null | head -1)
+fi
+
+if [ -z "${LEDGER:-}" ] || [ ! -f "$LEDGER" ]; then
+  echo "atelier | no active run (looked in ${RUNS_DIR})"
+  exit 1
+fi
+
+if [ "$JSON" = "1" ]; then
+  cat "$LEDGER"
+  exit 0
+fi
+
+python3 - "$LEDGER" "$ROOT" <<'PYEOF' || exit 2
+import json, os, sys
+from pathlib import Path
+from datetime import datetime, timezone
+try:
+    with open(sys.argv[1]) as f:
+        snap = json.load(f)
+except Exception as e:
+    print(f"atelier | ledger error: {e}")
+    sys.exit(2)
+
+run_id = (snap.get("run_id") or "?")[:8]
+domain = snap.get("domain") or "-"
+task = (snap.get("task") or "").strip().splitlines()[0] if snap.get("task") else "-"
+if len(task) > 50:
+    task = task[:47] + "..."
+status = snap.get("status") or "?"
+events = len(snap.get("events", []) or [])
+errors = len(snap.get("errors_seen", []) or [])
+blockers = len(snap.get("current_blockers", []) or [])
+
+# Session cost + tokens from this run's ledger.
+sess_cost = 0.0
+sess_in = 0
+sess_out = 0
+sess_cache = 0
+try:
+    cost_snap = snap.get("cost") or {}
+    sess_cost = float(cost_snap.get("total_cost_usd", 0.0) or 0.0)
+    sess_in = int(cost_snap.get("total_input_tokens", 0) or 0)
+    sess_out = int(cost_snap.get("total_output_tokens", 0) or 0)
+    sess_cache = int(cost_snap.get("total_cache_read_tokens", 0) or 0)
+except Exception:
+    pass
+
+# Wall-clock duration from created_at → updated_at.
+duration_s = 0
+try:
+    t0 = datetime.fromisoformat(snap["created_at"].replace("Z", "+00:00"))
+    t1 = datetime.fromisoformat(snap["updated_at"].replace("Z", "+00:00"))
+    duration_s = max(0, int((t1 - t0).total_seconds()))
+except Exception:
+    pass
+
+# Cumulative savings from cost_history.json (if present).
+saved_usd = 0.0
+ctx_saved = 0
+saved_pct = 0.0
+would_have = 0.0
+try:
+    hist = Path(sys.argv[2]) / "cost_history.json"
+    if hist.is_file():
+        d = json.loads(hist.read_text())
+        total_base = 0.0
+        total_cur = 0.0
+        for op in (d.get("operations") or {}).values():
+            calls = op.get("calls") or []
+            if not calls:
+                continue
+            base = float(calls[0].get("cost_usd", 0.0))
+            for c in calls[1:]:
+                saved_usd += max(0.0, base - float(c.get("cost_usd", 0.0)))
+                ctx_saved += int(c.get("cache_read_tokens", 0) or 0)
+            total_base += base * len(calls)
+            total_cur += sum(float(c.get("cost_usd", base)) for c in calls)
+        would_have = total_base
+        if would_have > 0:
+            saved_pct = max(0.0, (would_have - total_cur) / would_have * 100.0)
+except Exception:
+    pass
+
+def k(n: int) -> str:
+    return f"{n//1000}k" if n >= 1000 else str(n)
+
+def dur(s: int) -> str:
+    if s < 60:
+        return f"{s}s"
+    return f"{s//60}m{s%60:02d}s"
+
+# atelier:code brand color #ff6041 (RGB 255,96,65) — ANSI true-color.
+if os.environ.get("NO_COLOR"):
+    BADGE = BRAND = SEP = DIM = RESET = ""
+else:
+    BADGE = "\033[1;48;2;255;96;65;38;2;255;255;255m atelier:code \033[0m"
+    BRAND = "\033[1;38;2;255;96;65m"
+    SEP = "\033[2;38;2;200;200;200m·\033[0m"
+    DIM = "\033[2m"
+    RESET = "\033[0m"
+
+# Session cost line (only shown when cost data is available).
+sess_line = ""
+if sess_cost > 0 or sess_in > 0:
+    sess_line = (
+        f" {SEP} {DIM}session{RESET} "
+        f"${sess_cost:.4f} in={k(sess_in)} out={k(sess_out)}"
+        + (f" cache={k(sess_cache)}" if sess_cache > 0 else "")
+        + (f" {dur(duration_s)}" if duration_s > 0 else "")
+    )
+
+# Savings suffix: show % if available, else just USD.
+if saved_pct > 0.1:
+    savings_str = f"saved ${saved_usd:.3f} ({saved_pct:.1f}% vs baseline)"
+else:
+    savings_str = f"saved ${saved_usd:.3f} (ctx {k(ctx_saved)})"
+
+print(
+    f"{BADGE} {BRAND}run {run_id}{RESET} {SEP} {domain} {SEP} {task} "
+    f"{SEP} status={status} {SEP} ev={events} err={errors} blk={blockers}"
+    f"{sess_line} {SEP} {savings_str}"
+)
+PYEOF

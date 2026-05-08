@@ -15,6 +15,7 @@ Design:
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from collections.abc import Iterable
 from contextlib import closing
@@ -24,6 +25,7 @@ from typing import Any
 
 import yaml
 
+from atelier.core.foundation.paths import resolve_knowledge_root
 from atelier.core.foundation.lesson_models import LessonCandidate, LessonPromotion
 from atelier.core.foundation.models import (
     BlockStatus,
@@ -34,6 +36,8 @@ from atelier.core.foundation.models import (
     Trace,
     to_jsonable,
 )
+
+logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
 # Schema                                                                      #
@@ -187,22 +191,27 @@ class ReasoningStore:
     so they can be reviewed in PRs without running tools.
     """
 
-    def __init__(self, root: Path | str) -> None:
+    def __init__(self, root: Path | str, knowledge_root: Path | str | None = None) -> None:
         self.root = Path(root).resolve()
         self.db_path = self.root / "atelier.db"
-        self.blocks_dir = self.root / "blocks"
+
+        # Knowledge (blocks/rubrics) is project-local by default for Git tracking.
+        # History (traces/raw) stays in the primary root.
+        _k_root = resolve_knowledge_root(self.root, knowledge_root)
+        self.blocks_dir = _k_root / "blocks"
+        self.rubrics_dir = _k_root / "rubrics"
+
         self.traces_dir = self.root / "traces"
-        self.rubrics_dir = self.root / "rubrics"
         self.raw_dir = self.root / "raw"
 
     # ----- lifecycle ------------------------------------------------------- #
 
     def init(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
-        self.blocks_dir.mkdir(exist_ok=True)
-        self.traces_dir.mkdir(exist_ok=True)
-        self.rubrics_dir.mkdir(exist_ok=True)
-        self.raw_dir.mkdir(exist_ok=True)
+        self.blocks_dir.mkdir(parents=True, exist_ok=True)
+        self.traces_dir.mkdir(parents=True, exist_ok=True)
+        self.rubrics_dir.mkdir(parents=True, exist_ok=True)
+        self.raw_dir.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
             # Ensure source_file_mtime column exists (migration for existing DBs)
@@ -262,6 +271,7 @@ class ReasoningStore:
                 );
                 """)
             self.verify_v2_schema(conn)
+            self.sync_knowledge()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -437,6 +447,83 @@ class ReasoningStore:
                     (block_id,),
                 )
 
+    def sync_knowledge(self) -> dict[str, int]:
+        """Sync blocks and rubrics from the filesystem to the database.
+
+        Uses a file-mtime manifest stored alongside the SQLite DB so that
+        unchanged files are skipped on subsequent calls — safe to call
+        repeatedly.
+        """
+        results = {"blocks": 0, "rubrics": 0}
+
+        if self.blocks_dir.exists():
+            from atelier.core.foundation.parser import parse_block_markdown
+
+            prev = self._load_sync_manifest("blocks")
+            fresh: dict[str, int] = {}
+
+            for path in sorted(self.blocks_dir.rglob("*.md")):
+                key = str(path)
+                mtime = path.stat().st_mtime_ns
+                fresh[key] = mtime
+                if prev.get(key) == mtime:
+                    continue  # unchanged — skip read/parse/upsert
+
+                try:
+                    content = path.read_text(encoding="utf-8")
+                    block = parse_block_markdown(content)
+                    self.upsert_block(block, write_markdown=False)
+                    results["blocks"] += 1
+                except Exception as exc:
+                    logger.warning("failed to sync knowledge block from %s: %s", path, exc)
+                    continue
+
+            self._save_sync_manifest("blocks", fresh)
+
+        if self.rubrics_dir.exists():
+            rubric_paths = sorted(self.rubrics_dir.rglob("*.yaml")) + sorted(self.rubrics_dir.rglob("*.yml"))
+            prev = self._load_sync_manifest("rubrics")
+            fresh: dict[str, int] = {}
+
+            for path in rubric_paths:
+                key = str(path)
+                mtime = path.stat().st_mtime_ns
+                fresh[key] = mtime
+                if prev.get(key) == mtime:
+                    continue  # unchanged
+
+                try:
+                    content = path.read_text(encoding="utf-8")
+                    data = yaml.safe_load(content) or {}
+                    rubric = Rubric.model_validate(data)
+                    self.upsert_rubric(rubric, write_yaml=False)
+                    results["rubrics"] += 1
+                except Exception as exc:
+                    logger.warning("failed to sync knowledge rubric from %s: %s", path, exc)
+                    continue
+
+            self._save_sync_manifest("rubrics", fresh)
+
+        return results
+
+    def _sync_manifest_path(self, kind: str) -> Path:
+        """Return path to the incremental-sync manifest for *kind*."""
+        return self.root / f".knowledge_sync_{kind}.json"
+
+    def _load_sync_manifest(self, kind: str) -> dict[str, int]:
+        path = self._sync_manifest_path(kind)
+        if path.exists():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                return {k: int(v) for k, v in raw.items() if isinstance(v, int)}
+            except Exception:
+                return {}
+        return {}
+
+    def _save_sync_manifest(self, kind: str, manifest: dict[str, int]) -> None:
+        path = self._sync_manifest_path(kind)
+        path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+
     # ----- Traces ---------------------------------------------------------- #
 
     def record_trace(self, trace: Trace, *, write_json: bool = True) -> None:
@@ -502,7 +589,6 @@ class ReasoningStore:
     def record_raw_artifact(self, artifact: RawArtifact, content: str) -> None:
         payload = json.dumps(to_jsonable(artifact), ensure_ascii=False)
         with self._connect() as conn:
-
             conn.execute(
                 """
                 INSERT INTO raw_artifacts (

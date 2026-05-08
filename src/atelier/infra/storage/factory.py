@@ -12,6 +12,7 @@ try:
 except ImportError:  # pragma: no cover
     tomllib = None  # type: ignore[assignment]
 
+from atelier.core.foundation.paths import default_store_root
 from atelier.core.foundation.store import ReasoningStore
 from atelier.infra.storage.memory_store import MemoryStore
 
@@ -28,7 +29,7 @@ def create_store(root: Path) -> ReasoningStore:
 
 def make_memory_store(root: str | Path | None, *, prefer: str | None = None) -> MemoryStore:
     """Create exactly one configured MemoryStore implementation."""
-    raw_root: str | Path = root if root is not None else (os.environ.get("ATELIER_ROOT") or ".atelier")
+    raw_root: str | Path = root if root is not None else default_store_root()
     resolved_root = Path(raw_root)
     backend = _memory_backend(resolved_root, prefer=prefer)
     logger.info("selected memory backend: %s", backend)

@@ -8,9 +8,9 @@ Atelier ships a full CLI for runtime operations, packs, benchmarking, and servic
 uv run atelier [--root PATH] COMMAND [OPTIONS]
 ```
 
-| Option        | Default                       | Description                         |
-| ------------- | ----------------------------- | ----------------------------------- |
-| `--root PATH` | `$ATELIER_ROOT` or `.atelier` | Path to the Atelier store directory |
+| Option        | Default                         | Description                             |
+| ------------- | ------------------------------- | --------------------------------------- |
+| `--root PATH` | `$ATELIER_ROOT` or `~/.atelier` | Path to the Atelier trace/history store |
 
 All commands that return data support `--json` to emit a machine-readable JSON envelope instead of human-readable text.
 

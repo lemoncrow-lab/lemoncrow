@@ -39,7 +39,7 @@ If you prefer to wire the MCP server directly without the plugin:
       "args": ["run", "--project", "$&#123;workspaceFolder&#125;/atelier", "atelier-mcp"],
       "env": &#123;
         "ATELIER_WORKSPACE_ROOT": "$&#123;workspaceFolder&#125;",
-        "ATELIER_ROOT": "$&#123;workspaceFolder&#125;/.atelier"
+        "ATELIER_ROOT": "$&#123;env:HOME&#125;/.atelier"
       &#125;
     &#125;
   &#125;
@@ -54,7 +54,7 @@ The plugin provides 4 agents selectable via `claude --agent`:
 | ----------------- | ----------------------------------------------------------------- |
 | `atelier:code`    | Main coding agent — runs full reasoning loop (default)            |
 | `atelier:explore` | Read-only investigator — retrieves context, reads files, no edits |
-| `atelier:review`  | Verifier — runs `lint` + `verify` against a patch  |
+| `atelier:review`  | Verifier — runs `lint` + `verify` against a patch                 |
 | `atelier:repair`  | Repair specialist — loads run ledger, asks for rescue, verifies   |
 
 ## Slash Commands

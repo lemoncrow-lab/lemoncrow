@@ -115,8 +115,12 @@ if [ -z "\${ATELIER_ROOT:-}" ]; then
     if [ -n "\${ATELIER_STORE_ROOT:-}" ]; then
         export ATELIER_ROOT="\${ATELIER_STORE_ROOT}"
     else
-        export ATELIER_ROOT="\${ATELIER_WORKSPACE_ROOT}/.atelier"
+        export ATELIER_ROOT="\${HOME}/.atelier"
     fi
+fi
+
+if [ -z "\${ATELIER_KNOWLEDGE_ROOT:-}" ]; then
+    export ATELIER_KNOWLEDGE_ROOT="\${ATELIER_WORKSPACE_ROOT}/.knowledge"
 fi
 
 >&2 echo "[atelier-mcp] repo=\$ATELIER_REPO workspace=\${ATELIER_WORKSPACE_ROOT} root=\${ATELIER_ROOT:-\${ATELIER_STORE_ROOT:-unset}}"

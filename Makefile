@@ -12,15 +12,22 @@ FORCE_ARG := $(if $(f),--force,)
 # Lifecycle                                                                   #
 # --------------------------------------------------------------------------- #
 
-install: ## Install deps, agent CLI integrations, status helper, and runtime store
-	uv sync --all-extras
-	bash scripts/install_agent_clis.sh
-	@mkdir -p "$(HOME)/.local/bin"
-	@ln -sf "$(CURDIR)/bin/atelier-status" "$(HOME)/.local/bin/atelier-status"
-	@echo "[atelier] Installation complete. Run 'make start' to launch with Docker."
+#    * To do a clean global install (clones from GitHub):
+#         make install
+#    * To install from your current local folder:
+#         make install ARGS="--local"
+#    * To pass other flags (like skipping hosts or dry-run):
 
-uninstall: ## Remove generated agent CLI integrations and status helper
+#         make install ARGS="--local --no-hosts --dry-run"
+install: ## Install Atelier (use ARGS="--local" to install from current dir)
+	bash scripts/install.sh $(ARGS)
+	@echo "[atelier] Installation complete."
+
+uninstall: ## Remove generated agent CLI integrations and wrappers
 	@rm -f "$(HOME)/.local/bin/atelier-status"
+	@rm -f "$(HOME)/.local/bin/atelier"
+	@rm -f "$(HOME)/.local/bin/atelier-mcp"
+	@rm -f "$(HOME)/.local/bin/atelier-api"
 	@for host in claude codex opencode copilot gemini; do \
 		script="scripts/uninstall_$${host}.sh"; \
 		[ -f "$$script" ] && bash "$$script" || true; \

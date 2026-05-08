@@ -51,7 +51,7 @@ There are no unprefixed aliases. Use CLI commands for governance and admin workf
       "command": "uv",
       "args": ["run", "atelier-mcp"],
       "env": {
-        "ATELIER_ROOT": ".atelier",
+        "ATELIER_ROOT": "~/.atelier",
         "ATELIER_WORKSPACE_ROOT": "."
       }
     }

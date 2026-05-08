@@ -35,7 +35,7 @@ The installer merges an `atelier` entry into the `mcp` key:
       "command": ["<atelier_repo>/scripts/atelier_mcp_stdio.sh"],
       "environment": &#123;
         "ATELIER_WORKSPACE_ROOT": "<workspace>",
-        "ATELIER_ROOT": "<workspace>/.atelier"
+        "ATELIER_ROOT": "~/.atelier"
       &#125;
     &#125;
   &#125;

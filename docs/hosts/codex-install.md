@@ -20,13 +20,13 @@ bash scripts/install_codex.sh --workspace /path/to/workspace
 
 ## What Gets Installed
 
-| Artifact                 | Global install                           | `--workspace DIR` install              |
-| ------------------------ | ---------------------------------------- | -------------------------------------- |
-| Codex plugin source      | `~/.codex/plugins/atelier/`              | `<workspace>/.codex/plugins/atelier/` |
-| Marketplace file         | `~/.agents/plugins/marketplace.json`     | `<workspace>/.agents/plugins/marketplace.json` |
-| AGENTS instruction block | `~/.codex/AGENTS.md`                     | `<workspace>/AGENTS.md`                |
-| Wrapper script           | `~/.local/bin/atelier-codex`             | `<workspace>/bin/atelier-codex`        |
-| Task templates           | not installed globally                   | `<workspace>/.codex/tasks/*.md`        |
+| Artifact                 | Global install                       | `--workspace DIR` install                      |
+| ------------------------ | ------------------------------------ | ---------------------------------------------- |
+| Codex plugin source      | `~/.codex/plugins/atelier/`          | `<workspace>/.codex/plugins/atelier/`          |
+| Marketplace file         | `~/.agents/plugins/marketplace.json` | `<workspace>/.agents/plugins/marketplace.json` |
+| AGENTS instruction block | `~/.codex/AGENTS.md`                 | `<workspace>/AGENTS.md`                        |
+| Wrapper script           | `~/.local/bin/atelier-codex`         | `<workspace>/bin/atelier-codex`                |
+| Task templates           | not installed globally               | `<workspace>/.codex/tasks/*.md`                |
 
 The installer also writes a generated `servers/atelier-mcp-wrapper.sh` inside
 the installed plugin source and patches the plugin `.mcp.json` to use that
@@ -60,12 +60,12 @@ Or run the Atelier preflight wrapper:
 
 ## Troubleshooting
 
-| Problem             | Fix                                                                                                    |
-| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| Problem              | Fix                                                                                                            |
+| -------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Plugin not visible   | Restart Codex, then check `~/.agents/plugins/marketplace.json` or workspace `.agents/plugins/marketplace.json` |
-| MCP tools missing    | Verify `<plugin>/servers/atelier-mcp-wrapper.sh` exists inside the installed plugin source             |
-| Wrapper missing      | Re-run install and verify global `atelier-codex` or workspace `bin/atelier-codex` exists             |
-| Skills look outdated | Re-run `bash scripts/install_codex.sh` to refresh the copied plugin source                             |
+| MCP tools missing    | Verify `<plugin>/servers/atelier-mcp-wrapper.sh` exists inside the installed plugin source                     |
+| Wrapper missing      | Re-run install and verify global `atelier-codex` or workspace `bin/atelier-codex` exists                       |
+| Skills look outdated | Re-run `bash scripts/install_codex.sh` to refresh the copied plugin source                                     |
 
 ## V2 Tools — Memory, Context Savings, and Lesson Pipeline
 

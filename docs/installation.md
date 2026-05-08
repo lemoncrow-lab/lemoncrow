@@ -88,11 +88,12 @@ All configuration is via environment variables. No config file is required.
 
 ### Core
 
-| Variable                 | Default                    | Description                                          |
-| ------------------------ | -------------------------- | ---------------------------------------------------- |
-| `ATELIER_ROOT`           | `.atelier`                 | Store root directory (relative to cwd or absolute)   |
-| `ATELIER_WORKSPACE_ROOT` | `.`                        | Workspace root used by MCP server for relative paths |
-| `ATELIER_STORE_ROOT`     | `$WORKSPACE_ROOT/.atelier` | Override store root independently of workspace       |
+| Variable                 | Default                      | Description                                          |
+| ------------------------ | ---------------------------- | ---------------------------------------------------- |
+| `ATELIER_ROOT`           | `~/.atelier`                 | Trace/history store root directory                   |
+| `ATELIER_KNOWLEDGE_ROOT` | `$WORKSPACE_ROOT/.knowledge` | Git-tracked ReasonBlocks and rubrics directory       |
+| `ATELIER_WORKSPACE_ROOT` | `.`                          | Workspace root used by MCP server for relative paths |
+| `ATELIER_STORE_ROOT`     | `~/.atelier`                 | Alias to override `ATELIER_ROOT`                     |
 
 ### Storage
 

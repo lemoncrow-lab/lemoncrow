@@ -16,10 +16,10 @@ agent continuity, context savings, and auditability.
 
 V2 keeps that posture but closes three gaps that block adoption against best-in-class peers:
 
-| #   | Pillar                              | Inspired by                                                                                                                                                                                                                                  | Goal                                                                                                                                                                                                                                                                                                                              |
-| --- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Stateful memory**           | [Letta](https://github.com/letta-ai/letta)                                                                                                                                                                                                   | First-class long-term memory for agents that survive across sessions: editable core memory blocks, archival passages with semantic search, sleeptime summarization.                                                                                                                                                               |
-| 2   | **ReasonBlocks evolution**    | [reasonblocks.com](https://reasonblocks.com/) + Letta                                                                                                                                                                                        | Ship a versioned, reviewable, retrievable corpus of reasoning procedures (already started) and add automated promotion / deprecation from production traces.                                                                                                                                                                      |
+| #   | Pillar                     | Inspired by                                                                                                               | Goal                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Stateful memory**        | [Letta](https://github.com/letta-ai/letta)                                                                                | First-class long-term memory for agents that survive across sessions: editable core memory blocks, archival passages with semantic search, sleeptime summarization.                                                                                                                                                                                                   |
+| 2   | **ReasonBlocks evolution** | [reasonblocks.com](https://reasonblocks.com/) + Letta                                                                     | Ship a versioned, reviewable, retrievable corpus of reasoning procedures (already started) and add automated promotion / deprecation from production traces.                                                                                                                                                                                                          |
 | 3   | **Context savings ≥ 50 %** | [Lemma](https://www.uselemma.ai/) + [Claude `/compact`](https://platform.claude.com/docs/en/build-with-claude/compaction) | Demonstrate ≥ 50 % reduction in tokens shipped to the model per task on the SWE-bench-style harness. The design adopts the stable tool-level ideas that have shown up across coding-agent optimization systems: combined search/read, batched edits, outline-first reads, deterministic SQL inspection, fuzzy edit matching, scoped recall, and lifecycle compaction. |
 
 Each pillar is a separate work-stream. Subagents may execute packets in parallel as long as they
@@ -98,10 +98,10 @@ premium model tier.
 
 ### 3.1 Two stores, one runtime
 
-| Store              | What it holds                                                            | Authority      | Mirrored on disk?                              |
-| ------------------ | ------------------------------------------------------------------------ | -------------- | ---------------------------------------------- |
-| **ReasonBlock** | "**what to do**" — procedures, dead ends, rubrics, environments | reviewable PR  | Yes — `.atelier/blocks/*.md`               |
-| **Memory**     | "**what is true**" — agent state, project facts, session recall   | editable in UI | Yes — `.atelier/memory/blocks/*.md` (NEW) |
+| Store           | What it holds                                                   | Authority      | Mirrored on disk?                         |
+| --------------- | --------------------------------------------------------------- | -------------- | ----------------------------------------- |
+| **ReasonBlock** | "**what to do**" — procedures, dead ends, rubrics, environments | reviewable PR  | Yes — `./.knowledge/blocks/*.md`          |
+| **Memory**      | "**what is true**" — agent state, project facts, session recall | editable in UI | Yes — `.atelier/memory/blocks/*.md` (NEW) |
 
 **They never overlap.** A ReasonBlock can reference a memory block (via `requires_memory: [<id>]`),
 but a memory block never carries procedure semantics.
@@ -166,26 +166,26 @@ tool round-trips and repeated full-context sends, not from summarization alone. 
 tool-efficiency techniques as first-class MCP tools, then layer Letta-style sleeptime
 summarization and native compaction lifecycle support on top.
 
-| Lever                                                | Owner WP | Mechanism                                                                                                                                              | Expected share |
-| ---------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
-| Combined search + read                       | WP-21    | New MCP tool `search(query, path)` returns ranked snippets + content in one call. Replaces grep → read → read.                       | ~12 %         |
-| Batched edits                                | WP-22    | New MCP tool `edit(edits=[…])` applies many edits across many files in one turn. Removes per-edit "turn-tax".                          | ~10 %         |
-| AST-aware truncation                         | WP-11    | Extend existing `semantic_file_memory` AST capability: any file > 200 LOC returns signatures only on first read; full body only on narrow follow-up. | ~12 %          |
-| Live SQL introspection                       | WP-23    | Existing `sql inspect` CLI command exposed as MCP tool `atelier sql inspect`. Single deterministic call replaces psql-via-Bash chain.            | ~5 %           |
-| Fuzzy edit matching                          | WP-24    | Extend existing `edit smart` capability: Levenshtein-tolerant `old_string` matching. Removes "old_string not found" retry loops.                   | ~6 %           |
-| Sleeptime ledger summarization                       | WP-09    | Letta-style summarizer condenses tool outputs older than N events                                                                                      | ~10 %          |
-| Cached tool results (`smart_read` everywhere)      | WP-10    | Existing capability promoted from optional to default; hit-rate raised via content hash                                                                | ~5 %           |
+| Lever                                                | Owner WP | Mechanism                                                                                                                                            | Expected share |
+| ---------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| Combined search + read                               | WP-21    | New MCP tool `search(query, path)` returns ranked snippets + content in one call. Replaces grep → read → read.                                       | ~12 %          |
+| Batched edits                                        | WP-22    | New MCP tool `edit(edits=[…])` applies many edits across many files in one turn. Removes per-edit "turn-tax".                                        | ~10 %          |
+| AST-aware truncation                                 | WP-11    | Extend existing `semantic_file_memory` AST capability: any file > 200 LOC returns signatures only on first read; full body only on narrow follow-up. | ~12 %          |
+| Live SQL introspection                               | WP-23    | Existing `sql inspect` CLI command exposed as MCP tool `atelier sql inspect`. Single deterministic call replaces psql-via-Bash chain.                | ~5 %           |
+| Fuzzy edit matching                                  | WP-24    | Extend existing `edit smart` capability: Levenshtein-tolerant `old_string` matching. Removes "old_string not found" retry loops.                     | ~6 %           |
+| Sleeptime ledger summarization                       | WP-09    | Letta-style summarizer condenses tool outputs older than N events                                                                                    | ~10 %          |
+| Cached tool results (`smart_read` everywhere)        | WP-10    | Existing capability promoted from optional to default; hit-rate raised via content hash                                                              | ~5 %           |
 | Scoped recall from archival memory                   | WP-12    | Agent calls `memory_recall(query)` to retrieve top-3 passages instead of dumping prior trace                                                         | ~5 %           |
-| **Native `/compact` lifecycle integration**  | WP-13    | At 60 % context utilisation, emit `compactd` event with preservation manifest derived from active ReasonBlocks + memory blocks      | ~5 %           |
-| Reduced ReasonBlock duplication on repeated retrieve | WP-04    | Already shipped; tuned by limit + dedup                                                                                                                | ~3 %           |
-| **Total measured savings (target)**            | —      | `benchmark-runtime --measure-context-savings` (WP-19) on Atelier's deterministic 11-prompt suite                                                       | **≥ 50 %** |
+| **Native `/compact` lifecycle integration**          | WP-13    | At 60 % context utilisation, emit `compactd` event with preservation manifest derived from active ReasonBlocks + memory blocks                       | ~5 %           |
+| Reduced ReasonBlock duplication on repeated retrieve | WP-04    | Already shipped; tuned by limit + dedup                                                                                                              | ~3 %           |
+| **Total measured savings (target)**                  | —        | `benchmark-runtime --measure-context-savings` (WP-19) on Atelier's deterministic 11-prompt suite                                                     | **≥ 50 %**     |
 
-> **Note on attribution.** These techniques are *concepts* — we implement analogous
+> **Note on attribution.** These techniques are _concepts_ — we implement analogous
 > behavior inside Atelier. We do not vendor plugin code or depend on third-party benchmark pages for
 > CI claims. The hard claim is Atelier's own deterministic benchmark.
 
 Each lever publishes a Prometheus metric (`atelier_tokens_saved_total&#123;lever="…"&#125;`) and is asserted
-in CI under `tests/infra/test_context_savings.py`. Per-lever expected share is a *budget*,
+in CI under `tests/infra/test_context_savings.py`. Per-lever expected share is a _budget_,
 not a commitment — overall ≥ 50 % is the only hard CI gate.
 
 #### 3.4.1 Native `/compact` lifecycle (WP-13)
@@ -214,14 +214,14 @@ Routing is not the first cost lever. It runs after context compilation, repo ret
 recall, and procedure retrieval have reduced the problem. The router classifies each agent step,
 not just the top-level user request:
 
-| Step type | Default route |
-| --- | --- |
-| classification, summarization, bookkeeping | cheap |
-| repo retrieval and scope selection | deterministic or cheap |
-| mechanical edits with strong tests | cheap or mid |
-| ambiguous debugging | mid or premium |
-| auth, security, payments, publishing, migrations, compliance | premium |
-| final architecture judgment | premium |
+| Step type                                                    | Default route          |
+| ------------------------------------------------------------ | ---------------------- |
+| classification, summarization, bookkeeping                   | cheap                  |
+| repo retrieval and scope selection                           | deterministic or cheap |
+| mechanical edits with strong tests                           | cheap or mid           |
+| ambiguous debugging                                          | mid or premium         |
+| auth, security, payments, publishing, migrations, compliance | premium                |
+| final architecture judgment                                  | premium                |
 
 The router is verification-gated. A cheap call is counted as successful only when tests, lint,
 typecheck, diff policy, rubrics, or benchmark acceptance establish the outcome. Repeated failure,
@@ -288,22 +288,22 @@ design-system components — do not introduce a new UI library.
 These are the hard numbers V2 ships against. Every metric is a CI assertion or final proof-gate
 assertion (see WP-19, WP-28, and WP-32).
 
-| Metric                                                                  | Baseline (current `main`) |  V2 target | Test                                                |
-| ----------------------------------------------------------------------- | ------------------------------: | ---------: | --------------------------------------------------- |
-| **Context tokens / SWE-bench task** (median)                      |                          ~14 k |    ≤ 7 k | `benchmark-runtime --measure-context-savings`     |
-| Cost per accepted patch                                           |                            n/a | down vs premium-only baseline | `tests/core/test_routing_evals.py` |
-| Cheap-route success rate on low-risk tasks                        |                            n/a |    ≥ 0.7 | `tests/core/test_routing_evals.py`               |
-| Premium escalation success after cheap failure                     |                            n/a |    ≥ 0.6 | `tests/core/test_routing_evals.py`               |
-| Final proof report links every benchmark claim to trace evidence   |                            n/a |      100% | `make proof-cost-quality`                         |
-| Host routing enforcement is stated per host                        |                            n/a |      100% | `tests/gateway/test_host_capability_contract_docs.py` |
-| Trace confidence is stated per host                                |                            n/a |      100% | `tests/gateway/test_host_trace_confidence.py`     |
-| Memory-block round-trip latency (p99, in-proc)                          |                            n/a |    ≤ 5 ms | `tests/infra/test_memory_store_perf.py`          |
-| Archival recall@5 on the 50-question synthetic eval                     |                            n/a |    ≥ 0.8 | `tests/infra/test_archival_recall.py`       |
-| Lesson promotion precision on the 200-trace fixture                     |                            n/a |    ≥ 0.7 | `tests/infra/test_lesson_promotion.py`      |
-| Cold-start time (`uv run atelier init` end-to-end)              |                            ~2s |     ≤ 4s | `tests/infra/test_init_perf.py`             |
-| End-to-end agent loop overhead (median, no LLM call) added by Atelier   |                            ~12 ms |    ≤ 25 ms | `tests/infra/test_loop_overhead.py`              |
-| Frontend Lighthouse Performance score                                   |                              90 |       ≥ 90 | `frontend/scripts/lighthouse.sh` (manual gate)    |
-| `atelier verify` (lint + typecheck + tests) wall time on a fresh clone |                            ~25s |     ≤ 60s | CI                                                  |
+| Metric                                                                 | Baseline (current `main`) |                     V2 target | Test                                                  |
+| ---------------------------------------------------------------------- | ------------------------: | ----------------------------: | ----------------------------------------------------- |
+| **Context tokens / SWE-bench task** (median)                           |                     ~14 k |                         ≤ 7 k | `benchmark-runtime --measure-context-savings`         |
+| Cost per accepted patch                                                |                       n/a | down vs premium-only baseline | `tests/core/test_routing_evals.py`                    |
+| Cheap-route success rate on low-risk tasks                             |                       n/a |                         ≥ 0.7 | `tests/core/test_routing_evals.py`                    |
+| Premium escalation success after cheap failure                         |                       n/a |                         ≥ 0.6 | `tests/core/test_routing_evals.py`                    |
+| Final proof report links every benchmark claim to trace evidence       |                       n/a |                          100% | `make proof-cost-quality`                             |
+| Host routing enforcement is stated per host                            |                       n/a |                          100% | `tests/gateway/test_host_capability_contract_docs.py` |
+| Trace confidence is stated per host                                    |                       n/a |                          100% | `tests/gateway/test_host_trace_confidence.py`         |
+| Memory-block round-trip latency (p99, in-proc)                         |                       n/a |                        ≤ 5 ms | `tests/infra/test_memory_store_perf.py`               |
+| Archival recall@5 on the 50-question synthetic eval                    |                       n/a |                         ≥ 0.8 | `tests/infra/test_archival_recall.py`                 |
+| Lesson promotion precision on the 200-trace fixture                    |                       n/a |                         ≥ 0.7 | `tests/infra/test_lesson_promotion.py`                |
+| Cold-start time (`uv run atelier init` end-to-end)                     |                       ~2s |                          ≤ 4s | `tests/infra/test_init_perf.py`                       |
+| End-to-end agent loop overhead (median, no LLM call) added by Atelier  |                    ~12 ms |                       ≤ 25 ms | `tests/infra/test_loop_overhead.py`                   |
+| Frontend Lighthouse Performance score                                  |                        90 |                          ≥ 90 | `frontend/scripts/lighthouse.sh` (manual gate)        |
+| `atelier verify` (lint + typecheck + tests) wall time on a fresh clone |                      ~25s |                         ≤ 60s | CI                                                    |
 
 ---
 
@@ -334,14 +334,14 @@ in parallel respecting the dependency graph (see [work-packets/INDEX.md](work-pa
    explicitly linked from that packet, such as [cost-performance-runtime.md](cost-performance-runtime.md)
    for routing packets.
 3. Run the standing Atelier loop:
-    1. `reasoning(task=<packet title>, domain="atelier.platform", files=<packet files>)`
-    2. Draft a 3–8 step plan from the packet's "How to execute" section.
-    3. `lint(...)` → must return `pass` or `warn` before editing.
-    4. Implement the smallest diff that makes all acceptance tests pass.
-    5. Run the packet's acceptance tests. If a test/command fails twice with the same signature,
-       call `rescue`.
-    6. `trace(...)` with `agent="atelier:code"`, `domain="atelier.platform"`,
-       `status="success" | "partial"`, files_touched, output_summary referencing the WP id.
+   1. `reasoning(task=<packet title>, domain="atelier.platform", files=<packet files>)`
+   2. Draft a 3–8 step plan from the packet's "How to execute" section.
+   3. `lint(...)` → must return `pass` or `warn` before editing.
+   4. Implement the smallest diff that makes all acceptance tests pass.
+   5. Run the packet's acceptance tests. If a test/command fails twice with the same signature,
+      call `rescue`.
+   6. `trace(...)` with `agent="atelier:code"`, `domain="atelier.platform"`,
+      `status="success" | "partial"`, files_touched, output_summary referencing the WP id.
 4. Mark the packet complete by setting `status: done` in the packet's front-matter and updating
    `work-packets/INDEX.md`.
 

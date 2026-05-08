@@ -14,18 +14,22 @@ The SQLite backend is intentionally the default. Zero infrastructure, zero confi
 ## SQLite (Default)
 
 ```
-.atelier/
-├── atelier.db          # Main SQLite database
+~/.atelier/
+├── atelier.db          # Main SQLite database index
+├── traces/
+│   ├── trace_20260421_abc123.json
+│   └── ...             # One .json per Trace
+└── raw/
+  └── ...             # Redacted raw artifacts
+
+./.knowledge/
 ├── blocks/
 │   ├── rb_shopify_publish_gid.md
 │   ├── rb_pdp_audit_schema.md
 │   └── ...             # One .md per ReasonBlock
-├── rubrics/
-│   ├── rubric_shopify_publish.yaml
-│   └── ...             # One .yaml per Rubric
-└── traces/
-    ├── trace_20260421_abc123.json
-    └── ...             # One .json per Trace
+└── rubrics/
+  ├── rubric_shopify_publish.yaml
+  └── ...             # One .yaml per Rubric
 ```
 
 ### Schema
@@ -45,11 +49,11 @@ Tables in `atelier.db`:
 
 ### Markdown Mirrors
 
-Every ReasonBlock is mirrored to `.atelier/blocks/<id>.md` on upsert (when `write_markdown=True`, which is the default via CLI/MCP). This means blocks can be reviewed in git diffs like any other file.
+Every ReasonBlock is mirrored to `./.knowledge/blocks/<id>.md` on upsert (when `write_markdown=True`, which is the default via CLI/MCP). This means blocks can be reviewed in git diffs like any other file.
 
-Similarly, rubrics are mirrored to `.atelier/rubrics/<id>.yaml` and traces to `.atelier/traces/<id>.json`.
+Similarly, rubrics are mirrored to `./.knowledge/rubrics/<id>.yaml` and traces to `~/.atelier/traces/<id>.json`.
 
-These mirrors are **read-only reference copies**. The SQLite database is the source of truth. Edits to `.md`/`.yaml`/`.json` files are not auto-synced back.
+Knowledge mirrors are the Git-tracked source of truth for blocks and rubrics. On `store.init()`, Atelier syncs `./.knowledge` back into the SQLite index automatically for retrieval. Trace JSON mirrors under `~/.atelier` remain runtime artifacts.
 
 ## PostgreSQL (Optional)
 
@@ -138,12 +142,13 @@ pg_dump atelier > atelier_backup.sql
 
 ## Storage Configuration Reference
 
-| Variable                        | Default                  | Description            |
-| ------------------------------- | ------------------------ | ---------------------- |
-| `ATELIER_ROOT`                  | `.atelier`               | Store root directory   |
-| `ATELIER_STORAGE_BACKEND`       | `sqlite`                 | `sqlite` or `postgres` |
-| `ATELIER_DATABASE_URL`          | `""`                     | PostgreSQL DSN         |
-| `ATELIER_VECTOR_SEARCH_ENABLED` | `false`                  | Enable pgvector        |
-| `ATELIER_EMBEDDING_DIM`         | `1536`                   | Embedding dimension    |
-| `ATELIER_EMBEDDING_MODEL`       | `text-embedding-3-small` | Embedding model        |
-| `ATELIER_LETTA_URL`             | `""`                     | Optional Letta sidecar |
+| Variable                        | Default                      | Description                |
+| ------------------------------- | ---------------------------- | -------------------------- |
+| `ATELIER_ROOT`                  | `~/.atelier`                 | Trace/history store root   |
+| `ATELIER_KNOWLEDGE_ROOT`        | `$WORKSPACE_ROOT/.knowledge` | Git-tracked knowledge root |
+| `ATELIER_STORAGE_BACKEND`       | `sqlite`                     | `sqlite` or `postgres`     |
+| `ATELIER_DATABASE_URL`          | `""`                         | PostgreSQL DSN             |
+| `ATELIER_VECTOR_SEARCH_ENABLED` | `false`                      | Enable pgvector            |
+| `ATELIER_EMBEDDING_DIM`         | `1536`                       | Embedding dimension        |
+| `ATELIER_EMBEDDING_MODEL`       | `text-embedding-3-small`     | Embedding model            |
+| `ATELIER_LETTA_URL`             | `""`                         | Optional Letta sidecar     |

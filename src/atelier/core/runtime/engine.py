@@ -24,6 +24,7 @@ from atelier.core.capabilities import (
     ToolSupervisionCapability,
 )
 from atelier.core.capabilities.tool_supervision.sql_inspect import SqlInspectCapability
+from atelier.core.foundation.paths import default_store_root, resolve_workspace_root
 from atelier.core.foundation.renderer import render_context_for_agent
 from atelier.core.foundation.retriever import (
     count_tokens,
@@ -50,8 +51,9 @@ class AtelierRuntimeCore:
         "tool_supervision": "Redundancy detection, observation cache, and efficiency metrics.",
     }
 
-    def __init__(self, root: str | Path = ".atelier") -> None:
-        self.root = Path(root)
+    def __init__(self, root: str | Path | None = None) -> None:
+        resolved_root = default_store_root() if root is None else Path(root).resolve()
+        self.root = resolved_root
         self.store = ReasoningStore(self.root)
         self.store.init()
 
@@ -767,14 +769,7 @@ class AtelierRuntimeCore:
         return RunLedger.load(ledger_path)
 
     def _workspace_root(self) -> Path:
-        configured = os.environ.get("ATELIER_WORKSPACE_ROOT", "").strip()
-        if configured:
-            candidate = Path(configured).expanduser()
-            if candidate.is_dir():
-                return candidate
-        if self.root.name == ".atelier":
-            return self.root.parent
-        return self.root
+        return resolve_workspace_root(self.root)
 
     def _glob_search(self, query: str, *, limit: int) -> list[str]:
         workspace = self._workspace_root()

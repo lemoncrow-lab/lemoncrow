@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 
+from atelier.core.foundation.paths import default_store_root
+
 
 def _bool_env(name: str, default: bool) -> bool:
     val = os.environ.get(name, "").lower()
@@ -49,7 +51,12 @@ class ServiceConfig:
 
     @property
     def atelier_root(self) -> str:
-        return os.environ.get("ATELIER_ROOT", ".atelier")
+        return os.environ.get("ATELIER_ROOT", str(default_store_root()))
+
+    @property
+    def knowledge_root(self) -> str | None:
+        """Project-local knowledge root (usually ./.knowledge)."""
+        return os.environ.get("ATELIER_KNOWLEDGE_ROOT")
 
     def as_dict(self) -> dict[str, object]:
         """Return config summary — never includes the api_key value."""
@@ -62,6 +69,7 @@ class ServiceConfig:
             "storage_backend": self.storage_backend,
             "database_url_configured": bool(self.database_url),
             "atelier_root": self.atelier_root,
+            "knowledge_root": self.knowledge_root,
         }
 
 

@@ -1,15 +1,4 @@
 services:
-  init:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    command: ["atelier", "init"]
-    volumes:
-      - ./.atelier:/app/.atelier
-    environment:
-      - ATELIER_ROOT=/app/.atelier
-      - ATELIER_OTEL_ENDPOINT=http://otel-collector:4318
-
   service:
     build:
       context: .
@@ -25,13 +14,10 @@ services:
       - ATELIER_ROOT=/app/.atelier
       - ATELIER_OTEL_ENDPOINT=http://otel-collector:4318
     volumes:
-      - ./.atelier:/app/.atelier
+      - ${HOME}/.atelier:/app/.atelier
       - ./integrations:/app/integrations:ro
       - ./src:/app/src
     restart: unless-stopped
-    depends_on:
-      init:
-        condition: service_completed_successfully
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.100.0

@@ -5,17 +5,17 @@ Connects the [Gemini CLI](https://github.com/google-gemini/gemini-cli) to Atelie
 ## Install
 
 1. Install the engine:
-	```bash
-	cd atelier
-	uv sync
-	uv run atelier init
-	```
+   ```bash
+   cd atelier
+   uv sync
+   uv run atelier init
+   ```
 2. Make sure the `atelier-mcp` console script is on your `PATH`, then link the packaged extension from this repo:
-	```bash
-	atelier-mcp --help
-	gemini extensions validate integrations/gemini/extension
-	gemini extensions link integrations/gemini/extension
-	```
+   ```bash
+   atelier-mcp --help
+   gemini extensions validate integrations/gemini/extension
+   gemini extensions link integrations/gemini/extension
+   ```
 3. Restart Gemini CLI. The extension contributes `GEMINI.md`, `commands/`, `skills/`, and the Atelier MCP server in one bundle.
 
 The repo install script automates this flow:

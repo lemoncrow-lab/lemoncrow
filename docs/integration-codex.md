@@ -28,7 +28,7 @@ Codex CLI / IDE configuration:
       "command": "uv",
       "args": ["run", "atelier-mcp"],
       "cwd": "/abs/path/to/repo/atelier",
-      "env": &#123; "ATELIER_ROOT": ".atelier" &#125;
+      "env": &#123; "ATELIER_ROOT": "~/.atelier", "ATELIER_WORKSPACE_ROOT": "." &#125;
     &#125;
   &#125;
 &#125;

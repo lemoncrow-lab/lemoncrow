@@ -6,12 +6,14 @@
 # Behaviour:
 #   1. Locates the atelier repo root from this script's own location
 #      (works regardless of which directory the host spawns the process from)
-#   2. Sets ATELIER_ROOT to <workspace>/.atelier if not already set
-#   3. Runs: uv run python -m atelier.gateway.adapters.mcp_server
-#   4. All log/debug output → stderr ONLY (never contaminates MCP JSON-RPC stdout)
+#   2. Sets ATELIER_ROOT to ~/.atelier if not already set
+#   3. Sets ATELIER_KNOWLEDGE_ROOT to <workspace>/.knowledge if not already set
+#   4. Runs: uv run python -m atelier.gateway.adapters.mcp_server
+#   5. All log/debug output → stderr ONLY (never contaminates MCP JSON-RPC stdout)
 #
 # Environment variables honoured:
-#   ATELIER_ROOT              — override store root (default: <workspace>/.atelier)
+#   ATELIER_ROOT              — override store root (default: ~/.atelier)
+#   ATELIER_KNOWLEDGE_ROOT    — override knowledge root (default: <workspace>/.knowledge)
 #   ATELIER_WORKSPACE_ROOT    — override workspace root (default: cwd at exec time)
 #   ATELIER_STORE_ROOT        — explicit store root alias when ATELIER_ROOT is unset
 #
@@ -30,13 +32,17 @@ fi
 
 # --- store root -------------------------------------------------------------
 # The MCP server reads ATELIER_ROOT. Accept ATELIER_STORE_ROOT as a friendlier
-# host-config alias, then fall back to the active workspace's .atelier store.
+# host-config alias, then fall back to the global ~/.atelier store.
 if [ -z "${ATELIER_ROOT:-}" ]; then
     if [ -n "${ATELIER_STORE_ROOT:-}" ]; then
         export ATELIER_ROOT="${ATELIER_STORE_ROOT}"
     else
-        export ATELIER_ROOT="${ATELIER_WORKSPACE_ROOT}/.atelier"
+        export ATELIER_ROOT="${HOME}/.atelier"
     fi
+fi
+
+if [ -z "${ATELIER_KNOWLEDGE_ROOT:-}" ]; then
+    export ATELIER_KNOWLEDGE_ROOT="${ATELIER_WORKSPACE_ROOT}/.knowledge"
 fi
 
 # --- diagnostics → stderr only (never stdout) ------------------------------

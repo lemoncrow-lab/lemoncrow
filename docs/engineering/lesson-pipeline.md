@@ -40,7 +40,7 @@ uv run atelier --root .atelier lesson sync-pr <lesson_id> --json
 ## Behavior
 
 1. Resolve approved lesson candidate by ID.
-2. Build ReasonBlock markdown patch under `.atelier/blocks/<block_id>.md`.
+2. Build ReasonBlock markdown patch under `./.knowledge/blocks/<block_id>.md`.
 3. Create or checkout branch `atelier/lesson/<lesson_id>`.
 4. Commit only the block file with co-author trailer.
 5. Open PR using `gh pr create`, with evidence trace IDs in body.

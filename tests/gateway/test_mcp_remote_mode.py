@@ -24,8 +24,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from atelier.gateway.adapters.mcp_server import _REMOTE_TOOLS, _handle
 from atelier.gateway.adapters.cli import cli
+from atelier.gateway.adapters.mcp_server import _REMOTE_TOOLS, _handle
 from atelier.infra.storage.sqlite_store import SQLiteStore
 
 # --------------------------------------------------------------------------- #
@@ -245,7 +245,9 @@ def test_remote_record_trace_same_shape(remote_mode: None, monkeypatch: pytest.M
     assert "id" in payload
 
 
-def test_remote_mode_live_service_round_trip(remote_mode: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_remote_mode_live_service_round_trip(
+    remote_mode: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     root = tmp_path / ".atelier"
     _seed_store(root)
 

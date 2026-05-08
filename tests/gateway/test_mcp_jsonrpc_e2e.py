@@ -82,6 +82,8 @@ def mcp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     mcp_server._remote_client = None
     mcp_server._product_session_id = None
     mcp_server._product_session_started_at = None
+    mcp_server._reset_runtime_cache_for_testing()
+
     mcp_server._last_plan_hash_by_session.clear()
     mcp_server._last_plan_by_session.clear()
     mcp_server._last_blocked_plan_hash_by_session.clear()
@@ -101,49 +103,52 @@ def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) ->
     target = mcp_env / "stdio.txt"
     target.write_text("hello world\n", encoding="utf-8")
 
-    requests = "\n".join(
-        [
-            json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "initialize",
-                    "params": {"protocolVersion": "2024-11-05", "capabilities": {}},
-                }
-            ),
-            json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "id": 2,
-                    "method": "tools/call",
-                    "params": {
-                        "name": "edit",
-                        "arguments": {
-                            "edits": [
-                                {
-                                    "path": str(target),
-                                    "op": "replace",
-                                    "old_string": "world",
-                                    "new_string": "stdio",
-                                }
-                            ]
+    requests = (
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {"protocolVersion": "2024-11-05", "capabilities": {}},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "edit",
+                            "arguments": {
+                                "edits": [
+                                    {
+                                        "path": str(target),
+                                        "op": "replace",
+                                        "old_string": "world",
+                                        "new_string": "stdio",
+                                    }
+                                ]
+                            },
                         },
-                    },
-                }
-            ),
-            json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "id": 3,
-                    "method": "tools/call",
-                    "params": {
-                        "name": "search",
-                        "arguments": {"query": "stdio", "path": str(mcp_env), "mode": "chunks"},
-                    },
-                }
-            ),
-        ]
-    ) + "\n"
+                    }
+                ),
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "search",
+                            "arguments": {"query": "stdio", "path": str(mcp_env), "mode": "chunks"},
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
 
     env = {
         **dict(subprocess.os.environ),
@@ -153,7 +158,13 @@ def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) ->
         "ATELIER_EMBEDDER": "null",
     }
     result = subprocess.run(
-        [sys.executable, "-m", "atelier.gateway.adapters.mcp_server", "--root", str(mcp_env / ".atelier")],
+        [
+            sys.executable,
+            "-m",
+            "atelier.gateway.adapters.mcp_server",
+            "--root",
+            str(mcp_env / ".atelier"),
+        ],
         input=requests,
         capture_output=True,
         text=True,
@@ -251,7 +262,9 @@ def test_memory_reasoning_and_transcript_recall_e2e(mcp_env: Path) -> None:
     transcript.write_text(
         "\n".join(
             [
-                json.dumps({"message": {"content": "We fixed sqlite auto limit behavior in the SQL tool."}}),
+                json.dumps(
+                    {"message": {"content": "We fixed sqlite auto limit behavior in the SQL tool."}}
+                ),
                 json.dumps({"message": {"content": "The MCP search path should hit real files."}}),
             ]
         ),
@@ -275,11 +288,7 @@ def test_memory_reasoning_and_transcript_recall_e2e(mcp_env: Path) -> None:
 def test_read_search_edit_and_memory_summary_e2e(mcp_env: Path) -> None:
     target = mcp_env / "sample.py"
     target.write_text(
-        "def alpha():\n"
-        "    return 'needle'\n"
-        "\n"
-        "def beta():\n"
-        "    return 'secondary needle'\n",
+        "def alpha():\n    return 'needle'\n\ndef beta():\n    return 'secondary needle'\n",
         encoding="utf-8",
     )
 
@@ -292,7 +301,9 @@ def test_read_search_edit_and_memory_summary_e2e(mcp_env: Path) -> None:
     ranged_read = _payload(_call("read", {"path": str(target), "range": "2-2"}))
     assert "needle" in str(ranged_read["content"])
 
-    ranked_search = _payload(_call("search", {"query": "needle", "path": str(mcp_env), "mode": "chunks"}))
+    ranked_search = _payload(
+        _call("search", {"query": "needle", "path": str(mcp_env), "mode": "chunks"})
+    )
     assert ranked_search["matches"]
 
     repo_map = _payload(
@@ -361,8 +372,18 @@ def test_read_search_edit_and_memory_summary_e2e(mcp_env: Path) -> None:
             {
                 "atomic": False,
                 "edits": [
-                    {"path": str(partial), "op": "replace", "old_string": "YES", "new_string": "OK"},
-                    {"path": str(partial), "op": "replace", "old_string": "MISSING", "new_string": "NO"},
+                    {
+                        "path": str(partial),
+                        "op": "replace",
+                        "old_string": "YES",
+                        "new_string": "OK",
+                    },
+                    {
+                        "path": str(partial),
+                        "op": "replace",
+                        "old_string": "MISSING",
+                        "new_string": "NO",
+                    },
                 ],
             },
         )
@@ -390,8 +411,18 @@ def test_edit_atomic_rollback_e2e(mcp_env: Path) -> None:
             {
                 "atomic": True,
                 "edits": [
-                    {"path": str(good), "op": "replace", "old_string": "original", "new_string": "changed"},
-                    {"path": str(good), "op": "replace", "old_string": "missing", "new_string": "boom"},
+                    {
+                        "path": str(good),
+                        "op": "replace",
+                        "old_string": "original",
+                        "new_string": "changed",
+                    },
+                    {
+                        "path": str(good),
+                        "op": "replace",
+                        "old_string": "missing",
+                        "new_string": "boom",
+                    },
                 ],
             },
         )
@@ -414,7 +445,9 @@ def test_sql_actions_e2e(mcp_env: Path) -> None:
     )
     assert connect["overview"]["table_count"] == 1
 
-    schema = _payload(_call("sql", {"action": "schema", "connection_string": f"sqlite:///{db_path}"}))
+    schema = _payload(
+        _call("sql", {"action": "schema", "connection_string": f"sqlite:///{db_path}"})
+    )
     assert schema["tables"] == ["items"]
 
     table = _payload(
@@ -425,7 +458,16 @@ def test_sql_actions_e2e(mcp_env: Path) -> None:
     )
     assert table["columns"][0]["name"] == "id"
 
-    lint = _payload(_call("sql", {"action": "lint", "connection_string": f"sqlite:///{db_path}", "sql": "SELECT * FROM items"}))
+    lint = _payload(
+        _call(
+            "sql",
+            {
+                "action": "lint",
+                "connection_string": f"sqlite:///{db_path}",
+                "sql": "SELECT * FROM items",
+            },
+        )
+    )
     assert lint["ok"] is True
 
     query = _payload(
@@ -529,7 +571,12 @@ def test_lint_route_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
     compact_output = _payload(
         _call(
             "compact",
-            {"op": "output", "content": "short MCP output", "content_type": "bash", "budget_tokens": 100},
+            {
+                "op": "output",
+                "content": "short MCP output",
+                "content_type": "bash",
+                "budget_tokens": 100,
+            },
         )
     )
     assert compact_output["method"] == "passthrough"

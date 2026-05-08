@@ -36,33 +36,33 @@ uv run atelier-mcp
 
 ### V1 Tools (Core — Always Present)
 
-| Tool                            | Description                                          |
-| ------------------------------- | ---------------------------------------------------- |
+| Tool        | Description                                            |
+| ----------- | ------------------------------------------------------ |
 | `reasoning` | Get context prompt for a task (blocks + scoped memory) |
-| `lint`            | Validate a plan against dead ends and constraints    |
-| `rescue`        | Get rescue procedure for a repeated failure          |
-| `verify`       | Run a rubric gate and get pass/blocked result        |
-| `trace`          | Record an execution trace                            |
-| `search`                | Full-text search across blocks                       |
+| `lint`      | Validate a plan against dead ends and constraints      |
+| `rescue`    | Get rescue procedure for a repeated failure            |
+| `verify`    | Run a rubric gate and get pass/blocked result          |
+| `trace`     | Record an execution trace                              |
+| `search`    | Full-text search across blocks                         |
 
 ### V2 Tools (Extended — Always Present)
 
-| Tool                              | Description                                 |
-| --------------------------------- | ------------------------------------------- |
-| `reasoning`          | Read per-run state ledger                   |
-| `trace`       | Update per-run state ledger                 |
-| `trace`           | Emit a monitoring event                     |
-| `compact`        | Compress context to reduce token usage      |
-| `reasoning`         | Get a reasoning environment by ID           |
-| `reasoning` | Get formatted environment context           |
-| `read`              | Read file with smart truncation (FTS-aware) |
-| `search`            | Search files with result caching            |
-| `search`             | Grep with injection guard and caching       |
-| `memory`     | Create or update an editable memory block   |
-| `memory`        | Fetch one editable memory block             |
-| `memory`          | Archive long-term memory text               |
-| `memory`           | Recall relevant archival memory passages    |
-| `atelier sql inspect`             | Read-only deterministic SQL introspection   |
+| Tool                  | Description                                 |
+| --------------------- | ------------------------------------------- |
+| `reasoning`           | Read per-run state ledger                   |
+| `trace`               | Update per-run state ledger                 |
+| `trace`               | Emit a monitoring event                     |
+| `compact`             | Compress context to reduce token usage      |
+| `reasoning`           | Get a reasoning environment by ID           |
+| `reasoning`           | Get formatted environment context           |
+| `read`                | Read file with smart truncation (FTS-aware) |
+| `search`              | Search files with result caching            |
+| `search`              | Grep with injection guard and caching       |
+| `memory`              | Create or update an editable memory block   |
+| `memory`              | Fetch one editable memory block             |
+| `memory`              | Archive long-term memory text               |
+| `memory`              | Recall relevant archival memory passages    |
+| `atelier sql inspect` | Read-only deterministic SQL introspection   |
 
 ## Tool Schemas
 
@@ -191,10 +191,11 @@ Expected: a `tools/list` response containing all V1 + V2 tools.
 
 ## Configuration
 
-| Variable                 | Default                 | Description                                   |
-| ------------------------ | ----------------------- | --------------------------------------------- |
-| `ATELIER_ROOT`           | `.atelier`              | Store root                                    |
-| `ATELIER_WORKSPACE_ROOT` | `.`                     | Workspace root (for relative path resolution) |
-| `ATELIER_MCP_MODE`       | `local`                 | `local` or `remote`                           |
-| `ATELIER_SERVICE_URL`    | `http://localhost:8787` | Remote service URL (when mode=remote)         |
-| `ATELIER_API_KEY`        | `""`                    | API key for remote mode                       |
+| Variable                 | Default                      | Description                                   |
+| ------------------------ | ---------------------------- | --------------------------------------------- |
+| `ATELIER_ROOT`           | `~/.atelier`                 | Trace/history store root                      |
+| `ATELIER_KNOWLEDGE_ROOT` | `$WORKSPACE_ROOT/.knowledge` | Optional override for Git-tracked knowledge   |
+| `ATELIER_WORKSPACE_ROOT` | `.`                          | Workspace root (for relative path resolution) |
+| `ATELIER_MCP_MODE`       | `local`                      | `local` or `remote`                           |
+| `ATELIER_SERVICE_URL`    | `http://localhost:8787`      | Remote service URL (when mode=remote)         |
+| `ATELIER_API_KEY`        | `""`                         | API key for remote mode                       |

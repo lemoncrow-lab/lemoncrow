@@ -8,13 +8,13 @@ import socket
 import subprocess
 import sys
 import time
-import uuid
 import urllib.error
 import urllib.request
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -141,10 +141,19 @@ def _prepare_install_source(tmp_path: Path) -> tuple[Path, str]:
     )
     branch = "install-test"
     subprocess.run(["git", "-C", str(source), "init", "-b", branch], check=True, capture_output=True, text=True)
-    subprocess.run(["git", "-C", str(source), "config", "user.email", "tests@atelier.local"], check=True, capture_output=True, text=True)
-    subprocess.run(["git", "-C", str(source), "config", "user.name", "Atelier Tests"], check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "-C", str(source), "config", "user.email", "tests@atelier.local"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(source), "config", "user.name", "Atelier Tests"], check=True, capture_output=True, text=True
+    )
     subprocess.run(["git", "-C", str(source), "add", "."], check=True, capture_output=True, text=True)
-    subprocess.run(["git", "-C", str(source), "commit", "-m", "test snapshot"], check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "-C", str(source), "commit", "-m", "test snapshot"], check=True, capture_output=True, text=True
+    )
     return source, branch
 
 
@@ -189,7 +198,9 @@ def test_real_ollama_model_backed_paths() -> None:
         assert isinstance(summary, str)
         assert summary.strip()
 
-        compacted = compact(("tool output line with trace context\n" * 5000), content_type="tool_output", budget_tokens=128)
+        compacted = compact(
+            ("tool output line with trace context\n" * 5000), content_type="tool_output", budget_tokens=128
+        )
         assert compacted.method == "ollama_summary"
         assert compacted.compacted_tokens < compacted.original_tokens
 

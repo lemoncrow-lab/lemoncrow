@@ -41,15 +41,6 @@ Canonical MCP names:
 - `reasoning`, `lint`, `route`, `rescue`, `trace`, `verify`
 - `memory`, `search`, `read`, `edit`, `compact`, `atelier_repo_map`
 
-## OpenAI Docs Skill
-
-Use `openai-docs` when the task is specifically about official OpenAI docs,
-latest-model selection, GPT-5.5 migration, or prompt rewrites.
-
-Do not assume Atelier itself needs a GPT-5.5 migration just because this skill is
-installed. In this repo, active OpenAI usage is limited to optional embeddings and
-examples unless you intentionally change an OpenAI-backed surface.
-
 CLI-only workflows include `atelier sql inspect`, `atelier lesson inbox`, `atelier consolidation inbox`, `atelier report`, `atelier proof show`, and `atelier route contract`.
 
 ## References

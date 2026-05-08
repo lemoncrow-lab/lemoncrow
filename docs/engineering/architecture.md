@@ -53,8 +53,8 @@ Atelier is a **reasoning/procedure/runtime layer**. It sits between an AI agent 
                          │
           ┌──────────────┼──────────────┐
           ▼              ▼              ▼
-   .atelier/db    .atelier/blocks/   .atelier/traces/
-   (SQLite)       (*.md mirrors)     (*.json mirrors)
+    ~/.atelier/db      ./.knowledge/blocks/   ~/.atelier/traces/
+    (SQLite index)     (*.md source)          (*.json mirrors)
 ```
 
 ## Core Data Models
@@ -75,7 +75,7 @@ class ReasonBlock:
     updated_at: datetime
 ```
 
-Blocks are stored in SQLite AND mirrored to `.atelier/blocks/*.md` for human review in PRs.
+Blocks are stored in SQLite AND mirrored to `./.knowledge/blocks/*.md` for human review in PRs.
 
 ### Rubric
 
@@ -188,8 +188,8 @@ reads and writes.
 
 ## Inspirations
 
-| Concept                    | Source              | Atelier equivalent        |
-| -------------------------- | ------------------- | ------------------------- |
+| Concept                    | Source               | Atelier equivalent        |
+| -------------------------- | -------------------- | ------------------------- |
 | Reusable code blocks       | External inspiration | ReasonBlocks              |
 | Failure cluster analysis   | Lemma                | FailureAnalyzer           |
 | Rubric-based verification  | Educational rubrics  | Rubric gates              |

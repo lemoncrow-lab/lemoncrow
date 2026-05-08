@@ -2,10 +2,10 @@
 # install.sh — bootstrap Atelier from GitHub using a curl|bash-friendly flow.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/<org>/<repo>/<ref>/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/pankaj4u4m/atelier/<ref>/scripts/install.sh | bash
 #
 # Optional environment variables:
-#   ATELIER_REPO_URL   Git URL (default: https://github.com/leanchain/atelier.git)
+#   ATELIER_REPO_URL   Git URL (default: https://github.com/pankaj4u4m/atelier.git)
 #   ATELIER_REF        Git ref to install (default: main)
 #   ATELIER_INSTALL_DIR Install location (default: ~/.local/share/atelier)
 #   ATELIER_BIN_DIR    Global bin dir for command wrappers (default: ~/.local/bin)
@@ -14,12 +14,25 @@
 
 set -euo pipefail
 
-ATELIER_REPO_URL="${ATELIER_REPO_URL:-https://github.com/leanchain/atelier.git}"
+ATELIER_REPO_URL="${ATELIER_REPO_URL:-https://github.com/pankaj4u4m/atelier.git}"
 ATELIER_REF="${ATELIER_REF:-main}"
 ATELIER_INSTALL_DIR="${ATELIER_INSTALL_DIR:-${HOME}/.local/share/atelier}"
 ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.local/bin}"
 ATELIER_NO_HOSTS="${ATELIER_NO_HOSTS:-0}"
 ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
+ATELIER_LOCAL=0
+PASSTHROUGH=()
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --local) ATELIER_LOCAL=1 ;;
+        --dry-run) ATELIER_DRY_RUN=1; PASSTHROUGH+=("$1") ;;
+        --no-hosts) ATELIER_NO_HOSTS=1; PASSTHROUGH+=("$1") ;;
+        *) PASSTHROUGH+=("$1") ;;
+    esac
+    shift
+done
 
 info() { echo "[atelier-install] $*"; }
 warn() { echo "[atelier-install] WARN: $*" >&2; }
@@ -98,6 +111,8 @@ write_wrapper() {
     cat >"$target" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+# Default to global store in home directory if not set
+export ATELIER_ROOT="\${ATELIER_ROOT:-\${HOME}/.atelier}"
 exec uv --directory "$ATELIER_INSTALL_DIR" run "$cmd" "\$@"
 EOF
     chmod +x "$target"
@@ -113,7 +128,12 @@ main() {
     need_cmd bash
     install_uv_if_needed
 
-    prepare_repo
+    if [[ "$ATELIER_LOCAL" == "1" ]]; then
+        info "Local mode: using current directory as install source"
+        ATELIER_INSTALL_DIR="$(pwd)"
+    else
+        prepare_repo
+    fi
 
     info "Installing Atelier Python environment..."
     if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
@@ -125,9 +145,9 @@ main() {
     if [[ "$ATELIER_NO_HOSTS" != "1" ]]; then
         info "Installing Atelier host integrations (skip if host CLI is missing)..."
         if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-            echo "[dry-run] bash $ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh"
+            echo "[dry-run] bash $ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"
         else
-            bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh"
+            bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
         fi
     else
         info "Skipping host integrations because ATELIER_NO_HOSTS=1"

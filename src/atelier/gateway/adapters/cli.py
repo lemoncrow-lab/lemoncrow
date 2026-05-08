@@ -24,6 +24,7 @@ from typing import Any
 import click
 import yaml
 
+from atelier.core.foundation.paths import default_store_root
 from atelier.core.capabilities.lesson_promotion import LessonPrBot, LessonPromoterCapability
 from atelier.core.foundation.extractor import extract_candidate
 from atelier.core.foundation.metrics import summarize
@@ -44,7 +45,7 @@ from atelier.core.foundation.retriever import TaskContext, retrieve
 from atelier.core.foundation.rubric_gate import run_rubric
 from atelier.core.foundation.store import ReasoningStore
 
-DEFAULT_ROOT = Path(os.environ.get("ATELIER_ROOT", ".atelier"))
+DEFAULT_ROOT = default_store_root()
 
 
 # --------------------------------------------------------------------------- #

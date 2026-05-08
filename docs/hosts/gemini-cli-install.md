@@ -20,13 +20,13 @@ bash scripts/install_gemini.sh --workspace /path/to/workspace
 
 ## What Gets Installed
 
-| Artifact                  | Global install                                  | `--workspace DIR` install                              |
-| ------------------------- | ----------------------------------------------- | ------------------------------------------------------ |
-| Extension source          | `integrations/gemini/extension/`                | same repo extension source                             |
-| Extension registration    | `~/.gemini/extensions/atelier` symlink managed by Gemini CLI | same global link managed by Gemini CLI        |
-| Activation scope          | user                                             | workspace only for the requested directory             |
-| Bundled commands/skills   | loaded from the linked extension                 | loaded from the same linked extension                  |
-| Bundled GEMINI context    | loaded from `extension/GEMINI.md`                | loaded from the same linked extension                  |
+| Artifact                | Global install                                               | `--workspace DIR` install                  |
+| ----------------------- | ------------------------------------------------------------ | ------------------------------------------ |
+| Extension source        | `integrations/gemini/extension/`                             | same repo extension source                 |
+| Extension registration  | `~/.gemini/extensions/atelier` symlink managed by Gemini CLI | same global link managed by Gemini CLI     |
+| Activation scope        | user                                                         | workspace only for the requested directory |
+| Bundled commands/skills | loaded from the linked extension                             | loaded from the same linked extension      |
+| Bundled GEMINI context  | loaded from `extension/GEMINI.md`                            | loaded from the same linked extension      |
 
 The extension manifest wires MCP directly:
 
@@ -39,7 +39,7 @@ The extension manifest wires MCP directly:
       "cwd": "${workspacePath}",
       "env": {
         "ATELIER_WORKSPACE_ROOT": "${workspacePath}",
-        "ATELIER_ROOT": "${workspacePath}${/}.atelier"
+        "ATELIER_ROOT": "${env:HOME}${/}.atelier"
       }
     }
   },
@@ -71,30 +71,30 @@ use atelier to check this plan
 
 ## Troubleshooting
 
-| Problem                             | Fix                                                                 |
-| ----------------------------------- | ------------------------------------------------------------------- |
-| Extension not listed                | Re-run `gemini extensions link integrations/gemini/extension`       |
-| MCP tools missing                   | Restart Gemini CLI and verify `atelier-mcp` is on `PATH`                         |
+| Problem                                     | Fix                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Extension not listed                        | Re-run `gemini extensions link integrations/gemini/extension`                               |
+| MCP tools missing                           | Restart Gemini CLI and verify `atelier-mcp` is on `PATH`                                    |
 | Workspace-only activation not taking effect | Re-run `bash scripts/install_gemini.sh --workspace /path/to/workspace` from the target repo |
-| Repo path changed                   | Re-run `make install`                                               |
+| Repo path changed                           | Re-run `make install`                                                                       |
 
 ## V2 Tools — Memory, Context Savings, and Lesson Pipeline
 
 All V2 tools are available via the Atelier MCP server. These are **Atelier augmentations** — Gemini CLI native tools remain the primary interface.
 
-| Tool                          | Boundary             | Description                                               |
-| ----------------------------- | -------------------- | --------------------------------------------------------- |
-| `memory` | Atelier augmentation | Store named value in agent memory                         |
-| `memory`    | Atelier augmentation | Retrieve named memory block                               |
-| `memory`       | Atelier augmentation | FTS + vector search over archival memory                  |
-| `memory`      | Atelier augmentation | Persist text passage to archival memory                   |
-| `memory`      | Atelier augmentation | Compact sleeptime memory (reduces context window)         |
-| `search`         | Atelier augmentation | Token-saving combined search + read                       |
-| `edit`          | Atelier augmentation | Deterministic multi-file batch edits (optional)           |
-| `atelier sql inspect`         | Atelier augmentation | Read-only SQL schema/data inspection                      |
-| `compact`      | Atelier augmentation | Advise before context compaction; provides reinject hints |
-| `atelier lesson inbox`        | Atelier augmentation | List lesson candidates awaiting decision                  |
-| `atelier lesson decide`       | Atelier augmentation | Approve or reject a lesson candidate                      |
+| Tool                    | Boundary             | Description                                               |
+| ----------------------- | -------------------- | --------------------------------------------------------- |
+| `memory`                | Atelier augmentation | Store named value in agent memory                         |
+| `memory`                | Atelier augmentation | Retrieve named memory block                               |
+| `memory`                | Atelier augmentation | FTS + vector search over archival memory                  |
+| `memory`                | Atelier augmentation | Persist text passage to archival memory                   |
+| `memory`                | Atelier augmentation | Compact sleeptime memory (reduces context window)         |
+| `search`                | Atelier augmentation | Token-saving combined search + read                       |
+| `edit`                  | Atelier augmentation | Deterministic multi-file batch edits (optional)           |
+| `atelier sql inspect`   | Atelier augmentation | Read-only SQL schema/data inspection                      |
+| `compact`               | Atelier augmentation | Advise before context compaction; provides reinject hints |
+| `atelier lesson inbox`  | Atelier augmentation | List lesson candidates awaiting decision                  |
+| `atelier lesson decide` | Atelier augmentation | Approve or reject a lesson candidate                      |
 
 ## Uninstall
 

@@ -50,9 +50,7 @@ when `atelier-mcp` is already available on your `PATH`.
 ## Usage
 
 - `atelier-task` remains the default coding-task loop and drives the Atelier
-   reasoning workflow.
-- `openai-docs` is an optional companion skill for official OpenAI docs lookup,
-  latest-model checks, GPT-5.5 migration planning, and prompt rewrites.
+  reasoning workflow.
 - The `atelier-codex` preflight wrapper now runs `reasoning`, then `lint`, then
   optional `verify` before handing off to Codex.
 
