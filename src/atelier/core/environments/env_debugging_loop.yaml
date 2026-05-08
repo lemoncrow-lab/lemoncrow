@@ -1,0 +1,40 @@
+id: env_debugging_loop
+domain: debugging
+description: >
+  Operating law for debugging and test-fixing work. The goal is to avoid blind
+  retries, keep the problem local, and require a new hypothesis after repeated
+  failure.
+
+triggers:
+  - debug
+  - failing test
+  - failing command
+  - retry loop
+  - regression
+  - investigate
+
+forbidden:
+  - rerun the same failing command without change
+  - add more logging before stating a hypothesis
+  - widen scope before using the smallest reproducer
+
+required:
+  - failing_signal_captured
+  - repeated_failure_loop_avoided
+  - new_hypothesis_stated
+  - focused_reproducer_or_validation_run
+
+escalate:
+  - same_error_repeated_three_times
+  - data_loss_or_live_incident_risk_detected
+
+high_risk_tools:
+  - db.write
+  - deploy.apply
+
+rubric_id: rubric_debugging_task
+
+related_blocks:
+  - repeated-agent-failure-loop
+  - concrete-anchor-before-edit
+  - focused-post-edit-validation

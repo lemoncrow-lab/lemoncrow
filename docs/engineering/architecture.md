@@ -65,9 +65,9 @@ A named, reviewable procedure that an agent should follow in a specific domain c
 
 ```python
 class ReasonBlock:
-    id: str              # e.g. "rb_shopify_publish_gid"
+    id: str              # e.g. "read-after-write-verification"
     title: str           # Human-readable name
-    domain: str          # e.g. "beseam.shopify.publish"
+    domain: str          # e.g. "state.change"
     procedure: str       # The actual instruction text (markdown)
     status: str          # "active", "retired", "candidate"
     tags: list[str]      # For filtering
@@ -83,7 +83,7 @@ A set of named boolean checks that must all pass for a domain operation to be co
 
 ```python
 class Rubric:
-    id: str              # e.g. "rubric_shopify_publish"
+    id: str              # e.g. "rubric_state_change_safety"
     domain: str
     title: str
     checks: dict[str, str]  # check_name → description

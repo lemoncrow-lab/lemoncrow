@@ -37,33 +37,38 @@ from atelier.sdk import AtelierClient
 client = AtelierClient.local(root=".atelier")
 
 context = client.get_reasoning_context(
-    task="Fix Shopify JSON-LD availability",
-    domain="Agent.pdp.schema",
+    task="Fix generated output that drifts back after refresh",
+    domain="source.truth",
 )
 
 check = client.check_plan(
-    task="Publish Shopify product",
-    domain="Agent.shopify.publish",
-    plan=["Parse product handle from PDP URL"],
+    task="Apply a live state change",
+    domain="state.change",
+    plan=["Resolve target from URL slug alone"],
 )
 
 if check.status == "blocked":
     rescue = client.rescue_failure(
-        task="Publish Shopify product",
-        domain="Agent.shopify.publish",
+        task="Apply a live state change",
+        domain="state.change",
         error="Known dead end triggered",
     )
     print(rescue.rescue)
 
 gate = client.run_rubric_gate(
-    rubric_id="rubric_shopify_publish",
-    checks=&#123;"product_identity_uses_gid": True&#125;,
+    rubric_id="rubric_state_change_safety",
+    checks=&#123;
+        "canonical_identifier_used": True,
+        "pre_change_state_captured": True,
+        "read_after_write_completed": True,
+        "observed_state_matches_intent": True,
+    &#125;,
 )
 
 trace = client.traces.record(
     agent="sdk",
-    domain="Agent.shopify.publish",
-    task="Publish Shopify product",
+    domain="state.change",
+    task="Apply a live state change",
     status="success",
 )
 ```

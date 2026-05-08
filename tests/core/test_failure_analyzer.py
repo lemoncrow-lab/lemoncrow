@@ -27,9 +27,9 @@ def _snap(run_id: str, env: str, error_sig: str, status: str = "failed") -> dict
 
 def test_analyze_clusters_by_env_and_fingerprint() -> None:
     snaps = [
-        _snap("r1", "env_shopify_publish", "errA"),
-        _snap("r2", "env_shopify_publish", "errA"),
-        _snap("r3", "env_shopify_publish", "errB"),
+        _snap("r1", "env_debugging_loop", "errA"),
+        _snap("r2", "env_debugging_loop", "errA"),
+        _snap("r3", "env_debugging_loop", "errB"),
     ]
     clusters = analyze_failures(snaps)
     assert any(len(c.trace_ids) == 2 for c in clusters)
@@ -38,7 +38,7 @@ def test_analyze_clusters_by_env_and_fingerprint() -> None:
 
 
 def test_analyzer_proposes_concrete_fields() -> None:
-    snaps = [_snap("r1", "env_shopify_publish", "errA")]
+    snaps = [_snap("r1", "env_debugging_loop", "errA")]
     clusters = analyze_failures(snaps)
     assert clusters
     c = clusters[0]

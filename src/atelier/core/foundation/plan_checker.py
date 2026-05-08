@@ -44,10 +44,10 @@ from atelier.core.foundation.retriever import TaskContext, retrieve
 from atelier.core.foundation.store import ReasoningStore
 
 HIGH_RISK_DOMAINS = {
-    "beseam.shopify.publish",
-    "beseam.pdp.schema",
-    "beseam.catalog.fix",
-    "beseam.tracker.classification",
+    "state.change",
+    "source.truth",
+    "policy.change",
+    "knowledge",
 }
 
 # Words that indicate a step contains some form of verification.

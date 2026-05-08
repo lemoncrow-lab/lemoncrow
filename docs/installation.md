@@ -24,6 +24,14 @@ uv run atelier --version
 uv run atelier-mcp --version
 ```
 
+Bootstrap install for end users:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/leanchain/atelier/main/scripts/install.sh | bash
+```
+
+That flow installs the global `atelier` and `atelier-mcp` wrappers, initializes `~/.atelier`, and starts the background `servicectl` loop unless `ATELIER_NO_SERVICECTL=1` is set.
+
 ## Initialize the Store
 
 ```bash
@@ -34,7 +42,7 @@ uv run atelier --root /path/to/.atelier init
 
 Creates:
 
-```
+```text
 .atelier/
 ├── atelier.db          # SQLite store (blocks, traces, rubrics)
 ├── blocks/             # Markdown mirrors of ReasonBlocks
@@ -115,6 +123,14 @@ All configuration is via environment variables. No config file is required.
 | `ATELIER_REQUIRE_AUTH`    | `true`      | Require `Authorization: Bearer <key>` header                                     |
 | `ATELIER_API_KEY`         | `""`        | API key (set to empty string to allow no-key dev access when REQUIRE_AUTH=false) |
 
+### Background Controller
+
+| Variable                                          | Default | Description                                           |
+| ------------------------------------------------- | ------- | ----------------------------------------------------- |
+| `ATELIER_NO_SERVICECTL`                           | `0`     | Skip auto-starting the detached background controller |
+| `ATELIER_SERVICECTL_INTERVAL_SECONDS`             | `60`    | Poll interval for the offline processing loop         |
+| `ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS` | `21600` | Periodic maintenance enqueue interval                 |
+
 ### MCP Server
 
 | Variable              | Default                 | Description                                                      |
@@ -145,6 +161,13 @@ make verify
 Expected: ruff ✓, black --check ✓, mypy ✓, pytest 209 passed / 9 skipped
 
 The 9 skipped tests are Postgres-gated (require `ATELIER_DATABASE_URL`). Skips are expected in a default install.
+
+Useful runtime commands after install:
+
+```bash
+atelier servicectl status
+atelier stack start
+```
 
 ## Per-Agent Host Setup
 

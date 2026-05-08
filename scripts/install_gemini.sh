@@ -100,6 +100,7 @@ if ! command -v gemini &>/dev/null; then
     fi
     warn "'gemini' CLI not found - SKIPPING."
     warn "Install Gemini CLI, then run: make install-gemini"
+    echo "=== SKIPPED (gemini CLI absent) ==="
     exit 0
 fi
 info "Found Gemini CLI: $(gemini --version 2>/dev/null || echo 'version unknown')"
@@ -172,7 +173,7 @@ else
     vfail "extension context missing or no atelier:code persona: ${EXTENSION_DIR}/GEMINI.md"
 fi
 
-if gemini extensions list 2>/dev/null | grep -qi "atelier"; then
+if gemini extensions list 2>&1 | grep -qi "atelier"; then
     vpass "Gemini lists the atelier extension"
 else
     vfail "Gemini extension list does not include atelier"

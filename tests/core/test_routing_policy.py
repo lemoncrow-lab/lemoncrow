@@ -35,7 +35,7 @@ def test_default_policy_loads_without_routing_toml(tmp_path: Path) -> None:
     assert config.models.mid == ""
     assert config.models.premium == ""
     assert "src/atelier/core/foundation/**" in config.protected_file_patterns
-    assert "beseam.shopify.publish" in config.high_risk_domain_patterns
+    assert "state.change*" in config.high_risk_domain_patterns
     assert config.verifiers.high_risk == ["tests", "rubric"]
 
     budget = config.budget_policy(max_input_tokens=20_000)
@@ -84,7 +84,7 @@ def test_protected_files_force_premium_escalation() -> None:
 
 def test_high_risk_domain_forces_premium_and_rubric_verifier() -> None:
     config = RoutingPolicyConfig(
-        high_risk_domain_patterns=["beseam.shopify.*"],
+        high_risk_domain_patterns=["state.change*"],
         verifiers=VerifierRequirementConfig(
             default=["unit"],
             protected_file=[],
@@ -103,7 +103,7 @@ def test_high_risk_domain_forces_premium_and_rubric_verifier() -> None:
         request=_request(risk_level="low", task_type="feature"),
         budget=budget,
         config=config,
-        domain="beseam.shopify.publish",
+        domain="state.change",
         evidence_summary={"confidence": 0.9},
     )
 

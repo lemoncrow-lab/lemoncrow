@@ -1,13 +1,10 @@
 {
   "name": "lint",
   "arguments": {
-    "task": "Update Shopify product description and republish",
-    "domain": "beseam.shopify.publish",
-    "plan": [
-      "Parse product handle from the PDP URL",
-      "Look up product by handle"
-    ],
+    "task": "Apply a live state change",
+    "domain": "state.change",
+    "plan": ["Resolve target from URL slug alone", "Apply the change"],
     "files": [],
-    "tools": ["shopify.product.update"]
+    "tools": ["api.write"]
   }
 }

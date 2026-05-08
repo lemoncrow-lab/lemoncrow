@@ -35,7 +35,6 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from atelier.core.foundation.paths import default_store_root, resolve_workspace_root
 from atelier.core.foundation.environments import load_environments_from_dir
 from atelier.core.foundation.memory_models import ArchivalPassage, MemoryBlock
 from atelier.core.foundation.models import (
@@ -47,6 +46,7 @@ from atelier.core.foundation.models import (
     Rubric,
     Trace,
 )
+from atelier.core.foundation.paths import default_store_root, resolve_workspace_root
 from atelier.core.foundation.store import ReasoningStore
 from atelier.core.improvement.failure_analyzer import FailureAnalyzer
 from atelier.core.service.telemetry import (

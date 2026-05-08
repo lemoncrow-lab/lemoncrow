@@ -50,15 +50,15 @@ def test_rubric_returns_pass_when_all_required_pass() -> None:
     assert res.status == "pass"
 
 
-def test_audit_service_rubric_loads(tmp_path: Path) -> None:
+def test_change_gate_rubric_loads(tmp_path: Path) -> None:
     from importlib import resources
 
     import yaml
 
-    pkg = resources.files("atelier") / "core" / "rubrics" / "rubric_audit_service_change.yaml"
+    pkg = resources.files("atelier") / "core" / "rubrics" / "rubric_change_gate_discipline.yaml"
     with resources.as_file(pkg) as p, open(p, encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
     rub = Rubric.model_validate(data)
-    assert rub.id == "rubric_audit_service_change"
+    assert rub.id == "rubric_change_gate_discipline"
     res = run_rubric(rub, {})
     assert res.status == "blocked"  # required+blocking checks missing

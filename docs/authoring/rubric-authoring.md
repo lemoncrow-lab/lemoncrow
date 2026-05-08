@@ -7,19 +7,23 @@ Rubrics define the safety and quality gates that agents must pass before or afte
 Rubrics use a simple boolean assertion model:
 
 ```yaml
-id: rubric_shopify_publish
-name: "Shopify Publish Verification"
-description: "Ensures products are safely published to the store."
-checks:
-  product_identity_uses_gid:
-    description: "Did the agent use the GID to mutate the product?"
-    required: true
-  pre_publish_snapshot_exists:
-    description: "Was a snapshot taken before mutation?"
-    required: true
-  write_result_checked:
-    description: "Did the agent verify the mutation response?"
-    required: true
+id: rubric_state_change_safety
+domain: state.change
+required_checks:
+  - canonical_identifier_used
+  - pre_change_state_captured
+  - read_after_write_completed
+  - observed_state_matches_intent
+block_if_missing:
+  - canonical_identifier_used
+  - read_after_write_completed
+  - observed_state_matches_intent
+warning_checks:
+  - rollback_plan_available
+  - user_visible_surface_checked
+escalation_conditions:
+  - target_identity_ambiguous
+  - live_system_drift_detected
 ```
 
 ## Integrating with the Runtime

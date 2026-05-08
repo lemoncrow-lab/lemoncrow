@@ -70,12 +70,12 @@ Eval cases are stored in `.atelier/evals/` as JSON files:
 
 ```json
 &#123;
-  "id": "eval_shopify_handle_deadend",
-  "domain": "beseam.shopify.publish",
-  "task": "Publish Shopify product",
-  "plan_steps": ["Parse product handle from PDP URL", "Update metafields"],
+  "id": "eval_state_change_slug_deadend",
+  "domain": "state.change",
+  "task": "Apply a live state change",
+  "plan_steps": ["Resolve target from URL slug alone", "Apply the change"],
   "expected_check_plan_status": "blocked",
-  "expected_warnings_include": ["dead end: product handle from pdp"],
+  "expected_warnings_include": ["dead end: resolve target from url slug alone"],
   "status": "active",
   "created_at": "2026-04-21T00:00:00Z"
 &#125;

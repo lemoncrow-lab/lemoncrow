@@ -11,7 +11,7 @@ from atelier.core.foundation.renderer import render_block_for_agent
 from atelier.core.foundation.retriever import TaskContext, count_tokens, retrieve
 from atelier.core.foundation.store import ReasoningStore
 
-TASK = "shopify publish product handle rollback verification failed"
+TASK = "live state change resolved from url slug verification drift"
 
 
 @pytest.fixture()
@@ -28,12 +28,12 @@ def seeded_store(tmp_path: Path) -> ReasoningStore:
         loaded[block.id] = block
         store.upsert_block(block)
 
-    source = loaded["shopify-product-identity"]
+    source = loaded["canonical-identifier-over-display-name"]
     for idx in range(6):
         clone = source.model_copy(
             update={
-                "id": f"shopify-product-identity-near-dup-{idx}",
-                "title": f"Shopify Product Identity Near Duplicate {idx}",
+                "id": f"canonical-identifier-near-dup-{idx}",
+                "title": f"Canonical Identifier Near Duplicate {idx}",
                 "success_count": 0,
                 "failure_count": idx + 3,
             }
@@ -50,10 +50,10 @@ def _tokens(blocks: list[ReasonBlock]) -> int:
 def test_dedup_and_budget_cut_tokens_at_least_30pct(seeded_store: ReasoningStore) -> None:
     ctx = TaskContext(
         task=TASK,
-        domain="beseam.shopify.publish",
-        files=["services/shopify/publish.py"],
-        tools=["shopify.product.update", "shopify.publish"],
-        errors=["publish succeeded but verification failed"],
+        domain="state.change",
+        files=["services/integrations/publish.py"],
+        tools=["api.write", "deploy.apply"],
+        errors=["write succeeded but state did not change"],
     )
 
     naive = [item.block for item in retrieve(seeded_store, ctx, limit=10, dedup=False, token_budget=None)]

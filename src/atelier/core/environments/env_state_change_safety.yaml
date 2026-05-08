@@ -1,0 +1,41 @@
+id: env_state_change_safety
+domain: state.change
+description: >
+  Operating law for tasks that mutate durable state outside the local scratch
+  context, such as integrations, deployments, migrations, or other live writes.
+
+triggers:
+  - publish
+  - update record
+  - mutate external system
+  - sync
+  - migration
+  - deploy config
+
+forbidden:
+  - resolve target from url slug alone
+  - use display name as stable identity
+  - skip readback after write
+  - modify live state without recovery plan
+
+required:
+  - canonical_identifier_used
+  - pre_change_state_captured
+  - read_after_write_completed
+  - observed_state_matches_intent
+
+escalate:
+  - target_identity_ambiguous
+  - live_system_drift_detected
+  - rollback_failed
+
+high_risk_tools:
+  - api.write
+  - db.write
+  - deploy.apply
+
+rubric_id: rubric_state_change_safety
+
+related_blocks:
+  - canonical-identifier-over-display-name
+  - read-after-write-verification

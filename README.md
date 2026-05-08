@@ -92,7 +92,7 @@ bash scripts/install_codex.sh --print-only
 curl -fsSL https://raw.githubusercontent.com/leanchain/atelier/main/scripts/install.sh | bash
 ```
 
-This installs/updates Atelier under `~/.local/share/atelier`, installs host integrations, and adds global wrappers in `~/.local/bin` (`atelier`, `atelier-mcp`, `atelier-api`, `atelier-status`).
+This installs/updates Atelier under `~/.local/share/atelier`, installs host integrations, initializes the runtime store, starts the background `servicectl` loop, and adds global wrappers in `~/.local/bin` (`atelier`, `atelier-mcp`, `atelier-status`).
 
 → Full install guide: [docs/installation.md](docs/installation.md)
 → Per-host guides: [docs/hosts/all-agent-clis.md](docs/hosts/all-agent-clis.md)
@@ -122,16 +122,48 @@ echo '{"product_identity_uses_gid": true, "pre_publish_snapshot_exists": true, "
 
 → Full tutorial: [docs/quickstart.md](docs/quickstart.md)
 
-## Start the Dashboard
+## Runtime Modes
 
-Run the API service and React dashboard with Docker Compose:
+The default install is **CLI + MCP + background processing**.
+
+- `atelier ...` works with no HTTP server.
+- `atelier-mcp` works with no HTTP server.
+- `atelier servicectl ...` manages the detached offline processing loop.
+- `atelier stack ...` is optional and only needed when you want the UI/service visualization stack.
+
+Pure CLI mode still emits Atelier telemetry events unless disabled. Turn it off with `atelier telemetry off` or `ATELIER_TELEMETRY=0`.
+
+## Start the Optional UI Stack
+
+Run the API service and React dashboard with the installed stack command:
 
 ```bash
-make start
+atelier stack start
 ```
 
 Then open the frontend at [http://localhost:3125](http://localhost:3125).
 The API service runs at [http://localhost:8787](http://localhost:8787).
+
+For development inside the repo, `make start` still launches the same Compose stack.
+
+## Background Processing
+
+The installer starts a detached background controller by default. It periodically enqueues and processes offline jobs, and it works on the default SQLite install as well as Postgres.
+
+```bash
+atelier servicectl status
+atelier servicectl logs
+atelier servicectl stop
+atelier servicectl start
+```
+
+Queue work can also be driven manually:
+
+```bash
+atelier worker enqueue consolidate_reasonblocks
+atelier worker run-once
+atelier worker list
+```
 
 ## CLI
 
@@ -139,30 +171,33 @@ The API service runs at [http://localhost:8787](http://localhost:8787).
 uv run atelier [--root PATH] COMMAND [OPTIONS]
 ```
 
-| Command                                 | Description                             |
-| --------------------------------------- | --------------------------------------- |
-| `init`                                  | Create store and seed blocks/rubrics    |
-| `reasoning`                             | Get reasoning context for a task        |
-| `lint`                                  | Validate a plan (exit 2 = blocked)      |
-| `rescue`                                | Suggest rescue for a failure            |
-| `trace record/list/show`                | Record and browse execution traces      |
-| `verify`                                | Run a rubric gate                       |
-| `block list/add/extract`                | Manage ReasonBlocks                     |
-| `rubric list/show/add`                  | Manage rubrics                          |
-| `env list/show`                         | List reasoning environments             |
-| `failure list/show/accept`              | Manage failure clusters                 |
-| `ledger list/show`                      | Browse run ledger                       |
-| `lesson inbox/decide`                   | Review generated lesson candidates      |
-| `consolidation inbox/decide`            | Review memory consolidation candidates  |
-| `report`                                | Generate governance reports             |
-| `proof run/show`                        | Run or display proof report output      |
-| `route`                                 | Quality-aware routing decisions         |
-| `memory upsert/get/list/recall/archive` | Session memory block operations         |
-| `search`                                | Semantic retrieval across ReasonBlocks  |
-| `read`                                  | AST-aware file read with symbol summary |
-| `edit`                                  | Batch find/replace edits from JSON file |
-| `bench runtime`                         | Capability efficiency metrics           |
-| `service`                               | Start/stop the HTTP service             |
+| Command                                 | Description                               |
+| --------------------------------------- | ----------------------------------------- |
+| `init`                                  | Create store and seed blocks/rubrics      |
+| `reasoning`                             | Get reasoning context for a task          |
+| `lint`                                  | Validate a plan (exit 2 = blocked)        |
+| `rescue`                                | Suggest rescue for a failure              |
+| `trace record/list/show`                | Record and browse execution traces        |
+| `verify`                                | Run a rubric gate                         |
+| `block list/add/extract`                | Manage ReasonBlocks                       |
+| `rubric list/show/add`                  | Manage rubrics                            |
+| `env list/show`                         | List reasoning environments               |
+| `failure list/show/accept`              | Manage failure clusters                   |
+| `ledger list/show`                      | Browse run ledger                         |
+| `lesson inbox/decide`                   | Review generated lesson candidates        |
+| `consolidation inbox/decide`            | Review memory consolidation candidates    |
+| `report`                                | Generate governance reports               |
+| `proof run/show`                        | Run or display proof report output        |
+| `route`                                 | Quality-aware routing decisions           |
+| `memory upsert/get/list/recall/archive` | Session memory block operations           |
+| `search`                                | Semantic retrieval across ReasonBlocks    |
+| `read`                                  | AST-aware file read with symbol summary   |
+| `edit`                                  | Batch find/replace edits from JSON file   |
+| `bench runtime`                         | Capability efficiency metrics             |
+| `service`                               | Start/configure the optional HTTP service |
+| `worker`                                | Enqueue and run background jobs           |
+| `servicectl`                            | Manage the detached offline processor     |
+| `stack`                                 | Start/stop the optional UI stack          |
 
 All commands accept `--json` for machine-readable output.
 

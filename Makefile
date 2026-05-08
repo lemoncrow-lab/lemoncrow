@@ -19,8 +19,12 @@ FORCE_ARG := $(if $(f),--force,)
 #    * To pass other flags (like skipping hosts or dry-run):
 
 #         make install ARGS="--local --no-hosts --dry-run"
+# install: ## Install Atelier (use ARGS="--local" to install from current dir)
 install: ## Install Atelier (use ARGS="--local" to install from current dir)
-	bash scripts/install.sh $(ARGS)
+	@# This target calls scripts/install.sh which eventually runs scripts/install_agent_clis.sh
+	@INSTALL_ARGS="$(ARGS)"; \
+	if [ -z "$$INSTALL_ARGS" ]; then INSTALL_ARGS="$(args)"; fi; \
+	bash scripts/install.sh $$INSTALL_ARGS
 	@echo "[atelier] Installation complete."
 
 uninstall: ## Remove generated agent CLI integrations and wrappers

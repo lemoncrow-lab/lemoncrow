@@ -114,7 +114,7 @@ print('yes' if 'atelier' in servers else 'no')
     else
         fail ".mcp.json missing at $MCP_JSON - run: scripts/install_claude.sh --workspace $WORKSPACE"
     fi
-elif claude mcp list 2>/dev/null | grep -q "atelier"; then
+elif claude mcp list 2>&1 | grep -q "atelier"; then
     pass "Claude user MCP list contains atelier"
 else
     fail "Claude user MCP missing atelier - run: make install-claude"

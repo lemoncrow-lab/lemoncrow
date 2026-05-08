@@ -63,10 +63,10 @@ check_claude() {
 
     local plugin="no"
     local mcp="no"
-    if claude plugin list 2>/dev/null | grep -q "atelier"; then
+    if claude plugin list 2>&1 | grep -q "atelier"; then
         plugin="yes"
     fi
-    if has_atelier "${WORKSPACE}/.mcp.json" || claude mcp list 2>/dev/null | grep -q "atelier"; then
+    if has_atelier "${WORKSPACE}/.mcp.json" || claude mcp list 2>&1 | grep -q "atelier"; then
         mcp="yes"
     fi
 

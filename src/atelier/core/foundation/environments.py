@@ -1,7 +1,7 @@
-"""Environments — Beseam-specific operating governors.
+"""Environments — packaged operating governors.
 
-An Environment encodes the law for a class of work (e.g. publishing to
-Shopify, classifying tracker traffic). It is enforced two ways:
+An Environment encodes the law for a class of work (e.g. debugging,
+state changes, or source-of-truth corrections). It is enforced two ways:
 
 1. At plan-check time: any plan step containing a `forbidden` phrase is
    blocked, and `required` items are surfaced as required checks.

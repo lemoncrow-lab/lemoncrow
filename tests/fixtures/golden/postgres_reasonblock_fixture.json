@@ -1,8 +1,8 @@
 {
-  "id": "shopify-product-identity",
-  "title": "Shopify Product Identity",
-  "domain": "beseam.shopify.publish",
-  "content": "Canonical Shopify product identity uses GID, not handle or PDP URL.",
+  "id": "canonical-identifier-over-display-name",
+  "title": "Canonical Identifier Over Display Name",
+  "domain": "state.change",
+  "content": "Mutations and rollbacks should use a stable canonical identifier, not a URL slug or display label.",
   "status": "validated",
   "source": "seed"
 }

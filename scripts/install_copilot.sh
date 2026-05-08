@@ -86,7 +86,8 @@ if ! command -v code &>/dev/null; then
     fi
     warn "'code' (VS Code) not found — SKIPPING."
     warn "Install VS Code from https://code.visualstudio.com then run: make install-copilot"
-    exit 2
+    echo "=== SKIPPED (code CLI absent) ==="
+    exit 0
 fi
 info "Found VS Code: $(code --version 2>/dev/null | head -1 || echo 'version unknown')"
 

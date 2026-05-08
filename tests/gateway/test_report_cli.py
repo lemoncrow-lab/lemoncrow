@@ -38,4 +38,3 @@ def test_report_cli_outputs_json_and_markdown(tmp_path: Path) -> None:
     markdown_result = runner.invoke(cli, ["--root", str(root), "report", "--since", "7d"])
     assert markdown_result.exit_code == 0, markdown_result.output
     assert "Atelier Weekly Governance Report" in markdown_result.output
-

@@ -64,9 +64,7 @@ def mcp_tool(
         sig = inspect.signature(func)
         fields = {}
         for param_name, param in sig.parameters.items():
-            annotation = (
-                param.annotation if param.annotation is not inspect.Parameter.empty else Any
-            )
+            annotation = param.annotation if param.annotation is not inspect.Parameter.empty else Any
             default = param.default if param.default is not inspect.Parameter.empty else ...
             fields[param_name] = (
                 annotation,
@@ -261,9 +259,7 @@ def _observe_plan_result(result: Any, domain: str | None, plan: list[str]) -> No
         emit_product(
             "plan_check_blocked",
             domain=domain or "",
-            blocking_rule_id=hash_identifier(
-                str(matched_blocks[0] if matched_blocks else "blocked")
-            ),
+            blocking_rule_id=hash_identifier(str(matched_blocks[0] if matched_blocks else "blocked")),
             severity="high",
             session_id=session_id,
         )
@@ -650,9 +646,7 @@ def tool_route(
     op: Literal["decide", "verify"],
     user_goal: str = "",
     repo_root: str = ".",
-    task_type: Literal[
-        "debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"
-    ] = "feature",
+    task_type: Literal["debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"] = "feature",
     risk_level: Literal["low", "medium", "high"] = "medium",
     changed_files: list[str] | None = None,
     domain: str | None = None,
@@ -1129,9 +1123,7 @@ def _memory_upsert_block(
     clean_description = _redact_memory_input(description, "description")
     store = _memory_store()
     existing = store.get_block(agent_id, label)
-    version = (
-        expected_version if expected_version is not None else (existing.version if existing else 1)
-    )
+    version = expected_version if expected_version is not None else (existing.version if existing else 1)
     seed = existing or MemoryBlock(agent_id=agent_id, label=label, value=clean_value)
     block = MemoryBlock(
         id=seed.id,
@@ -1167,9 +1159,7 @@ def _memory_upsert_block(
         )
     elif decision.op == "DELETE" and target is not None:
         store.tombstone_block(target.id, deprecated_by_block_id=block.id, reason=decision.reason)
-        stored = store.upsert_block(
-            block, actor=actor or f"agent:{agent_id}", reason=decision.reason
-        )
+        stored = store.upsert_block(block, actor=actor or f"agent:{agent_id}", reason=decision.reason)
     else:
         stored = store.upsert_block(block, actor=actor or f"agent:{agent_id}")
     return {
@@ -1277,9 +1267,7 @@ def tool_memory(
             actor=actor,
         )
     if op == "block_get":
-        return _memory_get_block(
-            agent_id=require("agent_id", agent_id), label=require("label", label)
-        )
+        return _memory_get_block(agent_id=require("agent_id", agent_id), label=require("label", label))
     if op == "archive":
         return _memory_archive(
             agent_id=require("agent_id", agent_id),
@@ -1838,12 +1826,8 @@ def _record_context_budget_for_tool(
                     "time_saved_ms": int(live_savings.get("time_saved_ms", 0) or 0),
                     "input_tokens_saved": int(live_savings.get("input_tokens_saved", 0) or 0),
                     "output_tokens_saved": int(live_savings.get("output_tokens_saved", 0) or 0),
-                    "cache_read_tokens_saved": int(
-                        live_savings.get("cache_read_tokens_saved", 0) or 0
-                    ),
-                    "cache_write_tokens_saved": int(
-                        live_savings.get("cache_write_tokens_saved", 0) or 0
-                    ),
+                    "cache_read_tokens_saved": int(live_savings.get("cache_read_tokens_saved", 0) or 0),
+                    "cache_write_tokens_saved": int(live_savings.get("cache_write_tokens_saved", 0) or 0),
                     "tool_tokens_saved": tool_tokens_saved,
                     "tokens_saved": tokens_saved,
                     "cost_saved_usd": _live_savings_cost_usd(model, live_savings),
@@ -1919,11 +1903,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
 
             led = _get_ledger()
             result_text = json.dumps(result, ensure_ascii=False, default=str)
-            compact_text = (
-                result_text
-                if len(result_text) <= 1200
-                else result_text[:600] + "..." + result_text[-600:]
-            )
+            compact_text = result_text if len(result_text) <= 1200 else result_text[:600] + "..." + result_text[-600:]
             led.record(
                 "tool_result",
                 f"{name} result",
@@ -1937,9 +1917,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
             rtc.persist()
 
             # Record context budget metrics
-            _record_context_budget_for_tool(
-                name, args if isinstance(args, dict) else {}, led, result
-            )
+            _record_context_budget_for_tool(name, args if isinstance(args, dict) else {}, led, result)
 
             with contextlib.suppress(Exception):
                 from atelier.core.service.telemetry import emit_product
@@ -1949,18 +1927,14 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
                     "mcp_tool_called",
                     tool_name=name,
                     session_id=_get_product_session_id(),
-                    duration_ms_bucket=bucket_duration_ms(
-                        (time.perf_counter() - started_at) * 1000
-                    ),
+                    duration_ms_bucket=bucket_duration_ms((time.perf_counter() - started_at) * 1000),
                     ok=True,
                 )
 
             return _ok(
                 rid,
                 {
-                    "content": [
-                        {"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}
-                    ],
+                    "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}],
                     "structuredContent": result,
                 },
             )
@@ -1977,9 +1951,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
                     "mcp_tool_called",
                     tool_name=name,
                     session_id=_get_product_session_id(),
-                    duration_ms_bucket=bucket_duration_ms(
-                        (time.perf_counter() - started_at) * 1000
-                    ),
+                    duration_ms_bucket=bucket_duration_ms((time.perf_counter() - started_at) * 1000),
                     ok=False,
                 )
             return _err(rid, _tool_error_code(exc), str(exc))
@@ -2025,6 +1997,9 @@ def serve() -> None:
 
 def main() -> None:
     argv = sys.argv[1:]
+    if "--version" in argv or "-V" in argv:
+        print(f"atelier-mcp {SERVER_VERSION}")
+        return
     if "--root" in argv:
         i = argv.index("--root")
         if i + 1 < len(argv):

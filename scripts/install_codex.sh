@@ -225,6 +225,7 @@ if ! command -v codex &>/dev/null; then
         exit 1
     fi
     warn "'codex' CLI not found — SKIPPING. Install from https://github.com/openai/codex"
+    echo "=== SKIPPED (codex CLI absent) ==="
     exit 0
 fi
 info "Found Codex: $(codex --version 2>/dev/null || echo 'version unknown')"

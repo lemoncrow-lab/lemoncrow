@@ -1,0 +1,36 @@
+id: concrete-anchor-before-edit
+title: Concrete Anchor Before Edit
+domain: coding
+task_types: [debugging, implementation, refactor]
+triggers:
+  - failing test
+  - failing command
+  - failing behavior
+  - concrete anchor
+  - control path
+  - local hypothesis
+situation: >
+  Broad repo exploration is expensive and often misses the controlling code
+  path. Start from the most concrete failing surface, then move only one hop
+  to the code that directly decides the behavior.
+dead_ends:
+  - map the whole codebase before choosing a hypothesis
+  - edit multiple files before identifying the controlling code
+  - keep searching without a discriminating check
+  - compare nearby paths without choosing one to test
+procedure:
+  - Start from a concrete anchor such as a failing test, command, file, symbol, or behavior.
+  - Step to the nearest code that directly computes or controls the behavior.
+  - State one falsifiable local hypothesis about the failure or requested change.
+  - Choose the cheapest nearby check that could disconfirm that hypothesis.
+  - Make the smallest edit or reversible probe that tests the chosen path.
+verification:
+  - A controlling code path was identified.
+  - One falsifiable local hypothesis was written down.
+  - One discriminating check was chosen before widening scope.
+failure_signals:
+  - repo exploration keeps expanding without a chosen code path
+  - several plausible paths are compared without a test
+when_not_to_apply: >
+  Pure greenfield design or architecture work where there is no concrete
+  failing surface yet.

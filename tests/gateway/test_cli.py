@@ -3,10 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner, Result
 
 from atelier.core.capabilities.plugin_runtime import update_session_stats
+from atelier.core.foundation.models import ReasonBlock
+from atelier.core.foundation.store import ReasoningStore
+from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
 from atelier.gateway.adapters.cli import cli
+from atelier.infra.internal_llm.ollama_client import OllamaUnavailable
 
 
 def _invoke(root: Path, *args: str, input: str | None = None) -> Result:
@@ -23,20 +28,20 @@ def test_init_seeds_blocks_and_rubrics(tmp_path: Path) -> None:
     assert "7 rubrics" in res.output
 
 
-def test_check_plan_blocks_shopify_handle_from_url(tmp_path: Path) -> None:
+def test_check_plan_blocks_resolving_target_from_slug(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _invoke(root, "init")
     res = _invoke(
         root,
         "lint",
         "--task",
-        "Fix shopify",
+        "Fix a live state change",
         "--domain",
-        "beseam.shopify.publish",
+        "state.change",
         "--step",
-        "Parse Shopify product handle from URL",
+        "Resolve target from URL slug alone",
         "--step",
-        "Update metafield",
+        "Apply the update",
         "--json",
     )
     assert res.exit_code == 2, res.output
@@ -49,17 +54,15 @@ def test_run_rubric_via_cli(tmp_path: Path) -> None:
     _invoke(root, "init")
     checks = json.dumps(
         {
-            "product_identity_uses_gid": True,
-            "pre_publish_snapshot_exists": True,
-            "write_result_checked": True,
-            "post_publish_refetch_done": True,
-            "post_publish_audit_passed": True,
-            "rollback_available": True,
-            "localized_url_test_passed": True,
-            "changed_handle_test_passed": True,
+            "canonical_identifier_used": True,
+            "pre_change_state_captured": True,
+            "read_after_write_completed": True,
+            "observed_state_matches_intent": True,
+            "rollback_plan_available": True,
+            "user_visible_surface_checked": True,
         }
     )
-    res = _invoke(root, "verify", "rubric_shopify_publish", "--json", input=checks)
+    res = _invoke(root, "verify", "rubric_state_change_safety", "--json", input=checks)
     assert res.exit_code == 0, res.output
     payload = json.loads(res.output)
     assert payload["status"] == "pass"
@@ -68,7 +71,7 @@ def test_run_rubric_via_cli(tmp_path: Path) -> None:
 def test_run_rubric_blocks_when_required_missing(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _invoke(root, "init")
-    res = _invoke(root, "verify", "rubric_shopify_publish", "--json", input="{}")
+    res = _invoke(root, "verify", "rubric_state_change_safety", "--json", input="{}")
     assert res.exit_code == 2
     payload = json.loads(res.output)
     assert payload["status"] == "blocked"
@@ -105,11 +108,11 @@ def test_rescue_returns_procedure(tmp_path: Path) -> None:
         root,
         "rescue",
         "--task",
-        "Update Shopify product",
+        "Update external state",
         "--error",
-        "wrong product updated",
+        "wrong target updated",
         "--domain",
-        "beseam.shopify.publish",
+        "state.change",
         "--json",
     )
     assert res.exit_code == 0
@@ -181,6 +184,158 @@ def test_logout_starts_anonymous_trial_by_default(tmp_path: Path) -> None:
     payload = json.loads(res.output)
     assert payload["logged_out"] is True
     assert payload["anonymous"]["isAnonymous"] is True
+
+
+def test_worker_runs_consolidation_job_on_sqlite(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "a"
+    _invoke(root, "init")
+
+    store = ReasoningStore(root)
+    store.upsert_block(
+        ReasonBlock(
+            id="rb-one",
+            title="Checkout retry timeout",
+            domain="testing",
+            situation="When checkout retries fail with timeout during webhook delivery",
+            triggers=["checkout", "retry", "timeout"],
+            procedure=["Inspect retry budget", "Verify idempotency key", "Run webhook tests"],
+            failure_signals=["timeout", "duplicate delivery"],
+        ),
+        write_markdown=False,
+    )
+    store.upsert_block(
+        ReasonBlock(
+            id="rb-two",
+            title="Checkout retry webhook timeout",
+            domain="testing",
+            situation="When checkout retries fail with timeout during webhook delivery",
+            triggers=["checkout", "retry", "timeout"],
+            procedure=["Inspect retry budget", "Verify idempotency key", "Run webhook tests"],
+            failure_signals=["timeout", "duplicate delivery"],
+        ),
+        write_markdown=False,
+    )
+
+    def unavailable(messages: object, json_schema: object | None = None) -> None:
+        _ = (messages, json_schema)
+        raise OllamaUnavailable("offline")
+
+    monkeypatch.setattr("atelier.core.capabilities.consolidation.worker.chat", unavailable)
+
+    enqueue = _invoke(root, "worker", "enqueue", JOB_CONSOLIDATE_BLOCKS, "--json")
+    assert enqueue.exit_code == 0, enqueue.output
+    payload = json.loads(enqueue.output)
+    assert payload["status"] == "pending"
+
+    run = _invoke(root, "worker", "run-once")
+    assert run.exit_code == 0, run.output
+    assert "processed job:" in run.output
+
+    jobs = store.list_jobs(limit=10)
+    assert jobs[0]["status"] == "succeeded"
+    assert len(store.list_consolidation_candidates()) == 1
+
+
+def test_stack_start_uses_compose_helper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        "atelier.gateway.adapters.cli._run_stack_compose",
+        lambda args: calls.append(args),
+    )
+
+    res = _invoke(tmp_path / "a", "stack", "start", "--with-docs")
+
+    assert res.exit_code == 0, res.output
+    assert calls == [["up", "--build", "-d", "service", "frontend", "otel-collector", "docs"]]
+    assert "http://localhost:3125" in res.output
+
+
+def test_servicectl_tick_enqueues_and_processes_periodic_consolidation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "a"
+    _invoke(root, "init")
+
+    store = ReasoningStore(root)
+    store.upsert_block(
+        ReasonBlock(
+            id="rb-one",
+            title="Checkout retry timeout",
+            domain="testing",
+            situation="When checkout retries fail with timeout during webhook delivery",
+            triggers=["checkout", "retry", "timeout"],
+            procedure=["Inspect retry budget", "Verify idempotency key", "Run webhook tests"],
+            failure_signals=["timeout", "duplicate delivery"],
+        ),
+        write_markdown=False,
+    )
+    store.upsert_block(
+        ReasonBlock(
+            id="rb-two",
+            title="Checkout retry webhook timeout",
+            domain="testing",
+            situation="When checkout retries fail with timeout during webhook delivery",
+            triggers=["checkout", "retry", "timeout"],
+            procedure=["Inspect retry budget", "Verify idempotency key", "Run webhook tests"],
+            failure_signals=["timeout", "duplicate delivery"],
+        ),
+        write_markdown=False,
+    )
+
+    def unavailable(messages: object, json_schema: object | None = None) -> None:
+        _ = (messages, json_schema)
+        raise OllamaUnavailable("offline")
+
+    monkeypatch.setattr("atelier.core.capabilities.consolidation.worker.chat", unavailable)
+
+    res = _invoke(root, "servicectl", "tick", "--maintenance-interval-seconds", "0", "--json")
+
+    assert res.exit_code == 0, res.output
+    payload = json.loads(res.output)
+    assert len(payload["enqueued_jobs"]) == 1
+    assert len(payload["processed_jobs"]) == 1
+    assert len(store.list_consolidation_candidates()) == 1
+
+
+def test_servicectl_start_writes_pidfile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "a"
+    _invoke(root, "init")
+
+    spawned: dict[str, object] = {}
+
+    class FakePopen:
+        def __init__(self, args, **kwargs):  # type: ignore[no-untyped-def]
+            spawned["args"] = args
+            spawned["kwargs"] = kwargs
+            self.pid = 4321
+
+    monkeypatch.setattr("atelier.gateway.adapters.cli.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("atelier.gateway.adapters.cli._pid_is_running", lambda pid: pid == 4321)
+
+    res = _invoke(
+        root,
+        "servicectl",
+        "start",
+        "--interval-seconds",
+        "5",
+        "--maintenance-interval-seconds",
+        "60",
+        "--json",
+    )
+
+    assert res.exit_code == 0, res.output
+    payload = json.loads(res.output)
+    assert payload["running"] is True
+    assert payload["pid"] == 4321
+    args = spawned["args"]
+    assert isinstance(args, list)
+    assert "atelier.gateway.adapters.cli" in " ".join(str(item) for item in args)
+    assert (root / "servicectl" / "servicectl.pid").read_text(encoding="utf-8").strip() == "4321"
 
 
 # `atelier task` command removed — cut in CLI consolidation.

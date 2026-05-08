@@ -14,29 +14,29 @@ def test_packaged_environments_load_all_six() -> None:
     ids = {e.id for e in envs}
     assert {
         "env_coding_general",
-        "env_shopify_publish",
-        "env_pdp_schema",
-        "env_catalog_fix",
-        "env_ai_referral_tracker",
-        "env_audit_service",
+        "env_debugging_loop",
+        "env_state_change_safety",
+        "env_source_of_truth_change",
+        "env_change_gate",
+        "env_knowledge_authoring",
     }.issubset(ids)
 
 
-def test_shopify_env_blocks_forbidden_handle_plan() -> None:
-    envs = [e for e in load_packaged_environments() if e.id == "env_shopify_publish"]
-    plan = ["Parse_product_handle_from_url for product"]
+def test_state_change_env_blocks_forbidden_slug_plan() -> None:
+    envs = [e for e in load_packaged_environments() if e.id == "env_state_change_safety"]
+    plan = ["Resolve target from URL slug alone before the update"]
     violations = find_forbidden_violations(plan, envs)
     assert violations
     env, _step, phrase = violations[0]
-    assert env.id == "env_shopify_publish"
-    assert "handle" in phrase
+    assert env.id == "env_state_change_safety"
+    assert "slug" in phrase
 
 
 def test_match_environments_by_domain_prefix() -> None:
     envs = load_packaged_environments()
     matches = match_environments(
-        task="Publish a product to Shopify",
-        domain="shopify.publish",
+        task="Apply a live config deploy to an external system",
+        domain="state.change.deploy",
         environments=envs,
     )
-    assert any(e.id == "env_shopify_publish" for e in matches)
+    assert any(e.id == "env_state_change_safety" for e in matches)

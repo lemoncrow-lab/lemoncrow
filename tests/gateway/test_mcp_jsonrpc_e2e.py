@@ -262,9 +262,7 @@ def test_memory_reasoning_and_transcript_recall_e2e(mcp_env: Path) -> None:
     transcript.write_text(
         "\n".join(
             [
-                json.dumps(
-                    {"message": {"content": "We fixed sqlite auto limit behavior in the SQL tool."}}
-                ),
+                json.dumps({"message": {"content": "We fixed sqlite auto limit behavior in the SQL tool."}}),
                 json.dumps({"message": {"content": "The MCP search path should hit real files."}}),
             ]
         ),
@@ -301,9 +299,7 @@ def test_read_search_edit_and_memory_summary_e2e(mcp_env: Path) -> None:
     ranged_read = _payload(_call("read", {"path": str(target), "range": "2-2"}))
     assert "needle" in str(ranged_read["content"])
 
-    ranked_search = _payload(
-        _call("search", {"query": "needle", "path": str(mcp_env), "mode": "chunks"})
-    )
+    ranked_search = _payload(_call("search", {"query": "needle", "path": str(mcp_env), "mode": "chunks"}))
     assert ranked_search["matches"]
 
     repo_map = _payload(
@@ -440,14 +436,10 @@ def test_sql_actions_e2e(mcp_env: Path) -> None:
     conn.commit()
     conn.close()
 
-    connect = _payload(
-        _call("sql", {"action": "connect", "connection_string": f"sqlite:///{db_path}"})
-    )
+    connect = _payload(_call("sql", {"action": "connect", "connection_string": f"sqlite:///{db_path}"}))
     assert connect["overview"]["table_count"] == 1
 
-    schema = _payload(
-        _call("sql", {"action": "schema", "connection_string": f"sqlite:///{db_path}"})
-    )
+    schema = _payload(_call("sql", {"action": "schema", "connection_string": f"sqlite:///{db_path}"}))
     assert schema["tables"] == ["items"]
 
     table = _payload(
@@ -552,16 +544,14 @@ def test_lint_route_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
         _call(
             "verify",
             {
-                "rubric_id": "rubric_shopify_publish",
+                "rubric_id": "rubric_state_change_safety",
                 "checks": {
-                    "product_identity_uses_gid": True,
-                    "pre_publish_snapshot_exists": True,
-                    "write_result_checked": True,
-                    "post_publish_refetch_done": True,
-                    "post_publish_audit_passed": True,
-                    "rollback_available": True,
-                    "localized_url_test_passed": True,
-                    "changed_handle_test_passed": True,
+                    "canonical_identifier_used": True,
+                    "pre_change_state_captured": True,
+                    "read_after_write_completed": True,
+                    "observed_state_matches_intent": True,
+                    "rollback_plan_available": True,
+                    "user_visible_surface_checked": True,
                 },
             },
         )

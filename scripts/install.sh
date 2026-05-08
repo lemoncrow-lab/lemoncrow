@@ -2,7 +2,7 @@
 # install.sh — bootstrap Atelier from GitHub using a curl|bash-friendly flow.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/pankaj4u4m/atelier/<ref>/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/pankaj4u4m/atelier/main/scripts/install.sh | bash
 #
 # Optional environment variables:
 #   ATELIER_REPO_URL   Git URL (default: https://github.com/pankaj4u4m/atelier.git)
@@ -10,6 +10,9 @@
 #   ATELIER_INSTALL_DIR Install location (default: ~/.local/share/atelier)
 #   ATELIER_BIN_DIR    Global bin dir for command wrappers (default: ~/.local/bin)
 #   ATELIER_NO_HOSTS   If set to 1, skip agent-host integration install scripts
+#   ATELIER_NO_SERVICECTL If set to 1, skip starting the background service controller
+#   ATELIER_SERVICECTL_INTERVAL_SECONDS Poll interval for servicectl (default: 60)
+#   ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS Periodic maintenance interval (default: 21600)
 #   ATELIER_DRY_RUN    If set to 1, print planned actions and exit
 
 set -euo pipefail
@@ -19,6 +22,9 @@ ATELIER_REF="${ATELIER_REF:-main}"
 ATELIER_INSTALL_DIR="${ATELIER_INSTALL_DIR:-${HOME}/.local/share/atelier}"
 ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.local/bin}"
 ATELIER_NO_HOSTS="${ATELIER_NO_HOSTS:-0}"
+ATELIER_NO_SERVICECTL="${ATELIER_NO_SERVICECTL:-0}"
+ATELIER_SERVICECTL_INTERVAL_SECONDS="${ATELIER_SERVICECTL_INTERVAL_SECONDS:-60}"
+ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS="${ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS:-21600}"
 ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_LOCAL=0
 PASSTHROUGH=()
@@ -113,6 +119,7 @@ write_wrapper() {
 set -euo pipefail
 # Default to global store in home directory if not set
 export ATELIER_ROOT="\${ATELIER_ROOT:-\${HOME}/.atelier}"
+export ATELIER_INSTALL_DIR="$ATELIER_INSTALL_DIR"
 exec uv --directory "$ATELIER_INSTALL_DIR" run "$cmd" "\$@"
 EOF
     chmod +x "$target"
@@ -157,6 +164,7 @@ main() {
     write_wrapper atelier
     write_wrapper atelier-mcp
     write_wrapper atelier-api
+    write_wrapper atelier-codex
 
     if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
         echo "[dry-run] ln -sf $ATELIER_INSTALL_DIR/bin/atelier-status $ATELIER_BIN_DIR/atelier-status"
@@ -174,10 +182,32 @@ main() {
         echo ""
     fi
 
+    info "Initializing Atelier runtime store..."
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] $ATELIER_BIN_DIR/atelier init"
+    else
+        "$ATELIER_BIN_DIR/atelier" init >/dev/null
+    fi
+
+    if [[ "$ATELIER_NO_SERVICECTL" != "1" ]]; then
+        info "Starting Atelier background service controller..."
+        if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+            echo "[dry-run] $ATELIER_BIN_DIR/atelier servicectl start --interval-seconds $ATELIER_SERVICECTL_INTERVAL_SECONDS --maintenance-interval-seconds $ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS"
+        else
+            "$ATELIER_BIN_DIR/atelier" servicectl start \
+                --interval-seconds "$ATELIER_SERVICECTL_INTERVAL_SECONDS" \
+                --maintenance-interval-seconds "$ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS" >/dev/null
+        fi
+    else
+        info "Skipping background service controller because ATELIER_NO_SERVICECTL=1"
+    fi
+
     info "Install complete. Try:"
-    echo "  atelier --version"
-    echo "  atelier-mcp --version"
-    echo "  atelier-status"
+    echo "  atelier --version           - Check core CLI version"
+    echo "  atelier-mcp --version       - Check MCP server version"
+    echo "  atelier servicectl status   - View background service and systemctl status"
+    echo "  atelier stack start         - Start production API and Frontend (requires Docker)"
+    echo "  atelier-status              - Show one-line status of the active reasoning run"
 }
 
 main "$@"

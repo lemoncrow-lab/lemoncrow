@@ -77,10 +77,10 @@ def test_list_blocks_table_format(tmp_path: Path) -> None:
 def test_list_blocks_filter_by_domain(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     _invoke(root, "init")
-    res = _invoke(root, "list-blocks", "--domain", "beseam.shopify.publish", "--json")
+    res = _invoke(root, "list-blocks", "--domain", "state.change", "--json")
     assert res.exit_code == 0
     blocks = json.loads(res.output)
-    assert all(b["domain"] == "beseam.shopify.publish" for b in blocks)
+    assert all(b["domain"] == "state.change" for b in blocks)
 
 
 def test_search_returns_matches(tmp_path: Path) -> None:
@@ -200,7 +200,7 @@ def test_ledger_reset_with_confirmation(tmp_path: Path) -> None:
 def test_env_validate_known_env(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     _invoke(root, "init")
-    res = _invoke(root, "env", "validate", "env_shopify_publish")
+    res = _invoke(root, "env", "validate", "env_state_change_safety")
     assert res.exit_code == 0
     assert "ok" in res.output
 
@@ -252,10 +252,10 @@ def _make_eval_case(root: Path, case_id: str = "case1") -> None:
     eval_dir.mkdir(parents=True, exist_ok=True)
     case = {
         "id": case_id,
-        "domain": "beseam.shopify.publish",
+        "domain": "state.change",
         "description": "test eval",
-        "task": "Fix shopify",
-        "plan": ["Parse Shopify product handle from URL"],
+        "task": "Fix live state",
+        "plan": ["Resolve target from URL slug alone"],
         "expected_status": "blocked",
         "status": "draft",
     }

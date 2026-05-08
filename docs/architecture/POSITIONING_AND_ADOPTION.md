@@ -150,8 +150,8 @@ single command that answers "is the team using Atelier and is it working?"
 - **Capability:** `src/atelier/core/capabilities/reporting/weekly_report.py` —
   `generate_report(since: timedelta, ...) -> Report` that reads the trace store + memory
   store and computes:
-  - **Rubric pass rate** overall and per `domain` (e.g., `beseam.shopify.publish`,
-    `beseam.pdp.schema`).
+  - **Rubric pass rate** overall and per `domain` (e.g., `state.change`,
+    `source.truth`).
   - **Top 5 ReasonBlocks** retrieved (by `reasoning` count).
   - **Top 5 rubric failures** with affected file paths and a one-line failure summary
     extracted from the trace's `output_summary`.

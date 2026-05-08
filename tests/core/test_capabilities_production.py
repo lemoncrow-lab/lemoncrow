@@ -44,8 +44,8 @@ def _make_rt(tmp_path: Path) -> tuple[AtelierRuntimeCore, Path]:
 def test_reasoning_reuse_returns_context(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     ctx = rt.get_reasoning_context(
-        task="Fix failing Shopify publish",
-        domain="beseam.shopify.publish",
+        task="Fix a failing live state change",
+        domain="state.change",
         errors=["ConnectionError"],
         max_blocks=3,
     )
@@ -55,8 +55,8 @@ def test_reasoning_reuse_returns_context(tmp_path: Path) -> None:
 def test_reasoning_reuse_inject_runtime_reasoning(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     result = rt.inject_reasoning(
-        task="Deploy product update",
-        domain="beseam.shopify",
+        task="Deploy configuration update",
+        domain="state.change",
         files=["products.py"],
         tools=["edit_file"],
         errors=[],
@@ -71,8 +71,8 @@ def test_reasoning_reuse_inject_runtime_reasoning(tmp_path: Path) -> None:
 def test_reasoning_reuse_retrieve_includes_phase2_breakdown(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     scored = rt.reasoning_reuse.retrieve(
-        task="Fix flaky checkout publish flow",
-        domain="beseam.shopify.publish",
+        task="Fix a flaky live deployment flow",
+        domain="state.change",
         errors=["timeout", "connection reset"],
         limit=5,
     )
@@ -87,8 +87,8 @@ def test_reasoning_reuse_retrieve_includes_phase2_breakdown(tmp_path: Path) -> N
 def test_reasoning_reuse_inject_includes_rescue_chains(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     payload = rt.reasoning_reuse.inject_runtime_reasoning(
-        task="Recover from publish failure",
-        domain="beseam.shopify.publish",
+        task="Recover from failed live change",
+        domain="state.change",
         errors=["api quota exceeded"],
         max_blocks=6,
     )

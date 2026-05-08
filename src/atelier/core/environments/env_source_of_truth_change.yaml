@@ -1,0 +1,38 @@
+id: env_source_of_truth_change
+domain: source.truth
+description: >
+  Operating law for tasks that correct derived, rendered, or generated output.
+  Fixes belong in the authoritative source, then flow back down to derived
+  artifacts.
+
+triggers:
+  - source of truth
+  - generated output
+  - drift back
+  - sync overwrite
+  - compiled artifact
+
+forbidden:
+  - patch the derived output directly and stop there
+  - promote generated output to authority
+  - fix the render without fixing the upstream source
+
+required:
+  - authoritative_source_identified
+  - upstream_source_changed
+  - derived_outputs_regenerated_or_intentionally_left_unchanged
+  - contradiction_resolved_at_source
+
+escalate:
+  - multiple_candidate_sources_found
+  - generated_output_promoted_to_source
+
+high_risk_tools:
+  - fs.bulk_write
+  - cache.invalidate
+
+rubric_id: rubric_source_of_truth_change
+
+related_blocks:
+  - fix-authoritative-source-first
+  - generated-artifact-not-source-of-truth

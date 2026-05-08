@@ -22,6 +22,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from atelier.core.foundation.models import (
     BlockStatus,
@@ -717,6 +718,122 @@ class PostgresStore:
             rows = conn.execute(sql, params).fetchall()
         return [self._row_to_rubric(r) for r in rows]
 
+    # ----- jobs ----------------------------------------------------------- #
+
+    def enqueue_job(
+        self,
+        job_type: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        max_attempts: int = 3,
+    ) -> str:
+        job_id = str(uuid4())
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO jobs (
+                    id, job_type, payload, status, attempts, max_attempts,
+                    locked_by, locked_at, error, created_at, updated_at
+                )
+                VALUES (%s, %s, %s::jsonb, 'pending', 0, %s, NULL, NULL, NULL, %s, %s)
+                """,
+                (job_id, job_type, json.dumps(payload or {}), max_attempts, now, now),
+            )
+            conn.commit()
+        return job_id
+
+    def claim_job(self, worker_id: str | None = None) -> dict[str, Any] | None:
+        claimed_by = worker_id or f"postgres-{os.getpid()}"
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            row = conn.execute("""
+                SELECT *
+                FROM jobs
+                WHERE status IN ('pending', 'failed')
+                  AND attempts < max_attempts
+                ORDER BY created_at ASC
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+                """).fetchone()
+            if row is None:
+                conn.commit()
+                return None
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'running',
+                    attempts = attempts + 1,
+                    locked_by = %s,
+                    locked_at = %s,
+                    updated_at = %s,
+                    error = NULL
+                WHERE id = %s
+                """,
+                (claimed_by, now, now, row["id"]),
+            )
+            claimed = conn.execute("SELECT * FROM jobs WHERE id = %s", (row["id"],)).fetchone()
+            conn.commit()
+        return self._row_to_job(claimed) if claimed is not None else None
+
+    def complete_job(self, job_id: str, result: dict[str, Any] | None = None) -> bool:
+        _ = result
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            res = conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'succeeded',
+                    locked_by = NULL,
+                    locked_at = NULL,
+                    error = NULL,
+                    updated_at = %s
+                WHERE id = %s
+                """,
+                (now, job_id),
+            )
+            conn.commit()
+        return (res.rowcount or 0) > 0
+
+    def fail_job(self, job_id: str, error: str) -> bool:
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            res = conn.execute(
+                """
+                UPDATE jobs
+                SET status = CASE WHEN attempts >= max_attempts THEN 'dead' ELSE 'failed' END,
+                    locked_by = NULL,
+                    locked_at = NULL,
+                    error = %s,
+                    updated_at = %s
+                WHERE id = %s
+                """,
+                (error, now, job_id),
+            )
+            conn.commit()
+        return (res.rowcount or 0) > 0
+
+    def list_jobs(
+        self,
+        *,
+        status: str | None = None,
+        job_type: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM jobs WHERE 1=1"
+        params: list[Any] = []
+        if status:
+            sql += " AND status = %s"
+            params.append(status)
+        if job_type:
+            sql += " AND job_type = %s"
+            params.append(job_type)
+        sql += " ORDER BY created_at DESC LIMIT %s"
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_job(row) for row in rows]
+
     # ----- bulk import ----------------------------------------------------- #
 
     def import_blocks(self, blocks: Iterable[ReasonBlock]) -> int:
@@ -922,6 +1039,25 @@ class PostgresStore:
                 else d.get("escalation_conditions", [])
             ),
         )
+
+    def _row_to_job(self, row: Any) -> dict[str, Any]:
+        d = dict(row)
+        payload = d.get("payload") or {}
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        return {
+            "id": str(d["id"]),
+            "job_type": d["job_type"],
+            "payload": payload,
+            "status": d["status"],
+            "attempts": d["attempts"],
+            "max_attempts": d["max_attempts"],
+            "locked_by": d.get("locked_by"),
+            "locked_at": d.get("locked_at"),
+            "error": d.get("error"),
+            "created_at": str(d.get("created_at") or ""),
+            "updated_at": str(d.get("updated_at") or ""),
+        }
 
     # ----- run_ledger convenience ------------------------------------------ #
 

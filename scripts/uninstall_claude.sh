@@ -74,7 +74,7 @@ else
 fi
 
 if ! $WORKSPACE_SET && command -v claude &>/dev/null; then
-    if claude plugin list 2>/dev/null | grep -q "atelier@atelier"; then
+    if claude plugin list 2>&1 | grep -q "atelier@atelier"; then
         run "claude plugin uninstall atelier@atelier"
         info "Removed Claude plugin atelier@atelier"
     else

@@ -4,6 +4,7 @@ from typing import Any
 
 from atelier.core.foundation.models import ReasonBlock, Rubric, Trace
 from atelier.core.foundation.store import ReasoningStore
+from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
 
 
 def _block(bid: str = "b1", domain: str = "coding", title: str = "Title", **kw: object) -> ReasonBlock:
@@ -71,3 +72,22 @@ def test_rubric_roundtrip(store: ReasoningStore) -> None:
     fetched = store.get_rubric("r1")
     assert fetched is not None
     assert fetched.required_checks == ["a"]
+
+
+def test_job_queue_roundtrip(store: ReasoningStore) -> None:
+    job_id = store.enqueue_job(JOB_CONSOLIDATE_BLOCKS, {"dry_run": True}, max_attempts=2)
+
+    claimed = store.claim_job()
+
+    assert claimed is not None
+    assert claimed["id"] == job_id
+    assert claimed["job_type"] == JOB_CONSOLIDATE_BLOCKS
+    assert claimed["payload"] == {"dry_run": True}
+    assert claimed["status"] == "running"
+    assert claimed["attempts"] == 1
+
+    assert store.complete_job(job_id, {"written": 0}) is True
+
+    jobs = store.list_jobs(limit=10)
+    assert jobs[0]["id"] == job_id
+    assert jobs[0]["status"] == "succeeded"

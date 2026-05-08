@@ -73,14 +73,15 @@ run_installer() {
     echo " Installing Atelier → ${host}"
     echo "──────────────────────────────────────────"
     set +e
-    bash "$script" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"
+    output=$(bash "$script" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1)
     local ret=$?
     set -e
+    echo "$output"
 
-    if [ $ret -eq 0 ]; then
-        PASS+=("$host")
-    elif [ $ret -eq 2 ]; then
+    if echo "$output" | grep -q "=== SKIPPED"; then
         SKIP+=("$host")
+    elif [ $ret -eq 0 ]; then
+        PASS+=("$host")
     else
         FAIL+=("$host")
     fi
@@ -102,6 +103,6 @@ for h in "${FAIL[@]+"${FAIL[@]}"}"; do echo "  FAILED   $h"; done
 echo ""
 echo "Next: make verify"
 
-if [ ${#FAIL[@]} -gt 0 ]; then
-    exit 1
-fi
+# We exit 0 even if some hosts failed so the main installer can finish its work.
+# The user can see failures in the summary above.
+exit 0

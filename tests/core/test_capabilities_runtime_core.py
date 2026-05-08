@@ -23,9 +23,9 @@ def test_reasoning_reuse_returns_ranked_procedures(tmp_path: Path) -> None:
     rt = AtelierRuntimeCore(root)
 
     context = rt.get_reasoning_context(
-        task="Publish Shopify product safely",
-        domain="beseam.shopify.publish",
-        errors=["wrong product updated"],
+        task="Apply a live state change safely",
+        domain="state.change",
+        errors=["wrong target updated"],
         max_blocks=3,
     )
     assert isinstance(context, str)

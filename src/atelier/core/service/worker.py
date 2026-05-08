@@ -1,8 +1,7 @@
 """Background worker for Atelier (P6).
 
 The worker claims one job at a time from the store and dispatches it to a
-registered handler.  On SQLite (no ``claim_job``), ``run_once`` returns
-immediately with *None* — callers should treat this as "no production queue".
+registered handler.
 
 Usage::
 
@@ -18,7 +17,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from atelier.core.service.jobs import KNOWN_JOB_TYPES
+from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS, KNOWN_JOB_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +29,7 @@ class Worker:
     """Job worker.
 
     Args:
-        store:    Any store object.  Jobs are only claimed when the store has
-                  a ``claim_job`` method (i.e. PostgresStore).
+        store:    Any store object implementing the queue methods.
         dispatch: Override the handler registry (useful in tests).
         poll_interval: Seconds to sleep when the queue is empty.
     """
@@ -45,7 +43,18 @@ class Worker:
     ) -> None:
         self._store = store
         self._poll_interval = poll_interval
-        self._dispatch: dict[str, JobHandler] = dispatch if dispatch is not None else {}
+        self._dispatch: dict[str, JobHandler] = dispatch if dispatch is not None else self._default_dispatch()
+
+    def _default_dispatch(self) -> dict[str, JobHandler]:
+        from atelier.core.capabilities.consolidation import consolidate
+
+        def consolidate_handler(payload: dict[str, Any]) -> dict[str, Any]:
+            report = consolidate(self._store, dry_run=bool(payload.get("dry_run", False)))
+            return report.to_dict()
+
+        return {
+            JOB_CONSOLIDATE_BLOCKS: consolidate_handler,
+        }
 
     # ------------------------------------------------------------------ #
     # Public API                                                          #
@@ -54,9 +63,6 @@ class Worker:
     def run(self) -> None:
         """Blocking event loop. Process jobs until interrupted."""
         logger.info("Atelier worker started (poll_interval=%ss)", self._poll_interval)
-        if not hasattr(self._store, "claim_job"):
-            logger.warning("No production queue — SQLite mode. Worker exiting immediately.")
-            return
         while True:
             claimed = self.run_once()
             if claimed is None:
@@ -66,12 +72,8 @@ class Worker:
         """Claim and process one job.
 
         Returns:
-            The job ID that was processed, or *None* if the queue was empty or
-            the store has no job queue.
+            The job ID that was processed, or *None* if the queue was empty.
         """
-        if not hasattr(self._store, "claim_job"):
-            return None
-
         job_row = self._store.claim_job()
         if job_row is None:
             return None

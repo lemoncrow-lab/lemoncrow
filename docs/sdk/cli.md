@@ -31,7 +31,7 @@ All commands that return data support `--json` to emit a machine-readable JSON e
 uv run atelier init [--no-seed]
 ```
 
-Create the store directory, run schema migrations, and seed 10 ReasonBlocks + 5 rubrics.
+Create the store directory, run schema migrations, and seed 10 ReasonBlocks + 7 rubrics.
 
 | Option      | Description                       |
 | ----------- | --------------------------------- |
@@ -96,10 +96,10 @@ Validate a proposed agent plan against known dead ends and required checks. Each
 
 ```bash
 uv run atelier check-plan \
-    --task "Publish Shopify product" \
-    --domain beseam.shopify.publish \
-    --step "Parse product handle from PDP URL" \
-    --step "Use handle to update metafields"
+    --task "Apply a live state change" \
+    --domain state.change \
+    --step "Resolve target from URL slug alone" \
+    --step "Apply the update"
 # → status: blocked, exit 2
 ```
 
@@ -133,8 +133,8 @@ The local catalog writes installed pack checksums and compatibility metadata to 
 ## Benchmark Commands
 
 ```bash
-uv run atelier benchmark --prompt "Fix Shopify publish" --json
-uv run atelier benchmark run --prompt "Fix Shopify publish" --rounds 2 --json
+uv run atelier benchmark --prompt "Fix live state drift" --json
+uv run atelier benchmark run --prompt "Fix live state drift" --rounds 2 --json
 uv run atelier benchmark compare --input .atelier/benchmarks/runtime/latest.json --input other.json
 uv run atelier benchmark report --input .atelier/benchmarks/runtime/latest.json
 uv run atelier benchmark export --input .atelier/benchmarks/runtime/latest.json --output report.csv --format csv
@@ -159,34 +159,34 @@ Record an execution trace. Accepts JSON from stdin or a file. Required fields:
 ```json
 &#123;
   "agent": "claude-code",
-  "domain": "beseam.shopify.publish",
-  "task": "Publish product ID 123",
+    "domain": "state.change",
+    "task": "Apply a live config change",
   "status": "success",
-  "commands_run": ["shopify.get_product", "shopify.update_metafield"],
+    "commands_run": ["resolve-target", "api.write", "api.read"],
   "errors_seen": [],
-  "diff_summary": "Updated metafields for gid://shopify/Product/123",
-  "output_summary": "Product published, audit passed"
+    "diff_summary": "Applied change using canonical identifier",
+    "output_summary": "Read-after-write verification passed"
 &#125;
 ```
 
 Full trace schema:
 
-| Field                | Type         | Required            | Description                            |
-| -------------------- | ------------ | ------------------- | -------------------------------------- |
-| `id`                 | string       | No (auto-generated) | Trace ID                               |
-| `agent`              | string       | Yes                 | Agent identifier                       |
-| `domain`             | string       | Yes                 | Domain (e.g. `beseam.shopify.publish`) |
-| `task`               | string       | Yes                 | Task description                       |
-| `status`             | enum         | Yes                 | `success`, `failed`, or `partial`      |
-| `files_touched`      | string[]     | No                  | Files modified                         |
-| `tools_called`       | string[]     | No                  | Tools invoked                          |
-| `commands_run`       | string[]     | No                  | Commands executed                      |
-| `errors_seen`        | string[]     | No                  | Errors encountered                     |
-| `repeated_failures`  | string[]     | No                  | Patterns that recurred                 |
-| `diff_summary`       | string       | No                  | What changed                           |
-| `output_summary`     | string       | No                  | Outcome summary                        |
-| `validation_results` | object       | No                  | Rubric results                         |
-| `created_at`         | ISO datetime | No                  | Timestamp (auto)                       |
+| Field                | Type         | Required            | Description                       |
+| -------------------- | ------------ | ------------------- | --------------------------------- |
+| `id`                 | string       | No (auto-generated) | Trace ID                          |
+| `agent`              | string       | Yes                 | Agent identifier                  |
+| `domain`             | string       | Yes                 | Domain (e.g. `state.change`)      |
+| `task`               | string       | Yes                 | Task description                  |
+| `status`             | enum         | Yes                 | `success`, `failed`, or `partial` |
+| `files_touched`      | string[]     | No                  | Files modified                    |
+| `tools_called`       | string[]     | No                  | Tools invoked                     |
+| `commands_run`       | string[]     | No                  | Commands executed                 |
+| `errors_seen`        | string[]     | No                  | Errors encountered                |
+| `repeated_failures`  | string[]     | No                  | Patterns that recurred            |
+| `diff_summary`       | string       | No                  | What changed                      |
+| `output_summary`     | string       | No                  | Outcome summary                   |
+| `validation_results` | object       | No                  | Rubric results                    |
+| `created_at`         | ISO datetime | No                  | Timestamp (auto)                  |
 
 All string fields are redacted before persistence (secrets removed).
 
@@ -244,19 +244,17 @@ Run a rubric gate against a set of check results (JSON from stdin). Returns pass
 - `0` = rubric passes
 - `2` = rubric blocked (one or more required checks missing or false)
 
-**Example with the Shopify publish rubric:**
+**Example with the state-change safety rubric:**
 
 ```bash
 echo '&#123;
-  "product_identity_uses_gid": true,
-  "pre_publish_snapshot_exists": true,
-  "write_result_checked": true,
-  "post_publish_refetch_done": true,
-  "post_publish_audit_passed": true,
-  "rollback_available": true,
-  "localized_url_test_passed": true,
-  "changed_handle_test_passed": true
-&#125;' | uv run atelier run-rubric rubric_shopify_publish
+    "canonical_identifier_used": true,
+    "pre_change_state_captured": true,
+    "read_after_write_completed": true,
+    "observed_state_matches_intent": true,
+    "rollback_plan_available": true,
+    "user_visible_surface_checked": true
+&#125;' | uv run atelier run-rubric rubric_state_change_safety
 ```
 
 ---

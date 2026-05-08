@@ -39,18 +39,18 @@ Codex CLI / IDE configuration:
 ```bash
 cd atelier
 uv sync --all-extras
-uv run atelier init   # creates .atelier/ + seeds 10 blocks + 5 rubrics
+uv run atelier init   # creates .atelier/ + seeds 10 blocks + 7 rubrics
 ```
 
 ## 4. Smoke test
 
 ```bash
 uv run atelier lint \
-  --task "Fix Shopify publish validation" \
-  --domain beseam.shopify.publish \
-  --step "Parse product handle from PDP URL" \
-  --step "Use handle to update metafields"
-# Expect: status BLOCKED + suggested plan that uses the Product GID.
+  --task "Fix a live state change" \
+  --domain state.change \
+  --step "Resolve target from URL slug alone" \
+  --step "Apply the update"
+# Expect: status BLOCKED + suggested plan that uses the canonical identifier.
 ```
 
 ## 5. Tool reference

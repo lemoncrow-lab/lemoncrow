@@ -57,13 +57,38 @@ if [ -n "$DIFF_BASE" ]; then
     mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=ACMRTUXB "$DIFF_BASE...HEAD" 2>/dev/null || true)
 fi
 
-# Run pre-commit checks on the files being pushed
+# Validate formatting on the files being pushed (read-only, no modifications)
 if [ ${#CHANGED_FILES[@]} -gt 0 ]; then
-    echo "🔍 Running pre-commit checks on pushed files..."
-    ./.githooks/pre-commit "${CHANGED_FILES[@]}" || {
-        echo -e "\033[1;31m❌ Pre-commit checks failed for pushed files.\033[0m"
-        exit 1
-    }
+    # Filter Python files
+    PYTHON_FILES=()
+    for file in "${CHANGED_FILES[@]}"; do
+        if [[ "$file" == *.py ]] && [[ -f "$file" ]]; then
+            PYTHON_FILES+=("$file")
+        fi
+    done
+
+    if [ ${#PYTHON_FILES[@]} -gt 0 ]; then
+        echo "🔍 Validating Python file formatting..."
+
+        # ruff check (lint) — read-only, no --fix
+        set +e
+        uv run ruff check "${PYTHON_FILES[@]}"
+        RUFF_CHECK_EXIT=$?
+        set -e
+
+        # black --check (formatting) — read-only, no modification
+        set +e
+        uvx black --check "${PYTHON_FILES[@]}" 2>/dev/null
+        BLACK_CHECK_EXIT=$?
+        set -e
+
+        if [ $RUFF_CHECK_EXIT -ne 0 ] || [ $BLACK_CHECK_EXIT -ne 0 ]; then
+            echo -e "\033[1;31m❌ Formatting/lint issues detected in pushed files.\033[0m"
+            echo "   Please run 'git commit' (which auto-formats) or"
+            echo "   run 'uv run ruff check --fix <file>' and 'uvx black <file>' manually."
+            exit 1
+        fi
+    fi
 fi
 
 echo "✅ Pre-push checks passed!"

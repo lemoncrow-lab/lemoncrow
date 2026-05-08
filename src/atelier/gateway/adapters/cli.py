@@ -24,7 +24,7 @@ from typing import Any
 import click
 import yaml
 
-from atelier.core.foundation.paths import default_store_root
+from atelier import __version__ as atelier_version
 from atelier.core.capabilities.lesson_promotion import LessonPrBot, LessonPromoterCapability
 from atelier.core.foundation.extractor import extract_candidate
 from atelier.core.foundation.metrics import summarize
@@ -34,6 +34,7 @@ from atelier.core.foundation.models import (
     Trace,
     to_jsonable,
 )
+from atelier.core.foundation.paths import default_store_root
 from atelier.core.foundation.plan_checker import check_plan
 from atelier.core.foundation.renderer import (
     render_block_markdown,
@@ -230,9 +231,16 @@ def _record_plan_telemetry(
 # --------------------------------------------------------------------------- #
 
 
-def _load_store(root: Path) -> ReasoningStore:
-    store = ReasoningStore(root)
-    if not store.db_path.exists():
+def _load_store(root: Path) -> Any:
+    from atelier.infra.storage.factory import create_store
+
+    try:
+        store = create_store(root)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    db_path = getattr(store, "db_path", None)
+    if db_path is not None and not Path(db_path).exists():
         raise click.ClickException(f"No atelier store at {root}. Run `atelier init` first.")
     return store
 
@@ -325,6 +333,187 @@ def _run_compose(args: list[str]) -> None:
     subprocess.run(["docker", "compose", "-f", str(_letta_compose_file()), *args], check=True)
 
 
+def _project_root() -> Path:
+    env = os.environ.get("ATELIER_INSTALL_DIR", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    return Path(__file__).resolve().parents[4]
+
+
+def _stack_compose_file() -> Path:
+    return _project_root() / "docker-compose.yml"
+
+
+def _run_stack_compose(args: list[str]) -> None:
+    compose_file = _stack_compose_file()
+    if not compose_file.exists():
+        raise click.ClickException(f"visualization stack compose file not found: {compose_file}")
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "compose",
+                "--project-directory",
+                str(compose_file.parent),
+                "-f",
+                str(compose_file),
+                *args,
+            ],
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise click.ClickException("docker compose is required to manage the visualization stack") from exc
+    except subprocess.CalledProcessError as exc:
+        raise click.ClickException(f"docker compose exited with code {exc.returncode}") from exc
+
+
+def _servicectl_dir(root: Path) -> Path:
+    return Path(root) / "servicectl"
+
+
+def _servicectl_pid_path(root: Path) -> Path:
+    return _servicectl_dir(root) / "servicectl.pid"
+
+
+def _servicectl_log_path(root: Path) -> Path:
+    return _servicectl_dir(root) / "servicectl.log"
+
+
+def _servicectl_state_path(root: Path) -> Path:
+    return _servicectl_dir(root) / "state.json"
+
+
+def _pid_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _read_servicectl_state(root: Path) -> dict[str, Any]:
+    path = _servicectl_state_path(root)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_servicectl_state(root: Path, payload: dict[str, Any]) -> None:
+    state_path = _servicectl_state_path(root)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _read_servicectl_pid(root: Path) -> int | None:
+    path = _servicectl_pid_path(root)
+    if not path.exists():
+        return None
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _clear_servicectl_pid(root: Path) -> None:
+    path = _servicectl_pid_path(root)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+
+
+def _servicectl_status_payload(root: Path) -> dict[str, Any]:
+    state = _read_servicectl_state(root)
+    pid = _read_servicectl_pid(root)
+    running = bool(pid is not None and _pid_is_running(pid))
+    return {
+        "running": running,
+        "pid": pid,
+        "pid_file": str(_servicectl_pid_path(root)),
+        "log_file": str(_servicectl_log_path(root)),
+        "state_file": str(_servicectl_state_path(root)),
+        "last_tick_at": state.get("last_tick_at"),
+        "last_processed_jobs": state.get("last_processed_jobs", []),
+        "last_enqueued_jobs": state.get("last_enqueued_jobs", []),
+        "last_exit_reason": state.get("last_exit_reason"),
+        "started_at": state.get("started_at"),
+    }
+
+
+def _servicectl_tick(root: Path, *, maintenance_interval_seconds: int) -> dict[str, Any]:
+    from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
+    from atelier.core.service.worker import Worker
+    from atelier.infra.storage.factory import create_store
+
+    store = create_store(root)
+    store.init()
+    worker = Worker(store=store)
+
+    now = datetime.now(UTC)
+    state = _read_servicectl_state(root)
+    periodic = state.setdefault("periodic_jobs", {})
+    last_enqueue_raw = periodic.get(JOB_CONSOLIDATE_BLOCKS)
+    last_enqueue_at: datetime | None = None
+    if isinstance(last_enqueue_raw, str):
+        try:
+            last_enqueue_at = datetime.fromisoformat(last_enqueue_raw)
+        except ValueError:
+            last_enqueue_at = None
+
+    enqueued: list[str] = []
+    if maintenance_interval_seconds <= 0 or last_enqueue_at is None:
+        due = True
+    else:
+        due = (now - last_enqueue_at).total_seconds() >= maintenance_interval_seconds
+
+    if due:
+        active_jobs = [
+            job
+            for job in store.list_jobs(job_type=JOB_CONSOLIDATE_BLOCKS, limit=200)
+            if job["status"] in {"pending", "running", "failed"}
+        ]
+        if not active_jobs:
+            job_id = store.enqueue_job(
+                JOB_CONSOLIDATE_BLOCKS,
+                {"dry_run": False, "source": "servicectl"},
+            )
+            enqueued.append(job_id)
+            periodic[JOB_CONSOLIDATE_BLOCKS] = now.isoformat()
+
+    processed: list[str] = []
+    while len(processed) < 20:
+        job_id = worker.run_once()
+        if job_id is None:
+            break
+        processed.append(job_id)
+
+    payload = {
+        "last_tick_at": now.isoformat(),
+        "last_processed_jobs": processed,
+        "last_enqueued_jobs": enqueued,
+        "last_exit_reason": state.get("last_exit_reason"),
+        "periodic_jobs": periodic,
+        "started_at": state.get("started_at"),
+    }
+    _write_servicectl_state(root, payload)
+    return {
+        "enqueued_jobs": enqueued,
+        "processed_jobs": processed,
+        "pending_jobs": len(
+            [job for job in store.list_jobs(limit=200) if job["status"] in {"pending", "running", "failed"}]
+        ),
+        "tick_at": now.isoformat(),
+    }
+
+
 def _parse_tags(values: tuple[str, ...]) -> list[str]:
     tags: list[str] = []
     for value in values:
@@ -366,6 +555,7 @@ def _path_content_fingerprint(path_text: str) -> str:
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.version_option(version=atelier_version, prog_name="atelier")
 @click.option(
     "--root",
     type=click.Path(path_type=Path),
@@ -403,7 +593,12 @@ def init(ctx: click.Context, seed: bool, stack: str | None, show_stacks: bool) -
         return
 
     root: Path = ctx.obj["root"]
-    store = ReasoningStore(root)
+    from atelier.infra.storage.factory import create_store
+
+    try:
+        store = create_store(root)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
     store.init()
     click.echo(f"initialized atelier store at {store.root}")
     if seed:
@@ -2660,8 +2855,7 @@ def consolidate_cmd(ctx: click.Context, since: str, dry_run: bool, as_json: bool
     """Run manual sleep-time consolidation."""
     from atelier.core.capabilities.consolidation import consolidate
 
-    store = ReasoningStore(ctx.obj["root"])
-    store.init()
+    store = _load_store(ctx.obj["root"])
     report = consolidate(store, since=_parse_duration(since), dry_run=dry_run)
     _emit(report.to_dict(), as_json=as_json)
 
@@ -2676,8 +2870,7 @@ def consolidation_group() -> None:
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def consolidation_inbox(ctx: click.Context, limit: int, as_json: bool) -> None:
-    store = ReasoningStore(ctx.obj["root"])
-    store.init()
+    store = _load_store(ctx.obj["root"])
     items = store.list_consolidation_candidates(limit=limit)
     payload = {"candidates": [item.model_dump(mode="json") for item in items]}
     if as_json:
@@ -2697,8 +2890,7 @@ def consolidation_inbox(ctx: click.Context, limit: int, as_json: bool) -> None:
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def consolidation_decide(ctx: click.Context, candidate_id: str, decision: str, reviewer: str, as_json: bool) -> None:
-    store = ReasoningStore(ctx.obj["root"])
-    store.init()
+    store = _load_store(ctx.obj["root"])
     candidate = store.get_consolidation_candidate(candidate_id)
     if candidate is None:
         raise click.ClickException(f"consolidation candidate not found: {candidate_id}")
@@ -2711,6 +2903,51 @@ def consolidation_decide(ctx: click.Context, candidate_id: str, decision: str, r
         _emit(payload, as_json=True)
         return
     click.echo(f"{decision} {candidate_id}")
+
+
+@cli.group("stack")
+def stack_group() -> None:
+    """Manage the optional visualization stack (service + frontend)."""
+
+
+@stack_group.command("start")
+@click.option("--with-docs", is_flag=True, help="Also start the docs site on port 3200.")
+def stack_start(with_docs: bool) -> None:
+    """Start the optional visualization stack via Docker Compose."""
+    services = ["service", "frontend", "otel-collector"]
+    if with_docs:
+        services.append("docs")
+    _run_stack_compose(["up", "--build", "-d", *services])
+    click.echo("frontend: http://localhost:3125")
+    click.echo("service: http://localhost:8787")
+    if with_docs:
+        click.echo("docs: http://localhost:3200")
+
+
+@stack_group.command("stop")
+def stack_stop() -> None:
+    """Stop the optional visualization stack."""
+    _run_stack_compose(["down"])
+
+
+@stack_group.command("status")
+def stack_status() -> None:
+    """Show visualization stack container status."""
+    _run_stack_compose(["ps"])
+
+
+@stack_group.command("logs")
+@click.option("-f", "follow", is_flag=True)
+@click.option("--with-docs", is_flag=True, help="Include docs container logs.")
+def stack_logs(follow: bool, with_docs: bool) -> None:
+    """Show visualization stack logs."""
+    args = ["logs"]
+    if follow:
+        args.append("-f")
+    args.extend(["service", "frontend", "otel-collector"])
+    if with_docs:
+        args.append("docs")
+    _run_stack_compose(args)
 
 
 @cli.group("bash")
@@ -2958,7 +3195,10 @@ def login_cmd(ctx: click.Context, token: str | None, anonymous: bool, as_json: b
     if anonymous:
         payload = {"auth": claim_anonymous_trial(ctx.obj["root"]), "mode": "anonymous"}
     elif token:
-        payload = {"auth": write_auth_state(ctx.obj["root"], parse_login_token(token)), "mode": "token"}
+        payload = {
+            "auth": write_auth_state(ctx.obj["root"], parse_login_token(token)),
+            "mode": "token",
+        }
     else:
         pending = begin_browser_login(ctx.obj["root"])
         payload = {"mode": "browser", "pending": pending}
@@ -3087,9 +3327,20 @@ def plugin_settings_set(ctx: click.Context, key: str, value: str, as_json: bool)
     default=None,
     help="Command template for benchmark savings Atelier-enabled runs. Receives ATELIER_BENCH_PROMPT.",
 )
-@click.option("--timeout", "timeout_s", default=600.0, show_default=True, type=float, help="Seconds per command.")
 @click.option(
-    "--max-prompts", default=5, show_default=True, type=int, help="Default replay prompts for savings action."
+    "--timeout",
+    "timeout_s",
+    default=600.0,
+    show_default=True,
+    type=float,
+    help="Seconds per command.",
+)
+@click.option(
+    "--max-prompts",
+    default=5,
+    show_default=True,
+    type=int,
+    help="Default replay prompts for savings action.",
 )
 @click.option(
     "--input",
@@ -3170,7 +3421,7 @@ def benchmark(
             {"id": f"prompt-{idx}", "task_type": "ad_hoc", "task": prompt}
             for idx, prompt in enumerate(prompts, start=1)
         ]
-        report = run_paired_command_benchmark(
+        paired_report = run_paired_command_benchmark(
             root=ctx.obj["root"],
             baseline_command=baseline_command,
             atelier_command=atelier_command,
@@ -3179,7 +3430,7 @@ def benchmark(
             timeout_s=timeout_s,
             max_prompts=max_prompts,
         )
-        payload = report.to_dict()
+        payload = paired_report.to_dict()
         if output_path is not None:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -3465,7 +3716,7 @@ def worker_group() -> None:
 @worker_group.command("start")
 @click.pass_context
 def worker_start(ctx: click.Context) -> None:
-    """Start the background worker loop (Postgres required)."""
+    """Start the background worker loop."""
     try:
         from atelier.core.service.worker import Worker
     except ImportError as exc:
@@ -3475,12 +3726,7 @@ def worker_start(ctx: click.Context) -> None:
 
     root = ctx.obj["root"]
     store = create_store(root)
-    if not hasattr(store, "claim_job"):
-        click.echo(
-            "No production job queue configured (SQLite mode). "
-            "Set ATELIER_STORAGE_BACKEND=postgres and ATELIER_DATABASE_URL to enable workers."
-        )
-        return
+    store.init()
     worker = Worker(store=store)
     click.echo("Worker started. Press Ctrl+C to stop.")
     worker.run()
@@ -3499,15 +3745,265 @@ def worker_run_once(ctx: click.Context) -> None:
 
     root = ctx.obj["root"]
     store = create_store(root)
-    if not hasattr(store, "claim_job"):
-        click.echo("no production queue configured — SQLite mode")
-        return
+    store.init()
     worker = Worker(store=store)
     processed = worker.run_once()
     if processed:
         click.echo(f"processed job: {processed}")
     else:
         click.echo("no pending jobs")
+
+
+@worker_group.command("enqueue")
+@click.argument("job_type")
+@click.option("--payload", default="{}", show_default=True, help="Inline JSON object payload.")
+@click.option("--max-attempts", default=3, type=int, show_default=True)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def worker_enqueue(
+    ctx: click.Context,
+    job_type: str,
+    payload: str,
+    max_attempts: int,
+    as_json: bool,
+) -> None:
+    """Queue one background job."""
+    from atelier.infra.storage.factory import create_store
+
+    try:
+        payload_data = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"invalid JSON payload: {exc}") from exc
+    if not isinstance(payload_data, dict):
+        raise click.ClickException("payload must decode to a JSON object")
+
+    store = create_store(ctx.obj["root"])
+    store.init()
+    job_id = store.enqueue_job(job_type, payload_data, max_attempts=max_attempts)
+    result = {
+        "job_id": job_id,
+        "job_type": job_type,
+        "status": "pending",
+    }
+    _emit(result, as_json=as_json) if as_json else click.echo(job_id)
+
+
+@worker_group.command("list")
+@click.option("--status", default=None, help="Filter by job status.")
+@click.option("--job-type", default=None, help="Filter by job type.")
+@click.option("--limit", default=20, type=int, show_default=True)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def worker_list(ctx: click.Context, status: str | None, job_type: str | None, limit: int, as_json: bool) -> None:
+    """List queued and processed jobs."""
+    from atelier.infra.storage.factory import create_store
+
+    store = create_store(ctx.obj["root"])
+    store.init()
+    jobs = store.list_jobs(status=status, job_type=job_type, limit=limit)
+    if as_json:
+        _emit(jobs, as_json=True)
+        return
+    if not jobs:
+        click.echo("(no jobs)")
+        return
+    for job in jobs:
+        click.echo(f"{job['id']}\t{job['job_type']}\t{job['status']}\tattempts={job['attempts']}")
+
+
+@cli.group("servicectl")
+def servicectl_group() -> None:
+    """Manage the background offline processing controller."""
+
+
+@servicectl_group.command("tick")
+@click.option("--maintenance-interval-seconds", default=21600, show_default=True, type=int)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def servicectl_tick(ctx: click.Context, maintenance_interval_seconds: int, as_json: bool) -> None:
+    """Run one maintenance tick: enqueue due jobs and process pending work."""
+    payload = _servicectl_tick(ctx.obj["root"], maintenance_interval_seconds=maintenance_interval_seconds)
+    _emit(payload, as_json=as_json) if as_json else click.echo(json.dumps(payload, indent=2))
+
+
+@servicectl_group.command("start")
+@click.option("--interval-seconds", default=60, show_default=True, type=int)
+@click.option("--maintenance-interval-seconds", default=21600, show_default=True, type=int)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def servicectl_start(
+    ctx: click.Context,
+    interval_seconds: int,
+    maintenance_interval_seconds: int,
+    as_json: bool,
+) -> None:
+    """Start the detached background controller."""
+    root = ctx.obj["root"]
+    status = _servicectl_status_payload(root)
+    if status["running"]:
+        if as_json:
+            _emit(status, as_json=True)
+        else:
+            click.echo(f"already running (pid {status['pid']})")
+        return
+
+    _clear_servicectl_pid(root)
+    control_dir = _servicectl_dir(root)
+    control_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        sys.executable,
+        "-m",
+        "atelier.gateway.adapters.cli",
+        "--root",
+        str(root),
+        "servicectl",
+        "run",
+        "--interval-seconds",
+        str(interval_seconds),
+        "--maintenance-interval-seconds",
+        str(maintenance_interval_seconds),
+    ]
+    env = os.environ.copy()
+    env["ATELIER_ROOT"] = str(root)
+    with _servicectl_log_path(root).open("a", encoding="utf-8") as log_file:
+        proc = subprocess.Popen(
+            command,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            env=env,
+            start_new_session=True,
+            close_fds=True,
+        )
+    _servicectl_pid_path(root).write_text(f"{proc.pid}\n", encoding="utf-8")
+    state = _read_servicectl_state(root)
+    state.update(
+        {
+            "started_at": datetime.now(UTC).isoformat(),
+            "last_exit_reason": None,
+        }
+    )
+    _write_servicectl_state(root, state)
+    payload = _servicectl_status_payload(root)
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"started servicectl (pid {proc.pid})")
+
+
+@servicectl_group.command("stop")
+@click.option("--force", is_flag=True, help="Use SIGKILL if SIGTERM does not stop the process.")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def servicectl_stop(ctx: click.Context, force: bool, as_json: bool) -> None:
+    """Stop the detached background controller."""
+    root = ctx.obj["root"]
+    pid = _read_servicectl_pid(root)
+    if pid is None or not _pid_is_running(pid):
+        _clear_servicectl_pid(root)
+        state = _read_servicectl_state(root)
+        state["last_exit_reason"] = "not_running"
+        _write_servicectl_state(root, state)
+        payload = _servicectl_status_payload(root)
+        if as_json:
+            _emit(payload, as_json=True)
+        else:
+            click.echo("servicectl is not running")
+        return
+
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.time() + 5
+    while _pid_is_running(pid) and time.time() < deadline:
+        time.sleep(0.1)
+    if _pid_is_running(pid) and force:
+        os.kill(pid, signal.SIGKILL)
+    _clear_servicectl_pid(root)
+    state = _read_servicectl_state(root)
+    state["last_exit_reason"] = "stopped"
+    _write_servicectl_state(root, state)
+    payload = _servicectl_status_payload(root)
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo("stopped servicectl")
+
+
+@servicectl_group.command("status")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def servicectl_status(ctx: click.Context, as_json: bool) -> None:
+    """Show background controller status."""
+    root = ctx.obj["root"]
+    payload = _servicectl_status_payload(root)
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+
+    if payload["running"]:
+        import subprocess
+
+        pid = payload["pid"]
+        # Try to show system-level status for the PID
+        for cmd in [
+            ["systemctl", "--user", "status", str(pid), "--no-pager"],
+            ["systemctl", "status", str(pid), "--no-pager"],
+        ]:
+            try:
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                if res.returncode == 0:
+                    click.echo(res.stdout)
+                    click.echo("-" * 40)
+                    break
+            except Exception:
+                pass
+
+    click.echo(f"running: {str(payload['running']).lower()}")
+    click.echo(f"pid: {payload['pid']}")
+    click.echo(f"log_file: {payload['log_file']}")
+    if payload["last_tick_at"]:
+        click.echo(f"last_tick_at: {payload['last_tick_at']}")
+    if payload["last_processed_jobs"]:
+        click.echo("last_processed_jobs: " + ", ".join(payload["last_processed_jobs"]))
+
+
+@servicectl_group.command("logs")
+@click.option("-f", "follow", is_flag=True)
+@click.option("--lines", default=80, show_default=True, type=int)
+@click.pass_context
+def servicectl_logs(ctx: click.Context, follow: bool, lines: int) -> None:
+    """Show background controller logs."""
+    log_path = _servicectl_log_path(ctx.obj["root"])
+    if not log_path.exists():
+        click.echo("(no servicectl logs)")
+        return
+    if follow:
+        try:
+            subprocess.run(["tail", "-n", str(lines), "-f", str(log_path)], check=True)
+        except FileNotFoundError as exc:
+            raise click.ClickException("tail is required for --follow log streaming") from exc
+        except subprocess.CalledProcessError as exc:
+            raise click.ClickException(f"tail exited with code {exc.returncode}") from exc
+        return
+    content = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for line in content[-lines:]:
+        click.echo(line)
+
+
+@servicectl_group.command("run", hidden=True)
+@click.option("--interval-seconds", default=60, show_default=True, type=int)
+@click.option("--maintenance-interval-seconds", default=21600, show_default=True, type=int)
+@click.pass_context
+def servicectl_run(ctx: click.Context, interval_seconds: int, maintenance_interval_seconds: int) -> None:
+    """Internal long-running background loop."""
+    root = ctx.obj["root"]
+    try:
+        while True:
+            _servicectl_tick(root, maintenance_interval_seconds=maintenance_interval_seconds)
+            time.sleep(max(1, interval_seconds))
+    except KeyboardInterrupt:
+        state = _read_servicectl_state(root)
+        state["last_exit_reason"] = "interrupted"
+        _write_servicectl_state(root, state)
+        raise SystemExit(0) from None
 
 
 # --------------------------------------------------------------------------- #

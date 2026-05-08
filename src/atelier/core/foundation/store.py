@@ -16,16 +16,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 from collections.abc import Iterable
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import yaml
 
-from atelier.core.foundation.paths import resolve_knowledge_root
 from atelier.core.foundation.lesson_models import LessonCandidate, LessonPromotion
 from atelier.core.foundation.models import (
     BlockStatus,
@@ -36,6 +37,7 @@ from atelier.core.foundation.models import (
     Trace,
     to_jsonable,
 )
+from atelier.core.foundation.paths import resolve_knowledge_root
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +178,22 @@ CREATE TABLE IF NOT EXISTS benchmark_prompt_result (
     reduction_pct REAL NOT NULL,
     lever_attribution_json TEXT NOT NULL DEFAULT '{}'
 );
+
+CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    job_type TEXT NOT NULL,
+    payload TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    locked_by TEXT,
+    locked_at TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_type_status ON jobs(job_type, status, created_at);
 """
 
 
@@ -483,12 +501,12 @@ class ReasoningStore:
         if self.rubrics_dir.exists():
             rubric_paths = sorted(self.rubrics_dir.rglob("*.yaml")) + sorted(self.rubrics_dir.rglob("*.yml"))
             prev = self._load_sync_manifest("rubrics")
-            fresh: dict[str, int] = {}
+            fresh_rubrics: dict[str, int] = {}
 
             for path in rubric_paths:
                 key = str(path)
                 mtime = path.stat().st_mtime_ns
-                fresh[key] = mtime
+                fresh_rubrics[key] = mtime
                 if prev.get(key) == mtime:
                     continue  # unchanged
 
@@ -502,7 +520,7 @@ class ReasoningStore:
                     logger.warning("failed to sync knowledge rubric from %s: %s", path, exc)
                     continue
 
-            self._save_sync_manifest("rubrics", fresh)
+            self._save_sync_manifest("rubrics", fresh_rubrics)
 
         return results
 
@@ -696,6 +714,120 @@ class ReasoningStore:
             rows = conn.execute(sql, params).fetchall()
         return [Rubric.model_validate_json(r["payload"]) for r in rows]
 
+    # ----- Jobs ------------------------------------------------------------ #
+
+    def enqueue_job(
+        self,
+        job_type: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        max_attempts: int = 3,
+    ) -> str:
+        job_id = uuid4().hex
+        now = datetime.now(UTC).isoformat()
+        payload_json = json.dumps(payload or {}, ensure_ascii=False, sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO jobs (
+                    id, job_type, payload, status, attempts, max_attempts,
+                    locked_by, locked_at, error, created_at, updated_at
+                )
+                VALUES (?, ?, ?, 'pending', 0, ?, NULL, NULL, NULL, ?, ?)
+                """,
+                (job_id, job_type, payload_json, max_attempts, now, now),
+            )
+        return job_id
+
+    def claim_job(self, worker_id: str | None = None) -> dict[str, Any] | None:
+        claimed_by = worker_id or f"sqlite-{os.getpid()}"
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("""
+                SELECT *
+                FROM jobs
+                WHERE status IN ('pending', 'failed')
+                  AND attempts < max_attempts
+                ORDER BY created_at ASC
+                LIMIT 1
+                """).fetchone()
+            if row is None:
+                conn.commit()
+                return None
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'running',
+                    attempts = attempts + 1,
+                    locked_by = ?,
+                    locked_at = ?,
+                    updated_at = ?,
+                    error = NULL
+                WHERE id = ?
+                """,
+                (claimed_by, now, now, row["id"]),
+            )
+            claimed = conn.execute("SELECT * FROM jobs WHERE id = ?", (row["id"],)).fetchone()
+            conn.commit()
+        return self._row_to_job(claimed) if claimed is not None else None
+
+    def complete_job(self, job_id: str, result: dict[str, Any] | None = None) -> bool:
+        _ = result
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            res = conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'succeeded',
+                    locked_by = NULL,
+                    locked_at = NULL,
+                    error = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (now, job_id),
+            )
+        return (res.rowcount or 0) > 0
+
+    def fail_job(self, job_id: str, error: str) -> bool:
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            res = conn.execute(
+                """
+                UPDATE jobs
+                SET status = CASE WHEN attempts >= max_attempts THEN 'dead' ELSE 'failed' END,
+                    locked_by = NULL,
+                    locked_at = NULL,
+                    error = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (error, now, job_id),
+            )
+        return (res.rowcount or 0) > 0
+
+    def list_jobs(
+        self,
+        *,
+        status: str | None = None,
+        job_type: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM jobs WHERE 1=1"
+        params: list[Any] = []
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        if job_type:
+            sql += " AND job_type = ?"
+            params.append(job_type)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_job(row) for row in rows]
+
     # ----- Lessons --------------------------------------------------------- #
 
     def upsert_lesson_candidate(self, candidate: LessonCandidate) -> None:
@@ -875,6 +1007,22 @@ class ReasoningStore:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM consolidation_candidate WHERE id = ?", (candidate_id,)).fetchone()
         return self._row_to_consolidation_candidate(row) if row is not None else None
+
+    def _row_to_job(self, row: sqlite3.Row) -> dict[str, Any]:
+        payload = row["payload"]
+        return {
+            "id": row["id"],
+            "job_type": row["job_type"],
+            "payload": json.loads(payload) if isinstance(payload, str) else (payload or {}),
+            "status": row["status"],
+            "attempts": row["attempts"],
+            "max_attempts": row["max_attempts"],
+            "locked_by": row["locked_by"],
+            "locked_at": row["locked_at"],
+            "error": row["error"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
 
     def _row_to_consolidation_candidate(self, row: sqlite3.Row) -> ConsolidationCandidate:
         return ConsolidationCandidate(

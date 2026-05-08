@@ -19,7 +19,6 @@ def cli_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
-
 def test_cli_proof_run_json_output(cli_env: Path) -> None:
     result = CliRunner().invoke(
         cli,

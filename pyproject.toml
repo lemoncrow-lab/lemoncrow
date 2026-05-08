@@ -78,7 +78,6 @@ dev = [
 [project.scripts]
 atelier = "atelier.gateway.adapters.cli:main"
 atelier-mcp = "atelier.gateway.adapters.mcp_server:main"
-atelier-api = "atelier.gateway.adapters.http_api:main"
 atelier-task = "atelier.gateway.adapters.wrappers:task_main"
 atelier-context = "atelier.gateway.adapters.wrappers:context_main"
 atelier-check-plan = "atelier.gateway.adapters.wrappers:check_plan_main"

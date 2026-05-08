@@ -131,7 +131,8 @@ if ! command -v claude &>/dev/null; then
     fi
     warn "'claude' CLI not found on PATH - SKIPPING Claude install."
     warn "Install Claude Code, then run: make install-claude"
-    exit 2
+    echo "=== SKIPPED (claude CLI absent) ==="
+    exit 0
 fi
 
 CLAUDE_VERSION="$(claude --version 2>/dev/null || echo 'unknown')"

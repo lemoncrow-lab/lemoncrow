@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 try:
     import tomllib
@@ -13,7 +13,6 @@ except ImportError:  # pragma: no cover
     tomllib = None  # type: ignore[assignment]
 
 from atelier.core.foundation.paths import default_store_root
-from atelier.core.foundation.store import ReasoningStore
 from atelier.infra.storage.memory_store import MemoryStore
 
 if TYPE_CHECKING:
@@ -22,9 +21,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def create_store(root: Path) -> ReasoningStore:
-    """Create a ReasoningStore for the given root path."""
-    return ReasoningStore(root)
+def create_store(root: Path) -> Any:
+    """Create the configured storage backend for the given root path."""
+    backend = os.environ.get("ATELIER_STORAGE_BACKEND", "sqlite").strip().lower() or "sqlite"
+    resolved_root = Path(root)
+    if backend == "sqlite":
+        from atelier.infra.storage.sqlite_store import SQLiteStore
+
+        return SQLiteStore(resolved_root)
+    if backend == "postgres":
+        from atelier.infra.storage.postgres_store import PostgresStore
+
+        return PostgresStore(database_url=os.environ.get("ATELIER_DATABASE_URL", ""))
+    raise ValueError("ATELIER_STORAGE_BACKEND must be 'sqlite' or 'postgres'")
 
 
 def make_memory_store(root: str | Path | None, *, prefer: str | None = None) -> MemoryStore:

@@ -13,17 +13,17 @@ Before starting any task in this repository, you MUST follow the Atelier reasoni
 
 1. **Check your plan** — Before editing files, consider whether your plan contains any known dead ends for this domain.
 
-   Known Beseam dead ends (DO NOT USE):
-   - "Parse product handle from PDP URL" → use Product GID instead
-   - "Lookup product by Shopify handle" → Shopify write APIs require GID
+Known baseline dead ends (DO NOT USE):
 
-2. **Verify output** — After completing a task in `beseam.shopify.publish` domain, all of the following must be true:
-   - `product_identity_uses_gid: true`
-   - `pre_publish_snapshot_exists: true`
-   - `write_result_checked: true`
-   - `post_publish_refetch_done: true`
-   - `post_publish_audit_passed: true`
-   - `rollback_available: true`
+- "Resolve target from URL slug alone" → resolve and record the canonical identifier first
+- "Continue patching before validation" → run the cheapest focused validation after each edit
+
+2. **Verify output** — After completing a task in `state.change` domain, all of the following must be true:
+
+- `canonical_identifier_used: true`
+- `pre_change_state_captured: true`
+- `read_after_write_completed: true`
+- `observed_state_matches_intent: true`
 
 3. **Record what happened** — After each task, state what commands you ran, what errors you saw, and what the outcome was.
 
@@ -48,7 +48,7 @@ MCP server `atelier` is available. Use it on every task:
 
 **After executing:** 3. Call `verify` with the appropriate rubric and your results 4. Call `trace` with the execution summary
 
-Available rubrics: `rubric_shopify_publish`, `rubric_pdp_audit`, and others (use `search` to find domain-specific ones).
+Available rubrics: `rubric_code_change`, `rubric_state_change_safety`, `rubric_debugging_task`, and others (use `search` to find domain-specific ones).
 ```
 
 ---

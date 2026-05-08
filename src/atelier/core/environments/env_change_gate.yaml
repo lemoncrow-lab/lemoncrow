@@ -1,0 +1,39 @@
+id: env_change_gate
+domain: policy.change
+description: >
+  Operating law for threshold, heuristic, scoring, classifier, and other gate
+  logic changes that can alter behavior for many users at once.
+
+triggers:
+  - threshold
+  - weight
+  - heuristic
+  - scoring
+  - audit
+  - classifier
+  - ranking
+
+forbidden:
+  - change threshold without baseline
+  - skip regression set
+  - hide gate change inside unrelated cleanup
+
+required:
+  - baseline_captured
+  - regression_set_run
+  - before_after_diff_reviewed
+  - version_or_changelog_updated
+
+escalate:
+  - user_visible_flip_unreviewed
+  - threshold_changed_without_owner_signoff
+
+high_risk_tools:
+  - config.write
+  - featureflag.update
+
+rubric_id: rubric_change_gate_discipline
+
+related_blocks:
+  - change-gate-discipline
+  - focused-post-edit-validation

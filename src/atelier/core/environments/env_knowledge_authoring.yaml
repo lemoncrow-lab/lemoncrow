@@ -1,0 +1,39 @@
+id: env_knowledge_authoring
+domain: knowledge
+description: >
+  Operating law for packaged baseline knowledge, examples, and authoring
+  surfaces. Shipped defaults must stay generic, reviewable, and synchronized
+  across package resources, mirrors, docs, and tests.
+
+triggers:
+  - reasonblock
+  - rubric
+  - knowledge pack
+  - baseline knowledge
+  - lesson
+  - authoring
+
+forbidden:
+  - ship customer specific baseline content
+  - update packaged seeds without mirror sync
+  - change examples without tests
+
+required:
+  - block_or_rubric_is_generic
+  - no_customer_specific_terms_in_baseline
+  - examples_and_tests_updated_together
+  - mirrors_and_package_seeds_kept_in_sync
+
+escalate:
+  - hidden_reasoning_or_secrets_added
+
+high_risk_tools:
+  - fs.bulk_write
+  - git.reset
+
+rubric_id: rubric_knowledge_authoring
+
+related_blocks:
+  - smallest-reviewable-change
+  - preserve-unrelated-user-work
+  - generated-artifact-not-source-of-truth

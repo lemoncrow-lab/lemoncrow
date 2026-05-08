@@ -56,20 +56,20 @@ def test_env_list_and_show(tmp_path: Path) -> None:
     res = _invoke(root, "env", "list", "--json")
     assert res.exit_code == 0
     ids = {e["id"] for e in json.loads(res.output)}
-    assert "env_shopify_publish" in ids
+    assert "env_state_change_safety" in ids
 
-    res2 = _invoke(root, "env", "show", "env_shopify_publish")
+    res2 = _invoke(root, "env", "show", "env_state_change_safety")
     assert res2.exit_code == 0
-    assert "rubric_id: rubric_shopify_publish" in res2.output
+    assert "rubric_id: rubric_state_change_safety" in res2.output
 
 
 def test_env_context_emits_rubric_and_blocks(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _invoke(root, "init")
-    res = _invoke(root, "env", "context", "env_shopify_publish", "--json")
+    res = _invoke(root, "env", "context", "env_state_change_safety", "--json")
     assert res.exit_code == 0, res.output
     payload = json.loads(res.output)
-    assert payload["environment"]["id"] == "env_shopify_publish"
+    assert payload["environment"]["id"] == "env_state_change_safety"
     assert payload["rubric"] is not None
 
 
@@ -111,10 +111,10 @@ def test_eval_lifecycle(tmp_path: Path) -> None:
     eval_dir.mkdir(parents=True, exist_ok=True)
     case = {
         "id": "case1",
-        "domain": "beseam.shopify.publish",
-        "description": "blocks handle plan",
-        "task": "Fix shopify",
-        "plan": ["Parse Shopify product handle from URL"],
+        "domain": "state.change",
+        "description": "blocks slug-only identity plan",
+        "task": "Fix external state",
+        "plan": ["Resolve target from URL slug alone"],
         "expected_status": "blocked",
         "status": "draft",
     }

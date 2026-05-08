@@ -13,16 +13,16 @@ If a packet needs a new field, raise it as a comment and stop.
 
 ## 1. Existing models (untouched)
 
-| Model            | File                                | Notes                                  |
-| ---------------- | ----------------------------------- | -------------------------------------- |
-| `ReasonBlock`  | `core/foundation/models.py`    | Stays the canonical procedure schema   |
-| `Trace`        | `core/foundation/models.py`    | Stays the canonical observation schema |
-| `RawArtifact`  | `core/foundation/models.py`    | Unchanged                              |
-| `Rubric`       | `core/foundation/models.py`    | Unchanged                              |
-| `Environment`  | `core/foundation/models.py`    | Unchanged                              |
-| `LedgerEvent`  | `core/foundation/models.py`    | Unchanged                              |
-| `FailureCluster` | `core/foundation/models.py`  | Unchanged                              |
-| `EvalCase`     | `core/foundation/models.py`    | Unchanged                              |
+| Model            | File                        | Notes                                  |
+| ---------------- | --------------------------- | -------------------------------------- |
+| `ReasonBlock`    | `core/foundation/models.py` | Stays the canonical procedure schema   |
+| `Trace`          | `core/foundation/models.py` | Stays the canonical observation schema |
+| `RawArtifact`    | `core/foundation/models.py` | Unchanged                              |
+| `Rubric`         | `core/foundation/models.py` | Unchanged                              |
+| `Environment`    | `core/foundation/models.py` | Unchanged                              |
+| `LedgerEvent`    | `core/foundation/models.py` | Unchanged                              |
+| `FailureCluster` | `core/foundation/models.py` | Unchanged                              |
+| `EvalCase`       | `core/foundation/models.py` | Unchanged                              |
 
 V2 **never** edits these. New fields go on new models, joined by foreign-keys.
 
@@ -37,23 +37,24 @@ All new memory models live in `src/atelier/core/foundation/memory_models.py` (NE
 
 A Letta-derived editable core-memory block. Lives in the prompt or is recalled into it.
 
-| Field                     | Type                                                     | Required | Default                  | Notes                                                                              |
-| ------------------------- | -------------------------------------------------------- | -------- | ------------------------ | ---------------------------------------------------------------------------------- |
-| `id`                    | `str`                                                  | yes      | —                       | Format: `mem-<uuid7>`                                                            |
-| `agent_id`              | `str`                                                  | yes      | —                       | Logical agent name (e.g. `atelier:code`, `beseam.shopify`)                     |
-| `label`                 | `str`                                                  | yes      | —                       | Human-readable; unique per `(agent_id, label)`                                   |
-| `value`                 | `str`                                                  | yes      | —                       | Body text                                                                          |
-| `limit_chars`           | `int`                                                  | no       | `8000`                 | Hard cap; writes that exceed it are rejected                                       |
-| `description`           | `str`                                                  | no       | `""`                   | Why this block exists                                                              |
-| `read_only`             | `bool`                                                 | no       | `false`                | If `true`, agent tools cannot mutate                                             |
-| `metadata`              | `dict[str, Any]`                                       | no       | `\&#123;\&#125;`                   | Arbitrary JSON                                                                     |
-| `pinned`                | `bool`                                                 | no       | `false`                | If `true`, included in every prompt; ignored by recall scoring                   |
-| `version`               | `int`                                                  | no       | `1`                    | Optimistic locking; incremented on each update                                     |
-| `current_history_id`    | `str \| None`                                          | no       | `null`                 | FK to `MemoryBlockHistory.id`                                                    |
-| `created_at`            | `datetime`                                             | no       | `_utcnow()`            | UTC                                                                                |
-| `updated_at`            | `datetime`                                             | no       | `_utcnow()`            | UTC                                                                                |
+| Field                | Type             | Required | Default          | Notes                                                             |
+| -------------------- | ---------------- | -------- | ---------------- | ----------------------------------------------------------------- |
+| `id`                 | `str`            | yes      | —                | Format: `mem-<uuid7>`                                             |
+| `agent_id`           | `str`            | yes      | —                | Logical agent name (e.g. `atelier:code`, `legacy.external-agent`) |
+| `label`              | `str`            | yes      | —                | Human-readable; unique per `(agent_id, label)`                    |
+| `value`              | `str`            | yes      | —                | Body text                                                         |
+| `limit_chars`        | `int`            | no       | `8000`           | Hard cap; writes that exceed it are rejected                      |
+| `description`        | `str`            | no       | `""`             | Why this block exists                                             |
+| `read_only`          | `bool`           | no       | `false`          | If `true`, agent tools cannot mutate                              |
+| `metadata`           | `dict[str, Any]` | no       | `\&#123;\&#125;` | Arbitrary JSON                                                    |
+| `pinned`             | `bool`           | no       | `false`          | If `true`, included in every prompt; ignored by recall scoring    |
+| `version`            | `int`            | no       | `1`              | Optimistic locking; incremented on each update                    |
+| `current_history_id` | `str \| None`    | no       | `null`           | FK to `MemoryBlockHistory.id`                                     |
+| `created_at`         | `datetime`       | no       | `_utcnow()`      | UTC                                                               |
+| `updated_at`         | `datetime`       | no       | `_utcnow()`      | UTC                                                               |
 
 **Indexes:**
+
 - `unique(agent_id, label)` — primary recall key
 - `(agent_id, pinned)` — fast pinned-block fetch on every turn
 - `(updated_at)` — recency scoring
@@ -62,15 +63,15 @@ A Letta-derived editable core-memory block. Lives in the prompt or is recalled i
 
 Append-only audit trail. Created on every `update_block` call.
 
-| Field          | Type         | Required | Notes                          |
-| -------------- | ------------ | -------- | ------------------------------ |
-| `id`         | `str`      | yes      | `memh-<uuid7>`               |
-| `block_id`   | `str`      | yes      | FK `MemoryBlock.id`          |
-| `prev_value` | `str`      | yes      | Value before the update        |
-| `new_value`  | `str`      | yes      | Value after the update         |
+| Field        | Type       | Required | Notes                                  |
+| ------------ | ---------- | -------- | -------------------------------------- |
+| `id`         | `str`      | yes      | `memh-<uuid7>`                         |
+| `block_id`   | `str`      | yes      | FK `MemoryBlock.id`                    |
+| `prev_value` | `str`      | yes      | Value before the update                |
+| `new_value`  | `str`      | yes      | Value after the update                 |
 | `actor`      | `str`      | yes      | `agent:atelier:code` or `human:pankaj` |
-| `reason`     | `str`      | no       | Free-text                      |
-| `created_at` | `datetime` | no       | UTC                            |
+| `reason`     | `str`      | no       | Free-text                              |
+| `created_at` | `datetime` | no       | UTC                                    |
 
 **Indexes:** `(block_id, created_at)` — chronological diff view in the dashboard.
 
@@ -78,20 +79,21 @@ Append-only audit trail. Created on every `update_block` call.
 
 Long-term memory chunk recalled by semantic search.
 
-| Field            | Type                  | Required | Notes                                                                                                                  |
-| ---------------- | --------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `id`           | `str`               | yes      | `pas-<uuid7>`                                                                                                        |
-| `agent_id`     | `str`               | yes      | Same as MemoryBlock                                                                                                    |
-| `text`         | `str`               | yes      | The chunk                                                                                                              |
-| `embedding`    | `list[float] \| None` | no       | 384-d (local) or 1536-d (OpenAI). `null` until the embedder runs.                                                    |
-| `embedding_model` | `str`             | no       | E.g. `local:all-MiniLM-L6-v2`                                                                                       |
-| `tags`         | `list[str]`         | no       | Free-tag list — used for filter-then-rank queries                                                                     |
-| `source`       | `str`               | yes      | One of `trace`, `block_evict`, `user`, `tool_output`, `file_chunk`                                       |
-| `source_ref`   | `str`               | no       | `trace:<id>`, `block:<id>`, `file:<path>:<sha>`                                                              |
-| `dedup_hash`   | `str`               | yes      | `blake3(text)` — used to skip near-dup writes                                                                      |
-| `created_at`   | `datetime`          | no       | UTC                                                                                                                    |
+| Field             | Type                  | Required | Notes                                                              |
+| ----------------- | --------------------- | -------- | ------------------------------------------------------------------ |
+| `id`              | `str`                 | yes      | `pas-<uuid7>`                                                      |
+| `agent_id`        | `str`                 | yes      | Same as MemoryBlock                                                |
+| `text`            | `str`                 | yes      | The chunk                                                          |
+| `embedding`       | `list[float] \| None` | no       | 384-d (local) or 1536-d (OpenAI). `null` until the embedder runs.  |
+| `embedding_model` | `str`                 | no       | E.g. `local:all-MiniLM-L6-v2`                                      |
+| `tags`            | `list[str]`           | no       | Free-tag list — used for filter-then-rank queries                  |
+| `source`          | `str`                 | yes      | One of `trace`, `block_evict`, `user`, `tool_output`, `file_chunk` |
+| `source_ref`      | `str`                 | no       | `trace:<id>`, `block:<id>`, `file:<path>:<sha>`                    |
+| `dedup_hash`      | `str`                 | yes      | `blake3(text)` — used to skip near-dup writes                      |
+| `created_at`      | `datetime`            | no       | UTC                                                                |
 
 **Indexes:**
+
 - `(agent_id, created_at desc)` — time-bounded scans
 - `unique(agent_id, dedup_hash)` — dedup
 - `(source, source_ref)` — fast back-link to the originating trace/block
@@ -101,30 +103,30 @@ Long-term memory chunk recalled by semantic search.
 
 A single retrieval event, used for recall@k metric and dashboard.
 
-| Field                 | Type                | Required | Notes                                |
-| --------------------- | ------------------- | -------- | ------------------------------------ |
-| `id`                | `str`             | yes      | `rec-<uuid7>`                      |
-| `agent_id`          | `str`             | yes      |                                      |
-| `query`             | `str`             | yes      | Redacted free text                   |
-| `top_passages`      | `list[str]`       | yes      | Ordered list of `ArchivalPassage.id` |
-| `selected_passage_id` | `str \| None`     | no       | Which one the agent quoted, if any   |
-| `created_at`        | `datetime`        | no       | UTC                                  |
+| Field                 | Type          | Required | Notes                                |
+| --------------------- | ------------- | -------- | ------------------------------------ |
+| `id`                  | `str`         | yes      | `rec-<uuid7>`                        |
+| `agent_id`            | `str`         | yes      |                                      |
+| `query`               | `str`         | yes      | Redacted free text                   |
+| `top_passages`        | `list[str]`   | yes      | Ordered list of `ArchivalPassage.id` |
+| `selected_passage_id` | `str \| None` | no       | Which one the agent quoted, if any   |
+| `created_at`          | `datetime`    | no       | UTC                                  |
 
 ### 2.5 `RunMemoryFrame`
 
 The per-run snapshot of which memory blocks were active and which passages were recalled. Lets us
 prove memory worked when reviewing a trace.
 
-| Field                  | Type                    | Required | Notes                                  |
-| ---------------------- | ----------------------- | -------- | -------------------------------------- |
-| `run_id`             | `str`                 | yes      | FK to existing run ledger              |
-| `pinned_blocks`      | `list[str]`           | yes      | Block IDs in the system prompt         |
-| `recalled_passages`  | `list[str]`           | yes      | Passage IDs returned to agent          |
-| `summarized_events`  | `list[str]`           | yes      | Ledger event IDs that were compacted   |
-| `tokens_pre_summary` | `int`                 | yes      | From the context-window calculator     |
-| `tokens_post_summary`| `int`                 | yes      | After sleeptime ran                    |
-| `compaction_strategy`| `str`                 | yes      | `none`, `tfidf`, `letta_summarizer` |
-| `created_at`         | `datetime`            | no       | UTC                                    |
+| Field                 | Type        | Required | Notes                                |
+| --------------------- | ----------- | -------- | ------------------------------------ |
+| `run_id`              | `str`       | yes      | FK to existing run ledger            |
+| `pinned_blocks`       | `list[str]` | yes      | Block IDs in the system prompt       |
+| `recalled_passages`   | `list[str]` | yes      | Passage IDs returned to agent        |
+| `summarized_events`   | `list[str]` | yes      | Ledger event IDs that were compacted |
+| `tokens_pre_summary`  | `int`       | yes      | From the context-window calculator   |
+| `tokens_post_summary` | `int`       | yes      | After sleeptime ran                  |
+| `compaction_strategy` | `str`       | yes      | `none`, `tfidf`, `letta_summarizer`  |
+| `created_at`          | `datetime`  | no       | UTC                                  |
 
 ---
 
@@ -136,23 +138,23 @@ Lives in `src/atelier/core/foundation/lesson_models.py` (NEW).
 
 A draft ReasonBlock-or-rubric-edit waiting for human review.
 
-| Field                         | Type                                           | Required | Notes                                                                |
-| ----------------------------- | ---------------------------------------------- | -------- | -------------------------------------------------------------------- |
-| `id`                        | `str`                                        | yes      | `lc-<uuid7>`                                                       |
-| `domain`                    | `str`                                        | yes      | E.g. `beseam.shopify.publish`                                      |
-| `cluster_fingerprint`       | `str`                                        | yes      | Same as `FailureCluster.fingerprint` if derived from one          |
-| `kind`                      | `Literal["new_block","edit_block","new_rubric_check"]` | yes |                                                                      |
-| `target_id`                 | `str \| None`                                | no       | Existing block/rubric ID if `edit_*`                               |
-| `proposed_block`            | `ReasonBlock \| None`                        | no       | Full draft if `kind="new_block"`                                   |
-| `proposed_rubric_check`     | `str \| None`                                | no       | Single check name if `new_rubric_check`                            |
-| `evidence_trace_ids`        | `list[str]`                                  | yes      | Traces backing the proposal                                          |
-| `embedding`                 | `list[float] \| None`                        | no       |                                                                      |
-| `confidence`                | `float`                                      | yes      | 0..1; informs UI sort order                                          |
-| `status`                    | `Literal["inbox","approved","rejected","superseded"]` | no | default `inbox`                                                    |
-| `reviewer`                  | `str \| None`                                | no       | `human:pankaj` once decided                                        |
-| `decision_at`               | `datetime \| None`                           | no       |                                                                      |
-| `decision_reason`           | `str`                                        | no       |                                                                      |
-| `created_at`                | `datetime`                                   | no       | UTC                                                                  |
+| Field                   | Type                                                   | Required | Notes                                                    |
+| ----------------------- | ------------------------------------------------------ | -------- | -------------------------------------------------------- |
+| `id`                    | `str`                                                  | yes      | `lc-<uuid7>`                                             |
+| `domain`                | `str`                                                  | yes      | E.g. `state.change`                                      |
+| `cluster_fingerprint`   | `str`                                                  | yes      | Same as `FailureCluster.fingerprint` if derived from one |
+| `kind`                  | `Literal["new_block","edit_block","new_rubric_check"]` | yes      |                                                          |
+| `target_id`             | `str \| None`                                          | no       | Existing block/rubric ID if `edit_*`                     |
+| `proposed_block`        | `ReasonBlock \| None`                                  | no       | Full draft if `kind="new_block"`                         |
+| `proposed_rubric_check` | `str \| None`                                          | no       | Single check name if `new_rubric_check`                  |
+| `evidence_trace_ids`    | `list[str]`                                            | yes      | Traces backing the proposal                              |
+| `embedding`             | `list[float] \| None`                                  | no       |                                                          |
+| `confidence`            | `float`                                                | yes      | 0..1; informs UI sort order                              |
+| `status`                | `Literal["inbox","approved","rejected","superseded"]`  | no       | default `inbox`                                          |
+| `reviewer`              | `str \| None`                                          | no       | `human:pankaj` once decided                              |
+| `decision_at`           | `datetime \| None`                                     | no       |                                                          |
+| `decision_reason`       | `str`                                                  | no       |                                                          |
+| `created_at`            | `datetime`                                             | no       | UTC                                                      |
 
 **Indexes:** `(domain, status, created_at desc)` — dashboard inbox query.
 
@@ -160,14 +162,14 @@ A draft ReasonBlock-or-rubric-edit waiting for human review.
 
 Audit row written when a `LessonCandidate` is approved → ReasonBlock published.
 
-| Field                | Type         | Required | Notes                              |
-| -------------------- | ------------ | -------- | ---------------------------------- |
-| `id`               | `str`      | yes      | `lp-<uuid7>`                     |
-| `lesson_id`        | `str`      | yes      | FK `LessonCandidate.id`          |
-| `published_block_id` | `str \| None` | no    | FK `ReasonBlock.id` (if new)     |
-| `edited_block_id`  | `str \| None` | no    | FK `ReasonBlock.id` (if edit)    |
-| `pr_url`           | `str`      | no       | Optional GitHub PR URL             |
-| `created_at`       | `datetime` | no       | UTC                                |
+| Field                | Type          | Required | Notes                         |
+| -------------------- | ------------- | -------- | ----------------------------- |
+| `id`                 | `str`         | yes      | `lp-<uuid7>`                  |
+| `lesson_id`          | `str`         | yes      | FK `LessonCandidate.id`       |
+| `published_block_id` | `str \| None` | no       | FK `ReasonBlock.id` (if new)  |
+| `edited_block_id`    | `str \| None` | no       | FK `ReasonBlock.id` (if edit) |
+| `pr_url`             | `str`         | no       | Optional GitHub PR URL        |
+| `created_at`         | `datetime`    | no       | UTC                           |
 
 ---
 
@@ -180,20 +182,20 @@ injected into agent prompts.
 
 Per-turn snapshot, written by the MCP gateway after every tool call.
 
-| Field                    | Type                | Required | Notes                                                                                  |
-| ------------------------ | ------------------- | -------- | -------------------------------------------------------------------------------------- |
-| `id`                   | `str`             | yes      | `cb-<uuid7>`                                                                         |
-| `run_id`               | `str`             | yes      | FK to run ledger                                                                       |
-| `turn_index`           | `int`             | yes      | 0-based                                                                                |
-| `model`                | `str`             | yes      | E.g. `claude-opus-4.7`                                                               |
-| `input_tokens`         | `int`             | yes      | Prompt sent                                                                            |
-| `cache_read_tokens`    | `int`             | yes      | From provider response                                                                 |
-| `cache_write_tokens`   | `int`             | yes      |                                                                                        |
-| `output_tokens`        | `int`             | yes      |                                                                                        |
-| `naive_input_tokens`   | `int`             | yes      | What the prompt would have been **without** Atelier — required for savings claim |
-| `lever_savings`        | `dict[str, int]`  | yes      | E.g. `\&#123;"reasonblock_inject": 420, "search_read": 1850, …\&#125;`                          |
-| `tool_calls`           | `int`             | yes      | Per-turn                                                                               |
-| `created_at`           | `datetime`        | no       | UTC                                                                                    |
+| Field                | Type             | Required | Notes                                                                            |
+| -------------------- | ---------------- | -------- | -------------------------------------------------------------------------------- |
+| `id`                 | `str`            | yes      | `cb-<uuid7>`                                                                     |
+| `run_id`             | `str`            | yes      | FK to run ledger                                                                 |
+| `turn_index`         | `int`            | yes      | 0-based                                                                          |
+| `model`              | `str`            | yes      | E.g. `claude-opus-4.7`                                                           |
+| `input_tokens`       | `int`            | yes      | Prompt sent                                                                      |
+| `cache_read_tokens`  | `int`            | yes      | From provider response                                                           |
+| `cache_write_tokens` | `int`            | yes      |                                                                                  |
+| `output_tokens`      | `int`            | yes      |                                                                                  |
+| `naive_input_tokens` | `int`            | yes      | What the prompt would have been **without** Atelier — required for savings claim |
+| `lever_savings`      | `dict[str, int]` | yes      | E.g. `\&#123;"reasonblock_inject": 420, "search_read": 1850, …\&#125;`           |
+| `tool_calls`         | `int`            | yes      | Per-turn                                                                         |
+| `created_at`         | `datetime`       | no       | UTC                                                                              |
 
 The `naive_input_tokens` calculation is the heart of the >50 % claim. It is computed by replaying
 the same agent loop with all Atelier capabilities disabled (gated by `ATELIER_DISABLE_ALL=1`) and
@@ -211,83 +213,83 @@ chain-of-thought.
 
 Normalized host request used by the router.
 
-| Field             | Type                                                                  | Required | Default | Notes                                      |
-| ----------------- | --------------------------------------------------------------------- | -------- | ------- | ------------------------------------------ |
-| `id`            | `str`                                                               | yes      | —      | `req-<uuid7>`                            |
-| `run_id`        | `str \| None`                                                        | no       | `null` | Existing run ledger ID if known            |
-| `user_goal`     | `str`                                                               | yes      | —      | Redacted user-facing goal                  |
-| `repo_root`     | `str`                                                               | yes      | —      | Absolute or workspace-relative repo root   |
-| `task_type`     | `Literal["debug","feature","refactor","test","explain","review","docs","ops"]` | yes | — | Router task class                          |
-| `risk_level`    | `Literal["low","medium","high"]`                                    | yes      | —      | Pre-router risk estimate                   |
-| `changed_files` | `list[str]`                                                         | no       | `[]`   | Current git/diff scope                     |
-| `created_at`    | `datetime`                                                          | no       | UTC now |                                            |
+| Field           | Type                                                                           | Required | Default | Notes                                    |
+| --------------- | ------------------------------------------------------------------------------ | -------- | ------- | ---------------------------------------- |
+| `id`            | `str`                                                                          | yes      | —       | `req-<uuid7>`                            |
+| `run_id`        | `str \| None`                                                                  | no       | `null`  | Existing run ledger ID if known          |
+| `user_goal`     | `str`                                                                          | yes      | —       | Redacted user-facing goal                |
+| `repo_root`     | `str`                                                                          | yes      | —       | Absolute or workspace-relative repo root |
+| `task_type`     | `Literal["debug","feature","refactor","test","explain","review","docs","ops"]` | yes      | —       | Router task class                        |
+| `risk_level`    | `Literal["low","medium","high"]`                                               | yes      | —       | Pre-router risk estimate                 |
+| `changed_files` | `list[str]`                                                                    | no       | `[]`    | Current git/diff scope                   |
+| `created_at`    | `datetime`                                                                     | no       | UTC now |                                          |
 
 ### 5.2 `ContextBudgetPolicy`
 
 Routing budget constraints. Model/provider names are configuration data, not policy constants.
 
-| Field                 | Type                                           | Required | Default          | Notes                                  |
-| --------------------- | ---------------------------------------------- | -------- | ---------------- | -------------------------------------- |
-| `max_input_tokens`  | `int`                                        | yes      | —               | Hard prompt budget for the step        |
-| `premium_call_budget` | `int`                                      | no       | `1`             | Max premium calls allowed before review |
-| `cache_policy`      | `Literal["prefer_cache","neutral","disable"]` | no       | `prefer_cache`  | Provider-neutral cache intent          |
-| `cheap_model`       | `str`                                        | no       | `""`            | Loaded from config                     |
-| `mid_model`         | `str`                                        | no       | `""`            | Loaded from config                     |
-| `premium_model`     | `str`                                        | no       | `""`            | Loaded from config                     |
+| Field                 | Type                                          | Required | Default        | Notes                                   |
+| --------------------- | --------------------------------------------- | -------- | -------------- | --------------------------------------- |
+| `max_input_tokens`    | `int`                                         | yes      | —              | Hard prompt budget for the step         |
+| `premium_call_budget` | `int`                                         | no       | `1`            | Max premium calls allowed before review |
+| `cache_policy`        | `Literal["prefer_cache","neutral","disable"]` | no       | `prefer_cache` | Provider-neutral cache intent           |
+| `cheap_model`         | `str`                                         | no       | `""`           | Loaded from config                      |
+| `mid_model`           | `str`                                         | no       | `""`           | Loaded from config                      |
+| `premium_model`       | `str`                                         | no       | `""`           | Loaded from config                      |
 
 ### 5.3 `RouteDecision`
 
 One route decision for one agent step.
 
-| Field                    | Type                                                          | Required | Default | Notes                                      |
-| ------------------------ | ------------------------------------------------------------- | -------- | ------- | ------------------------------------------ |
-| `id`                   | `str`                                                       | yes      | —      | `rd-<uuid7>`                             |
-| `run_id`               | `str`                                                       | yes      | —      | Run ledger ID                              |
-| `request_id`           | `str`                                                       | no       | `""`   | `AgentRequest.id` if stored                |
-| `step_index`           | `int`                                                       | yes      | —      | 0-based per run                            |
-| `step_type`            | `Literal["classify","compress","retrieve","plan","edit","debug","verify","summarize","lesson_extract"]` | yes | — | |
-| `risk_level`           | `Literal["low","medium","high"]`                            | yes      | —      | Risk at decision time                      |
-| `tier`                 | `Literal["deterministic","cheap","mid","premium"]`           | yes      | —      | Selected execution tier                    |
-| `selected_model`       | `str`                                                       | no       | `""`   | Empty for deterministic/tool-only path      |
-| `confidence`           | `float`                                                     | yes      | —      | 0..1                                       |
-| `reason`               | `str`                                                       | yes      | —      | Short observable explanation               |
-| `protected_file_match` | `bool`                                                      | no       | `false`| True when file policy elevated risk        |
-| `verifier_required`    | `list[str]`                                                 | no       | `[]`   | e.g. `["pytest","ruff","rubric"]`          |
-| `escalation_trigger`   | `str \| None`                                               | no       | `null` | Set when decision escalates                |
-| `evidence_refs`        | `list[str]`                                                 | no       | `[]`   | Trace, file, test, or ReasonBlock pointers |
-| `created_at`           | `datetime`                                                  | no       | UTC now |                                            |
+| Field                  | Type                                                                                                    | Required | Default | Notes                                      |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- | -------- | ------- | ------------------------------------------ |
+| `id`                   | `str`                                                                                                   | yes      | —       | `rd-<uuid7>`                               |
+| `run_id`               | `str`                                                                                                   | yes      | —       | Run ledger ID                              |
+| `request_id`           | `str`                                                                                                   | no       | `""`    | `AgentRequest.id` if stored                |
+| `step_index`           | `int`                                                                                                   | yes      | —       | 0-based per run                            |
+| `step_type`            | `Literal["classify","compress","retrieve","plan","edit","debug","verify","summarize","lesson_extract"]` | yes      | —       |                                            |
+| `risk_level`           | `Literal["low","medium","high"]`                                                                        | yes      | —       | Risk at decision time                      |
+| `tier`                 | `Literal["deterministic","cheap","mid","premium"]`                                                      | yes      | —       | Selected execution tier                    |
+| `selected_model`       | `str`                                                                                                   | no       | `""`    | Empty for deterministic/tool-only path     |
+| `confidence`           | `float`                                                                                                 | yes      | —       | 0..1                                       |
+| `reason`               | `str`                                                                                                   | yes      | —       | Short observable explanation               |
+| `protected_file_match` | `bool`                                                                                                  | no       | `false` | True when file policy elevated risk        |
+| `verifier_required`    | `list[str]`                                                                                             | no       | `[]`    | e.g. `["pytest","ruff","rubric"]`          |
+| `escalation_trigger`   | `str \| None`                                                                                           | no       | `null`  | Set when decision escalates                |
+| `evidence_refs`        | `list[str]`                                                                                             | no       | `[]`    | Trace, file, test, or ReasonBlock pointers |
+| `created_at`           | `datetime`                                                                                              | no       | UTC now |                                            |
 
 ### 5.4 `VerificationEnvelope`
 
 Observed verifier outcome for a route decision. It consumes validation results; it does not execute
 commands itself.
 
-| Field                    | Type                                           | Required | Default | Notes                                      |
-| ------------------------ | ---------------------------------------------- | -------- | ------- | ------------------------------------------ |
-| `id`                   | `str`                                        | yes      | —      | `ve-<uuid7>`                             |
-| `route_decision_id`    | `str`                                        | yes      | —      | FK to `RouteDecision.id`                   |
-| `run_id`               | `str`                                        | yes      | —      | Run ledger ID                              |
-| `changed_files`        | `list[str]`                                  | no       | `[]`   | Observed diff scope                        |
-| `validation_results`   | `list[ValidationResult]`                     | no       | `[]`   | Existing model from `foundation.models`    |
-| `rubric_status`        | `Literal["not_run","pass","warn","fail"]`    | no       | `not_run` |                                      |
-| `outcome`              | `Literal["pass","warn","fail","escalate"]`   | yes      | —      | Verifier result                            |
-| `compressed_evidence`  | `str`                                        | no       | `""`   | Short evidence for retry/escalation        |
-| `human_accepted`       | `bool \| None`                               | no       | `null` | Optional post-run signal                   |
-| `created_at`           | `datetime`                                   | no       | UTC now |                                            |
+| Field                 | Type                                       | Required | Default   | Notes                                   |
+| --------------------- | ------------------------------------------ | -------- | --------- | --------------------------------------- |
+| `id`                  | `str`                                      | yes      | —         | `ve-<uuid7>`                            |
+| `route_decision_id`   | `str`                                      | yes      | —         | FK to `RouteDecision.id`                |
+| `run_id`              | `str`                                      | yes      | —         | Run ledger ID                           |
+| `changed_files`       | `list[str]`                                | no       | `[]`      | Observed diff scope                     |
+| `validation_results`  | `list[ValidationResult]`                   | no       | `[]`      | Existing model from `foundation.models` |
+| `rubric_status`       | `Literal["not_run","pass","warn","fail"]`  | no       | `not_run` |                                         |
+| `outcome`             | `Literal["pass","warn","fail","escalate"]` | yes      | —         | Verifier result                         |
+| `compressed_evidence` | `str`                                      | no       | `""`      | Short evidence for retry/escalation     |
+| `human_accepted`      | `bool \| None`                             | no       | `null`    | Optional post-run signal                |
+| `created_at`          | `datetime`                                 | no       | UTC now   |                                         |
 
 ### 5.5 `RoutingEvalSummary`
 
 Computed report object; persisted only when a benchmark run asks for a saved report.
 
-| Field                         | Type              | Required | Notes                                  |
-| ----------------------------- | ----------------- | -------- | -------------------------------------- |
-| `run_id`                    | `str`           | yes      | Benchmark or production run ID         |
-| `cost_per_accepted_patch`   | `float`         | yes      | Total cost / accepted patch count      |
-| `premium_call_rate`         | `float`         | yes      | Premium steps / routed steps           |
-| `cheap_success_rate`        | `float`         | yes      | Verified cheap successes / cheap tries |
-| `escalation_success_rate`   | `float`         | yes      | Accepted escalations / escalations     |
-| `routing_regression_rate`   | `float`         | yes      | Regressed outcomes / accepted outputs  |
-| `created_at`                | `datetime`      | no       | UTC                                    |
+| Field                     | Type       | Required | Notes                                  |
+| ------------------------- | ---------- | -------- | -------------------------------------- |
+| `run_id`                  | `str`      | yes      | Benchmark or production run ID         |
+| `cost_per_accepted_patch` | `float`    | yes      | Total cost / accepted patch count      |
+| `premium_call_rate`       | `float`    | yes      | Premium steps / routed steps           |
+| `cheap_success_rate`      | `float`    | yes      | Verified cheap successes / cheap tries |
+| `escalation_success_rate` | `float`    | yes      | Accepted escalations / escalations     |
+| `routing_regression_rate` | `float`    | yes      | Regressed outcomes / accepted outputs  |
+| `created_at`              | `datetime` | no       | UTC                                    |
 
 ---
 
@@ -464,6 +466,7 @@ CREATE INDEX ix_verification_envelope_run ON verification_envelope(run_id);
 ### 6.2 PostgreSQL deltas
 
 Mirror SQLite verbatim except:
+
 - `BLOB` → `BYTEA`
 - Add `embedding vector(384)` column under `pgvector` when `vector` extra is installed (alembic guard).
 - Add `CREATE INDEX … USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`.
@@ -498,6 +501,7 @@ class MemoryStore(Protocol):
 ```
 
 Two implementations:
+
 - `SqliteMemoryStore` (default) — `infra/storage/sqlite_memory_store.py`
 - `LettaMemoryStore` (opt-in) — `infra/memory_bridges/letta_adapter.py`; falls through to Sqlite for fields Letta doesn't expose
 
@@ -532,21 +536,21 @@ class LessonPromoter:
 Added to `src/atelier/gateway/adapters/mcp_server.py`. All names prefixed `atelier_` for namespace
 hygiene.
 
-| MCP tool                          | Pillar | Owner WP | Input                                                                  | Output                                                              |
-| --------------------------------- | ------ | -------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `memory`   | 1      | WP-07    | `agent_id, label, value, [pinned, read_only, description]`           | `\&#123; id, version \&#125;`                                                 |
-| `memory`      | 1      | WP-07    | `agent_id, label`                                                    | `MemoryBlock`                                                     |
-| `memory`         | 1, 3   | WP-08    | `agent_id, query, [top_k, tags]`                                     | `\&#123; passages: [\&#123;id, text, score, source_ref\&#125;], recall_id \&#125;`        |
-| `memory`        | 1      | WP-08    | `agent_id, text, source, [source_ref, tags]`                         | `\&#123; id, dedup_hit \&#125;`                                               |
-| `memory`        | 1, 3   | WP-09    | `run_id`                                                             | `\&#123; tokens_pre, tokens_post, summary_md, evicted_event_ids \&#125;`      |
-| `atelier lesson inbox`          | 2      | WP-15    | `[domain, limit]`                                                    | `[LessonCandidate]`                                               |
-| `atelier lesson decide`         | 2      | WP-15    | `lesson_id, decision: "approve"|"reject", reviewer, reason`          | `\&#123; status, promotion_id? \&#125;`                                       |
-| `search`           | 3      | WP-21    | `query, [path, max_files, max_chars_per_file]`                       | `\&#123; matches: [\&#123;path, line_start, line_end, snippet, lang_outline?\&#125;], total_chars, cache_hit \&#125;` |
-| `edit`            | 3      | WP-22    | `edits: [\&#123;path, old_string|range, new_string, fuzzy?: bool\&#125;]`        | `\&#123; applied: [\&#123;path, hunk\&#125;], failed: [\&#123;path, error\&#125;] \&#125;`            |
-| `atelier sql inspect`           | 3      | WP-23    | `connection_alias, sql`                                              | `\&#123; rows: [...], columns: [...], affected: int, truncated: bool \&#125;` |
-| `compact`        | 3      | WP-13    | `run_id`                                                             | `\&#123; should_compact: bool, preserve_blocks, pin_memory, suggested_prompt \&#125;` |
-| `route`          | routing | WP-26   | `AgentRequest, ContextBudgetPolicy`                                  | `RouteDecision`                                                    |
-| `route`          | routing | WP-27   | `route_decision_id, validation_results, changed_files, rubric_status` | `VerificationEnvelope`                                             |
+| MCP tool                | Pillar  | Owner WP | Input                                                                 | Output                                                                                                                |
+| ----------------------- | ------- | -------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `memory`                | 1       | WP-07    | `agent_id, label, value, [pinned, read_only, description]`            | `\&#123; id, version \&#125;`                                                                                         |
+| `memory`                | 1       | WP-07    | `agent_id, label`                                                     | `MemoryBlock`                                                                                                         |
+| `memory`                | 1, 3    | WP-08    | `agent_id, query, [top_k, tags]`                                      | `\&#123; passages: [\&#123;id, text, score, source_ref\&#125;], recall_id \&#125;`                                    |
+| `memory`                | 1       | WP-08    | `agent_id, text, source, [source_ref, tags]`                          | `\&#123; id, dedup_hit \&#125;`                                                                                       |
+| `memory`                | 1, 3    | WP-09    | `run_id`                                                              | `\&#123; tokens_pre, tokens_post, summary_md, evicted_event_ids \&#125;`                                              |
+| `atelier lesson inbox`  | 2       | WP-15    | `[domain, limit]`                                                     | `[LessonCandidate]`                                                                                                   |
+| `atelier lesson decide` | 2       | WP-15    | `lesson_id, decision: "approve"                                       | "reject", reviewer, reason`                                                                                           | `\&#123; status, promotion_id? \&#125;`                                                    |
+| `search`                | 3       | WP-21    | `query, [path, max_files, max_chars_per_file]`                        | `\&#123; matches: [\&#123;path, line_start, line_end, snippet, lang_outline?\&#125;], total_chars, cache_hit \&#125;` |
+| `edit`                  | 3       | WP-22    | `edits: [\&#123;path, old_string                                      | range, new_string, fuzzy?: bool\&#125;]`                                                                              | `\&#123; applied: [\&#123;path, hunk\&#125;], failed: [\&#123;path, error\&#125;] \&#125;` |
+| `atelier sql inspect`   | 3       | WP-23    | `connection_alias, sql`                                               | `\&#123; rows: [...], columns: [...], affected: int, truncated: bool \&#125;`                                         |
+| `compact`               | 3       | WP-13    | `run_id`                                                              | `\&#123; should_compact: bool, preserve_blocks, pin_memory, suggested_prompt \&#125;`                                 |
+| `route`                 | routing | WP-26    | `AgentRequest, ContextBudgetPolicy`                                   | `RouteDecision`                                                                                                       |
+| `route`                 | routing | WP-27    | `route_decision_id, validation_results, changed_files, rubric_status` | `VerificationEnvelope`                                                                                                |
 
 The five existing MCP tools (context, check_plan, rescue, record_trace, run_rubric) and the nine
 extended tools listed in `AGENT_README.md` are unchanged.

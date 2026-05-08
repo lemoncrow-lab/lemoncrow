@@ -35,6 +35,7 @@ def memory_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     import atelier.gateway.adapters.mcp_server as mcp_server
 
+    mcp_server._reset_runtime_cache_for_testing()
     mcp_server._current_ledger = None
     mcp_server._realtime_ctx = None
     return root
@@ -86,10 +87,10 @@ def test_get_reasoning_context_injects_same_agent_memory(memory_root: Path) -> N
 def test_get_reasoning_context_does_not_leak_other_agent_memory(memory_root: Path) -> None:
     _insert_passage(
         memory_root,
-        passage_id="pas-beseam-shopify",
-        agent_id="beseam.shopify",
+        passage_id="pas-legacy-external-agent",
+        agent_id="legacy.external-agent",
         text="Scoped recall context injection should never leak into atelier code.",
-        tags=["agent:beseam.shopify"],
+        tags=["agent:legacy.external-agent"],
     )
 
     payload = _call_context(

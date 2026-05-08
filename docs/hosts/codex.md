@@ -25,7 +25,7 @@ repo-pinned MCP wrapper.
 ## Wrapper Flow
 
 ```bash
-./bin/atelier-codex --task "Fix checkout price mismatch" --domain beseam.shopify.publish
+./bin/atelier-codex --task "Fix live state drift" --domain state.change
 ```
 
 The wrapper enforces:

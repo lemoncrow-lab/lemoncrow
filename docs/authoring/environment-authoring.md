@@ -1,22 +1,30 @@
 # Environment Authoring
 
-Atelier Environments define the boundaries and toolsets available to agents when executing specific domains of work. Internal teams can create Environments to encapsulate specialized workflows (e.g., Shopify Admin operations, Kubernetes cluster management).
+Atelier Environments define the boundaries and toolsets available to agents when executing specific domains of work. Teams can create Environments to encapsulate specialized workflows such as live state changes, debugging loops, or source-of-truth corrections.
 
 ## Anatomy of an Environment
 
 An Environment is defined in a `yaml` file:
 
 ```yaml
-id: env_shopify_admin
-version: "1.0.0"
-description: "Tools and rubrics for managing Shopify product data."
-tools:
-  - shopify.update_metafield
-  - shopify.fetch_product_by_gid
-  - shopify.publish_product
-rubrics:
-  - rubric_shopify_publish
-  - rubric_shopify_metafield_sync
+id: env_state_change_safety
+domain: state.change
+description: "Operating law for tasks that mutate durable external state."
+triggers:
+  - publish
+  - migration
+  - deploy config
+forbidden:
+  - resolve target from url slug alone
+  - skip readback after write
+required:
+  - canonical_identifier_used
+  - read_after_write_completed
+  - observed_state_matches_intent
+rubric_id: rubric_state_change_safety
+related_blocks:
+  - canonical-identifier-over-display-name
+  - read-after-write-verification
 ```
 
 ## Distributing via Packs

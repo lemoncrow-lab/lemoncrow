@@ -1,0 +1,33 @@
+id: fix-authoritative-source-first
+title: Fix Authoritative Source First
+domain: source.truth
+task_types: [bug_fix, sync_fix, content_fix]
+triggers:
+  - source of truth
+  - drift back
+  - sync overwrite
+  - regenerate
+  - upstream source
+situation: >
+  When a rendered or downstream artifact is wrong, fixing only the visible copy
+  often creates a temporary patch that will be overwritten by the next sync,
+  build, or publish step.
+dead_ends:
+  - patch the derived output directly and stop there
+  - accept a manual fix that will be overwritten on the next refresh
+  - backfill the source from a stale render
+procedure:
+  - Locate the authoritative source for the incorrect value or behavior.
+  - Fix the issue at that source.
+  - Regenerate or republish downstream artifacts from the corrected source.
+  - Verify the fix survives the next sync, rebuild, or refresh.
+verification:
+  - The authoritative source changed.
+  - Downstream artifacts were refreshed or republished.
+  - The fix did not drift back on the next refresh.
+failure_signals:
+  - fix disappears after next sync
+  - multiple copies disagree again immediately
+  - the same hotfix must be re-applied
+when_not_to_apply: >
+  Tasks that explicitly target a release artifact as the source of record.

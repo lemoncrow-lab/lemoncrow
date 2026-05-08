@@ -1,12 +1,11 @@
 {
-  "task": "Update Shopify product description and republish",
-  "domain": "beseam.shopify.publish",
+  "task": "Apply a live state change",
+  "domain": "state.change",
   "plan": [
-    "Parse product handle from the PDP URL",
-    "Look up product by handle in Shopify Admin API",
-    "Update product description",
-    "Publish to sales channels"
+    "Resolve target from URL slug alone",
+    "Apply the change",
+    "Skip readback after write"
   ],
   "files": [],
-  "tools": ["shopify.product.update", "shopify.publish"]
+  "tools": ["api.write"]
 }

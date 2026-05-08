@@ -1,0 +1,33 @@
+id: focused-post-edit-validation
+title: Focused Post-Edit Validation
+domain: coding
+task_types: [debugging, implementation, refactor]
+triggers:
+  - run tests
+  - validate after edit
+  - rerun
+  - focused check
+  - typecheck
+  - lint
+situation: >
+  After an edit, the next useful action is usually a focused validation step.
+  More reading or more patching before validation makes the failure surface
+  larger and harder to reason about.
+dead_ends:
+  - continue patching before running any validation
+  - use git diff as the first validation when a focused executable check exists
+  - widen scope before validating the touched slice
+procedure:
+  - Run the cheapest behavior-scoped check that can falsify the current hypothesis.
+  - If that is unavailable, run the narrowest test, compile, lint, or typecheck for the touched slice.
+  - If the check fails, repair the same slice first and rerun the same check.
+  - Only expand scope after the focused validation result is understood.
+verification:
+  - A focused validation command or test was run immediately after editing.
+  - The validation result was mapped back to the current hypothesis.
+  - Additional edits stayed adjacent to the validated slice.
+failure_signals:
+  - more files are changed before any validation happens
+  - the first feedback loop comes from a broad suite instead of the touched slice
+when_not_to_apply: >
+  Pure documentation or planning tasks with no executable validation surface.

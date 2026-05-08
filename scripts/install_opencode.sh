@@ -122,7 +122,8 @@ if ! command -v opencode &>/dev/null; then
         exit 1
     fi
     warn "'opencode' not found - SKIPPING. Install from https://opencode.ai"
-    exit 2
+    echo "=== SKIPPED (opencode CLI absent) ==="
+    exit 0
 fi
 info "Found opencode: $(opencode --version 2>/dev/null || echo 'version unknown')"
 

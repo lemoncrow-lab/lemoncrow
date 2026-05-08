@@ -1,0 +1,38 @@
+id: change-gate-discipline
+title: Change Gate Discipline
+domain: policy.change
+task_types: [policy_change, scoring_change, classifier_change]
+triggers:
+  - threshold
+  - weight
+  - heuristic
+  - scoring
+  - audit
+  - rule change
+  - ranking
+  - classifier
+situation: >
+  Thresholds, weights, rules, and classification logic can silently change
+  behavior for many users at once. They need baseline capture and before/after
+  review, not ad-hoc tuning.
+dead_ends:
+  - tweak thresholds without a baseline
+  - change weights without a before and after diff
+  - remove a noisy check without regression evidence
+  - hide a policy change inside unrelated cleanup
+procedure:
+  - Capture baseline behavior on a representative regression set.
+  - Apply the change behind an explicit version or documented change point.
+  - Re-run the regression set.
+  - Review flips, outliers, and user-visible changes.
+  - Update the version marker or changelog.
+verification:
+  - Baseline and after snapshots were preserved.
+  - Regression diff was reviewed.
+  - Version or changelog was updated.
+failure_signals:
+  - user-visible decisions flip unexpectedly
+  - no one can explain the output change
+  - regression set is missing
+when_not_to_apply: >
+  Pure refactors that do not change output behavior or decision logic.

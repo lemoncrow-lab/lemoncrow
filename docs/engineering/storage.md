@@ -24,11 +24,11 @@ The SQLite backend is intentionally the default. Zero infrastructure, zero confi
 
 ./.knowledge/
 ├── blocks/
-│   ├── rb_shopify_publish_gid.md
-│   ├── rb_pdp_audit_schema.md
+│   ├── concrete-anchor-before-edit.md
+│   ├── read-after-write-verification.md
 │   └── ...             # One .md per ReasonBlock
 └── rubrics/
-  ├── rubric_shopify_publish.yaml
+  ├── rubric_state_change_safety.yaml
   └── ...             # One .yaml per Rubric
 ```
 

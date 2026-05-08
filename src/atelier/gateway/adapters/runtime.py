@@ -1,17 +1,17 @@
-"""In-process runtime adapter — used by Beseam product agents.
+"""In-process runtime adapter for host integrations.
 
 Usage:
 
     from atelier.gateway.adapters.runtime import ReasoningRuntime
 
     rt = ReasoningRuntime(root=".atelier")
-    with rt.run(domain="beseam.shopify.publish", task=task,
-                tools=["shopify.update_metafield"]) as session:
+        with rt.run(domain="state.change", task=task,
+            tools=["api.write"]) as session:
         session.inject_reasoning_context()
         plan = agent.plan()
         session.check_plan(plan)
         result = agent.execute(monitors=session.monitors)
-        session.verify(result, rubric_id="rubric_shopify_publish")
+        session.verify(result, rubric_id="rubric_state_change_safety")
         session.record_trace(result)
         session.extract_candidate_blocks()
 """
@@ -25,7 +25,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from atelier.core.foundation.paths import default_store_root
 from atelier.core.foundation.extractor import CandidateBlock, extract_candidate
 from atelier.core.foundation.models import (
     CommandRecord,
@@ -46,6 +45,7 @@ from atelier.core.foundation.monitors import (
     error_signature,
     run_monitors,
 )
+from atelier.core.foundation.paths import default_store_root
 from atelier.core.foundation.plan_checker import check_plan
 from atelier.core.foundation.renderer import render_context_for_agent
 from atelier.core.foundation.retriever import (

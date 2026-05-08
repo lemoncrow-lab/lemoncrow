@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import difflib
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any, ClassVar, cast

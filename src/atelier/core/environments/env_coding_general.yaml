@@ -1,10 +1,10 @@
 id: env_coding_general
 domain: coding
 description: >
-  Default operating law for general code-change work inside Beseam. Not
-  domain-specific, but encodes the baseline reliability rules that
-  apply to every code change: read first, search before create, run
-  tests, do not silently delete, do not bypass gates.
+  Default operating law for general code-change work. It encodes the
+  baseline reliability rules that apply to most edits: start from a concrete
+  anchor, keep the first change small, validate the touched slice, and avoid
+  damaging unrelated work.
 
 triggers:
   - refactor
@@ -15,20 +15,19 @@ triggers:
   - rewrite
 
 forbidden:
-  - delete without backup
-  - rewrite working module without staged plan
-  - skip running tests
-  - bypass pre-commit
-  - ignore lint errors with blanket disable
+  - skip validation entirely
+  - broaden scope before local check
+  - rewrite a large surface for a local bug
+  - revert unrelated user changes
 
 required:
-  - read_existing_implementation
-  - tests_run_locally
-  - typecheck_passed
-  - changes_minimal_to_intent
+  - concrete_anchor_identified
+  - scoped_validation_selected
+  - validation_command_run
+  - unrelated_changes_preserved
 
 escalate:
-  - tests_failed_after_fix
+  - destructive_action_proposed
   - public_api_changed_without_migration_plan
 
 high_risk_tools:
@@ -40,4 +39,7 @@ high_risk_tools:
 rubric_id: rubric_code_change
 
 related_blocks:
-  - 09-repeated-failure-loop
+  - concrete-anchor-before-edit
+  - focused-post-edit-validation
+  - smallest-reviewable-change
+  - preserve-unrelated-user-work

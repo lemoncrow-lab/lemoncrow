@@ -23,8 +23,8 @@ uv run atelier init
 This creates `.atelier/` with:
 
 - `atelier.db` — SQLite store with FTS5 search
-- `blocks/` — 10 pre-seeded ReasonBlocks (Shopify publish, PDP audit, tracker classification, and more)
-- `rubrics/` — 5 pre-seeded rubrics including `rubric_shopify_publish`
+- `blocks/` — 10 pre-seeded ReasonBlocks for debugging, code changes, live state changes, source-of-truth fixes, and gate discipline
+- `rubrics/` — 7 pre-seeded rubrics including `rubric_code_change` and `rubric_state_change_safety`
 - `traces/` — empty, will fill as agents run
 
 ## Step 3 — Check a plan
@@ -33,32 +33,32 @@ The core feature: block dangerous agent plans _before_ execution.
 
 ```bash
 uv run atelier lint \
-    --task "Publish Shopify product" \
-    --domain beseam.shopify.publish \
-    --step "Parse product handle from PDP URL" \
-    --step "Use handle to update metafields"
+  --task "Apply a live config update" \
+  --domain state.change \
+  --step "Resolve target from URL slug alone" \
+  --step "Apply the change"
 ```
 
 Expected output:
 
-```
+```text
 status: blocked
 exit: 2
 warnings:
-  - dead end: product handle from pdp (use product gid instead)
-  - dead end: lookup product by handle (shopify api requires gid for writes)
+  - dead end: resolve target from url slug alone
+  - suggested plan uses a canonical identifier plus read-after-write verification
 ```
 
 Now try a safe plan:
 
 ```bash
 uv run atelier lint \
-    --task "Publish Shopify product" \
-    --domain beseam.shopify.publish \
-    --step "Fetch product by GID via GraphQL" \
-    --step "Snapshot current state" \
-    --step "Update metafields with GID" \
-    --step "Re-fetch and audit post-publish"
+  --task "Apply a live config update" \
+  --domain state.change \
+  --step "Resolve and record the canonical identifier" \
+  --step "Capture pre-change state" \
+  --step "Apply the change" \
+  --step "Read back the state and diff against intent"
 ```
 
 Expected: `status: pass` (exit 0)
@@ -69,9 +69,9 @@ Before an agent starts a task, inject relevant procedures into its context:
 
 ```bash
 uv run atelier reasoning \
-    --task "Fix Shopify JSON-LD availability validation" \
-    --domain beseam.pdp.schema \
-    --file pdp/schema.py
+  --task "Fix generated output that drifts back after refresh" \
+  --domain source.truth \
+  --file src/content/generate.py
 ```
 
 This returns a structured prompt block with relevant ReasonBlocks, known dead ends, and environment constraints.
@@ -82,18 +82,14 @@ After an agent completes a task, verify it met all required checks:
 
 ```bash
 echo '&#123;
-  "product_identity_uses_gid": true,
-  "pre_publish_snapshot_exists": true,
-  "write_result_checked": true,
-  "post_publish_refetch_done": true,
-  "post_publish_audit_passed": true,
-  "rollback_available": true,
-  "localized_url_test_passed": false,
-  "changed_handle_test_passed": false
-&#125;' | uv run atelier verify rubric_shopify_publish
+  "canonical_identifier_used": true,
+  "pre_change_state_captured": true,
+  "read_after_write_completed": true,
+  "observed_state_matches_intent": false
+&#125;' | uv run atelier verify rubric_state_change_safety
 ```
 
-Expected: `status: blocked` (because localized_url_test_passed = false).
+Expected: `status: blocked` (because a required verification check failed).
 
 ## Step 6 — Record a trace
 
@@ -102,13 +98,13 @@ After an agent run (success or failure), record what happened:
 ```bash
 echo '&#123;
   "agent": "claude-code",
-  "domain": "beseam.shopify.publish",
-  "task": "Publish product ID 123 to Shopify",
+  "domain": "state.change",
+  "task": "Apply a live config change",
   "status": "success",
-  "commands_run": ["shopify.get_product", "shopify.update_metafield", "shopify.get_product"],
+  "commands_run": ["resolve-target", "api.write", "api.read"],
   "errors_seen": [],
-  "diff_summary": "Updated metafields for product gid://shopify/Product/123",
-  "output_summary": "Product published, audit passed"
+  "diff_summary": "Applied the config change using a canonical identifier",
+  "output_summary": "Read-after-write verification matched intent"
 &#125;' | uv run atelier trace record
 ```
 
@@ -131,7 +127,7 @@ uv run atelier block extract <trace-id> --save
 
 ```bash
 # Smart retrieval across ReasonBlocks
-uv run atelier search "shopify publish validation"
+uv run atelier search "read after write verification"
 
 # AST-aware file read with symbol summary
 uv run atelier read src/atelier/gateway/adapters/runtime.py --max-lines 120

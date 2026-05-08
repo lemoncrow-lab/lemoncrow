@@ -57,7 +57,7 @@ def test_redact_handles_shopify_and_jwt() -> None:
 def test_redact_failure_cluster_pydantic_input() -> None:
     cluster = FailureCluster(
         id="cluster_0001",
-        domain="beseam.shopify.publish",
+        domain="state.change",
         fingerprint="ApiError: token=shppa_aaaaaaaaaaaaaaaaaaaaaaaaa rejected",
         trace_ids=["run_a"],
         sample_errors=[
@@ -143,7 +143,6 @@ def test_assert_safe_grep_args_accepts_clean_args() -> None:
 # ---------------------------------------------------------------------------
 
 
-
 def test_cli_cached_grep_rejects_injection(tmp_path: Path) -> None:
     runner = CliRunner()
     res = runner.invoke(
@@ -178,8 +177,8 @@ def test_record_trace_redacts_secrets(tmp_path: Path) -> None:
         result = tool_record_trace(
             {
                 "agent": "codex",
-                "task": "Fix shopify",
-                "domain": "beseam.shopify.publish",
+                "task": "Fix live state",
+                "domain": "state.change",
                 "status": "success",
                 "files_touched": ["x.py"],
                 "tools_called": [],

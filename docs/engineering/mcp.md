@@ -99,9 +99,9 @@ Returns:
 
 ```json
 &#123;
-  "task": "Publish Shopify product",
-  "domain": "beseam.shopify.publish",
-  "steps": ["Parse product handle from URL", "Update metafields"]
+  "task": "Apply a live state change",
+  "domain": "state.change",
+  "steps": ["Resolve target from URL slug alone", "Apply the update"]
 &#125;
 ```
 
@@ -112,13 +112,13 @@ Returns: `&#123;"status": "blocked"|"pass", "warnings": [...], "suggestions": [.
 ```json
 &#123;
   "agent": "claude-code",
-  "domain": "beseam.shopify.publish",
-  "task": "Publish product GID 123",
+  "domain": "state.change",
+  "task": "Apply a live config change",
   "status": "success",
-  "commands_run": ["shopify.get_product", "shopify.update_metafield"],
+  "commands_run": ["resolve-target", "api.write", "api.read"],
   "errors_seen": [],
-  "diff_summary": "Updated metafields",
-  "output_summary": "Product published, audit passed"
+  "diff_summary": "Applied change using canonical identifier",
+  "output_summary": "Read-after-write verification passed"
 &#125;
 ```
 
@@ -126,16 +126,14 @@ Returns: `&#123;"status": "blocked"|"pass", "warnings": [...], "suggestions": [.
 
 ```json
 &#123;
-  "rubric_id": "rubric_shopify_publish",
+  "rubric_id": "rubric_state_change_safety",
   "checks": &#123;
-    "product_identity_uses_gid": true,
-    "pre_publish_snapshot_exists": true,
-    "write_result_checked": true,
-    "post_publish_refetch_done": true,
-    "post_publish_audit_passed": true,
-    "rollback_available": true,
-    "localized_url_test_passed": true,
-    "changed_handle_test_passed": true
+    "canonical_identifier_used": true,
+    "pre_change_state_captured": true,
+    "read_after_write_completed": true,
+    "observed_state_matches_intent": true,
+    "rollback_plan_available": true,
+    "user_visible_surface_checked": true
   &#125;
 &#125;
 ```

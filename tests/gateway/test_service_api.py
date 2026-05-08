@@ -146,18 +146,18 @@ def test_check_plan_pass(app_no_auth: TestClient) -> None:
     assert data["status"] in ("pass", "warn", "blocked")
 
 
-def test_check_plan_blocks_bad_shopify_plan(app_no_auth: TestClient, store: SQLiteStore) -> None:
+def test_check_plan_blocks_bad_state_change_plan(app_no_auth: TestClient, store: SQLiteStore) -> None:
     """A plan that references a known dead end should be blocked if a block exists."""
     from atelier.core.foundation.models import ReasonBlock
 
     block = ReasonBlock(
-        id="rb-shopify-test",
-        title="Shopify Direct DB Edit",
-        domain="beseam.shopify.publish",
-        situation="Publishing product",
-        triggers=["shopify", "publish"],
-        dead_ends=["directly edit shopify database"],
-        procedure=["Use Admin API instead"],
+        id="rb-state-change-test",
+        title="Canonical Identifier Required",
+        domain="state.change",
+        situation="Applying a live state change",
+        triggers=["state change", "deploy"],
+        dead_ends=["resolve target from url slug alone"],
+        procedure=["Resolve and record the canonical stable identifier first"],
         failure_signals=[],
     )
     store.upsert_block(block, write_markdown=False)
@@ -165,9 +165,9 @@ def test_check_plan_blocks_bad_shopify_plan(app_no_auth: TestClient, store: SQLi
     resp = app_no_auth.post(
         "/v1/reasoning/check-plan",
         json={
-            "task": "publish product on shopify",
-            "plan": ["directly edit shopify database"],
-            "domain": "beseam.shopify.publish",
+            "task": "deploy a live config update",
+            "plan": ["resolve target from url slug alone"],
+            "domain": "state.change",
         },
     )
     assert resp.status_code == 200

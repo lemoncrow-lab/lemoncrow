@@ -165,16 +165,14 @@ def test_run_rubric_gate_pass(store_root: Path) -> None:
         _call(
             "verify",
             {
-                "rubric_id": "rubric_shopify_publish",
+                "rubric_id": "rubric_state_change_safety",
                 "checks": {
-                    "product_identity_uses_gid": True,
-                    "pre_publish_snapshot_exists": True,
-                    "write_result_checked": True,
-                    "post_publish_refetch_done": True,
-                    "post_publish_audit_passed": True,
-                    "rollback_available": True,
-                    "localized_url_test_passed": True,
-                    "changed_handle_test_passed": True,
+                    "canonical_identifier_used": True,
+                    "pre_change_state_captured": True,
+                    "read_after_write_completed": True,
+                    "observed_state_matches_intent": True,
+                    "rollback_plan_available": True,
+                    "user_visible_surface_checked": True,
                 },
             },
         )

@@ -42,14 +42,14 @@ make verify
 
 Start Codex in your workspace, restart once so the marketplace is reloaded, and use the bundled skill:
 
-```
+```text
 use skill: atelier-lint
 ```
 
 Or run the Atelier preflight wrapper:
 
 ```bash
-./bin/atelier-codex --task "Fix checkout price mismatch" --domain beseam.shopify.publish
+./bin/atelier-codex --task "Fix live state drift" --domain state.change
 ```
 
 ## Expected Behavior

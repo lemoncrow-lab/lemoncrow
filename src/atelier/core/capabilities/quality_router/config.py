@@ -65,10 +65,10 @@ class RoutingPolicyConfig(BaseModel):
     )
     high_risk_domain_patterns: list[str] = Field(
         default_factory=lambda: [
-            "beseam.shopify.publish",
-            "beseam.pdp.schema",
-            "beseam.catalog.fix",
-            "beseam.tracker.classification",
+            "state.change*",
+            "source.truth*",
+            "policy.change*",
+            "knowledge*",
         ]
     )
     verifiers: VerifierRequirementConfig = Field(default_factory=VerifierRequirementConfig)

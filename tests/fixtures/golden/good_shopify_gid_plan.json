@@ -1,13 +1,12 @@
 {
-  "task": "Update Shopify product description and republish",
-  "domain": "beseam.shopify.publish",
+  "task": "Apply a live state change",
+  "domain": "state.change",
   "plan": [
-    "Load Shopify Product GID from catalog ingest record",
-    "Update product description using GID",
-    "Publish to sales channels using GID",
-    "Re-fetch product by GID and verify changes",
-    "Run post-publish verification"
+    "Resolve and record the canonical identifier",
+    "Capture pre-change state",
+    "Apply the change",
+    "Read back the state and diff against intent"
   ],
   "files": [],
-  "tools": ["shopify.product.update", "shopify.publish"]
+  "tools": ["api.write"]
 }
