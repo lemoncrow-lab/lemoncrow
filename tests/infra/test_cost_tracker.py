@@ -13,11 +13,10 @@ from atelier.infra.runtime.cost_tracker import (
 )
 
 
-def test_estimate_cost_uses_default_for_unknown_model() -> None:
-    # 1000 in + 500 out at default ($3/$15 per 1M)
+def test_estimate_cost_unknown_model_returns_zero() -> None:
+    # Unknown models have no pricing data → cost is $0.00
     cost = estimate_cost("totally-unknown-model", 1000, 500)
-    expected = (1000 * 3.00 + 500 * 15.00) / 1_000_000
-    assert cost == round(expected, 6)
+    assert cost == 0.0
 
 
 def test_estimate_cost_known_model_pricing() -> None:

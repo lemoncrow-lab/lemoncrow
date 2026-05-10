@@ -34,13 +34,19 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "<redacted-aws-key>"),
 ]
 
-# Phrases that signal hidden chain-of-thought. We strip the trailing block.
-_COT_MARKERS = [
-    "chain of thought:",
-    "chain-of-thought:",
-    "internal reasoning:",
-    "private thoughts:",
-    "<think>",
+# Phrases that signal hidden chain-of-thought.
+_COT_PATTERNS = [
+    (
+        re.compile(r"<(think|thinking)>.*?</\1>", re.DOTALL | re.IGNORECASE),
+        "<redacted-hidden-reasoning>",
+    ),
+    (
+        re.compile(
+            r"\b(?:chain of thought|chain-of-thought|internal reasoning|private thoughts):",
+            re.IGNORECASE,
+        ),
+        "<redacted-marker>",
+    ),
 ]
 
 
@@ -51,11 +57,11 @@ def redact(text: str) -> str:
     out = text
     for pattern, replacement in _PATTERNS:
         out = pattern.sub(replacement, out)
-    for marker in _COT_MARKERS:
-        idx = out.lower().find(marker)
-        if idx != -1:
-            out = out[:idx] + "<redacted-hidden-reasoning>"
-            break
+
+    # Redact CoT blocks/markers without truncating the entire string
+    for pattern, replacement in _COT_PATTERNS:
+        out = pattern.sub(replacement, out)
+
     return out
 
 

@@ -17,6 +17,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLUGIN_TEMPLATE="${ATELIER_REPO}/integrations/codex/plugin"
 
+# ---- check dev mode ---------------------------------------------------------
+DEV_MODE="${ATELIER_DEV_MODE:-0}"
+if [[ "$DEV_MODE" != "1" ]]; then
+    info "Dev mode disabled; installing slim plugin (no skills)"
+    STAGING_DIR="${ATELIER_REPO}/.atelier/codex-plugin-slim"
+    run "mkdir -p '$STAGING_DIR/.codex-plugin'"
+    run "cp '${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json' '$STAGING_DIR/.codex-plugin/'"
+    run "mkdir -p '$STAGING_DIR/agents'"
+    # Create neutral instructions for Codex
+    if ! $DRY_RUN; then
+        cat > "$STAGING_DIR/agents/atelier.md" <<EOF
+# Atelier
+
+Atelier is currently in **Passive Mode**. Active reasoning features are disabled.
+To enable active reasoning, set ATELIER_DEV_MODE=1 and re-run install.
+EOF
+    fi
+    PLUGIN_TEMPLATE="$STAGING_DIR"
+fi
+
 DRY_RUN=false
 PRINT_ONLY=false
 STRICT=false

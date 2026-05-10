@@ -29,7 +29,11 @@ def test_rich_edit_typography_placeholder_fuzzy_and_indent(tmp_path: Path) -> No
     result = apply_rich_edits(
         [
             {"file_path": "code.py", "old_string": 'value = "old"', "new_string": 'value = "new"'},
-            {"file_path": "code.py", "old_string": "value = ...\n    keep = 1", "new_string": "value = 2\nkeep = 3"},
+            {
+                "file_path": "code.py",
+                "old_string": "value = ...\n    keep = 1",
+                "new_string": "value = 2\nkeep = 3",
+            },
         ],
         repo_root=tmp_path,
     )
@@ -97,3 +101,38 @@ def test_rich_edit_notebook_cell_operations_clear_outputs(tmp_path: Path) -> Non
     assert notebook["cells"][0]["source"] == "print(2)"
     assert notebook["cells"][0]["outputs"] == []
     assert notebook["cells"][1]["cell_type"] == "markdown"
+
+
+def test_rich_edit_peer_level_def_not_indented(tmp_path: Path) -> None:
+    path = tmp_path / "code.py"
+    path.write_text(
+        "def test_foo() -> None:\n    resp = call()\n    assert resp\n",
+        encoding="utf-8",
+    )
+
+    result = apply_rich_edits(
+        [
+            {
+                "file_path": "code.py",
+                "old_string": "def test_foo() -> None:\n    resp = call()\n    assert resp",
+                "new_string": (
+                    "def test_foo(mp) -> None:\n"
+                    "    mp.setenv('X', '1')\n"
+                    "    resp = call()\n"
+                    "    assert resp\n"
+                    "\n"
+                    "\n"
+                    "def test_bar(mp) -> None:\n"
+                    "    mp.delenv('X', raising=False)"
+                ),
+            }
+        ],
+        repo_root=tmp_path,
+    )
+
+    assert result["failed"] == []
+    text = path.read_text(encoding="utf-8")
+    # peer-level def must stay at column 0
+    assert "\ndef test_bar(mp) -> None:\n" in text
+    # body lines must be indented
+    assert "    mp.setenv" in text

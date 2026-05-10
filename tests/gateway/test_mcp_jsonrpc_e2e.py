@@ -29,7 +29,10 @@ EXPECTED_TOOLS = {
     "sql",
     "search",
     "compact",
+    "run",
 }
+
+SLIM_TOOLS = {"trace", "read", "edit", "sql", "search", "run"}
 
 
 def _seed_store(root: Path) -> None:
@@ -76,6 +79,7 @@ def mcp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
     monkeypatch.setenv("ATELIER_EMBEDDER", "null")
+    monkeypatch.setenv("ATELIER_DEV_MODE", "1")
 
     mcp_server._current_ledger = None
     mcp_server._realtime_ctx = None
@@ -97,6 +101,20 @@ def test_tools_list_matches_registered_surface(mcp_env: Path) -> None:
     names = {tool["name"] for tool in response["result"]["tools"]}
     assert names == EXPECTED_TOOLS
     assert set(TOOLS) == EXPECTED_TOOLS
+
+
+def test_tools_list_slim_surface_without_dev_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / ".atelier"
+    _seed_store(root)
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.delenv("ATELIER_DEV_MODE", raising=False)
+    mcp_server._current_ledger = None
+    mcp_server._realtime_ctx = None
+    response = _handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+    assert response is not None
+    names = {tool["name"] for tool in response["result"]["tools"]}
+    assert names == SLIM_TOOLS
 
 
 def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) -> None:

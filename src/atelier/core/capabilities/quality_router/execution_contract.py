@@ -83,9 +83,7 @@ _HOST_CONTRACTS: dict[str, dict[str, str | bool | list[str]]] = {
         "can_force_model": False,
         "can_require_verification": True,
         "fallback_mode": "advisory",
-        "unsupported_reason": (
-            "cross-host hook parity is unsupported; " "provider_enforced is future-only and disabled"
-        ),
+        "unsupported_reason": ("cross-host hook parity is unsupported; provider_enforced is future-only and disabled"),
         "host_native_owner": "model,edit,agent_orchestration",
     },
     "gemini": {

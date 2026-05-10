@@ -26,6 +26,16 @@ import tempfile
 import time
 from pathlib import Path
 
+from atelier.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+from atelier.core.capabilities.pricing import (
+    active_model,
+    all_known_models,
+    get_model_pricing,
+    tokens_to_usd,
+)
+from atelier.core.capabilities.registry import CapabilityRegistry
+from atelier.core.capabilities.telemetry import TelemetrySubstrate
+
 # ---------------------------------------------------------------------------
 # 1. Pricing module
 # ---------------------------------------------------------------------------
@@ -34,22 +44,19 @@ print("\n" + "=" * 64)
 print("1. MODEL PRICING")
 print("=" * 64)
 
-from atelier.core.capabilities.pricing import (
-    active_model,
-    all_known_models,
-    get_model_pricing,
-    tokens_to_usd,
-)
 
 model = active_model()
 print(f"  Active model  : {model}")
 
 # Show pricing for the active model
 pricing = get_model_pricing(model)
-print(
-    f"  Pricing       : ${pricing.input:.2f} input / ${pricing.output:.2f} output / "
-    f"${pricing.cache_read:.2f} cache_read  (USD per 1M tokens)"
-)
+if pricing.known:
+    print(
+        f"  Pricing       : ${pricing.input:.2f} input / ${pricing.output:.2f} output / "
+        f"${pricing.cache_read:.2f} cache_read  (USD per 1M tokens)"
+    )
+else:
+    print("  Pricing       : Cost: unknown  (model not configured in pricing table)")
 
 # Real cost example: a typical agent loop call
 example_input = 4_200
@@ -73,8 +80,11 @@ showcase_models = [
 ]
 for mid in showcase_models:
     p = get_model_pricing(mid)
-    per1k = tokens_to_usd(mid, 1000, "output")
-    print(f"    {mid:<35} ${per1k:.5f}")
+    if p.known:
+        per1k = tokens_to_usd(mid, 1000, "output")
+        print(f"    {mid:<35} ${per1k:.5f}")
+    else:
+        print(f"    {mid:<35} Cost: unknown")
 
 print(f"\n  Total models in config: {len(all_known_models())}")
 
@@ -86,7 +96,6 @@ print("\n" + "=" * 64)
 print("2. TELEMETRY SUBSTRATE")
 print("=" * 64)
 
-from atelier.core.capabilities.telemetry import TelemetrySubstrate
 
 ts = TelemetrySubstrate()
 
@@ -126,13 +135,10 @@ print("\n" + "=" * 64)
 print("3. CAPABILITY REGISTRY")
 print("=" * 64)
 
-from atelier.core.capabilities.registry import CapabilityRegistry
 
 reg = CapabilityRegistry()
 
 # Register capabilities with real dependency graph
-from atelier.core.capabilities.budget_optimizer import PromptBudgetOptimizer
-
 _ts_instance = TelemetrySubstrate()
 _optimizer = PromptBudgetOptimizer()
 
@@ -193,8 +199,6 @@ for name, info in list(caps_info.items())[:4]:
 print("\n" + "=" * 64)
 print("4. PROMPT BUDGET OPTIMIZER")
 print("=" * 64)
-
-from atelier.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
 opt = PromptBudgetOptimizer(diversity_bonus=0.15)
 
@@ -324,7 +328,11 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     status = ts_cap.status()
     print(f"\n  Model              : {status['model']}")
-    print(f"  Pricing            : ${get_model_pricing(status['model']).output:.2f}/1M output tokens")
+    p = get_model_pricing(status["model"])
+    if p.known:
+        print(f"  Pricing            : ${p.output:.2f}/1M output tokens")
+    else:
+        print("  Pricing            : Cost: unknown")
     print(f"  Total calls        : {status['total_tool_calls']}")
     print(f"  Avoided calls      : {status['avoided_tool_calls']}")
     print(f"  Cache hit rate     : {status['cache_hit_rate']:.1%}")
@@ -334,8 +342,12 @@ with tempfile.TemporaryDirectory() as tmpdir:
     # Show what savings look like across different models
     print(f"\n  Token savings in USD across models (same {status['token_savings']:,} tokens saved):")
     for mid in ["claude-opus-4", "claude-sonnet-4", "claude-haiku-4", "gpt-4o", "gemini-2.5-flash"]:
-        usd = tokens_to_usd(mid, status["token_savings"], "output")
-        print(f"    {mid:<30} ${usd:.6f}")
+        p = get_model_pricing(mid)
+        if p.known:
+            usd = tokens_to_usd(mid, status["token_savings"], "output")
+            print(f"    {mid:<30} ${usd:.6f}")
+        else:
+            print(f"    {mid:<30} Cost: unknown")
 
 # ---------------------------------------------------------------------------
 # 6. HTTP API (optional)

@@ -21,6 +21,6 @@ recent run.
    - **Open questions**: bullets from `open_questions`.
    - **Blockers**: bullets from `current_blockers`.
    - **Tool calls**: `<tool_count>` · **Tokens**: `<token_count>`.
-   - **Recent alerts**: last 5 `monitor_alert` events with severity.
+   - **Recent alerts**: last 5 `watchdog_alert` events with severity.
 
 Do not invent fields. If a list is empty, write `(none)`.

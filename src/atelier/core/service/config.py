@@ -58,12 +58,20 @@ class ServiceConfig:
         """Project-local knowledge root (usually ./.knowledge)."""
         return os.environ.get("ATELIER_KNOWLEDGE_ROOT")
 
+    @property
+    def dev_mode(self) -> bool:
+        """Whether the runtime is in developer mode. Gated features (Lint, Reasoning, Verify)
+        require this to be enabled. Tracking and analytics remain active in all modes.
+        """
+        return _bool_env("ATELIER_DEV_MODE", False)
+
     def as_dict(self) -> dict[str, object]:
         """Return config summary — never includes the api_key value."""
         return {
             "service_enabled": self.service_enabled,
             "require_auth": self.require_auth,
             "api_key_configured": bool(self.api_key),
+            "dev_mode": self.dev_mode,
             "host": self.host,
             "port": self.port,
             "storage_backend": self.storage_backend,

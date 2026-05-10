@@ -270,7 +270,10 @@ def test_reasonblock_embedding_cache_round_trip(tmp_path: Path) -> None:
         vector=[0.25, 0.75],
     )
 
-    assert get_cached_embedding(tmp_path, cache_key=cache_key, embedder_name="local:test") == [0.25, 0.75]
+    assert get_cached_embedding(tmp_path, cache_key=cache_key, embedder_name="local:test") == [
+        0.25,
+        0.75,
+    ]
 
 
 def test_generate_embedding_different_inputs_differ(monkeypatch: pytest.MonkeyPatch) -> None:

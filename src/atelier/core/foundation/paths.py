@@ -17,11 +17,30 @@ def default_store_root() -> Path:
     return (Path.home() / DEFAULT_STORE_DIRNAME).resolve()
 
 
+_HOST_WORKSPACE_ENV_VARS = (
+    "ATELIER_WORKSPACE_ROOT",
+    # Claude Code / Claude Desktop
+    "CLAUDE_WORKSPACE_ROOT",
+    # Cursor
+    "CURSOR_WORKSPACE_ROOT",
+    # VS Code / generic
+    "VSCODE_CWD",
+)
+
+
 def resolve_workspace_root(root: Path | str | None = None) -> Path:
-    """Resolve the active workspace root used for project-local knowledge."""
-    configured = os.environ.get("ATELIER_WORKSPACE_ROOT", "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
+    """Resolve the active workspace root used for project-local knowledge.
+
+    Precedence:
+    1. ``ATELIER_WORKSPACE_ROOT`` — explicit, authoritative
+    2. Common host workspace env vars (``CLAUDE_WORKSPACE_ROOT``, etc.)
+    3. Derive from the *root* path itself (e.g. parent of ``.atelier``)
+    4. Current working directory — last resort
+    """
+    for env_var in _HOST_WORKSPACE_ENV_VARS:
+        configured = os.environ.get(env_var, "").strip()
+        if configured:
+            return Path(configured).expanduser().resolve()
 
     derived = _derive_workspace_root(root)
     if derived is not None:

@@ -125,7 +125,9 @@ def _iso_now() -> str:
 
 
 def _fingerprint(seed: str | None = None) -> str:
-    raw = seed or os.environ.get("ATELIER_MACHINE_ID") or os.uname().nodename
+    from atelier.core.foundation.identity import get_anon_id
+
+    raw = seed or os.environ.get("ATELIER_MACHINE_ID") or get_anon_id()
     return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()[:16]
 
 
@@ -211,7 +213,10 @@ def claim_anonymous_trial(root: str | Path, *, monthly_limit_usd: float = 5.0) -
         anonymous=True,
     )
     _write_json(auth_state_path(root), auth, mode=0o600)
-    _write_json(free_plan_state_path(root), {"remaining": monthly_limit_usd, "limit": monthly_limit_usd, "unit": "usd"})
+    _write_json(
+        free_plan_state_path(root),
+        {"remaining": monthly_limit_usd, "limit": monthly_limit_usd, "unit": "usd"},
+    )
     return auth
 
 
@@ -243,14 +248,24 @@ def auth_status(root: str | Path) -> dict[str, Any]:
 
 
 def begin_browser_login(
-    root: str | Path, *, app_url: str | None = None, state: str | None = None, callback_port: int | None = None
+    root: str | Path,
+    *,
+    app_url: str | None = None,
+    state: str | None = None,
+    callback_port: int | None = None,
 ) -> dict[str, Any]:
     fp = _fingerprint()
     chosen_state = state or _fingerprint(f"state:{fp}:{_iso_now()}")
     port = callback_port or 49152 + (int(fp[:4], 16) % (65535 - 49152))
     base = (app_url or os.environ.get("ATELIER_APP_URL") or "https://atelier.local").rstrip("/")
     url = f"{base}/auth?callback_port={port}&state={chosen_state}&fp={fp}"
-    pending = {"url": url, "state": chosen_state, "callbackPort": port, "fingerprint": fp, "createdAt": _iso_now()}
+    pending = {
+        "url": url,
+        "state": chosen_state,
+        "callbackPort": port,
+        "fingerprint": fp,
+        "createdAt": _iso_now(),
+    }
     _write_json(Path(root) / "login_pending.json", pending, mode=0o600)
     return pending
 
@@ -834,7 +849,11 @@ def equivalent_calls(tool_name: str, tool_input: dict[str, Any] | None = None) -
         equivalent = 2 + max(0, len(globs) - 1)
         if tool_input.get("content_regex"):
             equivalent += 1
-        if str(tool_input.get("output_mode") or "").lower() in {"summary", "type-summary", "type_summary"}:
+        if str(tool_input.get("output_mode") or "").lower() in {
+            "summary",
+            "type-summary",
+            "type_summary",
+        }:
             equivalent += 1
         return float(equivalent)
     if lowered.endswith("sql") or lowered == "sql":
@@ -980,7 +999,12 @@ def _usage_numbers(raw: dict[str, Any]) -> dict[str, int]:
 
 
 def _extract_usage(payload: dict[str, Any]) -> dict[str, int]:
-    usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
+    usage: dict[str, int] = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+    }
     candidates = [payload.get("usage"), payload.get("token_usage")]
     context_usage = (
         (payload.get("context_window") or {}).get("current_usage")
@@ -1028,7 +1052,8 @@ def _usage_from_transcript(path: Path) -> list[dict[str, int]]:
 
 def _merge_usage(state: dict[str, Any], usage: dict[str, int]) -> None:
     totals = state.setdefault(
-        "usage", {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
+        "usage",
+        {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0},
     )
     for key, value in usage.items():
         totals[key] = int(totals.get(key, 0) or 0) + max(0, int(value))
@@ -1066,7 +1091,10 @@ def update_session_stats(root: str | Path, payload: dict[str, Any]) -> dict[str,
     state.setdefault("equivalent_baseline_calls", 0.0)
     state.setdefault("savings", {"calls_saved": 0, "time_saved_ms": 0, "tokens_saved": 0})
     state.setdefault("event_counts", {})
-    state.setdefault("usage", {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0})
+    state.setdefault(
+        "usage",
+        {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0},
+    )
     state["last_event_at_ms"] = _now_ms(payload)
     event = str(payload.get("hook_event_name") or payload.get("event") or "")
     if event:
@@ -1110,6 +1138,95 @@ def update_session_stats(root: str | Path, payload: dict[str, Any]) -> dict[str,
     return state
 
 
+def get_session_stats_from_trace(trace: Any) -> dict[str, Any]:
+    """Reconstruct a session stats dictionary from a Trace object."""
+    # Tool call counts
+    tools_called = {tc.name: tc.count for tc in trace.tools_called}
+    total_tool_calls = sum(tools_called.values())
+
+    # Equivalent baseline calls (logic mirrored from equivalent_calls)
+    equiv_total = 0.0
+    for tc in trace.tools_called:
+        lowered = tc.name.lower()
+        if lowered.endswith("edit") or lowered in {"edit", "write", "multiedit"}:
+            args = tc.args or {}
+            edits = args.get("edits") or [args]
+            edit_count = max(1, len(edits))
+            files = {
+                str(edit.get("file_path") or edit.get("path") or edit.get("file") or "")
+                for edit in edits
+                if isinstance(edit, dict)
+            }
+            files.discard("")
+            equiv_total += edit_count + max(1, len(files)) + 0.5
+        elif lowered.endswith("search") or lowered in {"search", "grep", "glob"}:
+            args = tc.args or {}
+            globs = args.get("file_glob_patterns") or []
+            equiv = 2 + max(0, len(globs) - 1)
+            if args.get("content_regex"):
+                equiv += 1
+            if str(args.get("output_mode") or "").lower() in {
+                "summary",
+                "type-summary",
+                "type_summary",
+            }:
+                equiv += 1
+            equiv_total += float(equiv)
+        elif lowered.endswith("sql") or lowered == "sql":
+            equiv_total += 5.0
+        else:
+            equiv_total += tc.count
+
+    # Savings (logic mirrored from compute_live_savings)
+    calls_saved = max(0, int(equiv_total - total_tool_calls))
+    time_saved_ms = calls_saved * LIVE_TIME_SAVED_PER_CALL_MS
+    in_saved = int(calls_saved * LIVE_INPUT_TOKENS_PER_CALL * LIVE_CONTEXT_MULTIPLIER)
+    out_saved = calls_saved * LIVE_OUTPUT_TOKENS_PER_CALL
+    cache_saved = int(calls_saved * LIVE_CACHE_READ_TOKENS_PER_CALL * LIVE_CONTEXT_MULTIPLIER)
+
+    return {
+        "session_id": trace.id,
+        "run_id": trace.run_id,
+        "agent": trace.agent,
+        "task": trace.task,
+        "total_tool_calls": total_tool_calls,
+        "equivalent_baseline_calls": round(equiv_total, 2),
+        "savings": {
+            "calls_saved": calls_saved,
+            "time_saved_ms": time_saved_ms,
+            "tokens_saved": in_saved + out_saved + cache_saved,
+        },
+        "usage": {
+            "input_tokens": trace.input_tokens,
+            "output_tokens": trace.output_tokens,
+            "cache_read_tokens": trace.cached_input_tokens,
+            "cache_write_tokens": trace.cache_creation_input_tokens,
+            "thinking_tokens": getattr(trace, "thinking_tokens", 0),
+        },
+        "model": trace.model,
+        "completed": True,
+        "last_event_at_ms": int(trace.created_at.timestamp() * 1000),
+    }
+
+
+def list_session_stats(root: str | Path, limit: int = 100) -> list[dict[str, Any]]:
+    stats_dir = Path(root) / "session_stats"
+    if not stats_dir.exists():
+        return []
+
+    # Get the newest sessions first
+    files = sorted(stats_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    results: list[dict[str, Any]] = []
+    for file_path in files[:limit]:
+        try:
+            data = json.loads(file_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                results.append(data)
+        except Exception:
+            continue
+    return results
+
+
 def aggregate_session_stats(root: str | Path, session_id: str | None = None) -> dict[str, Any]:
     stats_dir = Path(root) / "session_stats"
     files = (
@@ -1122,7 +1239,12 @@ def aggregate_session_stats(root: str | Path, session_id: str | None = None) -> 
         "total_tool_calls": 0,
         "equivalent_baseline_calls": 0.0,
         "savings": {"calls_saved": 0, "time_saved_ms": 0, "tokens_saved": 0},
-        "usage": {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0},
+        "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+        },
         "compactions": 0,
         "compaction_duration_ms": 0,
         "pending_subagents": 0,
@@ -1246,7 +1368,11 @@ def build_savings_report(
         "estimated_saved_usd": estimated_saved_usd,
         "session": session,
         "lifetime": lifetime,
-        "baseline": {"available": baseline_gate.get("available", False), "estimate": baseline, **baseline_gate},
+        "baseline": {
+            "available": baseline_gate.get("available", False),
+            "estimate": baseline,
+            **baseline_gate,
+        },
         "subscription": subscription,
         "free_plan": free_plan,
         "cost": cost,

@@ -14,6 +14,7 @@
 #   ATELIER_SERVICECTL_INTERVAL_SECONDS Poll interval for servicectl (default: 60)
 #   ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS Periodic maintenance interval (default: 21600)
 #   ATELIER_DRY_RUN    If set to 1, print planned actions and exit
+#   ATELIER_NO_STACK   If set to 1, skip starting the visualization stack (service + frontend)
 
 set -euo pipefail
 
@@ -26,15 +27,23 @@ ATELIER_NO_SERVICECTL="${ATELIER_NO_SERVICECTL:-0}"
 ATELIER_SERVICECTL_INTERVAL_SECONDS="${ATELIER_SERVICECTL_INTERVAL_SECONDS:-60}"
 ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS="${ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS:-21600}"
 ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
-ATELIER_LOCAL=0
+ATELIER_NO_STACK="${ATELIER_NO_STACK:-0}"
+# Default to local mode if running from within the Atelier repository
+if [[ -f "uv.lock" && -d "src/atelier" && -f "scripts/install.sh" ]]; then
+    ATELIER_LOCAL=1
+else
+    ATELIER_LOCAL=0
+fi
 PASSTHROUGH=()
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --local) ATELIER_LOCAL=1 ;;
+        --no-local) ATELIER_LOCAL=0 ;;
         --dry-run) ATELIER_DRY_RUN=1; PASSTHROUGH+=("$1") ;;
         --no-hosts) ATELIER_NO_HOSTS=1; PASSTHROUGH+=("$1") ;;
+        --no-stack) ATELIER_NO_STACK=1; PASSTHROUGH+=("$1") ;;
         *) PASSTHROUGH+=("$1") ;;
     esac
     shift
@@ -156,8 +165,16 @@ main() {
         else
             bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
         fi
+        # Persist host detection results for the Docker service
+        if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
+            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write 2>/dev/null || true
+        fi
     else
         info "Skipping host integrations because ATELIER_NO_HOSTS=1"
+        # Still persist current detection state even when skipping install
+        if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
+            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write 2>/dev/null || true
+        fi
     fi
 
     run mkdir -p "$ATELIER_BIN_DIR"
@@ -202,12 +219,40 @@ main() {
         info "Skipping background service controller because ATELIER_NO_SERVICECTL=1"
     fi
 
-    info "Install complete. Try:"
-    echo "  atelier --version           - Check core CLI version"
-    echo "  atelier-mcp --version       - Check MCP server version"
-    echo "  atelier servicectl status   - View background service and systemctl status"
-    echo "  atelier stack start         - Start production API and Frontend (requires Docker)"
-    echo "  atelier-status              - Show one-line status of the active reasoning run"
+    STACK_STARTED=0
+    if [[ "$ATELIER_NO_STACK" != "1" ]]; then
+        if command -v docker >/dev/null 2>&1; then
+            info "Starting Atelier visualization stack (service + frontend)..."
+            if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+                echo "[dry-run] $ATELIER_BIN_DIR/atelier stack start"
+            else
+                "$ATELIER_BIN_DIR/atelier" stack start 2>/dev/null \
+                    && STACK_STARTED=1 \
+                    || warn "Visualization stack did not start (Docker daemon may not be running)"
+            fi
+        else
+            info "Skipping visualization stack because Docker is not installed"
+        fi
+    else
+        info "Skipping visualization stack because ATELIER_NO_STACK=1"
+    fi
+
+    info "Install complete."
+    echo ""
+    if [[ "$STACK_STARTED" == "1" ]]; then
+        echo "  Visualization stack is running:"
+        echo "    frontend: http://localhost:3125"
+        echo "    service:  http://localhost:8787"
+        echo ""
+    fi
+    echo "  Commands:"
+    echo "    atelier --version           - Check core CLI version"
+    echo "    atelier-mcp --version       - Check MCP server version"
+    echo "    atelier servicectl status   - View background service and systemctl status"
+    echo "    atelier stack start         - Start production API and Frontend (requires Docker)"
+    echo "    atelier stack stop          - Stop the visualization stack"
+    echo "    atelier stack logs          - View stack logs"
+    echo "    atelier-status              - Show one-line status of the active reasoning run"
 }
 
 main "$@"

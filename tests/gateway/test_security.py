@@ -30,7 +30,7 @@ from atelier.gateway.adapters.cli import cli
 
 
 def test_redact_strips_credentials_and_cot() -> None:
-    text = "set api_key=sk-aaaabbbbccccddddeeeeffff1122 then\n" "internal reasoning: do something private"
+    text = "set api_key=sk-aaaabbbbccccddddeeeeffff1122 then\ninternal reasoning: do something private"
     out = redact(text)
     assert "sk-aaaabbbbccccdddd" not in out
     assert "<redacted-openai-key>" in out or "<redacted-credential>" in out

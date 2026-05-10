@@ -110,6 +110,8 @@ class ToolCall(BaseModel):
     count: int = 1
     args: dict[str, Any] | None = None
     result_summary: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class CommandRecord(BaseModel):
@@ -175,6 +177,13 @@ class Trace(BaseModel):
     trace_confidence: TraceConfidence | None = None
     capture_sources: list[str] = Field(default_factory=list)
     missing_surfaces: list[str] = Field(default_factory=list)
+    input_tokens: int = 0
+    user_prompt_tokens: int = 0
+    output_tokens: int = 0
+    thinking_tokens: int = 0
+    cached_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    model: str = ""
     created_at: datetime = Field(default_factory=_utcnow)
 
     @classmethod
@@ -229,10 +238,13 @@ class Rubric(BaseModel):
 
     id: str
     domain: str
+    triggers: list[str] = Field(default_factory=list)
+    forbidden_phrases: list[str] = Field(default_factory=list)
     required_checks: list[str] = Field(default_factory=list)
     block_if_missing: list[str] = Field(default_factory=list)
     warning_checks: list[str] = Field(default_factory=list)
     escalation_conditions: list[str] = Field(default_factory=list)
+    related_blocks: list[str] = Field(default_factory=list)
 
 
 class ConsolidationCandidate(BaseModel):
@@ -310,28 +322,6 @@ RubricStatus = Literal["pass", "warn", "blocked", "escalate"]
 
 
 # --------------------------------------------------------------------------- #
-# V2: Environment (Beseam-specific operating governor)                        #
-# --------------------------------------------------------------------------- #
-
-
-class Environment(BaseModel):
-    """A Beseam reasoning environment (operating law for a domain)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    domain: str
-    description: str = ""
-    triggers: list[str] = Field(default_factory=list)
-    forbidden: list[str] = Field(default_factory=list)
-    required: list[str] = Field(default_factory=list)
-    escalate: list[str] = Field(default_factory=list)
-    high_risk_tools: list[str] = Field(default_factory=list)
-    rubric_id: str | None = None
-    related_blocks: list[str] = Field(default_factory=list)
-
-
-# --------------------------------------------------------------------------- #
 # V2: Run ledger event                                                        #
 # --------------------------------------------------------------------------- #
 
@@ -348,7 +338,7 @@ class LedgerEvent(BaseModel):
         "command_result",
         "file_edit",
         "file_revert",
-        "monitor_alert",
+        "watchdog_alert",
         "rubric_run",
         "validation",
         "test_result",

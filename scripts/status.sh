@@ -4,6 +4,8 @@
 # Options:
 #   --workspace DIR  Workspace root to inspect (default: cwd)
 #   --json           Output in JSON format
+#   --write          Persist detection results to .atelier/hosts/status.json
+#                    for the Docker service to consume (via mounted volume)
 
 set -euo pipefail
 
@@ -12,10 +14,12 @@ ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 WORKSPACE="${PWD}"
 JSON=false
+WRITE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --json) JSON=true ;;
+        --write) WRITE=true ;;
         --workspace)
             if [ $# -lt 2 ]; then
                 echo "Missing value for --workspace" >&2
@@ -195,4 +199,35 @@ else
     echo ""
     echo "Latest Run:"
     echo "  $(get_latest_run)"
+fi
+
+# Persist detection results for the Docker service (--write flag)
+if [ "$WRITE" = true ]; then
+    HOSTS_DIR="${WORKSPACE}/.atelier/hosts"
+    mkdir -p "$HOSTS_DIR"
+    HOSTS_DIR="$HOSTS_DIR" \
+    CLAUDE_STATUS="$CLAUDE_STATUS" \
+    CODEX_STATUS="$CODEX_STATUS" \
+    OPENCODE_STATUS="$OPENCODE_STATUS" \
+    COPILOT_STATUS="$COPILOT_STATUS" \
+    GEMINI_STATUS="$GEMINI_STATUS" \
+    python3 - <<'PYEOF'
+import json, os
+
+def installed(s: str) -> str:
+    return "installed" if s == "installed" else "not_installed"
+
+hosts_dir = os.environ["HOSTS_DIR"]
+status = {
+    "claude": installed(os.environ["CLAUDE_STATUS"]),
+    "codex": installed(os.environ["CODEX_STATUS"]),
+    "opencode": installed(os.environ["OPENCODE_STATUS"]),
+    "copilot": installed(os.environ["COPILOT_STATUS"]),
+    "gemini": installed(os.environ["GEMINI_STATUS"]),
+}
+path = os.path.join(hosts_dir, "status.json")
+with open(path, "w") as f:
+    json.dump(status, f, indent=2)
+print(f"Wrote host status to {path}")
+PYEOF
 fi

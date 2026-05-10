@@ -14,10 +14,12 @@ import subprocess
 import sys
 import time
 import urllib.request
+from contextlib import redirect_stderr, redirect_stdout, suppress
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from importlib import resources
 from importlib.metadata import PackageNotFoundError, version
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +27,6 @@ import click
 import yaml
 
 from atelier import __version__ as atelier_version
-from atelier.core.capabilities.lesson_promotion import LessonPrBot, LessonPromoterCapability
-from atelier.core.foundation.extractor import extract_candidate
-from atelier.core.foundation.metrics import summarize
 from atelier.core.foundation.models import (
     ReasonBlock,
     Rubric,
@@ -35,15 +34,12 @@ from atelier.core.foundation.models import (
     to_jsonable,
 )
 from atelier.core.foundation.paths import default_store_root
-from atelier.core.foundation.plan_checker import check_plan
 from atelier.core.foundation.renderer import (
     render_block_markdown,
     render_context_for_agent,
     render_plan_check,
     render_rubric_result,
 )
-from atelier.core.foundation.retriever import TaskContext, retrieve
-from atelier.core.foundation.rubric_gate import run_rubric
 from atelier.core.foundation.store import ReasoningStore
 
 DEFAULT_ROOT = default_store_root()
@@ -84,16 +80,16 @@ def _telemetry_session(ctx: click.Context) -> str | None:
 
 
 def _begin_cli_telemetry(command_name: str) -> tuple[str, float]:
-    from atelier.core.service.telemetry import emit_product, init_product_telemetry
-    from atelier.core.service.telemetry.banner import maybe_show_banner
-    from atelier.core.service.telemetry.identity import (
+    from atelier.core.foundation.identity import (
         get_anon_id,
         new_session_id,
         platform_payload,
     )
+    from atelier.core.service.telemetry import emit_product
+    from atelier.core.service.telemetry.banner import maybe_show_banner
 
     maybe_show_banner()
-    init_product_telemetry(service_version=_atelier_version())
+    # OTel is initialized lazily on first emit_product_log call.
     session_id = new_session_id()
     payload = platform_payload()
     emit_product(
@@ -251,12 +247,16 @@ def _core_runtime(root: Path) -> Any:
     return AtelierRuntimeCore(root)
 
 
-def _lesson_promoter(root: Path) -> LessonPromoterCapability:
+def _lesson_promoter(root: Path) -> LessonPromoterCapability:  # noqa: F821
+    from atelier.core.capabilities.lesson_promotion import LessonPromoterCapability
+
     store = _load_store(root)
     return LessonPromoterCapability(store)
 
 
-def _lesson_pr_bot(root: Path) -> LessonPrBot:
+def _lesson_pr_bot(root: Path) -> LessonPrBot:  # noqa: F821
+    from atelier.core.capabilities.lesson_promotion import LessonPrBot
+
     store = _load_store(root)
     return LessonPrBot(store=store, root=root)
 
@@ -443,19 +443,126 @@ def _servicectl_status_payload(root: Path) -> dict[str, Any]:
         "last_tick_at": state.get("last_tick_at"),
         "last_processed_jobs": state.get("last_processed_jobs", []),
         "last_enqueued_jobs": state.get("last_enqueued_jobs", []),
+        "last_imported_sessions": state.get("last_imported_sessions", {}),
+        "last_session_import_at": state.get("last_session_import_at"),
         "last_exit_reason": state.get("last_exit_reason"),
         "started_at": state.get("started_at"),
     }
 
 
-def _servicectl_tick(root: Path, *, maintenance_interval_seconds: int) -> dict[str, Any]:
+def _servicectl_refresh_host_status(root: Path) -> dict[str, str]:
+    """Detect host agent CLI tools and persist status for the Docker service.
+
+    Writes to ``{root}/hosts/status.json`` in the same format as
+    ``scripts/status.sh --write`` so the API running in Docker can
+    consume it via ``_load_host_status_file()``.
+
+    Also writes to the CWD's ``.atelier/hosts/status.json`` if different
+    from *root* (handles the common case where Docker mounts the project's
+    ``.atelier`` while servicectl uses ``~/.atelier``).
+
+    Runs on the host (inside servicectl) so ``shutil.which()`` can
+    find the actual CLI binaries.
+    """
+    import shutil
+
+    hosts = [
+        ("claude", "claude"),
+        ("codex", "codex"),
+        ("opencode", None),
+        ("copilot", None),
+        ("gemini", "gemini"),
+    ]
+    status: dict[str, str] = {}
+    for hid, check in hosts:
+        if check:
+            installed = shutil.which(check) is not None
+        elif hid == "opencode":
+            installed = shutil.which("opencode") is not None
+        elif hid == "copilot":
+            installed = shutil.which("code") is not None
+        else:
+            installed = False
+        status[hid] = "installed" if installed else "not_installed"
+
+    def _write_to(hosts_dir: Path) -> None:
+        hosts_dir.mkdir(parents=True, exist_ok=True)
+        (hosts_dir / "status.json").write_text(json.dumps(status, indent=2), encoding="utf-8")
+
+    # Primary: write to servicectl's root
+    _write_to(Path(root) / "hosts")
+
+    # Secondary: also write to CWD's .atelier (common for Docker volume mounts)
+    cwd_hosts = Path.cwd() / ".atelier" / "hosts"
+    if cwd_hosts.resolve() != (Path(root) / "hosts").resolve():
+        with suppress(OSError, PermissionError):
+            _write_to(cwd_hosts)
+
+    return status
+
+
+def _servicectl_import_sessions(store: ReasoningStore) -> dict[str, int]:
+    """Import host sessions with importer-level timestamp dedup.
+
+    Each importer already skips unchanged sessions by comparing source timestamp
+    against the previously imported RawArtifact timestamp.
+    """
+    from atelier.gateway.hosts.session_parsers.claude import ClaudeImporter
+    from atelier.gateway.hosts.session_parsers.codex import CodexImporter
+    from atelier.gateway.hosts.session_parsers.copilot import CopilotImporter
+    from atelier.gateway.hosts.session_parsers.gemini import GeminiImporter
+    from atelier.gateway.hosts.session_parsers.opencode import OpenCodeImporter
+
+    counts: dict[str, int] = {}
+    importers: list[tuple[str, Any]] = [
+        ("copilot", CopilotImporter(store)),
+        ("claude", ClaudeImporter(store)),
+        ("codex", CodexImporter(store)),
+        ("opencode", OpenCodeImporter(store)),
+        ("gemini", GeminiImporter(store)),
+    ]
+    all_imported_ids = []
+    for host, importer in importers:
+        try:
+            # Keep servicectl output machine-readable (`--json`) by swallowing
+            # importer progress prints.
+            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                imported_ids = importer.import_all(force=False)
+            counts[host] = len(imported_ids)
+            all_imported_ids.extend(imported_ids)
+        except Exception:
+            counts[host] = 0
+
+    # Report aggregated session counts to atelier.beseam.com
+    try:
+        from atelier.core.service.sync import sync_usage
+
+        sync_usage(store.root, session_ids=all_imported_ids)
+    except Exception:
+        pass
+
+    return counts
+
+
+def _servicectl_tick(
+    root: Path,
+    *,
+    maintenance_interval_seconds: int,
+    session_import_interval_seconds: int,
+) -> dict[str, Any]:
     from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
     from atelier.core.service.worker import Worker
     from atelier.infra.storage.factory import create_store
 
+    SESSION_IMPORT_KEY = "import_host_sessions"
+
     store = create_store(root)
     store.init()
     worker = Worker(store=store)
+
+    # Refresh host agent detection status for the Docker service
+    with suppress(Exception):
+        _servicectl_refresh_host_status(root)
 
     now = datetime.now(UTC)
     state = _read_servicectl_state(root)
@@ -467,6 +574,25 @@ def _servicectl_tick(root: Path, *, maintenance_interval_seconds: int) -> dict[s
             last_enqueue_at = datetime.fromisoformat(last_enqueue_raw)
         except ValueError:
             last_enqueue_at = None
+
+    last_session_import_raw = periodic.get(SESSION_IMPORT_KEY)
+    last_session_import_at: datetime | None = None
+    if isinstance(last_session_import_raw, str):
+        try:
+            last_session_import_at = datetime.fromisoformat(last_session_import_raw)
+        except ValueError:
+            last_session_import_at = None
+
+    if session_import_interval_seconds < 0:
+        import_due = False
+    elif session_import_interval_seconds == 0 or last_session_import_at is None:
+        import_due = True
+    else:
+        import_due = (now - last_session_import_at).total_seconds() >= session_import_interval_seconds
+    imported_sessions: dict[str, int] = {}
+    if import_due:
+        imported_sessions = _servicectl_import_sessions(store)
+        periodic[SESSION_IMPORT_KEY] = now.isoformat()
 
     enqueued: list[str] = []
     if maintenance_interval_seconds <= 0 or last_enqueue_at is None:
@@ -499,6 +625,8 @@ def _servicectl_tick(root: Path, *, maintenance_interval_seconds: int) -> dict[s
         "last_tick_at": now.isoformat(),
         "last_processed_jobs": processed,
         "last_enqueued_jobs": enqueued,
+        "last_imported_sessions": imported_sessions if import_due else state.get("last_imported_sessions", {}),
+        "last_session_import_at": periodic.get(SESSION_IMPORT_KEY),
         "last_exit_reason": state.get("last_exit_reason"),
         "periodic_jobs": periodic,
         "started_at": state.get("started_at"),
@@ -507,6 +635,8 @@ def _servicectl_tick(root: Path, *, maintenance_interval_seconds: int) -> dict[s
     return {
         "enqueued_jobs": enqueued,
         "processed_jobs": processed,
+        "imported_sessions": imported_sessions,
+        "session_import_ran": import_due,
         "pending_jobs": len(
             [job for job in store.list_jobs(limit=200) if job["status"] in {"pending", "running", "failed"}]
         ),
@@ -784,6 +914,18 @@ def search(ctx: click.Context, query_parts: tuple[str, ...], limit: int, as_json
         click.echo(f"{b.id}\t{b.domain}\t{b.title}")
 
 
+def _check_dev_mode(command_name: str, status: int = 1) -> None:
+    from atelier.core.service.config import cfg
+
+    if not cfg.dev_mode:
+        click.echo(
+            f"The '{command_name}' feature is currently in 'Development Mode' and is disabled for this "
+            "environment. Passive tracking (sessions, traces, analytics) remains active.\n"
+            "To enable active reasoning features, set ATELIER_DEV_MODE=1."
+        )
+        sys.exit(status)
+
+
 # ----- reasoning ------------------------------------------------------------ #
 
 
@@ -813,6 +955,8 @@ def reasoning(
     as_json: bool,
 ) -> None:
     """Render the reasoning-context block to inject into an agent prompt."""
+    _check_dev_mode("reasoning")
+    from atelier.core.foundation.retriever import TaskContext, retrieve
     from atelier.core.service.telemetry.frustration import match_frustration
 
     match_frustration(task, surface="cli_input", session_id=_telemetry_session(ctx))
@@ -876,6 +1020,9 @@ def check_plan_cmd(
     as_json: bool,
 ) -> None:
     """Validate a proposed agent plan."""
+    _check_dev_mode("lint", status=2)
+    from atelier.core.foundation.plan_checker import check_plan
+
     store = _load_store(ctx.obj["root"])
     if input_path is not None:
         raw = sys.stdin.read() if str(input_path) == "-" else input_path.read_text("utf-8")
@@ -918,6 +1065,7 @@ def rescue(
     as_json: bool,
 ) -> None:
     """Suggest a rescue procedure for a repeated failure."""
+    _check_dev_mode("rescue")
     from atelier.core.service.telemetry import emit_product
     from atelier.core.service.telemetry.frustration import match_frustration
     from atelier.core.service.telemetry.schema import hash_identifier
@@ -953,14 +1101,14 @@ def telemetry_group() -> None:
 @telemetry_group.command("status")
 @click.option("--json", "as_json", is_flag=True)
 def telemetry_status(as_json: bool) -> None:
-    from atelier.core.service.telemetry import emit_product
-    from atelier.core.service.telemetry.banner import is_acknowledged
-    from atelier.core.service.telemetry.config import config_path, load_telemetry_config
-    from atelier.core.service.telemetry.identity import (
+    from atelier.core.foundation.identity import (
         get_anon_id,
         new_session_id,
         telemetry_id_path,
     )
+    from atelier.core.service.telemetry import emit_product
+    from atelier.core.service.telemetry.banner import is_acknowledged
+    from atelier.core.service.telemetry.config import config_path, load_telemetry_config
     from atelier.core.service.telemetry.local_store import default_db_path
 
     session_id = new_session_id()
@@ -999,8 +1147,10 @@ def telemetry_on() -> None:
 @telemetry_group.command("off")
 def telemetry_off() -> None:
     from atelier.core.service.telemetry import set_remote_enabled
+    from atelier.core.service.telemetry.banner import mark_acknowledged
 
     set_remote_enabled(False)
+    mark_acknowledged()
     click.echo("remote telemetry: off")
 
 
@@ -1015,7 +1165,7 @@ def telemetry_show(limit: int) -> None:
 
 @telemetry_group.command("reset-id")
 def telemetry_reset_id() -> None:
-    from atelier.core.service.telemetry.identity import reset_anon_id
+    from atelier.core.foundation.identity import reset_anon_id
 
     click.echo(reset_anon_id())
 
@@ -1252,6 +1402,8 @@ def block_extract(ctx: click.Context, trace_id: str, save: bool, as_json: bool) 
     trace = store.get_trace(trace_id)
     if trace is None:
         raise click.ClickException(f"trace not found: {trace_id}")
+    from atelier.core.foundation.extractor import extract_candidate
+
     candidate = extract_candidate(trace)
     if save:
         store.upsert_block(candidate.block)
@@ -1285,6 +1437,8 @@ def list_blocks_cmd(ctx: click.Context, domain: str | None, include_deprecated: 
     if as_json:
         _emit([to_jsonable(b) for b in blocks], as_json=True)
         return
+    from atelier.core.foundation.metrics import summarize
+
     summary = summarize(store)
     click.echo(
         f"# {len(blocks)} blocks shown "
@@ -1338,6 +1492,9 @@ def quarantine(ctx: click.Context, block_id: str) -> None:
 @click.pass_context
 def run_rubric_cmd(ctx: click.Context, rubric_id: str, input_path: Path | str, as_json: bool) -> None:
     """Evaluate a rubric against a checks JSON object."""
+    _check_dev_mode("verify", status=2)
+    from atelier.core.foundation.rubric_gate import run_rubric
+
     store = _load_store(ctx.obj["root"])
     rubric = store.get_rubric(rubric_id)
     if rubric is None:
@@ -1389,8 +1546,8 @@ def copilot_import(ctx: click.Context, path: Path | None, force: bool) -> None:
 
     store = _load_store(ctx.obj["root"])
     importer = CopilotImporter(store)
-    count = importer.import_all(path, force=force)
-    click.echo(f"imported {count} copilot sessions")
+    ids = importer.import_all(path, force=force)
+    click.echo(f"imported {len(ids)} copilot sessions")
 
 
 # ----- claude --------------------------------------------------------------- #
@@ -1421,8 +1578,8 @@ def claude_import(ctx: click.Context, path: Path | None, force: bool) -> None:
 
     store = _load_store(ctx.obj["root"])
     importer = ClaudeImporter(store)
-    count = importer.import_all(path, force=force)
-    click.echo(f"imported {count} claude sessions")
+    ids = importer.import_all(path, force=force)
+    click.echo(f"imported {len(ids)} claude sessions")
 
 
 # ----- codex ---------------------------------------------------------------- #
@@ -1453,8 +1610,8 @@ def codex_import(ctx: click.Context, path: Path | None, force: bool) -> None:
 
     store = _load_store(ctx.obj["root"])
     importer = CodexImporter(store)
-    count = importer.import_all(path, force=force)
-    click.echo(f"imported {count} codex sessions")
+    ids = importer.import_all(path, force=force)
+    click.echo(f"imported {len(ids)} codex sessions")
 
 
 # ----- opencode ------------------------------------------------------------- #
@@ -1485,12 +1642,142 @@ def opencode_import(ctx: click.Context, path: Path | None, force: bool) -> None:
 
     store = _load_store(ctx.obj["root"])
     importer = OpenCodeImporter(store)
-    count = importer.import_all(path, force=force)
-    click.echo(f"imported {count} opencode sessions")
+    ids = importer.import_all(path, force=force)
+    click.echo(f"imported {len(ids)} opencode sessions")
+
+
+# ----- gemini --------------------------------------------------------------- #
+
+
+@cli.group()
+def gemini() -> None:
+    """Gemini CLI session integration (~/.gemini/tmp/atelier/chats/)."""
+
+
+@gemini.command("import")
+@click.option(
+    "--path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Override sessions root.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Force re-import all sessions, ignoring timestamp dedup.",
+)
+@click.pass_context
+def gemini_import(ctx: click.Context, path: Path | None, force: bool) -> None:
+    """Import Gemini sessions into the Atelier store (loss-preserving)."""
+    from atelier.gateway.hosts.session_parsers.gemini import GeminiImporter
+
+    store = _load_store(ctx.obj["root"])
+    importer = GeminiImporter(store)
+    ids = importer.import_all(path, force=force)
+    click.echo(f"imported {len(ids)} gemini sessions")
+
+
+# ----- global import -------------------------------------------------------- #
+
+
+@cli.command("import")
+@click.option(
+    "--host",
+    type=click.Choice(["claude", "codex", "copilot", "opencode", "gemini"]),
+    default=None,
+    help="Import from only one specific host.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Force re-import all sessions, ignoring timestamp dedup.",
+)
+@click.option(
+    "--export-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Export reconstructed session logs (JSONL) to this directory.",
+)
+@click.pass_context
+def global_import(ctx: click.Context, host: str | None, force: bool, export_dir: Path | None) -> None:
+    """Unified import for ALL agent sessions (Claude, Gemini, Codex, etc.)."""
+    from atelier.gateway.hosts.session_parsers._session_parser import parse_session_turns
+    from atelier.gateway.hosts.session_parsers.claude import ClaudeImporter
+    from atelier.gateway.hosts.session_parsers.codex import CodexImporter
+    from atelier.gateway.hosts.session_parsers.copilot import CopilotImporter
+    from atelier.gateway.hosts.session_parsers.gemini import GeminiImporter
+    from atelier.gateway.hosts.session_parsers.opencode import OpenCodeImporter
+
+    store = _load_store(ctx.obj["root"])
+    store.init()
+
+    if export_dir:
+        export_dir.mkdir(parents=True, exist_ok=True)
+        click.echo(f"exporting reconstructed sessions to {export_dir}")
+
+    hosts = [
+        ("claude", ClaudeImporter),
+        ("codex", CodexImporter),
+        ("copilot", CopilotImporter),
+        ("opencode", OpenCodeImporter),
+        ("gemini", GeminiImporter),
+    ]
+
+    total = 0
+    reconstructable = 0
+    all_imported_ids = []
+
+    with store.batch_mode():
+        for name, importer_cls in hosts:
+            if host and name != host:
+                continue
+
+            try:
+                ids = importer_cls(store).import_all(force=force)
+                count = len(ids)
+                total += count
+                all_imported_ids.extend(ids)
+
+                # Reconstruction audit
+                for tid in ids:
+                    trace = store.get_trace(tid)
+                    if trace and trace.raw_artifact_ids:
+                        art_id = trace.raw_artifact_ids[0]
+                        artifact = store.get_raw_artifact(art_id)
+                        if artifact:
+                            try:
+                                content = store.read_raw_artifact_content(artifact)
+                                turns = parse_session_turns(content, name)
+                                if turns:
+                                    reconstructable += 1
+                                    if export_dir:
+                                        safe_tid = tid.replace("/", "_").replace("\\", "_")
+                                        export_file = export_dir / f"{name}-{safe_tid}.jsonl"
+                                        export_file.write_text(content)
+                            except Exception:
+                                pass
+
+                click.echo(f"{name}: imported {count} new sessions")
+            except Exception as e:
+                click.secho(f"FATAL: {name} importer raised: {e!r}", fg="red", err=True)
+
+    if total > 0:
+        pct = (reconstructable / total) * 100
+        click.echo(f"\nAudit: {reconstructable}/{total} sessions ({pct:.1f}%) 100% reconstructable.")
+
+    # Sync aggregated usage
+    try:
+        from atelier.core.service.sync import sync_usage
+
+        sync_usage(ctx.obj["root"], session_ids=all_imported_ids)
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------- #
-# V2: Ledger / Monitor / Compress / Env / Failure / Eval / Smart / Savings   #
+# V2: Ledger / Watchdog / Compress / Env / Failure / Eval / Smart / Savings   #
 # --------------------------------------------------------------------------- #
 
 
@@ -1600,7 +1887,6 @@ def compress_context_cmd(ctx: click.Context, run_id: str | None, as_json: bool) 
     if as_json:
         _emit(
             {
-                "environment_id": state.environment_id,
                 "files_changed": state.files_changed,
                 "error_fingerprints": state.error_fingerprints,
                 "high_severity_alerts": state.high_severity_alerts,
@@ -1618,127 +1904,6 @@ def compress_context_cmd(ctx: click.Context, run_id: str | None, as_json: bool) 
         )
         return
     click.echo(state.to_prompt_block())
-
-
-# ----- env ---------------------------------------------------------------- #
-
-
-@cli.group()
-def env() -> None:
-    """Inspect Beseam reasoning environments."""
-
-
-def _all_environments() -> list[Any]:
-    from atelier.core.foundation.environments import load_packaged_environments
-
-    return load_packaged_environments()
-
-
-@env.command("list")
-@click.option("--json", "as_json", is_flag=True)
-def env_list(as_json: bool) -> None:
-    envs = _all_environments()
-    if as_json:
-        _emit([to_jsonable(e) for e in envs], as_json=True)
-        return
-    for e in envs:
-        click.echo(f"{e.id}\t{e.domain}\t{e.description.strip()[:60]}")
-
-
-@env.command("show")
-@click.argument("env_id")
-@click.option("--json", "as_json", is_flag=True)
-def env_show(env_id: str, as_json: bool) -> None:
-    envs = {e.id: e for e in _all_environments()}
-    if env_id not in envs:
-        raise click.ClickException(f"environment not found: {env_id}")
-    e = envs[env_id]
-    if as_json:
-        _emit(to_jsonable(e), as_json=True)
-        return
-    click.echo(f"# {e.id}")
-    click.echo(f"domain: {e.domain}")
-    click.echo(f"description: {e.description.strip()}")
-    if e.forbidden:
-        click.echo("forbidden:")
-        for p in e.forbidden:
-            click.echo(f"  - {p}")
-    if e.required:
-        click.echo("required:")
-        for p in e.required:
-            click.echo(f"  - {p}")
-    if e.escalate:
-        click.echo("escalate:")
-        for p in e.escalate:
-            click.echo(f"  - {p}")
-    if e.high_risk_tools:
-        click.echo("high_risk_tools:")
-        for p in e.high_risk_tools:
-            click.echo(f"  - {p}")
-    if e.rubric_id:
-        click.echo(f"rubric_id: {e.rubric_id}")
-    if e.related_blocks:
-        click.echo("related_blocks:")
-        for p in e.related_blocks:
-            click.echo(f"  - {p}")
-
-
-@env.command("context")
-@click.argument("env_id")
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def env_context(ctx: click.Context, env_id: str, as_json: bool) -> None:
-    """Render env context: ReasonBlocks + rubric checks for injection."""
-    store = _load_store(ctx.obj["root"])
-    envs = {e.id: e for e in _all_environments()}
-    if env_id not in envs:
-        raise click.ClickException(f"environment not found: {env_id}")
-    e = envs[env_id]
-    blocks = []
-    for bid in e.related_blocks:
-        b = store.get_block(bid)
-        if b is not None:
-            blocks.append(b)
-    rubric = store.get_rubric(e.rubric_id) if e.rubric_id else None
-    payload = {
-        "environment": to_jsonable(e),
-        "blocks": [to_jsonable(b) for b in blocks],
-        "rubric": to_jsonable(rubric) if rubric else None,
-    }
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    from atelier.core.foundation.renderer import render_context_for_agent
-
-    click.echo(f"## Environment {e.id}")
-    click.echo(e.description.strip())
-    if blocks:
-        click.echo(render_context_for_agent(blocks))
-    if rubric:
-        click.echo(f"## Required rubric: {rubric.id}")
-        for c in rubric.required_checks:
-            click.echo(f"- [ ] {c}")
-
-
-@env.command("validate")
-@click.argument("env_id")
-def env_validate(env_id: str) -> None:
-    """Validate an environment YAML by id."""
-    envs = {e.id: e for e in _all_environments()}
-    if env_id not in envs:
-        raise click.ClickException(f"environment not found: {env_id}")
-    e = envs[env_id]
-    issues = []
-    if not e.required:
-        issues.append("no required checks")
-    if e.rubric_id is None:
-        issues.append("no rubric_id")
-    if not e.related_blocks:
-        issues.append("no related_blocks")
-    if issues:
-        for i in issues:
-            click.echo(f"warn: {i}")
-    click.echo(f"ok {env_id}")
 
 
 # ----- failure ------------------------------------------------------------ #
@@ -2115,6 +2280,8 @@ def eval_deprecate(ctx: click.Context, case_id: str) -> None:
 @click.pass_context
 def eval_run(ctx: click.Context, domain: str | None, case_id: str | None, as_json: bool) -> None:
     """Run deterministic eval cases (plan-check based)."""
+    from atelier.core.foundation.plan_checker import check_plan
+
     store = _load_store(ctx.obj["root"])
     d = _eval_dir(ctx.obj["root"])
     cases: list[dict[str, Any]] = []
@@ -2284,6 +2451,7 @@ def route_decide_cmd(
     as_json: bool,
 ) -> None:
     """Compute a deterministic route decision from quality-aware policy and runtime evidence."""
+    _check_dev_mode("route")
     rt = _core_runtime(ctx.obj["root"])
 
     try:
@@ -2359,6 +2527,7 @@ def route_verify_cmd(
     as_json: bool,
 ) -> None:
     """Verify routing outcome and determine pass/warn/fail/escalate status."""
+    _check_dev_mode("route", status=2)
     rt = _core_runtime(ctx.obj["root"])
 
     try:
@@ -3103,7 +3272,7 @@ def savings_cmd(ctx: click.Context, as_json: bool) -> None:
                 continue
             for ev in snap.get("events", []):
                 kind = ev.get("kind")
-                if kind == "monitor_alert":
+                if kind == "watchdog_alert":
                     sev = (ev.get("payload") or {}).get("severity")
                     if sev == "high":
                         rescue_events += 1
@@ -3689,7 +3858,13 @@ def service_start(host: str | None, port: int | None, reload: bool) -> None:
     try:
         from atelier.core.service.api import main as service_main
     except ImportError as exc:
-        raise click.ClickException("FastAPI/uvicorn not installed. Run: uv add 'atelier[api]'") from exc
+        if "cannot import name 'main'" in str(exc):
+            raise click.ClickException(
+                "The service API 'main' entrypoint is missing. " "Ensure your 'atelier' installation is up to date."
+            ) from exc
+        raise click.ClickException(
+            "Could not start the service API. Ensure all dependencies are installed: uv sync --extra api"
+        ) from exc
     service_main(host=host, port=port, reload=reload)
 
 
@@ -3818,23 +3993,35 @@ def servicectl_group() -> None:
 
 @servicectl_group.command("tick")
 @click.option("--maintenance-interval-seconds", default=21600, show_default=True, type=int)
+@click.option("--session-import-interval-seconds", default=300, show_default=True, type=int)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def servicectl_tick(ctx: click.Context, maintenance_interval_seconds: int, as_json: bool) -> None:
+def servicectl_tick(
+    ctx: click.Context,
+    maintenance_interval_seconds: int,
+    session_import_interval_seconds: int,
+    as_json: bool,
+) -> None:
     """Run one maintenance tick: enqueue due jobs and process pending work."""
-    payload = _servicectl_tick(ctx.obj["root"], maintenance_interval_seconds=maintenance_interval_seconds)
+    payload = _servicectl_tick(
+        ctx.obj["root"],
+        maintenance_interval_seconds=maintenance_interval_seconds,
+        session_import_interval_seconds=session_import_interval_seconds,
+    )
     _emit(payload, as_json=as_json) if as_json else click.echo(json.dumps(payload, indent=2))
 
 
 @servicectl_group.command("start")
 @click.option("--interval-seconds", default=60, show_default=True, type=int)
 @click.option("--maintenance-interval-seconds", default=21600, show_default=True, type=int)
+@click.option("--session-import-interval-seconds", default=300, show_default=True, type=int)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def servicectl_start(
     ctx: click.Context,
     interval_seconds: int,
     maintenance_interval_seconds: int,
+    session_import_interval_seconds: int,
     as_json: bool,
 ) -> None:
     """Start the detached background controller."""
@@ -3862,6 +4049,8 @@ def servicectl_start(
         str(interval_seconds),
         "--maintenance-interval-seconds",
         str(maintenance_interval_seconds),
+        "--session-import-interval-seconds",
+        str(session_import_interval_seconds),
     ]
     env = os.environ.copy()
     env["ATELIER_ROOT"] = str(root)
@@ -3991,13 +4180,23 @@ def servicectl_logs(ctx: click.Context, follow: bool, lines: int) -> None:
 @servicectl_group.command("run", hidden=True)
 @click.option("--interval-seconds", default=60, show_default=True, type=int)
 @click.option("--maintenance-interval-seconds", default=21600, show_default=True, type=int)
+@click.option("--session-import-interval-seconds", default=300, show_default=True, type=int)
 @click.pass_context
-def servicectl_run(ctx: click.Context, interval_seconds: int, maintenance_interval_seconds: int) -> None:
+def servicectl_run(
+    ctx: click.Context,
+    interval_seconds: int,
+    maintenance_interval_seconds: int,
+    session_import_interval_seconds: int,
+) -> None:
     """Internal long-running background loop."""
     root = ctx.obj["root"]
     try:
         while True:
-            _servicectl_tick(root, maintenance_interval_seconds=maintenance_interval_seconds)
+            _servicectl_tick(
+                root,
+                maintenance_interval_seconds=maintenance_interval_seconds,
+                session_import_interval_seconds=session_import_interval_seconds,
+            )
             time.sleep(max(1, interval_seconds))
     except KeyboardInterrupt:
         state = _read_servicectl_state(root)
@@ -4288,43 +4487,48 @@ def main() -> None:
         signal.signal(signum, _handler)
 
     try:
-        cli(obj={"_telemetry_session_id": session_id, "_telemetry_command_name": command_name})
-    except SystemExit as exc:
-        code = exc.code if isinstance(exc.code, int) else 1
-        _finish_cli_telemetry(
-            command_name=command_name,
-            session_id=session_id,
-            started_at=started_at,
-            ok=code == 0,
-            exit_reason="success" if code == 0 else "error",
-        )
-        raise
-    except KeyboardInterrupt:
-        _finish_cli_telemetry(
-            command_name=command_name,
-            session_id=session_id,
-            started_at=started_at,
-            ok=False,
-            exit_reason="interrupted",
-        )
-        raise
-    except BaseException:
-        _finish_cli_telemetry(
-            command_name=command_name,
-            session_id=session_id,
-            started_at=started_at,
-            ok=False,
-            exit_reason="error",
-        )
-        raise
-    else:
-        _finish_cli_telemetry(
-            command_name=command_name,
-            session_id=session_id,
-            started_at=started_at,
-            ok=True,
-            exit_reason="success",
-        )
+        try:
+            cli(obj={"_telemetry_session_id": session_id, "_telemetry_command_name": command_name})
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
+            _finish_cli_telemetry(
+                command_name=command_name,
+                session_id=session_id,
+                started_at=started_at,
+                ok=code == 0,
+                exit_reason="success" if code == 0 else "error",
+            )
+            raise
+        except KeyboardInterrupt:
+            _finish_cli_telemetry(
+                command_name=command_name,
+                session_id=session_id,
+                started_at=started_at,
+                ok=False,
+                exit_reason="interrupted",
+            )
+            raise
+        except BaseException:
+            _finish_cli_telemetry(
+                command_name=command_name,
+                session_id=session_id,
+                started_at=started_at,
+                ok=False,
+                exit_reason="error",
+            )
+            raise
+        else:
+            _finish_cli_telemetry(
+                command_name=command_name,
+                session_id=session_id,
+                started_at=started_at,
+                ok=True,
+                exit_reason="success",
+            )
+    finally:
+        from atelier.core.service.telemetry import shutdown_otel
+
+        shutdown_otel()
 
 
 if __name__ == "__main__":

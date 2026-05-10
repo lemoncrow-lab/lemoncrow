@@ -3,23 +3,49 @@ import {
   ApiError,
   api,
   type MemoryBlock,
+  type MemoryPassage,
   type MemoryRecallPassage,
   type Trace,
 } from "../api";
 import MemoryBlockCard from "../components/MemoryBlockCard";
 import ArchivalSearchBox from "../components/ArchivalSearchBox";
+import { MetricCard, SectionHeader } from "../components/WorkbenchUI";
 
 interface EditDraft {
   block: MemoryBlock;
   nextValue: string;
 }
 
+const DEFAULT_MEMORY_AGENTS = ["atelier"];
+
+function hostTag(agentId: string): string {
+  const raw = agentId.trim().toLowerCase();
+  if (!raw) return "unknown";
+  if (raw.includes("copilot")) return "copilot";
+  if (raw.includes("codex")) return "codex";
+  if (raw.includes("gemini")) return "gemini";
+  if (raw.includes("opencode")) return "opencode";
+  if (raw.startsWith("atelier") || raw.includes("claude")) return "claude";
+  return raw;
+}
+
+function dedupeById<T extends { id: string }>(items: T[]): T[] {
+  const seen = new Map<string, T>();
+  for (const item of items) {
+    if (!seen.has(item.id)) {
+      seen.set(item.id, item);
+    }
+  }
+  return [...seen.values()];
+}
+
 export default function Memory() {
   const [traces, setTraces] = useState<Trace[]>([]);
   const [blocks, setBlocks] = useState<MemoryBlock[]>([]);
-  const [activeAgentId, setActiveAgentId] = useState("");
+  const [recentPassages, setRecentPassages] = useState<MemoryPassage[]>([]);
   const [recallResults, setRecallResults] = useState<MemoryRecallPassage[]>([]);
   const [loadingBlocks, setLoadingBlocks] = useState(false);
+  const [loadingPassages, setLoadingPassages] = useState(false);
   const [loadingRecall, setLoadingRecall] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
@@ -29,73 +55,131 @@ export default function Memory() {
     api
       .traces(200, 0)
       .then((data) => {
-        setTraces(data);
-        const firstAgent =
-          data.find((trace) => trace.agent)?.agent || "atelier:code";
-        setActiveAgentId(firstAgent);
+        setTraces(data.items);
       })
       .catch((err) => setError(String(err)));
   }, []);
 
+  const visibleAgentIds = useMemo(() => {
+    const all = [
+      ...traces.map((trace) => trace.agent),
+      ...DEFAULT_MEMORY_AGENTS,
+    ]
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return [...new Set(all)].sort((left, right) => left.localeCompare(right));
+  }, [traces]);
+
+  const visibleHosts = useMemo(
+    () => [...new Set(visibleAgentIds.map((agentId) => hostTag(agentId)))],
+    [visibleAgentIds]
+  );
+
   useEffect(() => {
-    if (!activeAgentId) return;
+    if (visibleAgentIds.length === 0) return;
 
     setLoadingBlocks(true);
     setConflictMessage(null);
-    api
-      .memoryBlocks(activeAgentId)
-      .then((result) => {
-        setBlocks(Array.isArray(result) ? result : [result]);
-        setLoadingBlocks(false);
+    Promise.allSettled(
+      visibleAgentIds.map(async (agentId) => {
+        const result = await api.memoryBlocks(agentId);
+        const items = Array.isArray(result) ? result : result ? [result] : [];
+        return items;
+      })
+    )
+      .then((results) => {
+        const merged = results
+          .flatMap((result) =>
+            result.status === "fulfilled" ? result.value : []
+          )
+          .sort(
+            (left, right) =>
+              Date.parse(right.updated_at) - Date.parse(left.updated_at)
+          );
+        setBlocks(dedupeById(merged));
       })
       .catch((err) => {
         setError(String(err));
         setBlocks([]);
+      })
+      .finally(() => {
         setLoadingBlocks(false);
       });
-  }, [activeAgentId]);
+  }, [visibleAgentIds]);
 
-  const distinctAgentIds = useMemo(() => {
-    const fromTraces = traces.map((trace) => trace.agent).filter(Boolean);
-    if (activeAgentId && !fromTraces.includes(activeAgentId)) {
-      fromTraces.unshift(activeAgentId);
-    }
-    return [...new Set(fromTraces)];
-  }, [traces, activeAgentId]);
+  useEffect(() => {
+    if (visibleAgentIds.length === 0) return;
+
+    setLoadingPassages(true);
+    Promise.allSettled(
+      visibleAgentIds.map((agentId) => api.memoryPassages(agentId, 25))
+    )
+      .then((results) => {
+        const merged = results
+          .flatMap((result) =>
+            result.status === "fulfilled" ? result.value : []
+          )
+          .sort(
+            (left, right) =>
+              Date.parse(right.created_at) - Date.parse(left.created_at)
+          );
+        setRecentPassages(dedupeById(merged).slice(0, 24));
+      })
+      .catch((err) => {
+        setError(String(err));
+        setRecentPassages([]);
+      })
+      .finally(() => {
+        setLoadingPassages(false);
+      });
+  }, [visibleAgentIds]);
 
   const pinnedBlocks = useMemo(
     () => blocks.filter((block) => block.pinned),
-    [blocks],
+    [blocks]
   );
 
   const recentBlocks = useMemo(
     () =>
       [...blocks]
+        .filter((block) => !block.pinned)
         .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
         .slice(0, 10),
-    [blocks],
+    [blocks]
   );
 
   const runRecallSearch = (query: string) => {
-    if (!query || !activeAgentId) {
+    if (!query || visibleAgentIds.length === 0) {
       setRecallResults([]);
       return;
     }
 
     setLoadingRecall(true);
-    api
-      .memoryRecall({
-        agent_id: activeAgentId,
-        query,
-        top_k: 10,
-      })
-      .then((result) => {
-        setRecallResults(result.passages);
-        setLoadingRecall(false);
+    Promise.allSettled(
+      visibleAgentIds.map((agentId) =>
+        api.memoryRecall({
+          agent_id: agentId,
+          query,
+          top_k: 10,
+        })
+      )
+    )
+      .then((results) => {
+        const merged = results.flatMap((result) =>
+          result.status === "fulfilled" ? result.value.passages : []
+        );
+        const deduped = dedupeById(merged).sort((left, right) => {
+          const rightDate = Date.parse(right.created_at ?? "") || 0;
+          const leftDate = Date.parse(left.created_at ?? "") || 0;
+          return rightDate - leftDate;
+        });
+        setRecallResults(deduped.slice(0, 20));
       })
       .catch((err) => {
         setError(String(err));
         setRecallResults([]);
+      })
+      .finally(() => {
         setLoadingRecall(false);
       });
   };
@@ -129,15 +213,15 @@ export default function Memory() {
                 version: result.version,
                 updated_at: new Date().toISOString(),
               }
-            : block,
-        ),
+            : block
+        )
       );
       setEditDraft(null);
       setConflictMessage(null);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setConflictMessage(
-          "Version conflict detected (409). Refresh memory blocks and retry your edit.",
+          "Version conflict detected (409). Refresh memory blocks and retry your edit."
         );
         return;
       }
@@ -147,38 +231,62 @@ export default function Memory() {
 
   return (
     <div className="space-y-6">
-      <header className="pb-3 border-b border-neutral-800">
-        <h1 className="font-mono text-base text-neutral-200 font-bold">
-          Memory
-        </h1>
-        <p className="text-xs text-neutral-500 mt-1">
-          Core memory blocks and archival recall for the active agent.
-        </p>
-      </header>
+      <section className="grid grid-cols-2 gap-3">
+        <MetricCard
+          label="Visible agents"
+          value={String(visibleAgentIds.length)}
+          detail="Aggregated across trace history plus shared archival agents."
+          tone="emerald"
+        />
+        <MetricCard
+          label="Hosts"
+          value={String(visibleHosts.length)}
+          detail="Host tags derived from the merged agent set."
+          tone="amber"
+        />
+      </section>
 
       {error && <p className="text-xs text-red-400">{error}</p>}
 
+      <section className="grid gap-4 md:grid-cols-3">
+        <MetricCard
+          label="Recent blocks"
+          value={String(recentBlocks.length)}
+          detail="Most recently updated core memory entries across all visible agents."
+          tone="neutral"
+        />
+        <MetricCard
+          label="Recall hits"
+          value={String(recallResults.length)}
+          detail="Merged archival search result count across visible agents."
+          tone="cyan"
+        />
+        <MetricCard
+          label="Archived passages"
+          value={String(recentPassages.length)}
+          detail="Recent long-term passages currently visible in the merged view."
+          tone="violet"
+        />
+      </section>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <section>
-          <div className="flex items-center justify-between gap-3 pb-3 border-b border-neutral-800">
-            <h2 className="text-[11px] uppercase tracking-widest text-neutral-500">
-              Core Blocks
-            </h2>
-            <label className="text-xs text-neutral-400 flex items-center gap-2">
-              Agent
-              <select
-                aria-label="Filter memory by agent"
-                value={activeAgentId}
-                onChange={(event) => setActiveAgentId(event.target.value)}
-                className="bg-transparent border border-neutral-700 px-2 py-1 text-xs text-neutral-200"
-              >
-                {distinctAgentIds.map((agentId) => (
-                  <option key={agentId} value={agentId}>
-                    {agentId}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <section className="border border-neutral-800 bg-neutral-950/70 p-5">
+          <div className="pb-3 border-b border-neutral-800">
+            <SectionHeader
+              eyebrow="Static memory"
+              title="Core blocks"
+              description="These pinned and recent blocks are merged across the visible agents instead of hidden behind a single-agent selector."
+            />
+            <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-mono uppercase tracking-widest">
+              {visibleAgentIds.map((agentId) => (
+                <span
+                  key={agentId}
+                  className="px-2 py-1 border border-neutral-800 text-neutral-500"
+                >
+                  {hostTag(agentId)} · {agentId}
+                </span>
+              ))}
+            </div>
           </div>
 
           {loadingBlocks && (
@@ -195,7 +303,7 @@ export default function Memory() {
                 </h3>
                 {pinnedBlocks.length === 0 ? (
                   <p className="text-xs text-neutral-600 mt-2">
-                    No pinned blocks for this agent.
+                    No pinned blocks have been saved for the visible agents yet.
                   </p>
                 ) : (
                   pinnedBlocks.map((block) => (
@@ -203,6 +311,7 @@ export default function Memory() {
                       key={block.id}
                       block={block}
                       onEdit={openEdit}
+                      badges={[hostTag(block.agent_id), block.agent_id]}
                     />
                   ))
                 )}
@@ -214,7 +323,8 @@ export default function Memory() {
                 </h3>
                 {recentBlocks.length === 0 ? (
                   <p className="text-xs text-neutral-600 mt-2">
-                    No recent blocks.
+                    No editable core blocks are present yet. Archived passages
+                    can still exist below.
                   </p>
                 ) : (
                   recentBlocks.map((block) => (
@@ -222,6 +332,7 @@ export default function Memory() {
                       key={block.id}
                       block={block}
                       onEdit={openEdit}
+                      badges={[hostTag(block.agent_id), block.agent_id]}
                     />
                   ))
                 )}
@@ -230,52 +341,115 @@ export default function Memory() {
           )}
         </section>
 
-        <section>
+        <section className="border border-neutral-800 bg-neutral-950/70 p-5">
           <div className="pb-3 border-b border-neutral-800">
-            <h2 className="text-[11px] uppercase tracking-widest text-neutral-500 mb-3">
-              Archival Search
-            </h2>
+            <SectionHeader
+              eyebrow="Long-tail recall"
+              title="Archived knowledge"
+              description="This surface now shows recent archived passages directly and searches across all visible agents instead of only one selected agent."
+            />
             <ArchivalSearchBox
               loading={loadingRecall}
               onSearch={runRecallSearch}
             />
           </div>
 
-          <div className="pt-3">
-            {recallResults.length === 0 ? (
-              <p className="text-xs text-neutral-600">
-                No archival passages yet.
-              </p>
-            ) : (
-              <ul className="space-y-3">
-                {recallResults.map((passage) => (
-                  <li
-                    key={passage.id}
-                    className="py-2 border-b border-neutral-800"
-                  >
-                    <p className="text-xs text-neutral-300 whitespace-pre-wrap leading-relaxed">
-                      {passage.text}
-                    </p>
-                    <div className="mt-1">
-                      {passage.source_ref ? (
-                        <a
-                          href={passage.source_ref}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-amber-300 underline"
-                        >
-                          Source
-                        </a>
-                      ) : (
-                        <span className="text-xs text-neutral-600">
-                          No source
+          <div className="pt-3 space-y-5">
+            <div>
+              <h3 className="text-[11px] uppercase tracking-widest text-neutral-600">
+                Recent archived passages
+              </h3>
+              {loadingPassages ? (
+                <p className="text-xs text-neutral-500 mt-2">
+                  Loading archived passages...
+                </p>
+              ) : recentPassages.length === 0 ? (
+                <p className="text-xs text-neutral-600 mt-2">
+                  No archived passages are visible yet.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-3">
+                  {recentPassages.map((passage) => (
+                    <li
+                      key={passage.id}
+                      className="py-2 border-b border-neutral-800"
+                    >
+                      <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+                        <span className="px-2 py-0.5 border border-neutral-800 text-cyan-300">
+                          {hostTag(passage.agent_id)}
                         </span>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+                        <span className="px-2 py-0.5 border border-neutral-800 text-neutral-400">
+                          {passage.agent_id}
+                        </span>
+                        <span className="px-2 py-0.5 border border-neutral-800 text-neutral-500">
+                          {passage.source}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-neutral-300 whitespace-pre-wrap leading-relaxed">
+                        {passage.text}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-[11px] uppercase tracking-widest text-neutral-600">
+                Search results
+              </h3>
+              {recallResults.length === 0 ? (
+                <p className="text-xs text-neutral-600 mt-2">
+                  No archival search results yet.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-3">
+                  {recallResults.map((passage) => (
+                    <li
+                      key={passage.id}
+                      className="py-2 border-b border-neutral-800"
+                    >
+                      <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+                        {passage.agent_id && (
+                          <>
+                            <span className="px-2 py-0.5 border border-neutral-800 text-cyan-300">
+                              {hostTag(passage.agent_id)}
+                            </span>
+                            <span className="px-2 py-0.5 border border-neutral-800 text-neutral-400">
+                              {passage.agent_id}
+                            </span>
+                          </>
+                        )}
+                        {passage.source && (
+                          <span className="px-2 py-0.5 border border-neutral-800 text-neutral-500">
+                            {passage.source}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-2 text-xs text-neutral-300 whitespace-pre-wrap leading-relaxed">
+                        {passage.text}
+                      </p>
+                      <div className="mt-1">
+                        {passage.source_ref ? (
+                          <a
+                            href={passage.source_ref}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-amber-300 underline"
+                          >
+                            Source
+                          </a>
+                        ) : (
+                          <span className="text-xs text-neutral-600">
+                            No source
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </section>
       </div>
@@ -317,7 +491,7 @@ export default function Memory() {
                   value={editDraft.nextValue}
                   onChange={(event) =>
                     setEditDraft((prev) =>
-                      prev ? { ...prev, nextValue: event.target.value } : prev,
+                      prev ? { ...prev, nextValue: event.target.value } : prev
                     )
                   }
                   className="w-full text-xs text-neutral-200 border border-neutral-800 bg-transparent p-3 min-h-40 focus:outline-none focus:border-amber-500/60"

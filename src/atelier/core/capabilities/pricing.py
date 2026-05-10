@@ -54,22 +54,42 @@ class ModelPricing:
         input:       Cost per 1M input (prompt) tokens in USD.
         output:      Cost per 1M output (completion) tokens in USD.
         cache_read:  Cost per 1M cache-read tokens in USD (0 if not applicable).
+        cache_write: Cost per 1M cache-write tokens in USD (0 if not applicable).
+        known:       ``True`` when pricing was explicitly configured for this
+                     model; ``False`` when the model id was not found and the
+                     default (all zeros) was used instead.
     """
 
     model_id: str
     input: float
     output: float
     cache_read: float = 0.0
+    cache_write: float = 0.0
+    known: bool = True
 
     def cost_usd(
         self,
         input_tokens: int = 0,
         output_tokens: int = 0,
         cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ) -> float:
         """Compute total USD cost for the given token counts."""
+        # Note: if cache_write is not specified in TOML, we default to 0.0.
+        # However, Anthropic typically bills cache_write at 1.25x input.
+        cw_rate = (
+            self.cache_write
+            if self.cache_write > 0
+            else (self.input * 1.25 if "claude" in self.model_id.lower() else self.input)
+        )
+
         return round(
-            (input_tokens * self.input + output_tokens * self.output + cache_read_tokens * self.cache_read)
+            (
+                input_tokens * self.input
+                + output_tokens * self.output
+                + cache_read_tokens * self.cache_read
+                + cache_write_tokens * cw_rate
+            )
             / 1_000_000.0,
             8,
         )
@@ -77,10 +97,17 @@ class ModelPricing:
     def tokens_to_usd(
         self,
         tokens: int,
-        token_type: Literal["input", "output", "cache_read"] = "output",
+        token_type: Literal["input", "output", "cache_read", "cache_write"] = "output",
     ) -> float:
         """Convert a single token count to USD cost."""
-        rate = {"input": self.input, "output": self.output, "cache_read": self.cache_read}[token_type]
+        if token_type == "cache_write":
+            rate = (
+                self.cache_write
+                if self.cache_write > 0
+                else (self.input * 1.25 if "claude" in self.model_id.lower() else self.input)
+            )
+        else:
+            rate = {"input": self.input, "output": self.output, "cache_read": self.cache_read}[token_type]
         return round(tokens * rate / 1_000_000.0, 8)
 
 
@@ -115,6 +142,7 @@ def _load_pricing_table() -> dict[str, dict[str, float]]:
                 "input": float(vals.get("input", 3.0)),
                 "output": float(vals.get("output", 15.0)),
                 "cache_read": float(vals.get("cache_read", 0.0)),
+                "cache_write": float(vals.get("cache_write", 0.0)),
             }
 
     # Parse [default] section
@@ -123,6 +151,7 @@ def _load_pricing_table() -> dict[str, dict[str, float]]:
         "input": float(default_vals.get("input", 3.0)),
         "output": float(default_vals.get("output", 15.0)),
         "cache_read": float(default_vals.get("cache_read", 0.30)),
+        "cache_write": float(default_vals.get("cache_write", 0.0)),
     }
 
     return table
@@ -136,7 +165,8 @@ def _load_pricing_table() -> dict[str, dict[str, float]]:
 def get_model_pricing(model_id: str) -> ModelPricing:
     """Return :class:`ModelPricing` for *model_id*.
 
-    Falls back to the ``[default]`` entry when the model is not listed.
+    When the model id is not found in the pricing table (exact or prefix
+    match), the default (all-zeros) entry is returned with ``known=False``.
     Matching is exact first, then prefix (so ``"claude-sonnet-4"`` matches
     ``"claude-sonnet-4-5"`` entries with a ``startswith`` check).
     """
@@ -144,14 +174,14 @@ def get_model_pricing(model_id: str) -> ModelPricing:
     # Exact match
     if model_id in table:
         vals = table[model_id]
-        return ModelPricing(model_id=model_id, **vals)
+        return ModelPricing(model_id=model_id, known=True, **vals)
     # Prefix match (e.g. "claude-sonnet" → first entry starting with "claude-sonnet")
     for key, vals in table.items():
         if key != "_default" and (model_id.startswith(key) or key.startswith(model_id)):
-            return ModelPricing(model_id=key, **vals)
-    # Fallback to default
+            return ModelPricing(model_id=key, known=True, **vals)
+    # Fallback to default (pricing not configured → known=False)
     vals = table["_default"]
-    return ModelPricing(model_id="_default", **vals)
+    return ModelPricing(model_id=model_id, known=False, **vals)
 
 
 def tokens_to_usd(

@@ -1,45 +1,42 @@
-# Quickstart — Atelier in 5 Minutes
+# Quickstart — Installed Atelier in 5 Minutes
 
-This guide gets Atelier running in a fresh project in under 5 minutes.
+This guide assumes you want to use the installed product, not work from a source checkout.
 
-## Prerequisites
-
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/) installed
-
-## Step 1 — Install
+## Step 1 — Install Atelier
 
 ```bash
-cd atelier
-uv sync --all-extras
+curl -fsSL https://raw.githubusercontent.com/leanchain/atelier/main/scripts/install.sh | bash
 ```
 
-## Step 2 — Initialize the store
+That installs the `atelier` and `atelier-mcp` commands, initializes `~/.atelier`, and starts the detached `servicectl` loop.
+
+## Step 2 — Verify the Installed Runtime
 
 ```bash
-uv run atelier init
+atelier --version
+atelier-mcp --version
+atelier servicectl status
 ```
 
-This creates `.atelier/` with:
+Expected outcome:
 
-- `atelier.db` — SQLite store with FTS5 search
-- `blocks/` — 10 pre-seeded ReasonBlocks for debugging, code changes, live state changes, source-of-truth fixes, and gate discipline
-- `rubrics/` — 7 pre-seeded rubrics including `rubric_code_change` and `rubric_state_change_safety`
-- `traces/` — empty, will fill as agents run
+- `atelier` resolves on `PATH`
+- `atelier-mcp` resolves on `PATH`
+- `servicectl` reports a running background controller
 
-## Step 3 — Check a plan
+## Step 3 — Check a Plan Before Doing the Work
 
-The core feature: block dangerous agent plans _before_ execution.
+The fastest way to feel what Atelier does is to run a plan check.
 
 ```bash
-uv run atelier lint \
+atelier lint \
   --task "Apply a live config update" \
   --domain state.change \
   --step "Resolve target from URL slug alone" \
   --step "Apply the change"
 ```
 
-Expected output:
+Expected output looks like:
 
 ```text
 status: blocked
@@ -49,10 +46,10 @@ warnings:
   - suggested plan uses a canonical identifier plus read-after-write verification
 ```
 
-Now try a safe plan:
+Now try the safer version:
 
 ```bash
-uv run atelier lint \
+atelier lint \
   --task "Apply a live config update" \
   --domain state.change \
   --step "Resolve and record the canonical identifier" \
@@ -61,24 +58,22 @@ uv run atelier lint \
   --step "Read back the state and diff against intent"
 ```
 
-Expected: `status: pass` (exit 0)
+Expected: `status: pass`
 
-## Step 4 — Get reasoning context
+## Step 4 — Get Reasoning Context for a Task
 
-Before an agent starts a task, inject relevant procedures into its context:
+Before an agent starts work, fetch relevant procedures and constraints:
 
 ```bash
-uv run atelier reasoning \
+atelier reasoning \
   --task "Fix generated output that drifts back after refresh" \
   --domain source.truth \
   --file src/content/generate.py
 ```
 
-This returns a structured prompt block with relevant ReasonBlocks, known dead ends, and environment constraints.
+This returns a structured context block with matched ReasonBlocks, dead ends, and runtime guidance.
 
-## Step 5 — Run a rubric gate
-
-After an agent completes a task, verify it met all required checks:
+## Step 5 — Run a Rubric Gate After the Work
 
 ```bash
 echo '&#123;
@@ -86,60 +81,49 @@ echo '&#123;
   "pre_change_state_captured": true,
   "read_after_write_completed": true,
   "observed_state_matches_intent": false
-&#125;' | uv run atelier verify rubric_state_change_safety
+&#125;' | atelier verify rubric_state_change_safety
 ```
 
-Expected: `status: blocked` (because a required verification check failed).
+Expected: `status: blocked` because a required verification check failed.
 
-## Step 6 — Record a trace
+## Step 6 — Check Background Processing
 
-After an agent run (success or failure), record what happened:
+The installed runtime includes a detached offline processor.
 
 ```bash
-echo '&#123;
-  "agent": "claude-code",
-  "domain": "state.change",
-  "task": "Apply a live config change",
-  "status": "success",
-  "commands_run": ["resolve-target", "api.write", "api.read"],
-  "errors_seen": [],
-  "diff_summary": "Applied the config change using a canonical identifier",
-  "output_summary": "Read-after-write verification matched intent"
-&#125;' | uv run atelier trace record
+atelier servicectl status
+atelier worker list
 ```
 
-## Step 7 — Extract a ReasonBlock from a trace
-
-When an agent solves something non-obviously, capture the pattern for future runs:
+If you want to trigger work manually:
 
 ```bash
-uv run atelier trace list
-# → find the trace ID
-
-uv run atelier block extract <trace-id>
-# → shows candidate block with confidence score
-
-uv run atelier block extract <trace-id> --save
-# → saves to store and markdown mirror
+atelier worker enqueue consolidate_reasonblocks
+atelier worker run-once
 ```
 
-## Step 8 — Use smart runtime commands
+## Step 7 — Start the Optional UI Only If You Want It
+
+The UI is not required for CLI or MCP usage.
 
 ```bash
-# Smart retrieval across ReasonBlocks
-uv run atelier search "read after write verification"
-
-# AST-aware file read with symbol summary
-uv run atelier read src/atelier/gateway/adapters/runtime.py --max-lines 120
-
-# Batch edit input format: [{"path": "...", "find": "...", "replace": "..."}]
-uv run atelier edit --input edits.json
+atelier stack start
 ```
 
-## Next Steps
+Then open:
 
-- **Connect to your AI agent host**: [docs/hosts/](hosts/)
-- **Full CLI reference**: [docs/cli.md](cli.md)
-- **Core architecture docs**: [docs/core/](core/)
-- **Storage and configuration**: [docs/installation.md](installation.md)
-- **Engineering details**: [docs/engineering/](engineering/)
+- [http://localhost:3125](http://localhost:3125) for the frontend
+- [http://localhost:8787](http://localhost:8787) for the service API
+
+## Step 8 — Connect an Agent Host
+
+The installer already tries to wire supported hosts automatically. If you want to inspect or customize that setup, continue with:
+
+- [docs/hosts/all-agent-clis.md](hosts/all-agent-clis.md)
+- [docs/hosts/claude-code-install.md](hosts/claude-code-install.md)
+- [docs/hosts/copilot-install.md](hosts/copilot-install.md)
+- [docs/hosts/codex-install.md](hosts/codex-install.md)
+
+## Source Checkout Instead?
+
+If you are contributing to Atelier itself rather than using the installed product, use the source workflow from [installation.md](installation.md) and [engineering/contributing.md](engineering/contributing.md).

@@ -31,9 +31,7 @@ from __future__ import annotations
 
 import re
 
-from atelier.core.foundation.environments import find_forbidden_violations, match_environments
 from atelier.core.foundation.models import (
-    Environment,
     PlanCheckResult,
     PlanStatus,
     PlanWarning,
@@ -105,7 +103,6 @@ def check_plan(
     files: list[str] | None = None,
     tools: list[str] | None = None,
     errors: list[str] | None = None,
-    environments: list[Environment] | None = None,
     max_blocks: int = 5,
 ) -> PlanCheckResult:
     """Run the plan checker against the store."""
@@ -161,20 +158,36 @@ def check_plan(
             if step not in suggested:
                 suggested.append(step)
 
-    # Environment-level forbidden checks (Beseam operating law).
-    active_envs: list[Environment] = []
-    if environments:
-        active_envs = match_environments(task, domain, environments)
-        for env, step, phrase in find_forbidden_violations(plan, active_envs):
-            warnings.append(
-                PlanWarning(
-                    severity="high",
-                    reason_block=f"environment:{env.id}",
-                    message=(
-                        f"Forbidden by environment {env.id!r}: step {step!r} " f"contains banned phrase {phrase!r}."
-                    ),
-                )
-            )
+    # Rubric-level forbidden checks (Beseam operating law).
+    rubrics = store.list_rubrics(domain=domain)
+    for rubric in rubrics:
+        # Match rubric by triggers if domain match is too broad?
+        # Or just check all rubrics in the domain.
+        # For now, if task triggers match, we check forbidden.
+        task_lower = task.lower()
+        matched = False
+        if domain and rubric.domain and domain.startswith(rubric.domain):
+            matched = True
+        for trig in rubric.triggers:
+            if trig.lower() in task_lower:
+                matched = True
+                break
+
+        if matched:
+            for step in plan:
+                step_lower = step.lower()
+                for phrase in rubric.forbidden_phrases:
+                    if phrase.lower() in step_lower:
+                        warnings.append(
+                            PlanWarning(
+                                severity="high",
+                                reason_block=f"rubric:{rubric.id}",
+                                message=(
+                                    f"Forbidden by rubric {rubric.id!r}: step {step!r} "
+                                    f"contains banned phrase {phrase!r}."
+                                ),
+                            )
+                        )
 
     if any(w.severity == "high" for w in warnings):
         status: PlanStatus = "blocked"

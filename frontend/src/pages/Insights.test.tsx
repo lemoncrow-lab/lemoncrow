@@ -84,7 +84,7 @@ describe("Insights page", () => {
                   exported: false,
                 },
               ],
-            }),
+            })
           );
         }
         if (url.includes("/api/telemetry/summary"))
@@ -92,7 +92,7 @@ describe("Insights page", () => {
         if (url.includes("/api/telemetry/schema"))
           return Promise.resolve(jsonResponse(schema));
         return Promise.resolve(new Response("not found", { status: 404 }));
-      },
+      }
     );
 
     render(<Insights />);
@@ -110,7 +110,7 @@ describe("Insights page", () => {
         const url = String(input);
         if (url.includes("/api/telemetry/config") && init?.method === "POST") {
           return Promise.resolve(
-            jsonResponse({ ...config, remote_enabled: false }),
+            jsonResponse({ ...config, remote_enabled: false })
           );
         }
         if (url.includes("/api/telemetry/config"))
@@ -122,7 +122,7 @@ describe("Insights page", () => {
         if (url.includes("/api/telemetry/schema"))
           return Promise.resolve(jsonResponse(schema));
         return Promise.resolve(new Response("not found", { status: 404 }));
-      },
+      }
     );
 
     render(<Insights />);

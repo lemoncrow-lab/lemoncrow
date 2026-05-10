@@ -224,7 +224,6 @@ def test_mcp_server_downgrades_full_live_without_hooks(tmp_path: Path) -> None:
         mock.patch("atelier.gateway.adapters.mcp_server._get_ledger") as mock_led,
         mock.patch("atelier.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
     ):
-
         # Set up minimal mocks
         fake_store = mock.MagicMock()
         fake_rt = mock.MagicMock()

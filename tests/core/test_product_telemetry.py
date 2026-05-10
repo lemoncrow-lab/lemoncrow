@@ -147,6 +147,108 @@ def test_first_run_banner_shows_once(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert stream.value == ""
 
 
+def test_banner_auto_acknowledges_when_telemetry_disabled_via_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When ATELIER_TELEMETRY=0, the banner is never shown and is auto-acknowledged."""
+    ack_file = tmp_path / "ack"
+    monkeypatch.setenv("ATELIER_TELEMETRY_ACK", str(ack_file))
+    monkeypatch.setenv("ATELIER_TELEMETRY", "0")
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    class Stream:
+        def __init__(self) -> None:
+            self.value = ""
+
+        def isatty(self) -> bool:
+            return True
+
+        def write(self, text: str) -> int:
+            self.value += text
+            return len(text)
+
+        def flush(self) -> None:
+            pass
+
+    stream = Stream()
+    # With ATELIER_TELEMETRY=0, should return False, not write to stream,
+    # AND create the ack file so subsequent calls are no-ops.
+    assert maybe_show_banner(stream) is False
+    assert stream.value == ""
+    assert ack_file.exists(), "ack file should have been created"
+    assert ack_file.read_text(encoding="utf-8") == "acknowledged\n"
+
+    # Second call: still no banner because ack exists
+    assert maybe_show_banner(stream) is False
+    assert stream.value == ""
+
+
+def test_banner_auto_acknowledges_in_non_tty_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When telemetry is enabled but the stream is not a TTY (e.g. MCP subprocess),
+    the banner should not be shown, but the ack should still be written silently
+    so the frontend/CLI don't keep showing it."""
+    ack_file = tmp_path / "ack"
+    monkeypatch.setenv("ATELIER_TELEMETRY_ACK", str(ack_file))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    # Ensure ATELIER_TELEMETRY is not set (telemetry is enabled by default)
+    monkeypatch.delenv("ATELIER_TELEMETRY", raising=False)
+
+    class NonTtyStream:
+        def __init__(self) -> None:
+            self.value = ""
+
+        def isatty(self) -> bool:
+            return False  # not a terminal
+
+        def write(self, text: str) -> int:
+            self.value += text
+            return len(text)
+
+        def flush(self) -> None:
+            pass
+
+    stream = NonTtyStream()
+    # Should return False (no banner shown in non-TTY), but ack file should be created
+    assert maybe_show_banner(stream) is False
+    assert stream.value == "", "no banner text should be written"
+    assert ack_file.exists(), "ack file should have been created in non-TTY mode"
+    assert ack_file.read_text(encoding="utf-8") == "acknowledged\n"
+
+    # Second call: ack exists, so no banner and still no output
+    assert maybe_show_banner(stream) is False
+    assert stream.value == ""
+
+
+def test_banner_auto_acknowledges_with_false_env_variants(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify all false-value variants (0, false, off, no) trigger auto-ack."""
+    ack_file = tmp_path / "ack"
+    monkeypatch.setenv("ATELIER_TELEMETRY_ACK", str(ack_file))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    class Stream:
+        def __init__(self) -> None:
+            self.value = ""
+
+        def isatty(self) -> bool:
+            return True
+
+        def write(self, text: str) -> int:
+            self.value += text
+            return len(text)
+
+        def flush(self) -> None:
+            pass
+
+    for variant in ("0", "false", "off", "no"):
+        ack_file.unlink(missing_ok=True)
+        monkeypatch.setenv("ATELIER_TELEMETRY", variant)
+
+        stream = Stream()
+        assert maybe_show_banner(stream) is False
+        assert stream.value == ""
+        assert ack_file.exists(), f"ack should be created with ATELIER_TELEMETRY={variant}"
+
+
 def test_emit_product_call_sites_use_allowlisted_props() -> None:
     roots = [
         Path("src/atelier/gateway/adapters"),

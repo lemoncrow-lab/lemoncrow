@@ -1,33 +1,43 @@
 #!/usr/bin/env bash
-# atelier-status — universal one-line status of the current Atelier run.
+# atelier-status — quick terminal dashboard for the Atelier reasoning runtime.
 #
-# Works in any host CLI (Codex, Gemini, opencode, Copilot, plain shell) that
-# does not expose a native statusline hook. Reads the atelier ledger snapshot
-# from $ATELIER_STORE_ROOT/runs/ (or $PWD/.atelier/runs/) and prints a single
-# line:
-#
-#   atelier | run <id> | <domain> | <task...> | status=<s> | ev=<n> err=<n> blk=<n>
+# Default (no flags): prints a full overview — recent runs, totals, savings —
+# mirroring the frontend Overview page in one glanceable terminal block.
 #
 # Options:
-#   --run-id ID    Show specific run (default: most recent)
-#   --json         Emit JSON instead of formatted line
-#   --root DIR     Atelier store root (default: $ATELIER_STORE_ROOT or .atelier)
+#   --run-id ID    Show detail for a specific run only
+#   --line         One-liner mode (old behaviour, good for status bars)
+#   --json         Emit raw JSON of the most recent run ledger
+#   --root DIR     Atelier store root (default: $ATELIER_ROOT or ~/.atelier)
+#   -n N           Number of recent runs to show in dashboard (default: 5)
 #
-# Exit codes: 0 ok, 1 no run found, 2 ledger malformed.
+# Exit codes: 0 ok, 1 no runs found, 2 ledger malformed.
 
 set -u
 
 RUN_ID=""
 JSON=0
-ROOT="${ATELIER_ROOT:-${ATELIER_STORE_ROOT:-${HOME}/.atelier}}"
+LINE=0
+if [ -n "${ATELIER_ROOT:-}" ]; then
+  ROOT="$ATELIER_ROOT"
+elif [ -n "${ATELIER_STORE_ROOT:-}" ]; then
+  ROOT="$ATELIER_STORE_ROOT"
+elif [ -d "$PWD/.atelier" ]; then
+  ROOT="$PWD/.atelier"
+else
+  ROOT="${HOME}/.atelier"
+fi
+N=5
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --run-id) RUN_ID="$2"; shift 2 ;;
-    --json) JSON=1; shift ;;
-    --root) ROOT="$2"; shift 2 ;;
+    --json)   JSON=1; shift ;;
+    --line)   LINE=1; shift ;;
+    --root)   ROOT="$2"; shift 2 ;;
+    -n)       N="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) echo "atelier-status: unknown option: $1" >&2; exit 64 ;;
@@ -35,136 +45,371 @@ while [ $# -gt 0 ]; do
 done
 
 RUNS_DIR="${ROOT}/runs"
-if [ ! -d "$RUNS_DIR" ]; then
-  echo "atelier | no runs (store: ${ROOT})"
-  exit 1
-fi
 
+# ── Resolve target ledger file ─────────────────────────────────────────────
+LEDGER=""
 if [ -n "$RUN_ID" ]; then
-  LEDGER="${RUNS_DIR}/${RUN_ID}/ledger.json"
-else
-  # Pick most recently modified ledger.json under runs/
-  LEDGER=$(ls -t "${RUNS_DIR}"/*/ledger.json 2>/dev/null | head -1)
+  LEDGER="${RUNS_DIR}/${RUN_ID}.json"
+elif [ -d "$RUNS_DIR" ]; then
+  # Pick the most recently modified flat JSON file in runs/
+  LEDGER=$(ls -t "${RUNS_DIR}"/*.json 2>/dev/null | head -1)
 fi
 
 if [ -z "${LEDGER:-}" ] || [ ! -f "$LEDGER" ]; then
-  echo "atelier | no active run (looked in ${RUNS_DIR})"
-  exit 1
+  if [ -n "$RUN_ID" ]; then
+    # Specific run requested but not in runs/ - Python will try DB fallback
+    LEDGER="NONE"
+  elif [ -d "$RUNS_DIR" ]; then
+    LEDGER="NONE"
+  else
+    # No runs dir and no files
+    LEDGER="NONE"
+  fi
 fi
 
+# ── JSON passthrough ───────────────────────────────────────────────────────
 if [ "$JSON" = "1" ]; then
-  cat "$LEDGER"
-  exit 0
+  if [ "$LEDGER" != "NONE" ]; then
+    cat "$LEDGER"
+    exit 0
+  else
+    echo "{}"
+    exit 1
+  fi
 fi
 
-python3 - "$LEDGER" "$ROOT" <<'PYEOF' || exit 2
-import json, os, sys
+# ── Python renderer ────────────────────────────────────────────────────────
+python3 - "$LEDGER" "$RUNS_DIR" "$ROOT" "$LINE" "$N" "$RUN_ID" <<'PYEOF' || exit 2
+import json, os, sys, glob, re
 from pathlib import Path
 from datetime import datetime, timezone
-try:
-    with open(sys.argv[1]) as f:
-        snap = json.load(f)
-except Exception as e:
-    print(f"atelier | ledger error: {e}")
-    sys.exit(2)
 
-run_id = (snap.get("run_id") or "?")[:8]
-domain = snap.get("domain") or "-"
-task = (snap.get("task") or "").strip().splitlines()[0] if snap.get("task") else "-"
-if len(task) > 50:
-    task = task[:47] + "..."
-status = snap.get("status") or "?"
-events = len(snap.get("events", []) or [])
-errors = len(snap.get("errors_seen", []) or [])
-blockers = len(snap.get("current_blockers", []) or [])
+LEDGER_PATH = sys.argv[1]
+RUNS_DIR    = sys.argv[2]
+ROOT        = sys.argv[3]
+LINE_MODE   = sys.argv[4] == "1"
+N_RUNS      = int(sys.argv[5])
+TARGET_ID   = sys.argv[6]
 
-# Session cost + tokens from this run's ledger.
-sess_cost = 0.0
-sess_in = 0
-sess_out = 0
-sess_cache = 0
-try:
-    cost_snap = snap.get("cost") or {}
-    sess_cost = float(cost_snap.get("total_cost_usd", 0.0) or 0.0)
-    sess_in = int(cost_snap.get("total_input_tokens", 0) or 0)
-    sess_out = int(cost_snap.get("total_output_tokens", 0) or 0)
-    sess_cache = int(cost_snap.get("total_cache_read_tokens", 0) or 0)
-except Exception:
-    pass
-
-# Wall-clock duration from created_at → updated_at.
-duration_s = 0
-try:
-    t0 = datetime.fromisoformat(snap["created_at"].replace("Z", "+00:00"))
-    t1 = datetime.fromisoformat(snap["updated_at"].replace("Z", "+00:00"))
-    duration_s = max(0, int((t1 - t0).total_seconds()))
-except Exception:
-    pass
-
-# Cumulative savings from cost_history.json (if present).
-saved_usd = 0.0
-ctx_saved = 0
-saved_pct = 0.0
-would_have = 0.0
-try:
-    hist = Path(sys.argv[2]) / "cost_history.json"
-    if hist.is_file():
-        d = json.loads(hist.read_text())
-        total_base = 0.0
-        total_cur = 0.0
-        for op in (d.get("operations") or {}).values():
-            calls = op.get("calls") or []
-            if not calls:
-                continue
-            base = float(calls[0].get("cost_usd", 0.0))
-            for c in calls[1:]:
-                saved_usd += max(0.0, base - float(c.get("cost_usd", 0.0)))
-                ctx_saved += int(c.get("cache_read_tokens", 0) or 0)
-            total_base += base * len(calls)
-            total_cur += sum(float(c.get("cost_usd", base)) for c in calls)
-        would_have = total_base
-        if would_have > 0:
-            saved_pct = max(0.0, (would_have - total_cur) / would_have * 100.0)
-except Exception:
-    pass
+# ── colour palette (brand #ff6041) ────────────────────────────────────────
+if os.environ.get("NO_COLOR"):
+    BADGE = BRAND = SEP = DIM = RESET = GREEN = RED = YELLOW = CYAN = BOLD = ""
+else:
+    BRAND  = "\033[1;38;2;255;96;65m"
+    BADGE  = "\033[1;48;2;255;96;65;38;2;255;255;255m atelier:code \033[0m"
+    SEP    = "\033[2;38;2;180;180;180m │\033[0m"
+    DIM    = "\033[2m"
+    RESET  = "\033[0m"
+    GREEN  = "\033[38;2;80;200;120m"
+    RED    = "\033[38;2;255;80;80m"
+    YELLOW = "\033[38;2;255;200;60m"
+    CYAN   = "\033[38;2;80;200;220m"
+    BOLD   = "\033[1m"
 
 def k(n: int) -> str:
-    return f"{n//1000}k" if n >= 1000 else str(n)
+    if n >= 1_000_000: return f"{n/1_000_000:.1f}M"
+    if n >= 1000:      return f"{n//1000}k"
+    return str(n)
 
-def dur(s: int) -> str:
-    if s < 60:
-        return f"{s}s"
-    return f"{s//60}m{s%60:02d}s"
+def usd(v: float) -> str:
+    if v >= 1:   return f"${v:.2f}"
+    if v > 0:    return f"${v:.4f}"
+    return "$0"
 
-# atelier:code brand color #ff6041 (RGB 255,96,65) — ANSI true-color.
-if os.environ.get("NO_COLOR"):
-    BADGE = BRAND = SEP = DIM = RESET = ""
-else:
-    BADGE = "\033[1;48;2;255;96;65;38;2;255;255;255m atelier:code \033[0m"
-    BRAND = "\033[1;38;2;255;96;65m"
-    SEP = "\033[2;38;2;200;200;200m·\033[0m"
-    DIM = "\033[2m"
-    RESET = "\033[0m"
+def age(ts: str) -> str:
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        s  = max(0, int((datetime.now(timezone.utc) - dt).total_seconds()))
+        if s < 60:        return f"{s}s ago"
+        if s < 3600:      return f"{s//60}m ago"
+        if s < 86400:     return f"{s//3600}h ago"
+        return f"{s//86400}d ago"
+    except Exception:
+        return "?"
 
-# Session cost line (only shown when cost data is available).
-sess_line = ""
-if sess_cost > 0 or sess_in > 0:
-    sess_line = (
-        f" {SEP} {DIM}session{RESET} "
-        f"${sess_cost:.4f} in={k(sess_in)} out={k(sess_out)}"
-        + (f" cache={k(sess_cache)}" if sess_cache > 0 else "")
-        + (f" {dur(duration_s)}" if duration_s > 0 else "")
+def dur(t0: str, t1: str) -> str:
+    try:
+        a = datetime.fromisoformat(t0.replace("Z", "+00:00"))
+        b = datetime.fromisoformat(t1.replace("Z", "+00:00"))
+        s = max(0, int((b - a).total_seconds()))
+        if s < 60:    return f"{s}s"
+        return f"{s//60}m{s%60:02d}s"
+    except Exception:
+        return ""
+
+def status_color(s: str) -> str:
+    if s in ("success", "complete"): return f"{GREEN}{s}{RESET}"
+    if s in ("failed", "error"):     return f"{RED}{s}{RESET}"
+    if s in ("running", "partial"):  return f"{YELLOW}{s}{RESET}"
+    return f"{DIM}{s}{RESET}"
+
+def load_run(path: str) -> dict:
+    with open(path) as f:
+        return json.load(f)
+
+# ── Load all run files sorted newest-first ────────────────────────────────
+run_files = sorted(
+    glob.glob(str(Path(RUNS_DIR) / "*.json")),
+    key=os.path.getmtime,
+    reverse=True
+)
+
+# ── Extract Live Savings and DB Cost ──────────────────────────────────────
+savings_map = {}
+try:
+    with open(os.path.join(ROOT, "live_savings_events.jsonl")) as f:
+        for line in f:
+            d = json.loads(line)
+            rid = d.get("run_id")
+            if rid:
+                savings_map[rid] = savings_map.get(rid, 0.0) + float(d.get("cost_saved_usd", 0.0))
+except Exception:
+    pass
+
+cost_map = {}
+tokens_map = {}
+db_runs = []
+total_runs_in_db = 0
+try:
+    import sqlite3
+    db_path = os.path.join(ROOT, "atelier.db")
+    if os.path.exists(db_path):
+        with sqlite3.connect(db_path) as conn:
+            # 1. Total usage from ALL historical traces (including imported)
+            # We fetch IDs and token counts for all traces to build the aggregate maps.
+            # Using JSON extraction is much faster than loading full payloads.
+            sql = """
+                SELECT 
+                    id, 
+                    json_extract(payload, '$.input_tokens'), 
+                    json_extract(payload, '$.output_tokens'),
+                    json_extract(payload, '$.cached_input_tokens'),
+                    json_extract(payload, '$.thinking_tokens'),
+                    host
+                FROM traces
+            """
+            for row in conn.execute(sql):
+                rid, inp, out, cr, th, h = row
+                # Default pricing heuristic for historical/imported data ($3/$15 per M)
+                # Live data uses context_budget below which is more precise.
+                c = ((inp or 0) * 3 + (cr or 0) * 0.3 + (out or 0) * 15) / 1000000.0
+                cost_map[rid] = c
+                tokens_map[rid] = (inp or 0) + (out or 0) + (cr or 0) + (th or 0)
+
+            # 2. Get true counts and hosts
+            total_runs_in_db = conn.execute("SELECT COUNT(*) FROM traces").fetchone()[0]
+            db_host_count = conn.execute("SELECT COUNT(DISTINCT host) FROM traces").fetchone()[0]
+
+            # 3. Add Live Context Budget (high-fidelity real-time costs)
+            # This overwrites the heuristic cost for runs that exist in both.
+            sql = "SELECT run_id, SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens) FROM context_budget GROUP BY run_id"
+            for row in conn.execute(sql):
+                rid, inp, out, cr = row
+                cost = ((inp or 0) * 3 + (cr or 0) * 0.3 + (out or 0) * 15) / 1000000.0
+                cost_map[rid] = cost
+                tokens_map[rid] = (inp or 0) + (out or 0) + (cr or 0)
+
+            # Fetch recent traces for dashboard display (extended limit)
+            rows = conn.execute("SELECT payload FROM traces ORDER BY created_at DESC LIMIT 1000").fetchall()
+            for row in rows:
+                p = json.loads(row[0])
+                db_runs.append(p)
+except Exception:
+    pass
+
+
+# ── Resolve target ledger ──────────────────────────────────────────────────
+# If LEDGER_PATH doesn't exist, try to find it in db_runs
+snap = None
+if LEDGER_PATH != "NONE":
+    try:
+        snap = load_run(LEDGER_PATH)
+    except:
+        pass
+
+if not snap and TARGET_ID:
+    snap = next((r for r in db_runs if r.get("run_id") == TARGET_ID or r.get("id") == TARGET_ID), None)
+
+if not snap and db_runs and not TARGET_ID:
+    # Use most recent from DB
+    snap = db_runs[0]
+
+# ── ONE-LINER MODE (--line) ───────────────────────────────────────────────
+if LINE_MODE:
+    if not snap:
+        print(f"atelier | run {Path(LEDGER_PATH).stem[:8]} not found")
+        sys.exit(1)
+
+    run_id   = (snap.get("run_id") or snap.get("id") or "?")
+    domain   = snap.get("domain") or "-"
+    task     = (snap.get("task") or "").strip().splitlines()[0] if snap.get("task") else "-"
+    if len(task) > 50: task = task[:47] + "..."
+    status   = snap.get("status") or "?"
+    events   = len(snap.get("events", []) or [])
+    errors   = len(snap.get("errors_seen", []) or [])
+    blockers = len(snap.get("current_blockers", []) or [])
+    files_n  = len(snap.get("files_touched", []) or [])
+    tools_n  = int(snap.get("tool_call_count", 0) or snap.get("tool_count", 0) or len(snap.get("tools_called", [])))
+    agent    = snap.get("agent") or "?"
+    age_str  = age(snap.get("updated_at") or snap.get("created_at") or "")
+    dur_str  = dur(snap.get("created_at",""), snap.get("updated_at",""))
+
+    cost_v   = cost_map.get(run_id, float(snap.get("cost", {}).get("total_cost_usd", 0.0)))
+    if cost_v == 0 and "input_tokens" in snap:
+         # Heuristic for imported traces
+         cost_v = (snap.get("input_tokens",0)*3 + snap.get("output_tokens",0)*15) / 1000000.0
+    
+    saved_v  = savings_map.get(run_id, 0.0)
+
+    line = (
+        f"{BADGE} {BRAND}run {run_id[:8]}{RESET} {SEP} {DIM}{agent}{RESET} {SEP} "
+        f"{domain} {SEP} {task} {SEP} {status_color(status)} "
+        f"{SEP} ev={events} err={errors} blk={blockers}"
+        f" {SEP} files={files_n} tools={tools_n}"
+        + (f" {SEP} cost={usd(cost_v)}" if cost_v > 0 else "")
+        + (f" {SEP} {GREEN}saved={usd(saved_v)}{RESET}" if saved_v > 0 else "")
+        + (f" {SEP} {dur_str}" if dur_str else "")
+        + f" {SEP} {DIM}{age_str}{RESET}"
+    )
+    print(line)
+    sys.exit(0)
+
+# ── DASHBOARD MODE (default) ───────────────────────────────────────────────
+W = 72  # terminal width for the box
+
+def box_line(content="", width=W):
+    """Print a line inside the box, padding to width."""
+    # Strip ANSI for length calculation
+    import re
+    plain = re.sub(r'\033\[[^m]*m', '', content)
+    pad = max(0, width - 2 - len(plain))
+    print(f" {content}{' ' * pad} ")
+
+def status_icon(s: str) -> str:
+    if s in ("success", "complete"): return f"{GREEN}✓{RESET}"
+    if s in ("failed", "error"):     return f"{RED}✖{RESET}"
+    if s in ("running", "partial"):  return f"{YELLOW}⋯{RESET}"
+    return f"{DIM}?{RESET}"
+
+# ── DASHBOARD MODE (default) ───────────────────────────────────────────────
+W = 72  # terminal width for the box
+
+def box_line(content="", width=W):
+    """Print a line inside the box, padding to width."""
+    # Strip ANSI for length calculation
+    import re
+    plain = re.sub(r'\033\[[^m]*m', '', content)
+    pad = max(0, width - 2 - len(plain))
+    print(f" {content}{' ' * pad} ")
+
+def rule(label="", width=W):
+    if label:
+        line = f" {BOLD}{label}{RESET} "
+        fill = width - len(line) - 2
+        print(f"{DIM}─{RESET}{line}{DIM}{'─' * fill}{RESET}")
+    else:
+        print(f"{DIM}{'─' * width}{RESET}")
+
+# ── Header ────────────────────────────────────────────────────────────────
+rule("SYSTEM OVERVIEW")
+box_line(f"{BADGE}  {DIM}{ROOT}{RESET}")
+
+# ── Aggregate stats from all runs ─────────────────────────────────────────
+all_run_entries = []
+seen_ids = set()
+
+# First, flat files from runs/ (active)
+for rf in run_files:
+    try:
+        d = load_run(rf)
+        rid = d.get("run_id") or Path(rf).stem
+        all_run_entries.append(d)
+        seen_ids.add(rid)
+    except: pass
+
+# Then, fallback to database traces (historical)
+for dr in db_runs:
+    rid = dr.get("run_id") or dr.get("id")
+    if rid not in seen_ids:
+        all_run_entries.append(dr)
+        seen_ids.add(rid)
+
+total_runs    = max(total_runs_in_db, len(seen_ids))
+success_count = 0
+failed_count  = 0
+total_tools   = 0
+total_files   = 0
+total_errors  = 0
+
+for d in all_run_entries:
+    try:
+        s = d.get("status","")
+        if s in ("success","complete"): success_count += 1
+        elif s in ("failed","error"):   failed_count  += 1
+        total_tools  += int(d.get("tool_call_count",0) or d.get("tool_count",0) or len(d.get("tools_called", [])))
+        total_files  += len(d.get("files_touched",[]) or [])
+        total_errors += len(d.get("errors_seen",[]) or [])
+    except Exception:
+        pass
+
+total_cost   = sum(cost_map.values())
+saved_usd    = sum(savings_map.values())
+total_tokens = sum(tokens_map.values())
+
+# ── Totals row ────────────────────────────────────────────────────────────
+sr = f"{GREEN}{success_count} ok{RESET}" if success_count else f"{DIM}0 ok{RESET}"
+fr = f"{RED}{failed_count} failed{RESET}" if failed_count else f"{DIM}0 failed{RESET}"
+box_line(
+    f"{BOLD}{total_runs}{RESET} runs  {sr}  {fr}  "
+    f"{DIM}tools={k(total_tools)}  files={total_files}  errs={total_errors}{RESET}"
+)
+if total_cost > 0 or saved_usd > 0:
+    box_line(
+        f"{DIM}cost{RESET} {usd(total_cost)}  "
+        + (f"{GREEN}saved{RESET} {usd(saved_usd)}" if saved_usd > 0 else "")
+        + (f"  {DIM}tokens{RESET} {k(total_tokens)}" if total_tokens else "")
     )
 
-# Savings suffix: show % if available, else just USD.
-if saved_pct > 0.1:
-    savings_str = f"saved ${saved_usd:.3f} ({saved_pct:.1f}% vs baseline)"
-else:
-    savings_str = f"saved ${saved_usd:.3f} (ctx {k(ctx_saved)})"
+# ── Recent runs table ─────────────────────────────────────────────────────
+rule(f"RECENT RUNS ({min(N_RUNS, total_runs)})")
 
-print(
-    f"{BADGE} {BRAND}run {run_id}{RESET} {SEP} {domain} {SEP} {task} "
-    f"{SEP} status={status} {SEP} ev={events} err={errors} blk={blockers}"
-    f"{sess_line} {SEP} {savings_str}"
-)
+for d in all_run_entries[:N_RUNS]:
+    run_id  = (d.get("run_id") or d.get("id") or "?")
+    agent   = (d.get("agent") or "?")[:8]
+    domain  = (d.get("domain") or "-")[:12]
+    task    = (d.get("task") or "").strip().replace("\n", " ")
+    if len(task) > 55: task = task[:52] + "..."
+    if not task: task = f"{DIM}(no task){RESET}"
+    status  = d.get("status") or "?"
+    files_n = len(d.get("files_touched",[]) or [])
+    tools_n = int(d.get("tool_call_count",0) or d.get("tool_count",0) or len(d.get("tools_called", [])))
+    errs_n  = len(d.get("errors_seen",[]) or [])
+    age_str = age(d.get("updated_at") or d.get("created_at") or "")
+    dur_str = dur(d.get("created_at",""), d.get("updated_at",""))
+
+    cost_v  = cost_map.get(run_id, float(d.get("cost", {}).get("total_cost_usd", 0.0)))
+    if cost_v == 0 and "input_tokens" in d:
+         cost_v = (d.get("input_tokens",0)*3 + d.get("output_tokens",0)*15) / 1000000.0
+
+    saved_v = savings_map.get(run_id, 0.0)
+
+    # Professional 2-line layout
+    # [icon] Task ................. ID
+    dots = "." * max(1, (W - len(re.sub(r'\033\[[^m]*m', '', task)) - 16))
+    box_line(f" {status_icon(status)}  {BOLD}{task}{RESET} {DIM}{dots} {run_id[:8]}{RESET}")
+    
+    metrics = []
+    if cost_v > 0:  metrics.append(f"cost={usd(cost_v)}")
+    if saved_v > 0: metrics.append(f"{GREEN}saved={usd(saved_v)}{RESET}")
+    if dur_str:     metrics.append(dur_str)
+    metrics_str = f" {SEP} ".join(metrics)
+    
+    meta_line = f"    {DIM}{age_str}{RESET} {SEP} {agent} {SEP} {domain}"
+    if metrics_str: meta_line += f" {SEP} {metrics_str}"
+    meta_line += f" {SEP} {DIM}f={files_n} t={tools_n}{RESET}"
+    box_line(meta_line)
+
+rule()
+print(f" {DIM}store: {ROOT}   runs dir: {RUNS_DIR}{RESET}")
+rule()
 PYEOF

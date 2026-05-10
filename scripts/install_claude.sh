@@ -19,6 +19,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLUGIN_DIR="${ATELIER_REPO}/integrations/claude/plugin"
 INSTALL_SOURCE_DIR="${PLUGIN_DIR}"
+
+# ---- check dev mode ---------------------------------------------------------
+DEV_MODE="${ATELIER_DEV_MODE:-0}"
+if [[ "$DEV_MODE" != "1" ]]; then
+    info "Dev mode disabled; installing slim plugin (no skills/reasoning loop)"
+    STAGING_DIR="${ATELIER_REPO}/.atelier/claude-plugin-slim"
+    run "mkdir -p '$STAGING_DIR/.claude-plugin'"
+    run "cp '${PLUGIN_DIR}/.claude-plugin/plugin.json' '$STAGING_DIR/.claude-plugin/'"
+    run "mkdir -p '$STAGING_DIR/agents'"
+    # Copy agents and neutralize
+    for agent in code explore review repair; do
+        if ! $DRY_RUN; then
+            cat > "$STAGING_DIR/agents/${agent}.md" <<EOF
+# atelier:${agent}
+
+Atelier is currently in **Passive Mode**. Active reasoning features are disabled.
+To enable active reasoning, set ATELIER_DEV_MODE=1 and re-run install.
+EOF
+        fi
+    done
+    run "cp -r '${PLUGIN_DIR}/hooks' '$STAGING_DIR/'"
+    run "cp -r '${PLUGIN_DIR}/servers' '$STAGING_DIR/'"
+    run "cp '${PLUGIN_DIR}/.mcp.json' '$STAGING_DIR/'"
+    
+    PLUGIN_DIR="$STAGING_DIR"
+    INSTALL_SOURCE_DIR="$STAGING_DIR"
+fi
+
 ATELIER_WRAPPER="${ATELIER_REPO}/scripts/atelier_mcp_stdio.sh"
 PLUGIN_REF="atelier@atelier"
 
@@ -371,5 +399,5 @@ fi
 
 info "Done. Start Claude Code in your workspace. Skills and agents are available."
 info "  /atelier:status  - show run ledger"
-info "  /atelier:context - show environment context"
+info "  /atelier:context - show reasoning context"
 info "  Agents: atelier:code, atelier:explore, atelier:review, atelier:repair"

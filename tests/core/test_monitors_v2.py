@@ -6,6 +6,7 @@ from atelier.core.foundation.monitors import (
     BudgetExhaustion,
     SecondGuessing,
     SessionState,
+    build_monitors,
     default_monitors,
 )
 
@@ -55,3 +56,17 @@ def test_default_monitors_list_includes_v2() -> None:
     names = {type(m).__name__ for m in default_monitors()}
     assert "SecondGuessing" in names
     assert "BudgetExhaustion" in names
+
+
+def test_build_monitors_disables_zero_weight_monitors() -> None:
+    names = {monitor.name for monitor in build_monitors({"repeated_tool_call": 0.0})}
+    assert "repeated_tool_call" not in names
+    assert "repeated_command_failure" in names
+
+
+def test_build_monitors_adjusts_thresholds_from_weights() -> None:
+    monitors = {
+        monitor.name: monitor for monitor in build_monitors({"repeated_tool_call": 0.22, "context_bloat": 0.05})
+    }
+    assert monitors["repeated_tool_call"].repeat_threshold == 2
+    assert monitors["context_bloat"].threshold_chars == 75_000

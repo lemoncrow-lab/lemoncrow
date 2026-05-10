@@ -103,6 +103,12 @@ for h in "${FAIL[@]+"${FAIL[@]}"}"; do echo "  FAILED   $h"; done
 echo ""
 echo "Next: make verify"
 
+# Persist host detection results for the Docker service
+STATUS_SCRIPT="${SCRIPT_DIR}/status.sh"
+if [ -f "$STATUS_SCRIPT" ]; then
+    bash "$STATUS_SCRIPT" --write 2>/dev/null || true
+fi
+
 # We exit 0 even if some hosts failed so the main installer can finish its work.
 # The user can see failures in the summary above.
 exit 0

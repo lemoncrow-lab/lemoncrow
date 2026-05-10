@@ -148,11 +148,17 @@ def _prepare_install_source(tmp_path: Path) -> tuple[Path, str]:
         text=True,
     )
     subprocess.run(
-        ["git", "-C", str(source), "config", "user.name", "Atelier Tests"], check=True, capture_output=True, text=True
+        ["git", "-C", str(source), "config", "user.name", "Atelier Tests"],
+        check=True,
+        capture_output=True,
+        text=True,
     )
     subprocess.run(["git", "-C", str(source), "add", "."], check=True, capture_output=True, text=True)
     subprocess.run(
-        ["git", "-C", str(source), "commit", "-m", "test snapshot"], check=True, capture_output=True, text=True
+        ["git", "-C", str(source), "commit", "-m", "test snapshot"],
+        check=True,
+        capture_output=True,
+        text=True,
     )
     return source, branch
 
@@ -199,7 +205,9 @@ def test_real_ollama_model_backed_paths() -> None:
         assert summary.strip()
 
         compacted = compact(
-            ("tool output line with trace context\n" * 5000), content_type="tool_output", budget_tokens=128
+            ("tool output line with trace context\n" * 5000),
+            content_type="tool_output",
+            budget_tokens=128,
         )
         assert compacted.method == "ollama_summary"
         assert compacted.compacted_tokens < compacted.original_tokens
@@ -287,7 +295,12 @@ def test_service_restart_preserves_traces_after_crash(tmp_path: Path) -> None:
         status, payload = _request_json(
             "POST",
             f"{base_url}/v1/traces",
-            {"agent": "codex", "domain": "coding", "task": "restart-durability", "status": "success"},
+            {
+                "agent": "codex",
+                "domain": "coding",
+                "task": "restart-durability",
+                "status": "success",
+            },
         )
         assert status == 200
         trace_id = str(payload["id"])

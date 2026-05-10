@@ -50,7 +50,12 @@ def test_codex_savings_reporter_ignores_non_atelier_tools(tmp_path: Path) -> Non
     result = _run_hook(
         "savings_reporter.py",
         tmp_path / ".atelier",
-        {"hook_event_name": "PostToolUse", "session_id": "c1", "tool_name": "Read", "tool_input": {}},
+        {
+            "hook_event_name": "PostToolUse",
+            "session_id": "c1",
+            "tool_name": "Read",
+            "tool_input": {},
+        },
     )
 
     assert result.stdout == ""

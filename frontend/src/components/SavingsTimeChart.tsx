@@ -11,7 +11,7 @@ const PAD_Y = 22;
 
 function buildAreaPath(
   points: Array<{ x: number; y: number }>,
-  baseline: number,
+  baseline: number
 ): string {
   if (points.length === 0) return "";
   const head = `M ${points[0].x} ${baseline}`;

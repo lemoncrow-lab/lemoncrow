@@ -19,7 +19,8 @@ const AGENTS: AgentDef[] = [
     label: "atelier:code",
     icon: "💜",
     color: "purple",
-    description: "Main coding agent. Edits, refactors, fixes bugs, and ships features. MUST use the Atelier reasoning loop on every task.",
+    description:
+      "Main coding agent. Edits, refactors, fixes bugs, and ships features. MUST use the Atelier reasoning loop on every task.",
     tools: ["* (all tools)"],
     mode: "Plan → Validate → Implement → Rescue → Rubric → Trace",
     file: "integrations/claude/plugin/agents/code.md",
@@ -36,7 +37,8 @@ const AGENTS: AgentDef[] = [
     label: "atelier:explore",
     icon: "🔍",
     color: "yellow",
-    description: "Read-only repo exploration. Retrieves ReasonBlocks, reads files, runs grep/search. Never edits, never runs migrations, never executes destructive commands.",
+    description:
+      "Read-only repo exploration. Retrieves ReasonBlocks, reads files, runs grep/search. Never edits, never runs migrations, never executes destructive commands.",
     tools: ["Read", "Grep", "Glob", "WebFetch", "reasoning"],
     mode: "Read-only investigation & summarization",
     file: "integrations/claude/plugin/agents/explore.md",
@@ -52,7 +54,8 @@ const AGENTS: AgentDef[] = [
     label: "atelier:review",
     icon: "✅",
     color: "green",
-    description: "Verifier agent. Reviews finished or in-progress patches against Atelier ReasonBlocks and rubrics. Blocks known dead ends. Uses check_plan and run_rubric_gate but never edits code.",
+    description:
+      "Verifier agent. Reviews finished or in-progress patches against Atelier ReasonBlocks and rubrics. Blocks known dead ends. Uses check_plan and run_rubric_gate but never edits code.",
     tools: ["Read", "Grep", "Glob", "reasoning", "lint", "verify"],
     mode: "Verify patch → check_plan → rubric_gate → verdict",
     file: "integrations/claude/plugin/agents/review.md",
@@ -69,7 +72,8 @@ const AGENTS: AgentDef[] = [
     label: "atelier:repair",
     icon: "🔧",
     color: "orange",
-    description: "Repair specialist. Activated when a test/command/tool keeps failing the same way. Loads the RunLedger, asks for rescue, applies smallest patch, verifies, and records postmortem trace.",
+    description:
+      "Repair specialist. Activated when a test/command/tool keeps failing the same way. Loads the RunLedger, asks for rescue, applies smallest patch, verifies, and records postmortem trace.",
     tools: ["* (all tools)"],
     mode: "Ledger → Hypothesize → Rescue → Patch → Verify → Postmortem",
     file: "integrations/claude/plugin/agents/repair.md",
@@ -85,7 +89,6 @@ const AGENTS: AgentDef[] = [
 
 export default function Agents() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [infoOpen, setInfoOpen] = useState(false);
   const [skills, setSkills] = useState<any[] | null>(null);
   const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
 
@@ -98,58 +101,6 @@ export default function Agents() {
 
   return (
     <div className="space-y-8 text-sm">
-      {/* Feature Info */}
-      <div>
-        <button onClick={() => setInfoOpen(!infoOpen)} className="text-[10px] text-neutral-600 hover:text-neutral-400 font-mono flex items-center gap-1 py-1">
-          <span>{infoOpen ? "▼" : "▶"}</span> about
-        </button>
-        {infoOpen && <section className="border border-neutral-800 bg-neutral-900/50 p-5">
-        <div className="flex items-start gap-4">
-          <div className="text-3xl flex-shrink-0">🤖</div>
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-2">
-              <h2 className="font-mono font-bold text-neutral-200 text-lg">
-                Agent Definitions
-              </h2>
-              <span className="text-[10px] px-2 py-0.5 font-mono font-bold uppercase tracking-wide bg-emerald-900/30 text-emerald-300">
-                stable
-              </span>
-            </div>
-            <p className="font-mono text-[11px] text-neutral-500 mb-3">
-              Native Integration Rules
-            </p>
-            <p className="text-xs text-neutral-300 leading-relaxed mb-3">
-              4 agents shipped inside the Claude Code plugin. Each has its own system prompt, toolset, and rules. Agents follow the Standing Loop — retrieve context, draft plan, validate, implement, rescue, rubric gate, and trace.
-            </p>
-            <div className="text-xs text-emerald-300/90 space-y-1">
-              <p>✓ Prevents re-derivation and thrashing</p>
-              <p>✓ Automatic rescue on repeated failures</p>
-              <p>✓ Deterministic plan validation</p>
-            </div>
-          </div>
-        </div>
-        </section>}
-      </div>
-
-      {/* Header */}
-      <section className="border border-neutral-800 p-5 bg-neutral-900/30">
-        <h1 className="text-lg font-mono font-bold text-neutral-200">Agent Definitions</h1>
-        <p className="text-xs text-neutral-400 mt-2 font-mono">
-          4 agents shipped inside the Claude Code plugin. Each has its own system prompt, toolset, and rules.
-        </p>
-        <div className="flex gap-2 mt-4 flex-wrap">
-          {AGENTS.map((a) => (
-            <a
-              key={a.id}
-              href={`#agent-${a.id}`}
-              className="text-[10px] px-2.5 py-1 border border-neutral-700 hover:border-neutral-500 bg-neutral-900/50 transition font-mono"
-            >
-              {a.icon} {a.label}
-            </a>
-          ))}
-        </div>
-      </section>
-
       {/* Agent Cards */}
       <section className="space-y-3">
         {AGENTS.map((agent) => (
@@ -157,7 +108,9 @@ export default function Agents() {
             key={agent.id}
             agent={agent}
             expanded={expandedId === agent.id}
-            onToggle={() => setExpandedId(expandedId === agent.id ? null : agent.id)}
+            onToggle={() =>
+              setExpandedId(expandedId === agent.id ? null : agent.id)
+            }
           />
         ))}
       </section>
@@ -168,8 +121,8 @@ export default function Agents() {
           Skills
         </h2>
         <p className="text-xs text-neutral-400 mb-3">
-          11 common skills available to all agent hosts. Click to expand and
-          see full documentation.
+          11 common skills available to all agent hosts. Click to expand and see
+          full documentation.
         </p>
         <div className="grid grid-cols-1 gap-2">
           {skills && skills.length > 0 ? (
@@ -182,7 +135,9 @@ export default function Agents() {
                   icon: "✓",
                 }}
                 isExpanded={expandedSkill === s.name}
-                onToggle={() => setExpandedSkill(expandedSkill === s.name ? null : s.name)}
+                onToggle={() =>
+                  setExpandedSkill(expandedSkill === s.name ? null : s.name)
+                }
               />
             ))
           ) : (
@@ -204,7 +159,10 @@ function AgentCard({
   onToggle: () => void;
 }) {
   return (
-    <div id={`agent-${agent.id}`} className="border border-neutral-800 bg-neutral-900/50 overflow-hidden transition-all">
+    <div
+      id={`agent-${agent.id}`}
+      className="border border-neutral-800 bg-neutral-900/50 overflow-hidden transition-all"
+    >
       {/* Header */}
       <button
         onClick={onToggle}
@@ -219,7 +177,7 @@ function AgentCard({
             <div className="flex items-center gap-3 mb-1 flex-wrap">
               {/* Expandable indicator */}
               <span
-                className={`text-amber-400 font-mono text-xs transition-transform ${
+                className={`text-neutral-500 font-mono text-xs transition-transform ${
                   expanded ? "rotate-90" : ""
                 }`}
               >
@@ -244,7 +202,10 @@ function AgentCard({
             </div>
             <div className="flex flex-wrap gap-1">
               {agent.tools.map((t) => (
-                <code key={t} className="text-[10px] bg-neutral-950 px-2 py-1 text-neutral-300 font-mono border border-neutral-700">
+                <code
+                  key={t}
+                  className="text-[10px] bg-neutral-950 px-2 py-1 text-neutral-300 font-mono border border-neutral-700"
+                >
                   {t}
                 </code>
               ))}
@@ -258,7 +219,10 @@ function AgentCard({
             </div>
             <ul className="space-y-1">
               {agent.rules.map((r, i) => (
-                <li key={i} className="text-xs text-neutral-300 leading-relaxed">
+                <li
+                  key={i}
+                  className="text-xs text-neutral-300 leading-relaxed"
+                >
                   {r}
                 </li>
               ))}
@@ -277,7 +241,9 @@ function AgentCard({
 
           {/* Source */}
           <div className="pt-2 border-t border-neutral-800">
-            <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 font-mono">Source</div>
+            <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 font-mono">
+              Source
+            </div>
             <code className="text-[10px] bg-neutral-950 px-2 py-1 text-neutral-500 font-mono border border-neutral-700 block break-all">
               {agent.file}
             </code>

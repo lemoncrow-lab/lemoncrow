@@ -68,11 +68,19 @@ def discover_connection(repo_root: str | Path | None = None, env: dict[str, str]
     env_map = env or dict(os.environ)
     for key in _CONNECTION_KEYS:
         if env_map.get(key):
-            return {"connection_string": env_map[key], "source": f"env:{key}", "dialect": detect_dialect(env_map[key])}
+            return {
+                "connection_string": env_map[key],
+                "source": f"env:{key}",
+                "dialect": detect_dialect(env_map[key]),
+            }
     dotenv = _dotenv_values(root)
     for key in _CONNECTION_KEYS:
         if dotenv.get(key):
-            return {"connection_string": dotenv[key], "source": f"dotenv:{key}", "dialect": detect_dialect(dotenv[key])}
+            return {
+                "connection_string": dotenv[key],
+                "source": f"dotenv:{key}",
+                "dialect": detect_dialect(dotenv[key]),
+            }
     return {"connection_string": None, "source": None, "dialect": None}
 
 
@@ -259,4 +267,10 @@ def sql_tool(
         conn.close()
 
 
-__all__ = ["detect_dialect", "discover_connection", "lint_sql", "mask_connection_string", "sql_tool"]
+__all__ = [
+    "detect_dialect",
+    "discover_connection",
+    "lint_sql",
+    "mask_connection_string",
+    "sql_tool",
+]

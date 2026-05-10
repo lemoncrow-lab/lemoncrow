@@ -297,6 +297,7 @@ dependencies = [
     { name = "blake3" },
     { name = "click" },
     { name = "datasketch" },
+    { name = "diff-match-patch" },
     { name = "fastapi" },
     { name = "gitpython" },
     { name = "mypy" },
@@ -326,6 +327,9 @@ dependencies = [
 api = [
     { name = "fastapi" },
     { name = "uvicorn", extra = ["standard"] },
+]
+cloud = [
+    { name = "openai" },
 ]
 dev = [
     { name = "black" },
@@ -384,6 +388,7 @@ requires-dist = [
     { name = "blake3", specifier = ">=0.4.1" },
     { name = "click", specifier = ">=8.1" },
     { name = "datasketch", specifier = ">=1.6" },
+    { name = "diff-match-patch", specifier = ">=2.1" },
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.110" },
     { name = "gitpython", specifier = ">=3.1" },
@@ -397,6 +402,7 @@ requires-dist = [
     { name = "numpy", marker = "extra == 'vector'", specifier = ">=1.26" },
     { name = "ollama", specifier = ">=0.6.2" },
     { name = "ollama", marker = "extra == 'smart'", specifier = ">=0.4.0" },
+    { name = "openai", marker = "extra == 'cloud'", specifier = ">=1.0" },
     { name = "opentelemetry-api", specifier = ">=1.27" },
     { name = "opentelemetry-api", marker = "extra == 'telemetry'", specifier = ">=1.27" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.27" },
@@ -430,7 +436,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.46.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.27" },
 ]
-provides-extras = ["mcp", "memory", "memory-server", "embeddings", "smart", "repo-map", "api", "postgres", "vector", "parsers", "telemetry", "dev"]
+provides-extras = ["mcp", "memory", "memory-server", "embeddings", "smart", "cloud", "repo-map", "api", "postgres", "vector", "parsers", "telemetry", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1561,6 +1567,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/49/85/12f0a49a7c4ffb70572b6c2ef13c90c88fd190debda93b23f026b25f9634/deprecated-1.3.1.tar.gz", hash = "sha256:b1b50e0ff0c1fddaa5708a2c6b0a6588bb09b892825ab2b214ac9ea9d92a5223", size = 2932523, upload-time = "2025-10-30T08:19:02.757Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/84/d0/205d54408c08b13550c733c4b85429e7ead111c7f0014309637425520a9a/deprecated-1.3.1-py2.py3-none-any.whl", hash = "sha256:597bfef186b6f60181535a29fbe44865ce137a5079f295b479886c82729d5f3f", size = 11298, upload-time = "2025-10-30T08:19:00.758Z" },
+]
+
+[[package]]
+name = "diff-match-patch"
+version = "20241021"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0e/ad/32e1777dd57d8e85fa31e3a243af66c538245b8d64b7265bec9a61f2ca33/diff_match_patch-20241021.tar.gz", hash = "sha256:beae57a99fa48084532935ee2968b8661db861862ec82c6f21f4acdd6d835073", size = 39962, upload-time = "2024-10-21T19:41:21.094Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f7/bb/2aa9b46a01197398b901e458974c20ed107935c26e44e37ad5b0e5511e44/diff_match_patch-20241021-py3-none-any.whl", hash = "sha256:93cea333fb8b2bc0d181b0de5e16df50dd344ce64828226bda07728818936782", size = 43252, upload-time = "2024-10-21T19:41:19.914Z" },
 ]
 
 [[package]]

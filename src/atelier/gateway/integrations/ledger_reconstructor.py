@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.gateway.integrations._session_parser import parse_session_turns
+from atelier.gateway.hosts.session_parsers._session_parser import parse_session_turns
 from atelier.infra.runtime.run_ledger import RunLedger
 
 

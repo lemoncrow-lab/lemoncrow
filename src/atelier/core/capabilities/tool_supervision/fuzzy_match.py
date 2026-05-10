@@ -1,13 +1,17 @@
-"""Fuzzy matching helpers for atelier_edit (WP-24).
-
-This module intentionally applies only to the batch-edit augmentation path.
-"""
+"""Fuzzy matching for the rich-edit path — backed by diff-match-patch."""
 
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+
+from diff_match_patch import diff_match_patch as _DMP
+
+# --------------------------------------------------------------------------- #
+# Public data types (kept for backward compat)                                #
+# --------------------------------------------------------------------------- #
 
 
 @dataclass(frozen=True)
@@ -29,6 +33,10 @@ class FuzzyAmbiguousMatchError(ValueError):
         super().__init__(f"fuzzy replace ambiguous candidates at ranges: {ranges}")
 
 
+# --------------------------------------------------------------------------- #
+# Text normalization helpers                                                   #
+# --------------------------------------------------------------------------- #
+
 _WS_RUN = re.compile(r"\s+")
 _SPACE_BEFORE_PUNCT = re.compile(r"\s+([:;,)\]\}])")
 
@@ -44,11 +52,13 @@ def normalize_for_fuzzy(text: str) -> str:
     return "\n".join(normalized_lines)
 
 
-def bounded_levenshtein(a: str, b: str, max_distance: int) -> int | None:
-    """Return edit distance if <= max_distance, else None.
+# --------------------------------------------------------------------------- #
+# Levenshtein (kept for callers / tests that import it directly)              #
+# --------------------------------------------------------------------------- #
 
-    Uses a bounded DP to short-circuit expensive comparisons.
-    """
+
+def bounded_levenshtein(a: str, b: str, max_distance: int) -> int | None:
+    """Return edit distance if <= max_distance, else None."""
     if max_distance < 0:
         return None
     if abs(len(a) - len(b)) > max_distance:
@@ -77,81 +87,97 @@ def bounded_levenshtein(a: str, b: str, max_distance: int) -> int | None:
     return distance if distance <= max_distance else None
 
 
+# --------------------------------------------------------------------------- #
+# Core fuzzy replace — diff-match-patch backed                                #
+# --------------------------------------------------------------------------- #
+
+_DMP_THRESHOLD = 0.5
+
+
+def _make_dmp(content_len: int) -> _DMP:
+    dmp = _DMP()
+    dmp.Match_Threshold = _DMP_THRESHOLD
+    dmp.Match_Distance = max(content_len, 1000)
+    dmp.Match_MaxBits = 0  # no pattern-size limit (default 32 breaks long patterns)
+    return dmp
+
+
+def apply_fuzzy_replace(content: str, old_string: str, new_string: str) -> tuple[str, int, int]:
+    """Fuzzy-replace old_string with new_string inside content.
+
+    Uses diff-match-patch for character-level location, then snaps to line
+    boundaries so the replacement always covers complete source lines (same
+    semantics as the previous Levenshtein window approach).
+
+    Returns (new_content, 1-based line_start, 1-based line_end).
+    """
+    dmp = _make_dmp(len(content))
+
+    match_char = dmp.match_main(content, old_string, 0)
+    if match_char == -1:
+        raise ValueError("old_string not found in file")
+
+    # Build per-line character offsets
+    lines = content.splitlines(keepends=True)
+    offsets: list[int] = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+
+    # Which line contains match_char?
+    start_line_idx = max(0, bisect_right(offsets, match_char) - 1)
+
+    # Replace the same number of lines as old_string spans
+    n_old_lines = max(1, len(old_string.splitlines()))
+    end_line_idx = min(start_line_idx + n_old_lines, len(lines))
+
+    region_start = offsets[start_line_idx]
+    region_end = offsets[end_line_idx]
+
+    new_content = content[:region_start] + new_string + content[region_end:]
+    return new_content, start_line_idx + 1, end_line_idx
+
+
+# --------------------------------------------------------------------------- #
+# Legacy find_fuzzy_candidates (thin wrapper — retained for compat)           #
+# --------------------------------------------------------------------------- #
+
+
 def find_fuzzy_candidates(
     content: str,
     old_string: str,
     *,
     distance_ratio: float = 0.05,
 ) -> list[FuzzyCandidate]:
-    """Find candidate line windows that fuzzy-match old_string."""
-    norm_old = normalize_for_fuzzy(old_string)
-    if not norm_old:
+    """Find candidate line windows — now backed by DMP. Returns 0 or 1 result."""
+    dmp = _make_dmp(len(content))
+    match_char = dmp.match_main(content, old_string, 0)
+    if match_char == -1:
         return []
 
     lines = content.splitlines(keepends=True)
-    target_lines = max(1, len(old_string.splitlines()) or 1)
-    if len(lines) < 1:
-        return []
-
-    # Permit small line-count drift caused by blank-line insertion/removal.
-    line_lengths = {max(1, target_lines + delta) for delta in (-2, -1, 0, 1, 2)}
-    line_lengths = {n for n in line_lengths if n <= len(lines)}
-    if not line_lengths:
-        return []
-
-    max_distance = int(distance_ratio * max(1, len(norm_old)))
-    offsets = [0]
+    offsets: list[int] = [0]
     for line in lines:
         offsets.append(offsets[-1] + len(line))
 
-    candidates: list[FuzzyCandidate] = []
-    for window_len in sorted(line_lengths):
-        max_start = len(lines) - window_len + 1
-        for start_idx in range(max_start):
-            end_idx = start_idx + window_len
-            window = "".join(lines[start_idx:end_idx])
-            norm_window = normalize_for_fuzzy(window)
+    start_line_idx = max(0, bisect_right(offsets, match_char) - 1)
+    n_old_lines = max(1, len(old_string.splitlines()))
+    end_line_idx = min(start_line_idx + n_old_lines, len(lines))
 
-            quick_ratio = SequenceMatcher(None, norm_old, norm_window, autojunk=False).ratio()
-            if quick_ratio < 0.60:
-                continue
+    norm_old = normalize_for_fuzzy(old_string)
+    window = "".join(lines[start_line_idx:end_line_idx])
+    norm_window = normalize_for_fuzzy(window)
+    ratio = SequenceMatcher(None, norm_old, norm_window, autojunk=False).ratio()
 
-            distance = bounded_levenshtein(norm_old, norm_window, max_distance)
-            if distance is None:
-                continue
-
-            candidates.append(
-                FuzzyCandidate(
-                    start_line=start_idx + 1,
-                    end_line=end_idx,
-                    start_offset=offsets[start_idx],
-                    end_offset=offsets[end_idx],
-                    distance=distance,
-                    ratio=quick_ratio,
-                )
-            )
-
-    # Keep only the best-distance candidates.
-    if not candidates:
-        return []
-    best_distance = min(c.distance for c in candidates)
-    return [c for c in candidates if c.distance == best_distance]
-
-
-def apply_fuzzy_replace(content: str, old_string: str, new_string: str) -> tuple[str, int, int]:
-    """Apply fuzzy replacement for a line-window match.
-
-    Returns (new_content, line_start, line_end).
-    """
-    candidates = find_fuzzy_candidates(content, old_string)
-    if not candidates:
-        raise ValueError("old_string not found in file")
-    if len(candidates) > 1:
-        raise FuzzyAmbiguousMatchError(candidates)
-
-    c = candidates[0]
-    replaced = content[: c.start_offset] + new_string + content[c.end_offset :]
-    return replaced, c.start_line, c.end_line
+    return [
+        FuzzyCandidate(
+            start_line=start_line_idx + 1,
+            end_line=end_line_idx,
+            start_offset=offsets[start_line_idx],
+            end_offset=offsets[end_line_idx],
+            distance=0,
+            ratio=ratio,
+        )
+    ]
 
 
 __all__ = [

@@ -46,12 +46,6 @@ Failure Analyzer page. Shows failure clusters and error analysis. Conditional re
 
 **API:** `api.failures()`.
 
-### Environments.tsx
-
-Reasoning Environments feature page. Displays environment configurations with domain, description, triggers, forbidden actions, required tools, escalation rules.
-
-**API:** `api.environments()`.
-
 ### Gateway.tsx
 
 MCP Server & Host Adapters page. Displays agent definitions (AgentCard), skill definitions (SkillCard), and host configurations (HostCard) across three tabs (agents/skills/hosts).

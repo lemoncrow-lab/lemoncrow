@@ -24,7 +24,15 @@ from atelier.core.foundation.models import (
     Trace,
 )
 
-__version__ = "0.1.0"
+# The canonical version is in pyproject.toml.
+# At runtime we read the installed package metadata so they never drift.
+try:
+    from importlib.metadata import version as _version
+
+    __version__ = _version(__name__.split(".")[0])
+except Exception:
+    # Fallback for development / uninstalled usage.
+    __version__ = "0.1.0"
 
 
 def __getattr__(name: str) -> Any:

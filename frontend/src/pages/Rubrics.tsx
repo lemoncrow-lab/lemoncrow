@@ -1,7 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { api, type Rubric } from "../api";
 
 export default function Rubrics() {
+  const { rubricId } = useParams<{ rubricId?: string }>();
+  const navigate = useNavigate();
   const [items, setItems] = useState<Rubric[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [domainFilter, setDomainFilter] = useState<string>("all");
@@ -10,13 +13,22 @@ export default function Rubrics() {
   useEffect(() => {
     api
       .rubrics()
-      .then(setItems)
+      .then((data) => {
+        setItems(data);
+        if (rubricId) {
+          const match = data.find((r) => r.id === rubricId);
+          if (match) {
+            setExpandedId(match.id);
+            if (match.domain) setDomainFilter(match.domain);
+          }
+        }
+      })
       .catch((e) => setErr(String(e)));
-  }, []);
+  }, [rubricId]);
 
   const domains = useMemo(
     () => [...new Set(items?.map((r) => r.domain).filter(Boolean))],
-    [items],
+    [items]
   );
 
   const filtered = useMemo(() => {
@@ -31,37 +43,21 @@ export default function Rubrics() {
 
   return (
     <div className="space-y-6">
-      {/* Feature Info */}
-      <section className="border border-neutral-800 bg-neutral-900/50 p-5">
-        <div className="flex items-start gap-4">
-          <div className="text-3xl flex-shrink-0">📏</div>
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-2">
-              <h2 className="font-mono font-bold text-neutral-200 text-lg">
-                Rubric Gates
-              </h2>
-              <span className="text-[10px] px-2 py-0.5 font-mono font-bold uppercase tracking-wide bg-emerald-900/30 text-emerald-300">
-                stable
-              </span>
-            </div>
-            <p className="font-mono text-[11px] text-neutral-500 mb-3">
-              Domain-Specific Verification
-            </p>
-            <p className="text-xs text-neutral-300 leading-relaxed mb-3">
-              YAML-defined checklists that act as quality gates. Pre-execution:
-              block bad plans before they run. Post-execution: verify all
-              required checks passed. High-risk domains require rubric gates.
-            </p>
-            <div className="text-xs text-emerald-300/90 space-y-1">
-              <p>
-                ✓ Prevents known-bad plans before execution (exit 2 = blocked)
-              </p>
-              <p>✓ Enforces domain quality gates automatically</p>
-              <p>✓ YAML format reviewable in pull requests</p>
-            </div>
-          </div>
-        </div>
-      </section>
+      <div className="flex items-center gap-3">
+        {rubricId && (
+          <button
+            onClick={() => navigate("/knowledge/rubrics")}
+            className="text-[10px] uppercase tracking-widest text-neutral-500 hover:text-neutral-300 font-mono border border-neutral-700 px-2 py-1 transition"
+          >
+            ← All rubrics
+          </button>
+        )}
+        <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-mono">
+          {rubricId
+            ? `Rubric · ${items.find((r) => r.id === rubricId)?.domain || rubricId}`
+            : `Rubrics · ${items.length} total`}
+        </span>
+      </div>
 
       {/* Rubrics List */}
       <div className="space-y-4">
@@ -112,14 +108,14 @@ export default function Rubrics() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span
-                          className={`text-amber-400 font-mono text-xs transition-transform ${
+                          className={`text-neutral-500 font-mono text-xs transition-transform ${
                             isExpanded ? "rotate-90" : ""
                           }`}
                         >
                           ❯
                         </span>
                         <h3 className="font-mono font-bold text-neutral-200">
-                          {r.name}
+                          {r.id}
                         </h3>
                       </div>
                       <p className="text-xs text-neutral-400">
@@ -178,6 +174,68 @@ export default function Rubrics() {
                       </ul>
                     </div>
 
+                    {/* Triggers & Forbidden */}
+                    <div className="grid gap-3 sm:grid-cols-2 pt-2 border-t border-neutral-800">
+                      {r.triggers && r.triggers.length > 0 && (
+                        <div>
+                          <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 font-mono">
+                            Triggers
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {r.triggers.map((t, j) => (
+                              <span
+                                key={j}
+                                className="px-2 py-0.5 bg-blue-900/30 text-blue-300 font-mono text-[10px] border border-blue-900/40"
+                              >
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {r.forbidden_phrases &&
+                        r.forbidden_phrases.length > 0 && (
+                          <div>
+                            <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 font-mono">
+                              Forbidden (Domain Law)
+                            </div>
+                            <ul className="space-y-1">
+                              {r.forbidden_phrases.map((f, j) => (
+                                <li
+                                  key={j}
+                                  className="text-[11px] text-red-300 flex items-start gap-1"
+                                >
+                                  <span className="flex-shrink-0 text-red-500 font-bold">
+                                    ✗
+                                  </span>
+                                  <span>{f}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                    </div>
+
+                    {/* Related Blocks */}
+                    {r.related_blocks && r.related_blocks.length > 0 && (
+                      <div className="pt-2 border-t border-neutral-800">
+                        <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 font-mono">
+                          Related blocks
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {r.related_blocks.map((b, j) => (
+                            <button
+                              key={j}
+                              onClick={() => navigate(`/knowledge/blocks`)}
+                              className="px-2 py-0.5 bg-neutral-800 text-neutral-400 font-mono text-[10px] hover:bg-neutral-700 hover:text-neutral-200 transition-colors border border-neutral-700"
+                            >
+                              {b}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Usage */}
                     <div className="pt-2 border-t border-neutral-800">
                       <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 font-mono">
@@ -187,8 +245,7 @@ export default function Rubrics() {
                         atelier run-rubric {r.id} --json '{"{"}...{"}"}'
                       </code>
                       <code className="text-[10px] bg-neutral-950 px-2 py-1 block text-neutral-300 break-all font-mono border border-neutral-800">
-                        MCP: verify --rubric_id {r.id} --checks
-                        '{"{"}...{"}"}'
+                        MCP: verify --rubric_id {r.id} --checks '{"{"}...{"}"}'
                       </code>
                     </div>
                   </div>

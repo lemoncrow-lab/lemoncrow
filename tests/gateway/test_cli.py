@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -293,7 +294,16 @@ def test_servicectl_tick_enqueues_and_processes_periodic_consolidation(
 
     monkeypatch.setattr("atelier.core.capabilities.consolidation.worker.chat", unavailable)
 
-    res = _invoke(root, "servicectl", "tick", "--maintenance-interval-seconds", "0", "--json")
+    res = _invoke(
+        root,
+        "servicectl",
+        "tick",
+        "--maintenance-interval-seconds",
+        "0",
+        "--session-import-interval-seconds",
+        "-1",
+        "--json",
+    )
 
     assert res.exit_code == 0, res.output
     payload = json.loads(res.output)
@@ -336,6 +346,103 @@ def test_servicectl_start_writes_pidfile(tmp_path: Path, monkeypatch: pytest.Mon
     assert isinstance(args, list)
     assert "atelier.gateway.adapters.cli" in " ".join(str(item) for item in args)
     assert (root / "servicectl" / "servicectl.pid").read_text(encoding="utf-8").strip() == "4321"
+
+
+def test_servicectl_tick_imports_only_new_or_updated_sessions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "a"
+    _invoke(root, "init")
+
+    codex_file = tmp_path / "codex" / "rollout-2026-05-09T12-00-00-11111111-2222-3333-4444-555555555555.jsonl"
+    codex_file.parent.mkdir(parents=True, exist_ok=True)
+    codex_file.write_text(
+        "\n".join(
+            [
+                '{"id":"meta","timestamp":"2026-05-09T12:00:00Z","instructions":"Test import"}',
+                '{"type":"message","role":"user","content":[{"type":"input_text","text":"Do the task"}]}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "atelier.gateway.hosts.session_parsers.codex.find_codex_sessions",
+        lambda root=None: [codex_file],
+    )
+    monkeypatch.setattr(
+        "atelier.gateway.hosts.session_parsers.copilot.find_copilot_sessions",
+        lambda root=None: iter(()),
+    )
+    monkeypatch.setattr(
+        "atelier.gateway.hosts.session_parsers.claude.find_claude_sessions",
+        lambda root=None: iter(()),
+    )
+    monkeypatch.setattr(
+        "atelier.gateway.hosts.session_parsers.opencode.find_opencode_sessions",
+        lambda db_path=None: iter(()),
+    )
+    monkeypatch.setattr(
+        "atelier.gateway.hosts.session_parsers.gemini.find_gemini_sessions",
+        lambda root=None: iter(()),
+    )
+
+    def unavailable(messages: object, json_schema: object | None = None) -> None:
+        _ = (messages, json_schema)
+        raise OllamaUnavailable("offline")
+
+    monkeypatch.setattr("atelier.core.capabilities.consolidation.worker.chat", unavailable)
+
+    first = _invoke(
+        root,
+        "servicectl",
+        "tick",
+        "--maintenance-interval-seconds",
+        "0",
+        "--session-import-interval-seconds",
+        "0",
+        "--json",
+    )
+    assert first.exit_code == 0, first.output
+    payload1 = json.loads(first.output)
+    assert payload1["imported_sessions"]["codex"] == 1
+
+    second = _invoke(
+        root,
+        "servicectl",
+        "tick",
+        "--maintenance-interval-seconds",
+        "0",
+        "--session-import-interval-seconds",
+        "0",
+        "--json",
+    )
+    assert second.exit_code == 0, second.output
+    payload2 = json.loads(second.output)
+    assert payload2["imported_sessions"]["codex"] == 0
+
+    codex_file.write_text(
+        codex_file.read_text(encoding="utf-8") + '{"type":"message","role":"assistant"}\n',
+        encoding="utf-8",
+    )
+    bumped_mtime = codex_file.stat().st_mtime + 10
+    os.utime(codex_file, (bumped_mtime, bumped_mtime))
+
+    third = _invoke(
+        root,
+        "servicectl",
+        "tick",
+        "--maintenance-interval-seconds",
+        "0",
+        "--session-import-interval-seconds",
+        "0",
+        "--json",
+    )
+    assert third.exit_code == 0, third.output
+    payload3 = json.loads(third.output)
+    assert payload3["imported_sessions"]["codex"] == 1
 
 
 # `atelier task` command removed — cut in CLI consolidation.

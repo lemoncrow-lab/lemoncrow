@@ -58,11 +58,26 @@ def _recent_plan_check_ok() -> bool:
     return (time.time() - last) < PLAN_CHECK_TTL_SECONDS
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    val = os.environ.get(name, "").lower()
+    if not val:
+        return default
+    return val in ("1", "true", "yes")
+
+
+def _is_dev_mode() -> bool:
+    return _bool_env("ATELIER_DEV_MODE", False)
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except Exception:
         return 0  # fail-open: never break the agent on hook parse error
+
+    if not _is_dev_mode():
+        print(json.dumps({"decision": "allow"}))
+        return 0
 
     tool_input = payload.get("tool_input", {}) or {}
     target = tool_input.get("file_path") or tool_input.get("path") or tool_input.get("filename") or ""

@@ -854,19 +854,22 @@ def test_pricing_known_model_exact_match() -> None:
     assert p.cache_read == 0.30
 
 
-def test_pricing_known_model_gpt4o() -> None:
+def test_pricing_known_model_sonnet() -> None:
     from atelier.core.capabilities.pricing import get_model_pricing
 
-    p = get_model_pricing("gpt-4o")
-    assert p.output == 10.0
+    p = get_model_pricing("claude-sonnet-4-6")
+    assert p.output == 15.0
+    assert p.known is True
 
 
-def test_pricing_unknown_model_falls_back_to_default() -> None:
+def test_pricing_unknown_model_returns_known_false() -> None:
     from atelier.core.capabilities.pricing import get_model_pricing
 
     p = get_model_pricing("some-unknown-model-xyz-9999")
-    assert p.model_id == "_default"
-    assert p.output > 0
+    assert p.model_id == "some-unknown-model-xyz-9999"
+    assert p.known is False
+    assert p.input == 0.0
+    assert p.output == 0.0
 
 
 def test_pricing_tokens_to_usd_output() -> None:
@@ -893,7 +896,7 @@ def test_pricing_all_known_models_non_empty() -> None:
     models = all_known_models()
     assert len(models) >= 10
     assert "claude-sonnet-4" in models
-    assert "gpt-4o" in models
+    assert "gpt-5.4" in models
     assert "_default" not in models
 
 

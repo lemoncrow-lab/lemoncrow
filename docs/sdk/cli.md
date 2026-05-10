@@ -272,19 +272,6 @@ uv run atelier ledger reset [--run-id ID]
 
 ---
 
-## Environment Commands
-
-Reasoning environments define domain-specific constraints and known tool patterns.
-
-```bash
-uv run atelier env list [--json]
-uv run atelier env show ENV_ID [--json]
-uv run atelier env context ENV_ID [--json]
-uv run atelier env validate ENV_ID
-```
-
----
-
 ## Failure Commands
 
 ```bash

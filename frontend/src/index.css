@@ -97,6 +97,11 @@ textarea {
   font-feature-settings: 'liga' 1, 'calt' 1;
 }
 
+select option {
+  background-color: #171717;
+  color: #e5e5e5;
+}
+
 input::placeholder,
 textarea::placeholder {
   color: #737373;

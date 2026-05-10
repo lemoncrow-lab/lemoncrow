@@ -1,6 +1,6 @@
 """Compounding reasoning runtime orchestration.
 
-Coordinates core capabilities, rubrics, traces, evals, environments, and storage
+Coordinates core capabilities, rubrics, traces, evals, and storage
 from a single runtime entry point.
 """
 

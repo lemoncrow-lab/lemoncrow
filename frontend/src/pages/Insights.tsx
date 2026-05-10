@@ -1,54 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  getTelemetryConfig,
   getTelemetryEvents,
   getTelemetrySchema,
   getTelemetrySummary,
-  updateTelemetryConfig,
-  type TelemetryConfig,
   type TelemetryEvent,
   type TelemetrySchema,
   type TelemetrySummary,
 } from "../lib/insightsApi";
+import { MetricCard, SectionHeader } from "../components/WorkbenchUI";
 
 const fmt = new Intl.NumberFormat();
-
-function Toggle({
-  checked,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  label: string;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <label className="flex items-center justify-between gap-4 border border-neutral-800 bg-neutral-950/70 px-4 py-3">
-      <span className="text-sm text-neutral-200">{label}</span>
-      <input
-        type="checkbox"
-        className="sr-only"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        aria-label={label}
-      />
-      <span
-        aria-hidden="true"
-        className={`h-7 w-14 border transition ${
-          checked
-            ? "border-emerald-500 bg-emerald-500/20"
-            : "border-neutral-700 bg-neutral-900"
-        }`}
-      >
-        <span
-          className={`block h-5 w-5 translate-y-[3px] bg-neutral-100 transition ${
-            checked ? "translate-x-7" : "translate-x-1"
-          }`}
-        />
-      </span>
-    </label>
-  );
-}
 
 function MiniLine({ data }: { data: Array<{ day: string; count: number }> }) {
   const width = 520;
@@ -101,7 +62,7 @@ function Bars({ items }: { items: Array<{ name: string; count: number }> }) {
               y="0"
               width={Math.max(4, (item.count / max) * 100)}
               height="8"
-              fill="#ff6041"
+              fill="#525252"
             />
           </svg>
         </div>
@@ -119,7 +80,7 @@ function Section({
 }) {
   return (
     <section className="border border-neutral-800 bg-neutral-950/70 p-5">
-      <h2 className="mb-4 font-mono text-xs uppercase tracking-widest text-amber-400">
+      <h2 className="mb-4 font-mono text-xs uppercase tracking-widest text-neutral-400">
         {title}
       </h2>
       {children}
@@ -128,22 +89,17 @@ function Section({
 }
 
 export default function Insights() {
-  const [config, setConfig] = useState<TelemetryConfig | null>(null);
   const [events, setEvents] = useState<TelemetryEvent[]>([]);
   const [summary, setSummary] = useState<TelemetrySummary | null>(null);
   const [schema, setSchema] = useState<TelemetrySchema | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = async () => {
-    const [nextConfig, nextEvents, nextSummary, nextSchema] = await Promise.all(
-      [
-        getTelemetryConfig(),
-        getTelemetryEvents(100),
-        getTelemetrySummary(),
-        getTelemetrySchema(),
-      ],
-    );
-    setConfig(nextConfig);
+    const [nextEvents, nextSummary, nextSchema] = await Promise.all([
+      getTelemetryEvents(100),
+      getTelemetrySummary(),
+      getTelemetrySchema(),
+    ]);
     setEvents(nextEvents.events);
     setSummary(nextSummary);
     setSchema(nextSchema);
@@ -159,55 +115,43 @@ export default function Insights() {
 
   const eventJson = useMemo(
     () => events.map((item) => ({ event: item.event, props: item.props })),
-    [events],
+    [events]
   );
 
   if (error) return <div className="text-red-400">Error: {error}</div>;
-  if (!config || !summary || !schema) {
+  if (!summary || !schema) {
     return <div className="text-neutral-500">Loading...</div>;
   }
 
-  const updateConfig = async (payload: {
-    remote_enabled?: boolean;
-    lexical_frustration_enabled?: boolean;
-  }) => {
-    const next = await updateTelemetryConfig(payload);
-    setConfig(next);
-    const nextSummary = await getTelemetrySummary();
-    setSummary(nextSummary);
-  };
-
   return (
     <div className="space-y-6">
-      <section className="border border-cyan-900/60 bg-gradient-to-r from-cyan-950/40 to-neutral-950 p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="font-mono text-xs uppercase tracking-widest text-cyan-300/80">
-              Product Telemetry
-            </div>
-            <div className="mt-2 text-3xl font-semibold text-neutral-100">
-              {fmt.format(summary.events_total)} local events
-            </div>
-            <p className="mt-2 text-sm text-neutral-400">
-              Remote telemetry is {config.remote_enabled ? "ON" : "OFF"}; local
-              capture remains on.
-            </p>
-          </div>
-          <div className="grid min-w-[280px] gap-3">
-            <Toggle
-              label="Remote telemetry"
-              checked={config.remote_enabled}
-              onChange={(value) => updateConfig({ remote_enabled: value })}
-            />
-            <Toggle
-              label="Lexical frustration detection"
-              checked={config.lexical_frustration_enabled}
-              onChange={(value) =>
-                updateConfig({ lexical_frustration_enabled: value })
-              }
-            />
-          </div>
-        </div>
+      <section className="grid gap-4 md:grid-cols-4">
+        <MetricCard
+          label="Events"
+          value={fmt.format(summary.events_total)}
+          detail="Local telemetry currently retained."
+          tone="cyan"
+        />
+        <MetricCard
+          label="Commands"
+          value={fmt.format(
+            summary.top_commands.reduce((acc, item) => acc + item.count, 0)
+          )}
+          detail="Top command invocations recorded."
+          tone="amber"
+        />
+        <MetricCard
+          label="Blocks applied"
+          value={fmt.format(summary.value_estimate.blocks_applied)}
+          detail="Reasoning value surfaced directly."
+          tone="emerald"
+        />
+        <MetricCard
+          label="Plans gated"
+          value={fmt.format(summary.plan_checks.plan_check_blocked ?? 0)}
+          detail="Verification pressure from the live system."
+          tone="violet"
+        />
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -290,6 +234,11 @@ export default function Insights() {
       </div>
 
       <Section title="Privacy Audit">
+        <SectionHeader
+          eyebrow="Schema"
+          title="Allowlisted events and example payloads"
+          description="This table exists so telemetry stays explainable. Every event type lists exactly which properties are allowed and shows a representative example payload."
+        />
         <div className="overflow-auto">
           <table className="min-w-full border-collapse text-left text-sm">
             <thead>

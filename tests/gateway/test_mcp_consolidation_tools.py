@@ -32,7 +32,17 @@ def test_consolidation_inbox_and_decide_are_cli_only(tmp_path: Path) -> None:
 
     decided = runner.invoke(
         cli,
-        ["--root", str(root), "consolidation", "decide", "cc-test", "approved", "--reviewer", "tests", "--json"],
+        [
+            "--root",
+            str(root),
+            "consolidation",
+            "decide",
+            "cc-test",
+            "approved",
+            "--reviewer",
+            "tests",
+            "--json",
+        ],
     )
     assert decided.exit_code == 0, decided.output
     decision = json.loads(decided.output)

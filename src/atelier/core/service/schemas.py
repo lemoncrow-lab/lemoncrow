@@ -153,19 +153,6 @@ class UpsertRubricRequest(_Strict):
     escalation_conditions: list[str] = Field(default_factory=list)
 
 
-# ---- /v1/environments -------------------------------------------------------
-
-
-class UpsertEnvironmentRequest(_Strict):
-    id: str
-    name: str
-    description: str = ""
-    rubric_id: str | None = None
-    related_blocks: list[str] = Field(default_factory=list)
-    forbidden_patterns: list[str] = Field(default_factory=list)
-    high_risk: bool = False
-
-
 # ---- /v1/evals -------------------------------------------------------------
 
 

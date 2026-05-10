@@ -14,7 +14,7 @@ services:
       - ATELIER_ROOT=/app/.atelier
       - ATELIER_OTEL_ENDPOINT=http://otel-collector:4318
     volumes:
-      - ${HOME}/.atelier:/app/.atelier
+      - ${ATELIER_STACK_ROOT:-./.atelier}:/app/.atelier
       - ./integrations:/app/integrations:ro
       - ./src:/app/src
     restart: unless-stopped

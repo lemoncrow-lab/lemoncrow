@@ -1,180 +1,224 @@
 # Installation & Configuration
 
-## Requirements
+This page starts with the installed product flow. Source-checkout and contributor setup are lower down.
 
-| Requirement | Version | Notes                                                                                    |
-| ----------- | ------- | ---------------------------------------------------------------------------------------- |
-| Python      | 3.12+   | Required                                                                                 |
-| uv          | latest  | Package manager (`pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh \| sh`) |
-| SQLite      | 3.35+   | Bundled with Python; FTS5 required                                                       |
-| PostgreSQL  | 15+     | Optional, production-scale                                                               |
-| pgvector    | 0.5+    | Optional, for embedding-based block search                                               |
-
-## Install
-
-```bash
-cd atelier
-uv sync --all-extras
-```
-
-Verify:
-
-```bash
-uv run atelier --version
-uv run atelier-mcp --version
-```
-
-Bootstrap install for end users:
+## Recommended Install for End Users
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/leanchain/atelier/main/scripts/install.sh | bash
 ```
 
-That flow installs the global `atelier` and `atelier-mcp` wrappers, initializes `~/.atelier`, and starts the background `servicectl` loop unless `ATELIER_NO_SERVICECTL=1` is set.
+What the installer does:
 
-## Initialize the Store
+- installs `atelier` and `atelier-mcp` into `~/.local/bin`
+- clones or updates Atelier under `~/.local/share/atelier`
+- initializes `~/.atelier`
+- starts the detached `servicectl` loop
+- installs host integrations when compatible CLIs are found on `PATH`
+
+Verify the install:
 
 ```bash
-uv run atelier init
-# or with explicit root:
-uv run atelier --root /path/to/.atelier init
+atelier --version
+atelier-mcp --version
+atelier servicectl status
 ```
 
-Creates:
+## Useful Installer Variants
 
-```text
-.atelier/
-├── atelier.db          # SQLite store (blocks, traces, rubrics)
-├── blocks/             # Markdown mirrors of ReasonBlocks
-│   ├── *.md            # 10 pre-seeded blocks
-├── rubrics/            # YAML mirrors of rubrics
-│   ├── *.yaml          # 5 pre-seeded rubrics
-└── traces/             # JSON mirrors of traces (written on record)
+Skip host integrations:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/leanchain/atelier/main/scripts/install.sh | bash -s -- --no-hosts
+```
+
+Skip auto-starting the background controller:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/leanchain/atelier/main/scripts/install.sh | ATELIER_NO_SERVICECTL=1 bash
+```
+
+Install from a local checkout instead of GitHub:
+
+```bash
+bash scripts/install.sh --local
+```
+
+## Runtime Modes After Install
+
+### Default Runtime
+
+No HTTP server is required for normal usage.
+
+- `atelier ...` is the main CLI
+- `atelier-mcp` is the MCP server used by host integrations
+- `atelier servicectl ...` manages offline/background work
+
+### Optional UI Stack
+
+Start the visualization UI only when you want it:
+
+```bash
+atelier stack start
+```
+
+Then open:
+
+- `http://localhost:3125` for the frontend
+- `http://localhost:8787` for the service API
+
+Other stack commands:
+
+```bash
+atelier stack status
+atelier stack logs
+atelier stack stop
+```
+
+### Optional HTTP Service Without the UI
+
+If you want the service API without the full stack:
+
+```bash
+ATELIER_REQUIRE_AUTH=false atelier service start --host 0.0.0.0 --port 8787
+```
+
+For authenticated deployments, set `ATELIER_API_KEY` and keep `ATELIER_REQUIRE_AUTH=true`.
+
+### Background Controller Variables
+
+The installer starts `servicectl` by default.
+
+```bash
+atelier servicectl status
+atelier servicectl logs
+atelier servicectl stop
+atelier servicectl start
+```
+
+Manual job control is available too:
+
+```bash
+atelier worker enqueue consolidate_reasonblocks
+atelier worker run-once
+atelier worker list
 ```
 
 ## Storage Backends
 
-### SQLite (default, zero-config)
+### SQLite (default)
 
-No additional setup needed. The database is created at `$ATELIER_ROOT/atelier.db`.
+SQLite is the default install mode and does not require any extra setup.
 
-```bash
-# Use default root (.atelier/ relative to cwd)
-uv run atelier init
+- store root: `~/.atelier` by default
+- queue-backed worker jobs are supported
+- good default for local usage, single-user environments, and most host integrations
 
-# Use custom root
-uv run atelier --root ~/.my-atelier init
-# or
-ATELIER_ROOT=~/.my-atelier uv run atelier init
+Store layout:
+
+```text
+.atelier/
+├── atelier.db          # SQLite store (blocks, traces, rubrics, jobs)
+├── blocks/             # Markdown mirrors of ReasonBlocks
+├── rubrics/            # YAML mirrors of rubrics
+└── traces/             # JSON mirrors of recorded traces
 ```
 
 ### PostgreSQL (optional)
 
-For shared/production use or when you have many agents writing traces concurrently:
+Use Postgres when you want shared storage, central deployment, or multi-writer operation.
 
 ```bash
 ATELIER_STORAGE_BACKEND=postgres \
 ATELIER_DATABASE_URL=postgresql://user:pass@localhost:5432/atelier \
-uv run atelier init
+atelier init
 ```
 
-### pgvector (optional boost)
+### pgvector (optional)
 
-Enable embedding-based similarity search alongside FTS5 (additive, not a replacement):
+Embedding-based similarity search is optional and additive:
 
 ```bash
 ATELIER_STORAGE_BACKEND=postgres \
 ATELIER_DATABASE_URL=postgresql://... \
 ATELIER_VECTOR_SEARCH_ENABLED=true \
 ATELIER_EMBEDDING_MODEL=text-embedding-3-small \
-uv run atelier init
+atelier init
 ```
 
 ## Environment Variables
 
-All configuration is via environment variables. No config file is required.
-
 ### Core
 
-| Variable                 | Default                      | Description                                          |
-| ------------------------ | ---------------------------- | ---------------------------------------------------- |
-| `ATELIER_ROOT`           | `~/.atelier`                 | Trace/history store root directory                   |
-| `ATELIER_KNOWLEDGE_ROOT` | `$WORKSPACE_ROOT/.knowledge` | Git-tracked ReasonBlocks and rubrics directory       |
-| `ATELIER_WORKSPACE_ROOT` | `.`                          | Workspace root used by MCP server for relative paths |
-| `ATELIER_STORE_ROOT`     | `~/.atelier`                 | Alias to override `ATELIER_ROOT`                     |
+| Variable                 | Default            | Description                         |
+| ------------------------ | ------------------ | ----------------------------------- |
+| `ATELIER_ROOT`           | `~/.atelier`       | Main runtime store root             |
+| `ATELIER_STORE_ROOT`     | `~/.atelier`       | Alias for `ATELIER_ROOT`            |
+| `ATELIER_KNOWLEDGE_ROOT` | workspace-relative | Optional git-tracked knowledge root |
 
 ### Storage
 
-| Variable                        | Default                  | Description                                     |
-| ------------------------------- | ------------------------ | ----------------------------------------------- |
-| `ATELIER_STORAGE_BACKEND`       | `sqlite`                 | `sqlite` or `postgres`                          |
-| `ATELIER_DATABASE_URL`          | `""`                     | PostgreSQL DSN (required when backend=postgres) |
-| `ATELIER_VECTOR_SEARCH_ENABLED` | `false`                  | Enable pgvector similarity search               |
-| `ATELIER_EMBEDDING_DIM`         | `1536`                   | Embedding dimension (match your model)          |
-| `ATELIER_EMBEDDING_MODEL`       | `text-embedding-3-small` | Model name for embedding generation             |
-
-### HTTP Service
-
-| Variable                  | Default     | Description                                                                      |
-| ------------------------- | ----------- | -------------------------------------------------------------------------------- |
-| `ATELIER_SERVICE_ENABLED` | `false`     | Enable the HTTP service                                                          |
-| `ATELIER_SERVICE_HOST`    | `127.0.0.1` | Service bind host                                                                |
-| `ATELIER_SERVICE_PORT`    | `8787`      | Service port                                                                     |
-| `ATELIER_REQUIRE_AUTH`    | `true`      | Require `Authorization: Bearer <key>` header                                     |
-| `ATELIER_API_KEY`         | `""`        | API key (set to empty string to allow no-key dev access when REQUIRE_AUTH=false) |
+| Variable                        | Default                  | Description                               |
+| ------------------------------- | ------------------------ | ----------------------------------------- |
+| `ATELIER_STORAGE_BACKEND`       | `sqlite`                 | `sqlite` or `postgres`                    |
+| `ATELIER_DATABASE_URL`          | `""`                     | PostgreSQL DSN when backend is `postgres` |
+| `ATELIER_VECTOR_SEARCH_ENABLED` | `false`                  | Enable pgvector similarity search         |
+| `ATELIER_EMBEDDING_DIM`         | `1536`                   | Embedding dimension                       |
+| `ATELIER_EMBEDDING_MODEL`       | `text-embedding-3-small` | Embedding model name                      |
 
 ### Background Controller
 
-| Variable                                          | Default | Description                                           |
-| ------------------------------------------------- | ------- | ----------------------------------------------------- |
-| `ATELIER_NO_SERVICECTL`                           | `0`     | Skip auto-starting the detached background controller |
-| `ATELIER_SERVICECTL_INTERVAL_SECONDS`             | `60`    | Poll interval for the offline processing loop         |
-| `ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS` | `21600` | Periodic maintenance enqueue interval                 |
+| Variable                                          | Default | Description                                    |
+| ------------------------------------------------- | ------- | ---------------------------------------------- |
+| `ATELIER_NO_SERVICECTL`                           | `0`     | Skip auto-starting `servicectl` during install |
+| `ATELIER_SERVICECTL_INTERVAL_SECONDS`             | `60`    | Poll interval for the detached loop            |
+| `ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS` | `21600` | Periodic maintenance enqueue interval          |
 
-### MCP Server
+### Optional HTTP Service
 
-| Variable              | Default                 | Description                                                      |
-| --------------------- | ----------------------- | ---------------------------------------------------------------- |
-| `ATELIER_MCP_MODE`    | `local`                 | `local` (in-process store) or `remote` (forward to HTTP service) |
-| `ATELIER_SERVICE_URL` | `http://localhost:8787` | Remote service URL (when MCP_MODE=remote)                        |
+| Variable               | Default     | Description                                 |
+| ---------------------- | ----------- | ------------------------------------------- |
+| `ATELIER_SERVICE_HOST` | `127.0.0.1` | Service bind host                           |
+| `ATELIER_SERVICE_PORT` | `8787`      | Service port                                |
+| `ATELIER_REQUIRE_AUTH` | `true`      | Require Bearer auth                         |
+| `ATELIER_API_KEY`      | `""`        | Bearer token for authenticated service mode |
 
-### Integrations
+### MCP
 
-| Variable                             | Default      | Description                                      |
-| ------------------------------------ | ------------ | ------------------------------------------------ |
-| `ATELIER_OPENMEMORY_ENABLED`         | `false`      | Enable OpenMemory bridge (no-op stub by default) |
-| `ATELIER_OPENMEMORY_MCP_SERVER_NAME` | `openmemory` | MCP server name for OpenMemory                   |
+| Variable              | Default                 | Description                           |
+| --------------------- | ----------------------- | ------------------------------------- |
+| `ATELIER_MCP_MODE`    | `local`                 | `local` or `remote`                   |
+| `ATELIER_SERVICE_URL` | `http://localhost:8787` | Remote service URL in MCP remote mode |
 
-### Cost tracking
+### Telemetry
 
-| Variable                    | Default | Description                              |
-| --------------------------- | ------- | ---------------------------------------- |
-| `ATELIER_USD_PER_1K_TOKENS` | `0.003` | Token cost estimate for savings tracking |
+| Variable                    | Default | Description                               |
+| --------------------------- | ------- | ----------------------------------------- |
+| `ATELIER_TELEMETRY`         | enabled | Disable with `0`, `false`, `off`, or `no` |
+| `ATELIER_USD_PER_1K_TOKENS` | `0.003` | Token cost estimate for savings reporting |
 
-## Verify Installation
+## Source Checkout and Contributor Install
+
+If you are developing Atelier itself instead of using the installed product:
 
 ```bash
 cd atelier
-make verify
+uv sync --all-extras
+uv run atelier init
 ```
 
-Expected: ruff ✓, black --check ✓, mypy ✓, pytest 209 passed / 9 skipped
-
-The 9 skipped tests are Postgres-gated (require `ATELIER_DATABASE_URL`). Skips are expected in a default install.
-
-Useful runtime commands after install:
+Contributor verification flow:
 
 ```bash
-atelier servicectl status
-atelier stack start
+make verify
 ```
 
 ## Per-Agent Host Setup
 
-After installing Atelier, wire it into your agent host:
+After installation, use the host-specific guides if you want to inspect or customize integration:
 
-- **Claude Code**: [docs/hosts/claude-code.md](hosts/claude-code.md)
-- **Codex**: [docs/hosts/codex.md](hosts/codex.md)
-- **VS Code Copilot**: [docs/hosts/copilot.md](hosts/copilot.md)
-- **opencode**: [docs/hosts/opencode.md](hosts/opencode.md)
-- **Gemini CLI**: [docs/hosts/gemini-cli.md](hosts/gemini-cli.md)
+- [hosts/claude-code-install.md](hosts/claude-code-install.md)
+- [hosts/copilot-install.md](hosts/copilot-install.md)
+- [hosts/codex-install.md](hosts/codex-install.md)
+- [hosts/opencode-install.md](hosts/opencode-install.md)
+- [hosts/gemini-cli-install.md](hosts/gemini-cli-install.md)

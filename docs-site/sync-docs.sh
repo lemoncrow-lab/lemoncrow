@@ -6,9 +6,12 @@ DOCS_SRC=${2:-/docs}
 
 echo "Syncing docs from $DOCS_SRC into Docusaurus content..."
 
+# Clear existing docs to remove default tutorials from create-docusaurus
+rm -rf /app/docs-site/docs/*
+
 # Sync all markdown files, preserving directory structure  
 if [ -d "$DOCS_SRC" ]; then
-  rsync -av --delete \
+  rsync -av \
     --include='*/' \
     --include='*.md' \
     --exclude='*' \

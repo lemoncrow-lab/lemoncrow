@@ -29,17 +29,23 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     const detail = await res.text().catch(() => "");
     throw new ApiError(
       res.status,
-      detail ? `${res.status} ${detail}` : `${res.status} ${res.statusText}`,
+      detail ? `${res.status} ${detail}` : `${res.status} ${res.statusText}`
     );
   }
   return res.json();
-}
+  }
 
-export interface OverviewStats {
+  async function getText(path: string): Promise<string> {
+  const res = await fetch(`${BASE}${path}`);
+  if (!res.ok)
+    throw new ApiError(res.status, `${res.status} ${res.statusText}`);
+  return res.text();
+  }
+
+  export interface OverviewStats {
   total_traces: number;
   total_blocks: number;
   total_rubrics: number;
-  total_environments: number;
   total_clusters: number;
   total_raw_tokens_estimate: number;
   total_saved_tokens_estimate: number;
@@ -95,6 +101,7 @@ export interface Trace {
   id: string;
   run_id?: string;
   agent: string;
+  host?: string;
   domain?: string;
   task: string;
   status: string;
@@ -113,6 +120,13 @@ export interface Trace {
   trace?: NestedTrace;
   raw_artifact_ids?: string[];
   _live?: boolean; // true for RunLedger sessions not yet committed to SQLite
+
+  // Metrics
+  input_tokens?: number;
+  output_tokens?: number;
+  thinking_tokens?: number;
+  cached_input_tokens?: number;
+  cache_creation_input_tokens?: number;
 }
 
 export interface ConversationEntry {
@@ -120,6 +134,9 @@ export interface ConversationEntry {
   at: string;
   summary: string;
   content?: string;
+  tokens?: Record<string, number>;
+  raw?: any;
+  cost?: number;
 }
 
 export interface NestedTrace {
@@ -152,6 +169,7 @@ export interface ReasonBlock {
   dead_ends: string[];
   verification: string[];
   failure_signals: string[];
+  required_rubrics: string[];
   when_not_to_apply: string;
   // match hints
   task_types: string[];
@@ -177,23 +195,6 @@ export interface Cluster {
   suggested_eval_case: string;
   suggested_prompt: string;
   severity: string;
-}
-
-export interface Environment {
-  id: string;
-  name: string;
-  status: string;
-  details?: Record<string, unknown>;
-  rubric_id?: string;
-}
-
-export interface EnvironmentSummary {
-  environment: Environment;
-  rubric?: {
-    id: string;
-    domain: string;
-    required_checks: string[];
-  };
 }
 
 export interface SavingsPerOp {
@@ -234,6 +235,118 @@ export interface SavingsSource {
   time_saved_ms: number;
 }
 
+export interface SavingsToolAggregate {
+  tool_name: string;
+  lever: string;
+  turns: number;
+  session_count: number;
+  actual_tokens: number;
+  naive_tokens: number;
+  saved_tokens: number;
+  actual_cost_usd: number;
+  baseline_cost_usd: number;
+  saved_cost_usd: number;
+  live_calls_saved: number;
+  live_time_saved_ms: number;
+  live_saved_usd: number;
+}
+
+export interface SavingsProofItem {
+  run_id: string;
+  turn_index: number;
+  tool_name: string;
+  lever: string;
+  model: string;
+  input_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  output_tokens: number;
+  actual_tokens: number;
+  naive_tokens: number;
+  saved_tokens: number;
+  actual_cost_usd: number;
+  baseline_cost_usd: number;
+  saved_cost_usd: number;
+  lever_savings: Record<string, number>;
+  created_at: string;
+  source: string;
+}
+
+export interface SavingsProofSession {
+  run_id: string;
+  trace_id?: string | null;
+  agent: string;
+  task: string;
+  status: string;
+  trace_confidence?: string | null;
+  capture_sources?: string[];
+  missing_surfaces?: string[];
+  created_at: string;
+  tracked_tool_calls: number;
+  actual_tokens: number;
+  naive_tokens: number;
+  saved_tokens: number;
+  actual_cost_usd: number;
+  baseline_cost_usd: number;
+  saved_cost_usd: number;
+  live_calls_saved: number;
+  live_time_saved_ms: number;
+  live_saved_usd: number;
+  items: SavingsProofItem[];
+  has_ledger: boolean;
+  note?: string;
+}
+
+export interface SavingsCoverageGap {
+  run_id: string;
+  trace_id?: string | null;
+  agent: string;
+  task: string;
+  status: string;
+  trace_confidence?: string | null;
+  created_at: string;
+  reason: string;
+  missing_surfaces?: string[];
+}
+
+export interface SavingsVerificationRun {
+  run_id: string;
+  agent?: string;
+  task?: string;
+  saved_tokens: number;
+  saved_cost_usd: number;
+}
+
+export interface SavingsVerificationItem {
+  run_id: string;
+  turn_index: number;
+  tool_name: string;
+  lever: string;
+  actual_tokens: number;
+  naive_tokens: number;
+  saved_tokens: number;
+  created_at: string;
+}
+
+export interface SavingsVerificationSummary {
+  data_root: string;
+  headline_kind: string;
+  headline_explanation: string;
+  tracked_row_count: number;
+  tracked_run_count: number;
+  trace_linked_run_count: number;
+  ledger_backed_run_count: number;
+  live_event_count: number;
+  coverage_gap_count: number;
+  compact_output_row_count?: number;
+  compact_output_saved_tokens?: number;
+  dominant_run?: SavingsVerificationRun | null;
+  dominant_item?: SavingsVerificationItem | null;
+  dominant_run_share_pct: number;
+  dominant_item_share_pct: number;
+  warning?: string | null;
+}
+
 export interface SavingsBenchmark {
   run_id: string;
   model: string;
@@ -263,11 +376,21 @@ export interface SavingsSummaryV2 {
   saved_pct?: number;
   would_have_cost_usd?: number;
   actually_cost_usd?: number;
+  tracked_actual_cost_usd?: number;
+  tracked_baseline_cost_usd?: number;
+  tracked_saved_cost_usd?: number;
+  cost_basis?: string;
+  unpriced_cache_write_tokens?: number;
   total_calls?: number;
+  tracked_tool_calls?: number;
   live_calls_saved?: number;
   live_time_saved_ms?: number;
   live_saved_usd?: number;
   top_sources?: SavingsSource[];
+  tool_aggregates?: SavingsToolAggregate[];
+  session_proof?: SavingsProofSession[];
+  coverage_gaps?: SavingsCoverageGap[];
+  verification?: SavingsVerificationSummary;
   latest_benchmark?: SavingsBenchmark | null;
 }
 
@@ -289,8 +412,13 @@ export interface CallEntry {
 export interface Rubric {
   id: string;
   domain: string;
-  name: string;
+  triggers: string[];
+  forbidden_phrases: string[];
   required_checks: string[];
+  block_if_missing: string[];
+  warning_checks: string[];
+  escalation_conditions: string[];
+  related_blocks: string[];
   created_at: string;
   updated_at?: string;
 }
@@ -302,10 +430,15 @@ export interface MCPStatus {
 }
 
 export interface HostAdapter {
-  name: string;
-  status: "installed" | "not_installed" | "partial";
-  config_path?: string;
-  mcp_connected: boolean;
+  host_id: string;
+  label: string;
+  status: string;
+  active_domains: string[];
+  mcp_tools: string[];
+  last_seen?: string | null;
+  atelier_version?: string | null;
+  description?: string | null;
+  install_command?: string | null;
 }
 
 export interface Skill {
@@ -334,11 +467,25 @@ export interface MemoryUpsertBlockResult {
   version: number;
 }
 
+export interface MemoryPassage {
+  id: string;
+  agent_id: string;
+  text: string;
+  source: string;
+  source_ref: string;
+  tags: string[];
+  dedup_hit?: boolean;
+  created_at: string;
+}
+
 export interface MemoryRecallPassage {
   id: string;
+  agent_id?: string;
   text: string;
   source_ref: string;
   tags: string[];
+  source?: string;
+  created_at?: string;
 }
 
 export interface MemoryRecallResult {
@@ -353,17 +500,153 @@ export interface RunInspectorData {
   summarized_events_count: number;
   tokens_pre: number | null;
   tokens_post: number | null;
+  conversations?: Array<{
+    kind: string;
+    at?: string;
+    summary: string;
+    content: string;
+    tokens?: Record<string, number>;
+    raw?: any;
+    cost?: number;
+  }>;
+}
+
+export interface WatchdogLibraryEntry {
+  key: string;
+  title: string;
+  description: string;
+  default_weight: number;
+  severity: "high" | "medium" | "low";
+}
+
+export interface WatchdogProfile {
+  id: string;
+  label: string;
+  description: string;
+  weights: Record<string, number>;
+}
+
+export interface WatchdogConfig {
+  active_profile: string;
+  profiles: WatchdogProfile[];
+  library: WatchdogLibraryEntry[];
+  runtime_wired: boolean;
+  config_path: string;
+}
+
+export interface GranularToolUsage {
+  agent: string;
+  event_type: string;
+  tool_name: string;
+  sub_command: string | null;
+  category: string;
+  input_tokens: number;
+  user_prompt_tokens?: number;
+  output_tokens: number;
+  created_at?: string;
+  first_seen?: string;
+  last_seen?: string;
+  call_count?: number;
+  session_count?: number;
+  model?: string;
+  cost?: number;
+}
+
+export interface TelemetryConfigResponse {
+  remote_enabled: boolean;
+  lexical_frustration_enabled: boolean;
+  dev_mode: boolean;
+}
+
+export interface TelemetryLocalEvent {
+  id: number;
+  ts: number;
+  event: string;
+  session_id: string | null;
+  props: Record<string, unknown>;
+  exported: boolean;
+}
+
+export interface TelemetryLocalResponse {
+  events: TelemetryLocalEvent[];
+}
+
+export interface TelemetrySummary {
+  events_total: number;
+  event_counts: Record<string, number>;
+  commands_by_day: { day: string; count: number }[];
+  top_commands: { name: string; count: number }[];
+  agent_hosts: { name: string; count: number }[];
+  top_reasonblocks: { block_id_hash: string; count: number; domain: string }[];
+  retrieval_score_distribution: { name: string; count: number }[];
+  plan_checks: Record<string, number>;
+  frustration_behavioral: { name: string; count: number }[];
+  frustration_lexical: { name: string; count: number }[];
+  value_estimate: {
+    tokens_saved_estimate: number;
+    cache_hits: number;
+    blocks_applied: number;
+  };
+}
+
+export interface HealthResponse {
+  status: string;
+  timestamp: string;
+}
+
+export interface RawArtifact {
+  id: string;
+  source: string;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+export interface TraceListResponse {
+  items: Trace[];
+  metrics: {
+    stats: {
+      total: number;
+      success: number;
+      failed: number;
+      partial: number;
+    };
+    hosts: string[];
+    domains: string[];
+  };
 }
 
 export const api = {
   overview: () => get<OverviewStats>("/overview"),
+  granularAnalytics: (
+    agent?: string,
+    category?: string,
+    limit = 5000,
+    days?: number
+  ) => {
+    const params = new URLSearchParams();
+    if (agent) params.set("agent", agent);
+    if (category) params.set("category", category);
+    if (days) params.set("days", String(days));
+    params.set("limit", String(limit));
+    params.set("grouped", "true");
+    return get<GranularToolUsage[]>(`/analytics?${params.toString()}`);
+  },
+  pricing: () =>
+    get<Record<string, { input: number; output: number; cache_read: number }>>(
+      "/pricing"
+    ),
   plans: (limit = 50) => get<PlanRecord[]>(`/plans?limit=${limit}`),
-  traces: (limit = 50, offset = 0) =>
-    get<Trace[]>(`/traces?limit=${limit}&offset=${offset}`),
+  traces: (limit = 50, offset = 0, domain?: string, agent?: string) => {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    params.set("offset", String(offset));
+    if (domain && domain !== "all") params.set("domain", domain);
+    if (agent && agent !== "all") params.set("agent", agent);
+    return get<TraceListResponse>(`/traces?${params.toString()}`);
+  },
   trace: (id: string) => get<Trace>(`/v1/traces/${id}`),
   ledger: (run_id: string) => get<any>(`/ledgers/${run_id}`),
   clusters: () => get<Cluster[]>("/clusters"),
-  environments: () => get<EnvironmentSummary[]>("/environments"),
   blocks: () => get<ReasonBlock[]>("/blocks"),
   block: (id: string) => get<ReasonBlock>(`/blocks/${id}`),
   savings: () => get<SavingsSummary>("/savings"),
@@ -374,6 +657,11 @@ export const api = {
   rubric: (id: string) => get<Rubric>(`/v1/rubrics/${id}`),
   mcp_status: () => get<MCPStatus[]>("/mcp/status"),
   hosts: () => get<HostAdapter[]>("/hosts"),
+  watchdogConfig: () => get<WatchdogConfig>("/watchdogs/config"),
+  updateWatchdogConfig: (payload: {
+    active_profile?: string;
+    profiles?: Record<string, Record<string, number>>;
+  }) => post<WatchdogConfig>("/watchdogs/config", payload),
   skills: () => get<Skill[]>("/skills"),
   skill: (name: string) => get<Skill>(`/skills/${name}`),
   memoryBlocks: (agentId?: string, label?: string) => {
@@ -382,6 +670,12 @@ export const api = {
     if (label) params.set("label", label);
     const suffix = params.size ? `?${params.toString()}` : "";
     return get<MemoryBlock[] | MemoryBlock>(`/v1/memory/blocks${suffix}`);
+  },
+  memoryPassages: (agentId: string, limit = 25) => {
+    const params = new URLSearchParams();
+    params.set("agent_id", agentId);
+    params.set("limit", String(limit));
+    return get<MemoryPassage[]>(`/v1/memory/passages?${params.toString()}`);
   },
   memoryUpsertBlock: (payload: {
     agent_id: string;
@@ -401,4 +695,25 @@ export const api = {
     tags?: string[];
     since?: string;
   }) => post<MemoryRecallResult>("/v1/memory/recall", payload),
-};
+  health: () => get<HealthResponse>("/health"),
+  config: () => get<Record<string, unknown>>("/config"),
+  recordTrace: (payload: Partial<Trace>) =>
+    post<{ id: string }>("/v1/traces", payload),
+  telemetryConfig: () => get<TelemetryConfigResponse>("/telemetry/config"),
+  updateTelemetryConfig: (payload: {
+    remote_enabled?: boolean;
+    lexical_frustration_enabled?: boolean;
+  }) => post<TelemetryConfigResponse>("/telemetry/config", payload),
+  telemetryAck: () =>
+    post<TelemetryConfigResponse>("/telemetry/ack", {}),
+  telemetryLocal: (limit = 100) =>
+    get<TelemetryLocalResponse>(`/telemetry/local?limit=${limit}`),
+  postTelemetryLocal: (event: string, props: Record<string, unknown>) =>
+    post<{ ok: boolean }>("/telemetry/local", { event, props }),
+  telemetrySummary: () => get<TelemetrySummary>("/telemetry/summary"),
+  telemetrySchema: () => get<Record<string, unknown>>("/telemetry/schema"),
+  rawArtifact: (artifactId: string) =>
+    get<RawArtifact>(`/raw-artifacts/${artifactId}`),
+  rawArtifactContent: (artifactId: string) =>
+    getText(`/raw-artifacts/${artifactId}/content`),
+  };

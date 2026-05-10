@@ -41,11 +41,11 @@ describe("RunInspectorDrawer", () => {
                   },
                 },
               ],
-            }),
+            })
           );
         }
         return Promise.resolve(new Response("not found", { status: 404 }));
-      },
+      }
     );
 
     const trace = {
@@ -75,7 +75,7 @@ describe("RunInspectorDrawer", () => {
     expect(screen.getByText("pas-1")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Source" })).toHaveAttribute(
       "href",
-      "https://example.com/pas-1",
+      "https://example.com/pas-1"
     );
     expect(screen.getByText("Summarized events")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();

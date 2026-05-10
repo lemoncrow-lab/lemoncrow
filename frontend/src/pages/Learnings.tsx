@@ -1,17 +1,20 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import {
-  api,
-  type ReasonBlock,
-  type PlanRecord,
-  type Cluster,
-  type EnvironmentSummary,
-} from "../api";
+import { api, type ReasonBlock, type PlanRecord, type Cluster } from "../api";
+import { Chip, MetricCard, SectionHeader } from "../components/WorkbenchUI";
+import Memory from "./Memory";
+import Rubrics from "./Rubrics";
 
-type Section = "blocks" | "failures" | "plans" | "laws";
+type Section = "blocks" | "memory" | "failures" | "plans" | "rubrics";
 
 const SECTIONS: { id: Section; label: string; icon: string; desc: string }[] = [
-  { id: "blocks", label: "Blocks", icon: "🧠", desc: "Reusable procedures" },
+  { id: "blocks", label: "Blocks", icon: "🧠", desc: "Curated procedures" },
+  {
+    id: "memory",
+    label: "Memory",
+    icon: "💾",
+    desc: "Pinned + archival recall",
+  },
   {
     id: "failures",
     label: "Failures",
@@ -19,12 +22,7 @@ const SECTIONS: { id: Section; label: string; icon: string; desc: string }[] = [
     desc: "Error clusters",
   },
   { id: "plans", label: "Plans", icon: "📋", desc: "Plan validation" },
-  {
-    id: "laws",
-    label: "Domain Laws",
-    icon: "⚖️",
-    desc: "Operating rules per domain",
-  },
+  { id: "rubrics", label: "Rubrics", icon: "⚖️", desc: "Verification gates" },
 ];
 
 export default function Learnings() {
@@ -33,34 +31,50 @@ export default function Learnings() {
   const active = (section as Section) || "blocks";
 
   const setSection = (s: Section) =>
-    navigate(`/learnings/${s}`, { replace: true });
+    navigate(`/knowledge/${s}`, { replace: true });
 
   return (
-    <div className="space-y-4">
-      {/* Sub-navigation */}
-      <div className="flex gap-0 border-b border-neutral-800">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => setSection(s.id)}
-            className={`px-4 py-2 text-xs font-bold font-mono transition border-b-2 flex items-center gap-1.5 ${
-              active === s.id
-                ? "border-amber-400 text-amber-300 bg-neutral-900/30"
-                : "border-transparent text-neutral-500 hover:text-neutral-300"
-            }`}
-            title={s.desc}
-          >
-            <span>{s.icon}</span>
-            <span>{s.label}</span>
-          </button>
-        ))}
-      </div>
+    <div className="space-y-6">
+      <section className="grid grid-cols-2 gap-3">
+        <MetricCard
+          label="Surfaces"
+          value={String(SECTIONS.length)}
+          detail="Blocks, memory, failures, plans, and rubrics."
+          tone="amber"
+        />
+        <MetricCard
+          label="Current view"
+          value={SECTIONS.find((item) => item.id === active)?.label ?? "Blocks"}
+          detail="Switch tabs to move from procedures to constraints."
+          tone="neutral"
+        />
+      </section>
 
-      {/* Section content */}
+      <section className="border border-neutral-800 bg-neutral-950/70 p-5">
+        <div className="mt-5 flex gap-0 border-b border-neutral-800">
+          {SECTIONS.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setSection(s.id)}
+              className={`px-4 py-2 text-xs font-bold font-mono transition border-b-2 flex items-center gap-1.5 ${
+                active === s.id
+                  ? "border-neutral-500 text-neutral-100 bg-neutral-800/30"
+                  : "border-transparent text-neutral-500 hover:text-neutral-300"
+              }`}
+              title={s.desc}
+            >
+              <span>{s.icon}</span>
+              <span>{s.label}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       {active === "blocks" && <BlocksSection />}
+      {active === "memory" && <Memory />}
       {active === "failures" && <FailuresSection />}
       {active === "plans" && <PlansSection />}
-      {active === "laws" && <LawsSection />}
+      {active === "rubrics" && <Rubrics />}
     </div>
   );
 }
@@ -86,7 +100,7 @@ function BlocksSection() {
 
   const domains = useMemo(
     () => [...new Set(items?.map((b) => b.domain).filter(Boolean))],
-    [items],
+    [items]
   );
 
   const filtered = useMemo(() => {
@@ -109,46 +123,86 @@ function BlocksSection() {
   if (err) return <div className="text-red-400">Error: {err}</div>;
   if (!items) return <div className="text-neutral-500">Loading…</div>;
 
-  return (
-    <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex gap-2 flex-wrap items-center">
-        {(["all", "active", "retired", "deprecated"] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`text-[10px] px-2.5 py-1 uppercase font-bold tracking-tight font-mono transition border ${
-              filter === f
-                ? "border-amber-400/50 bg-amber-400/10 text-amber-300"
-                : "border-neutral-700 text-neutral-500 hover:text-neutral-300"
-            }`}
-          >
-            {f}
-          </button>
-        ))}
-        <select
-          aria-label="Filter learnings by domain"
-          value={domainFilter}
-          onChange={(e) => setDomainFilter(e.target.value)}
-          className="text-[10px] bg-neutral-900/50 border border-neutral-700 px-2 py-1 text-neutral-400 font-mono"
-        >
-          <option value="all">All domains</option>
-          {domains.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
-        </select>
-        <input
-          type="text"
-          placeholder="Search…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="ml-auto text-[11px] bg-neutral-900/50 border border-neutral-700 px-2 py-1 text-neutral-300 placeholder:text-neutral-600 w-40 font-mono"
-        />
-      </div>
+  const standingRules = items.filter(
+    (block) => block.domain === "universal" || block.task_types.length >= 3
+  ).length;
+  const highSignal = items.filter(
+    (block) => block.failure_signals.length > 0 || block.failure_count > 0
+  ).length;
 
-      <div className="space-y-2">
+  return (
+    <div className="space-y-6">
+      <section className="grid gap-4 md:grid-cols-4">
+        <MetricCard
+          label="Catalog size"
+          value={String(items.length)}
+          detail="All reviewable procedures in the runtime."
+          tone="amber"
+        />
+        <MetricCard
+          label="Standing rules"
+          value={String(standingRules)}
+          detail="Blocks broad enough to shape many tasks."
+          tone="emerald"
+        />
+        <MetricCard
+          label="High-signal blocks"
+          value={String(highSignal)}
+          detail="Blocks carrying failure or verification signals."
+          tone="violet"
+        />
+        <MetricCard
+          label="Visible now"
+          value={String(filtered.length)}
+          detail="Current search + filter result set."
+          tone="neutral"
+        />
+      </section>
+
+      <section className="border border-neutral-800 bg-neutral-950/70 p-5">
+        <SectionHeader
+          eyebrow="Catalog controls"
+          title="Search by title, id, domain, and operating shape"
+          description="Use the filters to narrow the knowledge base before you open a block. The goal is to find the right procedure quickly, then inspect why it exists."
+        />
+        <div className="mt-5 flex gap-2 flex-wrap items-center">
+          {(["all", "active", "retired", "deprecated"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`text-[10px] px-2.5 py-1 uppercase font-bold tracking-tight font-mono transition border ${
+                filter === f
+                  ? "border-neutral-500 bg-neutral-800 text-neutral-100"
+                  : "border-neutral-700 text-neutral-500 hover:text-neutral-300"
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+          <select
+            aria-label="Filter learnings by domain"
+            value={domainFilter}
+            onChange={(e) => setDomainFilter(e.target.value)}
+            className="text-[10px] bg-neutral-900/50 border border-neutral-700 px-2 py-1 text-neutral-400 font-mono"
+          >
+            <option value="all">All domains</option>
+            {domains.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            placeholder="Search…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="ml-auto text-[11px] bg-neutral-900/50 border border-neutral-700 px-2 py-1 text-neutral-300 placeholder:text-neutral-600 w-40 font-mono"
+          />
+        </div>
+      </section>
+
+      <div className="space-y-3">
         {filtered.map((b) => (
           <BlockCard
             key={b.id}
@@ -165,9 +219,14 @@ function BlocksSection() {
           </div>
         )}
       </div>
-      <div className="text-[10px] text-neutral-600 font-mono pt-2 border-t border-neutral-800">
-        Showing {filtered.length} of {items.length} blocks
-      </div>
+
+      <section className="border border-neutral-800 bg-neutral-950/70 p-5">
+        <SectionHeader
+          eyebrow="How to read a block"
+          title="Each card is organized around application, verification, and avoidance"
+          description="Atelier treats knowledge entries as explicit procedures: when to apply them, how to execute them, how to verify them, and what dead ends they are meant to prevent."
+        />
+      </section>
     </div>
   );
 }
@@ -224,7 +283,7 @@ function FailuresSection() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span
-                    className={`text-amber-400 font-mono text-xs transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                    className={`text-neutral-500 font-mono text-xs transition-transform ${isExpanded ? "rotate-90" : ""}`}
                   >
                     ❯
                   </span>
@@ -356,7 +415,7 @@ function PlansSection() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span
-                    className={`text-amber-400 font-mono text-xs transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                    className={`text-neutral-500 font-mono text-xs transition-transform ${isExpanded ? "rotate-90" : ""}`}
                   >
                     ❯
                   </span>
@@ -421,239 +480,27 @@ function PlansSection() {
   );
 }
 
-// ─── Domain Laws ──────────────────────────────────────────────────────────────
-
-function LawsSection() {
-  const [items, setItems] = useState<EnvironmentSummary[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  useEffect(() => {
-    api
-      .environments()
-      .then(setItems)
-      .catch((e) => setErr(String(e)));
-  }, []);
-
-  if (err) return <div className="text-red-400">Error: {err}</div>;
-  if (!items) return <div className="text-neutral-500">Loading…</div>;
-
-  if (items.length === 0)
-    return (
-      <div className="text-neutral-500 text-center py-12">
-        <div className="text-4xl mb-4">⚖️</div>
-        <p>No domain laws configured.</p>
-      </div>
-    );
-
-  return (
-    <div className="space-y-2">
-      {items.map((e) => {
-        const details = e.environment.details as
-          | Record<string, unknown>
-          | undefined;
-        const isExpanded = expandedId === e.environment.id;
-        const isActive = e.environment.status === "active";
-        return (
-          <div
-            key={e.environment.id}
-            className="border border-neutral-800 bg-neutral-900/50 overflow-hidden"
-          >
-            <button
-              onClick={() =>
-                setExpandedId(isExpanded ? null : e.environment.id)
-              }
-              className="w-full px-5 py-4 text-left hover:bg-neutral-800/50 transition-colors flex items-start gap-3"
-            >
-              <span
-                className={`w-2 h-2 mt-2 flex-shrink-0 ${isActive ? "bg-emerald-500" : "bg-neutral-500"}`}
-              />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span
-                    className={`text-amber-400 font-mono text-xs transition-transform ${isExpanded ? "rotate-90" : ""}`}
-                  >
-                    ❯
-                  </span>
-                  <h3 className="font-mono font-bold text-neutral-200">
-                    {e.environment.name || e.environment.id}
-                  </h3>
-                </div>
-                <p className="text-xs text-neutral-500">{e.environment.id}</p>
-              </div>
-            </button>
-            {isExpanded && details && (
-              <div className="border-t border-neutral-800 bg-neutral-950/50 px-5 py-4 space-y-4 text-xs">
-                {Boolean(details.description) && (
-                  <p className="text-neutral-300 leading-relaxed">
-                    {String(details.description)}
-                  </p>
-                )}
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {Boolean(details.triggers) && (
-                    <LawGrid
-                      label="Triggers"
-                      items={details.triggers as string[]}
-                      chipClass="bg-emerald-900/30 text-emerald-400"
-                    />
-                  )}
-                  {Boolean(details.forbidden) && (
-                    <LawList
-                      label="Forbidden"
-                      items={details.forbidden as string[]}
-                      icon="✗"
-                      iconClass="text-red-400"
-                    />
-                  )}
-                  {Boolean(details.required) && (
-                    <LawList
-                      label="Required"
-                      items={details.required as string[]}
-                      icon="✓"
-                      iconClass="text-emerald-400"
-                    />
-                  )}
-                  {Boolean(details.escalate) && (
-                    <LawList
-                      label="Escalate"
-                      items={details.escalate as string[]}
-                      icon="⚠"
-                      iconClass="text-amber-400"
-                    />
-                  )}
-                </div>
-                {Boolean(details.high_risk_tools) && (
-                  <div>
-                    <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 font-mono">
-                      High-risk tools
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {(details.high_risk_tools as string[]).map((t, j) => (
-                        <span
-                          key={j}
-                          className="px-2 py-0.5 bg-red-900/30 text-red-400 font-mono"
-                        >
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {Boolean(details.related_blocks) && (
-                  <div>
-                    <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 font-mono">
-                      Related blocks
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {(details.related_blocks as string[]).map((b, j) => (
-                        <span
-                          key={j}
-                          className="px-2 py-0.5 bg-neutral-800 text-neutral-400 font-mono"
-                        >
-                          {b}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {e.rubric && (
-                  <div className="pt-2 border-t border-neutral-800">
-                    <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 font-mono">
-                      Verification checks
-                    </div>
-                    <div className="border border-neutral-800 p-3 bg-neutral-900/30">
-                      <span className="text-blue-300 font-mono">
-                        {e.rubric.domain}
-                      </span>
-                      <span className="text-neutral-600"> · </span>
-                      <span className="text-neutral-500">
-                        {e.rubric.required_checks.length} checks required
-                      </span>
-                      <ul className="mt-2 space-y-1">
-                        {e.rubric.required_checks.map((c, i) => (
-                          <li
-                            key={i}
-                            className="flex items-start gap-2 text-[11px] text-emerald-300"
-                          >
-                            <span className="text-emerald-500 flex-shrink-0">
-                              ✓
-                            </span>
-                            {c}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function LawGrid({
-  label,
-  items,
-  chipClass,
-}: {
-  label: string;
-  items: string[];
-  chipClass: string;
-}) {
-  return (
-    <div className="border border-neutral-800 p-3 bg-neutral-900/30">
-      <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 font-mono">
-        {label}
-      </div>
-      <div className="flex flex-wrap gap-1">
-        {items.map((t, j) => (
-          <span
-            key={j}
-            className={`px-2 py-0.5 font-mono text-[11px] ${chipClass}`}
-          >
-            {t}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function LawList({
-  label,
-  items,
-  icon,
-  iconClass,
-}: {
-  label: string;
-  items: string[];
-  icon: string;
-  iconClass: string;
-}) {
-  return (
-    <div className="border border-neutral-800 p-3 bg-neutral-900/30">
-      <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 font-mono">
-        {label}
-      </div>
-      <ul className="space-y-1">
-        {items.map((f, j) => (
-          <li
-            key={j}
-            className="text-[11px] text-neutral-300 flex items-start gap-1"
-          >
-            <span className={`flex-shrink-0 ${iconClass}`}>{icon}</span>
-            <span>{f}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 // ─── Block components (copied from Blocks.tsx) ────────────────────────────────
+
+function blockTier(block: ReasonBlock): string {
+  if (block.domain === "universal" || block.task_types.length >= 3) {
+    return "standing rule";
+  }
+  if (block.failure_signals.length > 0 || block.failure_count > 0) {
+    return "risk pattern";
+  }
+  return "task pattern";
+}
+
+function blockSeverity(block: ReasonBlock): "high" | "medium" | "low" {
+  if (block.failure_signals.length > 0 || block.dead_ends.length > 1) {
+    return "high";
+  }
+  if (block.verification.length > 0 || block.when_not_to_apply.trim()) {
+    return "medium";
+  }
+  return "low";
+}
 
 function BlockCard({
   block,
@@ -693,6 +540,18 @@ function BlockCard({
                 {block.domain}
               </span>
             )}
+            <Chip tone="violet">{blockTier(block)}</Chip>
+            <Chip
+              tone={
+                blockSeverity(block) === "high"
+                  ? "amber"
+                  : blockSeverity(block) === "medium"
+                    ? "cyan"
+                    : "neutral"
+              }
+            >
+              {blockSeverity(block)} signal
+            </Chip>
           </div>
           <div className="text-[10px] text-neutral-500 font-mono">
             {block.id}
@@ -757,6 +616,34 @@ function BlockDetail({ block }: { block: ReasonBlock }) {
             <span>· Updated {new Date(block.updated_at).toLocaleString()}</span>
           )}
         </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <div className="border border-neutral-800 bg-neutral-950/60 p-3">
+            <div className="text-[10px] uppercase tracking-widest text-neutral-500">
+              Tier
+            </div>
+            <div className="mt-1 text-sm text-neutral-200">
+              {blockTier(block)}
+            </div>
+          </div>
+          <div className="border border-neutral-800 bg-neutral-950/60 p-3">
+            <div className="text-[10px] uppercase tracking-widest text-neutral-500">
+              Used by
+            </div>
+            <div className="mt-1 text-sm text-neutral-200">
+              {block.task_types.length > 0
+                ? block.task_types.join(", ")
+                : "General retrieval"}
+            </div>
+          </div>
+          <div className="border border-neutral-800 bg-neutral-950/60 p-3">
+            <div className="text-[10px] uppercase tracking-widest text-neutral-500">
+              Focus
+            </div>
+            <div className="mt-1 text-sm text-neutral-200">
+              {blockSeverity(block)} signal
+            </div>
+          </div>
+        </div>
         {total > 0 && (
           <div className="flex gap-3 mt-3">
             <Stat label="Uses" value={total} />
@@ -779,6 +666,38 @@ function BlockDetail({ block }: { block: ReasonBlock }) {
         )}
       </header>
 
+      <section className="grid gap-3 md:grid-cols-3">
+        <div className="border border-neutral-800 bg-neutral-950/60 p-3">
+          <div className="text-[10px] uppercase tracking-widest text-neutral-500">
+            Detects
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-neutral-300">
+            {block.situation.trim()}
+          </p>
+        </div>
+        <div className="border border-neutral-800 bg-neutral-950/60 p-3">
+          <div className="text-[10px] uppercase tracking-widest text-neutral-500">
+            Catches
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-neutral-300">
+            {block.dead_ends.length > 0
+              ? block.dead_ends[0]
+              : block.failure_signals[0] ||
+                "General task drift and re-derivation."}
+          </p>
+        </div>
+        <div className="border border-neutral-800 bg-neutral-950/60 p-3">
+          <div className="text-[10px] uppercase tracking-widest text-neutral-500">
+            Why it matters
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-neutral-300">
+            {block.verification[0] ||
+              block.when_not_to_apply ||
+              "It gives the runtime a reusable, reviewable procedure instead of rediscovering the path in every run."}
+          </p>
+        </div>
+      </section>
+
       {block.situation && (
         <section>
           <SL>When to apply</SL>
@@ -797,7 +716,7 @@ function BlockDetail({ block }: { block: ReasonBlock }) {
                 key={i}
                 className="flex gap-3 bg-neutral-900/40 border border-neutral-800 px-3 py-2.5"
               >
-                <span className="shrink-0 w-5 h-5 bg-[#ff6041]/15 text-amber-400 text-[10px] font-bold flex items-center justify-center mt-0.5">
+                <span className="shrink-0 w-5 h-5 bg-neutral-800 text-neutral-400 text-[10px] font-bold flex items-center justify-center mt-0.5">
                   {i + 1}
                 </span>
                 <span className="text-neutral-300 text-[13px] leading-relaxed">
@@ -806,6 +725,31 @@ function BlockDetail({ block }: { block: ReasonBlock }) {
               </li>
             ))}
           </ol>
+        </section>
+      )}
+
+      {(block.task_types.length > 0 ||
+        block.triggers.length > 0 ||
+        block.required_rubrics.length > 0) && (
+        <section>
+          <SL>Relationships</SL>
+          <div className="flex flex-wrap gap-2">
+            {block.task_types.map((item) => (
+              <Chip key={`task-${item}`} tone="violet">
+                task {item}
+              </Chip>
+            ))}
+            {block.triggers.map((item) => (
+              <Chip key={`trigger-${item}`} tone="cyan">
+                trigger {item}
+              </Chip>
+            ))}
+            {block.required_rubrics.map((item) => (
+              <Chip key={`rubric-${item}`} tone="emerald">
+                rubric {item}
+              </Chip>
+            ))}
+          </div>
         </section>
       )}
 
@@ -876,7 +820,7 @@ function BlockDetail({ block }: { block: ReasonBlock }) {
   );
 }
 
-function SL({ children }: { children: React.ReactNode }) {
+function SL({ children }: { children: ReactNode }) {
   return (
     <div className="text-[10px] uppercase font-bold tracking-widest text-neutral-500 mb-2">
       {children}

@@ -14,11 +14,12 @@ Design:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -84,6 +85,7 @@ CREATE TABLE IF NOT EXISTS traces (
 CREATE INDEX IF NOT EXISTS idx_traces_domain ON traces(domain);
 CREATE INDEX IF NOT EXISTS idx_traces_status ON traces(status);
 
+
 CREATE TABLE IF NOT EXISTS raw_artifacts (
     id TEXT PRIMARY KEY,
     source TEXT NOT NULL,
@@ -96,7 +98,8 @@ CREATE TABLE IF NOT EXISTS raw_artifacts (
     byte_count_original INTEGER NOT NULL,
     byte_count_redacted INTEGER NOT NULL,
     created_at TEXT NOT NULL,
-    source_file_mtime TEXT
+    source_file_mtime TEXT,
+    payload TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_raw_artifacts_source_session
     ON raw_artifacts(source, source_session_id);
@@ -138,7 +141,6 @@ CREATE TABLE IF NOT EXISTS lesson_promotion (
     pr_url              TEXT NOT NULL DEFAULT '',
     created_at          TEXT NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS consolidation_candidate (
     id                  TEXT PRIMARY KEY,
     kind                TEXT NOT NULL,
@@ -153,6 +155,12 @@ CREATE TABLE IF NOT EXISTS consolidation_candidate (
 );
 CREATE INDEX IF NOT EXISTS ix_consolidation_candidate_pending
     ON consolidation_candidate(decided_at, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS sync_status (
+    session_id TEXT PRIMARY KEY,
+    synced_at TEXT NOT NULL,
+    payload_hash TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS benchmark_run (
     id TEXT PRIMARY KEY,
@@ -173,9 +181,14 @@ CREATE TABLE IF NOT EXISTS benchmark_prompt_result (
     run_id TEXT NOT NULL REFERENCES benchmark_run(id) ON DELETE CASCADE,
     prompt_id TEXT NOT NULL,
     task_type TEXT NOT NULL,
+    input_tokens_baseline INTEGER NOT NULL,
+    input_tokens_optimized INTEGER NOT NULL,
+    reduction_pct REAL NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    error TEXT,
+    created_at TEXT NOT NULL,
     baseline_input_tokens INTEGER NOT NULL,
     optimized_input_tokens INTEGER NOT NULL,
-    reduction_pct REAL NOT NULL,
     lever_attribution_json TEXT NOT NULL DEFAULT '{}'
 );
 
@@ -222,6 +235,35 @@ class ReasoningStore:
         self.traces_dir = self.root / "traces"
         self.raw_dir = self.root / "raw"
 
+        self._initialized = False
+        self._connection: sqlite3.Connection | None = None
+
+    @contextlib.contextmanager
+    def batch_mode(self) -> Iterator[sqlite3.Connection]:
+        """Wrap multiple operations in a single connection and transaction.
+
+        Optimized for bulk imports with high-performance PRAGMAs.
+        """
+        conn = self._connect()
+        # High-performance settings for bulk import (must be outside transaction)
+        conn.execute("PRAGMA synchronous = OFF")
+        conn.execute(f"PRAGMA cache_size = -{512 * 1024}")  # 512MB cache
+
+        conn.execute("BEGIN TRANSACTION")
+        old_conn = self._connection
+        self._connection = conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self._connection = old_conn
+            with contextlib.suppress(sqlite3.Error):
+                conn.execute("PRAGMA synchronous = NORMAL")
+            conn.close()
+
     # ----- lifecycle ------------------------------------------------------- #
 
     def init(self) -> None:
@@ -237,6 +279,17 @@ class ReasoningStore:
 
             with contextlib.suppress(sqlite3.OperationalError):
                 conn.execute("ALTER TABLE raw_artifacts ADD COLUMN source_file_mtime TEXT")
+            with contextlib.suppress(sqlite3.OperationalError):
+                conn.execute("ALTER TABLE raw_artifacts ADD COLUMN payload TEXT NOT NULL DEFAULT '{}'")
+
+            # Data recovery: Infer host from ID prefix for existing imported runs
+
+            with contextlib.suppress(sqlite3.OperationalError):
+                conn.execute("ALTER TABLE traces ADD COLUMN host TEXT")
+
+            for h in ("claude", "codex", "copilot", "gemini", "opencode"):
+                conn.execute("UPDATE traces SET host = ? WHERE id LIKE ? AND host IS NULL", (h, f"{h}-%"))
+
             for ddl in (
                 "ALTER TABLE lesson_candidate ADD COLUMN body TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE lesson_candidate ADD COLUMN evidence_json TEXT NOT NULL DEFAULT '{}'",
@@ -249,53 +302,17 @@ class ReasoningStore:
                 with contextlib.suppress(sqlite3.OperationalError):
                     conn.execute(ddl)
             self._apply_v2_migrations(conn)
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS consolidation_candidate (
-                    id                  TEXT PRIMARY KEY,
-                    kind                TEXT NOT NULL,
-                    affected_block_ids  TEXT NOT NULL,
-                    proposed_action     TEXT NOT NULL,
-                    proposed_body       TEXT,
-                    evidence_json       TEXT NOT NULL DEFAULT '{}',
-                    created_at          TEXT NOT NULL,
-                    decided_at          TEXT,
-                    decided_by          TEXT,
-                    decision            TEXT
-                );
-                CREATE INDEX IF NOT EXISTS ix_consolidation_candidate_pending
-                    ON consolidation_candidate(decided_at, created_at DESC);
-                CREATE TABLE IF NOT EXISTS benchmark_run (
-                    id TEXT PRIMARY KEY,
-                    started_at TEXT NOT NULL,
-                    completed_at TEXT,
-                    suite TEXT NOT NULL,
-                    git_sha TEXT NOT NULL,
-                    config_fingerprint TEXT NOT NULL,
-                    n_prompts INTEGER NOT NULL DEFAULT 0,
-                    median_input_tokens_baseline INTEGER,
-                    median_input_tokens_optimized INTEGER,
-                    reduction_pct REAL,
-                    notes TEXT
-                );
-                CREATE TABLE IF NOT EXISTS benchmark_prompt_result (
-                    id TEXT PRIMARY KEY,
-                    run_id TEXT NOT NULL REFERENCES benchmark_run(id) ON DELETE CASCADE,
-                    prompt_id TEXT NOT NULL,
-                    task_type TEXT NOT NULL,
-                    baseline_input_tokens INTEGER NOT NULL,
-                    optimized_input_tokens INTEGER NOT NULL,
-                    reduction_pct REAL NOT NULL,
-                    lever_attribution_json TEXT NOT NULL DEFAULT '{}'
-                );
-                """)
             self.verify_v2_schema(conn)
             self.sync_knowledge()
 
     def _connect(self) -> sqlite3.Connection:
+        if self._connection:
+            return self._connection
+
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
         return conn
 
     def _apply_v2_migrations(self, conn: sqlite3.Connection) -> None:
@@ -549,15 +566,20 @@ class ReasoningStore:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO traces (id, agent, domain, status, task, created_at, payload)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO traces (id, agent, host, domain, status, task, created_at, payload)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
+                    agent = excluded.agent,
+                    host = excluded.host,
+                    domain = excluded.domain,
                     status = excluded.status,
+                    task = excluded.task,
                     payload = excluded.payload
                 """,
                 (
                     trace.id,
                     trace.agent,
+                    trace.host,
                     trace.domain,
                     trace.status,
                     trace.task,
@@ -575,12 +597,43 @@ class ReasoningStore:
             return None
         return Trace.model_validate_json(row["payload"])
 
+    def list_unsynced_trace_ids(self, limit: int = 500) -> list[str]:
+        """Return IDs of traces that have not been successfully synced."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT t.id FROM traces t
+                LEFT JOIN sync_status s ON t.id = s.session_id
+                WHERE s.session_id IS NULL
+                ORDER BY t.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [row[0] for row in rows]
+
+    def mark_synced(self, session_id: str, payload_hash: str) -> None:
+        """Mark a session as successfully synced."""
+        synced_at = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO sync_status (session_id, synced_at, payload_hash)
+                VALUES (?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    synced_at = excluded.synced_at,
+                    payload_hash = excluded.payload_hash
+                """,
+                (session_id, synced_at, payload_hash),
+            )
+
     def list_traces(
         self,
         *,
         domain: str | None = None,
         status: str | None = None,
         agent: str | None = None,
+        host: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Trace]:
@@ -595,12 +648,65 @@ class ReasoningStore:
         if agent:
             sql += " AND agent = ?"
             params.append(agent)
+        if host:
+            sql += " AND host = ?"
+            params.append(host)
         sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.append(limit)
         params.append(offset)
         with self._connect() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [Trace.model_validate_json(r["payload"]) for r in rows]
+
+    def get_traces_metrics(
+        self,
+        *,
+        domain: str | None = None,
+        agent: str | None = None,
+        host: str | None = None,
+    ) -> dict[str, Any]:
+        """Return aggregate metrics for traces matching the filters."""
+        base_sql = "FROM traces WHERE 1=1"
+        params: list[Any] = []
+        if domain:
+            base_sql += " AND domain = ?"
+            params.append(domain)
+        if agent:
+            base_sql += " AND agent = ?"
+            params.append(agent)
+        if host:
+            base_sql += " AND host = ?"
+            params.append(host)
+
+        with self._connect() as conn:
+            # 1. Total and status breakdown
+            status_sql = f"SELECT status, COUNT(*) {base_sql} GROUP BY status"
+            status_rows = conn.execute(status_sql, params).fetchall()
+
+            # 2. Distinct hosts, agents, and domains
+            host_sql = f"SELECT DISTINCT host {base_sql}"
+            host_rows = conn.execute(host_sql, params).fetchall()
+
+            agent_sql = f"SELECT DISTINCT agent {base_sql}"
+            agent_rows = conn.execute(agent_sql, params).fetchall()
+
+            domain_sql = f"SELECT DISTINCT domain {base_sql}"
+            domain_rows = conn.execute(domain_sql, params).fetchall()
+
+        stats = {"total": 0, "success": 0, "failed": 0, "partial": 0}
+        for row in status_rows:
+            s = row["status"]
+            c = row["COUNT(*)"]
+            stats["total"] += c
+            if s in stats:
+                stats[s] = c
+
+        return {
+            "stats": stats,
+            "hosts": [r["host"] for r in host_rows if r["host"]],
+            "agents": [r["agent"] for r in agent_rows if r["agent"]],
+            "domains": [r["domain"] for r in domain_rows if r["domain"]],
+        }
 
     # ----- Raw artifacts -------------------------------------------------- #
 

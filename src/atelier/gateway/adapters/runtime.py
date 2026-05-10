@@ -10,7 +10,7 @@ Usage:
         session.inject_reasoning_context()
         plan = agent.plan()
         session.check_plan(plan)
-        result = agent.execute(monitors=session.monitors)
+        result = agent.execute(watchdogs=session.watchdogs)
         session.verify(result, rubric_id="rubric_state_change_safety")
         session.record_trace(result)
         session.extract_candidate_blocks()
@@ -37,14 +37,6 @@ from atelier.core.foundation.models import (
     Trace,
     ValidationResult,
 )
-from atelier.core.foundation.monitors import (
-    MonitorAlert,
-    SessionState,
-    args_signature,
-    default_monitors,
-    error_signature,
-    run_monitors,
-)
 from atelier.core.foundation.paths import default_store_root
 from atelier.core.foundation.plan_checker import check_plan
 from atelier.core.foundation.renderer import render_context_for_agent
@@ -59,6 +51,15 @@ from atelier.core.foundation.retriever import (
 from atelier.core.foundation.routing_models import RouteDecision, StepType, TaskType
 from atelier.core.foundation.rubric_gate import run_rubric
 from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.watchdog_profiles import active_watchdog_weights
+from atelier.core.foundation.watchdogs import (
+    SessionState,
+    WatchdogAlert,
+    args_signature,
+    default_watchdogs,
+    error_signature,
+    run_watchdogs,
+)
 from atelier.core.runtime import AtelierRuntimeCore
 
 
@@ -129,7 +130,7 @@ class RuntimeSession:
     state: SessionState = field(default_factory=SessionState)
     store: ReasoningStore | None = None
     trace_id: str | None = None
-    monitors: list[Any] = field(default_factory=default_monitors)
+    watchdogs: list[Any] = field(default_factory=default_watchdogs)
     core_runtime: AtelierRuntimeCore | None = None
     started_at: float = field(default_factory=time.time)
 
@@ -247,11 +248,11 @@ class RuntimeSession:
         if diff:
             self.state.file_diffs.append((path, event, diff[:4096]))
 
-    def run_monitors(self) -> list[MonitorAlert]:
+    def run_watchdogs(self) -> list[WatchdogAlert]:
         assert self.store is not None
         ctx = TaskContext(task=self.task, domain=self.domain, files=self.files, tools=self.tools)
         blocks = [s.block for s in _retrieve_with_pack_context(self.store, ctx, limit=10)]
-        alerts = run_monitors(self.state, blocks, self.monitors)
+        alerts = run_watchdogs(self.state, blocks, self.watchdogs)
         if alerts:
             from atelier.core.service.telemetry import emit_product
 
@@ -393,6 +394,7 @@ class ReasoningRuntime:
             files=files or [],
             tools=tools or [],
             store=self.store,
+            watchdogs=default_watchdogs(active_watchdog_weights(self.store.root)),
             core_runtime=self.core_runtime,
         )
         try:

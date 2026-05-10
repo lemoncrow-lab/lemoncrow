@@ -35,7 +35,7 @@ class LocalEmbedder:
                 from sentence_transformers import SentenceTransformer
             except ImportError as exc:
                 raise ImportError(
-                    "sentence-transformers is not installed; " "run: pip install 'atelier[embeddings]'"
+                    "sentence-transformers is not installed; run: pip install 'atelier[embeddings]'"
                 ) from exc
             with (
                 contextlib.redirect_stdout(io.StringIO()),

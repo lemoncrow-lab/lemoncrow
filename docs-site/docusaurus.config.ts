@@ -12,7 +12,11 @@ const config: Config = {
   organizationName: "pankaj4u4m",
   projectName: "atelier",
   onBrokenLinks: "throw",
-  onBrokenMarkdownLinks: "warn",
+  markdown: {
+    hooks: {
+      onBrokenMarkdownLinks: "warn",
+    },
+  },
   i18n: {
     defaultLocale: "en",
     locales: ["en"],
@@ -66,7 +70,7 @@ const config: Config = {
           items: [
             {
               label: "Quickstart",
-              to: "/docs/intro",
+              to: "/docs/quickstart",
             },
           ],
         },

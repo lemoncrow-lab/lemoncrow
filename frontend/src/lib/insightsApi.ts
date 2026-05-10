@@ -8,6 +8,7 @@ export interface TelemetryConfig {
   anon_id: string;
   acknowledged: boolean;
   service_version: string;
+  dev_mode: boolean;
 }
 
 export interface TelemetryEvent {
@@ -74,10 +75,10 @@ export function acknowledgeTelemetry(): Promise<TelemetryConfig> {
 }
 
 export function getTelemetryEvents(
-  limit = 100,
+  limit = 100
 ): Promise<{ events: TelemetryEvent[] }> {
   return request<{ events: TelemetryEvent[] }>(
-    `/telemetry/local?limit=${limit}`,
+    `/telemetry/local?limit=${limit}`
   );
 }
 
@@ -91,7 +92,7 @@ export function getTelemetrySchema(): Promise<TelemetrySchema> {
 
 export function postLocalTelemetryEvent(
   event: string,
-  props: Record<string, unknown>,
+  props: Record<string, unknown>
 ): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>("/telemetry/local", {
     method: "POST",

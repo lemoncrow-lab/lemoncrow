@@ -19,6 +19,7 @@ from atelier.core.service.telemetry.emit import (
     init_product_telemetry,
     set_remote_enabled,
 )
+from atelier.core.service.telemetry.exporters import shutdown_otel
 
 logger = logging.getLogger("atelier.service")
 
@@ -68,5 +69,6 @@ __all__ = [
     "emit_product_local",
     "init_product_telemetry",
     "set_remote_enabled",
+    "shutdown_otel",
     "timed_request",
 ]

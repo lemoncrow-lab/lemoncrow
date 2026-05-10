@@ -10,26 +10,27 @@ from __future__ import annotations
 import sys
 import time
 
+from atelier import __version__ as atelier_version
 from atelier.gateway.adapters.cli import cli
 
 
 def _invoke(subcommand: str) -> None:
-    from atelier.core.service.telemetry import emit_product, init_product_telemetry
-    from atelier.core.service.telemetry.identity import (
+    from atelier.core.foundation.identity import (
         get_anon_id,
         new_session_id,
         platform_payload,
     )
+    from atelier.core.service.telemetry import emit_product
     from atelier.core.service.telemetry.schema import bucket_duration_ms, bucket_duration_s
 
-    init_product_telemetry()
+    # OTel is initialized lazily on first emit_product_log call.
     session_id = new_session_id()
     started_at = time.perf_counter()
     payload = platform_payload()
     emit_product(
         "session_start",
         agent_host="cli-wrapper",
-        atelier_version="0.1.0",
+        atelier_version=atelier_version,
         anon_id=get_anon_id(),
         session_id=session_id,
         **payload,
@@ -42,39 +43,44 @@ def _invoke(subcommand: str) -> None:
     )
     sys.argv = [f"atelier-{subcommand}", subcommand, *sys.argv[1:]]
     try:
-        cli(obj={"_telemetry_session_id": session_id, "_telemetry_command_name": subcommand})
-    except SystemExit as exc:
-        code = exc.code if isinstance(exc.code, int) else 1
-        elapsed = time.perf_counter() - started_at
-        emit_product(
-            "cli_command_completed",
-            command_name=subcommand.replace("-", "_"),
-            session_id=session_id,
-            duration_ms_bucket=bucket_duration_ms(elapsed * 1000),
-            ok=code == 0,
-        )
-        emit_product(
-            "session_end",
-            session_id=session_id,
-            duration_s_bucket=bucket_duration_s(elapsed),
-            exit_reason="success" if code == 0 else "error",
-        )
-        raise
-    else:
-        elapsed = time.perf_counter() - started_at
-        emit_product(
-            "cli_command_completed",
-            command_name=subcommand.replace("-", "_"),
-            session_id=session_id,
-            duration_ms_bucket=bucket_duration_ms(elapsed * 1000),
-            ok=True,
-        )
-        emit_product(
-            "session_end",
-            session_id=session_id,
-            duration_s_bucket=bucket_duration_s(elapsed),
-            exit_reason="success",
-        )
+        try:
+            cli(obj={"_telemetry_session_id": session_id, "_telemetry_command_name": subcommand})
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
+            elapsed = time.perf_counter() - started_at
+            emit_product(
+                "cli_command_completed",
+                command_name=subcommand.replace("-", "_"),
+                session_id=session_id,
+                duration_ms_bucket=bucket_duration_ms(elapsed * 1000),
+                ok=code == 0,
+            )
+            emit_product(
+                "session_end",
+                session_id=session_id,
+                duration_s_bucket=bucket_duration_s(elapsed),
+                exit_reason="success" if code == 0 else "error",
+            )
+            raise
+        else:
+            elapsed = time.perf_counter() - started_at
+            emit_product(
+                "cli_command_completed",
+                command_name=subcommand.replace("-", "_"),
+                session_id=session_id,
+                duration_ms_bucket=bucket_duration_ms(elapsed * 1000),
+                ok=True,
+            )
+            emit_product(
+                "session_end",
+                session_id=session_id,
+                duration_s_bucket=bucket_duration_s(elapsed),
+                exit_reason="success",
+            )
+    finally:
+        from atelier.core.service.telemetry import shutdown_otel
+
+        shutdown_otel()
 
 
 def task_main() -> None:

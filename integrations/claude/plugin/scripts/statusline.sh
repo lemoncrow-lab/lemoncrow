@@ -82,12 +82,9 @@ from pathlib import Path
 
 root = Path(os.environ["ATELIER_STATUS_ROOT"])
 usd_per_1k = float(os.environ["ATELIER_STATUS_USD_PER_1K"])
-hist = root / "cost_history.json"
-smart = root / "smart_state.json"
 saved_usd = 0.0
 ctx_saved = 0
 smart_calls = 0
-smart_tokens = 0
 session_id = os.environ.get("ATELIER_STATUS_SESSION_ID") or ""
 status_text = ""
 
@@ -101,44 +98,19 @@ def read_json(name: str) -> dict:
   except Exception:
     return {}
 
-if hist.is_file():
-  try:
-    data = json.loads(hist.read_text(encoding="utf-8"))
-    for op in (data.get("operations") or {}).values():
-      calls = op.get("calls") or []
-      if not calls:
-        continue
-      base = float(calls[0].get("cost_usd", 0.0))
-      for call in calls[1:]:
-        saved_usd += max(0.0, base - float(call.get("cost_usd", 0.0)))
-        ctx_saved += int(call.get("cache_read_tokens", 0) or 0)
-  except Exception:
-    pass
-
-if smart.is_file():
-  try:
-    data = json.loads(smart.read_text(encoding="utf-8"))
-    savings = data.get("savings") or {}
-    smart_calls = int(savings.get("calls_avoided", 0) or 0)
-    smart_tokens = int(savings.get("tokens_saved", 0) or 0)
-  except Exception:
-    pass
-
 if session_id:
   stats = root / "session_stats" / f"{session_id}.json"
   if stats.is_file():
     try:
       data = json.loads(stats.read_text(encoding="utf-8"))
       savings = data.get("savings") or {}
-      smart_calls = max(smart_calls, int(savings.get("calls_saved", 0) or 0))
-      smart_tokens = max(smart_tokens, int(savings.get("tokens_saved", 0) or 0))
+      smart_calls = int(savings.get("calls_saved", 0) or 0)
+      ctx_saved = int(savings.get("tokens_saved", 0) or 0)
     except Exception:
       pass
 
-if ctx_saved == 0 and smart_tokens > 0:
-  ctx_saved = smart_tokens
-if saved_usd == 0.0 and smart_tokens > 0:
-  saved_usd = (smart_tokens / 1000.0) * usd_per_1k
+if ctx_saved > 0:
+  saved_usd = (ctx_saved / 1000.0) * usd_per_1k
 
 update = read_json("update.json")
 auth = read_json("auth.json")

@@ -20,7 +20,7 @@ export default function Blocks() {
 
   const domains = useMemo(
     () => [...new Set(items?.map((b) => b.domain).filter(Boolean))],
-    [items],
+    [items]
   );
 
   const filtered = useMemo(() => {
@@ -90,7 +90,7 @@ export default function Blocks() {
               onClick={() => setFilter(f)}
               className={`text-[10px] px-2.5 py-1 uppercase font-bold tracking-tight font-mono transition border ${
                 filter === f
-                  ? "border-amber-400/50 bg-amber-400/10 text-amber-300"
+                  ? "border-neutral-500 bg-neutral-800 text-neutral-100"
                   : "border-neutral-700 text-neutral-500 hover:text-neutral-300"
               }`}
             >
@@ -178,7 +178,7 @@ function BlockCard({
             <div className="flex items-center gap-3 mb-1 flex-wrap">
               {/* Expandable indicator */}
               <span
-                className={`text-amber-400 font-mono text-xs transition-transform ${
+                className={`text-neutral-500 font-mono text-xs transition-transform ${
                   isExpanded ? "rotate-90" : ""
                 }`}
               >
@@ -316,7 +316,7 @@ function BlockDetail({ block }: { block: ReasonBlock }) {
                 key={i}
                 className="flex gap-3 bg-neutral-900/40 border border-neutral-800  px-3 py-2.5"
               >
-                <span className="shrink-0 w-5 h-5  bg-[#ff6041]/15 text-amber-400 text-[10px] font-bold flex items-center justify-center mt-0.5">
+                <span className="shrink-0 w-5 h-5 bg-neutral-800 text-neutral-400 text-[10px] font-bold flex items-center justify-center mt-0.5">
                   {i + 1}
                 </span>
                 <span className="text-neutral-300 text-[13px] leading-relaxed">

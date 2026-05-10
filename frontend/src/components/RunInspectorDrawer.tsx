@@ -14,7 +14,7 @@ function parseInspectorData(runId: string, ledger: any): RunInspectorData {
     .filter((event) =>
       String(event?.kind || "")
         .toLowerCase()
-        .includes("recall"),
+        .includes("recall")
     )
     .flatMap((event) => {
       const payload = event?.payload || {};
@@ -66,6 +66,9 @@ function parseInspectorData(runId: string, ledger: any): RunInspectorData {
     summarized_events_count: summarizedEventsCount,
     tokens_pre: tokensPre,
     tokens_post: tokensPost,
+    conversations: Array.isArray(ledger?.conversations)
+      ? ledger.conversations
+      : [],
   };
 }
 
@@ -79,28 +82,30 @@ export default function RunInspectorDrawer({
   const [data, setData] = useState<RunInspectorData | null>(null);
 
   useEffect(() => {
-    if (!open || !trace?.run_id) return;
+    // Use trace.id as the primary lookup key for the backend
+    if (!open || !trace?.id) return;
 
     setLoading(true);
     setError(null);
     api
-      .ledger(trace.run_id)
-      .then((ledger) =>
-        setData(parseInspectorData(trace.run_id as string, ledger)),
-      )
+      .ledger(trace.id)
+      .then((ledger) => {
+        setData(parseInspectorData(trace.id, ledger));
+      })
       .catch((err) => {
         setError(String(err));
         setData({
-          run_id: trace.run_id as string,
+          run_id: trace.id,
           pinned_blocks: [],
           recalled_passages: [],
           summarized_events_count: 0,
           tokens_pre: null,
           tokens_post: null,
+          conversations: [],
         });
       })
       .finally(() => setLoading(false));
-  }, [open, trace?.run_id]);
+  }, [open, trace]);
 
   const title = useMemo(() => {
     if (!trace) return "Run Inspector";
@@ -127,9 +132,10 @@ export default function RunInspectorDrawer({
             <h2 className="font-mono text-sm text-neutral-200 font-bold">
               {title}
             </h2>
-            <p className="text-[11px] text-neutral-500 mt-1">
-              Run ID: {trace.run_id || "n/a"}
-            </p>
+            <div className="flex gap-4 text-[10px] text-neutral-500 mt-1 font-mono uppercase tracking-widest">
+               {trace.run_id && <span>Run: {trace.run_id.slice(0, 12)}…</span>}
+               <span>Trace: {trace.id.slice(0, 12)}…</span>
+            </div>
           </div>
           <button
             type="button"
@@ -148,6 +154,33 @@ export default function RunInspectorDrawer({
 
         {data && (
           <div className="pt-4 space-y-5">
+            <section className="grid grid-cols-2 gap-2">
+              <div className="bg-neutral-900/50 border border-neutral-800 p-2 rounded">
+                 <div className="text-[9px] uppercase text-neutral-500 font-bold mb-1">Host / Model</div>
+                 <div className="text-xs text-neutral-200 font-mono truncate">
+                    {trace.host || 'unknown'} · {trace.agent}
+                 </div>
+              </div>
+              <div className="bg-neutral-900/50 border border-neutral-800 p-2 rounded">
+                 <div className="text-[9px] uppercase text-neutral-500 font-bold mb-1">Magnitude</div>
+                 <div className="text-xs text-neutral-200 font-mono">
+                    {((trace.input_tokens || 0) + (trace.output_tokens || 0) + (trace.thinking_tokens || 0) + (trace.cached_input_tokens || 0)).toLocaleString()} tokens
+                 </div>
+              </div>
+              <div className="bg-neutral-900/50 border border-neutral-800 p-2 rounded">
+                 <div className="text-[9px] uppercase text-neutral-500 font-bold mb-1">Activity</div>
+                 <div className="text-xs text-neutral-200 font-mono">
+                    {trace.tools_called.length} tools · {trace.commands_run.length} commands
+                 </div>
+              </div>
+              <div className="bg-neutral-900/50 border border-neutral-800 p-2 rounded">
+                 <div className="text-[9px] uppercase text-neutral-500 font-bold mb-1">Files</div>
+                 <div className="text-xs text-neutral-200 font-mono">
+                    {trace.files_touched.length} paths touched
+                 </div>
+              </div>
+            </section>
+
             <section>
               <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 mb-2">
                 Pinned Blocks
@@ -201,6 +234,122 @@ export default function RunInspectorDrawer({
                     </li>
                   ))}
                 </ul>
+              )}
+            </section>
+
+            <section>
+              <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 mb-2">
+                Session Ledger (Timeline)
+              </h3>
+              {!data.conversations || data.conversations.length === 0 ? (
+                <p className="text-xs text-neutral-600 italic">
+                  No conversation history available.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {data.conversations.map((turn, i) => (
+                    <div
+                      key={i}
+                      className="border border-neutral-800 bg-neutral-900/30 p-3 rounded"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter ${
+                              turn.kind === "user_message"
+                                ? "bg-emerald-950 text-emerald-400"
+                                : "bg-violet-950 text-violet-400"
+                            }`}
+                          >
+                            {turn.kind === "user_message" ? "USER" : "AGENT"}
+                          </span>
+                          {turn.kind !== "user_message" &&
+                            turn.kind !== "agent_message" && (
+                              <div className="flex items-center gap-1">
+                                <span
+                                  className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter ${
+                                    turn.kind === "thinking"
+                                      ? "bg-cyan-950 text-cyan-400"
+                                      : "bg-neutral-800 text-neutral-400"
+                                  }`}
+                                >
+                                  {turn.kind.replace("_", " ")}
+                                </span>
+                                {(turn.kind === "tool_call" ||
+                                  turn.kind === "shell_command" ||
+                                  turn.kind === "file_edit") && (
+                                  <span className="text-[9px] px-1.5 py-0.5 bg-blue-900/40 text-blue-300 rounded font-bold uppercase tracking-widest border border-blue-800/50">
+                                    {turn.summary.split("(")[0].split(" ")[0]}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          <span className="text-[10px] text-neutral-500 font-mono">
+                            {turn.at
+                              ? new Date(turn.at).toLocaleTimeString()
+                              : "—"}
+                          </span>
+                        </div>
+                        {turn.cost !== undefined && (
+                          <div className="flex gap-2 text-[9px] font-mono">
+                            {(turn.tokens?.in || 0) > 0 && (
+                              <span className="text-emerald-500/80">
+                                In: {turn.tokens?.in}
+                              </span>
+                            )}
+                            {(turn.tokens?.out || 0) > 0 && (
+                              <span className="text-violet-500/80">
+                                Out: {turn.tokens?.out}
+                              </span>
+                            )}
+                            {(turn.tokens?.cache_read || 0) > 0 && (
+                              <span className="text-red-400/80">
+                                CacheR: {turn.tokens?.cache_read}
+                              </span>
+                            )}
+                            {(turn.tokens?.cache_write || 0) > 0 && (
+                              <span className="text-orange-400/80">
+                                CacheW: {turn.tokens?.cache_write}
+                              </span>
+                            )}
+                            {(turn.cost || 0) > 0 && (
+                              <span className="text-emerald-300 font-bold ml-1 border-l border-neutral-700 pl-2">
+                                ${turn.cost.toFixed(4)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="text-xs text-neutral-200 font-medium mb-1">
+                        {turn.summary}
+                      </div>
+
+                      <div className="text-[11px] text-neutral-400 mb-2 font-mono whitespace-pre-wrap">
+                        {turn.content}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          className="text-[9px] text-amber-300/60 hover:text-amber-300 underline"
+                          onClick={() => {
+                            console.log("Raw Event:", turn.raw);
+                            alert(
+                              "Raw event logged to console for verification.\n\n" +
+                                JSON.stringify(turn.raw, null, 2).slice(
+                                  0,
+                                  1000
+                                ) +
+                                "..."
+                            );
+                          }}
+                        >
+                          View raw event
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </section>
 

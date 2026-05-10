@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from atelier.core.foundation.models import ReasonBlock
-from atelier.core.foundation.monitors import (
+from atelier.core.foundation.watchdogs import (
     ContextBloat,
     HighRiskAction,
     KnownDeadEnd,
@@ -11,7 +11,7 @@ from atelier.core.foundation.monitors import (
     SkippedVerification,
     args_signature,
     error_signature,
-    run_monitors,
+    run_watchdogs,
 )
 
 
@@ -72,12 +72,12 @@ def test_high_risk_action_without_rubric() -> None:
     assert HighRiskAction().check(state, []) is None
 
 
-def test_run_monitors_returns_alerts_list() -> None:
+def test_run_watchdogs_returns_alerts_list() -> None:
     state = SessionState(
         command_results=[("ls", False, "sig"), ("ls", False, "sig")],
         tool_calls=[("shopify.publish", "x")],
     )
-    alerts = run_monitors(state, [])
+    alerts = run_watchdogs(state, [])
     names = {a.monitor for a in alerts}
     assert "repeated_command_failure" in names
     assert "high_risk_action" in names

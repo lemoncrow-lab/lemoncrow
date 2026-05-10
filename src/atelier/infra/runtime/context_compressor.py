@@ -3,7 +3,6 @@
 The compressor is the token-optimizer in the spec. Instead of feeding
 the next agent turn the entire raw transcript, we feed it:
 
-  - the active environment id
   - the files changed (with most recent action per file)
   - the unique error fingerprints seen
   - the monitor alerts at >= medium severity
@@ -23,7 +22,6 @@ from atelier.infra.runtime.run_ledger import RunLedger
 
 @dataclass
 class CompactState:
-    environment_id: str | None = None
     files_changed: dict[str, str] = field(default_factory=dict)
     """Mapping of file path -> last action ('edit' or 'revert')."""
     error_fingerprints: list[str] = field(default_factory=list)
@@ -34,8 +32,6 @@ class CompactState:
 
     def to_prompt_block(self) -> str:
         lines: list[str] = ["## Atelier compact state"]
-        if self.environment_id:
-            lines.append(f"Environment: {self.environment_id}")
         if self.files_changed:
             lines.append("Files touched:")
             for path, action in self.files_changed.items():
@@ -50,7 +46,7 @@ class CompactState:
                 lines.append(f"  - {msg}")
         if self.current_blocker:
             lines.append(f"Current blocker: {self.current_blocker}")
-        lines.append(f"Stats: tool_calls={self.tool_call_count} " f"output_chars={self.total_tool_output_chars}")
+        lines.append(f"Stats: tool_calls={self.tool_call_count} output_chars={self.total_tool_output_chars}")
         return "\n".join(lines)
 
 
@@ -76,7 +72,7 @@ class ContextCompressor:
                     if err and err not in seen_errors:
                         seen_errors.add(err)
                         errors.append(err)
-            elif event.kind == "monitor_alert":
+            elif event.kind == "watchdog_alert":
                 sev = str(event.payload.get("severity", ""))
                 if sev in ("medium", "high"):
                     alerts.append(event.summary)
@@ -91,7 +87,6 @@ class ContextCompressor:
         total_chars = sum(int(e.payload.get("output_chars", 0)) for e in tool_calls)
 
         return CompactState(
-            environment_id=ledger.environment.id if ledger.environment else None,
             files_changed=files,
             error_fingerprints=errors,
             high_severity_alerts=alerts,

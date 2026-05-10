@@ -51,7 +51,7 @@ def test_ledger_persist_and_load_roundtrip(tmp_path: Path) -> None:
     assert loaded.domain == "d"
     assert "pytest" in loaded.commands_run
     assert "sig1" in loaded.errors_seen
-    assert any(e.kind == "monitor_alert" for e in loaded.events)
+    assert any(e.kind == "watchdog_alert" for e in loaded.events)
 
 
 def test_ledger_close_marks_status(tmp_path: Path) -> None:

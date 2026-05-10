@@ -36,7 +36,13 @@ def test_mcp_sql_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     conn.commit()
     conn.close()
 
-    result = tool_sql({"action": "query", "connection_string": f"sqlite:///{db_path}", "sql": "SELECT * FROM items"})
+    result = tool_sql(
+        {
+            "action": "query",
+            "connection_string": f"sqlite:///{db_path}",
+            "sql": "SELECT * FROM items",
+        }
+    )
 
     assert result["isError"] is False
     assert result["results"][0]["rows"] == [{"id": 1}]

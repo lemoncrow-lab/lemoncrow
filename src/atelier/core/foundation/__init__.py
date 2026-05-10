@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from atelier.core.foundation.models import (
-    Environment,
     FailureCluster,
     PlanCheckResult,
     ReasonBlock,
@@ -15,7 +14,6 @@ from atelier.core.foundation.models import (
 )
 
 __all__ = [
-    "Environment",
     "FailureCluster",
     "PlanCheckResult",
     "ReasonBlock",

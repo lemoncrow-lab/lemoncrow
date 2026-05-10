@@ -98,7 +98,10 @@ def _parse_pattern(pattern: str) -> PatternSpec:
     start_line = int(match.group(1))
     end_line = int(match.group(2) or match.group(1))
     return PatternSpec(
-        pattern=pattern[: match.start()], start_line=start_line, end_line=end_line, graph_mode=graph_mode
+        pattern=pattern[: match.start()],
+        start_line=start_line,
+        end_line=end_line,
+        graph_mode=graph_mode,
     )
 
 
@@ -272,7 +275,10 @@ def _render_text_result(
         imports = _imports_for(path, source)
         return f"{rel}\nimports:\n" + "\n".join(f"- {item}" for item in imports), len(imports)
     if spec.graph_mode == "imported_by":
-        return f'{rel}\nimported-by graph lookup is available through search mode=map with seed_files=["{rel}"]', 0
+        return (
+            f'{rel}\nimported-by graph lookup is available through search mode=map with seed_files=["{rel}"]',
+            0,
+        )
 
     lines = source.splitlines()
     if spec.start_line is not None:
@@ -410,7 +416,11 @@ def search_workspace(
         total_chars += len(text)
         blocks.append({"type": "text", "text": text})
 
-    return {"isError": False, "content": blocks, "_meta": {"fileMatchCount": file_match_count, "capChars": cap_chars}}
+    return {
+        "isError": False,
+        "content": blocks,
+        "_meta": {"fileMatchCount": file_match_count, "capChars": cap_chars},
+    }
 
 
 __all__ = ["MAX_STRUCTURED_OUTPUT_CHARS", "SearchOutputMode", "search_workspace"]

@@ -65,7 +65,6 @@ class MCPClient(LocalClient):
         dedup: bool = True,
         include_telemetry: bool = False,
         include_run_ledger: bool = False,
-        include_environment: bool = False,
         agent_id: str | None = None,
         recall: bool = True,
     ) -> ReasoningContextResult:
@@ -82,7 +81,6 @@ class MCPClient(LocalClient):
                 "dedup": dedup,
                 "include_telemetry": include_telemetry,
                 "include_run_ledger": include_run_ledger,
-                "include_environment": include_environment,
                 "agent_id": agent_id,
                 "recall": recall,
             },

@@ -34,7 +34,7 @@ def _fingerprint(snapshot: dict[str, Any]) -> str | None:
             sig = str(payload.get("error_signature", "")).strip()
             if sig:
                 last_error = sig
-        elif kind == "monitor_alert" and payload.get("severity") == "high":
+        elif kind == "watchdog_alert" and payload.get("severity") == "high":
             last_high_alert = str(event.get("summary", "")).strip() or None
     if last_error:
         return last_error

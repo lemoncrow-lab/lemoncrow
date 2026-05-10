@@ -246,6 +246,7 @@ vite.config.ts.timestamp-*
 .fusebox/
 .dynamodb/
 .firebase/
+exports/
 
 # TernJS
 .tern-port/

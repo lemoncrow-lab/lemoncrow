@@ -180,6 +180,24 @@ fi
 # ---- install Copilot instructions ------------------------------------------
 ATELIER_INSTRUCTIONS="${ATELIER_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.atelier.md"
 
+# ---- check dev mode ---------------------------------------------------------
+DEV_MODE="${ATELIER_DEV_MODE:-0}"
+if [[ "$DEV_MODE" != "1" ]]; then
+    info "Dev mode disabled; using slim instructions"
+    STAGING_DIR="${ATELIER_REPO}/.atelier/copilot-slim"
+    run "mkdir -p '$STAGING_DIR'"
+    # Create neutral instructions
+    if ! $DRY_RUN; then
+        cat > "$STAGING_DIR/instructions.md" <<EOF
+# Atelier
+
+Atelier is currently in **Passive Mode**. Active reasoning features are disabled.
+To enable active reasoning, set ATELIER_DEV_MODE=1 and re-run install.
+EOF
+    fi
+    ATELIER_INSTRUCTIONS="$STAGING_DIR/instructions.md"
+fi
+
 if [ -f "$ATELIER_INSTRUCTIONS" ]; then
     run "mkdir -p '$(dirname "$INSTRUCTIONS")'"
     if [ -f "$INSTRUCTIONS" ]; then

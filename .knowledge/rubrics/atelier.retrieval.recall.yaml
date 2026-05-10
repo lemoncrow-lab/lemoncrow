@@ -1,16 +1,19 @@
 id: atelier.retrieval.recall
 domain: coding
+triggers: []
+forbidden_phrases: []
 required_checks:
-  - recall_at_5_improved
-  - mrr_improved
-  - cold_start_block_in_top_5
-  - procedure_only_block_retrievable
+- recall_at_5_improved
+- mrr_improved
+- cold_start_block_in_top_5
+- procedure_only_block_retrievable
 block_if_missing:
-  - recall_at_5_improved
-  - mrr_improved
-  - cold_start_block_in_top_5
-  - procedure_only_block_retrievable
+- recall_at_5_improved
+- mrr_improved
+- cold_start_block_in_top_5
+- procedure_only_block_retrievable
 warning_checks:
-  - ndcg_at_5_improved
-  - retrieval_eval_dataset_loaded
+- ndcg_at_5_improved
+- retrieval_eval_dataset_loaded
 escalation_conditions: []
+related_blocks: []

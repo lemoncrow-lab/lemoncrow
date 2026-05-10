@@ -1,161 +1,135 @@
 # Troubleshooting
 
-## `make verify` Fails with ruff I001 (import-sort)
+This page starts with installed-product issues first. Source-checkout and contributor issues are lower down.
+
+## `atelier` Is Not Found After Install
 
 **Symptom:**
 
+```text
+bash: atelier: command not found
 ```
-src/atelier/some_module.py:1:1: I001 [*] Import block is un-sorted or un-formatted
+
+**Cause:** `~/.local/bin` is not on `PATH` yet.
+
+**Fix:** add it to your shell profile and restart the shell:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
 ```
+
+## `atelier servicectl status` Shows Not Running
+
+**Fix:** start it again manually:
+
+```bash
+atelier servicectl start
+atelier servicectl status
+```
+
+If you want to inspect what it is doing:
+
+```bash
+atelier servicectl logs
+```
+
+## `atelier stack start` Fails
+
+**Common causes:** Docker or Docker Compose is not installed, not running, or the ports are already in use.
+
+Check Docker first:
+
+```bash
+docker --version
+docker compose version
+```
+
+If ports `3125` or `8787` are already busy:
+
+```bash
+lsof -ti :3125 :8787 | xargs kill -9 2>/dev/null || true
+atelier stack start
+```
+
+## The UI Loads but API Calls Fail With Auth Errors
+
+For local no-auth service usage, start the service explicitly like this:
+
+```bash
+ATELIER_REQUIRE_AUTH=false atelier service start --host 0.0.0.0 --port 8787
+```
+
+If you want auth enabled, set `ATELIER_API_KEY` and configure the client that is calling the service.
+
+## `atelier-mcp` Is Not Found
+
+If you used the install script, re-run it and verify both commands:
+
+```bash
+atelier --version
+atelier-mcp --version
+```
+
+If you are on a source checkout instead of an installed setup:
+
+```bash
+cd atelier
+uv sync --all-extras
+```
+
+## `atelier lint` or `atelier reasoning` Looks Empty or Too Permissive
+
+**Cause:** the store was not initialized or the seeded blocks are missing.
 
 **Fix:**
 
 ```bash
-cd atelier && uv run ruff check --fix src tests
-uv run python -m black src tests
+atelier init
 ```
 
-Then re-run `make verify`.
-
-## `make verify` Fails with black
-
-**Symptom:**
-
-```
-would reformat src/atelier/some_module.py
-```
-
-**Fix:**
+Then verify the store exists and background processing is alive:
 
 ```bash
-cd atelier && uv run python -m black src tests
-```
-
-## 9 Tests Skipped — Is That a Failure?
-
-No. The 9 skips are Postgres-gated tests that require `ATELIER_DATABASE_URL` to be set. Expected output:
-
-```
-209 passed, 9 skipped
-```
-
-To run them:
-
-```bash
-ATELIER_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/atelier \
-cd atelier && uv run pytest
-```
-
-## MCP Server Not Found
-
-**Symptom:**
-
-```
-uv run atelier-mcp: No such command
-```
-
-**Fix:**
-
-```bash
-cd atelier && uv sync --all-extras
-```
-
-The `atelier-mcp` entry point is only installed when extras are synced.
-
-## `atelier init` Fails with "Store Already Exists"
-
-**Symptom:**
-
-```
-Error: store already exists at .atelier/
-```
-
-**Fix** (if re-seeding for demo purposes):
-
-```bash
-rm -rf .atelier/
-uv run atelier init --seed
-```
-
-Or keep existing store and skip seeding:
-
-```bash
-uv run atelier init --no-seed
+atelier servicectl status
+atelier worker list
 ```
 
 ## Gemini CLI MCP Tool Not Available
 
-**Symptom:** Atelier tools don't appear in Gemini CLI.
+**Symptom:** Atelier tools do not appear in Gemini CLI.
 
-**Cause:** Gemini CLI requires absolute paths in `settings.json`. Relative paths are silently ignored.
+**Cause:** Gemini requires absolute paths in its MCP configuration.
 
-**Fix:** Update `~/.config/gemini/settings.json` to use the full absolute path:
+Use the install guide here:
 
-```json
-&#123;
-  "mcpServers": &#123;
-    "atelier": &#123;
-      "command": "uv",
-      "args": ["run", "--project", "/absolute/path/to/atelier", "atelier-mcp"],
-      "env": &#123;
-        "ATELIER_STORE_ROOT": "/absolute/path/to/.atelier"
-      &#125;
-    &#125;
-  &#125;
-&#125;
-```
-
-## check-plan Returns "pass" When It Should Block
-
-**Cause:** The relevant ReasonBlocks have not been seeded.
-
-**Fix:**
-
-```bash
-uv run atelier init --seed
-```
-
-Verify blocks exist for your domain:
-
-```bash
-uv run atelier list-blocks --domain YOUR_DOMAIN
-```
-
-## HTTP Service Errors on Startup
-
-**Symptom:**
-
-```
-ATELIER_SERVICE_ENABLED is not set or is false
-```
-
-**Fix:**
-
-```bash
-ATELIER_SERVICE_ENABLED=true make service
-```
-
-Or for no-auth development:
-
-```bash
-ATELIER_SERVICE_ENABLED=true ATELIER_REQUIRE_AUTH=false make service
-```
+- [hosts/gemini-cli-install.md](hosts/gemini-cli-install.md)
 
 ## pgvector Extension Not Available
 
 **Symptom:**
 
-```
+```text
 ERROR: extension "vector" is not available
 ```
 
-pgvector is optional. Without it, all operations work normally — similarity search falls back to SQLite FTS or Postgres `tsvector`. Only install pgvector if you want embedding-based similarity boost.
+pgvector is optional. Atelier works normally without it. Only enable it when you want embedding-based similarity search on Postgres.
 
-## Port Already in Use (Frontend/Backend, not Atelier)
+## Source Checkout and Contributor Issues
 
-See the main project Makefile for port conflict resolution:
+### `make verify` Fails with Ruff or Black
 
 ```bash
-lsof -ti :3125 :8787 | xargs kill -9 2>/dev/null || true
-make start
+cd atelier
+uv run ruff check --fix src tests
+uv run python -m black src tests
+make verify
+```
+
+### Postgres-Gated Tests Are Skipped
+
+That is expected unless `ATELIER_DATABASE_URL` is set.
+
+```bash
+ATELIER_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/atelier \
+cd atelier && uv run pytest
 ```

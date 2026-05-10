@@ -53,7 +53,6 @@ class ReasoningContextResult(BaseModel):
     recalled_passages: builtins.list[ReasoningContextRecalledPassage] = Field(default_factory=list)
     tokens_breakdown: ReasoningContextTokenBreakdown | None = None
     run_ledger: dict[str, Any] | None = None
-    environment: dict[str, Any] | None = None
 
 
 class TraceRecordResult(BaseModel):

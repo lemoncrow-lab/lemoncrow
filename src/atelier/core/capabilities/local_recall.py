@@ -100,7 +100,12 @@ def build_index(config_dir: str | Path | None = None) -> list[dict[str, Any]]:
         chunks = _chunk_messages(_read_jsonl(transcript))
         for idx, chunk in enumerate(chunks):
             entries.append(
-                {"transcript": str(transcript), "chunk_index": idx, "content": chunk, "vector": vectorize(chunk)}
+                {
+                    "transcript": str(transcript),
+                    "chunk_index": idx,
+                    "content": chunk,
+                    "vector": vectorize(chunk),
+                }
             )
     return entries
 
@@ -108,7 +113,11 @@ def build_index(config_dir: str | Path | None = None) -> list[dict[str, Any]]:
 def recall_transcripts(query: str, *, top_k: int = 10, config_dir: str | Path | None = None) -> dict[str, Any]:
     entries = build_index(config_dir)
     if not entries:
-        return {"isError": False, "content": [{"type": "text", "text": "No past sessions found."}], "matches": []}
+        return {
+            "isError": False,
+            "content": [{"type": "text", "text": "No past sessions found."}],
+            "matches": [],
+        }
     query_vector = vectorize(query)
     scored = [(_cosine(query_vector, entry["vector"]), entry) for entry in entries]
     matches = [

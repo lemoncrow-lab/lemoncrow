@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from atelier.core.foundation.models import (
-    Environment,
     LedgerEvent,
     to_jsonable,
 )
@@ -27,16 +26,14 @@ class RunLedger:
         self,
         run_id: str | None = None,
         agent: str | None = None,
-        environment: Environment | None = None,
         root: Path | None = None,
         task: str = "",
         domain: str | None = None,
     ) -> None:
         self.run_id = run_id or uuid.uuid4().hex
         self.agent = agent
-        self.environment = environment
         self.task = task
-        self.domain = domain or (environment.domain if environment else None)
+        self.domain = domain
         self.events: list[LedgerEvent] = []
         self.created_at = _utcnow()
         self.updated_at = self.created_at
@@ -123,7 +120,7 @@ class RunLedger:
         output: str | None = None,
         args_signature: str | None = None,
     ) -> LedgerEvent:
-        from atelier.core.foundation.monitors import args_signature as _sig
+        from atelier.core.foundation.watchdogs import args_signature as _sig
 
         self.tool_count += 1
         if tool not in self.tools_called:
@@ -175,7 +172,7 @@ class RunLedger:
         if severity == "high":
             self.current_blockers = [f"[{monitor}] {message}"]
         return self.record(
-            "monitor_alert",
+            "watchdog_alert",
             f"[{severity}] {monitor}: {message}",
             {"monitor": monitor, "severity": severity, "message": message},
         )
@@ -323,16 +320,14 @@ class RunLedger:
     # ----- snapshot / persistence ----------------------------------------- #
 
     def snapshot(self) -> dict[str, Any]:
-        env_id = self.environment.id if self.environment else None
         tool_calls = [e for e in self.events if e.kind == "tool_call"]
         total_output = sum(int(e.payload.get("output_chars", 0)) for e in tool_calls)
-        alerts = [e for e in self.events if e.kind == "monitor_alert"]
+        alerts = [e for e in self.events if e.kind == "watchdog_alert"]
         return {
             "run_id": self.run_id,
             "agent": self.agent,
             "task": self.task,
             "domain": self.domain,
-            "environment_id": env_id,
             "status": self.status,
             "tool_call_count": len(tool_calls),
             "total_tool_output_chars": total_output,

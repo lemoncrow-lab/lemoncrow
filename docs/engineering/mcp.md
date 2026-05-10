@@ -50,11 +50,8 @@ uv run atelier-mcp
 | Tool                  | Description                                 |
 | --------------------- | ------------------------------------------- |
 | `reasoning`           | Read per-run state ledger                   |
+| `reasoning`           | Get relevant reasoning context for a task   |
 | `trace`               | Update per-run state ledger                 |
-| `trace`               | Emit a monitoring event                     |
-| `compact`             | Compress context to reduce token usage      |
-| `reasoning`           | Get a reasoning environment by ID           |
-| `reasoning`           | Get formatted environment context           |
 | `read`                | Read file with smart truncation (FTS-aware) |
 | `search`              | Search files with result caching            |
 | `search`              | Grep with injection guard and caching       |
@@ -174,6 +171,31 @@ allow_writes = false
 
 Only aliases present in this file are reachable. Connection strings should be provided by
 environment variables (`env = "..."`) and are never persisted by Atelier.
+
+
+## Edit Tool Design
+
+The `edit` tool uses a **search-and-replace block** format: callers supply `old_string` (text to find) and `new_string` (replacement). Atelier attempts matches in this order:
+
+1. **Exact match** — fastest path, zero overhead.
+2. **Typography normalization** — corrects smart quotes (`“` → `"`), en/em dashes, and similar LLM output substitutions.
+3. **Placeholder pattern** — `...` in `old_string` acts as a wildcard for unchanged middle content.
+4. **Fuzzy match via diff-match-patch** — Google's [diff-match-patch](https://github.com/google/diff-match-patch) does character-level location, then snaps the result to line boundaries for a clean line-granular replacement.
+
+### Token efficiency vs. native host tools
+
+| Approach | Format | Matching | Token cost |
+|---|---|---|---|
+| Claude Code native `Edit` | old/new strings | **Exact only** | LLM must quote extra context to make `old_string` unique; retries on mismatch inflate cost |
+| Claude Code `Write` | Full file content | N/A | Sends the entire file every call — expensive for files > 50 lines |
+| Codex `apply_patch` | Unified diff | Fuzzy | Compact format but LLMs generate malformed diffs frequently, forcing retries |
+| Atelier `edit` | old/new strings | **Fuzzy (DMP)** | Short `old_string` works; indentation and minor whitespace differences tolerated |
+
+Because DMP locates a match even when `old_string` differs slightly from the file (different indentation, trailing whitespace, minor typo), the LLM needs less surrounding context to make the target unique. This reduces average `old_string` length and eliminates most retry loops that exact-match approaches suffer.
+
+### Indentation adaptation
+
+When a match is found at a different indentation level than `old_string` implies, `new_string` is adapted to match. One rule prevents over-adaptation: **lines preceded by two or more consecutive blank lines are treated as peer-scope boundaries and are not re-indented.** This means a `new_string` that introduces a second top-level function stays at column 0 rather than being pushed into the body of the preceding function.
 
 ## Verifying the MCP Server
 

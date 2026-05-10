@@ -24,7 +24,7 @@ def make_uuid7() -> str:
     value |= 0x2 << 62
 
     hex_value = f"{value:032x}"
-    return f"{hex_value[:8]}-{hex_value[8:12]}-{hex_value[12:16]}-" f"{hex_value[16:20]}-{hex_value[20:]}"
+    return f"{hex_value[:8]}-{hex_value[8:12]}-{hex_value[12:16]}-{hex_value[16:20]}-{hex_value[20:]}"
 
 
 __all__ = ["make_uuid7"]

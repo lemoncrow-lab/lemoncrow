@@ -38,6 +38,7 @@ dependencies = [
     "python-multipart>=0.0.27",
     "sqlalchemy>=2.0.49",
     "ollama>=0.6.2",
+    "diff-match-patch>=2.1",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +47,7 @@ memory = ["letta-client>=1.7.12"]
 memory-server = ["letta>=0.16.7"]
 embeddings = ["sentence-transformers>=2.7"]
 smart = ["ollama>=0.4.0"]
+cloud = ["openai>=1.0"]
 repo-map = ["tree-sitter>=0.23", "tree-sitter-languages>=1.10; python_version < '3.13'", "networkx>=3.4"]
 api = [
     "fastapi>=0.110",
@@ -94,7 +96,6 @@ packages = ["src/atelier", "benchmarks"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/atelier/infra/seed_blocks" = "atelier/infra/seed_blocks"
 "src/atelier/core/rubrics" = "atelier/core/rubrics"
-"src/atelier/core/environments" = "atelier/core/environments"
 "src/atelier/core/service/telemetry/frustration_lexicon.yaml" = "atelier/core/service/telemetry/frustration_lexicon.yaml"
 "templates/reasonblocks" = "atelier/templates/reasonblocks"
 

@@ -115,51 +115,53 @@ _REQUEST_HEADER_RE = re.compile(
 _CAPTURE_HEADER_RE = re.compile(r"#+\s*(my request|request|task)[^:\n]*:", re.IGNORECASE)
 
 
-def _extract_codex_task_from_message(msg: str) -> str:
-    """Extract the user's actual task from a Codex user message string.
-
-    Handles:
-    - Clean messages (Format B, newer CLI): returned as-is.
-    - IDE-context messages with "## My request for Codex:" header (Format A).
-    """
+def _get_clean_user_text(msg: str) -> str:
+    """Extract only the human-typed portion of a Codex user message."""
     msg = msg.strip()
     if not msg:
         return ""
 
-    # Skip system-injected messages
-    lower = msg.lower()
-    if any(msg.startswith(p) for p in _SYSTEM_CONTENT_PREFIXES):
-        return ""
-    if re.search(r"<\s*(local-command\w*|ide_\w*|thinking)\b", msg, re.IGNORECASE):
-        return ""
+    # If it's short, assume it's just the user typing
+    if len(msg) < 1000 and not msg.startswith("<"):
+        return msg
 
-    # Try to extract from "## My request for Codex:" header
+    # Try to extract from "## My request for Codex:" header (Format A)
     md_match = _REQUEST_HEADER_RE.search(msg)
     if md_match:
-        return md_match.group(2).strip()[:200]
+        extracted = md_match.group(2).strip()
+        # Cut off at known machine-context markers
+        for marker in (
+            "<INSTRUCTIONS>",
+            "<environment_context>",
+            "## Current Date:",
+            "## Context",
+            "```",
+        ):
+            if marker in extracted:
+                extracted = extracted.split(marker)[0].strip()
+        return extracted
 
-    # Fallback: line-by-line capture after a request header
-    if "## " in msg and any(k in lower for k in ("my request", "request for codex")):
-        lines = msg.split("\n")
-        capture = False
-        captured: list[str] = []
-        for ln in lines:
-            if _CAPTURE_HEADER_RE.search(ln):
-                capture = True
-                continue
-            if capture:
-                if ln.strip().startswith("##") or ln.strip().startswith("```"):
-                    break
-                if ln.strip():
-                    captured.append(ln.strip())
-        if captured:
-            return " ".join(captured)[:200]
+    # If it starts with a known system prefix, it's a context dump.
+    # We try to find if there's any human text hidden inside.
+    if any(msg.startswith(p) for p in _SYSTEM_CONTENT_PREFIXES):
+        # Search for the human marker anywhere in the block
+        md_match = _REQUEST_HEADER_RE.search(msg)
+        if md_match:
+            return md_match.group(2).strip()
+        return ""  # No human text found in this system block
 
-    # For very long messages that look like system prompts, skip them
-    if len(msg) > 3000 and ("<INSTRUCTIONS>" in msg or "# E-commerce Platform" in msg):
+    # Fallback: if it's huge and contains system-like markers, it's likely context.
+    if len(msg) > 2000 and ("<INSTRUCTIONS>" in msg or "# AGENTS.md" in msg):
         return ""
 
-    return msg[:200]
+    return msg
+
+
+def _count_user_tokens(text: str) -> int:
+    clean = _get_clean_user_text(text)
+    if not clean:
+        return 0
+    return max(1, len(clean) // 4)
 
 
 def _files_from_patch(patch_text: str) -> list[str]:
@@ -217,14 +219,15 @@ class CodexImporter:
     def __init__(self, store: ReasoningStore) -> None:
         self.store = store
 
-    def import_all(self, root: Path | None = None, *, force: bool = False) -> int:
-        """Import all sessions.  Returns the number successfully imported."""
-        count = 0
+    def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:
+        """Import all sessions. Returns IDs of successfully imported sessions."""
+        imported_ids = []
         skipped = 0
         for jsonl_path in find_codex_sessions(root):
             try:
-                if self.import_session(jsonl_path, force=force):
-                    count += 1
+                sid = self.import_session(jsonl_path, force=force)
+                if sid:
+                    imported_ids.append(sid)
                 else:
                     skipped += 1
             except Exception as exc:
@@ -232,10 +235,10 @@ class CodexImporter:
                 print(f"[atelier] skipping codex session {jsonl_path.name}: {exc}")
         if skipped > 0:
             print(f"[atelier] {skipped} sessions already imported (skipped by dedup)")
-        return count
+        return imported_ids
 
-    def import_session(self, jsonl_path: Path, *, force: bool = False) -> bool:
-        """Import a single Codex JSONL file.  Returns True on success."""
+    def import_session(self, jsonl_path: Path, *, force: bool = False) -> str | None:
+        """Import a single Codex JSONL file. Returns trace ID on success."""
         stem = jsonl_path.stem  # e.g. rollout-2026-04-30T12-58-46-019ddee8-...
         parts = stem.split("-")
         session_id = "-".join(parts[-5:]) if len(parts) >= 5 else stem
@@ -247,7 +250,7 @@ class CodexImporter:
         if not force:
             existing = self.store.get_raw_artifact(artifact_id)
             if existing and existing.source_file_mtime and file_mtime <= existing.source_file_mtime:
-                return False  # unchanged, skip
+                return None  # unchanged, skip
 
         codex_root = Path("~/.codex/sessions").expanduser()
         try:
@@ -290,24 +293,7 @@ class CodexImporter:
         # there is no need to mirror the compact Trace JSON to disk too.
         self.store.record_trace(trace, write_json=False)
 
-        # ── Step 3: reconstruct fully populated RunLedger ────────────────────
-        # Skip if ledger reconstruction fails - don't crash the main import
-        try:
-            from atelier.core.service.config import cfg
-            from atelier.gateway.integrations.ledger_reconstructor import LedgerReconstructor
-
-            recon = LedgerReconstructor(root=Path(cfg.atelier_root))
-            led = recon.reconstruct(
-                source="codex",
-                session_id=session_id,
-                raw_content=raw_content,
-                task=trace.task,
-            )
-            led.persist()
-        except Exception as e:
-            print(f"[atelier] failed to reconstruct ledger for {session_id}: {e}")
-
-        return True
+        return trace.id
 
     # ------------------------------------------------------------------
     # Format detection
@@ -320,12 +306,26 @@ class CodexImporter:
     def _parse_event_msg(self, session_id: str, raw_content: str, artifact_id: str) -> Trace:
         tools_called: dict[str, int] = {}
         tool_args: dict[str, dict[str, Any] | None] = {}
+        tool_in_tokens: dict[str, int] = {}
+        tool_out_tokens: dict[str, int] = {}
+        # token_count events carry { info: { last_token_usage, total_token_usage } }.
+        # last_token_usage is the per-turn delta (used for tool distribution).
+        # total_token_usage is cumulative; we keep the FINAL value for session totals.
+        # cached_input_tokens is a SUBSET of input_tokens in OpenAI accounting.
+        # reasoning_output_tokens is a SUBSET of output_tokens.
+        final_total_in = 0
+        final_total_out = 0
+        final_total_think = 0
+        final_total_cached = 0
+        model_seen = ""
+        curr_tool_calls: list[tuple[str, Any]] = []
         files_touched: set[str] = set()
         file_diffs: dict[str, str] = {}  # path → diff text
         commands_run: list[str | CommandRecord] = []
         reasoning_snippets: list[str] = []
         task = "untitled codex session"
         created_at = _utcnow()
+        user_prompt_tokens = 0
 
         for line in raw_content.splitlines():
             line = line.strip()
@@ -343,15 +343,47 @@ class CodexImporter:
                 ts = payload.get("timestamp")
                 if ts:
                     created_at = _parse_ts(ts)
+                m_meta = payload.get("model") or payload.get("model_id")
+                if m_meta and not model_seen:
+                    model_seen = str(m_meta)
+
+            elif ev_type == "turn_context":
+                # turn_context.payload.model is the canonical model name for this turn.
+                m_turn = (ev.get("payload") or {}).get("model")
+                if m_turn:
+                    model_seen = str(m_turn)
 
             elif ev_type == "event_msg":
                 payload = ev.get("payload") or {}
                 ptype = payload.get("type", "")
 
-                if ptype == "user_message":
-                    extracted = _extract_codex_task_from_message(str(payload.get("message", "")))
-                    if extracted and task == "untitled codex session":
-                        task = extracted
+                if ptype == "token_count":
+                    info = payload.get("info") or {}
+                    last = info.get("last_token_usage") if isinstance(info, dict) else None
+                    last = last or {}
+                    turn_in = int(last.get("input_tokens", 0) or 0)
+                    turn_out = int(last.get("output_tokens", 0) or 0)
+                    tot = info.get("total_token_usage") if isinstance(info, dict) else None
+                    if isinstance(tot, dict):
+                        final_total_in = int(tot.get("input_tokens", 0) or 0)
+                        final_total_out = int(tot.get("output_tokens", 0) or 0)
+                        final_total_think = int(tot.get("reasoning_output_tokens", 0) or 0)
+                        final_total_cached = int(tot.get("cached_input_tokens", 0) or 0)
+                    if curr_tool_calls and (turn_in or turn_out):
+                        dist_in = turn_in // len(curr_tool_calls)
+                        dist_out = turn_out // len(curr_tool_calls)
+                        for t_name, _args in curr_tool_calls:
+                            tool_in_tokens[t_name] = tool_in_tokens.get(t_name, 0) + dist_out
+                            tool_out_tokens[t_name] = tool_out_tokens.get(t_name, 0) + dist_in
+                        curr_tool_calls = []
+
+                elif ptype == "user_message":
+                    text = str(payload.get("message", "")).strip()
+                    if text:
+                        user_prompt_tokens += _count_user_tokens(text)
+                        extracted = _get_clean_user_text(text)[:200]
+                        if extracted and task == "untitled codex session":
+                            task = extracted
 
                 elif ptype == "exec_command_end":
                     cmd = _command_str(payload.get("command", ""))
@@ -407,6 +439,7 @@ class CodexImporter:
                     except (json.JSONDecodeError, TypeError):
                         args = {}
                     tool_args[name] = args
+                    curr_tool_calls.append((name, args))
                     if name == "apply_patch":
                         patch_text = args.get("patch", "")
                         for fp in _files_from_patch(patch_text):
@@ -423,6 +456,7 @@ class CodexImporter:
                 elif ptype == "custom_tool_call":
                     name = payload.get("name", "custom_tool")
                     tools_called[name] = tools_called.get(name, 0) + 1
+                    curr_tool_calls.append((name, payload.get("input", "")))
                     if name == "apply_patch":
                         patch_text = str(payload.get("input", ""))
                         for fp in _files_from_patch(patch_text):
@@ -443,19 +477,35 @@ class CodexImporter:
         return Trace(
             id=f"codex-{session_id}",
             run_id=session_id,
-            agent="codex",
+            agent="atelier:code",
+            host="codex",
             domain="coding",
             task=task,
             status="success",
             files_touched=cast(Any, files_enriched),
             tools_called=[
-                ToolCall(name=n, args_hash="", count=c, args=tool_args.get(n)) for n, c in tools_called.items()
+                ToolCall(
+                    name=n,
+                    args_hash="",
+                    count=c,
+                    args=tool_args.get(n),
+                    input_tokens=tool_in_tokens.get(n, 0),
+                    output_tokens=tool_out_tokens.get(n, 0),
+                )
+                for n, c in tools_called.items()
             ],
             commands_run=cast(Any, commands_run),
             errors_seen=[],
             validation_results=[],
             raw_artifact_ids=[artifact_id],
             reasoning=reasoning_snippets,
+            input_tokens=final_total_in,
+            user_prompt_tokens=user_prompt_tokens,
+            output_tokens=final_total_out,
+            thinking_tokens=final_total_think,
+            cached_input_tokens=final_total_cached,
+            cache_creation_input_tokens=0,
+            model=model_seen,
             created_at=created_at,
         )
 
@@ -473,6 +523,7 @@ class CodexImporter:
         task = "untitled codex session"
         created_at = _utcnow()
         first_ts_set = False
+        user_prompt_tokens = 0
 
         for line in raw_content.splitlines():
             line = line.strip()
@@ -512,10 +563,12 @@ class CodexImporter:
                         if btype not in ("input_text", "text"):
                             continue
                         text = str(blk.get("text", "")).strip()
-                        extracted = _extract_codex_task_from_message(text)
-                        if extracted and task == "untitled codex session":
-                            task = extracted
-                            break
+                        if text:
+                            user_prompt_tokens += _count_user_tokens(text)
+                            extracted = _get_clean_user_text(text)[:200]
+                            if extracted and task == "untitled codex session":
+                                task = extracted
+                                break
 
             elif ev_type == "function_call":
                 name = str(ev.get("name") or ev.get("function", {}).get("name", "unknown"))
@@ -554,7 +607,8 @@ class CodexImporter:
         return Trace(
             id=f"codex-{session_id}",
             run_id=session_id,
-            agent="codex",
+            agent="atelier:code",
+            host="codex",
             domain="coding",
             task=task,
             status="success",
@@ -567,6 +621,7 @@ class CodexImporter:
             validation_results=[],
             raw_artifact_ids=[artifact_id],
             reasoning=reasoning_snippets,
+            user_prompt_tokens=user_prompt_tokens,
             created_at=created_at,
         )
 

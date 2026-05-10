@@ -1,193 +1,477 @@
 # ---------------------------------------------------------------------------
 # Atelier — Model Pricing Configuration
+# Updated: 2026-05-10
 # ---------------------------------------------------------------------------
 # All prices are in USD per 1 Million tokens.
 #
-# Sections:
-#   [models.<model_id>]     per-model pricing (input / output / cache_read)
-#   [default]               fallback when a model is not listed
-#
-# How to use:
-#   • Edit this file to add new models or update prices.
-#   • All capabilities read pricing through atelier.core.capabilities.pricing.
+# Notes:
+#   • cache_read = cached-input / cache-hit price when the provider lists one.
+#   • cache_read = 0.00 means no stable cached-token price was listed in source.
+#   • For tiered long-context pricing, base entry = lower standard tier;
+#     *_long = higher long-context tier.
+#   • Open-weight models are provider-qualified because hosted prices differ.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# OpenAI — GPT / reasoning / codex / research
+# ---------------------------------------------------------------------------
+
+[models."gpt-5.5"]
+input      = 5.00
+output     = 30.00
+cache_read = 0.50
+
+[models."gpt-5.5-long"]
+input      = 10.00
+output     = 45.00
+cache_read = 1.00
+
+[models."gpt-5.5-pro"]
+input      = 30.00
+output     = 180.00
+cache_read = 0.00
+
+[models."gpt-5.5-pro-long"]
+input      = 60.00
+output     = 270.00
+cache_read = 0.00
+
+[models."gpt-5.4"]
+input      = 2.50
+output     = 15.00
+cache_read = 0.25
+
+[models."gpt-5.4-long"]
+input      = 5.00
+output     = 22.50
+cache_read = 0.50
+
+[models."gpt-5.4-mini"]
+input      = 0.75
+output     = 4.50
+cache_read = 0.075
+
+[models."gpt-5.4-nano"]
+input      = 0.20
+output     = 1.25
+cache_read = 0.02
+
+[models."gpt-5.4-pro"]
+input      = 30.00
+output     = 180.00
+cache_read = 0.00
+
+[models."gpt-5.4-pro-long"]
+input      = 60.00
+output     = 270.00
+cache_read = 0.00
+
+[models."chat-latest"]
+input      = 5.00
+output     = 30.00
+cache_read = 0.50
+
+[models."gpt-5.3-codex"]
+input      = 1.75
+output     = 14.00
+cache_read = 0.175
+
+[models."o3-deep-research"]
+input      = 5.00
+output     = 20.00
+cache_read = 0.00
+
+[models."o4-mini-deep-research"]
+input      = 1.00
+output     = 4.00
+cache_read = 0.00
+
 
 # ---------------------------------------------------------------------------
 # Anthropic — Claude family
 # ---------------------------------------------------------------------------
 
+[models."claude-opus-4-7"]
+input      = 5.00
+output     = 25.00
+cache_read = 0.50
+
+[models."claude-opus-4-6"]
+input      = 5.00
+output     = 25.00
+cache_read = 0.50
+
 [models."claude-opus-4-5"]
+input      = 5.00
+output     = 25.00
+cache_read = 0.50
+
+[models."claude-opus-4-1"]
 input      = 15.00
 output     = 75.00
-cache_read =  1.50
+cache_read = 1.50
 
 [models."claude-opus-4"]
 input      = 15.00
 output     = 75.00
-cache_read =  1.50
+cache_read = 1.50
+
+[models."claude-sonnet-4-6"]
+input      = 3.00
+output     = 15.00
+cache_read = 0.30
 
 [models."claude-sonnet-4-5"]
 input      = 3.00
 output     = 15.00
-cache_read =  0.30
+cache_read = 0.30
 
 [models."claude-sonnet-4"]
 input      = 3.00
 output     = 15.00
-cache_read =  0.30
+cache_read = 0.30
 
 [models."claude-haiku-4-5"]
-input      = 0.80
-output     = 4.00
-cache_read =  0.08
-
-[models."claude-haiku-4"]
-input      = 0.80
-output     = 4.00
-cache_read =  0.08
-
-[models."claude-3-5-sonnet-20241022"]
-input      = 3.00
-output     = 15.00
-cache_read =  0.30
+input      = 1.00
+output     = 5.00
+cache_read = 0.10
 
 [models."claude-3-5-haiku-20241022"]
 input      = 0.80
 output     = 4.00
-cache_read =  0.08
+cache_read = 0.08
 
-[models."claude-3-opus-20240229"]
-input      = 15.00
-output     = 75.00
-cache_read =  1.50
+[models."claude-3-haiku"]
+input      = 0.25
+output     = 1.25
+cache_read = 0.03
 
-# ---------------------------------------------------------------------------
-# OpenAI — GPT family
-# ---------------------------------------------------------------------------
-
-[models."gpt-4o"]
-input      = 2.50
-output     = 10.00
-cache_read =  0.25
-
-[models."gpt-4o-mini"]
-input      = 0.15
-output     = 0.60
-cache_read =  0.075
-
-[models."gpt-4-turbo"]
-input      = 10.00
-output     = 30.00
-cache_read =  1.00
-
-[models."gpt-4"]
-input      = 30.00
-output     = 60.00
-cache_read =  3.00
-
-[models."gpt-3.5-turbo"]
-input      = 0.50
-output     = 1.50
-cache_read =  0.05
-
-[models."o3"]
-input      =  2.00
-output     =  8.00
-cache_read =  0.50
-
-[models."o3-mini"]
-input      =  1.10
-output     =  4.40
-cache_read =  0.55
-
-[models."o1"]
-input      = 15.00
-output     = 60.00
-cache_read =  7.50
-
-[models."o1-mini"]
-input      =  3.00
-output     = 12.00
-cache_read =  1.50
 
 # ---------------------------------------------------------------------------
 # Google — Gemini family
 # ---------------------------------------------------------------------------
 
-[models."gemini-2.5-pro"]
-input      = 1.25
-output     = 5.00
-cache_read = 0.31
+[models."gemini-3.1-pro-preview"]
+input      = 2.00
+output     = 12.00
+cache_read = 0.20
 
-[models."gemini-2.5-flash"]
-input      = 0.15
-output     = 0.60
-cache_read = 0.04
+[models."gemini-3.1-pro-preview-long"]
+input      = 4.00
+output     = 18.00
+cache_read = 0.40
 
-[models."gemini-2.0-flash"]
-input      = 0.10
-output     = 0.40
+[models."gemini-3.1-flash-lite"]
+input      = 0.25
+output     = 1.50
 cache_read = 0.025
 
-[models."gemini-1.5-pro"]
+[models."gemini-3-flash-preview"]
+input      = 0.50
+output     = 3.00
+cache_read = 0.05
+
+[models."gemini-2.5-pro"]
 input      = 1.25
-output     = 5.00
-cache_read = 0.31
+output     = 10.00
+cache_read = 0.125
 
-[models."gemini-1.5-flash"]
-input      = 0.075
-output     = 0.30
-cache_read = 0.019
+[models."gemini-2.5-pro-long"]
+input      = 2.50
+output     = 15.00
+cache_read = 0.25
+
+[models."gemini-2.5-flash"]
+input      = 0.30
+output     = 2.50
+cache_read = 0.03
+
+[models."gemini-2.5-flash-lite"]
+input      = 0.10
+output     = 0.40
+cache_read = 0.01
+
 
 # ---------------------------------------------------------------------------
-# Meta — Llama family (self-hosted / Groq / Together)
+# xAI — Grok family
 # ---------------------------------------------------------------------------
 
-[models."llama-3.3-70b"]
-input      = 0.59
-output     = 0.79
+[models."grok-4.3"]
+input      = 1.25
+output     = 2.50
 cache_read = 0.00
 
-[models."llama-3.1-405b"]
-input      = 2.00
+[models."grok-4.20-multi-agent-0309"]
+input      = 1.25
+output     = 2.50
+cache_read = 0.00
+
+[models."grok-4.20-0309-reasoning"]
+input      = 1.25
+output     = 2.50
+cache_read = 0.00
+
+[models."grok-4.20-0309-non-reasoning"]
+input      = 1.25
+output     = 2.50
+cache_read = 0.00
+
+[models."grok-4-1-fast-reasoning"]
+input      = 0.20
+output     = 0.50
+cache_read = 0.00
+
+[models."grok-4-1-fast-non-reasoning"]
+input      = 0.20
+output     = 0.50
+cache_read = 0.00
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek — direct API
+# ---------------------------------------------------------------------------
+# deepseek-v4-pro price below is the current discounted price listed by
+# DeepSeek through 2026-05-31 15:59 UTC. Listed regular price:
+# input 1.74 / output 3.48 / cache_read 0.0145.
+
+[models."deepseek-v4-flash"]
+input      = 0.14
+output     = 0.28
+cache_read = 0.0028
+
+[models."deepseek-v4-pro"]
+input      = 0.435
+output     = 0.87
+cache_read = 0.003625
+
+[models."deepseek-chat"]
+input      = 0.14
+output     = 0.28
+cache_read = 0.0028
+
+[models."deepseek-reasoner"]
+input      = 0.14
+output     = 0.28
+cache_read = 0.0028
+
+
+# ---------------------------------------------------------------------------
+# Mistral — direct API / open-weight where noted
+# ---------------------------------------------------------------------------
+
+[models."mistral-large-2512"]
+input      = 0.50
+output     = 1.50
+cache_read = 0.00
+
+[models."mistral-medium-3-5"]
+input      = 1.50
+output     = 7.50
+cache_read = 0.00
+
+[models."mistral-medium-2508"]
+input      = 0.40
 output     = 2.00
 cache_read = 0.00
 
-[models."llama-3.1-70b"]
+[models."mistral-small-2603"]
+input      = 0.15
+output     = 0.60
+cache_read = 0.00
+
+[models."ministral-14b-2512"]
+input      = 0.20
+output     = 0.20
+cache_read = 0.00
+
+[models."ministral-8b-2512"]
+input      = 0.15
+output     = 0.15
+cache_read = 0.00
+
+[models."ministral-3b-2512"]
+input      = 0.10
+output     = 0.10
+cache_read = 0.00
+
+
+# ---------------------------------------------------------------------------
+# Groq — hosted open-weight / open models
+# ---------------------------------------------------------------------------
+
+[models."groq/openai/gpt-oss-120b"]
+input      = 0.15
+output     = 0.60
+cache_read = 0.075
+
+[models."groq/openai/gpt-oss-20b"]
+input      = 0.075
+output     = 0.30
+cache_read = 0.0375
+
+[models."groq/meta-llama/llama-4-scout-17b-16e-instruct"]
+input      = 0.11
+output     = 0.34
+cache_read = 0.00
+
+[models."groq/qwen/qwen3-32b"]
+input      = 0.29
+output     = 0.59
+cache_read = 0.00
+
+[models."groq/llama-3.3-70b-versatile"]
 input      = 0.59
 output     = 0.79
 cache_read = 0.00
 
-[models."llama-3.1-8b"]
+[models."groq/llama-3.1-8b-instant"]
 input      = 0.05
 output     = 0.08
 cache_read = 0.00
 
+
 # ---------------------------------------------------------------------------
-# Mistral / Codestral
+# Together AI — hosted open-weight / open models
 # ---------------------------------------------------------------------------
 
-[models."mistral-large"]
+[models."together/openai/gpt-oss-120b"]
+input      = 0.15
+output     = 0.60
+cache_read = 0.00
+
+[models."together/openai/gpt-oss-20b"]
+input      = 0.05
+output     = 0.20
+cache_read = 0.00
+
+[models."together/meta-llama/llama-4-maverick"]
+input      = 0.27
+output     = 0.85
+cache_read = 0.00
+
+[models."together/meta-llama/llama-3.3-70b"]
+input      = 0.88
+output     = 0.88
+cache_read = 0.00
+
+[models."together/qwen/qwen3.6-plus"]
+input      = 0.50
+output     = 3.00
+cache_read = 0.00
+
+[models."together/qwen/qwen3-coder-next"]
+input      = 0.50
+output     = 1.20
+cache_read = 0.00
+
+[models."together/qwen/qwen3-235b-a22b-fp8-throughput"]
+input      = 0.20
+output     = 0.60
+cache_read = 0.00
+
+[models."together/qwen/qwen3.5-397b-a17b"]
+input      = 0.60
+output     = 3.60
+cache_read = 0.00
+
+[models."together/qwen/qwen3.5-9b"]
+input      = 0.10
+output     = 0.15
+cache_read = 0.00
+
+[models."together/google/gemma-4-31b"]
+input      = 0.20
+output     = 0.50
+cache_read = 0.00
+
+[models."together/google/gemma-3n-e4b-instruct"]
+input      = 0.06
+output     = 0.12
+cache_read = 0.00
+
+[models."together/deepseek-ai/deepseek-v4-pro"]
+input      = 2.10
+output     = 4.40
+cache_read = 0.20
+
+[models."together/deepseek-ai/deepseek-v3.1"]
+input      = 0.60
+output     = 1.70
+cache_read = 0.00
+
+[models."together/deepseek-ai/deepseek-r1-0528"]
+input      = 3.00
+output     = 7.00
+cache_read = 0.00
+
+[models."together/moonshotai/kimi-k2.6"]
+input      = 1.20
+output     = 4.50
+cache_read = 0.20
+
+[models."together/moonshotai/kimi-k2.5"]
+input      = 0.50
+output     = 2.80
+cache_read = 0.00
+
+[models."together/minimax/minimax-m2.5"]
+input      = 0.30
+output     = 1.20
+cache_read = 0.06
+
+[models."together/zai-org/glm-5.1"]
+input      = 1.40
+output     = 4.40
+cache_read = 0.00
+
+[models."together/zai-org/glm-5"]
+input      = 1.00
+output     = 3.20
+cache_read = 0.00
+
+[models."together/liquid-ai/lfm2-24b-a2b"]
+input      = 0.03
+output     = 0.12
+cache_read = 0.00
+
+[models."together/deep-cogito/cogito-v2.1-671b"]
+input      = 1.25
+output     = 1.25
+cache_read = 0.00
+
+
+# ---------------------------------------------------------------------------
+# Perplexity — Sonar family
+# Extra search / citation / reasoning charges are not represented here.
+# ---------------------------------------------------------------------------
+
+[models."sonar"]
+input      = 1.00
+output     = 1.00
+cache_read = 0.00
+
+[models."sonar-pro"]
+input      = 3.00
+output     = 15.00
+cache_read = 0.00
+
+[models."sonar-reasoning-pro"]
 input      = 2.00
-output     = 6.00
+output     = 8.00
 cache_read = 0.00
 
-[models."mistral-small"]
-input      = 0.20
-output     = 0.60
+[models."sonar-deep-research"]
+input      = 2.00
+output     = 8.00
 cache_read = 0.00
 
-[models."codestral"]
-input      = 0.20
-output     = 0.60
-cache_read = 0.00
 
 # ---------------------------------------------------------------------------
 # Default — used when the model id is not found above.
-# Set to a mid-range "sonnet-class" price so estimates are conservative.
+# Conservative sonnet-class fallback.
 # ---------------------------------------------------------------------------
 
 [default]
-input      = 3.00
-output     = 15.00
-cache_read =  0.30
+input      = 0.00
+output     = 0.00
+cache_read = 0.00

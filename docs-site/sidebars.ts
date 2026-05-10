@@ -198,10 +198,6 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
-          id: "authoring/environment-authoring",
-        },
-        {
-          type: "doc",
           id: "authoring/failure-cluster-authoring",
         },
       ],

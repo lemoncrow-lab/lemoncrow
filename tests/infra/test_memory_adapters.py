@@ -17,7 +17,9 @@ def test_openmemory_adapter_disabled_by_default() -> None:
     assert result.source == "openmemory"
 
 
-def test_openmemory_memory_store_delegates_to_sqlite_and_mirrors_best_effort(tmp_path: Path) -> None:
+def test_openmemory_memory_store_delegates_to_sqlite_and_mirrors_best_effort(
+    tmp_path: Path,
+) -> None:
     class FakeAdapter:
         def __init__(self) -> None:
             self.pushed: list[tuple[str, str]] = []

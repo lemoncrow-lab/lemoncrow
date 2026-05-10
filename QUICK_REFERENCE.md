@@ -191,7 +191,7 @@ hypotheses_tried        Tested theories (with results)
 hypotheses_rejected     Theories that failed (with reasons)
 active_reasonblocks     [block_id, ...] from matched ReasonBlocks
 tool_calls              [{name, timestamp, result}, ...]
-monitor_alerts          [{type, severity, message}, ...]
+watchdog_alerts          [{type, severity, message}, ...]
 ```
 
 ## 🧪 Testing & Validation

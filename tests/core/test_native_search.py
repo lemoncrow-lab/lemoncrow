@@ -49,7 +49,10 @@ def test_native_search_type_alias_line_suffix_and_modified_since(tmp_path: Path)
     assert "three" in text
 
     skipped = search_workspace(
-        path=".", file_glob_patterns=["example.py"], if_modified_since="2999-01-01", repo_root=tmp_path
+        path=".",
+        file_glob_patterns=["example.py"],
+        if_modified_since="2999-01-01",
+        repo_root=tmp_path,
     )
     assert "unchanged" in "\n".join(_texts(skipped))
 

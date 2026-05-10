@@ -50,29 +50,6 @@ def test_compress_context_cli(tmp_path: Path) -> None:
     assert payload["error_fingerprints"]
 
 
-def test_env_list_and_show(tmp_path: Path) -> None:
-    root = tmp_path / "a"
-    _invoke(root, "init")
-    res = _invoke(root, "env", "list", "--json")
-    assert res.exit_code == 0
-    ids = {e["id"] for e in json.loads(res.output)}
-    assert "env_state_change_safety" in ids
-
-    res2 = _invoke(root, "env", "show", "env_state_change_safety")
-    assert res2.exit_code == 0
-    assert "rubric_id: rubric_state_change_safety" in res2.output
-
-
-def test_env_context_emits_rubric_and_blocks(tmp_path: Path) -> None:
-    root = tmp_path / "a"
-    _invoke(root, "init")
-    res = _invoke(root, "env", "context", "env_state_change_safety", "--json")
-    assert res.exit_code == 0, res.output
-    payload = json.loads(res.output)
-    assert payload["environment"]["id"] == "env_state_change_safety"
-    assert payload["rubric"] is not None
-
-
 def test_failure_list_accept_reject(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _invoke(root, "init")

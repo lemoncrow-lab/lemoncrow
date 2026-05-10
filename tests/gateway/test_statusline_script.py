@@ -29,7 +29,11 @@ def _payload() -> dict[str, object]:
         "model": {"display_name": "Sonnet"},
         "context_window": {
             "used_percentage": 12,
-            "current_usage": {"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 300},
+            "current_usage": {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 300,
+            },
         },
         "cost": {"total_cost_usd": 0.42, "total_duration_ms": 61_000},
     }
@@ -80,3 +84,36 @@ def test_statusline_reads_session_savings(tmp_path: Path) -> None:
 
     assert "saved $0.036" in output
     assert "ctx 12k / 4c" in output
+
+
+def test_statusline_ignores_lifetime_savings_files(tmp_path: Path) -> None:
+    stats_dir = tmp_path / "session_stats"
+    stats_dir.mkdir()
+    (stats_dir / "s1.json").write_text(
+        json.dumps({"savings": {"calls_saved": 2, "tokens_saved": 2_000}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "smart_state.json").write_text(
+        json.dumps({"savings": {"calls_avoided": 99, "tokens_saved": 999_999_999}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "cost_history.json").write_text(
+        json.dumps(
+            {
+                "operations": {
+                    "search_read": {
+                        "calls": [
+                            {"cost_usd": 25.0, "cache_read_tokens": 0},
+                            {"cost_usd": 0.0, "cache_read_tokens": 500_000_000},
+                        ]
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output = _run_statusline(tmp_path, _payload())
+
+    assert "saved $0.006" in output
+    assert "ctx 2k / 2c" in output

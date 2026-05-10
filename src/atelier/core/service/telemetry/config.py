@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from atelier.core.service.telemetry.identity import config_dir
+from atelier.core.foundation.identity import config_dir
 
 FALSE_VALUES = {"0", "false", "off", "no"}
 TRUE_VALUES = {"1", "true", "on", "yes"}

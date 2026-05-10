@@ -629,9 +629,18 @@ class ReasoningReuseCapability:
                         "base_probe_score": round(float(base_probe_scores.get(block_id, 0.0)), 6),
                         "rrf": round(float(rrf_scores.get(block_id, 0.0)), 6),
                         "rrf_contributions": {
-                            "bm25": round(0.0 if bm25_rank_value is None else 1.0 / (_RRF_K + bm25_rank_value - 1), 6),
-                            "fts": round(0.0 if fts_rank_value is None else 1.0 / (_RRF_K + fts_rank_value - 1), 6),
-                            "base": round(0.0 if base_rank_value is None else 1.0 / (_RRF_K + base_rank_value - 1), 6),
+                            "bm25": round(
+                                0.0 if bm25_rank_value is None else 1.0 / (_RRF_K + bm25_rank_value - 1),
+                                6,
+                            ),
+                            "fts": round(
+                                0.0 if fts_rank_value is None else 1.0 / (_RRF_K + fts_rank_value - 1),
+                                6,
+                            ),
+                            "base": round(
+                                0.0 if base_rank_value is None else 1.0 / (_RRF_K + base_rank_value - 1),
+                                6,
+                            ),
                         },
                         "drop_reasons": sorted(trace_reasons.get(block_id, set())),
                     }

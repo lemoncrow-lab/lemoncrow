@@ -162,6 +162,25 @@ fi
 
 # ---- install opencode atelier agent ----------------------------------------
 AGENT_SRC="${ATELIER_REPO}/integrations/opencode/agents/atelier.md"
+
+# ---- check dev mode ---------------------------------------------------------
+DEV_MODE="${ATELIER_DEV_MODE:-0}"
+if [[ "$DEV_MODE" != "1" ]]; then
+    info "Dev mode disabled; using slim agent instructions"
+    STAGING_DIR="${ATELIER_REPO}/.atelier/opencode-slim"
+    run "mkdir -p '$STAGING_DIR'"
+    # Create neutral instructions
+    if ! $DRY_RUN; then
+        cat > "$STAGING_DIR/atelier.md" <<EOF
+# Atelier
+
+Atelier is currently in **Passive Mode**. Active reasoning features are disabled.
+To enable active reasoning, set ATELIER_DEV_MODE=1 and re-run install.
+EOF
+    fi
+    AGENT_SRC="$STAGING_DIR/atelier.md"
+fi
+
 if [ -f "$AGENT_SRC" ]; then
     run "mkdir -p '$AGENT_DEST_DIR'"
     run "cp -f '$AGENT_SRC' '$AGENT_DEST_DIR/atelier.md'"

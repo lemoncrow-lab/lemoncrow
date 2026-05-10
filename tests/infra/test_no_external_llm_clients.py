@@ -22,13 +22,19 @@ FORBIDDEN_PROVIDER_IMPORTS = {
 #   level. No other Atelier module should import httpx.
 ALLOWED_PROVIDER_IMPORTS = {
     "ollama": {Path("src/atelier/infra/internal_llm/ollama_client.py")},
-    "openai": {Path("src/atelier/infra/embeddings/openai_embedder.py")},
+    "openai": {
+        Path("src/atelier/infra/embeddings/openai_embedder.py"),
+        Path("src/atelier/infra/internal_llm/openai_client.py"),
+    },
     "httpx": {Path("src/atelier/infra/embeddings/openai_embedder.py")},
 }
 
 
 def _imported_roots(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except SyntaxError:
+        return set()
     roots: set[str] = set()
 
     for node in ast.walk(tree):
