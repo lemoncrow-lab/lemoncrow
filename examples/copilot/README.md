@@ -1,4 +1,4 @@
-# VS Code Copilot Example
+# Copilot Example
 
 ## Install
 

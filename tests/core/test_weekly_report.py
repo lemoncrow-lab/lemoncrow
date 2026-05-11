@@ -29,7 +29,7 @@ def _trace(
     created_at: datetime,
     passed: bool,
     domain: str = "coding",
-    run_id: str | None = None,
+    session_id: str | None = None,
     rescue: bool = False,
 ) -> Trace:
     tools = [
@@ -43,7 +43,7 @@ def _trace(
         tools.append(ToolCall(name="rescue", args_hash="rescue"))
     return Trace(
         id=trace_id,
-        run_id=run_id,
+        session_id=session_id,
         agent="codex",
         domain=domain,
         task="implement feature",
@@ -66,7 +66,7 @@ def test_generate_report_aggregates_weekly_governance(store: ReasoningStore) -> 
     now = datetime(2026, 5, 5, 12, tzinfo=UTC)
     store.upsert_block(_block("rb-plan"), write_markdown=False)
     store.record_trace(
-        _trace("current-pass", created_at=now - timedelta(days=1), passed=True, run_id="run-current"),
+        _trace("current-pass", created_at=now - timedelta(days=1), passed=True, session_id="run-current"),
         write_json=False,
     )
     store.record_trace(
@@ -74,18 +74,18 @@ def test_generate_report_aggregates_weekly_governance(store: ReasoningStore) -> 
             "current-fail",
             created_at=now - timedelta(days=2),
             passed=False,
-            run_id="run-current-fail",
+            session_id="run-current-fail",
             rescue=True,
         ),
         write_json=False,
     )
     store.record_trace(
-        _trace("prior-pass", created_at=now - timedelta(days=8), passed=True, run_id="run-prior"),
+        _trace("prior-pass", created_at=now - timedelta(days=8), passed=True, session_id="run-prior"),
         write_json=False,
     )
     store.persist_context_budget(
         ContextBudget(
-            run_id="run-current",
+            session_id="run-current",
             turn_index=0,
             model="test",
             input_tokens=500,
@@ -99,7 +99,7 @@ def test_generate_report_aggregates_weekly_governance(store: ReasoningStore) -> 
     )
     store.persist_context_budget(
         ContextBudget(
-            run_id="run-prior",
+            session_id="run-prior",
             turn_index=0,
             model="test",
             input_tokens=800,

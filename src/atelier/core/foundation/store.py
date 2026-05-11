@@ -179,7 +179,7 @@ CREATE TABLE IF NOT EXISTS benchmark_run (
 
 CREATE TABLE IF NOT EXISTS benchmark_prompt_result (
     id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL REFERENCES benchmark_run(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES benchmark_run(id) ON DELETE CASCADE,
     prompt_id TEXT NOT NULL,
     task_type TEXT NOT NULL,
     input_tokens_baseline INTEGER NOT NULL,
@@ -977,7 +977,7 @@ class ReasoningStore:
         stderr: str = "",
         collected_at: str | None = None,
     ) -> str:
-        run_id = uuid4().hex
+        session_id = uuid4().hex
         created_at = datetime.now(UTC).isoformat()
         collected = collected_at or created_at
         with self._connect() as conn:
@@ -991,7 +991,7 @@ class ReasoningStore:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    run_id,
+                    session_id,
                     tool,
                     period,
                     source,
@@ -1006,7 +1006,7 @@ class ReasoningStore:
                     created_at,
                 ),
             )
-        return run_id
+        return session_id
 
     def list_external_analytics_runs(
         self,
@@ -1361,21 +1361,21 @@ class ReasoningStore:
         """Persist a ContextBudget record to the store.
 
         Args:
-            record: A ContextBudget instance with run_id, turn_index, model,
+            record: A ContextBudget instance with session_id, turn_index, model,
                     token counts, lever_savings dict, and tool_calls count.
         """
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO context_budget (
-                    id, run_id, turn_index, model, input_tokens,
+                    id, session_id, turn_index, model, input_tokens,
                     cache_read_tokens, cache_write_tokens, output_tokens,
                     naive_input_tokens, lever_savings_json, tool_calls, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id,
-                    record.run_id,
+                    record.session_id,
                     record.turn_index,
                     record.model,
                     record.input_tokens,
@@ -1390,11 +1390,11 @@ class ReasoningStore:
             )
             conn.commit()
 
-    def list_context_budgets(self, run_id: str) -> list[Any]:
+    def list_context_budgets(self, session_id: str) -> list[Any]:
         """List all ContextBudget records for a run.
 
         Args:
-            run_id: The run identifier.
+            session_id: The run identifier.
 
         Returns:
             A list of ContextBudget records (as dicts), ordered by turn_index.
@@ -1404,14 +1404,14 @@ class ReasoningStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, run_id, turn_index, model, input_tokens,
+                SELECT id, session_id, turn_index, model, input_tokens,
                        cache_read_tokens, cache_write_tokens, output_tokens,
                        naive_input_tokens, lever_savings_json, tool_calls, created_at
                 FROM context_budget
-                WHERE run_id = ?
+                WHERE session_id = ?
                 ORDER BY turn_index ASC
                 """,
-                (run_id,),
+                (session_id,),
             ).fetchall()
 
         results = []
@@ -1419,7 +1419,7 @@ class ReasoningStore:
             results.append(
                 ContextBudget(
                     id=row[0],
-                    run_id=row[1],
+                    session_id=row[1],
                     turn_index=row[2],
                     model=row[3],
                     input_tokens=row[4],
@@ -1449,7 +1449,7 @@ class ReasoningStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, run_id, turn_index, model, input_tokens,
+                SELECT id, session_id, turn_index, model, input_tokens,
                        cache_read_tokens, cache_write_tokens, output_tokens,
                        naive_input_tokens, lever_savings_json, tool_calls, created_at
                 FROM context_budget
@@ -1463,7 +1463,7 @@ class ReasoningStore:
 
         return ContextBudget(
             id=row[0],
-            run_id=row[1],
+            session_id=row[1],
             turn_index=row[2],
             model=row[3],
             input_tokens=row[4],

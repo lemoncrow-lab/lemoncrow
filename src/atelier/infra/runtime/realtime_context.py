@@ -8,10 +8,13 @@ an always-ready next-call context pack.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -185,7 +188,10 @@ class RealtimeContextManager:
             if isinstance(items, list):
                 return {"items": items}
         except Exception:
-            pass
+            logger.warning(
+                "Suppressed exception at realtime_context.py:187",
+                exc_info=True,
+            )
         return {"items": []}
 
     def _compact_text(self, text: str, *, max_chars: int = 1200) -> str:

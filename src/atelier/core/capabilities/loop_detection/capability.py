@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 from typing import TYPE_CHECKING, Any
 
 from .models import LoopReport, PatternMatch
 from .patterns import _ALL_DETECTORS
 from .rescue import match_rescue, scored_rescue
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from atelier.infra.runtime.run_ledger import RunLedger
@@ -68,7 +71,10 @@ def _estimate_risk_velocity(events: list[dict[str, Any]], full_risk: float) -> f
             if m is not None:
                 first_patterns.append(m)
         except Exception:
-            pass
+            logger.warning(
+                "Suppressed exception at capability.py:70",
+                exc_info=True,
+            )
     first_risk = _estimate_risk(first_patterns, len(first_half_events))
     velocity = round(full_risk - first_risk, 3)
     return max(-1.0, min(1.0, velocity))
@@ -122,7 +128,10 @@ class LoopDetectionCapability:
                 if match is not None:
                     patterns.append(match)
             except Exception:
-                pass
+                logger.warning(
+                    "Suppressed exception at capability.py:124",
+                    exc_info=True,
+                )
 
         loop_types = [p.pattern_name for p in patterns]
         loop_detected = bool(patterns)

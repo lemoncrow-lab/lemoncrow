@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 import tempfile
@@ -17,6 +18,8 @@ from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
+
+logger = logging.getLogger(__name__)
 
 RECALL_DIM = 256
 RECALL_TOP_K = 10
@@ -56,7 +59,10 @@ def _read_json(path: Path, default: Any) -> Any:
         if path.exists():
             return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at plugin_runtime.py:58",
+            exc_info=True,
+        )
     return default
 
 
@@ -168,7 +174,10 @@ def parse_login_token(token: str) -> dict[str, Any]:
         decoded = base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8")
         candidates.append(decoded)
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at plugin_runtime.py:170",
+            exc_info=True,
+        )
     for candidate in candidates:
         try:
             payload = json.loads(candidate)
@@ -1026,7 +1035,10 @@ def _now_ms(payload: dict[str, Any] | None = None) -> int:
             try:
                 return int(float(raw))
             except ValueError:
-                pass
+                logger.warning(
+                    "Suppressed exception at plugin_runtime.py:1028",
+                    exc_info=True,
+                )
     return int(datetime.now().timestamp() * 1000)
 
 
@@ -1363,11 +1375,11 @@ def _active_run_loop_report(root: str | Path) -> dict[str, Any] | None:
     state = _read_json(state_path, {})
     if not isinstance(state, dict):
         return None
-    run_id = str(state.get("active_run_id") or "").strip()
-    if not run_id:
+    session_id = str(state.get("active_session_id") or "").strip()
+    if not session_id:
         return None
     atelier_root = Path(str(state.get("atelier_root") or root))
-    ledger_path = atelier_root / "runs" / f"{run_id}.json"
+    ledger_path = atelier_root / "runs" / f"{session_id}.json"
     if not ledger_path.exists():
         return None
 
@@ -1375,7 +1387,7 @@ def _active_run_loop_report(root: str | Path) -> dict[str, Any] | None:
     from atelier.infra.runtime.run_ledger import RunLedger
 
     ledger = RunLedger.load(ledger_path)
-    normalized = RunLedger(run_id=ledger.run_id, agent=ledger.agent, task=ledger.task, domain=ledger.domain)
+    normalized = RunLedger(session_id=ledger.session_id, agent=ledger.agent, task=ledger.task, domain=ledger.domain)
     normalized.events = cast(Any, [_normalized_loop_event(event) for event in ledger.events])
     if not normalized.events:
         return None
@@ -1542,8 +1554,8 @@ def get_session_stats_from_trace(trace: Any) -> dict[str, Any]:
     cache_saved = int(calls_saved * LIVE_CACHE_READ_TOKENS_PER_CALL * LIVE_CONTEXT_MULTIPLIER)
 
     return {
-        "session_id": trace.id,
-        "run_id": trace.run_id,
+        "id": trace.id,
+        "session_id": trace.session_id,
         "agent": trace.agent,
         "task": trace.task,
         "total_tool_calls": total_tool_calls,

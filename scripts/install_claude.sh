@@ -106,7 +106,7 @@ if $WORKSPACE_SET; then
       "args": [],
       "env": {
         "ATELIER_WORKSPACE_ROOT": "${WORKSPACE}",
-        "ATELIER_ROOT": "${WORKSPACE}/.atelier"
+        "ATELIER_ROOT": "${HOME}/.atelier"
       }
     }
   }

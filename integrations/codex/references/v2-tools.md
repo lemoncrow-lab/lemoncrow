@@ -6,11 +6,11 @@ available and **backward compatible**.
 
 ## Run ledger (per-run reasoning state)
 
-- `reasoning({ run_id })` — returns the current plan,
+- `reasoning({ session_id })` — returns the current plan,
   hypotheses tried/rejected, verified facts, open questions, blockers,
   next required validation, tool/token counts, file/command/test
   history, and the recent event tail.
-- `trace({ run_id, op, ... })` — append-only
+- `trace({ session_id, op, ... })` — append-only
   setters: `set_plan`, `add_hypothesis` (with optional `rejected`),
   `add_verified_fact`, `add_open_question`, `set_blocker`,
   `set_next_validation`, `record_test`.
@@ -19,7 +19,7 @@ Use these instead of restating prior reasoning in chat.
 
 ## Monitors
 
-- `trace({ run_id, event })` — pushes a structured
+- `trace({ session_id, event })` — pushes a structured
   observation (tool result, command outcome, file edit). Returns any
   monitor alerts (`SecondGuessing`, `Thrashing`, `BudgetExhaustion`,
   `RepeatedFailure`, `WrongDirection`, `OffPlan`, `WrongTool`,
@@ -27,7 +27,7 @@ Use these instead of restating prior reasoning in chat.
 
 ## Context compression
 
-- `compact({ run_id })` — returns a stable summary of
+- `compact({ session_id })` — returns a stable summary of
   the run for re-injection when the live tool log gets long. Replaces
   noisy event scrolls.
 

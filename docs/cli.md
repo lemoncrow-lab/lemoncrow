@@ -99,7 +99,7 @@ Atelier traces are stored as JSONL files in `<atelier-root>/traces/`. Each line 
 | Field        | Type   | Description              |
 | ------------ | ------ | ------------------------ |
 | `ts`         | float  | Unix timestamp           |
-| `run_id`     | string | Unique run identifier    |
+| `session_id` | string | Unique run identifier    |
 | `agent`      | string | Agent name               |
 | `action`     | string | Action type              |
 | `args_sig`   | string | SHA1 prefix of arguments |

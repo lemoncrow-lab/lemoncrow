@@ -79,7 +79,7 @@ if $WORKSPACE_SET; then
       "command": ["${ATELIER_WRAPPER}"],
       "environment": {
         "ATELIER_WORKSPACE_ROOT": "${WORKSPACE}",
-        "ATELIER_ROOT": "${WORKSPACE}/.atelier"
+        "ATELIER_ROOT": "${HOME}/.atelier"
       }
     }
   }

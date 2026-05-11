@@ -392,11 +392,11 @@ class SqliteMemoryStore:
             conn.execute(
                 """
                 INSERT INTO run_memory_frame (
-                  run_id, pinned_blocks, recalled_passages, summarized_events,
+                  session_id, pinned_blocks, recalled_passages, summarized_events,
                   tokens_pre_summary, tokens_post_summary, compaction_strategy, created_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(run_id) DO UPDATE SET
+                ON CONFLICT(session_id) DO UPDATE SET
                   pinned_blocks = excluded.pinned_blocks,
                   recalled_passages = excluded.recalled_passages,
                   summarized_events = excluded.summarized_events,
@@ -406,7 +406,7 @@ class SqliteMemoryStore:
                   created_at = excluded.created_at
                 """,
                 (
-                    frame.run_id,
+                    frame.session_id,
                     _json(frame.pinned_blocks),
                     _json(frame.recalled_passages),
                     _json(frame.summarized_events),
@@ -417,23 +417,23 @@ class SqliteMemoryStore:
                 ),
             )
 
-    def get_run_frame(self, run_id: str) -> RunMemoryFrame | None:
+    def get_run_frame(self, session_id: str) -> RunMemoryFrame | None:
         with self._store._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM run_memory_frame WHERE run_id = ?",
-                (run_id,),
+                "SELECT * FROM run_memory_frame WHERE session_id = ?",
+                (session_id,),
             ).fetchone()
         if row is None:
             return None
         return RunMemoryFrame(
-            run_id=str(row["run_id"]),
+            session_id=str(row["session_id"]),
             pinned_blocks=_loads_list(str(row["pinned_blocks"])),
             recalled_passages=_loads_list(str(row["recalled_passages"])),
             summarized_events=_loads_list(str(row["summarized_events"])),
             tokens_pre_summary=int(row["tokens_pre_summary"]),
             tokens_post_summary=int(row["tokens_post_summary"]),
             compaction_strategy=cast(Any, row["compaction_strategy"]),
-            workspace_path=str(row["workspace_path"]) if row.get("workspace_path") else None,
+            workspace_path=((row.get("workspace_path") and str(row["workspace_path"])) or None),
             created_at=datetime.fromisoformat(str(row["created_at"])),
         )
 

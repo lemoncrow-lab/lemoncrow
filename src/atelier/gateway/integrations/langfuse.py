@@ -16,8 +16,11 @@ Usage (called automatically by atelier_record_trace):
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _enabled() -> bool:
@@ -44,7 +47,7 @@ def emit_trace(payload: dict[str, Any]) -> None:
 
     Args:
         payload: The dict that was passed to Trace.model_validate() in record_trace.
-                 Expected keys: agent, domain, task, status, run_id, files_touched,
+                 Expected keys: agent, domain, task, status, session_id, files_touched,
                  tools_called, commands_run, errors_seen, diff_summary, output_summary,
                  validation_results, id.
     """
@@ -58,7 +61,7 @@ def emit_trace(payload: dict[str, Any]) -> None:
         status = payload.get("status", "unknown")
         domain = payload.get("domain", "unknown")
         agent = payload.get("agent", "unknown")
-        run_id = str(payload.get("run_id", ""))
+        session_id = str(payload.get("session_id", ""))
         trace_id = str(payload.get("id", ""))
 
         client.trace(
@@ -72,7 +75,7 @@ def emit_trace(payload: dict[str, Any]) -> None:
             },
             metadata={
                 "agent": agent,
-                "run_id": run_id,
+                "session_id": session_id,
                 "files_touched": payload.get("files_touched", []),
                 "tools_called": payload.get("tools_called", []),
                 "commands_run": payload.get("commands_run", []),
@@ -80,11 +83,14 @@ def emit_trace(payload: dict[str, Any]) -> None:
                 "validation_results": payload.get("validation_results", []),
             },
             tags=[status, domain, agent],
-            session_id=run_id or None,
+            session_id=session_id or None,
         )
         client.flush()
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at langfuse.py:86",
+            exc_info=True,
+        )
 
 
 def health_check() -> dict[str, Any]:

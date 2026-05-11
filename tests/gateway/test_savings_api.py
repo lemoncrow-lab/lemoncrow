@@ -79,7 +79,7 @@ def _write_live_savings_events(path: Path) -> None:
     rows = [
         {
             "at": now.isoformat(),
-            "run_id": "run-live-1",
+            "session_id": "run-live-1",
             "agent": "codex",
             "tool_name": "search",
             "lever": "search_read",
@@ -98,7 +98,7 @@ def _write_live_savings_events(path: Path) -> None:
         },
         {
             "at": (now - timedelta(days=40)).isoformat(),
-            "run_id": "old-run",
+            "session_id": "old-run",
             "agent": "codex",
             "tool_name": "sql",
             "lever": "sql_batch",
@@ -116,7 +116,7 @@ def _write_latest_benchmark(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "run_id": "bench-live",
+                "session_id": "bench-live",
                 "model": "test-model",
                 "n_prompts": 2,
                 "total_tokens_baseline": 1000,
@@ -141,7 +141,7 @@ def _write_latest_benchmark(path: Path) -> None:
 def _write_context_budget(
     root: Path,
     *,
-    run_id: str,
+    session_id: str,
     naive_input_tokens: int,
     output_tokens: int,
     lever_savings: dict[str, int] | None = None,
@@ -152,7 +152,7 @@ def _write_context_budget(
     saved_tokens = naive_input_tokens - output_tokens
     store.persist_context_budget(
         ContextBudget(
-            run_id=run_id,
+            session_id=session_id,
             turn_index=turn_index,
             model="test-model",
             input_tokens=0,
@@ -167,12 +167,12 @@ def _write_context_budget(
     return store
 
 
-def _write_run_ledger_snapshot(root: Path, *, run_id: str, tool_name: str) -> None:
+def _write_run_ledger_snapshot(root: Path, *, session_id: str, tool_name: str) -> None:
     now = datetime.now(UTC).isoformat()
     runs_dir = root / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
     payload = {
-        "run_id": run_id,
+        "session_id": session_id,
         "agent": "codex",
         "task": "tracked savings proof",
         "status": "success",
@@ -189,13 +189,13 @@ def _write_run_ledger_snapshot(root: Path, *, run_id: str, tool_name: str) -> No
             }
         ],
     }
-    (runs_dir / f"{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    (runs_dir / f"{session_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _write_run_ledger_snapshot_with_events(
     root: Path,
     *,
-    run_id: str,
+    session_id: str,
     events: list[dict[str, object]],
     tools_called: list[str] | None = None,
 ) -> None:
@@ -203,7 +203,7 @@ def _write_run_ledger_snapshot_with_events(
     runs_dir = root / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
     payload = {
-        "run_id": run_id,
+        "session_id": session_id,
         "agent": "codex",
         "task": "tracked savings proof",
         "status": "success",
@@ -211,7 +211,7 @@ def _write_run_ledger_snapshot_with_events(
         "tools_called": tools_called or [],
         "events": events,
     }
-    (runs_dir / f"{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    (runs_dir / f"{session_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_savings_summary_returns_per_lever_and_by_day(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -266,7 +266,7 @@ def test_savings_summary_includes_live_plugin_sources(monkeypatch: pytest.Monkey
             "time_saved_ms": 50_000,
         }
     ]
-    assert data["latest_benchmark"]["run_id"] == "bench-live"
+    assert data["latest_benchmark"]["session_id"] == "bench-live"
     assert data["latest_benchmark"]["reduction_pct"] == 40.0
     assert "prompts" not in data["latest_benchmark"]
 
@@ -277,17 +277,17 @@ def test_savings_summary_uses_context_budget_for_live_run_totals(
     root = tmp_path / ".atelier"
     store = _write_context_budget(
         root,
-        run_id="run-live-1",
+        session_id="run-live-1",
         naive_input_tokens=1000,
         output_tokens=600,
         lever_savings={"batch_edit": 400},
     )
-    _write_run_ledger_snapshot(root, run_id="run-live-1", tool_name="edit")
+    _write_run_ledger_snapshot(root, session_id="run-live-1", tool_name="edit")
     (root / "live_savings_events.jsonl").write_text(
         json.dumps(
             {
                 "at": datetime.now(UTC).isoformat(),
-                "run_id": "run-live-1",
+                "session_id": "run-live-1",
                 "agent": "codex",
                 "tool_name": "edit",
                 "lever": "batch_edit",
@@ -344,7 +344,7 @@ def test_savings_summary_uses_context_budget_for_live_run_totals(
             "live_saved_usd": 1.66278,
         }
     ]
-    assert data["session_proof"][0]["run_id"] == "run-live-1"
+    assert data["session_proof"][0]["session_id"] == "run-live-1"
     assert data["session_proof"][0]["agent"] == "codex"
     assert data["session_proof"][0]["items"][0]["tool_name"] == "edit"
     assert data["session_proof"][0]["items"][0]["saved_tokens"] == 400
@@ -364,14 +364,14 @@ def test_savings_summary_uses_context_budget_for_live_run_totals(
         "compact_output_row_count": 0,
         "compact_output_saved_tokens": 0,
         "dominant_run": {
-            "run_id": "run-live-1",
+            "session_id": "run-live-1",
             "agent": "codex",
             "task": "tracked savings proof",
             "saved_tokens": 400,
             "saved_cost_usd": 0.003,
         },
         "dominant_item": {
-            "run_id": "run-live-1",
+            "session_id": "run-live-1",
             "turn_index": 0,
             "tool_name": "edit",
             "lever": "batch_edit",
@@ -394,17 +394,17 @@ def test_savings_summary_excludes_compact_tool_output_rows_from_headline(
     root = tmp_path / ".atelier"
     store = _write_context_budget(
         root,
-        run_id="run-compact-1",
+        session_id="run-compact-1",
         naive_input_tokens=1000,
         output_tokens=600,
         lever_savings={"compact_tool_output:search_read": 400},
     )
-    _write_run_ledger_snapshot(root, run_id="run-compact-1", tool_name="search")
+    _write_run_ledger_snapshot(root, session_id="run-compact-1", tool_name="search")
     (root / "live_savings_events.jsonl").write_text(
         json.dumps(
             {
                 "at": datetime.now(UTC).isoformat(),
-                "run_id": "run-compact-1",
+                "session_id": "run-compact-1",
                 "agent": "codex",
                 "tool_name": "search",
                 "lever": "search_read",
@@ -461,7 +461,7 @@ def test_savings_summary_excludes_compact_tool_output_rows_from_headline(
             "live_saved_usd": 1.66278,
         }
     ]
-    assert data["session_proof"][0]["run_id"] == "run-compact-1"
+    assert data["session_proof"][0]["session_id"] == "run-compact-1"
     assert data["session_proof"][0]["items"][0]["tool_name"] == "search"
     assert data["session_proof"][0]["items"][0]["saved_tokens"] == 400
     assert data["verification"] == {
@@ -482,14 +482,14 @@ def test_savings_summary_excludes_compact_tool_output_rows_from_headline(
         "compact_output_row_count": 1,
         "compact_output_saved_tokens": 400,
         "dominant_run": {
-            "run_id": "run-compact-1",
+            "session_id": "run-compact-1",
             "agent": "codex",
             "task": "tracked savings proof",
             "saved_tokens": 400,
             "saved_cost_usd": 0.003,
         },
         "dominant_item": {
-            "run_id": "run-compact-1",
+            "session_id": "run-compact-1",
             "turn_index": 0,
             "tool_name": "search",
             "lever": "search_read",
@@ -513,7 +513,7 @@ def test_savings_summary_clamps_zero_saved_rows_to_zero_cost_delta(
     root = tmp_path / ".atelier"
     store = _write_context_budget(
         root,
-        run_id="run-zero-1",
+        session_id="run-zero-1",
         naive_input_tokens=515,
         output_tokens=515,
         lever_savings={},
@@ -554,7 +554,7 @@ def test_savings_summary_uses_nearest_ledger_tool_event_when_turn_index_drifts(
     root = tmp_path / ".atelier"
     store = _write_context_budget(
         root,
-        run_id="run-ledger-nearest",
+        session_id="run-ledger-nearest",
         naive_input_tokens=418,
         output_tokens=418,
         lever_savings={},
@@ -562,7 +562,7 @@ def test_savings_summary_uses_nearest_ledger_tool_event_when_turn_index_drifts(
     )
     _write_run_ledger_snapshot_with_events(
         root,
-        run_id="run-ledger-nearest",
+        session_id="run-ledger-nearest",
         tools_called=["get_reasoning_context", "check_plan"],
         events=[
             {
@@ -603,7 +603,7 @@ def test_savings_summary_backfills_agent_from_live_event_for_untraced_run(
     store.init()
     store.persist_context_budget(
         ContextBudget(
-            run_id="run-live-agent",
+            session_id="run-live-agent",
             turn_index=0,
             model="test-model",
             input_tokens=0,
@@ -617,7 +617,7 @@ def test_savings_summary_backfills_agent_from_live_event_for_untraced_run(
     )
     store.persist_context_budget(
         ContextBudget(
-            run_id="run-live-agent",
+            session_id="run-live-agent",
             turn_index=1,
             model="test-model",
             input_tokens=0,
@@ -633,7 +633,7 @@ def test_savings_summary_backfills_agent_from_live_event_for_untraced_run(
         json.dumps(
             {
                 "at": datetime.now(UTC).isoformat(),
-                "run_id": "run-live-agent",
+                "session_id": "run-live-agent",
                 "agent": "claude",
                 "tool_name": "search",
                 "lever": "search_read",
@@ -666,7 +666,7 @@ def test_savings_summary_surfaces_untracked_copilot_coverage_gap(
     store.record_trace(
         Trace(
             id="copilot-gap",
-            run_id="copilot-gap",
+            session_id="copilot-gap",
             agent="copilot",
             domain="coding",
             task="investigate copilot savings",
@@ -686,7 +686,7 @@ def test_savings_summary_surfaces_untracked_copilot_coverage_gap(
     data = resp.json()
     assert data["coverage_gaps"] == [
         {
-            "run_id": "copilot-gap",
+            "session_id": "copilot-gap",
             "trace_id": "copilot-gap",
             "agent": "copilot",
             "task": "investigate copilot savings",
@@ -753,7 +753,7 @@ def test_record_context_budget_avoids_double_counting_tool_delta(
         },
     )
 
-    led = SimpleNamespace(run_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}])
+    led = SimpleNamespace(session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}])
     mcp_server._record_context_budget_for_tool(
         "search_read",
         {},
@@ -767,7 +767,7 @@ def test_record_context_budget_avoids_double_counting_tool_delta(
     assert recorder_rows == []
     assert compact_rows == [
         {
-            "run_id": "run-proof",
+            "session_id": "run-proof",
             "turn_index": 2,
             "model": "claude-sonnet-4",
             "method": "search_read",
@@ -809,7 +809,7 @@ def test_record_context_budget_persists_tool_marker_for_zero_saved_turn(
         },
     )
 
-    led = SimpleNamespace(run_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}])
+    led = SimpleNamespace(session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}])
     mcp_server._record_context_budget_for_tool(
         "trace",
         {},
@@ -819,7 +819,7 @@ def test_record_context_budget_persists_tool_marker_for_zero_saved_turn(
 
     assert recorder_rows == [
         {
-            "run_id": "run-proof",
+            "session_id": "run-proof",
             "turn_index": 1,
             "model": "claude-sonnet-4",
             "input_tokens": 0,
@@ -877,7 +877,7 @@ def test_record_context_budget_classifies_smart_read_savings(
         },
     )
 
-    led = SimpleNamespace(run_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}])
+    led = SimpleNamespace(session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}])
     args = {"path": "/tmp/sample.py", **extra_args}
     result = {
         "mode": mode,
@@ -908,7 +908,7 @@ def test_record_context_budget_classifies_smart_read_savings(
             "output_tokens_saved": 0,
             "path": "/tmp/sample.py",
             "read_mode": mode,
-            "run_id": "run-proof",
+            "session_id": "run-proof",
             "time_saved_ms": 0,
             "tokens_saved": 240,
             "tool_name": "read",
@@ -918,7 +918,7 @@ def test_record_context_budget_classifies_smart_read_savings(
     ]
     assert recorder_rows == [
         {
-            "run_id": "run-proof",
+            "session_id": "run-proof",
             "turn_index": 2,
             "model": "claude-sonnet-4",
             "input_tokens": 0,

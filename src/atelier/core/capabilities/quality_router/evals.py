@@ -18,7 +18,7 @@ class RoutingEvalCase:
     regression: bool = False
 
 
-def summarize_routing_evals(run_id: str, cases: list[RoutingEvalCase]) -> RoutingEvalSummary:
+def summarize_routing_evals(session_id: str, cases: list[RoutingEvalCase]) -> RoutingEvalSummary:
     """Compute routing quality metrics from observed eval cases.
 
     Metrics focus on accepted outcomes. Failed cheap attempts still count toward
@@ -28,7 +28,7 @@ def summarize_routing_evals(run_id: str, cases: list[RoutingEvalCase]) -> Routin
     total = len(cases)
     if total == 0:
         return RoutingEvalSummary(
-            run_id=run_id,
+            session_id=session_id,
             cost_per_accepted_patch=0.0,
             premium_call_rate=0.0,
             cheap_success_rate=0.0,
@@ -51,7 +51,7 @@ def summarize_routing_evals(run_id: str, cases: list[RoutingEvalCase]) -> Routin
     cost_per_accepted_patch = total_cost / accepted_count if accepted_count > 0 else total_cost
 
     return RoutingEvalSummary(
-        run_id=run_id,
+        session_id=session_id,
         cost_per_accepted_patch=round(cost_per_accepted_patch, 6),
         premium_call_rate=round(premium_calls / total, 6),
         cheap_success_rate=(round(cheap_accepted / len(cheap_cases), 6) if cheap_cases else 0.0),

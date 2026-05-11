@@ -9,7 +9,7 @@ from atelier.core.foundation.savings_models import ContextBudget
 def test_context_budget_rejects_extra_fields() -> None:
     with pytest.raises(ValidationError):
         ContextBudget(
-            run_id="run-1",
+            session_id="run-1",
             turn_index=0,
             model="codex",
             input_tokens=100,
@@ -25,7 +25,7 @@ def test_context_budget_rejects_extra_fields() -> None:
 
 def test_context_budget_instantiates_with_default_uuid7_id() -> None:
     budget = ContextBudget(
-        run_id="run-1",
+        session_id="run-1",
         turn_index=0,
         model="codex",
         input_tokens=100,

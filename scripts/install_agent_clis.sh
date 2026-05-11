@@ -9,7 +9,7 @@
 #   --claude       Only install Claude Code
 #   --codex        Only install Codex
 #   --opencode     Only install opencode
-#   --copilot      Only install VS Code Copilot
+#   --copilot      Only install Copilot
 #   --gemini       Only install Gemini CLI
 #   --dry-run      Pass through to all install scripts
 #   --print-only   Pass through to all install scripts

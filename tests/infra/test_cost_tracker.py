@@ -157,7 +157,7 @@ def test_failure_cluster_includes_suggested_prompt() -> None:
 
     snapshots = [
         {
-            "run_id": f"run-{i}",
+            "session_id": f"run-{i}",
             "status": "failed",
             "environment_id": "shopify",
             "events": [

@@ -27,8 +27,8 @@ def _invoke(root: Path, *args: str, input: str | None = None) -> Result:
     return runner.invoke(cli, ["--root", str(root), *args], input=input)
 
 
-def _seed_ledger(root: Path, run_id: str = "run1") -> Path:
-    led = RunLedger(run_id=run_id, agent="codex", task="t", domain="d", root=root)
+def _seed_ledger(root: Path, session_id: str = "run1") -> Path:
+    led = RunLedger(session_id=session_id, agent="codex", task="t", domain="d", root=root)
     led.record_command("pytest", ok=False, error_signature="sig1")
     led.record_command("pytest", ok=False, error_signature="sig1")
     led.record_alert("repeated_command_failure", "high", "pytest x2")
@@ -221,7 +221,7 @@ def test_failure_show_after_accept(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     _invoke(root, "init")
     _seed_ledger(root)
-    _seed_ledger(root, run_id="run2")
+    _seed_ledger(root, session_id="run2")
 
     clusters = json.loads(_invoke(root, "failure", "list", "--json").output)
     assert clusters
@@ -288,7 +288,7 @@ def test_eval_from_cluster(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     _invoke(root, "init")
     _seed_ledger(root)
-    _seed_ledger(root, run_id="run2")
+    _seed_ledger(root, session_id="run2")
 
     clusters = json.loads(_invoke(root, "failure", "list", "--json").output)
     assert clusters
@@ -306,7 +306,7 @@ def test_eval_from_cluster_unaccepted_errors(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     _invoke(root, "init")
     _seed_ledger(root)
-    _seed_ledger(root, run_id="run2")
+    _seed_ledger(root, session_id="run2")
 
     clusters = json.loads(_invoke(root, "failure", "list", "--json").output)
     cid = clusters[0]["id"]

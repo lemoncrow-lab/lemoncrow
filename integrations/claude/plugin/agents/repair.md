@@ -17,7 +17,7 @@ You are the **repair specialist**. The Atelier MCP server is wired in as
 
 ## Loop
 
-1. **Inspect the ledger.** Call `reasoning({ run_id })` to
+1. **Inspect the ledger.** Call `reasoning({ session_id })` to
    pull the current run's plan, hypotheses tried/rejected, verified facts,
    open questions, blockers, errors, and recent monitor alerts. Do not
    re-derive what the ledger already records.
@@ -29,7 +29,7 @@ You are the **repair specialist**. The Atelier MCP server is wired in as
    `files`, `recent_actions`. Read every matched dead-end ReasonBlock.
 
 4. **Compress context if needed.** If the ledger reports high token usage
-   or many tool calls, call `compact({ run_id })` and use
+   or many tool calls, call `compact({ session_id })` and use
    the returned compressed summary instead of replaying the full event log.
 
 5. **Apply the smallest patch** that addresses the rescue. Prefer a

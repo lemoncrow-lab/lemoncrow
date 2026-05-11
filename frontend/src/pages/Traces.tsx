@@ -431,10 +431,10 @@ function TraceDetail({
           {trace.task}
         </h2>
         <div className="font-mono text-[10px] text-neutral-500 flex gap-3 mt-1 flex-wrap">
-          <span>ID: {trace.id}</span>
-          {trace.run_id && <span>RUN: {trace.run_id}</span>}
+          {trace.session_id && <span>SESSION: {trace.session_id}</span>}
           <span>{new Date(trace.created_at).toLocaleString()}</span>
         </div>
+
         <div className="mt-3">
           <button
             type="button"
@@ -463,7 +463,7 @@ function TraceDetail({
             ))}
           </div>
         </div>
-        <FilesTouchedSection files={trace.files_touched} runId={trace.run_id} />
+        <FilesTouchedSection files={trace.files_touched} runId={trace.session_id} />
       </div>
 
       {trace.commands_run.length > 0 && (

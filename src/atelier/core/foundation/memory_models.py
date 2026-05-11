@@ -94,7 +94,7 @@ class MemoryRecall(BaseModel):
 class RunMemoryFrame(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    run_id: str
+    session_id: str
     pinned_blocks: list[str]
     recalled_passages: list[str]
     summarized_events: list[str]

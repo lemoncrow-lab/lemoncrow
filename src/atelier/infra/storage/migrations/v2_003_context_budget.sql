@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS context_budget (
   id                   TEXT PRIMARY KEY,
-  run_id               TEXT NOT NULL,
+  session_id               TEXT NOT NULL,
   turn_index           INTEGER NOT NULL,
   model                TEXT NOT NULL,
   input_tokens         INTEGER NOT NULL,
@@ -11,6 +11,6 @@ CREATE TABLE IF NOT EXISTS context_budget (
   lever_savings_json   TEXT NOT NULL,
   tool_calls           INTEGER NOT NULL,
   created_at           TEXT NOT NULL,
-  UNIQUE (run_id, turn_index)
+  UNIQUE (session_id, turn_index)
 );
-CREATE INDEX IF NOT EXISTS ix_context_budget_run ON context_budget(run_id);
+CREATE INDEX IF NOT EXISTS ix_context_budget_run ON context_budget(session_id);

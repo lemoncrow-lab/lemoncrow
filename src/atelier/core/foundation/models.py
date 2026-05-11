@@ -12,7 +12,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
@@ -158,7 +158,7 @@ class Trace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    run_id: str | None = None
+    session_id: str | None = None
     agent: str
     domain: str
     task: str
@@ -186,6 +186,15 @@ class Trace(BaseModel):
     model: str = ""
     workspace_path: str | None = None
     created_at: datetime = Field(default_factory=_utcnow)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _consolidate_session_id(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            session_id = data.pop("session_id", None)
+            if session_id and not data.get("session_id"):
+                data["session_id"] = session_id
+        return data
 
     @classmethod
     def make_id(cls, task: str, agent: str, created_at: datetime | None = None) -> str:
@@ -221,6 +230,7 @@ class RawArtifact(BaseModel):
     redacted: bool = True
     created_at: datetime = Field(default_factory=_utcnow)
     source_file_mtime: datetime | None = None  # filesystem mtime when imported
+    source_path: str | None = None  # original filesystem path of the imported file
 
 
 # --------------------------------------------------------------------------- #

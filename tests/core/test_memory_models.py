@@ -71,7 +71,7 @@ def test_memory_model_defaults_use_uuid7_prefixes() -> None:
 
 def test_run_memory_frame_instantiates() -> None:
     frame = RunMemoryFrame(
-        run_id="run-1",
+        session_id="run-1",
         pinned_blocks=["mem-1"],
         recalled_passages=["pas-1"],
         summarized_events=["evt-1"],

@@ -84,8 +84,8 @@ class GeminiImporter:
 
     def import_session(self, jsonl_path: Path, *, force: bool = False) -> str | None:
         """Import a single Gemini session JSONL file. Returns trace ID on success."""
-        session_id = jsonl_path.stem.replace("session-", "")
-        artifact_id = f"gemini-{session_id}"
+        filename_session_id = jsonl_path.stem.replace("session-", "")
+        artifact_id = f"gemini-{filename_session_id}"
         file_mtime = datetime.fromtimestamp(jsonl_path.stat().st_mtime, tz=UTC)
 
         if not force:
@@ -96,10 +96,24 @@ class GeminiImporter:
         raw_content = jsonl_path.read_text(encoding="utf-8")
         redacted = redact(raw_content)
 
+        # Extract internal sessionId if available
+        actual_session_id = filename_session_id
+        for line in raw_content.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+                if "sessionId" in ev:
+                    actual_session_id = str(ev["sessionId"])
+                    break
+            except Exception:
+                continue
+
         artifact = RawArtifact(
             id=artifact_id,
             source="gemini",
-            source_session_id=session_id,
+            source_session_id=actual_session_id,
             kind="session.jsonl",
             relative_path=jsonl_path.name,
             content_path=f"raw/gemini/{jsonl_path.name}",
@@ -109,6 +123,7 @@ class GeminiImporter:
             byte_count_redacted=len(redacted.encode("utf-8")),
             created_at=_utcnow(),
             source_file_mtime=file_mtime,
+            source_path=str(jsonl_path),
         )
         self.store.record_raw_artifact(artifact, redacted)
 
@@ -237,7 +252,7 @@ class GeminiImporter:
 
         trace = Trace(
             id=artifact_id,
-            run_id=session_id,
+            session_id=actual_session_id,
             agent="atelier:code",
             host="gemini",
             domain="coding",

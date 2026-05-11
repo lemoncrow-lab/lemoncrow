@@ -214,7 +214,7 @@ def test_swebench_eval_skips_cleanly_when_missing(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr(ev, "is_available", lambda: False)
     p = tmp_path / "predictions.jsonl"
     p.write_text(json.dumps({"instance_id": "x", "model_name_or_path": "m", "model_patch": ""}) + "\n")
-    out = ev.evaluate(p, dataset_name="swe_bench_lite", run_id="t")
+    out = ev.evaluate(p, dataset_name="swe_bench_lite", session_id="t")
     assert out["status"] == "skipped"
 
 

@@ -67,13 +67,13 @@ class QualityRouterCapability:
         domain: str | None = None,
         step_type: StepType = "plan",
         step_index: int = 0,
-        run_id: str | None = None,
+        session_id: str | None = None,
         evidence_summary: Mapping[str, object] | None = None,
         ledger: RunLedger | None = None,
     ) -> RouteDecision:
         files = self._merge_changed_files(changed_files, ledger)
         request = AgentRequest(
-            run_id=run_id or (ledger.run_id if ledger is not None else None),
+            session_id=session_id or (ledger.session_id if ledger is not None else None),
             user_goal=user_goal,
             repo_root=repo_root,
             task_type=task_type,
@@ -113,7 +113,7 @@ class QualityRouterCapability:
         self,
         *,
         route_decision_id: str,
-        run_id: str,
+        session_id: str,
         changed_files: list[str] | None = None,
         validation_results: list[ValidationResult | dict[str, object]] | None = None,
         rubric_status: str = "not_run",
@@ -126,7 +126,7 @@ class QualityRouterCapability:
     ) -> VerificationEnvelope:
         return verify_route(
             route_decision_id=route_decision_id,
-            run_id=run_id,
+            session_id=session_id,
             changed_files=changed_files,
             validation_results=validation_results,
             rubric_status=rubric_status,  # type: ignore[arg-type]
@@ -195,7 +195,7 @@ class QualityRouterCapability:
 
         estimated_tokens = summary.get("estimated_input_tokens")
         if not isinstance(estimated_tokens, int):
-            estimated_tokens = self._latest_input_tokens(request.run_id) or self._estimate_input_tokens(
+            estimated_tokens = self._latest_input_tokens(request.session_id) or self._estimate_input_tokens(
                 request, len(reasonblock_refs)
             )
 
@@ -302,10 +302,10 @@ class QualityRouterCapability:
                     merged.append(path)
         return merged
 
-    def _latest_input_tokens(self, run_id: str | None) -> int | None:
-        if not run_id:
+    def _latest_input_tokens(self, session_id: str | None) -> int | None:
+        if not session_id:
             return None
-        budgets = self.store.list_context_budgets(run_id)
+        budgets = self.store.list_context_budgets(session_id)
         if not budgets:
             return None
         latest = budgets[-1]

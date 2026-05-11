@@ -48,7 +48,9 @@ def _timeout() -> float:
 
 
 def _bridge_store_path() -> Path:
-    root = Path(os.environ.get("ATELIER_ROOT", ".atelier"))
+    from atelier.core.foundation.paths import default_store_root
+
+    root = Path(os.environ.get("ATELIER_ROOT", str(default_store_root())))
     return root / "openmemory_bridge.json"
 
 

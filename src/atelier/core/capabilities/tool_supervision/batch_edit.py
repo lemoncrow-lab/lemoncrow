@@ -125,7 +125,7 @@ def apply_batch_edit(
         be rolled back from the backup.
     backup_base:
         Directory under which per-call backups are written.  Defaults to
-        ``.atelier/run/<run_id>/batch_edit_backup/`` relative to *repo_root*.
+        ``.atelier/run/<session_id>/batch_edit_backup/`` relative to *repo_root*.
     repo_root:
         Repository root.  Defaults to the process cwd.
 
@@ -136,9 +136,11 @@ def apply_batch_edit(
     if repo_root is None:
         repo_root = _repo_root()
 
-    run_id = str(uuid.uuid4())
-    if backup_base is None:
-        backup_base = repo_root / ".atelier" / "run" / run_id / "batch_edit_backup"
+    session_id = str(uuid.uuid4())
+    if backup_base is None and session_id:
+        from atelier.core.foundation.paths import default_store_root
+
+        backup_base = default_store_root() / "backups" / "batch_edit" / session_id
 
     # Collect unique paths we will touch.
     paths_to_touch: list[Path] = []

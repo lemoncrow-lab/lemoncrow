@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 PY_PATHS := src tests
-ATELIER_STORE ?= $(CURDIR)/.atelier
+ATELIER_STORE ?= $(HOME)/.atelier
 FORCE_ARG := $(if $(f),--force,)
 
 .PHONY: help install uninstall status start restart \

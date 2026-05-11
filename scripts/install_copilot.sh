@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install_copilot.sh — Install Atelier into VS Code Copilot Chat
+# install_copilot.sh — Install Atelier into Copilot Chat
 #
 # What it does:
 #   Global mode: installs VS Code MCP/user instructions in the user profile.
@@ -11,7 +11,7 @@
 #   --workspace DIR  Install project-local artifacts into DIR instead of global user config
 #   --strict       Exit nonzero if 'code' CLI not on PATH
 #
-# Note: VS Code Copilot does not have a standalone CLI; 'code' (VS Code) is
+# Note: Copilot does not have a standalone CLI; 'code' (VS Code) is
 # used as the proxy check. If 'code' is absent, gracefully skip.
 
 set -euo pipefail
@@ -102,7 +102,7 @@ if $WORKSPACE_SET; then
       "args": [],
       "env": {
         "ATELIER_WORKSPACE_ROOT": "${WORKSPACE}",
-        "ATELIER_ROOT": "${WORKSPACE}/.atelier"
+        "ATELIER_ROOT": "${HOME}/.atelier"
       }
     }
   }
@@ -127,7 +127,7 @@ fi
 # ---- print-only mode --------------------------------------------------------
 if $PRINT_ONLY; then
     echo ""
-    echo "=== Atelier VS Code Copilot - Manual Install Steps ==="
+    echo "=== Atelier Copilot - Manual Install Steps ==="
     echo ""
     echo "Scope: ${INSTALL_SCOPE}"
     echo ""

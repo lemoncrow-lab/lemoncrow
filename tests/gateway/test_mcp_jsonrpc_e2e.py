@@ -61,7 +61,9 @@ def _payload(response: dict[str, Any]) -> dict[str, Any]:
 
 
 def _session_state(workspace: Path) -> dict[str, Any]:
-    path = workspace / ".atelier" / "session_state.json"
+    from atelier.core.foundation.paths import resolve_session_state_path
+
+    path = resolve_session_state_path(workspace)
     assert path.exists(), f"missing session state at {path}"
     data = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(data, dict)
@@ -405,14 +407,14 @@ def test_read_search_edit_and_memory_summary_e2e(mcp_env: Path) -> None:
     assert non_atomic["failed"]
     assert partial.read_text(encoding="utf-8") == "OK\n"
 
-    run_id = str(_session_state(mcp_env)["active_run_id"])
-    summary = _payload(_call("memory", {"op": "summarize", "run_id": run_id}))
+    session_id = str(_session_state(mcp_env)["active_session_id"])
+    summary = _payload(_call("memory", {"op": "summarize", "session_id": session_id}))
     assert summary["tokens_pre"] >= summary["tokens_post"]
-    assert run_id in summary["summary_md"]
+    assert session_id in summary["summary_md"]
 
-    frame = SqliteMemoryStore(mcp_env / ".atelier").get_run_frame(run_id)
+    frame = SqliteMemoryStore(mcp_env / ".atelier").get_run_frame(session_id)
     assert frame is not None
-    assert frame.run_id == run_id
+    assert frame.session_id == session_id
 
 
 def test_edit_atomic_rollback_e2e(mcp_env: Path) -> None:
@@ -593,8 +595,8 @@ def test_lint_route_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
     assert "should_compact" in compact_advise
     assert "suggested_prompt" in compact_advise
 
-    run_id = str(_session_state(mcp_env)["active_run_id"])
-    compact_session = _payload(_call("compact", {"op": "session", "run_id": run_id}))
+    session_id = str(_session_state(mcp_env)["active_session_id"])
+    compact_session = _payload(_call("compact", {"op": "session", "session_id": session_id}))
     assert "prompt_block" in compact_session
     assert "realtime" in compact_session
 
@@ -617,7 +619,7 @@ def test_lint_route_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
         )
     )
     assert trace["id"]
-    assert trace["run_id"] == run_id
+    assert trace["session_id"] == session_id
 
     stored_trace = SQLiteStore(mcp_env / ".atelier").get_trace(trace["id"])
     assert stored_trace is not None

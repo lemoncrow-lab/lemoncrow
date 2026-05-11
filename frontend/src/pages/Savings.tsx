@@ -444,14 +444,15 @@ export default function Savings() {
               </div>
               {sessionProof.map((session) => (
                 <SessionProofCard
-                  key={session.run_id}
+                  key={session.session_id}
                   session={session}
-                  expanded={Boolean(expandedRuns[session.run_id])}
-                  loading={Boolean(ledgerLoading[session.run_id])}
-                  ledger={ledgerByRun[session.run_id]}
-                  onToggle={() => loadLedger(session.run_id)}
+                  expanded={Boolean(expandedRuns[session.session_id])}
+                  loading={Boolean(ledgerLoading[session.session_id])}
+                  ledger={ledgerByRun[session.session_id]}
+                  onToggle={() => loadLedger(session.session_id)}
                 />
               ))}
+
             </section>
           )}
 
@@ -463,7 +464,7 @@ export default function Savings() {
               <div className="space-y-3">
                 {coverageGaps.map((gap) => (
                   <div
-                    key={gap.run_id}
+                    key={gap.session_id}
                     className="border border-red-900/20 bg-neutral-950/40 p-4"
                   >
                     <div className="flex flex-wrap items-center gap-2 mb-2 text-[10px] font-mono uppercase tracking-widest">
@@ -475,7 +476,7 @@ export default function Savings() {
                           {gap.trace_confidence}
                         </span>
                       )}
-                      <span className="text-neutral-500">{gap.run_id}</span>
+                      <span className="text-neutral-500">{gap.session_id}</span>
                     </div>
                     <div className="text-sm text-neutral-200">{gap.task}</div>
                     <p className="mt-2 text-xs text-neutral-400 leading-relaxed">
@@ -599,8 +600,9 @@ function ManualVerificationPanel({
                 tokens
               </div>
               <div className="text-xs text-neutral-400 font-mono break-all">
-                {dominantRun.run_id}
+                {dominantRun.session_id}
               </div>
+
               <div className="text-sm text-neutral-300">
                 {dominantRun.agent ?? "unknown"}
               </div>
@@ -633,8 +635,9 @@ function ManualVerificationPanel({
                 {dominantItem.turn_index}
               </div>
               <div className="text-xs text-neutral-400 font-mono break-all">
-                {dominantItem.run_id}
+                {dominantItem.session_id}
               </div>
+
               <div className="text-xs text-neutral-400 leading-relaxed">
                 {fmt.format(dominantItem.saved_tokens)} saved tokens from{" "}
                 {fmt.format(dominantItem.naive_tokens)} naive vs{" "}
@@ -728,7 +731,7 @@ function SessionProofCard({
             {session.task}
           </div>
           <div className="text-[10px] font-mono text-neutral-500 break-all">
-            {session.run_id}
+            Session: {session.session_id}
           </div>
           {session.note && (
             <p className="text-xs text-amber-300/90 leading-relaxed">
@@ -773,7 +776,7 @@ function SessionProofCard({
           <tbody>
             {session.items.map((item) => (
               <tr
-                key={`${item.run_id}:${item.turn_index}:${item.tool_name}`}
+                key={`${item.session_id}:${item.turn_index}:${item.tool_name}`}
                 className="border-t border-neutral-900 text-neutral-300"
               >
                 <td className="py-2 pr-4 font-mono text-neutral-500">

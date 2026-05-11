@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import sys
 import uuid
 from contextlib import suppress
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def config_dir() -> Path:
@@ -30,7 +33,10 @@ def get_anon_id() -> str:
             uuid.UUID(value)
             return value
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at identity.py:32",
+            exc_info=True,
+        )
     anon_id = str(uuid.uuid4())
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(anon_id + "\n", encoding="utf-8")

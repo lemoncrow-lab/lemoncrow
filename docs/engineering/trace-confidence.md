@@ -13,17 +13,17 @@ provides.
 | `mcp_live`     | Atelier MCP tool calls and tool outputs are captured; native host edits, commands, or compaction events may be incomplete.                       |
 | `wrapper_live` | Wrapper captures task start/end and validation results, but not every native host event.                                                         |
 | `imported`     | Host session data is imported after the run via a session importer (e.g., opencode SQLite DB or Claude JSONL).                                   |
-| `manual`       | Agent calls `trace` with observable facts only. No live event stream is available.                                                |
+| `manual`       | Agent calls `trace` with observable facts only. No live event stream is available.                                                               |
 
 ## Host Confidence Map
 
-| Host            | Primary confidence          | Fallback confidence | Required capture_sources for primary | Missing surfaces when fallback               |
-| --------------- | --------------------------- | ------------------- | ------------------------------------ | -------------------------------------------- |
-| Claude Code     | `full_live`                 | `mcp_live`          | `hooks` or `plugin_hooks`            | `hooks`, `bash_outputs`, `file_edits`        |
-| Codex CLI       | `mcp_live` + `wrapper_live` | `manual`            | `mcp`, `wrapper`                     | `bash_outputs`, `file_edits`, `native_shell` |
-| VS Code Copilot | `mcp_live`                  | `manual`            | `mcp`                                | `native_chat_edits`, `file_edits`            |
-| opencode        | `mcp_live` + `imported`     | `manual`            | `mcp`, `session_import`              | `native_events`                              |
-| Gemini CLI      | `mcp_live`                  | `manual`            | `mcp`                                | `native_events`, `bash_outputs`              |
+| Host        | Primary confidence          | Fallback confidence | Required capture_sources for primary | Missing surfaces when fallback               |
+| ----------- | --------------------------- | ------------------- | ------------------------------------ | -------------------------------------------- |
+| Claude Code | `full_live`                 | `mcp_live`          | `hooks` or `plugin_hooks`            | `hooks`, `bash_outputs`, `file_edits`        |
+| Codex CLI   | `mcp_live` + `wrapper_live` | `manual`            | `mcp`, `wrapper`                     | `bash_outputs`, `file_edits`, `native_shell` |
+| Copilot     | `mcp_live`                  | `manual`            | `mcp`                                | `native_chat_edits`, `file_edits`            |
+| opencode    | `mcp_live` + `imported`     | `manual`            | `mcp`, `session_import`              | `native_events`                              |
+| Gemini CLI  | `mcp_live`                  | `manual`            | `mcp`                                | `native_events`, `bash_outputs`              |
 
 ## Metadata Fields
 

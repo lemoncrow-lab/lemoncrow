@@ -22,7 +22,7 @@ describe("RunInspectorDrawer", () => {
         if (url.includes("/api/ledgers/run-123")) {
           return Promise.resolve(
             jsonResponse({
-              run_id: "run-123",
+              session_id: "run-123",
               active_reasonblocks: ["block.alpha", "block.beta"],
               events: [
                 {
@@ -50,7 +50,7 @@ describe("RunInspectorDrawer", () => {
 
     const trace = {
       id: "trace-1",
-      run_id: "run-123",
+      session_id: "run-123",
       agent: "atelier:code",
       task: "Inspect this run",
       status: "success",

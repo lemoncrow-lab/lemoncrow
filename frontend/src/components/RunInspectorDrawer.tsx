@@ -7,7 +7,7 @@ interface RunInspectorDrawerProps {
   onClose: () => void;
 }
 
-function parseInspectorData(runId: string, ledger: any): RunInspectorData {
+function parseInspectorData(sessionId: string, ledger: any): RunInspectorData {
   const events: any[] = Array.isArray(ledger?.events) ? ledger.events : [];
 
   const recalled = events
@@ -58,7 +58,7 @@ function parseInspectorData(runId: string, ledger: any): RunInspectorData {
   }, 0);
 
   return {
-    run_id: runId,
+    session_id: sessionId,
     pinned_blocks: Array.isArray(ledger?.active_reasonblocks)
       ? ledger.active_reasonblocks
       : [],
@@ -66,6 +66,7 @@ function parseInspectorData(runId: string, ledger: any): RunInspectorData {
     summarized_events_count: summarizedEventsCount,
     tokens_pre: tokensPre,
     tokens_post: tokensPost,
+    source_paths: Array.isArray(ledger?.source_paths) ? ledger.source_paths : [],
     conversations: Array.isArray(ledger?.conversations)
       ? ledger.conversations
       : [],
@@ -90,12 +91,12 @@ export default function RunInspectorDrawer({
     api
       .ledger(trace.id)
       .then((ledger) => {
-        setData(parseInspectorData(trace.id, ledger));
+        setData(parseInspectorData(trace.session_id || trace.id, ledger));
       })
       .catch((err) => {
         setError(String(err));
         setData({
-          run_id: trace.id,
+          session_id: trace.session_id || trace.id,
           pinned_blocks: [],
           recalled_passages: [],
           summarized_events_count: 0,
@@ -133,8 +134,7 @@ export default function RunInspectorDrawer({
               {title}
             </h2>
             <div className="flex gap-4 text-[10px] text-neutral-500 mt-1 font-mono uppercase tracking-widest">
-              {trace.run_id && <span>Run: {trace.run_id}</span>}
-              <span>Trace: {trace.id}</span>
+              {trace.session_id && <span>Session: {trace.session_id}</span>}
             </div>
           </div>
           <button
@@ -195,6 +195,28 @@ export default function RunInspectorDrawer({
                 </div>
               </div>
             </section>
+
+            {data.source_paths && data.source_paths.length > 0 && (
+              <section>
+                <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 mb-2">
+                  Source Files
+                </h3>
+                <ul className="space-y-1">
+                  {data.source_paths.map((p) => (
+                    <li key={p} className="flex items-center gap-2">
+                      <span className="text-[11px] text-neutral-300 font-mono break-all">{p}</span>
+                      <button
+                        type="button"
+                        className="text-[9px] text-amber-400/60 hover:text-amber-300 shrink-0 underline"
+                        onClick={() => navigator.clipboard.writeText(p)}
+                      >
+                        copy
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
             <section>
               <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 mb-2">

@@ -47,7 +47,7 @@ def test_route_decide_high_risk_routes_premium(tmp_path: Path) -> None:
 
 def test_route_decide_repeated_failure_forces_premium(tmp_path: Path) -> None:
     rt = _runtime(tmp_path)
-    ledger = RunLedger(root=tmp_path / ".atelier", run_id="run-repeat")
+    ledger = RunLedger(root=tmp_path / ".atelier", session_id="run-repeat")
     ledger.repeated_failures.append("same-error-signature")
 
     decision = rt.route_decide(
@@ -57,7 +57,7 @@ def test_route_decide_repeated_failure_forces_premium(tmp_path: Path) -> None:
         risk_level="low",
         changed_files=["docs/notes.md"],
         step_type="plan",
-        run_id=ledger.run_id,
+        session_id=ledger.session_id,
         evidence_summary={"confidence": 0.95, "estimated_input_tokens": 180},
         ledger=ledger,
     )

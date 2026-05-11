@@ -288,7 +288,9 @@ class ToolSupervisionCapability:
         return breaker
 
     def _git_head(self) -> str:
-        workspace = self._root.parent if self._root.name == ".atelier" else self._root
+        from atelier.core.foundation.paths import resolve_workspace_root
+
+        workspace = resolve_workspace_root(self._root)
         try:
             result = subprocess.run(
                 ["git", "-C", str(workspace), "rev-parse", "HEAD"],

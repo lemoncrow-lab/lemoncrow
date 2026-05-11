@@ -17,6 +17,7 @@ transcript JSONL at `transcript_path`.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import os
@@ -43,8 +44,12 @@ CODE_EDITING_TOOLS: frozenset[str] = frozenset(
 
 
 def _state_path() -> Path:
+    import hashlib
+
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier" / "session_state.json"
+    h = hashlib.sha256(str(Path(workspace).resolve()).encode("utf-8")).hexdigest()[:12]
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _load_state() -> dict:  # type: ignore[type-arg]
@@ -69,17 +74,16 @@ def _atelier_root() -> Path:
         return Path(root)
     if state.get("atelier_root"):
         return Path(state["atelier_root"])
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier"
+    return Path.home() / ".atelier"
 
 
 def _write_token_event(stats: dict) -> None:  # type: ignore[type-arg]
     """Append a session_stats note event to the active run file."""
     state = _load_state()
-    run_id: str | None = state.get("active_run_id")
-    if not run_id:
+    session_id: str | None = state.get("active_session_id")
+    if not session_id:
         return
-    run_file = _atelier_root() / "runs" / f"{run_id}.json"
+    run_file = _atelier_root() / "runs" / f"{session_id}.json"
     if not run_file.exists():
         return
     try:
@@ -103,9 +107,7 @@ def _write_token_event(stats: dict) -> None:  # type: ignore[type-arg]
                 "total_tokens": stats["total_tokens"],
                 "est_cost_usd": stats["est_cost_usd"],
                 "tool_calls": stats["tool_calls"],
-                "top_tools": dict(
-                    sorted(stats["tools_used"].items(), key=lambda x: -x[1])[:8]
-                ),
+                "top_tools": dict(sorted(stats["tools_used"].items(), key=lambda x: -x[1])[:8]),
                 "event": "Stop",
             },
         }
@@ -126,10 +128,8 @@ def _write_token_event(stats: dict) -> None:  # type: ignore[type-arg]
         Path(tmp_path).replace(run_file)
     except Exception:
         if tmp_path:
-            try:
+            with contextlib.suppress(Exception):
                 Path(tmp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
 
 
 def _trace_recorded(session_id: str) -> bool:
@@ -260,10 +260,8 @@ def main() -> int:
 
     # ── Always write token/cost summary to RunLedger (fail-open) ─────────────
     if stats and stats.get("total_tokens", 0) > 0:
-        try:
+        with contextlib.suppress(Exception):
             _write_token_event(stats)
-        except Exception:
-            pass
 
     # ── Smart detection: discussion vs task session ──────────────────────────
     # If no code-editing tools were used, this was a discussion or exploration

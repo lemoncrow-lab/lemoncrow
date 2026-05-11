@@ -47,7 +47,7 @@ configured for it — that's the user's choice and bill, not Atelier's.)
   - `record_recall` → Letta passage metadata update + Atelier-side `MemoryRecall` row (kept
     locally for trace continuity)
 - **EDIT:** `src/atelier/infra/memory_bridges/letta_adapter.py` — implement metadata
-  carry-overs from data-model § 4 (`atelier_run_id`, `atelier_last_recall_at`,
+  carry-overs from data-model § 4 (`atelier_session_id`, `atelier_last_recall_at`,
   `atelier_dedup_hash`).
 - **EDIT:** `src/atelier/infra/storage/factory.py` — when `backend=letta`, instantiate
   `LettaMemoryStore` from `letta_adapter`; do not also instantiate `SqliteMemoryStore`.

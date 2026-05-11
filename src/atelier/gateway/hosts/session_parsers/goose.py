@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +18,8 @@ from atelier.gateway.hosts.session_parsers._common import (
     make_user_message,
     record_normalized_session,
 )
+
+logger = logging.getLogger(__name__)
 
 _TOOL_NAME_MAP = {
     "developer__shell": "bash",
@@ -85,7 +88,10 @@ class GooseImporter:
                 config = json.loads(raw_config)
                 model = str(config.get("model_name") or model)
             except json.JSONDecodeError:
-                pass
+                logger.warning(
+                    "Suppressed exception at goose.py:87",
+                    exc_info=True,
+                )
 
         user_message = ""
         user_row = conn.execute(
@@ -100,7 +106,10 @@ class GooseImporter:
                         user_message = str(item.get("text") or "")[:500]
                         break
             except json.JSONDecodeError:
-                pass
+                logger.warning(
+                    "Suppressed exception at goose.py:102",
+                    exc_info=True,
+                )
 
         tool_calls: list[dict[str, Any]] = []
         assistant_rows = conn.execute(

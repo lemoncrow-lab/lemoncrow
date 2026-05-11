@@ -67,7 +67,7 @@ The gateway normalizes host input into a small routing object:
 ```ts
 type AgentRequest = &#123;
   id: string;
-  run_id?: string;
+  session_id?: string;
   user_goal: string;
   repo_root: string;
   task_type:

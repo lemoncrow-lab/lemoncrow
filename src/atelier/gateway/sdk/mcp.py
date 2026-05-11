@@ -194,8 +194,8 @@ class MCPClient(LocalClient):
         )
         return MemoryRecallResult.model_validate(payload)
 
-    def memory_summary(self, *, run_id: str) -> dict[str, Any]:
-        return self._transport.call_tool("memory", {"op": "summarize", "run_id": run_id})
+    def memory_summary(self, *, session_id: str) -> dict[str, Any]:
+        return self._transport.call_tool("memory", {"op": "summarize", "session_id": session_id})
 
     def route(self, *, op: str, **kwargs: Any) -> dict[str, Any]:
         return self._transport.call_tool("route", {"op": op, **kwargs})
@@ -271,5 +271,5 @@ class MCPClient(LocalClient):
                 "validation_results": [result.model_dump(mode="json") for result in (validation_results or [])],
             },
         )
-        payload = {"id": str(payload.get("id") or payload.get("run_id") or "")}
+        payload = {"id": str(payload.get("id") or payload.get("session_id") or "")}
         return TraceRecordResult.model_validate(payload)

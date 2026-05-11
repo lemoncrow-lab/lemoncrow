@@ -238,6 +238,7 @@ class ClaudeImporter:
                 byte_count_redacted=len(redacted.encode("utf-8")),
                 created_at=_utcnow(),
                 source_file_mtime=datetime.fromtimestamp(f_path.stat().st_mtime, tz=UTC),
+                source_path=str(f_path),
             )
             self.store.record_raw_artifact(art, redacted)
             artifact_ids.append(art.id)
@@ -401,7 +402,7 @@ class ClaudeImporter:
 
         trace = Trace(
             id=artifact_id,
-            run_id=session_id,
+            session_id=session_id,
             agent="atelier:code",
             host="claude",
             domain="coding",

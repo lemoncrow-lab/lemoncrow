@@ -332,7 +332,7 @@ class AtelierRuntimeCore:
         domain: str | None = None,
         step_type: StepType = "plan",
         step_index: int = 0,
-        run_id: str | None = None,
+        session_id: str | None = None,
         evidence_summary: dict[str, Any] | None = None,
         ledger: RunLedger | None = None,
     ) -> RouteDecision:
@@ -348,7 +348,7 @@ class AtelierRuntimeCore:
                 domain=domain,
                 step_type=step_type,
                 step_index=step_index,
-                run_id=run_id,
+                session_id=session_id,
                 evidence_summary=evidence_summary,
                 ledger=ledger,
             ),
@@ -431,9 +431,9 @@ class AtelierRuntimeCore:
             "suggestion": suggestion,
         }
 
-    def summarize_memory(self, run_id: str | None = None) -> dict[str, Any]:
-        if run_id:
-            ledger_path = self.root / "runs" / f"{run_id}.json"
+    def summarize_memory(self, session_id: str | None = None) -> dict[str, Any]:
+        if session_id:
+            ledger_path = self.root / "runs" / f"{session_id}.json"
         else:
             runs_dir = self.root / "runs"
             paths = sorted(runs_dir.glob("*.json")) if runs_dir.is_dir() else []
@@ -445,7 +445,7 @@ class AtelierRuntimeCore:
         compressed = self.context_compression.compress(ledger)
         loops = self.loop_detection.from_ledger(ledger)
         compressed["loop_alerts"] = loops
-        compressed["run_id"] = ledger.run_id
+        compressed["session_id"] = ledger.session_id
         return cast(dict[str, Any], compressed)
 
     def benchmark_runtime_metrics(self) -> dict[str, Any]:
@@ -494,13 +494,13 @@ class AtelierRuntimeCore:
             emit_product(
                 "frustration_signal_behavioral",
                 signal_type="loop_detected",
-                session_id=getattr(ledger, "run_id", ""),
+                session_id=getattr(ledger, "session_id", ""),
             )
         return cast(dict[str, Any], report.to_dict())
 
-    def loop_report(self, run_id: str | None = None) -> dict[str, Any]:
+    def loop_report(self, session_id: str | None = None) -> dict[str, Any]:
         """Load the ledger and return a loop analysis report."""
-        ledger = self._load_ledger(run_id)
+        ledger = self._load_ledger(session_id)
         return self.detect_loop(ledger)
 
     # ------------------------------------------------------------------ #
@@ -523,9 +523,9 @@ class AtelierRuntimeCore:
     # Context compression helpers                                          #
     # ------------------------------------------------------------------ #
 
-    def context_report(self, run_id: str | None = None) -> dict[str, Any]:
+    def context_report(self, session_id: str | None = None) -> dict[str, Any]:
         """Return compression + provenance report for a run."""
-        ledger = self._load_ledger(run_id)
+        ledger = self._load_ledger(session_id)
         return cast(dict[str, Any], self.context_compression.context_report(ledger))
 
     # ------------------------------------------------------------------ #
@@ -641,7 +641,7 @@ class AtelierRuntimeCore:
                 emit_product(
                     "frustration_signal_behavioral",
                     signal_type="loop_detected",
-                    session_id=getattr(ledger, "run_id", ""),
+                    session_id=getattr(ledger, "session_id", ""),
                 )
                 loop_alert = {
                     "severity": report.severity,
@@ -756,9 +756,9 @@ class AtelierRuntimeCore:
     # Internal helpers                                                     #
     # ------------------------------------------------------------------ #
 
-    def _load_ledger(self, run_id: str | None = None) -> RunLedger:
-        if run_id:
-            ledger_path = self.root / "runs" / f"{run_id}.json"
+    def _load_ledger(self, session_id: str | None = None) -> RunLedger:
+        if session_id:
+            ledger_path = self.root / "runs" / f"{session_id}.json"
         else:
             runs_dir = self.root / "runs"
             paths = sorted(runs_dir.glob("*.json")) if runs_dir.is_dir() else []

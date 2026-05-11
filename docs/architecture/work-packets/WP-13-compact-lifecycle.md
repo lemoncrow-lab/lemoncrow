@@ -38,7 +38,7 @@ memory blocks re-injected.
 
 ## How to execute
 
-1. Add `compact(run_id)` MCP tool. Output:
+1. Add `compact(session_id)` MCP tool. Output:
 
    ```json
    &#123;
@@ -60,7 +60,7 @@ memory blocks re-injected.
 2. Implement the pre-compact hook (`compact.py`):
    - On every Claude `/compact` event, query `compact` and emit a chat message with
      the suggested preservation list.
-   - Persist the manifest to `.atelier/run/<run_id>/compact_manifest.json`.
+   - Persist the manifest to `.atelier/run/<session_id>/compact_manifest.json`.
 
 3. Implement the post-compact hook (same file, different handler):
    - Read the manifest.

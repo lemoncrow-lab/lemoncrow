@@ -40,8 +40,12 @@ def _is_risky(path: str) -> bool:
 
 
 def _state_path() -> Path:
+    import hashlib
+
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier" / "session_state.json"
+    h = hashlib.sha256(str(Path(workspace).resolve()).encode("utf-8")).hexdigest()[:12]
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _recent_plan_check_ok() -> bool:

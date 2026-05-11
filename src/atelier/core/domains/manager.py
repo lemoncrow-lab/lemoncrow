@@ -7,12 +7,15 @@ built-in (shipped with Atelier source) or stored in the user's domains root.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from atelier.core.domains.loader import DomainLoader
 from atelier.core.domains.models import DomainBundle, DomainBundleRef, bundle_manifest_path
 from atelier.core.foundation.models import ReasonBlock
+
+logger = logging.getLogger(__name__)
 
 
 class DomainManager:
@@ -103,13 +106,19 @@ class DomainManager:
             try:
                 return self.loader.load(user_path), user_path
             except Exception:
-                pass
+                logger.warning(
+                    "Suppressed exception at manager.py:105",
+                    exc_info=True,
+                )
 
         builtin_path = DomainLoader.BUILTIN_ROOT / bundle_id
         if bundle_manifest_path(builtin_path).exists():
             try:
                 return self.loader.load(builtin_path), builtin_path
             except Exception:
-                pass
+                logger.warning(
+                    "Suppressed exception at manager.py:112",
+                    exc_info=True,
+                )
 
         return None, None

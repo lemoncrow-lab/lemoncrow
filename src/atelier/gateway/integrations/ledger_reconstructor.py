@@ -23,7 +23,7 @@ class LedgerReconstructor:
     ) -> RunLedger:
         """Parse raw session content and build a fully populated RunLedger."""
         led = RunLedger(
-            run_id=session_id,
+            session_id=session_id,
             agent=source,
             task=task,
             domain=domain,

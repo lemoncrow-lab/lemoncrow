@@ -61,7 +61,7 @@ The plugin provides 4 agents selectable via `claude --agent`:
 
 | Command                               | Description                                                  |
 | ------------------------------------- | ------------------------------------------------------------ |
-| `/atelier:status [run_id]`            | Show current run plan, facts, blockers, alerts               |
+| `/atelier:status [session_id]`        | Show current run plan, facts, blockers, alerts               |
 | `/atelier:context <domain>`           | Resolve environment rules and required validations           |
 | `/atelier:savings`                    | Calls avoided, tokens saved, rubric failures caught          |
 | `/atelier:benchmark [--apply]`        | Run eval suite (dry-run by default)                          |
@@ -115,7 +115,7 @@ When Claude Code compacts the conversation, Atelier preserves critical runtime s
    - **Top ReasonBlocks** to preserve (max 3)
    - **Pinned memory blocks** for the agent
    - **Recently edited files** (last 5)
-3. The hook persists this manifest to `.atelier/runs/<run_id>/compact_manifest.json`.
+3. The hook persists this manifest to `.atelier/runs/<session_id>/compact_manifest.json`.
 4. The manifest survives the host's compaction.
 
 **Post-Compact Lifecycle:**
@@ -130,7 +130,7 @@ When Claude Code compacts the conversation, Atelier preserves critical runtime s
 ```json
 &#123;
   "created_at": "2026-05-03T17:44:00+00:00",
-  "run_id": "abc123def456",
+  "session_id": "abc123def456",
   "should_compact": true,
   "utilisation_pct": 68.5,
   "preserve_blocks": ["block_auth_001", "block_db_config_002"],

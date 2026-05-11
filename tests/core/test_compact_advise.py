@@ -142,7 +142,7 @@ class TestCompactManifestPersistence:
 
         manifest = {
             "created_at": datetime.now(UTC).isoformat(),
-            "run_id": "test_run_123",
+            "session_id": "test_run_123",
             "should_compact": True,
             "utilisation_pct": 62.5,
             "preserve_blocks": ["block_a", "block_b"],
@@ -156,7 +156,7 @@ class TestCompactManifestPersistence:
 
         # Read back and verify
         read_manifest = json.loads(manifest_path.read_text("utf-8"))
-        assert read_manifest["run_id"] == "test_run_123"
+        assert read_manifest["session_id"] == "test_run_123"
         assert read_manifest["should_compact"] is True
         assert read_manifest["utilisation_pct"] == 62.5
         assert len(read_manifest["preserve_blocks"]) == 2

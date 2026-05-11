@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def _atelier_root() -> Path:
-    return Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or ".atelier")
+    return Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
 
 
 def main() -> int:

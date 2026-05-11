@@ -171,7 +171,7 @@ DO NOT:
 ### atelier:repair (Repair Specialist)
 
 ```
-1. call reasoning({run_id: "" | "specific_id"})
+1. call reasoning({session_id: "" | "specific_id"})
    → Extract: current_plan, verified_facts, hypotheses_tried,
               hypotheses_rejected, errors
 
@@ -191,7 +191,7 @@ DO NOT:
 
 6. IF still fails same way:
    call trace({
-     run_id: same,
+     session_id: same,
      add_hypothesis: {
        hypothesis: "...",
        rejected: true,
@@ -296,7 +296,7 @@ DO NOT:
       },
       "output": {
         "id": "trace_id",
-        "run_id": "run_id"
+        "session_id": "session_id"
       },
       "use_when": "Task complete, failed, or partial"
     },
@@ -332,13 +332,13 @@ DO NOT:
   "extended_tools": [
     {
       "name": "reasoning",
-      "input": {"run_id": "string (optional)"},
-      "output": {"ledger": {"run_id", "task", "plan", "verified_facts", "hypotheses_tried", "hypotheses_rejected", "blockers", "errors"}}
+      "input": {"session_id": "string (optional)"},
+      "output": {"ledger": {"session_id", "task", "plan", "verified_facts", "hypotheses_tried", "hypotheses_rejected", "blockers", "errors"}}
     },
     {
       "name": "trace",
       "input": {
-        "run_id": "string",
+        "session_id": "string",
         "set_plan": ["string"],
         "add_hypothesis": {"hypothesis": "string", "rejected": "bool", "reason": "string"},
         "record_test": {"name": "string", "passed": "bool", "output": "string"},
@@ -362,7 +362,7 @@ DO NOT:
     },
     {
       "name": "compact",
-      "input": {"run_id": "string"},
+      "input": {"session_id": "string"},
       "output": {"summary": "string"}
     },
     {
@@ -427,7 +427,7 @@ DO NOT:
     },
     {
       "name": "memory",
-      "input": {"run_id": "string"},
+      "input": {"session_id": "string"},
       "output": {"tokens_pre": "int", "tokens_post": "int", "summary_md": "string", "evicted_event_ids": ["string"]},
       "use_when": "Summarize and compact the run's sleeptime memory (reduces context window)"
     }
@@ -491,7 +491,7 @@ DO NOT:
     },
     {
       "name": "compact",
-      "input": {"run_id": "string"},
+      "input": {"session_id": "string"},
       "output": {"should_compact": "bool", "preserve_blocks": ["string"], "pin_memory": ["string"], "suggested_prompt": "string"},
       "use_when": "Get advice before triggering host-native /compact — Atelier preserves runtime facts for re-injection",
       "boundary": "Host-native /compact stays owned by the host; Atelier only advises and reinjects facts"

@@ -9,7 +9,7 @@ INTEGRATIONS_MATRIX = DOCS_ROOT / "integrations" / "host-matrix.md"
 SUPPORTED_HOSTS = [
     "Claude Code",
     "Codex CLI",
-    "VS Code Copilot",
+    "Copilot",
     "opencode",
     "Gemini CLI",
 ]

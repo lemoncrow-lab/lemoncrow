@@ -364,10 +364,15 @@ class AtelierClient(ABC):
     def mcp(
         cls,
         *,
-        root: str = ".atelier",
+        root: str | None = None,
         transport: MCPToolTransport | None = None,
     ) -> MCPClient:
         from atelier.gateway.sdk.mcp import MCPClient
+
+        if root is None:
+            from atelier.core.foundation.paths import default_store_root
+
+            root = str(default_store_root())
 
         return MCPClient(root=root, transport=transport)
 

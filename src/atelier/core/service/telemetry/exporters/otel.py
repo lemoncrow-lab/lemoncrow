@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any
 
-_LOGGER: logging.Logger | None = None
+logger: logging.Logger | None = None
 _PROVIDER: Any = None
 _last_check_failed_at: float | None = None
 """Timestamp (monotonic) of the last failed TCP check, or None."""
@@ -72,10 +72,10 @@ _apply_silence()
 
 
 def init_otel(*, endpoint: str = "http://localhost:4318", service_version: str = "0.1.0") -> bool:
-    global _LOGGER, _PROVIDER, _last_check_failed_at
+    global logger, _PROVIDER, _last_check_failed_at
     import time as _time
 
-    if _LOGGER is not None:
+    if logger is not None:
         return True
 
     # Negative cache: if we recently failed a TCP check, skip retrying for a
@@ -89,7 +89,7 @@ def init_otel(*, endpoint: str = "http://localhost:4318", service_version: str =
     # reachable.  This prevents two kinds of noise at startup:
     #   • force_flush() timeout warnings during shutdown
     #   • "Exception while exporting logs" tracebacks from the worker thread
-    # If the check fails, _LOGGER stays None and the next emit retries.
+    # If the check fails, logger stays None and the next emit retries.
     endpoint_ok = _check_endpoint_reachable(endpoint)
     if not endpoint_ok:
         _last_check_failed_at = _time.monotonic()
@@ -134,7 +134,7 @@ def init_otel(*, endpoint: str = "http://localhost:4318", service_version: str =
     logger.propagate = False
     if not any(isinstance(handler, LoggingHandler) for handler in logger.handlers):
         logger.addHandler(LoggingHandler(level=logging.DEBUG, logger_provider=provider))
-    _LOGGER = logger
+    logger = logger
     _PROVIDER = provider
     _last_check_failed_at = None  # clear negative cache
     # Silence any OTel loggers that were created during the imports above.
@@ -167,12 +167,12 @@ def _check_endpoint_reachable(endpoint: str) -> bool:
 
 
 def emit_product_log(event_name: str, props: dict[str, Any]) -> bool:
-    if _LOGGER is None:
+    if logger is None:
         from atelier.core.service.telemetry.config import otel_endpoint
 
         if not init_otel(endpoint=otel_endpoint()):
             return False
-    if _LOGGER is None:
+    if logger is None:
         return False
     try:
         from opentelemetry._logs.severity import SeverityNumber
@@ -208,9 +208,9 @@ def emit_product_log(event_name: str, props: dict[str, Any]) -> bool:
 
 
 def shutdown_otel() -> None:
-    global _LOGGER, _PROVIDER, _last_check_failed_at
+    global logger, _PROVIDER, _last_check_failed_at
     provider = _PROVIDER
-    _LOGGER = None
+    logger = None
     _PROVIDER = None
     _last_check_failed_at = None  # clear negative cache
     if provider is not None:

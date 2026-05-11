@@ -17,7 +17,7 @@ from atelier.core.capabilities.context_compression.sleeptime import SleeptimeChu
 class _FakeLedger:
     """Minimal stub that looks like a RunLedger."""
 
-    run_id = "test-run-sleeptime"
+    session_id = "test-run-sleeptime"
     token_count = 0
     files_touched: ClassVar[list[str]] = []
     active_reasonblocks: ClassVar[list[str]] = []

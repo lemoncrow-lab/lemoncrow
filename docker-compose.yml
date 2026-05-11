@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile.api
     command:
-      ["atelier", "service", "start", "--host", "0.0.0.0", "--port", "8787"]
+      ["atelier", "service", "start", "--host", "0.0.0.0", "--port", "8787", "--reload"]
     ports:
       - "8787:8787"
     environment:
@@ -19,36 +19,42 @@ services:
       - ./src:/app/src
     restart: unless-stopped
 
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.100.0
-    command: ["--config=/etc/otelcol/config.yaml"]
-    environment:
-      - POSTHOG_OTLP_ENDPOINT=${POSTHOG_OTLP_ENDPOINT:-https://us.i.posthog.com/i/v0/otlp}
-      - POSTHOG_PROJECT_API_KEY=${POSTHOG_PROJECT_API_KEY:-}
-      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}
-    volumes:
-      - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
-    ports:
-      - "4318:4318"
-    restart: unless-stopped
+  # otel-collector:
+  #   image: otel/opentelemetry-collector-contrib:0.100.0
+  #   command: ["--config=/etc/otelcol/config.yaml"]
+  #   environment:
+  #     - POSTHOG_OTLP_ENDPOINT=${POSTHOG_OTLP_ENDPOINT:-https://us.i.posthog.com/i/v0/otlp}
+  #     - POSTHOG_PROJECT_API_KEY=${POSTHOG_PROJECT_API_KEY:-}
+  #     - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}
+  #   volumes:
+  #     - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+  #   ports:
+  #     - "4318:4318"
+  #   restart: unless-stopped
 
   frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
+    image: oven/bun:1
+    working_dir: /app
+    command: ["sh", "-c", "bun install && bun run dev"]
     ports:
       - "3125:3125"
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - VITE_API_URL=http://service:8787
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     restart: unless-stopped
     depends_on:
       service:
         condition: service_started
 
-  docs:
-    build:
-      context: .
-      dockerfile: docs-site/Dockerfile
-    ports:
-      - "3200:3200"
-    volumes:
-      - ./docs:/docs
-    restart: unless-stopped
+  # docs:
+  #   build:
+  #     context: .
+  #     dockerfile: docs-site/Dockerfile
+  #   ports:
+  #     - "3200:3200"
+  #   volumes:
+  #     - ./docs:/docs
+  #   restart: unless-stopped

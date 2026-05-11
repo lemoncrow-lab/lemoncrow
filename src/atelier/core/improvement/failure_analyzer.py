@@ -130,7 +130,7 @@ def analyze_failures(snapshots: list[dict[str, Any]]) -> list[FailureCluster]:
 
     clusters: list[FailureCluster] = []
     for index, ((env_id, fp), snaps) in enumerate(sorted(buckets.items())):
-        trace_ids = [s.get("run_id", "") for s in snaps if s.get("run_id")]
+        trace_ids = [s.get("session_id", "") for s in snaps if s.get("session_id")]
         sample_errors = [fp]
         suggested_block_title = f"Failure cluster: {fp[:80]}"
         suggested_rubric_check = f"observed_failure:{fp[:60]}"

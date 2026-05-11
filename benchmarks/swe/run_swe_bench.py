@@ -143,7 +143,7 @@ def cmd_evaluate(run_dir: str, mode: str | None, mock: bool) -> None:
             out[pf.stem] = mock_evaluate(pf, gold)
     else:
         for pf in pred_files:
-            out[pf.stem] = run_swebench_eval(pf, dataset_name=dataset_name, run_id=pf.stem)
+            out[pf.stem] = run_swebench_eval(pf, dataset_name=dataset_name, session_id=pf.stem)
 
     (rd / "evaluation.json").write_text(json.dumps(out, indent=2, sort_keys=True))
     click.echo(json.dumps(out, indent=2))
@@ -200,8 +200,9 @@ def cmd_measure_context_savings(suite_path: str | None, emit_json: bool) -> None
 
     Exits with code 1 when the aggregate reduction is below 50 %.
     """
-    from benchmarks.swe.savings_bench import run_savings_bench, _build_text_report
     from pathlib import Path as _Path
+
+    from benchmarks.swe.savings_bench import _build_text_report, run_savings_bench
 
     kw: dict[str, Any] = {}
     if suite_path is not None:

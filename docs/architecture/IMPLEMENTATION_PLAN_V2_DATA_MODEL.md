@@ -119,7 +119,7 @@ prove memory worked when reviewing a trace.
 
 | Field                 | Type        | Required | Notes                                |
 | --------------------- | ----------- | -------- | ------------------------------------ |
-| `run_id`              | `str`       | yes      | FK to existing run ledger            |
+| `session_id`          | `str`       | yes      | FK to existing run ledger            |
 | `pinned_blocks`       | `list[str]` | yes      | Block IDs in the system prompt       |
 | `recalled_passages`   | `list[str]` | yes      | Passage IDs returned to agent        |
 | `summarized_events`   | `list[str]` | yes      | Ledger event IDs that were compacted |
@@ -185,7 +185,7 @@ Per-turn snapshot, written by the MCP gateway after every tool call.
 | Field                | Type             | Required | Notes                                                                            |
 | -------------------- | ---------------- | -------- | -------------------------------------------------------------------------------- |
 | `id`                 | `str`            | yes      | `cb-<uuid7>`                                                                     |
-| `run_id`             | `str`            | yes      | FK to run ledger                                                                 |
+| `session_id`         | `str`            | yes      | FK to run ledger                                                                 |
 | `turn_index`         | `int`            | yes      | 0-based                                                                          |
 | `model`              | `str`            | yes      | E.g. `claude-opus-4.7`                                                           |
 | `input_tokens`       | `int`            | yes      | Prompt sent                                                                      |
@@ -216,7 +216,7 @@ Normalized host request used by the router.
 | Field           | Type                                                                           | Required | Default | Notes                                    |
 | --------------- | ------------------------------------------------------------------------------ | -------- | ------- | ---------------------------------------- |
 | `id`            | `str`                                                                          | yes      | —       | `req-<uuid7>`                            |
-| `run_id`        | `str \| None`                                                                  | no       | `null`  | Existing run ledger ID if known          |
+| `session_id`    | `str \| None`                                                                  | no       | `null`  | Existing run ledger ID if known          |
 | `user_goal`     | `str`                                                                          | yes      | —       | Redacted user-facing goal                |
 | `repo_root`     | `str`                                                                          | yes      | —       | Absolute or workspace-relative repo root |
 | `task_type`     | `Literal["debug","feature","refactor","test","explain","review","docs","ops"]` | yes      | —       | Router task class                        |
@@ -244,7 +244,7 @@ One route decision for one agent step.
 | Field                  | Type                                                                                                    | Required | Default | Notes                                      |
 | ---------------------- | ------------------------------------------------------------------------------------------------------- | -------- | ------- | ------------------------------------------ |
 | `id`                   | `str`                                                                                                   | yes      | —       | `rd-<uuid7>`                               |
-| `run_id`               | `str`                                                                                                   | yes      | —       | Run ledger ID                              |
+| `session_id`           | `str`                                                                                                   | yes      | —       | Run ledger ID                              |
 | `request_id`           | `str`                                                                                                   | no       | `""`    | `AgentRequest.id` if stored                |
 | `step_index`           | `int`                                                                                                   | yes      | —       | 0-based per run                            |
 | `step_type`            | `Literal["classify","compress","retrieve","plan","edit","debug","verify","summarize","lesson_extract"]` | yes      | —       |                                            |
@@ -268,7 +268,7 @@ commands itself.
 | --------------------- | ------------------------------------------ | -------- | --------- | --------------------------------------- |
 | `id`                  | `str`                                      | yes      | —         | `ve-<uuid7>`                            |
 | `route_decision_id`   | `str`                                      | yes      | —         | FK to `RouteDecision.id`                |
-| `run_id`              | `str`                                      | yes      | —         | Run ledger ID                           |
+| `session_id`          | `str`                                      | yes      | —         | Run ledger ID                           |
 | `changed_files`       | `list[str]`                                | no       | `[]`      | Observed diff scope                     |
 | `validation_results`  | `list[ValidationResult]`                   | no       | `[]`      | Existing model from `foundation.models` |
 | `rubric_status`       | `Literal["not_run","pass","warn","fail"]`  | no       | `not_run` |                                         |
@@ -283,7 +283,7 @@ Computed report object; persisted only when a benchmark run asks for a saved rep
 
 | Field                     | Type       | Required | Notes                                  |
 | ------------------------- | ---------- | -------- | -------------------------------------- |
-| `run_id`                  | `str`      | yes      | Benchmark or production run ID         |
+| `session_id`              | `str`      | yes      | Benchmark or production run ID         |
 | `cost_per_accepted_patch` | `float`    | yes      | Total cost / accepted patch count      |
 | `premium_call_rate`       | `float`    | yes      | Premium steps / routed steps           |
 | `cheap_success_rate`      | `float`    | yes      | Verified cheap successes / cheap tries |
@@ -363,7 +363,7 @@ CREATE TABLE memory_recall (
 );
 
 CREATE TABLE run_memory_frame (
-  run_id              TEXT PRIMARY KEY,
+  session_id              TEXT PRIMARY KEY,
   pinned_blocks       TEXT NOT NULL,
   recalled_passages   TEXT NOT NULL,
   summarized_events   TEXT NOT NULL,
@@ -410,7 +410,7 @@ CREATE TABLE lesson_promotion (
 -- v2_003_context_budget.sql
 CREATE TABLE context_budget (
   id                   TEXT PRIMARY KEY,
-  run_id               TEXT NOT NULL,
+  session_id               TEXT NOT NULL,
   turn_index           INTEGER NOT NULL,
   model                TEXT NOT NULL,
   input_tokens         INTEGER NOT NULL,
@@ -421,16 +421,16 @@ CREATE TABLE context_budget (
   lever_savings_json   TEXT NOT NULL,
   tool_calls           INTEGER NOT NULL,
   created_at           TEXT NOT NULL,
-  UNIQUE (run_id, turn_index)
+  UNIQUE (session_id, turn_index)
 );
-CREATE INDEX ix_context_budget_run ON context_budget(run_id);
+CREATE INDEX ix_context_budget_run ON context_budget(session_id);
 ```
 
 ```sql
 -- v2_004_routing.sql
 CREATE TABLE route_decision (
   id                    TEXT PRIMARY KEY,
-  run_id                TEXT NOT NULL,
+  session_id                TEXT NOT NULL,
   request_id            TEXT NOT NULL DEFAULT '',
   step_index            INTEGER NOT NULL,
   step_type             TEXT NOT NULL,
@@ -445,12 +445,12 @@ CREATE TABLE route_decision (
   evidence_refs         TEXT NOT NULL DEFAULT '[]',
   created_at            TEXT NOT NULL
 );
-CREATE INDEX ix_route_decision_run_step ON route_decision(run_id, step_index);
+CREATE INDEX ix_route_decision_run_step ON route_decision(session_id, step_index);
 
 CREATE TABLE verification_envelope (
   id                    TEXT PRIMARY KEY,
   route_decision_id     TEXT NOT NULL REFERENCES route_decision(id) ON DELETE CASCADE,
-  run_id                TEXT NOT NULL,
+  session_id                TEXT NOT NULL,
   changed_files         TEXT NOT NULL DEFAULT '[]',
   validation_results    TEXT NOT NULL DEFAULT '[]',
   rubric_status         TEXT NOT NULL DEFAULT 'not_run',
@@ -460,7 +460,7 @@ CREATE TABLE verification_envelope (
   created_at            TEXT NOT NULL
 );
 CREATE INDEX ix_verification_envelope_route ON verification_envelope(route_decision_id);
-CREATE INDEX ix_verification_envelope_run ON verification_envelope(run_id);
+CREATE INDEX ix_verification_envelope_run ON verification_envelope(session_id);
 ```
 
 ### 6.2 PostgreSQL deltas
@@ -497,7 +497,7 @@ class MemoryStore(Protocol):
     ) -> list[ArchivalPassage]: ...
 
     def write_run_frame(self, frame: RunMemoryFrame) -> None: ...
-    def get_run_frame(self, run_id: str) -> RunMemoryFrame | None: ...
+    def get_run_frame(self, session_id: str) -> RunMemoryFrame | None: ...
 ```
 
 Two implementations:
@@ -542,13 +542,13 @@ hygiene.
 | `memory`                | 1       | WP-07    | `agent_id, label`                                                     | `MemoryBlock`                                                                                                         |
 | `memory`                | 1, 3    | WP-08    | `agent_id, query, [top_k, tags]`                                      | `\&#123; passages: [\&#123;id, text, score, source_ref\&#125;], recall_id \&#125;`                                    |
 | `memory`                | 1       | WP-08    | `agent_id, text, source, [source_ref, tags]`                          | `\&#123; id, dedup_hit \&#125;`                                                                                       |
-| `memory`                | 1, 3    | WP-09    | `run_id`                                                              | `\&#123; tokens_pre, tokens_post, summary_md, evicted_event_ids \&#125;`                                              |
+| `memory`                | 1, 3    | WP-09    | `session_id`                                                          | `\&#123; tokens_pre, tokens_post, summary_md, evicted_event_ids \&#125;`                                              |
 | `atelier lesson inbox`  | 2       | WP-15    | `[domain, limit]`                                                     | `[LessonCandidate]`                                                                                                   |
 | `atelier lesson decide` | 2       | WP-15    | `lesson_id, decision: "approve"                                       | "reject", reviewer, reason`                                                                                           | `\&#123; status, promotion_id? \&#125;`                                                    |
 | `search`                | 3       | WP-21    | `query, [path, max_files, max_chars_per_file]`                        | `\&#123; matches: [\&#123;path, line_start, line_end, snippet, lang_outline?\&#125;], total_chars, cache_hit \&#125;` |
 | `edit`                  | 3       | WP-22    | `edits: [\&#123;path, old_string                                      | range, new_string, fuzzy?: bool\&#125;]`                                                                              | `\&#123; applied: [\&#123;path, hunk\&#125;], failed: [\&#123;path, error\&#125;] \&#125;` |
 | `atelier sql inspect`   | 3       | WP-23    | `connection_alias, sql`                                               | `\&#123; rows: [...], columns: [...], affected: int, truncated: bool \&#125;`                                         |
-| `compact`               | 3       | WP-13    | `run_id`                                                              | `\&#123; should_compact: bool, preserve_blocks, pin_memory, suggested_prompt \&#125;`                                 |
+| `compact`               | 3       | WP-13    | `session_id`                                                          | `\&#123; should_compact: bool, preserve_blocks, pin_memory, suggested_prompt \&#125;`                                 |
 | `route`                 | routing | WP-26    | `AgentRequest, ContextBudgetPolicy`                                   | `RouteDecision`                                                                                                       |
 | `route`                 | routing | WP-27    | `route_decision_id, validation_results, changed_files, rubric_status` | `VerificationEnvelope`                                                                                                |
 

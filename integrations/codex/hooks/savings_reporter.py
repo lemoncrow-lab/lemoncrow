@@ -13,8 +13,7 @@ def _atelier_root() -> Path:
     root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
     if root:
         return Path(root)
-    codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
-    return codex_home / ".atelier"
+    return Path.home() / ".atelier"
 
 
 def main() -> int:

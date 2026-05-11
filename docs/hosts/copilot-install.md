@@ -1,4 +1,4 @@
-# Installing Atelier into VS Code Copilot
+# Installing Atelier into Copilot
 
 **Support level**: MCP config + Copilot instructions + chat mode + tasks
 
@@ -54,7 +54,7 @@ make verify
 
 ## First Task
 
-Open VS Code Copilot Chat and ask:
+Open Copilot Chat and ask:
 
 ```
 @atelier check this plan

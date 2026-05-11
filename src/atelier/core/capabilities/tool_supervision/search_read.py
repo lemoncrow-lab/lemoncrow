@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Token counting
@@ -136,7 +139,10 @@ def _file_outline(path: str, source: str, lang: str) -> dict[str, Any] | None:
                 "imports": [i.module for i in imports[:20]],
             }
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at search_read.py:138",
+            exc_info=True,
+        )
     return None
 
 
@@ -174,7 +180,12 @@ def _run_grep(pattern: str, search_path: str) -> str:
 
 
 def _cache_state_path(repo_root: Path) -> Path:
-    return repo_root / ".atelier" / "smart_state.json"
+    from hashlib import sha256
+
+    from atelier.core.foundation.paths import default_store_root
+
+    h = sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:12]
+    return default_store_root() / "workspaces" / h / "smart_state.json"
 
 
 def _cache_disabled() -> bool:

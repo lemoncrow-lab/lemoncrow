@@ -24,16 +24,16 @@ Everything else stays as V2 specified it.
 
 ## 1. Delta summary
 
-| Concern | V2 | V3 |
-|---|---|---|
-| `MemoryBlock`, `ArchivalPassage`, `MemoryRecall`, `RunMemoryFrame`, `Trace`, `LessonCandidate`, `ReasonBlock` schemas | as V2 | **same as V2 — no field changes** |
-| `archival_passage.embedding`, `lesson_candidate.embedding` columns | sometimes populated by `stub_embedding` | **must be from `Embedder.embed()`**; V3 fails closed if a SHA-hash artifact is written |
-| New optional column `embedding_provenance` on `archival_passage` and `lesson_candidate` | n/a | added; legacy rows flagged `legacy_stub` |
-| New `BenchmarkRun` table | n/a | added in WP-50 to record measured savings results |
-| Deprecated: `infra/storage/vector.py::stub_embedding` | present | **deleted in WP-33** |
-| Deprecated: dual-write code paths in `infra/memory_bridges/letta_adapter.py` | present | **removed in WP-35** |
+| Concern                                                                                                               | V2                                      | V3                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------- |
+| `MemoryBlock`, `ArchivalPassage`, `MemoryRecall`, `RunMemoryFrame`, `Trace`, `LessonCandidate`, `ReasonBlock` schemas | as V2                                   | **same as V2 — no field changes**                                                      |
+| `archival_passage.embedding`, `lesson_candidate.embedding` columns                                                    | sometimes populated by `stub_embedding` | **must be from `Embedder.embed()`**; V3 fails closed if a SHA-hash artifact is written |
+| New optional column `embedding_provenance` on `archival_passage` and `lesson_candidate`                               | n/a                                     | added; legacy rows flagged `legacy_stub`                                               |
+| New `BenchmarkRun` table                                                                                              | n/a                                     | added in WP-50 to record measured savings results                                      |
+| Deprecated: `infra/storage/vector.py::stub_embedding`                                                                 | present                                 | **deleted in WP-33**                                                                   |
+| Deprecated: dual-write code paths in `infra/memory_bridges/letta_adapter.py`                                          | present                                 | **removed in WP-35**                                                                   |
 
-There are no cross-runtime correlation IDs in V3 (the V3 draft v1 had `langgraph_run_id`,
+There are no cross-runtime correlation IDs in V3 (the V3 draft v1 had `langgraph_session_id`,
 `letta_agent_id`, `litellm_request_id` — those have been removed because Atelier does not run
 LangGraph, does not call Letta as an executor, and does not call LiteLLM).
 
@@ -57,8 +57,8 @@ fallback for unavailable backends is `NullEmbedder`, which writes `[]`. It is **
   - empty (length 0), OR
   - dimension matches a registered embedder dimension (e.g. 384 for MiniLM, 1536 for
     `text-embedding-3-small`).
-  32-byte SHA-hash artifacts (the V2 stub output) violate the dimension check and are
-  rejected.
+    32-byte SHA-hash artifacts (the V2 stub output) violate the dimension check and are
+    rejected.
 
 ### 2.3 Migration of legacy rows
 
@@ -120,7 +120,7 @@ V3 keeps the V2 Atelier↔Letta type mapping:
 V3 adds Atelier metadata under a stable `atelier_*` namespace inside Letta's `metadata` dict so
 round-trip is collision-free:
 
-- `atelier_run_id`
+- `atelier_session_id`
 - `atelier_last_recall_at`
 - `atelier_dedup_hash`
 
@@ -139,13 +139,13 @@ requirements, and V3 introduces no churn on them.
 
 ## 6. Deprecation matrix
 
-| Symbol | Status | Removed in | Replacement |
-|---|---|---|---|
-| `infra/storage/vector.py::stub_embedding` | **deleted** in WP-33 | V3.0 | `Embedder` protocol with a real backend |
-| `infra/memory_bridges/letta_adapter.py` dual-write paths | **removed** in WP-35 | V3.0 | single-primary backend, picked by `[memory].backend` config |
-| `core/capabilities/context_compression/sleeptime.py` template implementation | replaced or removed in WP-36 | V3.0 | per WP-36 decision (real LLM-call summarizer if Letta path; otherwise removed) |
-| `benchmarks/swe/prompts_11.yaml` (hand-written savings constants) | retracted in WP-34; replaced in WP-50 | V3.0 | `BenchmarkRun` rows from real replay |
-| `core/capabilities/lesson_promotion/capability.py::_fingerprint` (string-prefix clustering) | replaced in WP-47 | V3.0 | cosine clustering over real embeddings |
+| Symbol                                                                                      | Status                                | Removed in | Replacement                                                                    |
+| ------------------------------------------------------------------------------------------- | ------------------------------------- | ---------- | ------------------------------------------------------------------------------ |
+| `infra/storage/vector.py::stub_embedding`                                                   | **deleted** in WP-33                  | V3.0       | `Embedder` protocol with a real backend                                        |
+| `infra/memory_bridges/letta_adapter.py` dual-write paths                                    | **removed** in WP-35                  | V3.0       | single-primary backend, picked by `[memory].backend` config                    |
+| `core/capabilities/context_compression/sleeptime.py` template implementation                | replaced or removed in WP-36          | V3.0       | per WP-36 decision (real LLM-call summarizer if Letta path; otherwise removed) |
+| `benchmarks/swe/prompts_11.yaml` (hand-written savings constants)                           | retracted in WP-34; replaced in WP-50 | V3.0       | `BenchmarkRun` rows from real replay                                           |
+| `core/capabilities/lesson_promotion/capability.py::_fingerprint` (string-prefix clustering) | replaced in WP-47                     | V3.0       | cosine clustering over real embeddings                                         |
 
 Each row corresponds to a tracked WP. Each WP has acceptance tests proving the new path works
 before the old one is removed.

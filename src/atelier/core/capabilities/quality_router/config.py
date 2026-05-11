@@ -8,9 +8,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from atelier.core.foundation.paths import default_store_root
 from atelier.core.foundation.routing_models import ContextBudgetPolicy
 
-DEFAULT_ROUTING_CONFIG_PATH = Path(".atelier") / "routing.toml"
+DEFAULT_ROUTING_CONFIG_PATH = default_store_root() / "routing.toml"
 
 
 class ModelTierConfig(BaseModel):

@@ -14,15 +14,33 @@ DEFAULT_THRESHOLD_TOKENS = 500
 DEFAULT_BUDGET_TOKENS = 400
 
 
-def _workspace_root() -> Path:
-    return Path(os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd()))
+def _session_state_path() -> Path:
+    import hashlib
+
+    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    h = hashlib.sha256(str(Path(workspace).resolve()).encode("utf-8")).hexdigest()[:12]
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
+
+
+def _read_session_state() -> dict[str, Any]:
+    p = _session_state_path()
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text("utf-8"))
+    except Exception:
+        return {}
 
 
 def _atelier_root() -> Path:
     root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
     if root:
         return Path(root)
-    return _workspace_root() / ".atelier"
+    state = _read_session_state()
+    if state.get("atelier_root"):
+        return Path(state["atelier_root"])
+    return Path.home() / ".atelier"
 
 
 def _compact_config() -> tuple[int, int]:

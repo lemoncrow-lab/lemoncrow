@@ -36,8 +36,12 @@ from typing import Any
 
 
 def _session_state_path() -> Path:
+    import hashlib
+
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier" / "session_state.json"
+    h = hashlib.sha256(str(Path(workspace).resolve()).encode("utf-8")).hexdigest()[:12]
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _read_session_state() -> dict[str, Any]:
@@ -66,12 +70,11 @@ def _atelier_root() -> Path:
     state = _read_session_state()
     if state.get("atelier_root"):
         return Path(state["atelier_root"])
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier"
+    return Path.home() / ".atelier"
 
 
-def _active_run_id() -> str | None:
-    return _read_session_state().get("active_run_id")
+def _active_session_id() -> str | None:
+    return _read_session_state().get("active_session_id")
 
 
 def _claude_settings_path() -> Path:
@@ -119,7 +122,6 @@ def _initialize_session_stats(payload: dict[str, Any]) -> None:
 
 
 def _append_session_start_event(
-    run_id: str,
     session_id: str,
     source: str,
     model: str,
@@ -127,7 +129,7 @@ def _append_session_start_event(
     transcript_path: str,
 ) -> None:
     runs_dir = _atelier_root() / "runs"
-    run_file = runs_dir / f"{run_id}.json"
+    run_file = runs_dir / f"{session_id}.json"
     if not run_file.exists():
         return
 
@@ -197,11 +199,11 @@ def main() -> int:
         if not _apply_session_bootstrap(payload):
             _initialize_session_stats(payload)
 
-        run_id = _active_run_id()
-        if not run_id:
+        session_id = _active_session_id()
+        if not session_id:
             return 0
 
-        _append_session_start_event(run_id, session_id, source, model, cwd, transcript_path)
+        _append_session_start_event(session_id, source, model, cwd, transcript_path)
     except Exception:
         pass  # fail-open
 

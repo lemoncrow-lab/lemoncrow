@@ -19,7 +19,7 @@ def _request(
     changed_files: list[str] | None = None,
 ) -> AgentRequest:
     return AgentRequest(
-        run_id="run-1",
+        session_id="run-1",
         user_goal="route this work",
         repo_root=".",
         task_type=task_type,  # type: ignore[arg-type]

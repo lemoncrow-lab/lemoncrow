@@ -23,15 +23,17 @@ from pathlib import Path
 REPEAT_THRESHOLD = 2  # block on the second identical failure
 
 
-def _state_path() -> Path:
+def _session_state_path() -> Path:
+    import hashlib
+
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    p = Path(workspace) / ".atelier" / "session_state.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
+    h = hashlib.sha256(str(Path(workspace).resolve()).encode("utf-8")).hexdigest()[:12]
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
-def _load_state() -> dict:  # type: ignore[type-arg]
-    sp = _state_path()
+def _read_session_state() -> dict:  # type: ignore[type-arg]
+    sp = _session_state_path()
     if not sp.exists():
         return {}
     try:
@@ -41,7 +43,9 @@ def _load_state() -> dict:  # type: ignore[type-arg]
 
 
 def _save_state(state: dict) -> None:  # type: ignore[type-arg]
-    _state_path().write_text(json.dumps(state, indent=2), encoding="utf-8")
+    sp = _session_state_path()
+    sp.parent.mkdir(parents=True, exist_ok=True)
+    sp.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -53,21 +57,20 @@ def _atelier_root() -> Path:
     root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
     if root:
         return Path(root)
-    state = _load_state()
+    state = _read_session_state()
     if state.get("atelier_root"):
         return Path(state["atelier_root"])
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier"
+    return Path.home() / ".atelier"
 
 
-def _active_run_id() -> str | None:
-    return _load_state().get("active_run_id")
+def _active_session_id() -> str | None:
+    return _read_session_state().get("active_session_id")
 
 
-def _append_failure_event(run_id: str, command: str, error: str, repeat: int) -> None:
-    """Append a note event for the command failure to runs/<run_id>.json."""
+def _append_failure_event(session_id: str, command: str, error: str, repeat: int) -> None:
+    """Append a note event for the command failure to runs/<session_id>.json."""
     runs_dir = _atelier_root() / "runs"
-    run_file = runs_dir / f"{run_id}.json"
+    run_file = runs_dir / f"{session_id}.json"
     if not run_file.exists():
         return
     try:
@@ -133,7 +136,7 @@ def main() -> int:
         return 0
 
     sig = _signature(command, error)
-    state = _load_state()
+    state = _read_session_state()
     failures = state.setdefault("failures", {})
     failures[sig] = failures.get(sig, 0) + 1
     state["failures"] = failures
@@ -141,9 +144,9 @@ def main() -> int:
 
     # Always write the failure to the RunLedger (fail-open)
     try:
-        run_id = _active_run_id()
-        if run_id:
-            _append_failure_event(run_id, command, error, failures[sig])
+        session_id = _active_session_id()
+        if session_id:
+            _append_failure_event(session_id, command, error, failures[sig])
     except Exception:
         pass
 

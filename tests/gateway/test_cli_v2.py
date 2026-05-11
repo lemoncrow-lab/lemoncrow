@@ -20,8 +20,8 @@ def _invoke(root: Path, *args: str, input: str | None = None) -> Result:
     return runner.invoke(cli, ["--root", str(root), *args], input=input)
 
 
-def _seed_ledger(root: Path, run_id: str = "run1") -> Path:
-    led = RunLedger(run_id=run_id, agent="codex", task="t", domain="d", root=root)
+def _seed_ledger(root: Path, session_id: str = "run1") -> Path:
+    led = RunLedger(session_id=session_id, agent="codex", task="t", domain="d", root=root)
     led.record_command("pytest", ok=False, error_signature="sig1")
     led.record_command("pytest", ok=False, error_signature="sig1")
     led.record_alert("repeated_command_failure", "high", "pytest x2")
@@ -70,7 +70,7 @@ def test_ledger_show_and_summarize(tmp_path: Path) -> None:
     res = _invoke(root, "ledger", "show", "--json")
     assert res.exit_code == 0, res.output
     payload = json.loads(res.output)
-    assert payload["run_id"] == "run1"
+    assert payload["session_id"] == "run1"
 
     res2 = _invoke(root, "ledger", "summarize")
     assert res2.exit_code == 0
@@ -92,7 +92,7 @@ def test_failure_list_accept_reject(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _invoke(root, "init")
     _seed_ledger(root)
-    _seed_ledger(root, run_id="run2")
+    _seed_ledger(root, session_id="run2")
 
     res = _invoke(root, "failure", "list", "--json")
     assert res.exit_code == 0

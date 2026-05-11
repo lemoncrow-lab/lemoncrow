@@ -56,15 +56,7 @@ function resolveRoot(resolvedBin) {
   if (process.env.ATELIER_ROOT) return process.env.ATELIER_ROOT;
   if (process.env.ATELIER_STORE_ROOT) return process.env.ATELIER_STORE_ROOT;
 
-  const ws = resolveWorkspaceRoot();
-  if (ws) return path.join(ws, ".atelier");
-
-  if (resolvedBin && resolvedBin !== "atelier-mcp" && fs.existsSync(resolvedBin)) {
-    const repoRoot = path.resolve(path.dirname(resolvedBin), "..", "..");
-    return path.join(repoRoot, ".atelier");
-  }
-
-  return path.join(process.cwd(), ".atelier");
+  return path.join(process.env.HOME, ".atelier");
 }
 
 const bin = resolveBinary();

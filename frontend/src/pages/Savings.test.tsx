@@ -77,14 +77,14 @@ describe("Savings page", () => {
                 compact_output_row_count: 1,
                 compact_output_saved_tokens: 5000,
                 dominant_run: {
-                  run_id: "run-proof-1",
+                  session_id: "run-proof-1",
                   agent: "codex",
                   task: "prove the savings run",
                   saved_tokens: 10000,
                   saved_cost_usd: 0.015,
                 },
                 dominant_item: {
-                  run_id: "run-proof-1",
+                  session_id: "run-proof-1",
                   turn_index: 0,
                   tool_name: "search",
                   lever: "search_read",
@@ -100,7 +100,7 @@ describe("Savings page", () => {
               },
               session_proof: [
                 {
-                  run_id: "run-proof-1",
+                  session_id: "run-proof-1",
                   trace_id: "trace-proof-1",
                   agent: "codex",
                   task: "prove the savings run",
@@ -119,7 +119,7 @@ describe("Savings page", () => {
                   live_saved_usd: 0.0833,
                   items: [
                     {
-                      run_id: "run-proof-1",
+                      session_id: "run-proof-1",
                       turn_index: 0,
                       tool_name: "search",
                       lever: "search_read",
@@ -143,7 +143,7 @@ describe("Savings page", () => {
                 },
               ],
               latest_benchmark: {
-                run_id: "bench-ui",
+                session_id: "bench-ui",
                 model: "test-model",
                 n_prompts: 2,
                 total_tokens_baseline: 1000,
@@ -264,7 +264,7 @@ describe("Savings page", () => {
               ],
               session_proof: [
                 {
-                  run_id: "run-gap-1",
+                  session_id: "run-gap-1",
                   agent: "claude",
                   task: "",
                   status: "success",
@@ -283,7 +283,7 @@ describe("Savings page", () => {
                   missing_surfaces: [],
                   items: [
                     {
-                      run_id: "run-gap-1",
+                      session_id: "run-gap-1",
                       turn_index: 0,
                       tool_name: "unattributed",
                       lever: "unattributed",
@@ -311,7 +311,7 @@ describe("Savings page", () => {
         }
         if (url.includes("/api/ledgers/run-gap-1")) {
           return Promise.resolve(
-            jsonResponse({ run_id: "run-gap-1", status: "not_found" })
+            jsonResponse({ session_id: "run-gap-1", status: "not_found" })
           );
         }
         return Promise.resolve(new Response("not found", { status: 404 }));

@@ -13,6 +13,7 @@ Environment variables:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -21,6 +22,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 # Optional numpy for embedding math — not required at import time
 _numpy: Any = None
 try:
@@ -28,7 +31,10 @@ try:
 
     _numpy = _numpy_module
 except ImportError:
-    pass
+    logger.warning(
+        "Suppressed exception at vector.py:30",
+        exc_info=True,
+    )
 
 
 def is_vector_enabled() -> bool:

@@ -23,6 +23,7 @@ Payload received on stdin:
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import os
@@ -39,8 +40,12 @@ _MAX_PROMPT_BYTES = 8192  # 8 KB
 
 
 def _session_state_path() -> Path:
+    import hashlib
+
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier" / "session_state.json"
+    h = hashlib.sha256(str(Path(workspace).resolve()).encode("utf-8")).hexdigest()[:12]
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _read_session_state() -> dict:  # type: ignore[type-arg]
@@ -60,12 +65,11 @@ def _atelier_root() -> Path:
     state = _read_session_state()
     if state.get("atelier_root"):
         return Path(state["atelier_root"])
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier"
+    return Path.home() / ".atelier"
 
 
-def _active_run_id() -> str | None:
-    return _read_session_state().get("active_run_id")
+def _active_session_id() -> str | None:
+    return _read_session_state().get("active_session_id")
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +77,9 @@ def _active_run_id() -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _append_prompt_event(run_id: str, prompt: str) -> None:
+def _append_prompt_event(session_id: str, prompt: str) -> None:
     runs_dir = _atelier_root() / "runs"
-    run_file = runs_dir / f"{run_id}.json"
+    run_file = runs_dir / f"{session_id}.json"
     if not run_file.exists():
         return
 
@@ -92,7 +96,7 @@ def _append_prompt_event(run_id: str, prompt: str) -> None:
     events.append(
         {
             "kind": "agent_message",
-            "at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "at": datetime.datetime.now(datetime.UTC).isoformat(),
             "summary": f"user: {short}{'…' if len(stored_prompt) > 100 else ''}",
             "payload": {
                 "role": "user",
@@ -118,10 +122,8 @@ def _append_prompt_event(run_id: str, prompt: str) -> None:
         Path(tmp_path).replace(run_file)
     except Exception:
         if tmp_path:
-            try:
+            with contextlib.suppress(Exception):
                 Path(tmp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
 
 
 # ---------------------------------------------------------------------------
@@ -140,10 +142,10 @@ def main() -> int:
         return 0
 
     try:
-        run_id = _active_run_id()
-        if not run_id:
+        session_id = _active_session_id()
+        if not session_id:
             return 0
-        _append_prompt_event(run_id, prompt)
+        _append_prompt_event(session_id, prompt)
     except Exception:
         pass  # fail-open
 

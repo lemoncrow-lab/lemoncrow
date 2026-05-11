@@ -14,7 +14,9 @@ RETENTION_DAYS = 30
 
 
 def default_db_path() -> Path:
-    return Path(os.environ.get("ATELIER_TELEMETRY_DB", Path.home() / ".atelier" / "telemetry.db"))
+    from atelier.core.foundation.paths import default_store_root
+
+    return Path(os.environ.get("ATELIER_TELEMETRY_DB", default_store_root() / "telemetry.db"))
 
 
 class LocalTelemetryStore:
@@ -48,9 +50,11 @@ class LocalTelemetryStore:
         *,
         since: float | None = None,
         event: str | None = None,
-        limit: int = 500,
+        host: str | None = None,
+        limit: int | None = 500,
     ) -> list[dict[str, Any]]:
-        limit = max(1, min(limit, 1000))
+        if limit is not None:
+            limit = max(1, min(limit, 5000))
         clauses: list[str] = []
         params: list[Any] = []
         if since is not None:
@@ -59,22 +63,44 @@ class LocalTelemetryStore:
         if event:
             clauses.append("event = ?")
             params.append(event)
+        if host:
+            clauses.append("""
+                (
+                  (event = 'session_start' AND json_extract(props_json, '$.agent_host') = ?)
+                  OR session_id IN (
+                    SELECT session_id
+                    FROM events
+                    WHERE event = 'session_start'
+                      AND json_extract(props_json, '$.agent_host') = ?
+                      AND session_id IS NOT NULL
+                  )
+                )
+                """)
+            params.extend([host, host])
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self._connect() as conn:
             self._init(conn)
-            rows = conn.execute(
-                f"""
+            query = f"""
                 SELECT id, ts, event, session_id, props_json, exported
                 FROM events{where}
                 ORDER BY ts DESC
-                LIMIT ?
-                """,
-                (*params, limit),
-            ).fetchall()
+                """
+            query_params = list(params)
+            if limit is not None:
+                query += "\n                LIMIT ?"
+                query_params.append(limit)
+            rows = conn.execute(query, query_params).fetchall()
         return [_row_to_event(row) for row in rows]
 
-    def summary(self, *, since: float | None = None) -> dict[str, Any]:
-        events = self.list_events(since=since, limit=1000)
+    def summary(
+        self,
+        *,
+        since: float | None = None,
+        event: str | None = None,
+        host: str | None = None,
+    ) -> dict[str, Any]:
+        events = self.list_events(since=since, event=event, host=host, limit=None)
+        session_hosts = self._session_hosts()
         commands_by_day: Counter[str] = Counter()
         top_commands: Counter[str] = Counter()
         agent_hosts: Counter[str] = Counter()
@@ -86,20 +112,32 @@ class LocalTelemetryStore:
         frustration_lexical: Counter[str] = Counter()
         value = {"tokens_saved_estimate": 0, "cache_hits": 0, "blocks_applied": 0}
         event_counts: Counter[str] = Counter()
+        session_ids: set[str] = set()
+        first_event_ts: float | None = None
+        last_event_ts: float | None = None
 
         for item in events:
             props = item["props"]
             event_counts[item["event"]] += 1
+            session_id = item.get("session_id")
+            if isinstance(session_id, str) and session_id:
+                session_ids.add(session_id)
+            event_ts = float(item["ts"])
+            if first_event_ts is None or event_ts < first_event_ts:
+                first_event_ts = event_ts
+            if last_event_ts is None or event_ts > last_event_ts:
+                last_event_ts = event_ts
             day = time.strftime("%Y-%m-%d", time.localtime(float(item["ts"])))
             if item["event"] in {"cli_command_invoked", "cli_command_completed"}:
                 commands_by_day[day] += 1
                 command = props.get("command_name")
                 if isinstance(command, str):
                     top_commands[command] += 1
-            if item["event"] == "session_start":
-                host = props.get("agent_host")
-                if isinstance(host, str):
-                    agent_hosts[host] += 1
+            host_name = props.get("agent_host")
+            if not isinstance(host_name, str):
+                host_name = session_hosts.get(session_id or "")
+            if isinstance(host_name, str) and host_name:
+                agent_hosts[host_name] += 1
             if item["event"] == "reasonblock_applied":
                 block_hash = props.get("block_id_hash")
                 if isinstance(block_hash, str):
@@ -129,6 +167,10 @@ class LocalTelemetryStore:
 
         return {
             "events_total": sum(event_counts.values()),
+            "unique_event_types": len(event_counts),
+            "active_sessions": len(session_ids),
+            "first_event_ts": first_event_ts,
+            "last_event_ts": last_event_ts,
             "event_counts": dict(event_counts),
             "commands_by_day": _counter_series(commands_by_day),
             "top_commands": _counter_items(top_commands),
@@ -164,6 +206,27 @@ class LocalTelemetryStore:
         conn.execute("CREATE INDEX IF NOT EXISTS events_ts ON events(ts DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS events_event_ts ON events(event, ts DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS events_session ON events(session_id)")
+
+    def _session_hosts(self) -> dict[str, str]:
+        with self._connect() as conn:
+            self._init(conn)
+            rows = conn.execute("""
+                SELECT session_id, props_json
+                FROM events
+                WHERE event = 'session_start' AND session_id IS NOT NULL
+                ORDER BY ts DESC
+                """).fetchall()
+        hosts: dict[str, str] = {}
+        for row in rows:
+            try:
+                props = json.loads(row["props_json"])
+            except json.JSONDecodeError:
+                continue
+            host = props.get("agent_host")
+            session_id = row["session_id"]
+            if isinstance(session_id, str) and isinstance(host, str):
+                hosts.setdefault(session_id, host)
+        return hosts
 
     def _prune(self, conn: sqlite3.Connection, now: float) -> None:
         cutoff = now - RETENTION_DAYS * 24 * 60 * 60

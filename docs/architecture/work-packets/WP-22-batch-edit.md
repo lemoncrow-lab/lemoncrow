@@ -77,7 +77,7 @@ not compete with host-native edit tools for ordinary coding.
 
 3. Atomicity: if `atomic=true` (default) and any edit fails, all already-applied edits are reverted
    from a per-call working copy. Use `git stash`-style mechanic: snapshot files into
-   `.atelier/run/<run_id>/batch_edit_backup/` before starting; restore on failure.
+   `.atelier/run/<session_id>/batch_edit_backup/` before starting; restore on failure.
 
 4. Expose this as an explicit `edit` MCP tool and CLI command only. Do not route
    native host Edit/MultiEdit calls through it.

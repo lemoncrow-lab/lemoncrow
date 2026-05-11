@@ -18,13 +18,13 @@ bash scripts/install_agent_clis.sh --workspace /path/to/workspace
 
 ## Supported Hosts
 
-| Host            | Support Level                              | Advanced installer            |
-| --------------- | ------------------------------------------ | ----------------------------- |
-| Claude Code     | Full plugin (skills, commands, hooks, MCP) | `scripts/install_claude.sh`   |
-| Codex CLI       | Plugin + marketplace + AGENTS + wrapper    | `scripts/install_codex.sh`    |
-| opencode        | MCP + workspace agent profile              | `scripts/install_opencode.sh` |
-| VS Code Copilot | MCP + instructions + chat mode + tasks     | `scripts/install_copilot.sh`  |
-| Gemini CLI      | Extension + commands + skills + MCP        | `scripts/install_gemini.sh`   |
+| Host        | Support Level                              | Advanced installer            |
+| ----------- | ------------------------------------------ | ----------------------------- |
+| Claude Code | Full plugin (skills, commands, hooks, MCP) | `scripts/install_claude.sh`   |
+| Codex CLI   | Plugin + marketplace + AGENTS + wrapper    | `scripts/install_codex.sh`    |
+| opencode    | MCP + workspace agent profile              | `scripts/install_opencode.sh` |
+| Copilot     | MCP + instructions + chat mode + tasks     | `scripts/install_copilot.sh`  |
+| Gemini CLI  | Extension + commands + skills + MCP        | `scripts/install_gemini.sh`   |
 
 ---
 

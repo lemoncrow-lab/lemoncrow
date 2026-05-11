@@ -15,6 +15,8 @@ from typing import Any
 from atelier import __version__ as atelier_version
 from atelier.core.foundation.identity import get_anon_id, platform_payload
 
+logger = logging.getLogger(__name__)
+
 _logger = logging.getLogger("atelier.sync")
 
 
@@ -46,7 +48,7 @@ def sync_usage(
             chunk = sessions[i : i + chunk_size]
             if _send_chunk(url, chunk):
                 for s in chunk:
-                    sid = s.get("session_id")
+                    sid = s.get("id") or s.get("session_id")
                     if sid:
                         store.mark_synced(sid, _hash_dict(s))
 
@@ -67,7 +69,10 @@ def sync_usage(
                         chunk_sessions.append(json.loads(stats_path.read_text(encoding="utf-8")))
                         continue
                     except Exception:
-                        pass
+                        logger.warning(
+                            "Suppressed exception at sync.py:69",
+                            exc_info=True,
+                        )
                 # Fallback to Trace reconstruction
                 trace = store.get_trace(sid)
                 if trace:
@@ -76,7 +81,9 @@ def sync_usage(
 
             if chunk_sessions and _send_chunk(url, chunk_sessions):
                 for s in chunk_sessions:
-                    store.mark_synced(s["session_id"], _hash_dict(s))
+                    sid = s.get("id") or s.get("session_id")
+                    if sid:
+                        store.mark_synced(sid, _hash_dict(s))
 
     return True
 

@@ -40,7 +40,7 @@ Atelier automatically applies CodeBurn-style budget guardrails:
 
 ## Compact Lifecycle
 
-Before triggering `/compact`, call `compact(run_id=...)`. Use the returned `preserve_blocks` and `pin_memory` lists and `suggested_prompt` to reinject runtime facts into the new context window. The host owns `/compact` — Atelier only advises.
+Before triggering `/compact`, call `compact(session_id=...)`. Use the returned `preserve_blocks` and `pin_memory` lists and `suggested_prompt` to reinject runtime facts into the new context window. The host owns `/compact` — Atelier only advises.
 
 ## Verification
 

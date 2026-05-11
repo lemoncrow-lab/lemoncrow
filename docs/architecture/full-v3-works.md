@@ -458,7 +458,7 @@ Everything else stays as V2 specified it.
 | Deprecated:`infra/storage/vector.py::stub_embedding`                                                                  | present                                 | **deleted in WP-33**                                                                   |
 | Deprecated: dual-write code paths in `infra/memory_bridges/letta_adapter.py`                                          | present                                 | **removed in WP-35**                                                                   |
 
-There are no cross-runtime correlation IDs in V3 (the V3 draft v1 had `langgraph_run_id`,
+There are no cross-runtime correlation IDs in V3 (the V3 draft v1 had `langgraph_session_id`,
 `letta_agent_id`, `litellm_request_id` — those have been removed because Atelier does not run
 LangGraph, does not call Letta as an executor, and does not call LiteLLM).
 
@@ -545,7 +545,7 @@ V3 keeps the V2 Atelier↔Letta type mapping:
 V3 adds Atelier metadata under a stable `atelier_*` namespace inside Letta's `metadata` dict so
 round-trip is collision-free:
 
-- `atelier_run_id`
+- `atelier_session_id`
 - `atelier_last_recall_at`
 - `atelier_dedup_hash`
 
@@ -1178,7 +1178,7 @@ configured for it — that's the user's choice and bill, not Atelier's.)
   - `record_recall` → Letta passage metadata update + Atelier-side `MemoryRecall` row (kept
     locally for trace continuity)
 - **EDIT:** `src/atelier/infra/memory_bridges/letta_adapter.py` — implement metadata
-  carry-overs from data-model § 4 (`atelier_run_id`, `atelier_last_recall_at`,
+  carry-overs from data-model § 4 (`atelier_session_id`, `atelier_last_recall_at`,
   `atelier_dedup_hash`).
 - **EDIT:** `src/atelier/infra/storage/factory.py` — when `backend=letta`, instantiate
   `LettaMemoryStore` from `letta_adapter`; do not also instantiate `SqliteMemoryStore`.

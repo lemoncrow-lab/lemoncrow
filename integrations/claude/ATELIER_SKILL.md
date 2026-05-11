@@ -56,7 +56,7 @@ memory(agent_id="atelier:code", text="...", source="run_123")
 memory(agent_id="atelier:code", query="Shopify GID pattern", top_k=5)
 
 # Compact sleeptime memory to reduce context window
-memory(run_id="run_123")
+memory(session_id="run_123")
 ```
 
 ### V2 Context-savings tools [Atelier augmentation]
@@ -72,7 +72,7 @@ edit(edits=[{"path": "src/foo.py", "old_string": "...", "new_string": "..."}])
 atelier sql inspect(connection_alias="default", sql="SELECT * FROM products LIMIT 5")
 
 # Advise before host-native /compact — get preserve/reinject hints
-compact(run_id="run_123")
+compact(session_id="run_123")
 ```
 
 ### V2 Lesson pipeline tools [Atelier augmentation]

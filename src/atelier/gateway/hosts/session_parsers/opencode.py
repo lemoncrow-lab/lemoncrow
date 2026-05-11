@@ -107,6 +107,7 @@ class OpenCodeImporter:
             byte_count_redacted=len(redacted.encode("utf-8")),
             created_at=_utcnow(),
             source_file_mtime=session_mtime,
+            source_path=str(db_path),
         )
         self.store.record_raw_artifact(artifact, redacted)
 
@@ -189,7 +190,7 @@ class OpenCodeImporter:
 
         trace = Trace(
             id=artifact_id,
-            run_id=session_id,
+            session_id=session_id,
             agent="atelier:code",
             host="opencode",
             domain="coding",

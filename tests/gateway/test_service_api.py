@@ -273,6 +273,79 @@ def test_external_analytics_endpoints_return_summary_and_detail(
     assert {item["tool"] for item in dashboard["external"]["latest"]} == {"codeburn", "tokscale"}
 
 
+def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
+    app_no_auth: TestClient,
+    store: SQLiteStore,
+) -> None:
+    from atelier.core.foundation.models import ToolCall, Trace
+
+    store.record_trace(
+        Trace(
+            id="trace-codex-stub",
+            agent="atelier:code",
+            host="codex",
+            domain="coding",
+            task="prompt only",
+            status="success",
+            user_prompt_tokens=42,
+        ),
+        write_json=False,
+    )
+    store.record_trace(
+        Trace(
+            id="trace-codex-usage",
+            agent="atelier:code",
+            host="codex",
+            domain="coding",
+            task="real codex usage",
+            status="success",
+            input_tokens=180,
+            user_prompt_tokens=24,
+            output_tokens=60,
+            tools_called=[
+                ToolCall(name="exec_command", args_hash="", count=2, output_tokens=120),
+            ],
+        ),
+        write_json=False,
+    )
+    store.record_trace(
+        Trace(
+            id="trace-claude-usage",
+            agent="atelier:code",
+            host="claude",
+            domain="coding",
+            task="real claude usage",
+            status="success",
+            input_tokens=100,
+            output_tokens=40,
+            model="claude-sonnet-4-5",
+        ),
+        write_json=False,
+    )
+
+    resp = app_no_auth.get("/analytics/dashboard")
+    assert resp.status_code == 200
+    dashboard = resp.json()
+
+    by_host = {row["host"]: row["sessions"] for row in dashboard["by_host"]}
+    assert by_host["codex"] == 1
+    assert by_host["claude"] == 1
+
+    by_model = {row["model"]: row["sessions"] for row in dashboard["by_model"]}
+    assert by_model["unknown"] == 1
+    assert by_model["claude-sonnet-4-5"] == 1
+
+    overview = {(row["host"], row["model"]): row for row in dashboard["host_model_overview"]}
+    assert ("codex", "unknown") in overview
+    assert overview[("codex", "unknown")]["sessions"] == 1
+    assert overview[("codex", "unknown")]["tool_calls"] == 2
+    assert overview[("codex", "unknown")]["tool_output_tokens"] == 120
+    assert overview[("codex", "unknown")]["billable_output_tokens"] == 60
+
+    total_daily_sessions = sum(row["sessions"] for row in dashboard["daily"])
+    assert total_daily_sessions == 2
+
+
 # --------------------------------------------------------------------------- #
 # ReasonBlocks CRUD                                                           #
 # --------------------------------------------------------------------------- #

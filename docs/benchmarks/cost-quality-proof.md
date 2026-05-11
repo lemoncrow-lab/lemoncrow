@@ -82,7 +82,7 @@ The proof gate writes two files to `.atelier/proof/`:
 
 ```json
 &#123;
-  "run_id": "...",
+  "session_id": "...",
   "status": "pass | fail",
   "failed_thresholds": [],
   "context_reduction_pct": 55.0,

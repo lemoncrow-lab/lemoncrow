@@ -20,6 +20,7 @@ from pathlib import Path
 
 from atelier.core.foundation.store import ReasoningStore
 from atelier.gateway.hosts.session_parsers.claude import ClaudeImporter
+from atelier.gateway.hosts.session_parsers.cline import ClineImporter
 from atelier.gateway.hosts.session_parsers.codex import CodexImporter
 from atelier.gateway.hosts.session_parsers.copilot import CopilotImporter
 from atelier.gateway.hosts.session_parsers.gemini import GeminiImporter
@@ -27,6 +28,7 @@ from atelier.gateway.hosts.session_parsers.opencode import OpenCodeImporter
 
 _HOSTS = (
     ("claude", ClaudeImporter),
+    ("cline", ClineImporter),
     ("codex", CodexImporter),
     ("copilot", CopilotImporter),
     ("opencode", OpenCodeImporter),
@@ -34,9 +36,14 @@ _HOSTS = (
 )
 
 
-def import_all(force: bool = False, target_host: str | None = None, export_dir: Path | None = None) -> int:
+def import_all(
+    force: bool = False,
+    target_host: str | None = None,
+    target_session_id: str | None = None,
+    export_dir: Path | None = None,
+) -> int:
     """Run every host importer once. Returns the count of imported sessions."""
-    store_root = Path("/home/pankaj/Projects/leanchain/atelier/.atelier")
+    store_root = Path("~/.atelier").expanduser()
     store = ReasoningStore(store_root)
     store.init()
 
@@ -65,7 +72,39 @@ def import_all(force: bool = False, target_host: str | None = None, export_dir: 
                 continue
 
             try:
-                ids = importer_cls(store).import_all(force=force)
+                importer = importer_cls(store)
+                if target_session_id:
+                    # Resolve ID to path for importers that expect Path
+                    path = None
+                    if name == "copilot":
+                        path = Path("~/.copilot/session-state").expanduser() / target_session_id
+                        if not path.exists():
+                            # check transcripts?
+                            pass
+                    elif name == "cline":
+                        path = (
+                            Path("~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks").expanduser()
+                            / target_session_id
+                        )
+                    elif name == "gemini":
+                        # Gemini sessions are often deeper, but let's try a direct look
+                        path = (
+                            Path("~/.gemini/tmp").expanduser() / "atelier/chats" / f"session-{target_session_id}.jsonl"
+                        )
+
+                    if hasattr(importer, "import_session"):
+                        sid = importer.import_session(path or target_session_id, force=force)
+                        ids = [sid] if sid else []
+                    elif name == "cline" and hasattr(importer, "import_task"):
+                        # Cline uses import_task
+                        sid = importer.import_task(path or target_session_id, {}, force=force)
+                        ids = [sid] if sid else []
+                    else:
+                        print(f"[atelier] {name}: importer does not support single session import", file=sys.stderr)
+                        continue
+                else:
+                    ids = importer.import_all(force=force)
+
                 count = len(ids)
                 total += count
                 all_imported_ids.extend(ids)
@@ -122,12 +161,20 @@ def import_all(force: bool = False, target_host: str | None = None, export_dir: 
 if __name__ == "__main__":
     force = "--force" in sys.argv
     target_host = None
+    target_session_id = None
     export_dir = None
 
     for arg in sys.argv:
         if arg.startswith("--host="):
             target_host = arg.split("=")[1]
+        if arg.startswith("--session-id="):
+            target_session_id = arg.split("=")[1]
         if arg.startswith("--export-dir="):
             export_dir = Path(arg.split("=")[1])
 
-    import_all(force=force, target_host=target_host, export_dir=export_dir)
+    import_all(
+        force=force,
+        target_host=target_host,
+        target_session_id=target_session_id,
+        export_dir=export_dir,
+    )

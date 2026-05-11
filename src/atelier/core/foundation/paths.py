@@ -66,6 +66,20 @@ def resolve_knowledge_root(root: Path | str | None = None, knowledge_root: Path 
     return (resolve_workspace_root(root) / DEFAULT_KNOWLEDGE_DIRNAME).resolve()
 
 
+def resolve_session_state_path(workspace_root: Path | str | None = None) -> Path:
+    """Resolve the path for session-specific state (failures, current run ID).
+
+    Stored within the global store root under a workspace-specific subfolder
+    to prevent collisions between multiple open projects.
+    """
+    from hashlib import sha256
+
+    root = default_store_root()
+    ws = resolve_workspace_root(Path(workspace_root) if workspace_root else None)
+    h = sha256(str(ws).encode("utf-8")).hexdigest()[:12]
+    return root / "workspaces" / h / "session_state.json"
+
+
 def _derive_workspace_root(root: Path | str | None) -> Path | None:
     if root is None:
         return None
@@ -73,6 +87,10 @@ def _derive_workspace_root(root: Path | str | None) -> Path | None:
     candidate = Path(root).expanduser().resolve()
     default_home_store = (Path.home() / DEFAULT_STORE_DIRNAME).resolve()
     if candidate == default_home_store:
+        return None
+
+    # Do not treat the workspace hash subfolder as a project root
+    if "workspaces" in candidate.parts:
         return None
 
     if candidate.name in {DEFAULT_STORE_DIRNAME, DEFAULT_KNOWLEDGE_DIRNAME}:
@@ -87,5 +105,6 @@ __all__ = [
     "DEFAULT_STORE_DIRNAME",
     "default_store_root",
     "resolve_knowledge_root",
+    "resolve_session_state_path",
     "resolve_workspace_root",
 ]

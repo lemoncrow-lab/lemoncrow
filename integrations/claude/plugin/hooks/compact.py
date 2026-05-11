@@ -25,6 +25,7 @@ Payload shapes:
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import os
@@ -39,8 +40,12 @@ from typing import Any
 
 
 def _session_state_path() -> Path:
+    import hashlib
+
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier" / "session_state.json"
+    h = hashlib.sha256(str(Path(workspace).resolve()).encode("utf-8")).hexdigest()[:12]
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _read_session_state() -> dict[str, Any]:
@@ -60,12 +65,11 @@ def _atelier_root() -> Path:
     state = _read_session_state()
     if state.get("atelier_root"):
         return Path(state["atelier_root"])
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier"
+    return Path.home() / ".atelier"
 
 
-def _active_run_id() -> str | None:
-    return _read_session_state().get("active_run_id")
+def _active_session_id() -> str | None:
+    return _read_session_state().get("active_session_id")
 
 
 # ---------------------------------------------------------------------------
@@ -73,18 +77,18 @@ def _active_run_id() -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _ensure_compact_manifest(run_id: str) -> Path:
+def _ensure_compact_manifest(session_id: str) -> Path:
     """Ensure manifest file exists. Return the path."""
     atelier_root = _atelier_root()
-    run_dir = atelier_root / "runs" / run_id
+    run_dir = atelier_root / "runs" / session_id
     run_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = run_dir / "compact_manifest.json"
 
     if not manifest_path.exists():
         # Create an empty manifest; compact op=advise will populate it
         initial = {
-            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "run_id": run_id,
+            "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            "session_id": session_id,
             "trigger": "pre_compact_hook",
             "should_compact": False,
             "utilisation_pct": 0.0,
@@ -93,19 +97,17 @@ def _ensure_compact_manifest(run_id: str) -> Path:
             "open_files": [],
             "suggested_prompt": "Compact this conversation.",
         }
-        try:
+        with contextlib.suppress(Exception):
             manifest_path.write_text(json.dumps(initial, indent=2), encoding="utf-8")
-        except Exception:
-            pass
 
     return manifest_path
 
 
-def _read_compact_manifest(run_id: str) -> dict[str, Any] | None:
+def _read_compact_manifest(session_id: str) -> dict[str, Any] | None:
     """Read compact_manifest.json from the run directory."""
     try:
         atelier_root = _atelier_root()
-        manifest_path = atelier_root / "runs" / run_id / "compact_manifest.json"
+        manifest_path = atelier_root / "runs" / session_id / "compact_manifest.json"
         if manifest_path.exists():
             return json.loads(manifest_path.read_text("utf-8"))
     except Exception:
@@ -118,10 +120,12 @@ def _read_compact_manifest(run_id: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
-def _append_compact_event(run_id: str, hook_event: str, trigger: str, payload: dict[str, Any] | None = None) -> None:
+def _append_compact_event(
+    session_id: str, hook_event: str, trigger: str, payload: dict[str, Any] | None = None
+) -> None:
     atelier_root = _atelier_root()
     runs_dir = atelier_root / "runs"
-    run_file = runs_dir / f"{run_id}.json"
+    run_file = runs_dir / f"{session_id}.json"
     if not run_file.exists():
         return
 
@@ -136,7 +140,7 @@ def _append_compact_event(run_id: str, hook_event: str, trigger: str, payload: d
     events.append(
         {
             "kind": "note",
-            "at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "at": datetime.datetime.now(datetime.UTC).isoformat(),
             "summary": f"context compaction {phase} ({trigger})",
             "payload": {
                 "hook_event": hook_event,
@@ -162,10 +166,8 @@ def _append_compact_event(run_id: str, hook_event: str, trigger: str, payload: d
         Path(tmp_path).replace(run_file)
     except Exception:
         if tmp_path:
-            try:
+            with contextlib.suppress(Exception):
                 Path(tmp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
 
 
 # ---------------------------------------------------------------------------
@@ -173,15 +175,15 @@ def _append_compact_event(run_id: str, hook_event: str, trigger: str, payload: d
 # ---------------------------------------------------------------------------
 
 
-def _handle_pre_compact(run_id: str, trigger: str) -> None:
+def _handle_pre_compact(session_id: str, trigger: str) -> None:
     """Handle PreCompact: create/ensure manifest file exists."""
-    _ensure_compact_manifest(run_id)
-    _append_compact_event(run_id, "PreCompact", trigger)
+    _ensure_compact_manifest(session_id)
+    _append_compact_event(session_id, "PreCompact", trigger)
 
 
-def _handle_post_compact(run_id: str, trigger: str) -> None:
+def _handle_post_compact(session_id: str, trigger: str) -> None:
     """Handle PostCompact: read manifest and record preservation."""
-    manifest = _read_compact_manifest(run_id)
+    manifest = _read_compact_manifest(session_id)
 
     # Record post-compact event
     payload: dict[str, Any] = {}
@@ -193,7 +195,7 @@ def _handle_post_compact(run_id: str, trigger: str) -> None:
             "manifest_found": True,
         }
 
-    _append_compact_event(run_id, "PostCompact", trigger, payload)
+    _append_compact_event(session_id, "PostCompact", trigger, payload)
 
 
 # ---------------------------------------------------------------------------
@@ -214,14 +216,14 @@ def main() -> int:
         return 0
 
     try:
-        run_id = _active_run_id()
-        if not run_id:
+        session_id = _active_session_id()
+        if not session_id:
             return 0
 
         if hook_event == "PreCompact":
-            _handle_pre_compact(run_id, trigger)
+            _handle_pre_compact(session_id, trigger)
         elif hook_event == "PostCompact":
-            _handle_post_compact(run_id, trigger)
+            _handle_post_compact(session_id, trigger)
     except Exception:
         pass  # Fail-open
 

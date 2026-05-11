@@ -1,4 +1,4 @@
-# VS Code Copilot Integration
+# Copilot Integration
 
 Atelier integrates with Copilot Chat through VS Code MCP config, instruction injection, chat mode, and task presets. Installs are global by default; pass `--workspace DIR` for project-local files.
 

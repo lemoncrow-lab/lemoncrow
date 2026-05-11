@@ -99,7 +99,7 @@ export interface ValidationResult {
 
 export interface Trace {
   id: string;
-  run_id?: string;
+  session_id?: string;
   agent: string;
   host?: string;
   domain?: string;
@@ -141,7 +141,7 @@ export interface ConversationEntry {
 
 export interface NestedTrace {
   id: string;
-  run_id: string;
+  session_id: string;
   agent: string;
   domain: string;
   task: string;
@@ -252,7 +252,7 @@ export interface SavingsToolAggregate {
 }
 
 export interface SavingsProofItem {
-  run_id: string;
+  session_id: string;
   turn_index: number;
   tool_name: string;
   lever: string;
@@ -273,7 +273,7 @@ export interface SavingsProofItem {
 }
 
 export interface SavingsProofSession {
-  run_id: string;
+  session_id: string;
   trace_id?: string | null;
   agent: string;
   task: string;
@@ -298,7 +298,7 @@ export interface SavingsProofSession {
 }
 
 export interface SavingsCoverageGap {
-  run_id: string;
+  session_id: string;
   trace_id?: string | null;
   agent: string;
   task: string;
@@ -310,7 +310,7 @@ export interface SavingsCoverageGap {
 }
 
 export interface SavingsVerificationRun {
-  run_id: string;
+  session_id: string;
   agent?: string;
   task?: string;
   saved_tokens: number;
@@ -318,7 +318,7 @@ export interface SavingsVerificationRun {
 }
 
 export interface SavingsVerificationItem {
-  run_id: string;
+  session_id: string;
   turn_index: number;
   tool_name: string;
   lever: string;
@@ -348,7 +348,7 @@ export interface SavingsVerificationSummary {
 }
 
 export interface SavingsBenchmark {
-  run_id: string;
+  session_id: string;
   model: string;
   n_prompts: number;
   total_tokens_baseline: number;
@@ -623,7 +623,7 @@ export interface OptimizationsSummary {
 }
 
 export interface CallEntry {
-  run_id: string;
+  session_id: string;
   domain?: string;
   task?: string;
   operation: string;
@@ -722,12 +722,13 @@ export interface MemoryRecallResult {
 }
 
 export interface RunInspectorData {
-  run_id: string;
+  session_id: string;
   pinned_blocks: string[];
   recalled_passages: Array<{ id: string; source_ref: string }>;
   summarized_events_count: number;
   tokens_pre: number | null;
   tokens_post: number | null;
+  source_paths?: string[];
   conversations?: Array<{
     kind: string;
     at?: string;
@@ -764,6 +765,7 @@ export interface WatchdogConfig {
 
 export interface GranularToolUsage {
   agent: string;
+  host?: string;
   event_type: string;
   tool_name: string;
   sub_command: string | null;
@@ -812,6 +814,21 @@ export interface DashboardByModel {
   input_tokens: number;
   output_tokens: number;
   cached_tokens: number;
+}
+
+export interface DashboardHostModelOverview {
+  host: string;
+  model: string;
+  sessions: number;
+  user_typed_tokens: number;
+  base_context_tokens: number;
+  cached_prompt_tokens: number;
+  cache_write_tokens: number;
+  billable_output_tokens: number;
+  tool_output_tokens: number;
+  thinking_tokens: number;
+  tool_calls: number;
+  cost: number;
 }
 
 export interface DashboardTopSession {
@@ -901,6 +918,7 @@ export interface AnalyticsDashboard {
   by_domain: DashboardByDomain[];
   by_host: DashboardByHost[];
   by_model: DashboardByModel[];
+  host_model_overview: DashboardHostModelOverview[];
   top_sessions: DashboardTopSession[];
   external: DashboardExternalSummary;
   tools: {
@@ -1018,7 +1036,7 @@ export const api = {
     return get<TraceListResponse>(`/traces?${params.toString()}`);
   },
   trace: (id: string) => get<Trace>(`/v1/traces/${id}`),
-  ledger: (run_id: string) => get<any>(`/ledgers/${run_id}`),
+  ledger: (session_id: string) => get<any>(`/ledgers/${session_id}`),
   clusters: () => get<Cluster[]>("/clusters"),
   blocks: () => get<ReasonBlock[]>("/blocks"),
   block: (id: string) => get<ReasonBlock>(`/blocks/${id}`),

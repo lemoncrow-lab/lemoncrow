@@ -14,6 +14,8 @@ from atelier.infra.embeddings.base import Embedder
 from atelier.infra.internal_llm.ollama_client import OllamaUnavailable, chat
 from atelier.infra.storage.memory_store import MemoryStore
 
+logger = logging.getLogger(__name__)
+
 _log = logging.getLogger(__name__)
 ArbitrationOp = Literal["ADD", "UPDATE", "DELETE", "NOOP"]
 
@@ -39,7 +41,10 @@ def _emit_arbitration_metric(op: str) -> None:
             )
         _emit_arbitration_metric.counter.labels(op=op).inc()  # type: ignore[attr-defined]
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at arbiter.py:41",
+            exc_info=True,
+        )
 
 
 def _decision(**kwargs: object) -> ArbitrationDecision:

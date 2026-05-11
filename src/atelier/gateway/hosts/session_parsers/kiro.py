@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +20,8 @@ from atelier.gateway.hosts.session_parsers._common import (
     make_user_message,
     record_normalized_session,
 )
+
+logger = logging.getLogger(__name__)
 
 _TOOL_RE = re.compile(r"<tool_use>\s*<name>([^<]+)</name>", re.IGNORECASE)
 
@@ -45,7 +48,10 @@ def _resolve_project_name(workspace_root: Path, hash_name: str) -> str:
                 cleaned = folder.replace("file://", "")
                 return Path(cleaned).name or hash_name
         except json.JSONDecodeError:
-            pass
+            logger.warning(
+                "Suppressed exception at kiro.py:47",
+                exc_info=True,
+            )
     return hash_name
 
 

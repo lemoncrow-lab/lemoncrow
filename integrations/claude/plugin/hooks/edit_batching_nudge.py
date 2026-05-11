@@ -9,8 +9,35 @@ import sys
 from pathlib import Path
 
 
+def _session_state_path() -> Path:
+    import hashlib
+
+    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    h = hashlib.sha256(str(Path(workspace).resolve()).encode("utf-8")).hexdigest()[:12]
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
+
+
+def _read_session_state() -> dict[str, object]:
+    p = _session_state_path()
+    if not p.exists():
+        return {}
+    try:
+        import json
+
+        return json.loads(p.read_text("utf-8"))
+    except Exception:
+        return {}
+
+
 def _atelier_root() -> Path:
-    return Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or ".atelier")
+    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
+    if root:
+        return Path(root)
+    state = _read_session_state()
+    if state.get("atelier_root"):
+        return Path(state["atelier_root"])
+    return Path.home() / ".atelier"
 
 
 def _state_path(payload: dict[str, object]) -> Path:

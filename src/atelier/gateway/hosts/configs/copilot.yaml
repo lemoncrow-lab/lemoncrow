@@ -1,5 +1,5 @@
 host_id: copilot
-name: VS Code Copilot
+name: Copilot
 version: 1.0.0
 description: Integration with GitHub Copilot in VS Code for intelligent code completion and analysis
 platforms:

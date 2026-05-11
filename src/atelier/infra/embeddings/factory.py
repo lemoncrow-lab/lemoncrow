@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 
 from atelier.infra.embeddings.base import Embedder
@@ -10,6 +11,8 @@ from atelier.infra.embeddings.letta_embedder import LettaEmbedder
 from atelier.infra.embeddings.local import LocalEmbedder
 from atelier.infra.embeddings.null_embedder import NullEmbedder
 from atelier.infra.embeddings.openai_embedder import OpenAIEmbedder
+
+logger = logging.getLogger(__name__)
 
 _PIN_CHOICES = frozenset({"local", "openai", "letta", "null"})
 
@@ -47,7 +50,10 @@ def make_embedder(*, pin: str | None = None) -> Embedder:
         if LettaAdapter.is_available():
             return LettaEmbedder()
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at factory.py:49",
+            exc_info=True,
+        )
 
     if os.environ.get("OPENAI_API_KEY"):
         return OpenAIEmbedder()

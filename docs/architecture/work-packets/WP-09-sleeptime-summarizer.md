@@ -37,7 +37,7 @@ summarizer (template-based, no LLM call) so CI stays hermetic.
    - Run the existing dedup + score + budget steps.
    - For every event in `dropped` (i.e. evicted), call the sleeptime summarizer to produce a
      `MemoryChunk` (text + start_event_id + end_event_id + a 1-3-sentence paraphrase).
-   - Insert each chunk as an `ArchivalPassage` (source=`block_evict`, source_ref=`run:<run_id>`).
+   - Insert each chunk as an `ArchivalPassage` (source=`block_evict`, source_ref=`run:<session_id>`).
    - Write a `RunMemoryFrame` row capturing tokens_pre/post and the chosen `compaction_strategy`.
 
 2. Local summarizer (`sleeptime.py`):
@@ -58,7 +58,7 @@ summarizer (template-based, no LLM call) so CI stays hermetic.
    - On any exception fall back to local summarizer and log WARNING.
 
 4. MCP tool `memory`:
-   - Input: `run_id`
+   - Input: `session_id`
    - Output: `&#123; tokens_pre, tokens_post, summary_md, evicted_event_ids, archived_passage_ids, strategy &#125;`
 
 5. Integration test:
@@ -76,7 +76,7 @@ LOCAL=1 uv run pytest tests/core/test_local_sleeptime.py \
                      tests/infra/test_sleeptime_writes_archival.py -v
 
 # MCP smoke
-LOCAL=1 uv run atelier memory summarize --run-id <some_run_id>  # uses 'memory summarize' alias
+LOCAL=1 uv run atelier memory summarize --run-id <some_session_id>  # uses 'memory summarize' alias
 
 make verify
 ```

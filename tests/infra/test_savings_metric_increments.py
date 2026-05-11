@@ -20,7 +20,7 @@ def test_context_budget_dispatch_loop(store: ReasoningStore) -> None:
     """Test recording metrics through a simulated dispatch loop."""
     recorder = ContextBudgetRecorder(store)
 
-    run_id = "dispatch-test-run"
+    session_id = "dispatch-test-run"
 
     # Simulate a dispatch loop with 3 tool calls
     for turn_idx in range(3):
@@ -38,7 +38,7 @@ def test_context_budget_dispatch_loop(store: ReasoningStore) -> None:
             lever_savings = {"context_compression": 150}
 
         recorder.record(
-            run_id=run_id,
+            session_id=session_id,
             turn_index=turn_idx,
             model="claude-3-opus",
             input_tokens=1000 - (turn_idx * 100),
@@ -51,7 +51,7 @@ def test_context_budget_dispatch_loop(store: ReasoningStore) -> None:
         )
 
     # Verify all records were persisted
-    records = store.list_context_budgets(run_id)
+    records = store.list_context_budgets(session_id)
     assert len(records) == 3
 
     # Verify ordering by turn_index
@@ -59,7 +59,7 @@ def test_context_budget_dispatch_loop(store: ReasoningStore) -> None:
         assert record.turn_index == idx
 
     # Verify aggregation
-    savings = recorder.aggregate_run(run_id)
+    savings = recorder.aggregate_run(session_id)
     assert savings.turn_count == 3
     assert savings.total_tokens_saved == 750  # 200 + 100 + 300 + 150
     assert savings.lever_totals == {
@@ -79,14 +79,14 @@ def test_context_budget_database_schema_migration(store: ReasoningStore) -> None
 
 
 def test_context_budget_unique_constraint(store: ReasoningStore) -> None:
-    """Test that the unique constraint on (run_id, turn_index) is enforced."""
+    """Test that the unique constraint on (session_id, turn_index) is enforced."""
     recorder = ContextBudgetRecorder(store)
 
-    run_id = "constraint-test"
+    session_id = "constraint-test"
 
     # Record a turn
     recorder.record(
-        run_id=run_id,
+        session_id=session_id,
         turn_index=0,
         model="claude-3-opus",
         input_tokens=1000,
@@ -100,7 +100,7 @@ def test_context_budget_unique_constraint(store: ReasoningStore) -> None:
 
     # Re-record the same turn (should replace due to REPLACE INSERT)
     recorder.record(
-        run_id=run_id,
+        session_id=session_id,
         turn_index=0,
         model="claude-3-opus",
         input_tokens=1100,
@@ -113,7 +113,7 @@ def test_context_budget_unique_constraint(store: ReasoningStore) -> None:
     )
 
     # Verify only one record exists
-    records = store.list_context_budgets(run_id)
+    records = store.list_context_budgets(session_id)
     assert len(records) == 1
     # Verify it has the latest values
     assert records[0].input_tokens == 1100
@@ -134,7 +134,7 @@ def test_context_budget_prometheus_counter_increments(store: ReasoningStore) -> 
 
         # Record metrics
         recorder.record(
-            run_id="prometheus-test",
+            session_id="prometheus-test",
             turn_index=0,
             model="claude-3-opus",
             input_tokens=1000,
@@ -161,13 +161,13 @@ def test_context_budget_large_run(store: ReasoningStore) -> None:
     """Test recording metrics for a large run with many turns."""
     recorder = ContextBudgetRecorder(store)
 
-    run_id = "large-run"
+    session_id = "large-run"
     turn_count = 50
 
     # Record many turns
     for turn_idx in range(turn_count):
         recorder.record(
-            run_id=run_id,
+            session_id=session_id,
             turn_index=turn_idx,
             model="claude-3-opus",
             input_tokens=1000,
@@ -180,11 +180,11 @@ def test_context_budget_large_run(store: ReasoningStore) -> None:
         )
 
     # Verify all records were persisted
-    records = store.list_context_budgets(run_id)
+    records = store.list_context_budgets(session_id)
     assert len(records) == turn_count
 
     # Verify aggregation
-    savings = recorder.aggregate_run(run_id)
+    savings = recorder.aggregate_run(session_id)
     assert savings.turn_count == turn_count
 
     # Calculate expected total
@@ -204,7 +204,7 @@ def test_context_budget_lever_savings_json_serialization(store: ReasoningStore) 
     }
 
     recorder.record(
-        run_id="json-test",
+        session_id="json-test",
         turn_index=0,
         model="claude-3-opus",
         input_tokens=1000,
@@ -222,12 +222,12 @@ def test_context_budget_lever_savings_json_serialization(store: ReasoningStore) 
 
 
 def test_context_budget_index_performance(store: ReasoningStore) -> None:
-    """Test that the database index on (run_id) is present for query performance."""
+    """Test that the database index on (session_id) is present for query performance."""
     # Verify the index exists
     with store._connect() as conn:
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='ix_context_budget_run';")
         result = cursor.fetchone()
-        assert result is not None, "Index on run_id should exist"
+        assert result is not None, "Index on session_id should exist"
 
 
 if __name__ == "__main__":

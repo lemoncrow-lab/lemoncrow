@@ -22,7 +22,7 @@ const HOSTS = [
   },
   {
     id: "copilot",
-    label: "VS Code Copilot",
+    label: "Copilot",
     icon: "💼",
     desc: "MCP config + custom instructions + shared telemetry",
   },

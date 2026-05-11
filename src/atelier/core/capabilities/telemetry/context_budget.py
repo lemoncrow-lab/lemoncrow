@@ -7,7 +7,10 @@ Emits Prometheus metrics and persists records to the SQLite store.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from atelier.core.foundation.store import ReasoningStore
@@ -16,8 +19,8 @@ if TYPE_CHECKING:
 class RunSavings:
     """Aggregated savings for an entire run."""
 
-    def __init__(self, run_id: str) -> None:
-        self.run_id = run_id
+    def __init__(self, session_id: str) -> None:
+        self.session_id = session_id
         self.total_tokens_saved: int = 0
         self.lever_totals: dict[str, int] = {}
         self.compact_method_totals: dict[str, int] = {}
@@ -25,7 +28,7 @@ class RunSavings:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "run_id": self.run_id,
+            "session_id": self.session_id,
             "total_tokens_saved": self.total_tokens_saved,
             "lever_totals": self.lever_totals,
             "compact_method_totals": self.compact_method_totals,
@@ -56,7 +59,7 @@ class ContextBudgetRecorder:
     def record(
         self,
         *,
-        run_id: str,
+        session_id: str,
         turn_index: int,
         model: str,
         input_tokens: int,
@@ -70,7 +73,7 @@ class ContextBudgetRecorder:
         """Record a single turn's context budget and token savings.
 
         Args:
-            run_id: The run identifier.
+            session_id: The run identifier.
             turn_index: Zero-based turn index.
             model: The LLM model used (e.g., "claude-3-opus").
             input_tokens: Actual input tokens to the model.
@@ -85,7 +88,7 @@ class ContextBudgetRecorder:
 
         # Create and persist the ContextBudget record
         record = ContextBudget(
-            run_id=run_id,
+            session_id=session_id,
             turn_index=turn_index,
             model=model,
             input_tokens=input_tokens,
@@ -107,7 +110,7 @@ class ContextBudgetRecorder:
     def record_compact_tool_output(
         self,
         *,
-        run_id: str,
+        session_id: str,
         turn_index: int,
         model: str,
         method: str,
@@ -117,7 +120,7 @@ class ContextBudgetRecorder:
         """Record net savings for one compact-tool-output call."""
         saved = max(0, tokens_in - tokens_out)
         self.record(
-            run_id=run_id,
+            session_id=session_id,
             turn_index=turn_index,
             model=model,
             input_tokens=tokens_out,
@@ -161,7 +164,10 @@ class ContextBudgetRecorder:
 
         except Exception:
             # Silently fail if Prometheus is not available or metric emission fails
-            pass
+            logger.warning(
+                "Suppressed exception at context_budget.py:162",
+                exc_info=True,
+            )
 
     def _emit_compact_method_metric(self, method: str, model: str, saved: int) -> None:
         try:
@@ -176,20 +182,23 @@ class ContextBudgetRecorder:
 
             self._compact_tokens_saved_counter.labels(method=method, model=model).inc(saved)
         except Exception:
-            pass
+            logger.warning(
+                "Suppressed exception at context_budget.py:178",
+                exc_info=True,
+            )
 
-    def aggregate_run(self, run_id: str) -> RunSavings:
+    def aggregate_run(self, session_id: str) -> RunSavings:
         """Aggregate all context budgets for a run.
 
         Args:
-            run_id: The run identifier.
+            session_id: The run identifier.
 
         Returns:
             A RunSavings object with totals and per-lever breakdowns.
         """
-        records = self.store.list_context_budgets(run_id)
+        records = self.store.list_context_budgets(session_id)
 
-        result = RunSavings(run_id)
+        result = RunSavings(session_id)
         result.turn_count = len(records)
 
         for record in records:

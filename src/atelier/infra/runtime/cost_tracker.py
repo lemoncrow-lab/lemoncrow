@@ -5,7 +5,7 @@ counts, USD cost, and the lessons (ReasonBlocks) injected into the prompt.
 
 Persists two artifacts under the atelier store root:
 
-  * ``runs/<run_id>.json``             — already written by RunLedger; the
+  * ``runs/<session_id>.json``             — already written by RunLedger; the
                                           tracker also appends a ``calls``
                                           list and ``total_cost_usd`` field.
   * ``cost_history.json``              — per-operation rolling history keyed

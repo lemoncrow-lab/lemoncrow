@@ -39,6 +39,8 @@ from atelier.infra.runtime.run_ledger import RunLedger
 from atelier.infra.storage.factory import make_memory_store
 from atelier.infra.storage.memory_store import MemoryConcurrencyError, MemorySidecarUnavailable
 
+logger = logging.getLogger(__name__)
+
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "atelier-reasoning"
 SERVER_VERSION = atelier_version
@@ -161,11 +163,11 @@ def _get_ledger() -> RunLedger:
     if _current_ledger is None:
         root = _atelier_root()
         _current_ledger = RunLedger(root=root, agent=_detect_agent())
-        # Publish run_id AND atelier_root to session_state so PostToolUse hooks
+        # Publish session_id AND atelier_root to session_state so PostToolUse hooks
         # can find the right run file regardless of ATELIER_ROOT in their env.
         _write_session_state(
             {
-                "active_run_id": _current_ledger.run_id,
+                "active_session_id": _current_ledger.session_id,
                 "atelier_root": str(root),
             }
         )
@@ -341,14 +343,15 @@ class _NoOpContextBudgetRecorder:
         """No-op record method."""
         pass
 
-    def aggregate_run(self, run_id: str) -> Any:
+    def aggregate_run(self, session_id: str) -> Any:
         """No-op aggregate method."""
         return {}
 
 
 def _session_state_path() -> Path:
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier" / "session_state.json"
+    from atelier.core.foundation.paths import resolve_session_state_path
+
+    return resolve_session_state_path()
 
 
 def _read_session_state() -> dict[str, Any]:
@@ -378,7 +381,10 @@ def _write_session_state(updates: dict[str, Any]) -> None:
 
         p.write_text(json.dumps(state, indent=2), encoding="utf-8")
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at mcp_server.py:381",
+            exc_info=True,
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -443,7 +449,10 @@ def _autostart_servicectl(root: Path) -> None:
             )
         pid_path.write_text(f"{proc.pid}\n", encoding="utf-8")
     except Exception:
-        pass  # never surface — must not disrupt the MCP server
+        logger.warning(
+            "Suppressed exception at mcp_server.py:446",
+            exc_info=True,
+        )
 
 
 def _detect_default_branch(repo: Path) -> str | None:
@@ -465,7 +474,10 @@ def _detect_default_branch(repo: Path) -> str | None:
                 if branch:
                     return branch
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at mcp_server.py:468",
+            exc_info=True,
+        )
     # Fallback: try main then master
     for candidate in ("main", "master"):
         try:
@@ -615,7 +627,10 @@ def _run_worker_tick_safe(root: Path) -> None:
             if worker.run_once() is None:
                 break
     except Exception:
-        pass  # fail silently — background consolidation is best-effort
+        logger.warning(
+            "Suppressed exception at mcp_server.py:618",
+            exc_info=True,
+        )
 
 
 _runtime_cache: ReasoningRuntime | None = None
@@ -666,7 +681,10 @@ def _write_smart_state(state: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at mcp_server.py:669",
+            exc_info=True,
+        )
 
 
 def _coerce_saved_tokens(value: Any) -> int:
@@ -963,7 +981,7 @@ def tool_route(
             domain=domain,
             step_type=step_type,
             step_index=step_index,
-            run_id=led.run_id,
+            session_id=led.session_id,
             evidence_summary=evidence_summary,
             ledger=led,
         )
@@ -988,7 +1006,7 @@ def tool_route(
     )
     envelope = rt.core_runtime.quality_router.verify(
         route_decision_id=route_decision_id,
-        run_id=led.run_id,
+        session_id=led.session_id,
         changed_files=changed_files,
         validation_results=validation_results,
         rubric_status=rubric_status,
@@ -1101,7 +1119,7 @@ def tool_record_trace(
     response: str | None = None,
     bash_outputs: list[Any] | None = None,
     tool_outputs: list[Any] | None = None,
-    run_id: str | None = None,
+    session_id: str | None = None,
     trace_confidence: str | None = None,
     capture_sources: list[str] | None = None,
     missing_surfaces: list[str] | None = None,
@@ -1244,7 +1262,7 @@ def tool_record_trace(
         "errors_seen": redact_list([str(v) for v in errors_seen]),
         "diff_summary": redact(diff_summary),
         "output_summary": redact(output_summary),
-        "run_id": run_id or led.run_id,
+        "session_id": session_id or led.session_id,
         "host": _derive_host(agent),
         "trace_confidence": trace_confidence,
         "capture_sources": capture_sources,
@@ -1337,7 +1355,7 @@ def tool_record_trace(
 
     return {
         "id": trace.id,
-        "run_id": led.run_id,
+        "session_id": led.session_id,
         "event_recorded": bool(event_type),
         "realtime_context": rtc.snapshot(),
     }
@@ -1370,7 +1388,7 @@ def tool_run_rubric_gate(rubric_id: str, checks: dict[str, Any]) -> Any:
     return to_jsonable(result)
 
 
-def _compress_context(run_id: str | None = None) -> Any:
+def _compress_context(session_id: str | None = None) -> Any:
     """Compress the current ledger state into a compact prompt block for context continuation."""
     from atelier.infra.runtime.context_compressor import ContextCompressor
 
@@ -1526,7 +1544,7 @@ def tool_memory(
     query: str | None = None,
     top_k: int = 5,
     since: str | None = None,
-    run_id: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any] | None:
     """[DEV] Memory op-dispatch: block_upsert, block_get, archive, recall, transcript_recall, or summarize."""
     if stub := _check_dev_mode("memory"):
@@ -1572,7 +1590,7 @@ def tool_memory(
         from atelier.core.capabilities.local_recall import recall_transcripts
 
         return recall_transcripts(query=require("query", query), top_k=top_k)
-    return _memory_summary(require("run_id", run_id))
+    return _memory_summary(require("session_id", session_id))
 
 
 @mcp_tool(name="read", is_dev=True)
@@ -1735,7 +1753,7 @@ def tool_sql(
     )
 
 
-def _compact_advise(run_id: str | None = None) -> dict[str, Any]:
+def _compact_advise(session_id: str | None = None) -> dict[str, Any]:
     """Advise when to compact and what context to preserve.
 
     Returns a manifest with:
@@ -1743,8 +1761,8 @@ def _compact_advise(run_id: str | None = None) -> dict[str, Any]:
     """
     try:
         led = _get_ledger()
-        if run_id:
-            led.run_id = run_id
+        if session_id:
+            led.session_id = session_id
 
         # Estimate tokens used: token_count from ledger + events
         tokens_used = led.token_count
@@ -1770,7 +1788,10 @@ def _compact_advise(run_id: str | None = None) -> dict[str, Any]:
             pinned = store.list_pinned_blocks(agent_id=agent_id)
             pin_memory = [b.id for b in pinned][:5]
         except Exception:
-            pass  # Fail-open
+            logger.warning(
+                "Suppressed exception at mcp_server.py:1773",
+                exc_info=True,
+            )
 
         # Collect open_files: last 5 files touched
         open_files = led.files_touched[-5:] if led.files_touched else []
@@ -1785,12 +1806,12 @@ def _compact_advise(run_id: str | None = None) -> dict[str, Any]:
         # Persist manifest to disk
         try:
             root = _atelier_root()
-            run_dir = root / "runs" / led.run_id
+            run_dir = root / "runs" / led.session_id
             run_dir.mkdir(parents=True, exist_ok=True)
             manifest_path = run_dir / "compact_manifest.json"
             manifest = {
                 "created_at": datetime.now(UTC).isoformat(),
-                "run_id": led.run_id,
+                "session_id": led.session_id,
                 "should_compact": should_compact,
                 "utilisation_pct": utilisation_pct,
                 "preserve_blocks": preserve_blocks,
@@ -1800,7 +1821,10 @@ def _compact_advise(run_id: str | None = None) -> dict[str, Any]:
             }
             manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         except Exception:
-            pass  # Fail-open: don't block the tool if persistence fails
+            logger.warning(
+                "Suppressed exception at mcp_server.py:1803",
+                exc_info=True,
+            )
 
         return {
             "should_compact": should_compact,
@@ -1822,11 +1846,11 @@ def _compact_advise(run_id: str | None = None) -> dict[str, Any]:
         }
 
 
-def _memory_summary(run_id: str) -> dict[str, Any]:
+def _memory_summary(session_id: str) -> dict[str, Any]:
     """Run the sleeptime summarizer for a given run and return a summary.
 
     Input:
-        run_id: The run identifier to summarize.
+        session_id: The run identifier to summarize.
 
     Output:
         tokens_pre, tokens_post, summary_md, evicted_event_ids,
@@ -1838,13 +1862,13 @@ def _memory_summary(run_id: str) -> dict[str, Any]:
         )
 
         led = _get_ledger()
-        if run_id:
-            led.run_id = run_id
+        if session_id:
+            led.session_id = session_id
 
         cap = ContextCompressionCapability()
         result = cap.compress_with_sleeptime(led)
 
-        summary_lines = [f"## Sleeptime Summary — run `{led.run_id}`", ""]
+        summary_lines = [f"## Sleeptime Summary — run `{led.session_id}`", ""]
         summary_lines.append(f"- Tokens before: {result.chars_before // 4}")
         summary_lines.append(f"- Tokens after:  {result.chars_after // 4}")
         summary_lines.append(f"- Reduction:     {result.reduction_pct}%")
@@ -1969,7 +1993,7 @@ def tool_compact(
     content_type: str = "unknown",
     budget_tokens: int = 500,
     recovery_hint: str | None = None,
-    run_id: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """[DEV] Compact op-dispatch: output, session, or advise."""
     if stub := _check_dev_mode("compact"):
@@ -1983,8 +2007,8 @@ def tool_compact(
             recovery_hint=recovery_hint,
         )
     if op == "session":
-        return cast(dict[str, Any], _compress_context(run_id=run_id))
-    return _compact_advise(run_id=run_id)
+        return cast(dict[str, Any], _compress_context(session_id=session_id))
+    return _compact_advise(session_id=session_id)
 
 
 # --------------------------------------------------------------------------- #
@@ -2179,7 +2203,7 @@ def _record_context_budget_for_tool(
         if calls_avoided > 0 or tokens_saved > 0:
             event = {
                 "at": datetime.now(UTC).isoformat(),
-                "run_id": led.run_id,
+                "session_id": led.session_id,
                 "agent": led.agent or _detect_agent(),
                 "tool_name": tool_name,
                 "lever": lever,
@@ -2207,7 +2231,7 @@ def _record_context_budget_for_tool(
 
         if compact_tool_tokens_saved > 0 and not isinstance(raw_lever_savings, dict):
             recorder.record_compact_tool_output(
-                run_id=led.run_id,
+                session_id=led.session_id,
                 turn_index=max(0, len(led.events) - 1),
                 model=model,
                 method=lever,
@@ -2216,7 +2240,7 @@ def _record_context_budget_for_tool(
             )
         else:
             recorder.record(
-                run_id=led.run_id,
+                session_id=led.session_id,
                 turn_index=max(0, len(led.events) - 1),
                 model=model,
                 input_tokens=0,
@@ -2229,7 +2253,10 @@ def _record_context_budget_for_tool(
             )
     except Exception:
         # Silently fail if context budget recording is not available
-        pass
+        logger.warning(
+            "Suppressed exception at mcp_server.py:2231",
+            exc_info=True,
+        )
 
 
 def _handle(request: dict[str, Any]) -> dict[str, Any] | None:

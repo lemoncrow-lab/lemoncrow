@@ -184,7 +184,7 @@ server["args"] = server.get("args", [])
 if $workspace_mode:
     server["env"] = {
         "ATELIER_WORKSPACE_ROOT": "$WORKSPACE",
-        "ATELIER_ROOT": "$WORKSPACE/.atelier",
+        "ATELIER_ROOT": "${HOME}/.atelier",
     }
 else:
     server.pop("env", None)

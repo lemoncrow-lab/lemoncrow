@@ -33,7 +33,7 @@ class AgentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(default_factory=lambda: f"req-{make_uuid7()}")
-    run_id: str | None = None
+    session_id: str | None = None
     user_goal: str
     repo_root: str
     task_type: TaskType
@@ -57,7 +57,7 @@ class RouteDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(default_factory=lambda: f"rd-{make_uuid7()}")
-    run_id: str
+    session_id: str
     request_id: str = ""
     step_index: int
     step_type: StepType
@@ -78,7 +78,7 @@ class VerificationEnvelope(BaseModel):
 
     id: str = Field(default_factory=lambda: f"ve-{make_uuid7()}")
     route_decision_id: str
-    run_id: str
+    session_id: str
     changed_files: list[str] = Field(default_factory=list)
     validation_results: list[ValidationResult] = Field(default_factory=list)
     rubric_status: RubricStatus = "not_run"
@@ -91,7 +91,7 @@ class VerificationEnvelope(BaseModel):
 class RoutingEvalSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    run_id: str
+    session_id: str
     cost_per_accepted_patch: float
     premium_call_rate: float
     cheap_success_rate: float

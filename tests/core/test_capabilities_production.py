@@ -210,7 +210,7 @@ def test_loop_detection_check_returns_looproport_dict(tmp_path: Path) -> None:
 
     root = tmp_path / ".atelier"
     _init_root(root)
-    led = RunLedger(run_id="test-ld-1", task="fix bug", domain="test")
+    led = RunLedger(session_id="test-ld-1", task="fix bug", domain="test")
     cap = LoopDetectionCapability()
     report = cap.check(led)
     # check() returns a LoopReport with .to_dict()
@@ -229,7 +229,7 @@ def test_loop_detection_severity_none_for_empty_ledger(tmp_path: Path) -> None:
 
     root = tmp_path / ".atelier"
     _init_root(root)
-    led = RunLedger(run_id="test-ld-2", task="nothing", domain="test")
+    led = RunLedger(session_id="test-ld-2", task="nothing", domain="test")
     cap = LoopDetectionCapability()
     report = cap.check(led)
     assert report.severity == "none"
@@ -252,7 +252,7 @@ def test_loop_detection_patch_revert_detected(tmp_path: Path) -> None:
 
     root = tmp_path / ".atelier"
     _init_root(root)
-    led = RunLedger(run_id="test-ld-3", task="patch fix", domain="test")
+    led = RunLedger(session_id="test-ld-3", task="patch fix", domain="test")
     # Simulate alternating edit/revert events on same file
     for i in range(4):
         kind = "file_edit" if i % 2 == 0 else "file_revert"
@@ -274,7 +274,7 @@ def test_loop_detection_phase3_fields_present(tmp_path: Path) -> None:
 
     root = tmp_path / ".atelier"
     _init_root(root)
-    led = RunLedger(run_id="test-ld-p3-1", task="check fields", domain="test")
+    led = RunLedger(session_id="test-ld-p3-1", task="check fields", domain="test")
     cap = LoopDetectionCapability()
     report = cap.check(led)
     d = report.to_dict()
@@ -290,7 +290,7 @@ def test_loop_detection_stall_detected(tmp_path: Path) -> None:
 
     root = tmp_path / ".atelier"
     _init_root(root)
-    led = RunLedger(run_id="test-ld-p3-2", task="stall test", domain="test")
+    led = RunLedger(session_id="test-ld-p3-2", task="stall test", domain="test")
     # 10 tool_call events with no file writes => stall
     for i in range(10):
         led.record(
@@ -310,7 +310,7 @@ def test_loop_detection_second_guess_detected(tmp_path: Path) -> None:
 
     root = tmp_path / ".atelier"
     _init_root(root)
-    led = RunLedger(run_id="test-ld-p3-3", task="second guess test", domain="test")
+    led = RunLedger(session_id="test-ld-p3-3", task="second guess test", domain="test")
     # 5 reasoning events out of 8 total => second_guess_loop (ratio >= 0.4)
     for i in range(5):
         led.record(kind="reasoning", summary=f"clarify {i}", payload={})
@@ -327,7 +327,7 @@ def test_loop_detection_rescue_scores_nonempty_when_loop(tmp_path: Path) -> None
 
     root = tmp_path / ".atelier"
     _init_root(root)
-    led = RunLedger(run_id="test-ld-p3-4", task="rescue score test", domain="test")
+    led = RunLedger(session_id="test-ld-p3-4", task="rescue score test", domain="test")
     for i in range(10):
         led.record(
             kind="tool_call",
@@ -428,7 +428,7 @@ def test_context_compression_provenance_present(tmp_path: Path) -> None:
 
     root = tmp_path / ".atelier"
     _init_root(root)
-    led = RunLedger(run_id="test-cc-1", task="compress me", domain="test")
+    led = RunLedger(session_id="test-cc-1", task="compress me", domain="test")
     # Add some events to compress
     for i in range(5):
         led.record(kind="tool_call", summary=f"call {i}", payload={"i": i})
@@ -455,7 +455,7 @@ def test_context_compression_context_report(tmp_path: Path) -> None:
 
     root = tmp_path / ".atelier"
     _init_root(root)
-    led = RunLedger(run_id="test-cc-2", task="report", domain="test")
+    led = RunLedger(session_id="test-cc-2", task="report", domain="test")
     cap = ContextCompressionCapability()
     report = cap.context_report(led)
     assert isinstance(report, dict)
@@ -477,7 +477,7 @@ def test_runtime_pre_tool_hook(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     from atelier.infra.runtime.run_ledger import RunLedger
 
-    led = RunLedger(run_id="pre-tool-1", task="test hook", domain="test")
+    led = RunLedger(session_id="pre-tool-1", task="test hook", domain="test")
     result = rt.pre_tool("read_file", {"path": "foo.py"}, ledger=led)
     assert isinstance(result, dict)
     assert "cache_available" in result
@@ -517,7 +517,7 @@ def test_runtime_loop_report_no_ledger(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     # Should raise ClickException or return error dict — no crash
     try:
-        report = rt.loop_report(run_id=None)
+        report = rt.loop_report(session_id=None)
         # If there's no ledger, it may return an error dict or raise
         assert isinstance(report, dict)
     except Exception:
@@ -527,7 +527,7 @@ def test_runtime_loop_report_no_ledger(tmp_path: Path) -> None:
 def test_runtime_context_report_no_ledger(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     try:
-        report = rt.context_report(run_id=None)
+        report = rt.context_report(session_id=None)
         assert isinstance(report, dict)
     except Exception:
         pass  # raising is acceptable when no ledger exists
@@ -592,9 +592,9 @@ def test_telemetry_emit_and_query() -> None:
     from atelier.core.capabilities.telemetry import TelemetryEvent, TelemetrySubstrate
 
     bus = TelemetrySubstrate()
-    bus.emit("loop_detection", "loop_probability", 0.8, run_id="r1")
-    bus.emit("reasoning_reuse", "hit_quality", 0.95, run_id="r1")
-    bus.emit("loop_detection", "retry_count", 2.0, run_id="r1")
+    bus.emit("loop_detection", "loop_probability", 0.8, session_id="r1")
+    bus.emit("reasoning_reuse", "hit_quality", 0.95, session_id="r1")
+    bus.emit("loop_detection", "retry_count", 2.0, session_id="r1")
 
     all_events = bus.query()
     assert len(all_events) == 3

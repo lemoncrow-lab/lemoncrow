@@ -6,7 +6,7 @@ If the ``swebench`` package is installed we shell out to its harness:
         --dataset_name <name> \\
         --predictions_path <predictions.jsonl> \\
         --max_workers 4 \\
-        --run_id <id>
+        --session_id <id>
 
 Otherwise we print exact install instructions and return a "skipped" verdict
 so unit tests and offline runs still pass.
@@ -39,7 +39,7 @@ def evaluate(
     predictions_path: Path,
     *,
     dataset_name: str,
-    run_id: str,
+    session_id: str,
     max_workers: int = 4,
     extra_args: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -64,8 +64,8 @@ def evaluate(
         str(predictions_path),
         "--max_workers",
         str(max_workers),
-        "--run_id",
-        run_id,
+        "--session_id",
+        session_id,
     ]
     if extra_args:
         cmd.extend(extra_args)

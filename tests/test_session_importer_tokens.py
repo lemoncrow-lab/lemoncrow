@@ -208,8 +208,9 @@ class TestCodexImporterTokens:
 
         trace = _get_trace(store, "codex")
 
-        # Totals from the FINAL total_token_usage
-        assert trace.input_tokens == 300
+        # Totals from the FINAL total_token_usage.
+        # input_tokens excludes cached_input_tokens, which are stored separately.
+        assert trace.input_tokens == 260
         assert trace.output_tokens == 90
         assert trace.thinking_tokens == 7  # reasoning_output_tokens
         assert trace.cached_input_tokens == 40  # cached_input_tokens (subset of input)
@@ -220,6 +221,62 @@ class TestCodexImporterTokens:
         #   tool.input_tokens (exec_command) = dist_out = 60 // 1 = 60
         #   tool.output_tokens (exec_command) = dist_in = 200 // 1 = 200
         _assert_tool_tokens(trace, "exec_command", input_t=60, output_t=200)
+
+    def test_codex_flat_recovers_model_and_usage(self, store: ReasoningStore, tmp_path: Path) -> None:
+        fixture_lines = [
+            json.dumps(
+                {
+                    "id": "flat-session-id",
+                    "timestamp": "2026-05-10T09:00:00Z",
+                    "cwd": "/tmp/project",
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "Investigate failing analytics import"}],
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "gpt-5-mini",
+                    "usage": {
+                        "input_tokens": 120,
+                        "output_tokens": 45,
+                        "reasoning_tokens": 7,
+                        "input_tokens_details": {"cached_tokens": 20},
+                    },
+                    "content": [{"type": "output_text", "text": "Working on it."}],
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "function_call",
+                    "name": "exec_command",
+                    "arguments": '{"cmd": "sqlite3 analytics.db "select 1""}',
+                }
+            ),
+        ]
+
+        jsonl_path = tmp_path / "rollout-2026-05-10T09-00-00-flat-session.jsonl"
+        jsonl_path.write_text("\n".join(fixture_lines))
+
+        importer = CodexImporter(store)
+        result = importer.import_session(jsonl_path, force=True)
+        assert result is not None
+
+        trace = _get_trace(store, "codex")
+
+        assert trace.model == "gpt-5-mini"
+        assert trace.input_tokens == 100
+        assert trace.output_tokens == 45
+        assert trace.thinking_tokens == 7
+        assert trace.cached_input_tokens == 20
+        assert trace.cache_creation_input_tokens == 0
+        assert trace.user_prompt_tokens > 0
 
 
 # =========================================================================

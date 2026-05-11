@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel
 
 from atelier.infra.internal_llm.ollama_client import OllamaUnavailable, summarize
 from atelier.infra.storage.factory import _memory_backend
+
+logger = logging.getLogger(__name__)
 
 
 class SleeptimeChunk(BaseModel):
@@ -41,7 +44,10 @@ def summarize_ledger(
             )
         ]
     except OllamaUnavailable:
-        pass
+        logger.warning(
+            "Suppressed exception at sleeptime.py:43",
+            exc_info=True,
+        )
 
     try:
         from pathlib import Path

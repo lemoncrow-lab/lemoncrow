@@ -9,9 +9,9 @@ from typing import Any
 from atelier.core.improvement.failure_analyzer import FailureAnalyzer, analyze_failures
 
 
-def _snap(run_id: str, env: str, error_sig: str, status: str = "failed") -> dict[str, Any]:
+def _snap(session_id: str, env: str, error_sig: str, status: str = "failed") -> dict[str, Any]:
     return {
-        "run_id": run_id,
+        "session_id": session_id,
         "environment_id": env,
         "status": status,
         "events": [

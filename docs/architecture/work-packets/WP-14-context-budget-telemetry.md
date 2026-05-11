@@ -32,10 +32,10 @@ benchmark harness (WP-19) and the dashboard (WP-18) have data to read.
    ```python
    class ContextBudgetRecorder:
        def __init__(self, store): ...
-       def record(self, *, run_id, turn_index, model, input_tokens, cache_read_tokens,
+       def record(self, *, session_id, turn_index, model, input_tokens, cache_read_tokens,
                   cache_write_tokens, output_tokens, naive_input_tokens,
                   lever_savings: dict[str, int], tool_calls: int) -> None: ...
-       def aggregate_run(self, run_id: str) -> RunSavings: ...
+       def aggregate_run(self, session_id: str) -> RunSavings: ...
    ```
 
 2. In `mcp_server.py`, wrap the dispatch loop:
@@ -99,7 +99,7 @@ make verify
 
 1. **src/atelier/core/foundation/store.py** — Added three methods to `ReasoningStore`:
    - `persist_context_budget(record)` — Insert/replace a ContextBudget record
-   - `list_context_budgets(run_id)` — Query all records for a run, ordered by turn_index
+   - `list_context_budgets(session_id)` — Query all records for a run, ordered by turn_index
    - `get_context_budget(cb_id)` — Retrieve a single record by ID
 
 2. **src/atelier/gateway/adapters/mcp_server.py** — Added context budget recording hook:
@@ -119,8 +119,8 @@ make verify
 - Existing migration `v2_003_context_budget.sql` was already in place
 - Schema includes:
   - `context_budget` table with columns for all token counts, lever_savings (JSON), tool_calls
-  - Unique constraint on `(run_id, turn_index)`
-  - Index on `run_id` for efficient per-run queries
+  - Unique constraint on `(session_id, turn_index)`
+  - Index on `session_id` for efficient per-run queries
 
 ### Test results
 

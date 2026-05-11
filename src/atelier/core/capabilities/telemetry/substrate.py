@@ -50,7 +50,7 @@ class TelemetrySubstrate:
     Usage::
 
         bus = TelemetrySubstrate()
-        bus.emit("loop_detection", "loop_probability", 0.8, run_id="r1")
+        bus.emit("loop_detection", "loop_probability", 0.8, session_id="r1")
         events = bus.query(capability="loop_detection")
         stats  = bus.aggregates(metric="loop_probability")
     """

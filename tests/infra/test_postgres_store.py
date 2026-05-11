@@ -212,6 +212,6 @@ def test_postgres_store_upsert_run_ledger() -> None:
     result = store.get_run_ledger("run-pg-001")
 
     assert result is not None
-    assert result["run_id"] == "run-pg-001"
+    assert result["session_id"] == "run-pg-001"
     assert result["state"]["step"] == 1
     assert result["state"]["ok"] is True

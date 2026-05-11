@@ -13,7 +13,7 @@ RubricStatus = Literal["not_run", "pass", "warn", "fail"]
 def verify_route(
     *,
     route_decision_id: str,
-    run_id: str,
+    session_id: str,
     changed_files: list[str] | None = None,
     validation_results: list[ValidationResult | dict[str, object]] | None = None,
     rubric_status: RubricStatus = "not_run",
@@ -84,7 +84,7 @@ def verify_route(
 
     return VerificationEnvelope(
         route_decision_id=route_decision_id,
-        run_id=run_id,
+        session_id=session_id,
         changed_files=files,
         validation_results=results,
         rubric_status=rubric_status,

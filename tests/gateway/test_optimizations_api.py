@@ -115,7 +115,7 @@ def _write_live_savings_events(path: Path) -> None:
     rows = [
         {
             "at": now.isoformat(),
-            "run_id": "peer-low",
+            "session_id": "peer-low",
             "agent": "codex",
             "tool_name": "read",
             "lever": "structure_map",
@@ -128,7 +128,7 @@ def _write_live_savings_events(path: Path) -> None:
         },
         {
             "at": now.isoformat(),
-            "run_id": "peer-low",
+            "session_id": "peer-low",
             "agent": "codex",
             "tool_name": "read",
             "lever": "delta_read",

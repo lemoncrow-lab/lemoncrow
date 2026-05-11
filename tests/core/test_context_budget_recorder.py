@@ -22,7 +22,7 @@ def test_context_budget_recorder_record(store: ReasoningStore) -> None:
     recorder = ContextBudgetRecorder(store)
 
     recorder.record(
-        run_id="test-run-1",
+        session_id="test-run-1",
         turn_index=0,
         model="claude-3-opus",
         input_tokens=1000,
@@ -38,7 +38,7 @@ def test_context_budget_recorder_record(store: ReasoningStore) -> None:
     records = store.list_context_budgets("test-run-1")
     assert len(records) == 1
     record = records[0]
-    assert record.run_id == "test-run-1"
+    assert record.session_id == "test-run-1"
     assert record.turn_index == 0
     assert record.model == "claude-3-opus"
     assert record.input_tokens == 1000
@@ -56,7 +56,7 @@ def test_context_budget_recorder_multiple_turns(store: ReasoningStore) -> None:
 
     # Record turn 0
     recorder.record(
-        run_id="test-run-2",
+        session_id="test-run-2",
         turn_index=0,
         model="claude-3-opus",
         input_tokens=1000,
@@ -70,7 +70,7 @@ def test_context_budget_recorder_multiple_turns(store: ReasoningStore) -> None:
 
     # Record turn 1
     recorder.record(
-        run_id="test-run-2",
+        session_id="test-run-2",
         turn_index=1,
         model="claude-3-opus",
         input_tokens=800,
@@ -95,7 +95,7 @@ def test_context_budget_recorder_aggregate_run(store: ReasoningStore) -> None:
 
     # Record multiple turns
     recorder.record(
-        run_id="test-run-3",
+        session_id="test-run-3",
         turn_index=0,
         model="claude-3-opus",
         input_tokens=1000,
@@ -108,7 +108,7 @@ def test_context_budget_recorder_aggregate_run(store: ReasoningStore) -> None:
     )
 
     recorder.record(
-        run_id="test-run-3",
+        session_id="test-run-3",
         turn_index=1,
         model="claude-3-opus",
         input_tokens=800,
@@ -123,7 +123,7 @@ def test_context_budget_recorder_aggregate_run(store: ReasoningStore) -> None:
     # Aggregate
     savings = recorder.aggregate_run("test-run-3")
     assert isinstance(savings, RunSavings)
-    assert savings.run_id == "test-run-3"
+    assert savings.session_id == "test-run-3"
     assert savings.turn_count == 2
     assert savings.total_tokens_saved == 900  # 300 + 200 + 400
     assert savings.lever_totals == {
@@ -136,7 +136,7 @@ def test_context_budget_recorder_compact_method_totals(store: ReasoningStore) ->
     recorder = ContextBudgetRecorder(store)
 
     recorder.record_compact_tool_output(
-        run_id="test-run-compact",
+        session_id="test-run-compact",
         turn_index=0,
         model="claude-3-opus",
         method="deterministic_truncate",
@@ -144,7 +144,7 @@ def test_context_budget_recorder_compact_method_totals(store: ReasoningStore) ->
         tokens_out=350,
     )
     recorder.record_compact_tool_output(
-        run_id="test-run-compact",
+        session_id="test-run-compact",
         turn_index=1,
         model="claude-3-opus",
         method="ollama_summary",
@@ -165,7 +165,7 @@ def test_context_budget_recorder_aggregate_empty_run(store: ReasoningStore) -> N
 
     # Aggregate a non-existent run
     savings = recorder.aggregate_run("non-existent-run")
-    assert savings.run_id == "non-existent-run"
+    assert savings.session_id == "non-existent-run"
     assert savings.turn_count == 0
     assert savings.total_tokens_saved == 0
     assert savings.lever_totals == {}
@@ -176,7 +176,7 @@ def test_context_budget_record_with_zero_savings(store: ReasoningStore) -> None:
     recorder = ContextBudgetRecorder(store)
 
     recorder.record(
-        run_id="test-run-4",
+        session_id="test-run-4",
         turn_index=0,
         model="claude-3-opus",
         input_tokens=1000,
@@ -201,7 +201,7 @@ def test_run_savings_to_dict() -> None:
     savings.turn_count = 2
 
     result = savings.to_dict()
-    assert result["run_id"] == "test-run"
+    assert result["session_id"] == "test-run"
     assert result["total_tokens_saved"] == 1000
     assert result["lever_totals"] == {
         "semantic_file_memory": 600,
@@ -215,7 +215,7 @@ def test_context_budget_get_single_record(store: ReasoningStore) -> None:
     recorder = ContextBudgetRecorder(store)
 
     recorder.record(
-        run_id="test-run-5",
+        session_id="test-run-5",
         turn_index=0,
         model="claude-3-opus",
         input_tokens=1000,
@@ -234,7 +234,7 @@ def test_context_budget_get_single_record(store: ReasoningStore) -> None:
     retrieved = store.get_context_budget(record_id)
     assert retrieved is not None
     assert retrieved.id == record_id
-    assert retrieved.run_id == "test-run-5"
+    assert retrieved.session_id == "test-run-5"
 
     # Non-existent record
     non_existent = store.get_context_budget("non-existent-id")

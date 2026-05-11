@@ -33,7 +33,7 @@ Core Loop
 
 Intelligence
 ─────────────────────────────────────────────────
-/atelier:status [run_id]     Show current run's plan, facts, blockers, alerts
+/atelier:status [session_id]     Show current run's plan, facts, blockers, alerts
 /atelier:context <domain>    Show domain rules, forbidden phrases, procedures
 /atelier:analyze-failures    Cluster repeated failures; propose new blocks/rubrics
 /atelier:evals [list|run|promote] Manage test cases
@@ -56,7 +56,7 @@ Operations
 
 ### Intelligence Skills (as needed)
 
-- `/atelier:status [run_id]` — See your current run: plan, facts, blockers, alerts
+- `/atelier:status [session_id]` — See your current run: plan, facts, blockers, alerts
 - `/atelier:context <domain>` — Get domain rules, forbidden patterns, key procedures
 - `/atelier:analyze-failures` — Find repeated failures, propose mitigations
 - `/atelier:evals` — Manage test cases (list, run, promote)
@@ -176,9 +176,9 @@ atelier tool-mode set shadow
 ## 📊 Run Ledger (Session State)
 
 ```
-.atelier/runs/<run_id>.json contains:
+.atelier/runs/<session_id>.json contains:
 ─────────────────────────────────────────────────
-run_id                  Unique run identifier
+session_id                  Unique run identifier
 agent                   "atelier:code" | "atelier:repair" | ...
 task                    One-sentence task description
 domain                  beseam.shopify.publish | ... | null

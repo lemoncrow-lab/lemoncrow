@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# uninstall_copilot.sh - Remove Atelier from VS Code Copilot
+# uninstall_copilot.sh - Remove Atelier from Copilot
 #
 # Options:
 #   --workspace DIR  Remove project-local artifacts from DIR instead of global user config

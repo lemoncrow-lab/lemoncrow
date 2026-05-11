@@ -200,7 +200,7 @@ def persist_external_reports(
             continue
         tool = str(report.get("tool") or "unknown")
         summary = summarize_external_payload(tool, report.get("payload"))
-        run_id = store.record_external_analytics_run(
+        session_id = store.record_external_analytics_run(
             tool=tool,
             period=str(report.get("period") or batch.get("period") or "unknown"),
             source=source,
@@ -215,7 +215,7 @@ def persist_external_reports(
         )
         persisted.append(
             {
-                "id": run_id,
+                "id": session_id,
                 "tool": tool,
                 "period": str(report.get("period") or batch.get("period") or "unknown"),
                 "ok": bool(report.get("ok")),

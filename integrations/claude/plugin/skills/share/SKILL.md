@@ -6,7 +6,7 @@ allowed-tools: "mcp__atelier__trace, Bash(atelier trace *)"
 Prepare a shareable Atelier summary.
 
 1. Identify the current or requested run id.
-2. If needed, inspect the trace with `atelier trace show <run_id>`.
+2. If needed, inspect the trace with `atelier trace show <session_id>`.
 3. Summarize task, files touched, validation, and outcome in a compact shareable block.
 
 Do not include secrets, tokens, hidden reasoning, or raw private logs.

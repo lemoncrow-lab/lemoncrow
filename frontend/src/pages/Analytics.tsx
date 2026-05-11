@@ -4,6 +4,8 @@ import {
   type GranularToolUsage,
   type AnalyticsDashboard,
   type DashboardTool,
+  type DashboardHostModelOverview,
+  type ExternalAnalyticsRun,
   type ExternalAnalyticsResponse,
 } from "../api";
 import { MetricCard } from "../components/WorkbenchUI";
@@ -24,6 +26,13 @@ const TABS = [
   "Analysis",
   "External",
 ] as const;
+const EXTERNAL_PERIOD_DAY_SPAN: Record<string, number> = {
+  today: 1,
+  week: 7,
+  month: 30,
+  "30days": 30,
+  all: 3650,
+};
 type Tab = (typeof TABS)[number];
 
 // ---- Shared helpers --------------------------------------------------------
@@ -59,6 +68,142 @@ function fmtExternalValue(key: string, value: number) {
 function fmtTimestamp(value: string) {
   if (!value) return "—";
   return new Date(value).toLocaleString();
+}
+
+function titleCaseKey(key: string) {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function isPrimitiveExternalValue(
+  value: unknown
+): value is string | number | boolean | null {
+  return (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatMaybeExternalDate(value: string) {
+  const looksTemporal = value.includes("T") || /^\d{4}-\d{2}-\d{2}/.test(value);
+  if (!looksTemporal) return value;
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return value;
+  return new Date(parsed).toLocaleString();
+}
+
+function formatExternalContentValue(key: string, value: unknown) {
+  if (value == null) return "—";
+  if (typeof value === "number") {
+    return fmtExternalValue(key.toLowerCase(), value);
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string") return formatMaybeExternalDate(value);
+  if (Array.isArray(value)) return `${value.length} items`;
+  if (isRecord(value)) return `${Object.keys(value).length} fields`;
+  return String(value);
+}
+
+function summarizeExternalText(value: string, limit = 88) {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, Math.max(limit - 3, 0))}...`;
+}
+
+function sortRunsByCollectedAtDesc<T extends { collected_at: string }>(
+  items: T[]
+) {
+  return [...items].sort((a, b) =>
+    String(b.collected_at).localeCompare(String(a.collected_at))
+  );
+}
+
+function normalizeExternalPeriod(period: string | null | undefined) {
+  return String(period || "").trim().toLowerCase();
+}
+
+function pickPreferredExternalPeriod(
+  runs: ExternalAnalyticsRun[],
+  days: number
+) {
+  const targetDays = Math.max(1, days);
+  const periods = Array.from(
+    new Set(runs.map((run) => normalizeExternalPeriod(run.period)).filter(Boolean))
+  );
+
+  if (!periods.length) return null;
+
+  return [...periods].sort((left, right) => {
+    const leftSpan = EXTERNAL_PERIOD_DAY_SPAN[left] ?? Number.POSITIVE_INFINITY;
+    const rightSpan =
+      EXTERNAL_PERIOD_DAY_SPAN[right] ?? Number.POSITIVE_INFINITY;
+    const leftDiff = Math.abs(leftSpan - targetDays);
+    const rightDiff = Math.abs(rightSpan - targetDays);
+
+    if (leftDiff !== rightDiff) return leftDiff - rightDiff;
+
+    const leftOvershoots = leftSpan >= targetDays ? 0 : 1;
+    const rightOvershoots = rightSpan >= targetDays ? 0 : 1;
+    if (leftOvershoots !== rightOvershoots) {
+      return leftOvershoots - rightOvershoots;
+    }
+
+    return leftSpan - rightSpan;
+  })[0];
+}
+
+function selectExternalRunsForDays(
+  runs: ExternalAnalyticsRun[],
+  days: number
+) {
+  const sortedRuns = sortRunsByCollectedAtDesc(runs);
+  const selectedPeriod = pickPreferredExternalPeriod(sortedRuns, days);
+  if (!selectedPeriod) {
+    return {
+      selectedPeriod: null,
+      selectedRuns: sortedRuns,
+      observedPeriods: [] as string[],
+    };
+  }
+
+  const selectedRuns = sortedRuns.filter(
+    (run) => normalizeExternalPeriod(run.period) === selectedPeriod
+  );
+
+  return {
+    selectedPeriod,
+    selectedRuns: selectedRuns.length ? selectedRuns : sortedRuns,
+    observedPeriods: Array.from(
+      new Set(
+        sortedRuns.map((run) => normalizeExternalPeriod(run.period)).filter(Boolean)
+      )
+    ),
+  };
+}
+
+function formatExternalHighlightsPreview(
+  metrics: ExternalAnalyticsRun["summary"]["highlights"]
+) {
+  if (!metrics.length) return "—";
+  return metrics
+    .slice(0, 2)
+    .map(
+      (metric) =>
+        `${titleCaseKey(metric.label)} ${fmtExternalValue(
+          metric.key,
+          Number(metric.value)
+        )}`
+    )
+    .join(" · ");
 }
 
 // ---- Mini bar chart --------------------------------------------------------
@@ -761,111 +906,672 @@ function OptimizationCards({ data }: { data: GranularToolUsage[] }) {
   );
 }
 
-function ExternalLatestCards({
-  latestByTool,
-}: {
-  latestByTool: ExternalAnalyticsResponse["latest_by_tool"];
-}) {
-  const items = Object.values(latestByTool).sort((a, b) =>
-    String(b.collected_at).localeCompare(String(a.collected_at))
+function ExternalStatusBadge({
+  ok,
+  returncode,
+}: Pick<ExternalAnalyticsRun, "ok" | "returncode">) {
+  return (
+    <span
+      className={`px-2 py-1 text-[10px] uppercase tracking-wider font-bold border ${
+        ok
+          ? "border-emerald-800/80 text-emerald-300 bg-emerald-950/30"
+          : "border-red-900/80 text-red-300 bg-red-950/30"
+      }`}
+    >
+      {ok ? "ok" : `error ${returncode ?? ""}`.trim()}
+    </span>
   );
-  if (!items.length) {
+}
+
+function ExternalWindowMetrics({ runs }: { runs: ExternalAnalyticsRun[] }) {
+  const metricMap = sortRunsByCollectedAtDesc(runs).reduce<
+    Record<string, { key: string; label: string; values: number[] }>
+  >((acc, run) => {
+    run.summary.highlights.forEach((metric) => {
+      const value = Number(metric.value);
+      if (!Number.isFinite(value)) return;
+      if (!acc[metric.key]) {
+        acc[metric.key] = {
+          key: metric.key,
+          label: metric.label,
+          values: [],
+        };
+      }
+      acc[metric.key].values.push(value);
+    });
+    return acc;
+  }, {});
+
+  const metrics = Object.values(metricMap)
+    .map((metric) => ({
+      key: metric.key,
+      label: metric.label,
+      latest: metric.values[0],
+      average:
+        metric.values.reduce((sum, value) => sum + value, 0) /
+        metric.values.length,
+      samples: metric.values.length,
+    }))
+    .sort((a, b) => b.samples - a.samples || b.latest - a.latest);
+
+  if (!metrics.length) {
     return (
-      <div className="border border-neutral-800 bg-neutral-950/40 p-5 text-sm text-neutral-500 italic">
-        No scheduled external analyzer snapshots yet.
+      <div className="text-xs text-neutral-500 italic">
+        No normalized metrics were captured across this window.
       </div>
     );
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      {items.map((run) => (
-        <section
-          key={run.id}
-          className="border border-neutral-800 bg-neutral-950/40 p-5 space-y-4"
+    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+      {metrics.slice(0, 4).map((metric) => (
+        <div
+          key={metric.key}
+          className="border border-neutral-900 bg-black/30 p-3"
         >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">
-                {run.tool}
+          <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+            {titleCaseKey(metric.label)}
+          </div>
+          <div className="mt-1 font-mono text-lg text-cyan-300">
+            {fmtExternalValue(metric.key, metric.latest)}
+          </div>
+          <div className="mt-1 text-[10px] text-neutral-500">
+            Avg {fmtExternalValue(metric.key, metric.average)} across{" "}
+            {metric.samples} run{metric.samples === 1 ? "" : "s"}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ExternalObjectSnapshot({
+  title,
+  value,
+}: {
+  title: string;
+  value: Record<string, unknown>;
+}) {
+  const primitiveEntries = Object.entries(value).filter((entry) =>
+    isPrimitiveExternalValue(entry[1])
+  );
+  const objectEntries = Object.entries(value).filter(
+    (entry): entry is [string, Record<string, unknown>] => isRecord(entry[1])
+  );
+  const arrayEntries = Object.entries(value).filter(
+    (entry): entry is [string, unknown[]] => Array.isArray(entry[1])
+  );
+
+  return (
+    <section className="border border-neutral-900 bg-black/20 p-4 space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">
+          {titleCaseKey(title)}
+        </div>
+        <div className="text-[10px] font-mono text-neutral-600">
+          {Object.keys(value).length} fields
+        </div>
+      </div>
+
+      {primitiveEntries.length ? (
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {primitiveEntries.slice(0, 8).map(([key, entryValue]) => (
+            <div
+              key={`${title}-${key}`}
+              className="border border-neutral-900 bg-neutral-950/50 p-3"
+            >
+              <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+                {titleCaseKey(key)}
               </div>
-              <div className="mt-2 text-xl font-semibold text-white capitalize">
-                {run.period} snapshot
-              </div>
-              <div className="mt-1 text-xs text-neutral-500">
-                {fmtTimestamp(run.collected_at)}
+              <div className="mt-1 text-sm font-mono text-neutral-200 break-words">
+                {formatExternalContentValue(key, entryValue)}
               </div>
             </div>
-            <span
-              className={`px-2 py-1 text-[10px] uppercase tracking-wider font-bold border ${
-                run.ok
-                  ? "border-emerald-800/80 text-emerald-300 bg-emerald-950/30"
-                  : "border-red-900/80 text-red-300 bg-red-950/30"
-              }`}
-            >
-              {run.ok ? "ok" : `error ${run.returncode ?? ""}`.trim()}
-            </span>
-          </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs text-neutral-500 italic">
+          No scalar fields in this section.
+        </div>
+      )}
 
-          <div className="grid gap-2 sm:grid-cols-2">
-            {run.summary.highlights.length ? (
-              run.summary.highlights.slice(0, 6).map((metric) => (
-                <div
-                  key={metric.key}
-                  className="border border-neutral-800 bg-neutral-900/50 p-3"
-                >
-                  <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
-                    {metric.label}
+      {objectEntries.slice(0, 2).map(([key, nested]) => {
+        const nestedEntries = Object.entries(nested).filter((entry) =>
+          isPrimitiveExternalValue(entry[1])
+        );
+        return (
+          <div
+            key={`${title}-${key}`}
+            className="border-t border-neutral-900 pt-3"
+          >
+            <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+              {titleCaseKey(key)}
+            </div>
+            {nestedEntries.length ? (
+              <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                {nestedEntries.slice(0, 8).map(([nestedKey, nestedValue]) => (
+                  <div
+                    key={`${title}-${key}-${nestedKey}`}
+                    className="border border-neutral-900 bg-neutral-950/50 p-3"
+                  >
+                    <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+                      {titleCaseKey(nestedKey)}
+                    </div>
+                    <div className="mt-1 text-sm font-mono text-neutral-200 break-words">
+                      {formatExternalContentValue(nestedKey, nestedValue)}
+                    </div>
                   </div>
-                  <div className="mt-1 font-mono text-sm text-cyan-300">
-                    {fmtExternalValue(metric.key, Number(metric.value))}
-                  </div>
-                </div>
-              ))
+                ))}
+              </div>
             ) : (
-              <div className="text-xs text-neutral-500 italic">
-                No normalized highlights for this tool.
+              <div className="mt-2 text-xs text-neutral-500 italic">
+                Nested object captured without scalar fields.
               </div>
             )}
           </div>
+        );
+      })}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
-                Top-Level Keys
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {run.summary.top_level_keys.slice(0, 8).map((key) => (
-                  <span
-                    key={key}
-                    className="border border-neutral-800 bg-neutral-900/60 px-2 py-1 text-[10px] font-mono text-neutral-400"
+      {arrayEntries.length ? (
+        <div className="border-t border-neutral-900 pt-3">
+          <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+            Nested Collections
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {arrayEntries.slice(0, 6).map(([key, items]) => (
+              <span
+                key={`${title}-${key}-collection`}
+                className="border border-neutral-800 bg-neutral-900/60 px-2 py-1 text-[10px] font-mono text-neutral-400"
+              >
+                {titleCaseKey(key)} · {items.length} item
+                {items.length === 1 ? "" : "s"}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ExternalListSnapshot({
+  title,
+  items,
+}: {
+  title: string;
+  items: unknown[];
+}) {
+  const preview = items.slice(0, 5);
+  const objectRows = preview.filter((item): item is Record<string, unknown> =>
+    isRecord(item)
+  );
+  const primitiveRows = preview.filter((item) =>
+    isPrimitiveExternalValue(item)
+  );
+  const allObjects = preview.length > 0 && objectRows.length === preview.length;
+  const allPrimitives =
+    preview.length > 0 && primitiveRows.length === preview.length;
+
+  return (
+    <section className="border border-neutral-900 bg-black/20 overflow-hidden">
+      <div className="bg-neutral-900/60 border-b border-neutral-900 p-4 flex items-center justify-between gap-3">
+        <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">
+          {titleCaseKey(title)}
+        </div>
+        <div className="text-[10px] font-mono text-neutral-600">
+          Showing {preview.length} of {items.length}
+        </div>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="p-4 text-xs text-neutral-500 italic">No items.</div>
+      ) : allObjects ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-neutral-900 bg-neutral-950/40 text-[10px] uppercase tracking-widest text-neutral-500 font-mono">
+                {Array.from(
+                  new Set(objectRows.flatMap((row) => Object.keys(row)))
+                )
+                  .slice(0, 6)
+                  .map((column) => (
+                    <th key={`${title}-${column}`} className="px-4 py-3">
+                      {titleCaseKey(column)}
+                    </th>
+                  ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-900">
+              {objectRows.map((row, index) => {
+                const columns = Array.from(
+                  new Set(objectRows.flatMap((entry) => Object.keys(entry)))
+                ).slice(0, 6);
+                return (
+                  <tr
+                    key={`${title}-row-${index}`}
+                    className="hover:bg-neutral-900/20"
                   >
-                    {key}
-                  </span>
-                ))}
-              </div>
+                    {columns.map((column) => (
+                      <td
+                        key={`${title}-${index}-${column}`}
+                        className="px-4 py-3 text-neutral-300 font-mono text-[11px] align-top"
+                      >
+                        {formatExternalContentValue(column, row[column])}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : allPrimitives ? (
+        <div className="p-4 flex flex-wrap gap-2">
+          {primitiveRows.map((item, index) => (
+            <span
+              key={`${title}-primitive-${index}`}
+              className="border border-neutral-800 bg-neutral-900/60 px-2 py-1 text-[10px] font-mono text-neutral-300"
+            >
+              {formatExternalContentValue(title, item)}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="p-4 space-y-2">
+          {preview.map((item, index) => (
+            <div
+              key={`${title}-mixed-${index}`}
+              className="border border-neutral-900 bg-neutral-950/40 p-3 text-[11px] text-neutral-300"
+            >
+              {isRecord(item) ? (
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {Object.entries(item)
+                    .slice(0, 6)
+                    .map(([key, entryValue]) => (
+                      <div key={`${title}-${index}-${key}`}>
+                        <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+                          {titleCaseKey(key)}
+                        </div>
+                        <div className="mt-1 font-mono break-words">
+                          {formatExternalContentValue(key, entryValue)}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <div className="font-mono">
+                  {formatExternalContentValue(title, item)}
+                </div>
+              )}
             </div>
-            <div>
-              <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
-                Sections
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ExternalPayloadView({ run }: { run: ExternalAnalyticsRun }) {
+  const payload = run.payload;
+
+  if (Array.isArray(payload)) {
+    return <ExternalListSnapshot title="Items" items={payload} />;
+  }
+
+  if (!isRecord(payload)) {
+    return (
+      <section className="border border-neutral-900 bg-black/20 p-4">
+        <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">
+          Payload
+        </div>
+        <div className="mt-2 text-sm font-mono text-neutral-300 break-words">
+          {formatExternalContentValue("payload", payload)}
+        </div>
+      </section>
+    );
+  }
+
+  const primitiveEntries = Object.entries(payload).filter((entry) =>
+    isPrimitiveExternalValue(entry[1])
+  );
+  const objectEntries = Object.entries(payload).filter(
+    (entry): entry is [string, Record<string, unknown>] => isRecord(entry[1])
+  );
+  const arrayEntries = Object.entries(payload).filter(
+    (entry): entry is [string, unknown[]] => Array.isArray(entry[1])
+  );
+
+  return (
+    <div className="space-y-4">
+      {primitiveEntries.length ? (
+        <section className="border border-neutral-900 bg-black/20 p-4">
+          <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-3">
+            Report Metadata
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {primitiveEntries.slice(0, 8).map(([key, entryValue]) => (
+              <div
+                key={`payload-meta-${key}`}
+                className="border border-neutral-900 bg-neutral-950/50 p-3"
+              >
+                <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+                  {titleCaseKey(key)}
+                </div>
+                <div className="mt-1 text-sm font-mono text-neutral-200 break-words">
+                  {formatExternalContentValue(key, entryValue)}
+                </div>
               </div>
-              <div className="mt-2 space-y-1">
-                {run.summary.sections.slice(0, 5).map((section) => (
-                  <div
-                    key={`${run.id}-${section.name}`}
-                    className="flex items-center justify-between text-[11px] text-neutral-400 font-mono"
-                  >
-                    <span>{section.name}</span>
-                    <span>
-                      {section.kind}:{section.count}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            ))}
           </div>
         </section>
+      ) : null}
+
+      {objectEntries.slice(0, 4).map(([key, value]) => (
+        <ExternalObjectSnapshot
+          key={`payload-object-${key}`}
+          title={key}
+          value={value}
+        />
       ))}
+
+      {arrayEntries.slice(0, 6).map(([key, items]) => (
+        <ExternalListSnapshot
+          key={`payload-list-${key}`}
+          title={key}
+          items={items}
+        />
+      ))}
+
+      {run.stderr ? (
+        <section className="border border-red-950/80 bg-red-950/20 p-4">
+          <div className="text-[10px] uppercase tracking-widest text-red-300 font-bold">
+            Latest stderr
+          </div>
+          <div className="mt-2 text-[11px] leading-relaxed text-red-200 whitespace-pre-wrap font-mono">
+            {run.stderr}
+          </div>
+        </section>
+      ) : null}
+
+      {!primitiveEntries.length &&
+      !objectEntries.length &&
+      !arrayEntries.length &&
+      !run.stderr ? (
+        <div className="border border-neutral-900 bg-black/20 p-4 text-xs text-neutral-500 italic">
+          No structured payload sections were stored for this run.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ExternalSchemaSummary({ run }: { run: ExternalAnalyticsRun }) {
+  return (
+    <section className="border border-neutral-900 bg-black/20 p-4 space-y-4">
+      <div>
+        <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">
+          Captured Schema
+        </div>
+        <div className="mt-1 text-[11px] text-neutral-500">
+          Derived from the newest stored run in the selected window.
+        </div>
+      </div>
+
+      <div>
+        <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+          Top-Level Keys
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {run.summary.top_level_keys.length ? (
+            run.summary.top_level_keys.slice(0, 10).map((key) => (
+              <span
+                key={`${run.id}-${key}`}
+                className="border border-neutral-800 bg-neutral-900/60 px-2 py-1 text-[10px] font-mono text-neutral-400"
+              >
+                {key}
+              </span>
+            ))
+          ) : (
+            <div className="text-xs text-neutral-500 italic">
+              No top-level keys captured.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+          Sections
+        </div>
+        <div className="mt-2 space-y-2">
+          {run.summary.sections.length ? (
+            run.summary.sections.slice(0, 6).map((section) => (
+              <div
+                key={`${run.id}-${section.name}`}
+                className="flex items-center justify-between gap-3 border border-neutral-900 bg-neutral-950/40 px-3 py-2 text-[11px] font-mono text-neutral-300"
+              >
+                <span>{section.name}</span>
+                <span className="text-neutral-500">
+                  {section.kind}:{section.count}
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className="text-xs text-neutral-500 italic">
+              No normalized sections captured.
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ExternalRecentRuns({ runs }: { runs: ExternalAnalyticsRun[] }) {
+  const items = sortRunsByCollectedAtDesc(runs).slice(0, 5);
+
+  return (
+    <section className="border border-neutral-900 bg-black/20 p-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">
+          Recent Runs
+        </div>
+        <div className="text-[10px] font-mono text-neutral-600">
+          Latest {items.length}
+        </div>
+      </div>
+
+      {items.map((run) => (
+        <div
+          key={run.id}
+          className="border border-neutral-900 bg-neutral-950/40 p-3 space-y-2"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-mono text-neutral-300">
+                {fmtTimestamp(run.collected_at)}
+              </div>
+              <div className="mt-1 text-[10px] uppercase tracking-widest text-neutral-500">
+                Source period: {run.period}
+              </div>
+            </div>
+            <ExternalStatusBadge ok={run.ok} returncode={run.returncode} />
+          </div>
+
+          <div className="text-[10px] font-mono text-neutral-500 break-all">
+            {summarizeExternalText(run.command_display || "—", 96)}
+          </div>
+
+          <div className="text-[10px] text-cyan-300/80">
+            {formatExternalHighlightsPreview(run.summary.highlights)}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function ExternalToolPanels({
+  runs,
+  days,
+}: {
+  runs: ExternalAnalyticsResponse["runs"];
+  days: number;
+}) {
+  const grouped = Object.values(
+    runs.reduce<Record<string, ExternalAnalyticsRun[]>>((acc, run) => {
+      const tool = run.tool || "unknown";
+      if (!acc[tool]) acc[tool] = [];
+      acc[tool].push(run);
+      return acc;
+    }, {})
+  )
+    .map((toolRuns) => sortRunsByCollectedAtDesc(toolRuns))
+    .sort((a, b) =>
+      String(a[0]?.collected_at || "").localeCompare(
+        String(b[0]?.collected_at || "")
+      )
+    )
+    .reverse();
+
+  if (!grouped.length) {
+    return (
+      <div className="border border-neutral-800 bg-neutral-950/40 p-5 text-sm text-neutral-500 italic">
+        No external analyzer runs were captured in the last {days} day
+        {days === 1 ? "" : "s"}.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {grouped.map((toolRuns) => {
+        const { selectedPeriod, selectedRuns, observedPeriods } =
+          selectExternalRunsForDays(toolRuns, days);
+        const latest = selectedRuns[0];
+        const earliest = selectedRuns[selectedRuns.length - 1];
+        const successCount = selectedRuns.filter((run) => run.ok).length;
+        const selectedPeriodLabel = titleCaseKey(
+          selectedPeriod || latest.period || "latest"
+        );
+
+        return (
+          <section
+            key={`external-tool-${latest.tool}`}
+            className="border border-neutral-800 bg-neutral-950/40 p-5 space-y-5"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">
+                  {latest.tool}
+                </div>
+                <div className="mt-2 text-xl font-semibold text-white capitalize">
+                  {selectedRuns.length} run
+                  {selectedRuns.length === 1 ? "" : "s"} matched to the
+                  selected window
+                </div>
+                <div className="mt-1 text-xs text-neutral-500">
+                  {fmtTimestamp(earliest.collected_at)} to{" "}
+                  {fmtTimestamp(latest.collected_at)}
+                </div>
+                <div className="mt-1 text-[11px] text-neutral-500">
+                  Using {selectedPeriodLabel.toLowerCase()} snapshots for the {days}
+                  -day view.
+                </div>
+              </div>
+              <ExternalStatusBadge
+                ok={latest.ok}
+                returncode={latest.returncode}
+              />
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="border border-neutral-900 bg-black/30 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+                  Runs Used
+                </div>
+                <div className="mt-1 text-xl font-mono text-neutral-100">
+                  {selectedRuns.length}
+                </div>
+                <div className="text-[10px] text-neutral-500">
+                  Chosen from {toolRuns.length} stored run
+                  {toolRuns.length === 1 ? "" : "s"}
+                </div>
+              </div>
+              <div className="border border-neutral-900 bg-black/30 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+                  Success Rate
+                </div>
+                <div className="mt-1 text-xl font-mono text-emerald-300">
+                  {(
+                    (successCount / Math.max(toolRuns.length, 1)) *
+                    100
+                  ).toFixed(1)}
+                  %
+                </div>
+                <div className="text-[10px] text-neutral-500">
+                  {successCount} ok / {toolRuns.length - successCount} failed
+                </div>
+              </div>
+              <div className="border border-neutral-900 bg-black/30 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+                  Periods Observed
+                </div>
+                <div className="mt-1 text-sm font-mono text-neutral-100 break-words">
+                  {observedPeriods.map(titleCaseKey).join(", ") || "—"}
+                </div>
+                <div className="text-[10px] text-neutral-500">
+                  Stored period labels from upstream runs
+                </div>
+              </div>
+              <div className="border border-neutral-900 bg-black/30 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-neutral-500 font-bold">
+                  Selected Period
+                </div>
+                <div className="mt-1 text-sm font-mono text-cyan-300 break-words">
+                  {selectedPeriodLabel}
+                </div>
+                <div className="text-[10px] text-neutral-500">
+                  Closest stored match for the {days}-day view
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
+              <section className="border border-neutral-900 bg-black/20 p-4 space-y-4">
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">
+                    Window Metrics
+                  </div>
+                  <div className="mt-1 text-[11px] text-neutral-500">
+                    Latest value plus the average across selected {" "}
+                    {selectedPeriodLabel.toLowerCase()} snapshots.
+                  </div>
+                </div>
+                <ExternalWindowMetrics runs={selectedRuns} />
+              </section>
+
+              <div className="space-y-4">
+                <ExternalRecentRuns runs={selectedRuns} />
+                <ExternalSchemaSummary run={latest} />
+              </div>
+            </div>
+
+            <section className="space-y-4">
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">
+                  Selected Report Content
+                </div>
+                <div className="mt-1 text-[11px] text-neutral-500">
+                  Structured view of the newest {selectedPeriodLabel.toLowerCase()}
+                  {" "}snapshot within the selected window.
+                </div>
+              </div>
+              <ExternalPayloadView run={latest} />
+            </section>
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -875,6 +1581,8 @@ function ExternalRunsTable({
 }: {
   runs: ExternalAnalyticsResponse["runs"];
 }) {
+  const items = sortRunsByCollectedAtDesc(runs);
+
   return (
     <section className="border border-neutral-800 bg-neutral-950/40 overflow-hidden">
       <div className="bg-neutral-900/80 border-b border-neutral-800 p-4">
@@ -891,11 +1599,11 @@ function ExternalRunsTable({
               <th className="px-4 py-3">Period</th>
               <th className="px-4 py-3">Collected</th>
               <th className="px-4 py-3">Command</th>
-              <th className="px-4 py-3 text-right">Highlights</th>
+              <th className="px-4 py-3">Metric Snapshot</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-900">
-            {!runs.length ? (
+            {!items.length ? (
               <tr>
                 <td
                   colSpan={6}
@@ -905,7 +1613,7 @@ function ExternalRunsTable({
                 </td>
               </tr>
             ) : (
-              runs.map((run) => (
+              items.map((run) => (
                 <tr
                   key={run.id}
                   className="hover:bg-neutral-800/20 transition-colors align-top"
@@ -931,8 +1639,8 @@ function ExternalRunsTable({
                   <td className="px-4 py-3 text-neutral-500 font-mono text-[10px] max-w-[280px] break-all">
                     {run.command_display || "—"}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-neutral-400">
-                    {run.summary.highlights.length}
+                  <td className="px-4 py-3 text-neutral-400 text-[11px] max-w-[320px]">
+                    {formatExternalHighlightsPreview(run.summary.highlights)}
                   </td>
                 </tr>
               ))
@@ -941,52 +1649,6 @@ function ExternalRunsTable({
         </table>
       </div>
     </section>
-  );
-}
-
-function ExternalPayloadPanels({
-  latestByTool,
-}: {
-  latestByTool: ExternalAnalyticsResponse["latest_by_tool"];
-}) {
-  const items = Object.values(latestByTool).sort((a, b) =>
-    String(b.collected_at).localeCompare(String(a.collected_at))
-  );
-  if (!items.length) return null;
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      {items.map((run) => (
-        <section
-          key={`${run.id}-payload`}
-          className="border border-neutral-800 bg-neutral-950/40 overflow-hidden"
-        >
-          <div className="bg-neutral-900/80 border-b border-neutral-800 p-4 flex items-center justify-between gap-4">
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">
-                {run.tool} payload
-              </div>
-              <div className="mt-1 text-xs text-neutral-600">
-                {fmtTimestamp(run.collected_at)}
-              </div>
-            </div>
-            <div className="text-[10px] font-mono text-neutral-500">
-              {run.period}
-            </div>
-          </div>
-          <div className="p-4 space-y-4">
-            {run.stderr ? (
-              <div className="border border-red-950/80 bg-red-950/20 p-3 text-[11px] text-red-200 whitespace-pre-wrap font-mono">
-                {run.stderr}
-              </div>
-            ) : null}
-            <pre className="max-h-[28rem] overflow-auto bg-black/60 border border-neutral-900 p-4 text-[11px] leading-relaxed text-neutral-300 font-mono whitespace-pre-wrap">
-              {JSON.stringify(run.payload, null, 2)}
-            </pre>
-          </div>
-        </section>
-      ))}
-    </div>
   );
 }
 
@@ -1012,6 +1674,8 @@ export default function Analytics() {
   const [dateRange, setDateRange] = useState({ days: 30 });
 
   useEffect(() => {
+    const externalLimit = Math.min(1000, Math.max(180, dateRange.days * 12));
+
     setLoading(true);
     api
       .granularAnalytics(undefined, undefined, 5000, dateRange.days)
@@ -1029,7 +1693,7 @@ export default function Analytics() {
     setExternalLoading(true);
     setExternalErr(null);
     api
-      .externalAnalytics(dateRange.days, undefined, 30)
+      .externalAnalytics(dateRange.days, undefined, externalLimit)
       .then(setExternalData)
       .catch((e) => {
         setExternalErr(String(e));
@@ -1118,47 +1782,7 @@ export default function Analytics() {
     };
   }, [filteredData, dateRange.days]);
 
-  const hostModelStats = useMemo(() => {
-    const grouped: Record<string, any> = {};
-    filteredData.forEach((item) => {
-      const key = `${item.agent}|${item.model || "unknown"}`;
-      if (!grouped[key]) {
-        grouped[key] = {
-          agent: item.agent,
-          model: item.model || "unknown",
-          userTyped: 0,
-          baseContext: 0,
-          cachedPrompt: 0,
-          cacheCreate: 0,
-          billableOutput: 0,
-          toolOutput: 0,
-          thinking: 0,
-          cost: 0,
-          toolCalls: 0,
-        };
-      }
-      if (item.event_type === "user_string")
-        grouped[key].userTyped += item.input_tokens;
-      if (item.event_type === "prompt")
-        grouped[key].baseContext += item.input_tokens;
-      if (item.event_type === "cached_prompt")
-        grouped[key].cachedPrompt += item.input_tokens;
-      if (item.event_type === "cache_create")
-        grouped[key].cacheCreate += item.input_tokens;
-      if (item.event_type === "tool_call") {
-        grouped[key].toolOutput += item.output_tokens;
-        grouped[key].toolCalls += item.call_count ?? 1;
-      }
-      if (item.event_type === "thinking")
-        grouped[key].thinking += item.output_tokens;
-      if (item.event_type === "result")
-        grouped[key].billableOutput += item.output_tokens;
-      grouped[key].cost += item.cost || 0;
-    });
-    return Object.values(grouped).sort(
-      (a, b) => (b as any).cost - (a as any).cost
-    );
-  }, [filteredData]);
+  const hostModelStats = dashboard?.host_model_overview ?? [];
 
   const costDriversData = useMemo(() => {
     const toolCosts = defaultdict_int();
@@ -1342,7 +1966,7 @@ export default function Analytics() {
                 Host / Model Overview
               </div>
               <div className="text-[9px] text-neutral-600 font-mono">
-                {filteredData.length} records in aggregate
+                {hostModelStats.length} host/model groups
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -1351,6 +1975,7 @@ export default function Analytics() {
                   <tr className="border-b border-neutral-800 text-[10px] uppercase tracking-widest text-neutral-500 font-mono bg-neutral-900/50">
                     <th className="px-4 py-3">Host</th>
                     <th className="px-4 py-3">Model</th>
+                    <th className="px-4 py-3 text-right">Sessions</th>
                     <th className="px-4 py-3 text-right">User Typed (k)</th>
                     <th className="px-4 py-3 text-right">Base Context (M)</th>
                     <th className="px-4 py-3 text-right">Cached (M)</th>
@@ -1366,47 +1991,50 @@ export default function Analytics() {
                   {hostModelStats.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={11}
+                        colSpan={12}
                         className="px-4 py-8 text-center text-neutral-600 italic"
                       >
                         No data.
                       </td>
                     </tr>
                   ) : (
-                    hostModelStats.map((row: any, idx) => (
+                    hostModelStats.map((row: DashboardHostModelOverview, idx) => (
                       <tr
                         key={idx}
                         className="hover:bg-neutral-800/20 transition-colors"
                       >
                         <td className="px-4 py-2 font-mono text-cyan-300/80">
-                          {row.agent}
+                          {row.host}
                         </td>
                         <td className="px-4 py-2 font-mono text-neutral-400">
                           {row.model}
                         </td>
+                        <td className="px-4 py-2 text-right font-mono text-neutral-400">
+                          {row.sessions.toLocaleString()}
+                        </td>
                         <td className="px-4 py-2 text-right font-mono text-emerald-300/80">
-                          {(row.userTyped / 1000).toFixed(1)}
+                          {(row.user_typed_tokens / 1000).toFixed(1)}
                         </td>
                         <td className="px-4 py-2 text-right font-mono text-emerald-400/80">
-                          {(row.baseContext / 1_000_000).toFixed(1)}
+                          {(row.base_context_tokens / 1_000_000).toFixed(1)}
                         </td>
                         <td className="px-4 py-2 text-right font-mono text-red-400/80">
-                          {(row.cachedPrompt / 1_000_000).toFixed(1)}
+                          {(row.cached_prompt_tokens / 1_000_000).toFixed(1)}
                         </td>
                         <td className="px-4 py-2 text-right font-mono text-orange-400/80">
-                          {(row.cacheCreate / 1_000_000).toFixed(1)}
+                          {(row.cache_write_tokens / 1_000_000).toFixed(1)}
                         </td>
                         <td className="px-4 py-2 text-right font-mono text-violet-400/80">
-                          {(row.billableOutput / 1_000_000).toFixed(1)}
+                          {(row.billable_output_tokens / 1_000_000).toFixed(1)}
                         </td>
                         <td className="px-4 py-2 text-right font-mono text-amber-400/80">
-                          {(row.toolOutput / 1_000_000).toFixed(1)}
+                          {(row.tool_output_tokens / 1_000_000).toFixed(1)}
                         </td>
                         <td className="px-4 py-2 text-right font-mono text-cyan-400/80">
-                          {(row.thinking / 1_000_000).toFixed(1)}
+                          {(row.thinking_tokens / 1_000_000).toFixed(1)}
                         </td>
                         <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                          {row.toolCalls.toLocaleString()}
+                          {row.tool_calls.toLocaleString()}
                         </td>
                         <td className="px-4 py-2 text-right font-mono text-emerald-300 font-bold">
                           ${row.cost.toFixed(2)}
@@ -1742,22 +2370,22 @@ export default function Analytics() {
             <>
               <section className="grid gap-4 md:grid-cols-4">
                 <MetricCard
-                  label="Captured Runs"
+                  label={`Captured Runs (${dateRange.days}d)`}
                   value={externalData.totals.runs_total.toString()}
                   tone="emerald"
                 />
                 <MetricCard
-                  label="Successful Runs"
+                  label="Successful In Window"
                   value={externalData.totals.successful_runs.toString()}
                   tone="cyan"
                 />
                 <MetricCard
-                  label="Failed Runs"
+                  label="Failed In Window"
                   value={externalData.totals.failed_runs.toString()}
                   tone="amber"
                 />
                 <MetricCard
-                  label="Tracked Tools"
+                  label="Tools In Window"
                   value={Object.keys(
                     externalData.latest_by_tool
                   ).length.toString()}
@@ -1767,17 +2395,17 @@ export default function Analytics() {
 
               <section className="border border-neutral-800 bg-neutral-950/40 p-4 text-sm text-neutral-500 leading-relaxed">
                 <span className="font-mono text-neutral-300">servicectl</span>{" "}
-                stores daily upstream snapshots from Tokscale and CodeBurn into
-                the Atelier database. The cards below show the latest normalized
-                summary per tool, followed by recent history and the raw stored
-                payload for each latest snapshot.
+                now stores multiple upstream periods per analyzer run. This view
+                chooses the closest stored period for the selected {dateRange.days}
+                -day range, so a 30-day window prefers monthly snapshots when
+                they exist, then falls back to the nearest available period.
               </section>
 
-              <ExternalLatestCards latestByTool={externalData.latest_by_tool} />
-              <ExternalRunsTable runs={externalData.runs} />
-              <ExternalPayloadPanels
-                latestByTool={externalData.latest_by_tool}
+              <ExternalToolPanels
+                runs={externalData.runs}
+                days={dateRange.days}
               />
+              <ExternalRunsTable runs={externalData.runs} />
             </>
           ) : (
             <div className="border border-neutral-800 bg-neutral-950/40 p-5 text-sm text-neutral-500 italic">

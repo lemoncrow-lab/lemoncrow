@@ -162,7 +162,12 @@ def _cache_key(payload: dict[str, Any], search_path: Path) -> str:
 
 
 def _state_path(repo_root: Path) -> Path:
-    return repo_root / ".atelier" / "smart_state.json"
+    from hashlib import sha256
+
+    from atelier.core.foundation.paths import default_store_root
+
+    h = sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:12]
+    return default_store_root() / "workspaces" / h / "smart_state.json"
 
 
 def _load_cache(repo_root: Path) -> dict[str, Any]:

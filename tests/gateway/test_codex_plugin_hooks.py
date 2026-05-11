@@ -95,14 +95,14 @@ def test_codex_savings_reporter_emits_no_edit_progress_nudge_once(tmp_path: Path
 def test_codex_savings_reporter_emits_loop_rescue_nudge(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     root.mkdir()
-    run_id = "loop-run"
-    ledger = RunLedger(run_id=run_id, agent="codex", root=root, task="debug repeated read loop")
+    session_id = "loop-run"
+    ledger = RunLedger(session_id=session_id, agent="codex", root=root, task="debug repeated read loop")
     for index in range(3):
         ledger.record_tool_call("Search", {"query": "why is this looping"})
         ledger.record_tool_call("Read", {"path": f"src/module_{index}.py"})
     ledger.persist(root)
     (root / "session_state.json").write_text(
-        json.dumps({"active_run_id": run_id, "atelier_root": str(root)}),
+        json.dumps({"active_session_id": session_id, "atelier_root": str(root)}),
         encoding="utf-8",
     )
 

@@ -117,7 +117,7 @@ def test_memory_store_passage_and_run_frame_round_trip(memory_store: MemoryStore
         assert duplicate.dedup_hit is True
 
     frame = RunMemoryFrame(
-        run_id="run-1",
+        session_id="run-1",
         pinned_blocks=["working-style"],
         recalled_passages=[inserted.id],
         summarized_events=[],

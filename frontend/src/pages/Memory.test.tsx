@@ -22,7 +22,7 @@ describe("Memory page", () => {
             jsonResponse([
               {
                 id: "trace-1",
-                run_id: "run-1",
+                session_id: "run-1",
                 agent: "atelier:code",
                 task: "memory test",
                 status: "success",

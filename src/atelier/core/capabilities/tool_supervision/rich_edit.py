@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import re
 import tempfile
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from .fuzzy_match import apply_fuzzy_replace, normalize_for_fuzzy
+
+logger = logging.getLogger(__name__)
 
 _PROTECTED_PARTS = {".git", ".atelier", "node_modules", ".venv"}
 _SMART_QUOTES = str.maketrans(
@@ -213,7 +216,10 @@ def _apply_notebook_edit(notebook: dict[str, Any], spec: TargetSpec, edit: dict[
                 cells[index] = replacement
                 return
         except Exception:
-            pass
+            logger.warning(
+                "Suppressed exception at rich_edit.py:215",
+                exc_info=True,
+            )
         _set_cell_source(cells[index], str(edit.get("new_string", "")))
         return
     matches = [cell for cell in cells if str(edit.get("old_string", "")) in _cell_source(cell)]

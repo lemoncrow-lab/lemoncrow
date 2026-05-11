@@ -24,13 +24,13 @@ class RunLedger:
 
     def __init__(
         self,
-        run_id: str | None = None,
+        session_id: str | None = None,
         agent: str | None = None,
         root: Path | None = None,
         task: str = "",
         domain: str | None = None,
     ) -> None:
-        self.run_id = run_id or uuid.uuid4().hex
+        self.session_id = session_id or uuid.uuid4().hex
         self.agent = agent
         self.task = task
         self.domain = domain
@@ -324,7 +324,7 @@ class RunLedger:
         total_output = sum(int(e.payload.get("output_chars", 0)) for e in tool_calls)
         alerts = [e for e in self.events if e.kind == "watchdog_alert"]
         return {
-            "run_id": self.run_id,
+            "session_id": self.session_id,
             "agent": self.agent,
             "task": self.task,
             "domain": self.domain,
@@ -362,7 +362,7 @@ class RunLedger:
             raise ValueError("RunLedger.persist requires a root directory.")
         runs_dir = Path(target_root) / "runs"
         runs_dir.mkdir(parents=True, exist_ok=True)
-        path = runs_dir / f"{self.run_id}.json"
+        path = runs_dir / f"{self.session_id}.json"
         path.write_text(json.dumps(self.snapshot(), indent=2), encoding="utf-8")
         return path
 
@@ -370,7 +370,7 @@ class RunLedger:
     def load(cls, path: Path) -> RunLedger:
         snap: dict[str, Any] = json.loads(Path(path).read_text(encoding="utf-8"))
         led = cls(
-            run_id=snap.get("run_id"),
+            session_id=snap.get("session_id"),
             agent=snap.get("agent"),
             task=snap.get("task", "") or "",
             domain=snap.get("domain"),

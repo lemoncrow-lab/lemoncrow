@@ -276,7 +276,7 @@ class TestInitOtel:
         # (we can't easily mock the full OTLP SDK)
         # Instead, we just verify the negative cache is cleared:
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._LOGGER",
+            "atelier.core.service.telemetry.exporters.otel.logger",
             None,
         )
         # The init_otel will try to import OTel and fail (or succeed).
@@ -317,7 +317,7 @@ class TestEmitProductLog:
         )
 
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._LOGGER",
+            "atelier.core.service.telemetry.exporters.otel.logger",
             None,
         )
         monkeypatch.setattr(
@@ -344,7 +344,7 @@ class TestEmitProductLog:
         )
 
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._LOGGER",
+            "atelier.core.service.telemetry.exporters.otel.logger",
             None,
         )
         monkeypatch.setattr(
@@ -386,7 +386,7 @@ class TestShutdownOtel:
             12345.0,
         )
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._LOGGER",
+            "atelier.core.service.telemetry.exporters.otel.logger",
             None,
         )
         monkeypatch.setattr(

@@ -2,7 +2,7 @@
 """PostToolUse hook — capture file diffs into the active RunLedger.
 
 Fires after Edit, Write, or MultiEdit. Computes the diff and appends a
-``file_edit`` event to ``runs/<run_id>.json`` so it shows up in the
+``file_edit`` event to ``runs/<session_id>.json`` so it shows up in the
 Atelier traces dashboard.
 
 Fail-open: any error exits silently (code 0) — never blocks the agent.
@@ -10,6 +10,7 @@ Fail-open: any error exits silently (code 0) — never blocks the agent.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import difflib
 import json
@@ -24,24 +25,13 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 
-def _atelier_root() -> Path:
-    # Prefer explicit env override.
-    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
-    if root:
-        return Path(root)
-    # The MCP server writes atelier_root into session_state.json — use it so
-    # the hook always writes to the same store the MCP server is using, even
-    # when ATELIER_ROOT is not set in the hook's subprocess environment.
-    state = _read_session_state()
-    if state.get("atelier_root"):
-        return Path(state["atelier_root"])
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier"
-
-
 def _session_state_path() -> Path:
+    import hashlib
+
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace) / ".atelier" / "session_state.json"
+    h = hashlib.sha256(str(Path(workspace).resolve()).encode("utf-8")).hexdigest()[:12]
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _read_session_state() -> dict:  # type: ignore[type-arg]
@@ -54,8 +44,18 @@ def _read_session_state() -> dict:  # type: ignore[type-arg]
         return {}
 
 
-def _active_run_id() -> str | None:
-    return _read_session_state().get("active_run_id")
+def _atelier_root() -> Path:
+    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
+    if root:
+        return Path(root)
+    state = _read_session_state()
+    if state.get("atelier_root"):
+        return Path(state["atelier_root"])
+    return Path.home() / ".atelier"
+
+
+def _active_session_id() -> str | None:
+    return _read_session_state().get("active_session_id")
 
 
 # ---------------------------------------------------------------------------
@@ -95,12 +95,7 @@ def _unified_diff(old: str, new: str, path: str) -> str:
 
 def _compute_diff(tool_name: str, tool_input: dict) -> tuple[str, str]:  # type: ignore[type-arg]
     """Return (file_path, diff_string). diff_string may be empty on failure."""
-    file_path: str = (
-        tool_input.get("file_path")
-        or tool_input.get("path")
-        or tool_input.get("filename")
-        or ""
-    )
+    file_path: str = tool_input.get("file_path") or tool_input.get("path") or tool_input.get("filename") or ""
     if not file_path:
         return "", ""
 
@@ -138,10 +133,10 @@ def _compute_diff(tool_name: str, tool_input: dict) -> tuple[str, str]:  # type:
 # ---------------------------------------------------------------------------
 
 
-def _append_file_edit_event(run_id: str, file_path: str, diff: str) -> None:
-    """Append a file_edit event to runs/<run_id>.json atomically."""
+def _append_file_edit_event(session_id: str, file_path: str, diff: str) -> None:
+    """Append a file_edit event to runs/<session_id>.json atomically."""
     runs_dir = _atelier_root() / "runs"
-    run_file = runs_dir / f"{run_id}.json"
+    run_file = runs_dir / f"{session_id}.json"
     if not run_file.exists():
         return
 
@@ -182,10 +177,8 @@ def _append_file_edit_event(run_id: str, file_path: str, diff: str) -> None:
         Path(tmp_path).replace(run_file)
     except Exception:
         if tmp_path:
-            try:
+            with contextlib.suppress(Exception):
                 Path(tmp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
 
 
 # ---------------------------------------------------------------------------
@@ -210,11 +203,11 @@ def main() -> int:
         if not file_path or not diff:
             return 0
 
-        run_id = _active_run_id()
-        if not run_id:
+        session_id = _active_session_id()
+        if not session_id:
             return 0
 
-        _append_file_edit_event(run_id, file_path, diff)
+        _append_file_edit_event(session_id, file_path, diff)
     except Exception:
         pass  # fail-open: never block the agent
 

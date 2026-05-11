@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
@@ -19,6 +20,8 @@ from atelier.core.foundation.models import (
 )
 from atelier.core.foundation.redaction import redact
 from atelier.core.foundation.store import ReasoningStore
+
+logger = logging.getLogger(__name__)
 
 _COMMAND_TOOL_NAMES = {
     "bash",
@@ -74,7 +77,10 @@ def parse_datetime(value: Any, *, default: datetime | None = None) -> datetime:
                 parsed = datetime.fromisoformat(stripped.replace("Z", "+00:00"))
                 return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
             except ValueError:
-                pass
+                logger.warning(
+                    "Suppressed exception at _common.py:76",
+                    exc_info=True,
+                )
     return default or utcnow()
 
 
@@ -346,7 +352,7 @@ def _build_trace_from_normalized_content(
 
     trace = Trace(
         id=artifact.id,
-        run_id=session_id,
+        session_id=session_id,
         agent="atelier:code",
         host=source,
         domain="coding",

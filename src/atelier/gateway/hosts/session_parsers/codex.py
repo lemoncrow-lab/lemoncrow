@@ -95,6 +95,65 @@ def _command_str(cmd: Any) -> str:
     return str(cmd)
 
 
+def _int_or_zero(val: Any) -> int:
+    try:
+        return int(val or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _extract_flat_usage(usage: Any) -> tuple[int, int, int, int, int]:
+    """Return (input, output, thinking, cached_read, cache_write) for flat Codex usage payloads."""
+    if not isinstance(usage, dict):
+        return (0, 0, 0, 0, 0)
+
+    input_tokens = _int_or_zero(
+        usage.get("input_tokens") or usage.get("inputTokens") or usage.get("prompt_tokens") or usage.get("promptTokens")
+    )
+    output_tokens = _int_or_zero(
+        usage.get("output_tokens")
+        or usage.get("outputTokens")
+        or usage.get("completion_tokens")
+        or usage.get("completionTokens")
+    )
+    thinking_tokens = _int_or_zero(
+        usage.get("reasoning_output_tokens") or usage.get("reasoningTokens") or usage.get("reasoning_tokens")
+    )
+    cached_tokens = _int_or_zero(
+        usage.get("cached_input_tokens")
+        or usage.get("cachedInputTokens")
+        or usage.get("cache_read_tokens")
+        or usage.get("cacheReadTokens")
+    )
+    if cached_tokens == 0:
+        input_details = usage.get("input_tokens_details") or usage.get("inputTokensDetails")
+        if isinstance(input_details, dict):
+            cached_tokens = _int_or_zero(
+                input_details.get("cached_tokens")
+                or input_details.get("cachedTokens")
+                or input_details.get("cache_read_tokens")
+                or input_details.get("cacheReadTokens")
+            )
+
+    cache_write_tokens = _int_or_zero(
+        usage.get("cache_creation_input_tokens")
+        or usage.get("cacheCreationInputTokens")
+        or usage.get("cache_write_tokens")
+        or usage.get("cacheWriteTokens")
+    )
+    if cache_write_tokens == 0:
+        input_details = usage.get("input_tokens_details") or usage.get("inputTokensDetails")
+        if isinstance(input_details, dict):
+            cache_write_tokens = _int_or_zero(
+                input_details.get("cache_creation_input_tokens")
+                or input_details.get("cacheCreationInputTokens")
+                or input_details.get("cache_write_tokens")
+                or input_details.get("cacheWriteTokens")
+            )
+
+    return (input_tokens, output_tokens, thinking_tokens, cached_tokens, cache_write_tokens)
+
+
 # Prefixes that mark system-injected content blocks to skip for task extraction
 _SYSTEM_CONTENT_PREFIXES = (
     "<user_instructions>",
@@ -286,6 +345,7 @@ class CodexImporter:
             byte_count_redacted=len(redacted.encode("utf-8")),
             created_at=_utcnow(),
             source_file_mtime=file_mtime,
+            source_path=str(jsonl_path),
         )
         self.store.record_raw_artifact(artifact, redacted)
 
@@ -486,7 +546,7 @@ class CodexImporter:
         # ── Build Trace with reasoning ───────────────────────────────────────────────
         return Trace(
             id=f"codex-{session_id}",
-            run_id=session_id,
+            session_id=session_id,
             agent="atelier:code",
             host="codex",
             domain="coding",
@@ -534,6 +594,12 @@ class CodexImporter:
         created_at = _utcnow()
         first_ts_set = False
         user_prompt_tokens = 0
+        total_input_with_cache = 0
+        total_output = 0
+        total_thinking = 0
+        total_cached = 0
+        total_cache_write = 0
+        model_seen = ""
 
         for line in raw_content.splitlines():
             line = line.strip()
@@ -545,6 +611,14 @@ class CodexImporter:
                 continue
 
             ev_type = ev.get("type")
+
+            if not first_ts_set and ev.get("timestamp"):
+                created_at = _parse_ts(ev.get("timestamp"))
+                first_ts_set = True
+
+            model_name = ev.get("model") or ev.get("model_id") or ev.get("modelId")
+            if model_name:
+                model_seen = str(model_name)
 
             # Extract reasoning block (Format B)
             if ev_type == "reasoning":
@@ -563,6 +637,14 @@ class CodexImporter:
                 if ts and not first_ts_set:
                     created_at = _parse_ts(ts)
                     first_ts_set = True
+
+                if ev.get("role") == "assistant":
+                    turn_in, turn_out, turn_think, turn_cached, turn_cache_write = _extract_flat_usage(ev.get("usage"))
+                    total_input_with_cache += turn_in
+                    total_output += turn_out
+                    total_thinking += turn_think
+                    total_cached += turn_cached
+                    total_cache_write += turn_cache_write
 
                 if ev.get("role") == "user":
                     # Extract task from content blocks
@@ -616,7 +698,7 @@ class CodexImporter:
 
         return Trace(
             id=f"codex-{session_id}",
-            run_id=session_id,
+            session_id=session_id,
             agent="atelier:code",
             host="codex",
             domain="coding",
@@ -631,6 +713,12 @@ class CodexImporter:
             validation_results=[],
             raw_artifact_ids=[artifact_id],
             reasoning=reasoning_snippets,
+            input_tokens=max(total_input_with_cache - total_cached, 0),
+            output_tokens=total_output,
+            thinking_tokens=total_thinking,
+            cached_input_tokens=total_cached,
+            cache_creation_input_tokens=total_cache_write,
+            model=model_seen,
             user_prompt_tokens=user_prompt_tokens,
             created_at=created_at,
         )

@@ -13,12 +13,12 @@ class TestCompactHookRoundTrip:
 
     def test_manifest_creation_and_reading(self, tmp_path: Path) -> None:
         """Test that manifest files can be created and read."""
-        run_id = "test_run_abc123"
+        session_id = "test_run_abc123"
 
         # Simulate manifest creation
         manifest_data: dict[str, Any] = {
             "created_at": datetime.now(UTC).isoformat(),
-            "run_id": run_id,
+            "session_id": session_id,
             "should_compact": False,
             "utilisation_pct": 0.0,
             "preserve_blocks": [],
@@ -28,7 +28,7 @@ class TestCompactHookRoundTrip:
         }
 
         # Create run directory structure
-        run_dir = tmp_path / ".atelier" / "runs" / run_id
+        run_dir = tmp_path / ".atelier" / "runs" / session_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
         # Write manifest
@@ -40,20 +40,20 @@ class TestCompactHookRoundTrip:
 
         # Read back
         read_data = json.loads(manifest_path.read_text("utf-8"))
-        assert read_data["run_id"] == run_id
+        assert read_data["session_id"] == session_id
 
     def test_manifest_with_advise_data(self, tmp_path: Path) -> None:
         """Test manifest persistence and reading with full advise data."""
         atelier_root = tmp_path / ".atelier"
 
-        run_id = "test_run_full"
-        run_dir = atelier_root / "runs" / run_id
+        session_id = "test_run_full"
+        run_dir = atelier_root / "runs" / session_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
         # Create a manifest with full advise data
         manifest_data: dict[str, Any] = {
             "created_at": datetime.now(UTC).isoformat(),
-            "run_id": run_id,
+            "session_id": session_id,
             "should_compact": True,
             "utilisation_pct": 65.3,
             "preserve_blocks": ["block_reasoning_1", "block_reasoning_2"],
@@ -80,12 +80,12 @@ class TestCompactHookRoundTrip:
         runs_dir = atelier_root / "runs"
         runs_dir.mkdir(parents=True, exist_ok=True)
 
-        run_id = "test_run_events"
+        session_id = "test_run_events"
 
         # Create initial run file
-        run_file = runs_dir / f"{run_id}.json"
+        run_file = runs_dir / f"{session_id}.json"
         initial_data = {
-            "run_id": run_id,
+            "session_id": session_id,
             "agent": "claude",
             "events": [
                 {
@@ -128,12 +128,12 @@ class TestCompactHookRoundTrip:
         runs_dir = atelier_root / "runs"
         runs_dir.mkdir(parents=True, exist_ok=True)
 
-        run_id = "test_run_post"
-        run_file = runs_dir / f"{run_id}.json"
+        session_id = "test_run_post"
+        run_file = runs_dir / f"{session_id}.json"
 
         # Create run file with one event
         run_data = {
-            "run_id": run_id,
+            "session_id": session_id,
             "agent": "claude",
             "events": [
                 {
@@ -183,14 +183,14 @@ class TestCompactHookRoundTrip:
         runs_dir = atelier_root / "runs"
         runs_dir.mkdir(parents=True, exist_ok=True)
 
-        run_id = "test_run_roundtrip"
-        manifest_path = runs_dir / run_id / "compact_manifest.json"
+        session_id = "test_run_roundtrip"
+        manifest_path = runs_dir / session_id / "compact_manifest.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Original data
         original = {
             "created_at": datetime.now(UTC).isoformat(),
-            "run_id": run_id,
+            "session_id": session_id,
             "should_compact": True,
             "utilisation_pct": 72.3,
             "preserve_blocks": ["rb_001", "rb_002", "rb_003"],
@@ -206,7 +206,7 @@ class TestCompactHookRoundTrip:
         read_data = json.loads(manifest_path.read_text("utf-8"))
 
         # Verify all fields match
-        assert read_data["run_id"] == original["run_id"]
+        assert read_data["session_id"] == original["session_id"]
         assert read_data["should_compact"] == original["should_compact"]
         assert read_data["utilisation_pct"] == original["utilisation_pct"]
         assert read_data["preserve_blocks"] == original["preserve_blocks"]
@@ -223,7 +223,7 @@ class TestManifestStructure:
 
         manifest_data = {
             "created_at": datetime.now(UTC).isoformat(),
-            "run_id": "test",
+            "session_id": "test",
             "should_compact": True,
             "utilisation_pct": 60.0,
             "preserve_blocks": [],
@@ -244,7 +244,7 @@ class TestManifestStructure:
 
         required_fields = [
             "created_at",
-            "run_id",
+            "session_id",
             "should_compact",
             "utilisation_pct",
             "preserve_blocks",
@@ -255,7 +255,7 @@ class TestManifestStructure:
 
         manifest_data: dict[str, Any] = {field: None for field in required_fields}
         manifest_data["created_at"] = datetime.now(UTC).isoformat()
-        manifest_data["run_id"] = "test"
+        manifest_data["session_id"] = "test"
         manifest_data["should_compact"] = False
         manifest_data["utilisation_pct"] = 0.0
         manifest_data["preserve_blocks"] = []

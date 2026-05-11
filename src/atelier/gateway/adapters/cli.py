@@ -7,6 +7,7 @@ return data accept ``--json`` to emit machine-parseable output.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import signal
@@ -43,7 +44,15 @@ from atelier.core.foundation.renderer import (
 from atelier.core.foundation.store import ReasoningStore
 from atelier.gateway.hosts.session_parsers.registry import SUPPORTED_SESSION_IMPORT_HOSTS
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_ROOT = default_store_root()
+SUPPORTED_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS = ("today", "week", "month")
+DEFAULT_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS = (
+    "today",
+    "week",
+    "month",
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -495,12 +504,6 @@ def _servicectl_refresh_host_status(root: Path) -> dict[str, str]:
     # Primary: write to servicectl's root
     _write_to(Path(root) / "hosts")
 
-    # Secondary: also write to CWD's .atelier (common for Docker volume mounts)
-    cwd_hosts = Path.cwd() / ".atelier" / "hosts"
-    if cwd_hosts.resolve() != (Path(root) / "hosts").resolve():
-        with suppress(OSError, PermissionError):
-            _write_to(cwd_hosts)
-
     return status
 
 
@@ -532,23 +535,45 @@ def _servicectl_import_sessions(store: ReasoningStore) -> dict[str, int]:
 
         sync_usage(store.root, session_ids=all_imported_ids)
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at cli.py:534",
+            exc_info=True,
+        )
 
     return counts
+
+
+def _normalize_external_analytics_periods(
+    periods: tuple[str, ...] | list[str] | None,
+) -> tuple[str, ...]:
+    requested = periods or DEFAULT_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS
+    normalized: list[str] = []
+    for period in requested:
+        if period not in SUPPORTED_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS:
+            raise ValueError(
+                "Unsupported external analytics period "
+                f"'{period}'. Choose from: {', '.join(SUPPORTED_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS)}"
+            )
+        if period not in normalized:
+            normalized.append(period)
+    return tuple(normalized)
 
 
 def _servicectl_collect_external_analytics(
     store: Any,
     *,
-    period: str,
+    periods: tuple[str, ...] | list[str],
 ) -> list[dict[str, Any]]:
     from atelier.gateway.integrations.external_analytics import (
         persist_external_reports,
         run_external_reports,
     )
 
-    batch = run_external_reports(tool="all", period=period, cwd=Path.cwd())
-    return persist_external_reports(store, batch, source="servicectl")
+    persisted: list[dict[str, Any]] = []
+    for period in _normalize_external_analytics_periods(periods):
+        batch = run_external_reports(tool="all", period=period, cwd=Path.cwd())
+        persisted.extend(persist_external_reports(store, batch, source="servicectl"))
+    return persisted
 
 
 def _servicectl_tick(
@@ -557,7 +582,7 @@ def _servicectl_tick(
     maintenance_interval_seconds: int,
     session_import_interval_seconds: int,
     external_analytics_interval_seconds: int,
-    external_analytics_period: str,
+    external_analytics_periods: tuple[str, ...] | list[str],
 ) -> dict[str, Any]:
     from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
     from atelier.core.service.worker import Worker
@@ -569,6 +594,7 @@ def _servicectl_tick(
     store = create_store(root)
     store.init()
     worker = Worker(store=store)
+    normalized_external_analytics_periods = _normalize_external_analytics_periods(external_analytics_periods)
 
     # Refresh host agent detection status for the Docker service
     with suppress(Exception):
@@ -625,7 +651,7 @@ def _servicectl_tick(
         with suppress(Exception):
             external_analytics_runs = _servicectl_collect_external_analytics(
                 store,
-                period=external_analytics_period,
+                periods=normalized_external_analytics_periods,
             )
         periodic[EXTERNAL_ANALYTICS_KEY] = now.isoformat()
 
@@ -665,6 +691,7 @@ def _servicectl_tick(
         "last_external_analytics_runs": (
             external_analytics_runs if external_analytics_due else state.get("last_external_analytics_runs", [])
         ),
+        "last_external_analytics_periods": list(normalized_external_analytics_periods),
         "last_external_analytics_at": periodic.get(EXTERNAL_ANALYTICS_KEY),
         "last_exit_reason": state.get("last_exit_reason"),
         "periodic_jobs": periodic,
@@ -677,6 +704,7 @@ def _servicectl_tick(
         "imported_sessions": imported_sessions,
         "session_import_ran": import_due,
         "external_analytics_runs": external_analytics_runs,
+        "external_analytics_periods": list(normalized_external_analytics_periods),
         "external_analytics_ran": external_analytics_due,
         "pending_jobs": len(
             [job for job in store.list_jobs(limit=200) if job["status"] in {"pending", "running", "failed"}]
@@ -1788,7 +1816,10 @@ def global_import(ctx: click.Context, host: str | None, force: bool, export_dir:
                                         export_file = export_dir / f"{name}-{safe_tid}.jsonl"
                                         export_file.write_text(content)
                             except Exception:
-                                pass
+                                logger.warning(
+                                    "Suppressed exception at cli.py:1812",
+                                    exc_info=True,
+                                )
 
             except Exception as e:
                 click.secho(f"FATAL: {name} importer raised: {e!r}", fg="red", err=True)
@@ -1803,7 +1834,10 @@ def global_import(ctx: click.Context, host: str | None, force: bool, export_dir:
 
         sync_usage(ctx.obj["root"], session_ids=all_imported_ids)
     except Exception:
-        pass
+        logger.warning(
+            "Suppressed exception at cli.py:1827",
+            exc_info=True,
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -1823,9 +1857,9 @@ def _latest_ledger_path(root: Path) -> Path | None:
     return paths[-1] if paths else None
 
 
-def _ledger_path(root: Path, run_id: str | None) -> Path:
-    if run_id:
-        return _ledger_dir(root) / f"{run_id}.json"
+def _ledger_path(root: Path, session_id: str | None) -> Path:
+    if session_id:
+        return _ledger_dir(root) / f"{session_id}.json"
     latest = _latest_ledger_path(root)
     if latest is None:
         raise click.ClickException("no run ledger found. Pass --run-id or record one first.")
@@ -1844,13 +1878,13 @@ def ledger() -> None:
 @click.option("--run-id", default=None)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def ledger_show(ctx: click.Context, run_id: str | None, as_json: bool) -> None:
-    path = _ledger_path(ctx.obj["root"], run_id)
+def ledger_show(ctx: click.Context, session_id: str | None, as_json: bool) -> None:
+    path = _ledger_path(ctx.obj["root"], session_id)
     snap = json.loads(path.read_text(encoding="utf-8"))
     if as_json:
         _emit(snap, as_json=True)
         return
-    click.echo(f"run_id: {snap.get('run_id')}")
+    click.echo(f"session_id: {snap.get('session_id')}")
     click.echo(f"status: {snap.get('status')}")
     click.echo(f"task: {snap.get('task', '')}")
     click.echo(f"domain: {snap.get('domain', '')}")
@@ -1863,8 +1897,8 @@ def ledger_show(ctx: click.Context, run_id: str | None, as_json: bool) -> None:
 @click.option("--run-id", default=None)
 @click.confirmation_option(prompt="Delete this ledger snapshot?")
 @click.pass_context
-def ledger_reset(ctx: click.Context, run_id: str | None) -> None:
-    path = _ledger_path(ctx.obj["root"], run_id)
+def ledger_reset(ctx: click.Context, session_id: str | None) -> None:
+    path = _ledger_path(ctx.obj["root"], session_id)
     path.unlink(missing_ok=True)
     click.echo(f"removed {path}")
 
@@ -1874,8 +1908,8 @@ def ledger_reset(ctx: click.Context, run_id: str | None) -> None:
 @click.option("--field", "field_name", required=True)
 @click.option("--value", required=True, help="Value (use JSON literal for lists/dicts).")
 @click.pass_context
-def ledger_update(ctx: click.Context, run_id: str | None, field_name: str, value: str) -> None:
-    path = _ledger_path(ctx.obj["root"], run_id)
+def ledger_update(ctx: click.Context, session_id: str | None, field_name: str, value: str) -> None:
+    path = _ledger_path(ctx.obj["root"], session_id)
     snap = json.loads(path.read_text(encoding="utf-8"))
     try:
         parsed: Any = json.loads(value)
@@ -1889,11 +1923,11 @@ def ledger_update(ctx: click.Context, run_id: str | None, field_name: str, value
 @ledger.command("summarize")
 @click.option("--run-id", default=None)
 @click.pass_context
-def ledger_summarize(ctx: click.Context, run_id: str | None) -> None:
+def ledger_summarize(ctx: click.Context, session_id: str | None) -> None:
     from atelier.infra.runtime.context_compressor import ContextCompressor
     from atelier.infra.runtime.run_ledger import RunLedger
 
-    path = _ledger_path(ctx.obj["root"], run_id)
+    path = _ledger_path(ctx.obj["root"], session_id)
     led = RunLedger.load(path)
     state = ContextCompressor().compress(led)
     click.echo(state.to_prompt_block())
@@ -1906,12 +1940,12 @@ def ledger_summarize(ctx: click.Context, run_id: str | None) -> None:
 @click.option("--run-id", default=None)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def compress_context_cmd(ctx: click.Context, run_id: str | None, as_json: bool) -> None:
+def compress_context_cmd(ctx: click.Context, session_id: str | None, as_json: bool) -> None:
     """Compress a run ledger into a small state packet."""
     from atelier.infra.runtime.context_compressor import ContextCompressor
     from atelier.infra.runtime.run_ledger import RunLedger
 
-    path = _ledger_path(ctx.obj["root"], run_id)
+    path = _ledger_path(ctx.obj["root"], session_id)
     led = RunLedger.load(path)
     state = ContextCompressor().compress(led)
     if as_json:
@@ -2173,7 +2207,7 @@ def analyze_failures_cmd(ctx: click.Context, since: str | None, trace_id: str | 
     snaps = fa.load_snapshots()
 
     if trace_id:
-        snaps = [s for s in snaps if s.get("run_id") == trace_id]
+        snaps = [s for s in snaps if s.get("session_id") == trace_id]
 
     if since:
         from datetime import datetime, timedelta
@@ -2569,7 +2603,7 @@ def route_verify_cmd(
 
     envelope = rt.quality_router.verify(
         route_decision_id=route_decision_id,
-        run_id="cli-route-verify",
+        session_id="cli-route-verify",
         changed_files=list(changed_files),
         validation_results=[item for item in validation_results if isinstance(item, dict)],
         rubric_status=rubric_status,
@@ -2618,7 +2652,7 @@ def proof_group() -> None:
 @click.pass_context
 def proof_run_cmd(
     ctx: click.Context,
-    run_id: str,
+    session_id: str,
     context_reduction_pct: float | None,
     as_json: bool,
 ) -> None:
@@ -2642,11 +2676,11 @@ def proof_run_cmd(
 
     # Build a minimal deterministic set of benchmark cases from the savings bench suite
     # to provide trace evidence for the proof report.
-    cases: list[BenchmarkCase] = _build_proof_cases(run_id)
+    cases: list[BenchmarkCase] = _build_proof_cases(session_id)
 
     capability = ProofGateCapability(root)
     report = capability.run(
-        run_id=run_id,
+        session_id=session_id,
         context_reduction_pct=context_reduction_pct,
         benchmark_cases=cases,
         save=True,
@@ -2658,7 +2692,7 @@ def proof_run_cmd(
         return
 
     status_str = "PASS" if report.status == "pass" else "FAIL"
-    click.echo(f"proof run_id={report.run_id} status={status_str}")
+    click.echo(f"proof session_id={report.session_id} status={status_str}")
     click.echo(f"context_reduction_pct={report.context_reduction_pct:.1f}%")
     click.echo(f"cost_per_accepted_patch=${report.cost_per_accepted_patch:.4f}")
     click.echo(f"accepted_patch_rate={report.accepted_patch_rate:.3f}")
@@ -2684,7 +2718,7 @@ def _show_proof_report(ctx: click.Context, as_json: bool) -> None:
         return
 
     status_str = "PASS" if report.status == "pass" else "FAIL"
-    click.echo(f"proof run_id={report.run_id} status={status_str}")
+    click.echo(f"proof session_id={report.session_id} status={status_str}")
     click.echo(f"context_reduction_pct={report.context_reduction_pct:.1f}%")
     click.echo(f"cost_per_accepted_patch=${report.cost_per_accepted_patch:.4f}")
     if report.failed_thresholds:
@@ -2707,7 +2741,7 @@ def proof_show_cmd(ctx: click.Context, as_json: bool) -> None:
     _show_proof_report(ctx, as_json)
 
 
-def _build_proof_cases(run_id: str) -> list[Any]:
+def _build_proof_cases(session_id: str) -> list[Any]:
     """Build a deterministic set of benchmark cases for the proof gate.
 
     These cases are derived from the WP-28 routing eval suite.  Each case
@@ -2720,53 +2754,53 @@ def _build_proof_cases(run_id: str) -> list[Any]:
     # Each case carries a synthetic trace_id so every claim links to evidence.
     _CASES: list[dict[str, Any]] = [
         {
-            "case_id": f"{run_id}:cheap-01",
+            "case_id": f"{session_id}:cheap-01",
             "task_type": "coding",
             "tier": "cheap",
             "accepted": True,
             "cost_usd": 0.002,
-            "trace_id": f"{run_id}:trace:cheap-01",
-            "run_id": run_id,
+            "trace_id": f"{session_id}:trace:cheap-01",
+            "session_id": session_id,
             "verifier_outcome": "pass",
         },
         {
-            "case_id": f"{run_id}:cheap-02",
+            "case_id": f"{session_id}:cheap-02",
             "task_type": "coding",
             "tier": "cheap",
             "accepted": False,
             "cost_usd": 0.002,
-            "trace_id": f"{run_id}:trace:cheap-02",
-            "run_id": run_id,
+            "trace_id": f"{session_id}:trace:cheap-02",
+            "session_id": session_id,
             "verifier_outcome": "fail",
         },
         {
-            "case_id": f"{run_id}:cheap-03",
+            "case_id": f"{session_id}:cheap-03",
             "task_type": "coding",
             "tier": "cheap",
             "accepted": True,
             "cost_usd": 0.002,
-            "trace_id": f"{run_id}:trace:cheap-03",
-            "run_id": run_id,
+            "trace_id": f"{session_id}:trace:cheap-03",
+            "session_id": session_id,
             "verifier_outcome": "pass",
         },
         {
-            "case_id": f"{run_id}:mid-01",
+            "case_id": f"{session_id}:mid-01",
             "task_type": "coding",
             "tier": "mid",
             "accepted": True,
             "cost_usd": 0.008,
-            "trace_id": f"{run_id}:trace:mid-01",
-            "run_id": run_id,
+            "trace_id": f"{session_id}:trace:mid-01",
+            "session_id": session_id,
             "verifier_outcome": "pass",
         },
         {
-            "case_id": f"{run_id}:premium-01",
+            "case_id": f"{session_id}:premium-01",
             "task_type": "coding",
             "tier": "premium",
             "accepted": True,
             "cost_usd": 0.05,
-            "trace_id": f"{run_id}:trace:premium-01",
-            "run_id": run_id,
+            "trace_id": f"{session_id}:trace:premium-01",
+            "session_id": session_id,
             "verifier_outcome": "pass",
         },
     ]
@@ -4146,7 +4180,14 @@ def servicectl_group() -> None:
 @click.option("--maintenance-interval-seconds", default=21600, show_default=True, type=int)
 @click.option("--session-import-interval-seconds", default=300, show_default=True, type=int)
 @click.option("--external-analytics-interval-seconds", default=86400, show_default=True, type=int)
-@click.option("--external-analytics-period", type=click.Choice(["today", "week", "month"]), default="today")
+@click.option(
+    "--external-analytics-period",
+    "external_analytics_periods",
+    type=click.Choice(SUPPORTED_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS),
+    default=DEFAULT_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS,
+    multiple=True,
+    show_default=True,
+)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def servicectl_tick(
@@ -4154,7 +4195,7 @@ def servicectl_tick(
     maintenance_interval_seconds: int,
     session_import_interval_seconds: int,
     external_analytics_interval_seconds: int,
-    external_analytics_period: str,
+    external_analytics_periods: tuple[str, ...],
     as_json: bool,
 ) -> None:
     """Run one maintenance tick: enqueue due jobs and process pending work."""
@@ -4163,7 +4204,7 @@ def servicectl_tick(
         maintenance_interval_seconds=maintenance_interval_seconds,
         session_import_interval_seconds=session_import_interval_seconds,
         external_analytics_interval_seconds=external_analytics_interval_seconds,
-        external_analytics_period=external_analytics_period,
+        external_analytics_periods=external_analytics_periods,
     )
     _emit(payload, as_json=as_json) if as_json else click.echo(json.dumps(payload, indent=2))
 
@@ -4173,7 +4214,14 @@ def servicectl_tick(
 @click.option("--maintenance-interval-seconds", default=21600, show_default=True, type=int)
 @click.option("--session-import-interval-seconds", default=300, show_default=True, type=int)
 @click.option("--external-analytics-interval-seconds", default=86400, show_default=True, type=int)
-@click.option("--external-analytics-period", type=click.Choice(["today", "week", "month"]), default="today")
+@click.option(
+    "--external-analytics-period",
+    "external_analytics_periods",
+    type=click.Choice(SUPPORTED_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS),
+    default=DEFAULT_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS,
+    multiple=True,
+    show_default=True,
+)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def servicectl_start(
@@ -4182,7 +4230,7 @@ def servicectl_start(
     maintenance_interval_seconds: int,
     session_import_interval_seconds: int,
     external_analytics_interval_seconds: int,
-    external_analytics_period: str,
+    external_analytics_periods: tuple[str, ...],
     as_json: bool,
 ) -> None:
     """Start the detached background controller."""
@@ -4214,9 +4262,9 @@ def servicectl_start(
         str(session_import_interval_seconds),
         "--external-analytics-interval-seconds",
         str(external_analytics_interval_seconds),
-        "--external-analytics-period",
-        external_analytics_period,
     ]
+    for period in _normalize_external_analytics_periods(external_analytics_periods):
+        command.extend(["--external-analytics-period", period])
     env = os.environ.copy()
     env["ATELIER_ROOT"] = str(root)
     with _servicectl_log_path(root).open("a", encoding="utf-8") as log_file:
@@ -4308,7 +4356,10 @@ def servicectl_status(ctx: click.Context, as_json: bool) -> None:
                     click.echo("-" * 40)
                     break
             except Exception:
-                pass
+                logger.warning(
+                    "Suppressed exception at cli.py:4346",
+                    exc_info=True,
+                )
 
     click.echo(f"running: {str(payload['running']).lower()}")
     click.echo(f"pid: {payload['pid']}")
@@ -4347,7 +4398,14 @@ def servicectl_logs(ctx: click.Context, follow: bool, lines: int) -> None:
 @click.option("--maintenance-interval-seconds", default=21600, show_default=True, type=int)
 @click.option("--session-import-interval-seconds", default=300, show_default=True, type=int)
 @click.option("--external-analytics-interval-seconds", default=86400, show_default=True, type=int)
-@click.option("--external-analytics-period", type=click.Choice(["today", "week", "month"]), default="today")
+@click.option(
+    "--external-analytics-period",
+    "external_analytics_periods",
+    type=click.Choice(SUPPORTED_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS),
+    default=DEFAULT_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS,
+    multiple=True,
+    show_default=True,
+)
 @click.pass_context
 def servicectl_run(
     ctx: click.Context,
@@ -4355,7 +4413,7 @@ def servicectl_run(
     maintenance_interval_seconds: int,
     session_import_interval_seconds: int,
     external_analytics_interval_seconds: int,
-    external_analytics_period: str,
+    external_analytics_periods: tuple[str, ...],
 ) -> None:
     """Internal long-running background loop."""
     root = ctx.obj["root"]
@@ -4366,7 +4424,7 @@ def servicectl_run(
                 maintenance_interval_seconds=maintenance_interval_seconds,
                 session_import_interval_seconds=session_import_interval_seconds,
                 external_analytics_interval_seconds=external_analytics_interval_seconds,
-                external_analytics_period=external_analytics_period,
+                external_analytics_periods=external_analytics_periods,
             )
             time.sleep(max(1, interval_seconds))
     except KeyboardInterrupt:
@@ -4385,10 +4443,10 @@ def servicectl_run(
 @click.option("--run-id", default=None, help="Specific run ID. Defaults to latest.")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def detect_loop_cmd(ctx: click.Context, run_id: str | None, as_json: bool) -> None:
+def detect_loop_cmd(ctx: click.Context, session_id: str | None, as_json: bool) -> None:
     """Detect loops, repeated failures, and dead-end trajectories in a run ledger."""
     rt = _core_runtime(ctx.obj["root"])
-    payload = rt.loop_report(run_id=run_id)
+    payload = rt.loop_report(session_id=session_id)
     if as_json:
         _emit(payload, as_json=True)
         return
@@ -4406,10 +4464,10 @@ def detect_loop_cmd(ctx: click.Context, run_id: str | None, as_json: bool) -> No
 @click.option("--run-id", default=None, help="Specific run ID. Defaults to latest.")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def loop_report_cmd(ctx: click.Context, run_id: str | None, as_json: bool) -> None:
+def loop_report_cmd(ctx: click.Context, session_id: str | None, as_json: bool) -> None:
     """Full loop analysis: signature, severity, alerts, rescue strategies."""
     rt = _core_runtime(ctx.obj["root"])
-    payload = rt.loop_report(run_id=run_id)
+    payload = rt.loop_report(session_id=session_id)
     _emit(payload, as_json=True) if as_json else click.echo(json.dumps(payload, indent=2))
 
 
@@ -4509,10 +4567,10 @@ def symbol_search_cmd(ctx: click.Context, query: str, limit: int, as_json: bool)
 @click.option("--run-id", default=None, help="Specific run ID. Defaults to latest.")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def context_report_cmd(ctx: click.Context, run_id: str | None, as_json: bool) -> None:
+def context_report_cmd(ctx: click.Context, session_id: str | None, as_json: bool) -> None:
     """Compression + provenance report for a run ledger."""
     rt = _core_runtime(ctx.obj["root"])
-    payload = rt.context_report(run_id=run_id)
+    payload = rt.context_report(session_id=session_id)
     if as_json:
         _emit(payload, as_json=True)
         return

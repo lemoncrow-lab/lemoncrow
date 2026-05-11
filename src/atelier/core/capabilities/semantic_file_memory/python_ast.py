@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import logging
 
 from .models import FileOutline, ImportInfo, SymbolInfo, SymbolOutline
+
+logger = logging.getLogger(__name__)
 
 
 def _estimate_complexity(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
@@ -65,7 +68,10 @@ def _return_type_hint(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
         try:
             return ast.unparse(node.returns)
         except Exception:
-            pass
+            logger.warning(
+                "Suppressed exception at python_ast.py:67",
+                exc_info=True,
+            )
     return ""
 
 

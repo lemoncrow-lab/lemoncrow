@@ -33,52 +33,52 @@ from atelier.core.capabilities.proof_gate.capability import (
 # ---------------------------------------------------------------------------
 
 
-def _passing_cases(run_id: str) -> list[BenchmarkCase]:
+def _passing_cases(session_id: str) -> list[BenchmarkCase]:
     """Minimal passing benchmark cases: 3 cheap (2 accepted), 1 mid, 1 premium."""
     return [
         BenchmarkCase(
-            case_id=f"{run_id}:cheap-01",
+            case_id=f"{session_id}:cheap-01",
             tier="cheap",
             accepted=True,
             cost_usd=0.002,
-            trace_id=f"{run_id}:trace:cheap-01",
-            run_id=run_id,
+            trace_id=f"{session_id}:trace:cheap-01",
+            session_id=session_id,
             verifier_outcome="pass",
         ),
         BenchmarkCase(
-            case_id=f"{run_id}:cheap-02",
+            case_id=f"{session_id}:cheap-02",
             tier="cheap",
             accepted=False,
             cost_usd=0.002,
-            trace_id=f"{run_id}:trace:cheap-02",
-            run_id=run_id,
+            trace_id=f"{session_id}:trace:cheap-02",
+            session_id=session_id,
             verifier_outcome="fail",
         ),
         BenchmarkCase(
-            case_id=f"{run_id}:cheap-03",
+            case_id=f"{session_id}:cheap-03",
             tier="cheap",
             accepted=True,
             cost_usd=0.002,
-            trace_id=f"{run_id}:trace:cheap-03",
-            run_id=run_id,
+            trace_id=f"{session_id}:trace:cheap-03",
+            session_id=session_id,
             verifier_outcome="pass",
         ),
         BenchmarkCase(
-            case_id=f"{run_id}:mid-01",
+            case_id=f"{session_id}:mid-01",
             tier="mid",
             accepted=True,
             cost_usd=0.008,
-            trace_id=f"{run_id}:trace:mid-01",
-            run_id=run_id,
+            trace_id=f"{session_id}:trace:mid-01",
+            session_id=session_id,
             verifier_outcome="pass",
         ),
         BenchmarkCase(
-            case_id=f"{run_id}:premium-01",
+            case_id=f"{session_id}:premium-01",
             tier="premium",
             accepted=True,
             cost_usd=0.05,
-            trace_id=f"{run_id}:trace:premium-01",
-            run_id=run_id,
+            trace_id=f"{session_id}:trace:premium-01",
+            session_id=session_id,
             verifier_outcome="pass",
         ),
     ]
@@ -145,7 +145,7 @@ def test_proof_run_returns_pass_when_all_thresholds_met(tmp_path: Path) -> None:
     cap = ProofGateCapability(tmp_path)
     cases = _passing_cases("test-run")
     report = cap.run(
-        run_id="test-run",
+        session_id="test-run",
         context_reduction_pct=55.0,
         benchmark_cases=cases,
         save=False,
@@ -158,13 +158,13 @@ def test_proof_run_returns_proofReport_instance(tmp_path: Path) -> None:
     cap = ProofGateCapability(tmp_path)
     cases = _passing_cases("test-run")
     report = cap.run(
-        run_id="test-run",
+        session_id="test-run",
         context_reduction_pct=55.0,
         benchmark_cases=cases,
         save=False,
     )
     assert isinstance(report, ProofReport)
-    assert report.run_id == "test-run"
+    assert report.session_id == "test-run"
 
 
 def test_proof_run_computes_correct_accepted_patch_rate(tmp_path: Path) -> None:
@@ -172,7 +172,7 @@ def test_proof_run_computes_correct_accepted_patch_rate(tmp_path: Path) -> None:
     cases = _passing_cases("test-run")
     # 4 out of 5 accepted
     report = cap.run(
-        run_id="test-run",
+        session_id="test-run",
         context_reduction_pct=55.0,
         benchmark_cases=cases,
         save=False,
@@ -185,7 +185,7 @@ def test_proof_run_computes_cheap_success_rate(tmp_path: Path) -> None:
     cases = _passing_cases("test-run")
     # 2 of 3 cheap cases accepted
     report = cap.run(
-        run_id="test-run",
+        session_id="test-run",
         context_reduction_pct=55.0,
         benchmark_cases=cases,
         save=False,
@@ -202,7 +202,7 @@ def test_proof_fails_when_context_reduction_below_threshold(tmp_path: Path) -> N
     cap = ProofGateCapability(tmp_path)
     cases = _passing_cases("test-run")
     report = cap.run(
-        run_id="test-run",
+        session_id="test-run",
         context_reduction_pct=40.0,  # below 50.0 threshold
         benchmark_cases=cases,
         save=False,
@@ -218,7 +218,7 @@ def test_proof_fails_when_regression_rate_too_high(tmp_path: Path) -> None:
     cases[0] = BenchmarkCase(**{**cases[0].model_dump(), "regression": True})
     cases[1] = BenchmarkCase(**{**cases[1].model_dump(), "regression": True})
     report = cap.run(
-        run_id="reg-run",
+        session_id="reg-run",
         context_reduction_pct=55.0,
         benchmark_cases=cases,
         save=False,
@@ -233,7 +233,7 @@ def test_proof_fails_when_missing_trace_evidence(tmp_path: Path) -> None:
     # Remove trace_id from one case
     cases[0] = BenchmarkCase(**{**cases[0].model_dump(), "trace_id": None})
     report = cap.run(
-        run_id="trace-run",
+        session_id="trace-run",
         context_reduction_pct=55.0,
         benchmark_cases=cases,
         save=False,
@@ -261,7 +261,7 @@ def test_proof_failed_cheap_count_against_cost(tmp_path: Path) -> None:
         min_cheap_success_rate=0.01,  # very low, so only cost threshold trips
     )
     report = cap.run(
-        run_id="fail-cheap-run",
+        session_id="fail-cheap-run",
         context_reduction_pct=55.0,
         benchmark_cases=cases,
         config=cfg,
@@ -280,7 +280,7 @@ def test_proof_failed_cheap_count_against_cost(tmp_path: Path) -> None:
 def test_proof_host_enforcement_matrix_has_all_hosts(tmp_path: Path) -> None:
     cap = ProofGateCapability(tmp_path)
     report = cap.run(
-        run_id="host-check",
+        session_id="host-check",
         context_reduction_pct=55.0,
         benchmark_cases=_passing_cases("host-check"),
         save=False,
@@ -292,7 +292,7 @@ def test_proof_host_enforcement_matrix_has_all_hosts(tmp_path: Path) -> None:
 def test_proof_host_enforcement_matrix_provider_enforced_disabled(tmp_path: Path) -> None:
     cap = ProofGateCapability(tmp_path)
     report = cap.run(
-        run_id="pe-check",
+        session_id="pe-check",
         context_reduction_pct=55.0,
         benchmark_cases=_passing_cases("pe-check"),
         save=False,
@@ -304,7 +304,7 @@ def test_proof_host_enforcement_matrix_provider_enforced_disabled(tmp_path: Path
 def test_proof_host_enforcement_copilot_is_advisory(tmp_path: Path) -> None:
     cap = ProofGateCapability(tmp_path)
     report = cap.run(
-        run_id="copilot-check",
+        session_id="copilot-check",
         context_reduction_pct=55.0,
         benchmark_cases=_passing_cases("copilot-check"),
         save=False,
@@ -322,7 +322,7 @@ def test_proof_host_enforcement_copilot_is_advisory(tmp_path: Path) -> None:
 def test_proof_feature_labels_present(tmp_path: Path) -> None:
     cap = ProofGateCapability(tmp_path)
     report = cap.run(
-        run_id="label-check",
+        session_id="label-check",
         context_reduction_pct=55.0,
         benchmark_cases=_passing_cases("label-check"),
         save=False,
@@ -344,7 +344,7 @@ def test_proof_feature_labels_present(tmp_path: Path) -> None:
 def test_proof_report_saved_to_disk(tmp_path: Path) -> None:
     cap = ProofGateCapability(tmp_path)
     cap.run(
-        run_id="save-test",
+        session_id="save-test",
         context_reduction_pct=55.0,
         benchmark_cases=_passing_cases("save-test"),
         save=True,
@@ -357,7 +357,7 @@ def test_proof_report_saved_to_disk(tmp_path: Path) -> None:
 def test_proof_markdown_saved_to_disk(tmp_path: Path) -> None:
     cap = ProofGateCapability(tmp_path)
     cap.run(
-        run_id="md-test",
+        session_id="md-test",
         context_reduction_pct=55.0,
         benchmark_cases=_passing_cases("md-test"),
         save=True,
@@ -372,14 +372,14 @@ def test_proof_markdown_saved_to_disk(tmp_path: Path) -> None:
 def test_proof_report_can_be_reloaded(tmp_path: Path) -> None:
     cap = ProofGateCapability(tmp_path)
     original = cap.run(
-        run_id="reload-test",
+        session_id="reload-test",
         context_reduction_pct=55.0,
         benchmark_cases=_passing_cases("reload-test"),
         save=True,
     )
     loaded = cap.load()
     assert loaded is not None
-    assert loaded.run_id == original.run_id
+    assert loaded.session_id == original.session_id
     assert loaded.status == original.status
 
 
@@ -391,7 +391,7 @@ def test_proof_load_returns_none_when_no_report(tmp_path: Path) -> None:
 def test_proof_report_status_is_pass_or_fail(tmp_path: Path) -> None:
     cap = ProofGateCapability(tmp_path)
     report = cap.run(
-        run_id="status-check",
+        session_id="status-check",
         context_reduction_pct=55.0,
         benchmark_cases=_passing_cases("status-check"),
         save=False,

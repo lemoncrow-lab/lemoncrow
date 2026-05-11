@@ -46,7 +46,10 @@ def set_remote_enabled(value: bool) -> None:
 
             shutdown_otel()
         except Exception:
-            pass
+            logger.warning(
+                "Suppressed exception at emit.py:48",
+                exc_info=True,
+            )
 
 
 def _emit(event: str, props: dict[str, Any], *, remote: bool) -> None:

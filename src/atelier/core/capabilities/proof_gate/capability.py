@@ -74,7 +74,7 @@ class BenchmarkCase(BaseModel):
     escalated: bool = Field(default=False, description="Whether routing escalated to a higher tier.")
     regression: bool = Field(default=False, description="Whether this case caused a regression.")
     trace_id: str | None = Field(default=None, description="Trace evidence ID.")
-    run_id: str | None = Field(default=None, description="Eval run evidence ID.")
+    session_id: str | None = Field(default=None, description="Eval run evidence ID.")
     verifier_outcome: str | None = Field(default=None, description="Verifier outcome: pass | fail | skipped.")
     route_decision_id: str | None = Field(default=None, description="Route decision ID linking to routing evidence.")
 
@@ -121,7 +121,7 @@ class ProofReport(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    run_id: str = Field(description="Stable identifier for this proof run.")
+    session_id: str = Field(description="Stable identifier for this proof run.")
     status: str = Field(description="Gate outcome: pass | fail.")
     failed_thresholds: list[str] = Field(
         default_factory=list,
@@ -194,7 +194,7 @@ class ProofGateCapability:
     def run(
         self,
         *,
-        run_id: str,
+        session_id: str,
         context_reduction_pct: float,
         benchmark_cases: list[BenchmarkCase],
         config: ProofGateConfig | None = None,
@@ -204,7 +204,7 @@ class ProofGateCapability:
 
         Parameters
         ----------
-        run_id:
+        session_id:
             Stable identifier for this proof run.
         context_reduction_pct:
             Context reduction percentage from WP-19 savings bench.
@@ -258,7 +258,7 @@ class ProofGateCapability:
 
         # --- assemble report ---
         report = ProofReport(
-            run_id=run_id,
+            session_id=session_id,
             status="pass" if not failed else "fail",
             failed_thresholds=failed,
             context_reduction_pct=round(context_reduction_pct, 4),
@@ -309,7 +309,7 @@ def _render_markdown(report: ProofReport) -> str:
     lines: list[str] = [
         "# Cost-Quality Proof Report",
         "",
-        f"**Run ID:** `{report.run_id}`  ",
+        f"**Run ID:** `{report.session_id}`  ",
         f"**Status:** {'✅ PASS' if report.status == 'pass' else '❌ FAIL'}  ",
         f"**Generated:** {report.created_at.strftime('%Y-%m-%dT%H:%M:%SZ')}",
         "",

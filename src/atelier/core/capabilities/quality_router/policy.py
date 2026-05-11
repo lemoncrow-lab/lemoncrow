@@ -195,7 +195,7 @@ def draft_route_decision(
         reason_parts.append(f"escalation={escalation_trigger}")
 
     return RouteDecision(
-        run_id=request.run_id or request.id,
+        session_id=request.session_id or request.id,
         request_id=request.id,
         step_index=step_index,
         step_type=step_type,

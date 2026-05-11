@@ -70,8 +70,8 @@ def test_loop_detection_and_context_compression(tmp_path: Path) -> None:
     ledger.record_alert("repeated_command_failure", "high", "pytest repeated")
     ledger.persist(root)
 
-    summary = rt.summarize_memory(run_id=ledger.run_id)
-    assert summary["run_id"] == ledger.run_id
+    summary = rt.summarize_memory(session_id=ledger.session_id)
+    assert summary["session_id"] == ledger.session_id
     assert "loop_alerts" in summary
 
 

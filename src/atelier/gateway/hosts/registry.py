@@ -21,7 +21,9 @@ class HostRegistry:
             storage_dir: Where to store host registrations (.atelier/hosts/)
         """
         if storage_dir is None:
-            storage_dir = Path.home() / ".atelier" / "hosts"
+            from atelier.core.foundation.paths import default_store_root
+
+            storage_dir = default_store_root() / "hosts"
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 

@@ -22,6 +22,10 @@ export interface TelemetryEvent {
 
 export interface TelemetrySummary {
   events_total: number;
+  unique_event_types: number;
+  active_sessions: number;
+  first_event_ts: number | null;
+  last_event_ts: number | null;
   event_counts: Record<string, number>;
   commands_by_day: Array<{ day: string; count: number }>;
   top_commands: Array<{ name: string; count: number }>;
@@ -45,6 +49,13 @@ export interface TelemetrySummary {
 export interface TelemetrySchema {
   events: Record<string, { props: string[]; example: Record<string, unknown> }>;
   buckets: Record<string, string[]>;
+}
+
+export interface TelemetryQuery {
+  limit?: number;
+  since?: number;
+  event?: string;
+  host?: string;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -74,16 +85,30 @@ export function acknowledgeTelemetry(): Promise<TelemetryConfig> {
   return request<TelemetryConfig>("/telemetry/ack", { method: "POST" });
 }
 
+function buildTelemetryQuery(params: TelemetryQuery = {}): string {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.since !== undefined) query.set("since", String(params.since));
+  if (params.event) query.set("event", params.event);
+  if (params.host) query.set("host", params.host);
+  const encoded = query.toString();
+  return encoded ? `?${encoded}` : "";
+}
+
 export function getTelemetryEvents(
-  limit = 100
+  query: TelemetryQuery = {}
 ): Promise<{ events: TelemetryEvent[] }> {
   return request<{ events: TelemetryEvent[] }>(
-    `/telemetry/local?limit=${limit}`
+    `/telemetry/local${buildTelemetryQuery(query)}`
   );
 }
 
-export function getTelemetrySummary(): Promise<TelemetrySummary> {
-  return request<TelemetrySummary>("/telemetry/summary");
+export function getTelemetrySummary(
+  query: Omit<TelemetryQuery, "limit"> = {}
+): Promise<TelemetrySummary> {
+  return request<TelemetrySummary>(
+    `/telemetry/summary${buildTelemetryQuery(query)}`
+  );
 }
 
 export function getTelemetrySchema(): Promise<TelemetrySchema> {

@@ -7,7 +7,7 @@ from atelier.core.foundation.models import ValidationResult
 def test_routing_verifier_pass_outcome() -> None:
     envelope = verify_route(
         route_decision_id="rd-1",
-        run_id="run-1",
+        session_id="run-1",
         changed_files=["README.md"],
         validation_results=[ValidationResult(name="pytest", passed=True, detail="ok")],
         rubric_status="pass",
@@ -23,7 +23,7 @@ def test_routing_verifier_pass_outcome() -> None:
 def test_routing_verifier_warn_for_missing_required_verification() -> None:
     envelope = verify_route(
         route_decision_id="rd-2",
-        run_id="run-2",
+        session_id="run-2",
         changed_files=["src/app.py"],
         validation_results=[ValidationResult(name="pytest", passed=True, detail="ok")],
         rubric_status="not_run",
@@ -38,7 +38,7 @@ def test_routing_verifier_warn_for_missing_required_verification() -> None:
 def test_routing_verifier_fail_for_failed_validation() -> None:
     envelope = verify_route(
         route_decision_id="rd-3",
-        run_id="run-3",
+        session_id="run-3",
         changed_files=["src/service.py"],
         validation_results=[ValidationResult(name="pytest", passed=False, detail="failure")],
         rubric_status="pass",
@@ -53,7 +53,7 @@ def test_routing_verifier_fail_for_failed_validation() -> None:
 def test_routing_verifier_escalate_for_protected_failure_and_repeated_signatures() -> None:
     envelope = verify_route(
         route_decision_id="rd-4",
-        run_id="run-4",
+        session_id="run-4",
         changed_files=["src/atelier/core/foundation/models.py"],
         validation_results=[ValidationResult(name="pytest", passed=False, detail="failure")],
         rubric_status="pass",

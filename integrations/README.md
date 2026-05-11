@@ -4,13 +4,13 @@ Canonical adapter configs and install/verify scripts for every supported agent C
 
 ## Supported Hosts
 
-| Host            | Dir         | Support level      | Script                        |
-| --------------- | ----------- | ------------------ | ----------------------------- |
-| Claude Code     | `claude/`   | Full plugin        | `scripts/install_claude.sh`   |
-| Codex           | `codex/`    | Skills + MCP       | `scripts/install_codex.sh`    |
-| opencode        | `opencode/` | MCP config         | `scripts/install_opencode.sh` |
-| VS Code Copilot | `copilot/`  | MCP + instructions | `scripts/install_copilot.sh`  |
-| Gemini CLI      | `gemini/`   | MCP config         | `scripts/install_gemini.sh`   |
+| Host        | Dir         | Support level      | Script                        |
+| ----------- | ----------- | ------------------ | ----------------------------- |
+| Claude Code | `claude/`   | Full plugin        | `scripts/install_claude.sh`   |
+| Codex       | `codex/`    | Skills + MCP       | `scripts/install_codex.sh`    |
+| opencode    | `opencode/` | MCP config         | `scripts/install_opencode.sh` |
+| Copilot     | `copilot/`  | MCP + instructions | `scripts/install_copilot.sh`  |
+| Gemini CLI  | `gemini/`   | MCP config         | `scripts/install_gemini.sh`   |
 
 ## Quick Install
 

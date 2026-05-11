@@ -42,9 +42,9 @@ has_cmd() { command -v "$1" &> /dev/null; }
 has_atelier() { grep -q "atelier" "$1" 2>/dev/null; }
 
 check_runtime() {
-    if [ -f "${WORKSPACE}/.atelier/ledger.json" ] || [ -f "${WORKSPACE}/.atelier/atelier.db" ]; then
+    if [ -f "${HOME}/.atelier/ledger.json" ] || [ -f "${HOME}/.atelier/atelier.db" ]; then
         echo "initialized"
-    elif [ -d "${WORKSPACE}/.atelier" ]; then
+    elif [ -d "${HOME}/.atelier" ]; then
         echo "exists but not initialized"
     else
         echo "not initialized"
@@ -157,8 +157,8 @@ check_tokscale() {
 }
 
 get_latest_run() {
-    if [ -d "${WORKSPACE}/.atelier/runs" ]; then
-        bash "${ATELIER_REPO}/bin/atelier-status" --root "${WORKSPACE}/.atelier" 2>/dev/null || echo "(no runs yet)"
+    if [ -d "${HOME}/.atelier/runs" ]; then
+        bash "${ATELIER_REPO}/bin/atelier-status" --root "${HOME}/.atelier" 2>/dev/null || echo "(no runs yet)"
     else
         echo "(no runs yet)"
     fi
@@ -209,7 +209,7 @@ else
     echo "  $WORKSPACE"
     echo ""
     echo "Runtime Store:"
-    echo "  .atelier/       $RUNTIME_STATUS"
+    echo "  ${HOME}/.atelier/       $RUNTIME_STATUS"
     echo ""
     echo "CLI Symlink:"
     echo "  $SYMLINK_STATUS"
@@ -231,7 +231,7 @@ fi
 
 # Persist detection results for the Docker service (--write flag)
 if [ "$WRITE" = true ]; then
-    HOSTS_DIR="${WORKSPACE}/.atelier/hosts"
+    HOSTS_DIR="${HOME}/.atelier/hosts"
     mkdir -p "$HOSTS_DIR"
     HOSTS_DIR="$HOSTS_DIR" \
     CLAUDE_STATUS="$CLAUDE_STATUS" \

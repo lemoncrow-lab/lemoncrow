@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from atelier.core.foundation.models import Trace
     from atelier.core.foundation.store import ReasoningStore
 
-_LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -139,7 +139,7 @@ def _latest_savings_benchmark(root: Path) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
     keys = {
-        "run_id",
+        "session_id",
         "model",
         "n_prompts",
         "total_tokens_baseline",
@@ -178,7 +178,7 @@ def _trace_created_at(trace: Trace) -> datetime:
 
 
 def _trace_run_key(trace: Trace) -> str:
-    return str(trace.run_id or trace.id)
+    return str(trace.session_id or trace.id)
 
 
 def _trace_total_tokens(trace: Trace) -> int:
@@ -206,7 +206,8 @@ def _recent_traces(store: ReasoningStore, *, window_days: int) -> list[Trace]:
 def _tracked_saved_tokens(store: ReasoningStore, trace: Trace) -> tuple[int, int]:
     try:
         rows = store.list_context_budgets(_trace_run_key(trace))
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to load context budgets for trace %s: %s", trace.id, exc)
         return 0, 0
 
     saved_tokens = 0
@@ -390,7 +391,8 @@ def _build_auto_optimizations(
             continue
         try:
             at_date = datetime.fromisoformat(str(event.get("at", "")).replace("Z", "+00:00")).date()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Bad timestamp %r in savings event, using today: %s", event.get("at"), exc)
             at_date = datetime.now(UTC).date()
         if at_date < start_day:
             continue
@@ -410,9 +412,9 @@ def _build_auto_optimizations(
         item["tokens_saved"] += tokens_saved
         item["cost_saved_usd"] += float(event.get("cost_saved_usd", 0.0) or 0.0)
         item["calls_saved"] += int(event.get("calls_saved", 0) or 0)
-        run_id = str(event.get("run_id") or "")
-        if run_id:
-            item["sessions"].add(run_id)
+        session_id = str(event.get("session_id") or "")
+        if session_id:
+            item["sessions"].add(session_id)
         tool_name = str(event.get("tool_name") or "")
         if tool_name:
             item["tools"].add(tool_name)
@@ -473,7 +475,8 @@ def _build_reread_telemetry(root: Path, *, window_days: int) -> dict[str, Any]:
             continue
         try:
             at = datetime.fromisoformat(str(event.get("at", "")).replace("Z", "+00:00"))
-        except Exception:
+        except Exception as exc:
+            logger.debug("Bad timestamp %r in reread event, using now: %s", event.get("at"), exc)
             at = datetime.now(UTC)
         if at.date() < start_day:
             continue
@@ -681,7 +684,8 @@ def _savings_summary_payload(root: Path, *, window_days: int) -> dict[str, Any]:
             at_raw = str(call.get("at", ""))
             try:
                 at_date = datetime.fromisoformat(at_raw.replace("Z", "+00:00")).date()
-            except Exception:
+            except Exception as exc:
+                logger.debug("Bad timestamp %r in savings call, using today: %s", at_raw, exc)
                 at_date = today
             day_key = at_date.isoformat()
             if day_key in by_day_seed:
@@ -695,7 +699,8 @@ def _savings_summary_payload(root: Path, *, window_days: int) -> dict[str, Any]:
         at_raw = str(event.get("at", ""))
         try:
             at_date = datetime.fromisoformat(at_raw.replace("Z", "+00:00")).date()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Bad timestamp %r in live savings event, using today: %s", at_raw, exc)
             at_date = today
         if at_date < start_day:
             continue
@@ -1080,7 +1085,9 @@ def _optimizations_summary_payload(root: Path, store: ReasoningStore, *, window_
     recent_traces = _recent_traces(store, window_days=window_days)
     live_events = _iter_live_savings_events(root)
     recommendations = build_trace_optimization_report(traces, days=window_days)
-    project_root_candidate = root.parent if root.name.startswith(".atelier") else Path.cwd()
+    from atelier.core.foundation.paths import resolve_workspace_root
+
+    project_root_candidate = resolve_workspace_root(root)
     if not ((project_root_candidate / "src").exists() or (project_root_candidate / "AGENTS.md").exists()):
         project_root_candidate = Path.cwd()
     from atelier.core.capabilities.optimization_audit import (
@@ -1186,7 +1193,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         if not cfg.api_key:
-            _LOGGER.warning("API key not configured; rejecting request")
+            logger.warning("API key not configured; rejecting request")
             raise HTTPException(status_code=401, detail="Authentication required but no key configured")
         if auth.credentials != cfg.api_key:
             raise HTTPException(status_code=403, detail="Invalid API key")
@@ -1479,11 +1486,16 @@ def create_app(store_root: str | Path | None = None) -> Any:
         }
 
     @app.get("/telemetry/local", tags=["telemetry"], dependencies=[Depends(verify_api_key)])
-    def list_local_telemetry(limit: int = Query(100, ge=1, le=1000)) -> dict[str, Any]:
+    def list_local_telemetry(
+        limit: int = Query(200, ge=1, le=5000),
+        since: float | None = Query(None),
+        event: str | None = Query(None),
+        host: str | None = Query(None),
+    ) -> dict[str, Any]:
         from atelier.core.service.telemetry.local_store import LocalTelemetryStore
 
         store = LocalTelemetryStore()
-        events = store.list_events(limit=limit)
+        events = store.list_events(limit=limit, since=since, event=event, host=host)
         return {"events": events}
 
     @app.post("/telemetry/local", tags=["telemetry"], dependencies=[Depends(verify_api_key)])
@@ -1495,11 +1507,15 @@ def create_app(store_root: str | Path | None = None) -> Any:
         return {"ok": True}
 
     @app.get("/telemetry/summary", tags=["telemetry"], dependencies=[Depends(verify_api_key)])
-    def get_telemetry_summary() -> dict[str, Any]:
+    def get_telemetry_summary(
+        since: float | None = Query(None),
+        event: str | None = Query(None),
+        host: str | None = Query(None),
+    ) -> dict[str, Any]:
         from atelier.core.service.telemetry.local_store import LocalTelemetryStore
 
         store = LocalTelemetryStore()
-        return store.summary()
+        return store.summary(since=since, event=event, host=host)
 
     @app.get("/telemetry/schema", tags=["telemetry"], dependencies=[Depends(verify_api_key)])
     def get_telemetry_schema() -> dict[str, Any]:
@@ -1536,7 +1552,9 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 WITH
                 trace_data AS (
                     SELECT
+                        id as trace_id,
                         agent,
+                        host,
                         json_extract(payload, '$.model') as model,
                         CAST(json_extract(payload, '$.input_tokens') AS INTEGER) as input_tokens,
                         CAST(json_extract(payload, '$.output_tokens') AS INTEGER) as output_tokens,
@@ -1550,34 +1568,34 @@ def create_app(store_root: str | Path | None = None) -> Any:
                     WHERE 1=1 {"AND agent = ?" if agent else ""} {"AND created_at >= datetime('now', '-' || ? || ' days')" if days else ""}
                 ),
                 events AS (
-                    SELECT agent, model, 'user_string' as event_type, 'User Entered String' as tool_name,
+                    SELECT trace_id, agent, host, model, 'user_string' as event_type, 'User Entered String' as tool_name,
                            NULL as sub_command, 'User Activity' as category,
                            user_prompt_tokens as input_tokens, 0 as output_tokens, created_at, 1 as call_count
                     FROM trace_data WHERE user_prompt_tokens > 0
                     UNION ALL
-                    SELECT agent, model, 'prompt' as event_type, 'Context Window (Base)' as tool_name,
+                    SELECT trace_id, agent, host, model, 'prompt' as event_type, 'Context Window (Base)' as tool_name,
                            NULL as sub_command, 'LLM Context' as category,
-                           (COALESCE(input_tokens, 0) - COALESCE(cached_input_tokens, 0) - COALESCE(cache_creation_input_tokens, 0)) as input_tokens, 0 as output_tokens, created_at, 1 as call_count
+                           COALESCE(input_tokens, 0) as input_tokens, 0 as output_tokens, created_at, 1 as call_count
                     FROM trace_data WHERE input_tokens > 0
                     UNION ALL
-                    SELECT agent, model, 'cached_prompt', 'Cached Prompt (Cache Read)', NULL, 'LLM Context (Cache Read)',
+                    SELECT trace_id, agent, host, model, 'cached_prompt', 'Cached Prompt (Cache Read)', NULL, 'LLM Context (Cache Read)',
                            cached_input_tokens, 0, created_at, 1 as call_count
                     FROM trace_data WHERE cached_input_tokens > 0
                     UNION ALL
-                    SELECT agent, model, 'cache_create', 'Cache Write (Anthropic)', NULL, 'LLM Context (Cache Write)',
+                    SELECT trace_id, agent, host, model, 'cache_create', 'Cache Write (Anthropic)', NULL, 'LLM Context (Cache Write)',
                            cache_creation_input_tokens, 0, created_at, 1 as call_count
                     FROM trace_data WHERE cache_creation_input_tokens > 0
                     UNION ALL
-                    SELECT agent, model, 'result', 'Assistant Response', NULL, 'LLM Generation',
+                    SELECT trace_id, agent, host, model, 'result', 'Assistant Response', NULL, 'LLM Generation',
                            0, output_tokens, created_at, 1 as call_count
                     FROM trace_data WHERE output_tokens > 0
                     UNION ALL
-                    SELECT agent, model, 'thinking', 'Thinking', NULL, 'LLM Generation',
+                    SELECT trace_id, agent, host, model, 'thinking', 'Thinking', NULL, 'LLM Generation',
                            0, thinking_tokens, created_at, 1 as call_count
                     FROM trace_data WHERE thinking_tokens > 0
                     UNION ALL
                     SELECT
-                        t.agent, t.model, 'tool_call', json_extract(tc.value, '$.name'), NULL,
+                        t.trace_id, t.agent, t.host, t.model, 'tool_call', json_extract(tc.value, '$.name'), NULL,
                         CASE WHEN json_extract(tc.value, '$.name') IN ('Read', 'Bash', 'Edit', 'Grep', 'Glob', 'Write', 'Agent', 'ListDir', 'bash', 'run_shell_command', 'exec_command', 'shell', 'read_file', 'replace', 'apply_patch', 'view') THEN 'Native / Unoptimized' ELSE 'Atelier Optimized' END,
                         CAST(json_extract(tc.value, '$.input_tokens') AS INTEGER),
                         CAST(json_extract(tc.value, '$.output_tokens') AS INTEGER),
@@ -1586,15 +1604,16 @@ def create_app(store_root: str | Path | None = None) -> Any:
                     FROM trace_data t, json_each(t.payload, '$.tools_called') tc
                 )
                 SELECT
-                    agent, model, event_type, tool_name, sub_command, category,
+                    host, agent, model, event_type, tool_name, sub_command, category,
                     SUM(input_tokens) as input_tokens,
                     SUM(output_tokens) as output_tokens,
                     MIN(created_at) as first_seen,
                     MAX(created_at) as last_seen,
-                    SUM(call_count) as call_count
+                    SUM(call_count) as call_count,
+                    COUNT(DISTINCT trace_id) as session_count
                 FROM events
                 WHERE 1=1 {"AND category = ?" if category else ""}
-                GROUP BY agent, model, event_type, tool_name, sub_command, category
+                GROUP BY host, agent, model, event_type, tool_name, sub_command, category
                 ORDER BY last_seen DESC LIMIT ?
             """
         else:
@@ -1602,7 +1621,9 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 WITH
                 trace_data AS (
                     SELECT
+                        id as trace_id,
                         agent,
+                        host,
                         json_extract(payload, '$.model') as model,
                         CAST(json_extract(payload, '$.input_tokens') AS INTEGER) as input_tokens,
                         CAST(json_extract(payload, '$.output_tokens') AS INTEGER) as output_tokens,
@@ -1616,27 +1637,27 @@ def create_app(store_root: str | Path | None = None) -> Any:
                     WHERE 1=1 {"AND agent = ?" if agent else ""} {"AND created_at >= datetime('now', '-' || ? || ' days')" if days else ""}
                 ),
                 events AS (
-                    SELECT agent, model, 'user_string' as event_type, 'User Entered String' as tool_name, NULL as sub_command, 'User Activity' as category, user_prompt_tokens as input_tokens, 0 as output_tokens, created_at FROM trace_data WHERE user_prompt_tokens > 0
+                    SELECT trace_id, agent, host, model, 'user_string' as event_type, 'User Entered String' as tool_name, NULL as sub_command, 'User Activity' as category, user_prompt_tokens as input_tokens, 0 as output_tokens, created_at FROM trace_data WHERE user_prompt_tokens > 0
                     UNION ALL
-                    SELECT agent, model, 'prompt' as event_type, 'Context Window (Base)' as tool_name, NULL as sub_command, 'LLM Context' as category, (COALESCE(input_tokens, 0) - COALESCE(cached_input_tokens, 0) - COALESCE(cache_creation_input_tokens, 0)) as input_tokens, 0 as output_tokens, created_at FROM trace_data WHERE input_tokens > 0
+                    SELECT trace_id, agent, host, model, 'prompt' as event_type, 'Context Window (Base)' as tool_name, NULL as sub_command, 'LLM Context' as category, COALESCE(input_tokens, 0) as input_tokens, 0 as output_tokens, created_at FROM trace_data WHERE input_tokens > 0
                     UNION ALL
-                    SELECT agent, model, 'cached_prompt', 'Cached Prompt (Cache Read)', NULL, 'LLM Context (Cache Read)', cached_input_tokens, 0, created_at FROM trace_data WHERE cached_input_tokens > 0
+                    SELECT trace_id, agent, host, model, 'cached_prompt', 'Cached Prompt (Cache Read)', NULL, 'LLM Context (Cache Read)', cached_input_tokens, 0, created_at FROM trace_data WHERE cached_input_tokens > 0
                     UNION ALL
-                    SELECT agent, model, 'cache_create', 'Cache Write (Anthropic)', NULL, 'LLM Context (Cache Write)', cache_creation_input_tokens, 0, created_at FROM trace_data WHERE cache_creation_input_tokens > 0
+                    SELECT trace_id, agent, host, model, 'cache_create', 'Cache Write (Anthropic)', NULL, 'LLM Context (Cache Write)', cache_creation_input_tokens, 0, created_at FROM trace_data WHERE cache_creation_input_tokens > 0
                     UNION ALL
-                    SELECT agent, model, 'result', 'Assistant Response', NULL, 'LLM Generation', 0, output_tokens, created_at FROM trace_data WHERE output_tokens > 0
+                    SELECT trace_id, agent, host, model, 'result', 'Assistant Response', NULL, 'LLM Generation', 0, output_tokens, created_at FROM trace_data WHERE output_tokens > 0
                     UNION ALL
-                    SELECT agent, model, 'thinking', 'Thinking', NULL, 'LLM Generation', 0, thinking_tokens, created_at FROM trace_data WHERE thinking_tokens > 0
+                    SELECT trace_id, agent, host, model, 'thinking', 'Thinking', NULL, 'LLM Generation', 0, thinking_tokens, created_at FROM trace_data WHERE thinking_tokens > 0
                     UNION ALL
                     SELECT
-                        t.agent, t.model, 'tool_call', json_extract(tc.value, '$.name'), NULL,
+                        t.trace_id, t.agent, t.host, t.model, 'tool_call', json_extract(tc.value, '$.name'), NULL,
                         CASE WHEN json_extract(tc.value, '$.name') IN ('Read', 'Bash', 'Edit', 'Grep', 'Glob', 'Write', 'Agent', 'ListDir', 'bash', 'run_shell_command', 'exec_command', 'shell', 'read_file', 'replace', 'apply_patch', 'view') THEN 'Native / Unoptimized' ELSE 'Atelier Optimized' END,
                         CAST(json_extract(tc.value, '$.input_tokens') AS INTEGER),
                         CAST(json_extract(tc.value, '$.output_tokens') AS INTEGER),
                         t.created_at
                     FROM trace_data t, json_each(t.payload, '$.tools_called') tc
                 )
-                SELECT agent, model, event_type, tool_name, sub_command, category, input_tokens, output_tokens, created_at as first_seen, created_at as last_seen, 1 as call_count
+                SELECT host, agent, model, event_type, tool_name, sub_command, category, input_tokens, output_tokens, created_at as first_seen, created_at as last_seen, 1 as call_count, 1 as session_count
                 FROM events
                 WHERE 1=1 {"AND category = ?" if category else ""}
                 ORDER BY created_at DESC LIMIT ?
@@ -1703,11 +1724,11 @@ def create_app(store_root: str | Path | None = None) -> Any:
         from atelier.core.capabilities.pricing import get_model_pricing
 
         db_path = store.db_path
-        host_filter = "AND agent = ?" if host else ""
+        host_filter = "AND COALESCE(host, agent) = ?" if host else ""
         sql = f"""
             SELECT
                 id,
-                agent AS host,
+            COALESCE(host, agent) AS host,
                 domain,
                 json_extract(payload, '$.model') AS model,
                 CAST(json_extract(payload, '$.input_tokens') AS INTEGER) AS input_tokens,
@@ -1754,8 +1775,8 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 try:
                     payload_obj = json.loads(d.get("payload") or "{}")
                     tools_called = payload_obj.get("tools_called") or []
-                except (json.JSONDecodeError, AttributeError):
-                    pass
+                except (json.JSONDecodeError, AttributeError) as exc:
+                    logger.warning("Failed to parse tools_called payload: %s", exc)
 
                 sessions.append(
                     {
@@ -1776,8 +1797,41 @@ def create_app(store_root: str | Path | None = None) -> Any:
                     }
                 )
 
+        def _tool_call_count(session: dict[str, Any]) -> int:
+            total = 0
+            for tool in session.get("tools_called") or []:
+                if not isinstance(tool, dict):
+                    continue
+                total += int(tool.get("count") or 1)
+            return total
+
+        def _tool_output_tokens(session: dict[str, Any]) -> int:
+            total = 0
+            for tool in session.get("tools_called") or []:
+                if not isinstance(tool, dict):
+                    continue
+                total += int(tool.get("output_tokens") or 0)
+            return total
+
+        def _has_usage_signal(session: dict[str, Any]) -> bool:
+            model = str(session.get("model") or "").strip()
+            return any(
+                (
+                    bool(model),
+                    (session.get("output_tokens") or 0) > 0,
+                    (session.get("thinking_tokens") or 0) > 0,
+                    float(session.get("cost") or 0.0) > 0,
+                    _tool_call_count(session) > 0,
+                    _tool_output_tokens(session) > 0,
+                )
+            )
+
+        # Imported host logs can contain prompt-only stubs with no model or assistant/tool activity.
+        # Excluding them keeps dashboard breakdowns aligned with real usage sessions.
+        dashboard_sessions = [session for session in sessions if _has_usage_signal(session)]
+
         daily: dict[str, dict] = {}
-        for s in sessions:
+        for s in dashboard_sessions:
             day = s["day"]
             if day not in daily:
                 daily[day] = {"date": day, "sessions": 0, "cost": 0.0, "input_tokens": 0, "output_tokens": 0}
@@ -1788,7 +1842,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
         daily_list = sorted(daily.values(), key=lambda x: x["date"])
 
         by_domain: dict[str, dict] = {}
-        for s in sessions:
+        for s in dashboard_sessions:
             dom = s["domain"]
             if dom not in by_domain:
                 by_domain[dom] = {"domain": dom, "sessions": 0, "cost": 0.0}
@@ -1799,7 +1853,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
             r["avg_cost"] = r["cost"] / r["sessions"] if r["sessions"] else 0.0
 
         by_host: dict[str, dict] = {}
-        for s in sessions:
+        for s in dashboard_sessions:
             h = s["host"]
             if h not in by_host:
                 by_host[h] = {"host": h, "sessions": 0, "cost": 0.0, "input_tokens": 0, "cached_tokens": 0}
@@ -1813,7 +1867,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
             r["cache_pct"] = (r["cached_tokens"] / total_in * 100) if total_in else 0.0
 
         by_model: dict[str, dict] = {}
-        for s in sessions:
+        for s in dashboard_sessions:
             mdl = s["model"] or "unknown"
             if mdl not in by_model:
                 by_model[mdl] = {
@@ -1834,6 +1888,43 @@ def create_app(store_root: str | Path | None = None) -> Any:
             total_in = r["input_tokens"] + r["cached_tokens"]
             r["cache_pct"] = (r["cached_tokens"] / total_in * 100) if total_in else 0.0
 
+        host_model_overview: dict[tuple[str, str], dict[str, Any]] = {}
+        for s in dashboard_sessions:
+            host_name = s["host"] or "unknown"
+            model_name = s["model"] or "unknown"
+            key = (host_name, model_name)
+            if key not in host_model_overview:
+                host_model_overview[key] = {
+                    "host": host_name,
+                    "model": model_name,
+                    "sessions": 0,
+                    "user_typed_tokens": 0,
+                    "base_context_tokens": 0,
+                    "cached_prompt_tokens": 0,
+                    "cache_write_tokens": 0,
+                    "billable_output_tokens": 0,
+                    "tool_output_tokens": 0,
+                    "thinking_tokens": 0,
+                    "tool_calls": 0,
+                    "cost": 0.0,
+                }
+            row = host_model_overview[key]
+            row["sessions"] += 1
+            row["user_typed_tokens"] += s["user_prompt_tokens"]
+            row["base_context_tokens"] += s["input_tokens"]
+            row["cached_prompt_tokens"] += s["cached_tokens"]
+            row["cache_write_tokens"] += s["cache_write_tokens"]
+            row["billable_output_tokens"] += s["output_tokens"]
+            row["tool_output_tokens"] += _tool_output_tokens(s)
+            row["thinking_tokens"] += s["thinking_tokens"]
+            row["tool_calls"] += _tool_call_count(s)
+            row["cost"] += s["cost"]
+        host_model_overview_list = sorted(
+            host_model_overview.values(),
+            key=lambda row: (row["cost"], row["sessions"]),
+            reverse=True,
+        )
+
         top_sessions_clean = [
             {
                 "id": s["id"],
@@ -1846,7 +1937,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 "output_tokens": s["output_tokens"],
                 "cached_tokens": s["cached_tokens"],
             }
-            for s in sorted(sessions, key=lambda x: x["cost"], reverse=True)[:20]
+            for s in sorted(dashboard_sessions, key=lambda x: x["cost"], reverse=True)[:20]
         ]
 
         _CORE = {
@@ -1874,7 +1965,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
         shell_tools: dict[str, dict] = {}
         mcp_tools: dict[str, dict] = {}
 
-        for s in sessions:
+        for s in dashboard_sessions:
             for tool in s["tools_called"]:
                 if not isinstance(tool, dict):
                     continue
@@ -1903,6 +1994,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
             "by_domain": by_domain_list,
             "by_host": by_host_list,
             "by_model": by_model_list,
+            "host_model_overview": host_model_overview_list,
             "top_sessions": top_sessions_clean,
             "external": _build_external_analytics_summary(get_store(), days=days),
             "tools": {
@@ -1926,7 +2018,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
         traces = get_store().list_traces(limit=limit)
         result = []
         for t in traces:
-            if t.run_id:
+            if t.session_id:
                 result.append(
                     {
                         "trace_id": t.id,
@@ -1977,32 +2069,32 @@ def create_app(store_root: str | Path | None = None) -> Any:
             raise HTTPException(status_code=404, detail="Content file not found on disk") from exc
         return PlainTextResponse(content, media_type="text/plain")
 
-    @app.get("/ledgers/{run_id}", tags=["compat"], dependencies=[Depends(verify_api_key)])
-    def compat_ledger(run_id: str) -> dict[str, Any]:
-        """Compatibility: GET /ledgers/{run_id} -> returns run ledger data.
+    @app.get("/ledgers/{session_id}", tags=["compat"], dependencies=[Depends(verify_api_key)])
+    def compat_ledger(session_id: str) -> dict[str, Any]:
+        """Compatibility: GET /ledgers/{session_id} -> returns run ledger data.
 
         First checks for a live RunLedger JSON file (written by the reasoning
         runtime).  When that is absent, falls back to an imported Trace that
-        carries the same run_id so that sessions imported from Claude / Codex /
+        carries the same session_id so that sessions imported from Claude / Codex /
         OpenCode / Copilot are still surfaced here.
         """
         from atelier.infra.runtime.run_ledger import RunLedger
 
-        ledger_path = Path(cfg.atelier_root) / "runs" / f"{run_id}.json"
+        ledger_path = Path(cfg.atelier_root) / "runs" / f"{session_id}.json"
         snap = None
         if ledger_path.exists():
             try:
                 ledger = RunLedger.load(ledger_path)
                 snap = ledger.snapshot()
             except Exception as e:
-                return {"run_id": run_id, "error": str(e)}
+                return {"session_id": session_id, "error": str(e)}
 
         # Always check for a trace to fetch the full conversation history.
         # Imported sessions from Claude/Codex/OpenCode/Copilot use the Trace as source of truth.
         store_inst = get_store()
 
         # 1. Try direct ID match (high performance)
-        trace = store_inst.get_trace(run_id)
+        trace = store_inst.get_trace(session_id)
 
         # 2. Try host-prefixed IDs (standard for imported sessions)
         if trace is None:
@@ -2011,36 +2103,45 @@ def create_app(store_root: str | Path | None = None) -> Any:
             )
 
             for host in SUPPORTED_SESSION_IMPORT_HOSTS:
-                trace = store_inst.get_trace(f"{host}-{run_id}")
+                trace = store_inst.get_trace(f"{host}-{session_id}")
                 if trace:
                     break
 
-        # 3. Slower fallback: search for the run_id inside payloads
+        # 3. Slower fallback: search for the session_id inside payloads
         if trace is None:
             with sqlite3.connect(store_inst.db_path) as conn:
                 # Use json_extract for efficient searching
                 row = conn.execute(
-                    "SELECT payload FROM traces WHERE json_extract(payload, '$.run_id') = ?", (run_id,)
+                    "SELECT payload FROM traces WHERE json_extract(payload, '$.session_id') = ?", (session_id,)
                 ).fetchone()
                 if row:
                     trace = Trace.model_validate_json(row[0])
 
         conversations: list[dict[str, Any]] = []
+        source_paths: list[str] = []
         if trace:
             if trace.raw_artifact_ids:
                 # Reconstruct from raw artifacts (imported sessions)
                 for art_id in trace.raw_artifact_ids:
                     artifact = store_inst.get_raw_artifact(art_id)
                     if artifact:
+                        if artifact.source_path:
+                            source_paths.append(artifact.source_path)
                         try:
-                            raw_content = store_inst.get_raw_artifact_content(artifact)
+                            raw_content = store_inst.read_raw_artifact_content(artifact)
                             from atelier.gateway.hosts.session_parsers._session_parser import (
                                 parse_session_turns,
                             )
 
                             conversations = parse_session_turns(raw_content, artifact.source)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.error(
+                                "Failed to reconstruct conversations from artifact %s (source=%s): %s",
+                                art_id,
+                                getattr(artifact, "source", "?"),
+                                exc,
+                                exc_info=True,
+                            )
                         if conversations:
                             break
 
@@ -2060,11 +2161,13 @@ def create_app(store_root: str | Path | None = None) -> Any:
         if snap:
             if conversations:
                 snap["conversations"] = conversations
+            if source_paths:
+                snap["source_paths"] = source_paths
             return snap
 
         if trace:
             return {
-                "run_id": trace.run_id or run_id,
+                "session_id": trace.session_id or session_id,
                 "trace_id": trace.id,
                 "status": trace.status,
                 "task": trace.task,
@@ -2076,6 +2179,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 "errors_seen": trace.errors_seen,
                 "tools_called": [tc.model_dump() for tc in trace.tools_called],
                 "conversations": conversations,
+                "source_paths": source_paths,
                 "raw_artifact_ids": trace.raw_artifact_ids,
                 "input_tokens": trace.input_tokens,
                 "output_tokens": trace.output_tokens,
@@ -2088,7 +2192,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 "trace": trace.model_dump(mode="json"),
             }
 
-        return {"run_id": run_id, "status": "not_found"}
+        return {"session_id": session_id, "status": "not_found"}
 
     # ------------------------------------------------------------------ #
     # MCP & Hosts                                                         #
@@ -2103,44 +2207,36 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 {"tool_name": name, "available": True, "description": spec.get("description", "")}
                 for name, spec in TOOLS.items()
             ]
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to load MCP tool status: %s", exc, exc_info=True)
             return []
 
     @app.get("/hosts", tags=["ops"], dependencies=[Depends(verify_api_key)])
     def list_hosts() -> list[dict[str, Any]]:
-        import shutil
+        store = get_store()
+        seen_hosts = set(store.get_traces_metrics()["hosts"])
 
         hosts = [
-            ("claude", "Claude Code", "claude"),
-            ("codex", "Codex", "codex"),
-            ("opencode", "opencode", None),
-            ("copilot", "VS Code Copilot", None),
-            ("gemini", "Gemini CLI", "gemini"),
+            ("claude", "Claude Code"),
+            ("codex", "Codex"),
+            ("opencode", "OpenCode"),
+            ("copilot", "VS Code Copilot"),
+            ("gemini", "Gemini CLI"),
         ]
-        result = []
-        for hid, label, check in hosts:
-            if check in ("claude", "codex", "gemini"):
-                installed = shutil.which(check) is not None
-            elif hid == "opencode":
-                installed = (Path.home() / ".opencode").exists()
-            elif hid == "copilot":
-                installed = (Path.home() / ".vscode").exists()
-            else:
-                installed = False
-            result.append(
-                {
-                    "host_id": hid,
-                    "label": label,
-                    "status": "installed" if installed else "not_installed",
-                    "active_domains": [],
-                    "mcp_tools": [],
-                    "last_seen": None,
-                    "atelier_version": None,
-                    "description": None,
-                    "install_command": None,
-                }
-            )
-        return result
+        return [
+            {
+                "host_id": hid,
+                "label": label,
+                "status": "active" if hid in seen_hosts else "not_detected",
+                "active_domains": [],
+                "mcp_tools": [],
+                "last_seen": None,
+                "atelier_version": None,
+                "description": None,
+                "install_command": None,
+            }
+            for hid, label in hosts
+        ]
 
     # ------------------------------------------------------------------ #
     # Skills                                                              #
@@ -2235,7 +2331,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
             for call in entry.get("calls", []):
                 all_calls.append(
                     {
-                        "run_id": call.get("run_id", ""),
+                        "session_id": call.get("session_id", ""),
                         "domain": entry.get("domain"),
                         "task": entry.get("task_sample"),
                         "operation": call.get("operation"),
@@ -2262,7 +2358,8 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
         try:
             return [to_jsonable(c) for c in FailureAnalyzer(store=get_store()).analyze()]
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failure analyzer raised an exception: %s", exc, exc_info=True)
             return []
 
     # ------------------------------------------------------------------ #

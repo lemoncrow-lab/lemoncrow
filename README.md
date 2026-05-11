@@ -9,13 +9,15 @@ Atelier helps teams ship the same reasoning runtime everywhere: on the command l
 The runtime separates **Passive Tracking** (enabled by default) from **Active Reasoning** (requires Development Mode).
 
 ### Passive Tracking (Production Ready)
+
 - **Sessions & Ledger** — track every agent run and execution state
 - **Expense Tracking** — aggregate token usage and estimated costs across all hosts
 - **Traces** — record observable execution history (files, commands, errors)
 - **Tools & Agents** — central registry of available capabilities and personas
 
 ### Active Reasoning (Development Mode)
-*Enable with `ATELIER_DEV_MODE=1`*
+
+_Enable with `ATELIER_DEV_MODE=1`_
 
 - **Knowledge** — retrieve and inject known procedures (ReasonBlocks) into agent context
 - **Watchdogs** (formerly Monitors) — detect execution pathologies (loops, thrashing) and suggest rescues
@@ -138,7 +140,7 @@ The installer already attempts host integration when the relevant CLI is present
 
 - Claude Code: MCP + skills + agents — [docs/hosts/claude-code-install.md](docs/hosts/claude-code-install.md)
 - Codex CLI: MCP + AGENTS.md — [docs/hosts/codex-install.md](docs/hosts/codex-install.md)
-- VS Code Copilot: MCP + instructions — [docs/hosts/copilot-install.md](docs/hosts/copilot-install.md)
+- Copilot: MCP + instructions — [docs/hosts/copilot-install.md](docs/hosts/copilot-install.md)
 - opencode: MCP — [docs/hosts/opencode-install.md](docs/hosts/opencode-install.md)
 - Gemini CLI: MCP — [docs/hosts/gemini-cli-install.md](docs/hosts/gemini-cli-install.md)
 

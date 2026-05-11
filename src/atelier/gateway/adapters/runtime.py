@@ -506,7 +506,7 @@ class ReasoningRuntime:
         domain: str | None = None,
         step_type: StepType = "plan",
         step_index: int = 0,
-        run_id: str | None = None,
+        session_id: str | None = None,
         evidence_summary: dict[str, Any] | None = None,
         ledger: Any | None = None,
     ) -> RouteDecision:
@@ -519,7 +519,7 @@ class ReasoningRuntime:
             domain=domain,
             step_type=step_type,
             step_index=step_index,
-            run_id=run_id,
+            session_id=session_id,
             evidence_summary=evidence_summary,
             ledger=ledger,
         )

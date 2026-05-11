@@ -15,7 +15,7 @@
 
 set -u
 
-RUN_ID=""
+SESSION_ID=""
 JSON=0
 LINE=0
 if [ -n "${ATELIER_ROOT:-}" ]; then
@@ -31,7 +31,7 @@ N=5
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --run-id) RUN_ID="$2"; shift 2 ;;
+    --run-id) SESSION_ID="$2"; shift 2 ;;
     --json)   JSON=1; shift ;;
     --line)   LINE=1; shift ;;
     --root)   ROOT="$2"; shift 2 ;;
@@ -48,15 +48,15 @@ RUNS_DIR="${ROOT}/runs"
 
 # ── Resolve target ledger file ─────────────────────────────────────────────
 LEDGER=""
-if [ -n "$RUN_ID" ]; then
-  LEDGER="${RUNS_DIR}/${RUN_ID}.json"
+if [ -n "$SESSION_ID" ]; then
+  LEDGER="${RUNS_DIR}/${SESSION_ID}.json"
 elif [ -d "$RUNS_DIR" ]; then
   # Pick the most recently modified flat JSON file in runs/
   LEDGER=$(ls -t "${RUNS_DIR}"/*.json 2>/dev/null | head -1)
 fi
 
 if [ -z "${LEDGER:-}" ] || [ ! -f "$LEDGER" ]; then
-  if [ -n "$RUN_ID" ]; then
+  if [ -n "$SESSION_ID" ]; then
     # Specific run requested but not in runs/ - Python will try DB fallback
     LEDGER="NONE"
   elif [ -d "$RUNS_DIR" ]; then
@@ -79,7 +79,7 @@ if [ "$JSON" = "1" ]; then
 fi
 
 # ── Python renderer ────────────────────────────────────────────────────────
-python3 - "$LEDGER" "$RUNS_DIR" "$ROOT" "$LINE" "$N" "$RUN_ID" <<'PYEOF' || exit 2
+python3 - "$LEDGER" "$RUNS_DIR" "$ROOT" "$LINE" "$N" "$SESSION_ID" <<'PYEOF' || exit 2
 import json, os, sys, glob, re
 from pathlib import Path
 from datetime import datetime, timezone
@@ -160,7 +160,7 @@ try:
     with open(os.path.join(ROOT, "live_savings_events.jsonl")) as f:
         for line in f:
             d = json.loads(line)
-            rid = d.get("run_id")
+            rid = d.get("session_id")
             if rid:
                 savings_map[rid] = savings_map.get(rid, 0.0) + float(d.get("cost_saved_usd", 0.0))
 except Exception:
@@ -202,7 +202,7 @@ try:
 
             # 3. Add Live Context Budget (high-fidelity real-time costs)
             # This overwrites the heuristic cost for runs that exist in both.
-            sql = "SELECT run_id, SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens) FROM context_budget GROUP BY run_id"
+            sql = "SELECT session_id, SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens) FROM context_budget GROUP BY session_id"
             for row in conn.execute(sql):
                 rid, inp, out, cr = row
                 cost = ((inp or 0) * 3 + (cr or 0) * 0.3 + (out or 0) * 15) / 1000000.0
@@ -228,7 +228,7 @@ if LEDGER_PATH != "NONE":
         pass
 
 if not snap and TARGET_ID:
-    snap = next((r for r in db_runs if r.get("run_id") == TARGET_ID or r.get("id") == TARGET_ID), None)
+    snap = next((r for r in db_runs if r.get("session_id") == TARGET_ID or r.get("id") == TARGET_ID), None)
 
 if not snap and db_runs and not TARGET_ID:
     # Use most recent from DB
@@ -240,7 +240,7 @@ if LINE_MODE:
         print(f"atelier | run {Path(LEDGER_PATH).stem[:8]} not found")
         sys.exit(1)
 
-    run_id   = (snap.get("run_id") or snap.get("id") or "?")
+    session_id   = (snap.get("session_id") or snap.get("id") or "?")
     domain   = snap.get("domain") or "-"
     task     = (snap.get("task") or "").strip().splitlines()[0] if snap.get("task") else "-"
     if len(task) > 50: task = task[:47] + "..."
@@ -254,15 +254,15 @@ if LINE_MODE:
     age_str  = age(snap.get("updated_at") or snap.get("created_at") or "")
     dur_str  = dur(snap.get("created_at",""), snap.get("updated_at",""))
 
-    cost_v   = cost_map.get(run_id, float(snap.get("cost", {}).get("total_cost_usd", 0.0)))
+    cost_v   = cost_map.get(session_id, float(snap.get("cost", {}).get("total_cost_usd", 0.0)))
     if cost_v == 0 and "input_tokens" in snap:
          # Heuristic for imported traces
          cost_v = (snap.get("input_tokens",0)*3 + snap.get("output_tokens",0)*15) / 1000000.0
     
-    saved_v  = savings_map.get(run_id, 0.0)
+    saved_v  = savings_map.get(session_id, 0.0)
 
     line = (
-        f"{BADGE} {BRAND}run {run_id[:8]}{RESET} {SEP} {DIM}{agent}{RESET} {SEP} "
+        f"{BADGE} {BRAND}run {session_id[:8]}{RESET} {SEP} {DIM}{agent}{RESET} {SEP} "
         f"{domain} {SEP} {task} {SEP} {status_color(status)} "
         f"{SEP} ev={events} err={errors} blk={blockers}"
         f" {SEP} files={files_n} tools={tools_n}"
@@ -322,14 +322,14 @@ seen_ids = set()
 for rf in run_files:
     try:
         d = load_run(rf)
-        rid = d.get("run_id") or Path(rf).stem
+        rid = d.get("session_id") or Path(rf).stem
         all_run_entries.append(d)
         seen_ids.add(rid)
     except: pass
 
 # Then, fallback to database traces (historical)
 for dr in db_runs:
-    rid = dr.get("run_id") or dr.get("id")
+    rid = dr.get("session_id") or dr.get("id")
     if rid not in seen_ids:
         all_run_entries.append(dr)
         seen_ids.add(rid)
@@ -374,7 +374,7 @@ if total_cost > 0 or saved_usd > 0:
 rule(f"RECENT RUNS ({min(N_RUNS, total_runs)})")
 
 for d in all_run_entries[:N_RUNS]:
-    run_id  = (d.get("run_id") or d.get("id") or "?")
+    session_id  = (d.get("session_id") or d.get("id") or "?")
     agent   = (d.get("agent") or "?")[:8]
     domain  = (d.get("domain") or "-")[:12]
     task    = (d.get("task") or "").strip().replace("\n", " ")
@@ -387,16 +387,16 @@ for d in all_run_entries[:N_RUNS]:
     age_str = age(d.get("updated_at") or d.get("created_at") or "")
     dur_str = dur(d.get("created_at",""), d.get("updated_at",""))
 
-    cost_v  = cost_map.get(run_id, float(d.get("cost", {}).get("total_cost_usd", 0.0)))
+    cost_v  = cost_map.get(session_id, float(d.get("cost", {}).get("total_cost_usd", 0.0)))
     if cost_v == 0 and "input_tokens" in d:
          cost_v = (d.get("input_tokens",0)*3 + d.get("output_tokens",0)*15) / 1000000.0
 
-    saved_v = savings_map.get(run_id, 0.0)
+    saved_v = savings_map.get(session_id, 0.0)
 
     # Professional 2-line layout
     # [icon] Task ................. ID
     dots = "." * max(1, (W - len(re.sub(r'\033\[[^m]*m', '', task)) - 16))
-    box_line(f" {status_icon(status)}  {BOLD}{task}{RESET} {DIM}{dots} {run_id[:8]}{RESET}")
+    box_line(f" {status_icon(status)}  {BOLD}{task}{RESET} {DIM}{dots} {session_id[:8]}{RESET}")
     
     metrics = []
     if cost_v > 0:  metrics.append(f"cost={usd(cost_v)}")

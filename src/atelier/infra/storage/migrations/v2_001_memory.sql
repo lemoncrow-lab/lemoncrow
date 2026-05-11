@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS memory_recall (
 );
 
 CREATE TABLE IF NOT EXISTS run_memory_frame (
-  run_id              TEXT PRIMARY KEY,
+  session_id              TEXT PRIMARY KEY,
   pinned_blocks       TEXT NOT NULL,
   recalled_passages   TEXT NOT NULL,
   summarized_events   TEXT NOT NULL,

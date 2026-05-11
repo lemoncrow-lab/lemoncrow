@@ -130,5 +130,5 @@ class OpenMemoryMemoryStore:
     def write_run_frame(self, frame: RunMemoryFrame) -> None:
         self._store.write_run_frame(frame)
 
-    def get_run_frame(self, run_id: str) -> RunMemoryFrame | None:
-        return self._store.get_run_frame(run_id)
+    def get_run_frame(self, session_id: str) -> RunMemoryFrame | None:
+        return self._store.get_run_frame(session_id)
