@@ -46,26 +46,30 @@ export default function Overview() {
           value={stats ? fmt.format(stats.total_traces) : "…"}
           tone="cyan"
         />
-        <div className="relative">
-          <MetricCard
-            label="Reason blocks"
-            value={stats ? fmt.format(stats.total_blocks) : "…"}
-            tone="amber"
-          />
-          <span className="absolute top-2 right-2 text-[8px] font-bold text-amber-500/60">
-            DEV
-          </span>
-        </div>
-        <div className="relative">
-          <MetricCard
-            label="Rubrics"
-            value={stats ? fmt.format(stats.total_rubrics) : "…"}
-            tone="emerald"
-          />
-          <span className="absolute top-2 right-2 text-[8px] font-bold text-amber-500/60">
-            DEV
-          </span>
-        </div>
+        {config?.dev_mode && (
+          <div className="relative">
+            <MetricCard
+              label="Reason blocks"
+              value={stats ? fmt.format(stats.total_blocks) : "…"}
+              tone="amber"
+            />
+            <span className="absolute top-2 right-2 text-[8px] font-bold text-amber-500/60">
+              DEV
+            </span>
+          </div>
+        )}
+        {config?.dev_mode && (
+          <div className="relative">
+            <MetricCard
+              label="Rubrics"
+              value={stats ? fmt.format(stats.total_rubrics) : "…"}
+              tone="emerald"
+            />
+            <span className="absolute top-2 right-2 text-[8px] font-bold text-amber-500/60">
+              DEV
+            </span>
+          </div>
+        )}
         <MetricCard
           label="Saved cost"
           value={stats ? usd(stats.estimated_saved_cost_usd) : "…"}

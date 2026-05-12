@@ -266,15 +266,18 @@ main() {
     if [[ "$ATELIER_DRY_RUN" != "1" ]]; then
         echo ""
         info "Importing agent sessions (all available history)..."
-        "$ATELIER_BIN_DIR/atelier" import --force \
+        "$ATELIER_BIN_DIR/atelier" import \
             && info "Session import complete." \
             || warn "Session import failed or no sessions found (non-fatal)."
 
         echo ""
-        info "Collecting external reports (codeburn: all-time, tokscale: month)..."
-        "$ATELIER_BIN_DIR/atelier" external-report --tool codeburn --period all \
+        info "Collecting external reports (codeburn: month, tokscale: month)..."
+        "$ATELIER_BIN_DIR/atelier" external-report --tool codeburn --period month \
             && info "codeburn report collected." \
             || warn "codeburn not installed or failed (non-fatal)."
+        "$ATELIER_BIN_DIR/atelier" external-report --tool "codeburn:optimize" --period month \
+            && info "codeburn optimization report collected." \
+            || warn "codeburn optimization report failed (non-fatal)."
         "$ATELIER_BIN_DIR/atelier" external-report --tool tokscale --period month \
             && info "tokscale report collected." \
             || warn "tokscale not installed or failed (non-fatal)."

@@ -96,7 +96,7 @@ bench-savings-honest: ## Run the V3 honest replay context-savings benchmark
 
 proof-cost-quality: ## Run cost-quality proof gate tests and write proof-report.json
 	LOCAL=1 uv run pytest tests/core/test_cost_quality_proof_gate.py tests/gateway/test_cli_proof_gate.py -v
-	LOCAL=1 uv run atelier proof run --run-id wp32-proof --json
+	LOCAL=1 uv run atelier proof run --session-id wp32-proof --json
 	@test -s $(ATELIER_STORE)/proof/proof-report.json
 
 demo: ## Run a small blocked-plan demo in a temporary store

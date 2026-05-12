@@ -264,10 +264,10 @@ echo '&#123;
 The run ledger tracks per-run state for long-running agent sessions.
 
 ```bash
-uv run atelier ledger show [--run-id ID] [--json]
-uv run atelier ledger update --run-id ID --key TEXT --value TEXT
-uv run atelier ledger summarize [--run-id ID] [--json]
-uv run atelier ledger reset [--run-id ID]
+uv run atelier ledger show [--session-id ID] [--json]
+uv run atelier ledger update --session-id ID --key TEXT --value TEXT
+uv run atelier ledger summarize [--session-id ID] [--json]
+uv run atelier ledger reset [--session-id ID]
 ```
 
 ---

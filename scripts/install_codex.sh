@@ -72,26 +72,20 @@ run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 # ---- check dev mode ---------------------------------------------------------
 DEV_MODE="${ATELIER_DEV_MODE:-0}"
-if [[ "$DEV_MODE" != "1" ]]; then
-    info "Dev mode disabled; installing slim plugin (no skills)"
-    STAGING_DIR="${ATELIER_REPO}/.atelier/codex-plugin-slim"
-    run "mkdir -p '$STAGING_DIR/.codex-plugin'"
-    run "cp '${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json' '$STAGING_DIR/.codex-plugin/'"
-    run "cp '${PLUGIN_TEMPLATE}/.mcp.json' '$STAGING_DIR/'"
-    run "mkdir -p '$STAGING_DIR/agents'"
-    # Create neutral instructions for Codex
-    if ! $DRY_RUN; then
-        cat > "$STAGING_DIR/agents/atelier.md" <<EOF
-# Atelier
-
-Atelier is currently in **Passive Mode**. Active reasoning features are disabled.
-To enable active reasoning, set ATELIER_DEV_MODE=1 and re-run install.
-
-Budget optimizer guardrails still apply: name the deliverable and smallest viable plan before edits, keep context narrow, restate context in under 10 bullets before editing or after compaction, pause if 10 minutes pass without an edit, and do not retry the same failed approach a third time.
-EOF
-    fi
-    PLUGIN_TEMPLATE="$STAGING_DIR"
+STAGING_DIR="${HOME}/.atelier/codex-plugin-slim"
+run "mkdir -p '$STAGING_DIR/.codex-plugin'"
+run "cp '${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json' '$STAGING_DIR/.codex-plugin/'"
+run "cp '${PLUGIN_TEMPLATE}/.mcp.json' '$STAGING_DIR/'"
+run "mkdir -p '$STAGING_DIR/agents'"
+AGENT_SRC="${ATELIER_REPO}/integrations/codex/AGENTS.atelier.md"
+if [[ "$DEV_MODE" == "1" ]]; then
+    info "Dev mode enabled; installing full agent instructions"
+    run "cp '${AGENT_SRC/.md/.dev.md}' '$STAGING_DIR/agents/atelier.md'"
+else
+    info "Dev mode disabled; installing slim agent instructions"
+    run "cp '${AGENT_SRC}' '$STAGING_DIR/agents/atelier.md'"
 fi
+PLUGIN_TEMPLATE="$STAGING_DIR"
 backup_file() {
     local f="$1"
     if [ -f "$f" ]; then

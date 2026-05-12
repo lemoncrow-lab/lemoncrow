@@ -117,12 +117,10 @@ auth = read_json("auth.json")
 subscription = read_json("subscription.json")
 free_plan = read_json("free_plan.json")
 
-if not auth and os.environ.get("ATELIER_HIDE_MISSING_LOGIN") != "1":
+if auth and auth.get("authenticated") is False and os.environ.get("ATELIER_HIDE_MISSING_LOGIN") != "1":
   status_text = "login"
 elif update.get("toVersion") and update.get("toVersion") != update.get("fromVersion"):
   status_text = f"update {update.get('toVersion')}"
-elif auth and auth.get("authenticated") is False:
-  status_text = "login"
 elif subscription.get("warning"):
   status_text = str(subscription.get("message") or "subscription")[:40]
 elif free_plan.get("limit"):
@@ -148,7 +146,7 @@ EOF
 if [ -n "${ATELIER_NO_COLOR:-}" ]; then
   C_BRAND=""; C_PIPE=""; C_DIM=""; C_GREEN=""; C_RESET=""
 else
-  C_BRAND=$'\033[1;38;2;168;85;247m'
+  C_BRAND=$'\033[1;38;2;230;100;55m'
   C_PIPE=$'\033[2;38;2;200;200;200m'
   C_DIM=$'\033[2;38;2;200;200;200m'
   C_GREEN=$'\033[1;38;2;72;199;116m'
@@ -160,7 +158,7 @@ PIPE="${C_PIPE}|${C_RESET}"
 
 # Build cache write segment only when non-zero (new tokens written to cache)
 if [ "${CACHE_W:-0}" -gt 0 ] 2>/dev/null; then
-  CACHE_NEW_SEG=" +${CACHE_WF}"
+  CACHE_NEW_SEG="+${CACHE_WF}"
 else
   CACHE_NEW_SEG=""
 fi
@@ -177,10 +175,10 @@ else
   STATUS_SEG=""
 fi
 
-printf '%s%s%s %s %s%s %s ctx %s%% %s cache %s%s %s %s %s saved %s%s%s (ctx %s%s%s) %s %dm%02ds\n' \
+printf '%s%s%s %s %s%s ctx %s%% cache %s%s %s %s ↓ %s%s%s(%s%s%s) %s %dm%02ds\n' \
   "$C_BRAND" "$PLUGIN_LABEL" "$C_RESET" \
-  "$PIPE" "$MODEL" "$STATUS_SEG" "$SEP" "$PCT_INT" \
-  "$SEP" "$CACHE_F" "$CACHE_NEW_SEG" \
-  "$SEP" "$COST_FMT" "$SEP" \
+  "$PIPE" "$MODEL" "$STATUS_SEG" "$PCT_INT" \
+  "$CACHE_F" "$CACHE_NEW_SEG" \
+  "$PIPE" "$COST_FMT" \
   "$C_GREEN" "$SAVED_USD" "$C_RESET" "$C_GREEN" "${SAVED_CTX}${SAVED_CALLS_SEG}" "$C_RESET" \
-  "$SEP" "$MINS" "$SECS"
+  "$PIPE" "$MINS" "$SECS"

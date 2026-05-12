@@ -4,10 +4,7 @@
       "type": "stdio",
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/servers/atelier-mcp-wrapper.js"],
-      "alwaysLoad": true,
-      "env": {
-        "ATELIER_WORKSPACE_ROOT": "${CLAUDE_WORKSPACE_ROOT}"
-      }
+      "alwaysLoad": true
     }
   }
 }

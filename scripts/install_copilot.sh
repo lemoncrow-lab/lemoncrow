@@ -182,23 +182,17 @@ ATELIER_INSTRUCTIONS="${ATELIER_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.
 
 # ---- check dev mode ---------------------------------------------------------
 DEV_MODE="${ATELIER_DEV_MODE:-0}"
-if [[ "$DEV_MODE" != "1" ]]; then
+STAGING_DIR="${HOME}/.atelier/copilot-slim"
+run "mkdir -p '$STAGING_DIR'"
+COPILOT_SRC="${ATELIER_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.atelier.md"
+if [[ "$DEV_MODE" == "1" ]]; then
+    info "Dev mode enabled; using full instructions with reasoning loop"
+    run "cp '${COPILOT_SRC/.md/.dev.md}' '$STAGING_DIR/instructions.md'"
+else
     info "Dev mode disabled; using slim instructions"
-    STAGING_DIR="${ATELIER_REPO}/.atelier/copilot-slim"
-    run "mkdir -p '$STAGING_DIR'"
-    # Create neutral instructions
-    if ! $DRY_RUN; then
-        cat > "$STAGING_DIR/instructions.md" <<EOF
-# Atelier
-
-Atelier is currently in **Passive Mode**. Active reasoning features are disabled.
-To enable active reasoning, set ATELIER_DEV_MODE=1 and re-run install.
-
-Budget optimizer guardrails still apply: name the deliverable and smallest viable plan before edits, keep context narrow, restate context in under 10 bullets before editing or after compaction, pause if 10 minutes pass without an edit, and do not retry the same failed approach a third time.
-EOF
-    fi
-    ATELIER_INSTRUCTIONS="$STAGING_DIR/instructions.md"
+    run "cp '${COPILOT_SRC}' '$STAGING_DIR/instructions.md'"
 fi
+ATELIER_INSTRUCTIONS="$STAGING_DIR/instructions.md"
 
 if [ -f "$ATELIER_INSTRUCTIONS" ]; then
     run "mkdir -p '$(dirname "$INSTRUCTIONS")'"

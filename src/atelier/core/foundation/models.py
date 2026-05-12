@@ -186,6 +186,7 @@ class Trace(BaseModel):
     model: str = ""
     workspace_path: str | None = None
     created_at: datetime = Field(default_factory=_utcnow)
+    snippets: list[str] | None = None
 
     @model_validator(mode="before")
     @classmethod

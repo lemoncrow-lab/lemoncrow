@@ -34,7 +34,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/overview", label: "Overview", icon: "◫" },
   { to: "/runs", label: "Runs", icon: "▶" },
-  { to: "/savings", label: "Savings", icon: "₿" },
+  { to: "/savings", label: "Savings", icon: "₿", isDev: true },
   { to: "/watchdogs", label: "Watchdogs", icon: "⚑", isDev: true },
   { to: "/knowledge/blocks", label: "Knowledge", icon: "🧠", isDev: true },
   { to: "/host", label: "Hosts", icon: "⌘" },
@@ -101,7 +101,7 @@ export default function App() {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-4">
             <h1 className="text-lg font-bold tracking-wide text-[#ff6041]">
-              ❯ ATELIER - Reasoning control plane
+              ❯ ATELIER - The Agents Runtime
             </h1>
             {config?.dev_mode && (
               <span className="border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-500">
@@ -117,28 +117,30 @@ export default function App() {
 
       <nav className="border-b border-neutral-800 bg-neutral-950/70 px-6 py-4">
         <div className="flex flex-wrap gap-2">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                cx(
-                  "inline-flex items-center gap-2 border px-3 py-2 text-xs transition",
-                  isActive
-                    ? "border-[#ff6041]/60 bg-[#ff6041]/10 text-[#ff8566]"
-                    : "border-neutral-800 bg-neutral-900/40 text-neutral-400 hover:border-neutral-600 hover:text-neutral-200"
-                )
-              }
-            >
-              <span>{item.icon}</span>
-              <span>{item.label}</span>
-              {item.isDev && (
-                <span className="ml-1 text-[8px] font-bold text-amber-500/60">
-                  DEV
-                </span>
-              )}
-            </NavLink>
-          ))}
+          {NAV_ITEMS.filter((item) => !item.isDev || config?.dev_mode).map(
+            (item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  cx(
+                    "inline-flex items-center gap-2 border px-3 py-2 text-xs transition",
+                    isActive
+                      ? "border-[#ff6041]/60 bg-[#ff6041]/10 text-[#ff8566]"
+                      : "border-neutral-800 bg-neutral-900/40 text-neutral-400 hover:border-neutral-600 hover:text-neutral-200"
+                  )
+                }
+              >
+                <span>{item.icon}</span>
+                <span>{item.label}</span>
+                {item.isDev && (
+                  <span className="ml-1 text-[8px] font-bold text-amber-500/60">
+                    DEV
+                  </span>
+                )}
+              </NavLink>
+            )
+          )}
         </div>
       </nav>
 
@@ -158,19 +160,49 @@ export default function App() {
               path="/knowledge"
               element={<Navigate to="/knowledge/blocks" replace />}
             />
-            <Route path="/knowledge/:section" element={<Learnings />} />
+            <Route
+              path="/knowledge/:section"
+              element={
+                config?.dev_mode ? (
+                  <Learnings />
+                ) : (
+                  <Navigate to="/overview" replace />
+                )
+              }
+            />
             <Route
               path="/knowledge/:section/:rubricId"
-              element={<Learnings />}
+              element={
+                config?.dev_mode ? (
+                  <Learnings />
+                ) : (
+                  <Navigate to="/overview" replace />
+                )
+              }
             />
             <Route
               path="/learnings"
               element={<Navigate to="/knowledge/blocks" replace />}
             />
-            <Route path="/learnings/:section" element={<Learnings />} />
+            <Route
+              path="/learnings/:section"
+              element={
+                config?.dev_mode ? (
+                  <Learnings />
+                ) : (
+                  <Navigate to="/overview" replace />
+                )
+              }
+            />
             <Route
               path="/learnings/:section/:rubricId"
-              element={<Learnings />}
+              element={
+                config?.dev_mode ? (
+                  <Learnings />
+                ) : (
+                  <Navigate to="/overview" replace />
+                )
+              }
             />
             <Route path="/savings" element={<Savings />} />
             <Route path="/insights" element={<Insights />} />
@@ -181,7 +213,16 @@ export default function App() {
             <Route path="/agents" element={<Agents />} />
             <Route path="/tools" element={<Tools />} />
             <Route path="/host" element={<Host />} />
-            <Route path="/watchdogs" element={<Watchdogs />} />
+            <Route
+              path="/watchdogs"
+              element={
+                config?.dev_mode ? (
+                  <Watchdogs />
+                ) : (
+                  <Navigate to="/overview" replace />
+                )
+              }
+            />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/optimizations" element={<Optimizations />} />
           </Routes>

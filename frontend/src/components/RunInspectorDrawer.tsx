@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { api, type RunInspectorData, type Trace } from "../api";
 
 interface RunInspectorDrawerProps {
@@ -66,11 +66,98 @@ function parseInspectorData(sessionId: string, ledger: any): RunInspectorData {
     summarized_events_count: summarizedEventsCount,
     tokens_pre: tokensPre,
     tokens_post: tokensPost,
-    source_paths: Array.isArray(ledger?.source_paths) ? ledger.source_paths : [],
+    source_paths: Array.isArray(ledger?.source_paths)
+      ? ledger.source_paths
+      : [],
     conversations: Array.isArray(ledger?.conversations)
       ? ledger.conversations
       : [],
   };
+}
+
+type SessionSearchMatch = {
+  id: string;
+  section: string;
+  label: string;
+  snippet: string;
+};
+
+function normalizeSearchTerms(query: string): string[] {
+  return Array.from(
+    new Set(query.toLowerCase().trim().split(/\s+/).filter(Boolean))
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchesSearch(value: string, terms: string[]): boolean {
+  if (terms.length === 0) return true;
+  const lower = value.toLowerCase();
+  return terms.every((term) => lower.includes(term));
+}
+
+function buildSearchSnippet(
+  value: string,
+  terms: string[],
+  radius = 90
+): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  if (terms.length === 0) return compact;
+
+  const lower = compact.toLowerCase();
+  let matchIndex = -1;
+  let matchLength = 0;
+
+  for (const term of terms) {
+    const index = lower.indexOf(term);
+    if (index === -1) continue;
+    if (matchIndex === -1 || index < matchIndex) {
+      matchIndex = index;
+      matchLength = term.length;
+    }
+  }
+
+  if (matchIndex === -1) {
+    return compact.length > radius * 2
+      ? `${compact.slice(0, radius * 2)}...`
+      : compact;
+  }
+
+  const start = Math.max(0, matchIndex - radius);
+  const end = Math.min(compact.length, matchIndex + matchLength + radius);
+
+  return `${start > 0 ? "..." : ""}${compact.slice(start, end)}${end < compact.length ? "..." : ""}`;
+}
+
+function highlightSearchText(value: string, terms: string[]): ReactNode {
+  if (!value || terms.length === 0) return value;
+
+  const pattern = terms
+    .slice()
+    .sort((left, right) => right.length - left.length)
+    .map(escapeRegExp)
+    .join("|");
+
+  if (!pattern) return value;
+
+  const matcher = new RegExp(`(${pattern})`, "gi");
+  const parts = value.split(matcher);
+
+  return parts.map((part, index) =>
+    terms.includes(part.toLowerCase()) ? (
+      <mark
+        key={`${part}-${index}`}
+        className="bg-amber-300/20 px-0.5 text-amber-100"
+      >
+        {part}
+      </mark>
+    ) : (
+      <span key={`${part}-${index}`}>{part}</span>
+    )
+  );
 }
 
 export default function RunInspectorDrawer({
@@ -81,6 +168,11 @@ export default function RunInspectorDrawer({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<RunInspectorData | null>(null);
+  const [sessionQuery, setSessionQuery] = useState("");
+
+  useEffect(() => {
+    setSessionQuery("");
+  }, [trace?.id]);
 
   useEffect(() => {
     // Use trace.id as the primary lookup key for the backend
@@ -102,6 +194,7 @@ export default function RunInspectorDrawer({
           summarized_events_count: 0,
           tokens_pre: null,
           tokens_post: null,
+          source_paths: [],
           conversations: [],
         });
       })
@@ -112,6 +205,148 @@ export default function RunInspectorDrawer({
     if (!trace) return "Run Inspector";
     return trace.task ? `Run Inspector: ${trace.task}` : "Run Inspector";
   }, [trace]);
+
+  const sessionTerms = useMemo(
+    () => normalizeSearchTerms(sessionQuery),
+    [sessionQuery]
+  );
+
+  const sessionSearch = useMemo(() => {
+    const sourcePaths = data?.source_paths ?? [];
+    const pinnedBlocks = data?.pinned_blocks ?? [];
+    const recalledPassages = data?.recalled_passages ?? [];
+    const conversations = data?.conversations ?? [];
+
+    if (sessionTerms.length === 0) {
+      return {
+        sourcePaths,
+        pinnedBlocks,
+        recalledPassages,
+        conversations,
+        matches: [] as SessionSearchMatch[],
+      };
+    }
+
+    const matches: SessionSearchMatch[] = [];
+    const pushMatch = (
+      id: string,
+      section: string,
+      label: string,
+      text: string,
+      radius = 90
+    ) => {
+      if (!matchesSearch(text, sessionTerms)) return false;
+      matches.push({
+        id,
+        section,
+        label,
+        snippet: buildSearchSnippet(text, sessionTerms, radius),
+      });
+      return true;
+    };
+
+    if (trace) {
+      pushMatch(
+        "run-meta",
+        "Run",
+        trace.session_id || trace.id,
+        [trace.task, trace.agent, trace.host, trace.session_id, trace.id]
+          .filter(Boolean)
+          .join("\n"),
+        70
+      );
+
+      trace.tools_called.forEach((tool, index) => {
+        pushMatch(
+          `tool-${index}`,
+          "Tool",
+          tool.name,
+          [
+            tool.name,
+            tool.result_summary || "",
+            tool.args ? JSON.stringify(tool.args) : "",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        );
+      });
+
+      trace.commands_run.forEach((command, index) => {
+        const text =
+          typeof command === "string"
+            ? command
+            : [command.command, command.stdout, command.stderr]
+                .filter(Boolean)
+                .join("\n");
+        pushMatch(
+          `command-${index}`,
+          "Command",
+          typeof command === "string" ? command : command.command,
+          text,
+          100
+        );
+      });
+
+      trace.files_touched.forEach((file, index) => {
+        const label = typeof file === "string" ? file : file.path;
+        const text =
+          typeof file === "string"
+            ? file
+            : [file.path, file.event, file.diff].filter(Boolean).join("\n");
+        pushMatch(`trace-file-${index}`, "Trace file", label, text, 80);
+      });
+    }
+
+    const filteredSourcePaths = sourcePaths.filter((path, index) =>
+      pushMatch(`source-${index}`, "Source file", path, path, 60)
+    );
+
+    const filteredPinnedBlocks = pinnedBlocks.filter((blockId, index) =>
+      pushMatch(`block-${index}`, "Pinned block", blockId, blockId, 60)
+    );
+
+    const filteredRecalledPassages = recalledPassages.filter((passage, index) =>
+      pushMatch(
+        `passage-${index}`,
+        "Recalled passage",
+        passage.id,
+        [passage.id, passage.source_ref].filter(Boolean).join("\n"),
+        80
+      )
+    );
+
+    const filteredConversations = conversations.filter((turn, index) =>
+      pushMatch(
+        `turn-${index}`,
+        "Timeline",
+        turn.kind.replace(/_/g, " "),
+        [turn.kind, turn.summary, turn.content].filter(Boolean).join("\n"),
+        120
+      )
+    );
+
+    return {
+      sourcePaths: filteredSourcePaths,
+      pinnedBlocks: filteredPinnedBlocks,
+      recalledPassages: filteredRecalledPassages,
+      conversations: filteredConversations,
+      matches,
+    };
+  }, [data, sessionTerms, trace]);
+
+  const sessionSearchActive = sessionTerms.length > 0;
+  const visibleSourcePaths = sessionSearchActive
+    ? sessionSearch.sourcePaths
+    : (data?.source_paths ?? []);
+  const visiblePinnedBlocks = sessionSearchActive
+    ? sessionSearch.pinnedBlocks
+    : (data?.pinned_blocks ?? []);
+  const visibleRecalledPassages = sessionSearchActive
+    ? sessionSearch.recalledPassages
+    : (data?.recalled_passages ?? []);
+  const visibleConversations = sessionSearchActive
+    ? sessionSearch.conversations
+    : (data?.conversations ?? []);
 
   if (!open || !trace) return null;
 
@@ -134,7 +369,12 @@ export default function RunInspectorDrawer({
               {title}
             </h2>
             <div className="flex gap-4 text-[10px] text-neutral-500 mt-1 font-mono uppercase tracking-widest">
-              {trace.session_id && <span>Session: {trace.session_id}</span>}
+              <span>Session: {trace.session_id}</span>
+              <span>Agent: {trace.agent}</span>
+            </div>
+            <div className="flex gap-4 text-[10px] text-neutral-500 mt-1 font-mono uppercase tracking-widest">
+              <span>ID: {trace.id}</span>
+              <span>{new Date(trace.created_at).toLocaleString()}</span>
             </div>
           </div>
           <button
@@ -147,6 +387,45 @@ export default function RunInspectorDrawer({
           </button>
         </div>
 
+        <div className="pt-4 pb-4 border-b border-neutral-900 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-neutral-500">
+                Search This Session
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-600">
+                Search only inside the currently open session: timeline, source
+                files, pinned blocks, recalled passages, trace tools, commands,
+                and file touches.
+              </p>
+            </div>
+            {sessionSearchActive && (
+              <div className="text-[10px] font-mono text-amber-300/80">
+                {sessionSearch.matches.length} hits
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              type="search"
+              value={sessionQuery}
+              onChange={(e) => setSessionQuery(e.target.value)}
+              placeholder="Search this run: timeline, files, commands, tools, passages..."
+              className="w-full border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-200 outline-none transition placeholder:text-neutral-600 focus:border-amber-500/50"
+            />
+            {sessionQuery && (
+              <button
+                type="button"
+                onClick={() => setSessionQuery("")}
+                className="border border-neutral-700 px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-300 transition hover:border-amber-500/50 hover:text-amber-300"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
         {loading && (
           <p className="text-xs text-neutral-500 pt-4">Loading run data...</p>
         )}
@@ -154,6 +433,43 @@ export default function RunInspectorDrawer({
 
         {data && (
           <div className="pt-4 space-y-5">
+            {sessionSearchActive && (
+              <section>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <h3 className="text-[11px] uppercase tracking-widest text-neutral-500">
+                    Session Search Results
+                  </h3>
+                  <span className="text-[10px] font-mono text-neutral-500">
+                    {sessionSearch.matches.length} hits
+                  </span>
+                </div>
+                {sessionSearch.matches.length === 0 ? (
+                  <p className="text-xs text-neutral-600">
+                    No matches inside this session.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {sessionSearch.matches.map((match) => (
+                      <li
+                        key={match.id}
+                        className="border border-amber-900/30 bg-amber-950/10 p-2 rounded"
+                      >
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-amber-300/80">
+                          <span>{match.section}</span>
+                          <span className="text-neutral-500 normal-case tracking-normal">
+                            {match.label}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-xs leading-relaxed text-neutral-300">
+                          {highlightSearchText(match.snippet, sessionTerms)}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
+
             <section className="grid grid-cols-2 gap-2">
               <div className="bg-neutral-900/50 border border-neutral-800 p-2 rounded">
                 <div className="text-[9px] uppercase text-neutral-500 font-bold mb-1">
@@ -196,44 +512,55 @@ export default function RunInspectorDrawer({
               </div>
             </section>
 
-            {data.source_paths && data.source_paths.length > 0 && (
+            {(data.source_paths && data.source_paths.length > 0) ||
+            sessionSearchActive ? (
               <section>
                 <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 mb-2">
                   Source Files
                 </h3>
-                <ul className="space-y-1">
-                  {data.source_paths.map((p) => (
-                    <li key={p} className="flex items-center gap-2">
-                      <span className="text-[11px] text-neutral-300 font-mono break-all">{p}</span>
-                      <button
-                        type="button"
-                        className="text-[9px] text-amber-400/60 hover:text-amber-300 shrink-0 underline"
-                        onClick={() => navigator.clipboard.writeText(p)}
-                      >
-                        copy
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                {visibleSourcePaths.length === 0 ? (
+                  <p className="text-xs text-neutral-600">
+                    No source files match the current session search.
+                  </p>
+                ) : (
+                  <ul className="space-y-1">
+                    {visibleSourcePaths.map((p) => (
+                      <li key={p} className="flex items-center gap-2">
+                        <span className="text-[11px] text-neutral-300 font-mono break-all">
+                          {highlightSearchText(p, sessionTerms)}
+                        </span>
+                        <button
+                          type="button"
+                          className="text-[9px] text-amber-400/60 hover:text-amber-300 shrink-0 underline"
+                          onClick={() => navigator.clipboard.writeText(p)}
+                        >
+                          copy
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
-            )}
+            ) : null}
 
             <section>
               <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 mb-2">
                 Pinned Blocks
               </h3>
-              {data.pinned_blocks.length === 0 ? (
+              {visiblePinnedBlocks.length === 0 ? (
                 <p className="text-xs text-neutral-600">
-                  No pinned blocks recorded for this run.
+                  {sessionSearchActive
+                    ? "No pinned blocks match the current session search."
+                    : "No pinned blocks recorded for this run."}
                 </p>
               ) : (
                 <ul className="space-y-1">
-                  {data.pinned_blocks.map((blockId) => (
+                  {visiblePinnedBlocks.map((blockId) => (
                     <li
                       key={blockId}
                       className="text-xs text-neutral-300 break-all"
                     >
-                      {blockId}
+                      {highlightSearchText(blockId, sessionTerms)}
                     </li>
                   ))}
                 </ul>
@@ -244,18 +571,28 @@ export default function RunInspectorDrawer({
               <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 mb-2">
                 Recalled Passages
               </h3>
-              {data.recalled_passages.length === 0 ? (
+              {visibleRecalledPassages.length === 0 ? (
                 <p className="text-xs text-neutral-600">
-                  No recalled passages captured.
+                  {sessionSearchActive
+                    ? "No recalled passages match the current session search."
+                    : "No recalled passages captured."}
                 </p>
               ) : (
                 <ul className="space-y-2">
-                  {data.recalled_passages.map((passage) => (
+                  {visibleRecalledPassages.map((passage) => (
                     <li
                       key={`${passage.id}-${passage.source_ref}`}
                       className="text-xs text-neutral-300 break-all"
                     >
-                      <div>{passage.id}</div>
+                      <div>{highlightSearchText(passage.id, sessionTerms)}</div>
+                      {passage.source_ref && (
+                        <div className="text-[10px] text-neutral-500 font-mono break-all mb-1">
+                          {highlightSearchText(
+                            passage.source_ref,
+                            sessionTerms
+                          )}
+                        </div>
+                      )}
                       {passage.source_ref ? (
                         <a
                           href={passage.source_ref}
@@ -278,13 +615,15 @@ export default function RunInspectorDrawer({
               <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 mb-2">
                 Session Ledger (Timeline)
               </h3>
-              {!data.conversations || data.conversations.length === 0 ? (
+              {visibleConversations.length === 0 ? (
                 <p className="text-xs text-neutral-600 italic">
-                  No conversation history available.
+                  {sessionSearchActive
+                    ? "No conversation history matches the current session search."
+                    : "No conversation history available."}
                 </p>
               ) : (
                 <div className="space-y-4">
-                  {data.conversations.map((turn, i) => (
+                  {visibleConversations.map((turn, i) => (
                     <div
                       key={i}
                       className="border border-neutral-800 bg-neutral-900/30 p-3 rounded"
@@ -359,11 +698,11 @@ export default function RunInspectorDrawer({
                       </div>
 
                       <div className="text-xs text-neutral-200 font-medium mb-1">
-                        {turn.summary}
+                        {highlightSearchText(turn.summary, sessionTerms)}
                       </div>
 
                       <div className="text-[11px] text-neutral-400 mb-2 font-mono whitespace-pre-wrap">
-                        {turn.content}
+                        {highlightSearchText(turn.content, sessionTerms)}
                       </div>
 
                       <div className="flex gap-2">

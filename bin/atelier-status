@@ -5,7 +5,7 @@
 # mirroring the frontend Overview page in one glanceable terminal block.
 #
 # Options:
-#   --run-id ID    Show detail for a specific run only
+#   --session-id ID    Show detail for a specific run only
 #   --line         One-liner mode (old behaviour, good for status bars)
 #   --json         Emit raw JSON of the most recent run ledger
 #   --root DIR     Atelier store root (default: $ATELIER_ROOT or ~/.atelier)
@@ -31,7 +31,7 @@ N=5
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --run-id) SESSION_ID="$2"; shift 2 ;;
+    --session-id) SESSION_ID="$2"; shift 2 ;;
     --json)   JSON=1; shift ;;
     --line)   LINE=1; shift ;;
     --root)   ROOT="$2"; shift 2 ;;

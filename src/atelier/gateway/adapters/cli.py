@@ -6,6 +6,7 @@ return data accept ``--json`` to emit machine-parseable output.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout, suppress
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -440,6 +442,39 @@ def _clear_servicectl_pid(root: Path) -> None:
         return
 
 
+def _kill_orphan_servicectl_processes(current_root: Path) -> None:
+    """Kill any servicectl run processes started with a root other than current_root.
+
+    Prevents accumulation of stale daemons pointing at old/project-local stores
+    when the canonical root changes (e.g. after moving from project/.atelier to
+    ~/.atelier).  Only runs on Linux (requires /proc).
+    """
+    import glob as _glob
+
+    my_pid = os.getpid()
+    current_root_str = str(current_root.resolve())
+    for cmdline_file in _glob.glob("/proc/*/cmdline"):
+        try:
+            pid = int(cmdline_file.split("/")[2])
+        except (ValueError, IndexError):
+            continue
+        if pid == my_pid:
+            continue
+        try:
+            raw = Path(cmdline_file).read_bytes()
+        except OSError:
+            continue
+        cmdline = raw.replace(b"\x00", b" ").decode("utf-8", errors="replace")
+        if (
+            "atelier.gateway.adapters.cli" in cmdline
+            and "servicectl" in cmdline
+            and " run " in cmdline
+            and current_root_str not in cmdline
+        ):
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.kill(pid, signal.SIGTERM)
+
+
 def _servicectl_status_payload(root: Path) -> dict[str, Any]:
     state = _read_servicectl_state(root)
     pid = _read_servicectl_pid(root)
@@ -571,7 +606,7 @@ def _servicectl_collect_external_analytics(
 
     persisted: list[dict[str, Any]] = []
     for period in _normalize_external_analytics_periods(periods):
-        batch = run_external_reports(tool="all", period=period, cwd=Path.cwd())
+        batch = run_external_reports(tool="all", period=period, cwd=Path.cwd(), include_optimize=True)
         persisted.extend(persist_external_reports(store, batch, source="servicectl"))
     return persisted
 
@@ -828,7 +863,67 @@ def init(ctx: click.Context, seed: bool, stack: str | None, show_stacks: bool) -
         click.echo(f"copied {copied} starter reasonblocks for stack {stack}{suffix}")
 
 
-@cli.command("reembed")
+# ----- uninstall ----------------------------------------------------------- #
+
+
+@cli.command("uninstall")
+@click.option("--dry-run", is_flag=True, help="Print planned actions and exit.")
+@click.option("--no-hosts", is_flag=True, help="Skip per-host uninstallation.")
+@click.option(
+    "--workspace",
+    type=click.Path(path_type=Path),
+    help="Uninstall for a specific workspace.",
+)
+def uninstall(dry_run: bool, no_hosts: bool, workspace: Path | None) -> None:
+    """Remove Atelier and all agent-host integrations."""
+    root = _project_root()
+    script = root / "scripts" / "uninstall.sh"
+    if not script.exists():
+        raise click.ClickException(f"uninstall script not found: {script}")
+
+    cmd = ["bash", str(script)]
+    if dry_run:
+        cmd.append("--dry-run")
+    if no_hosts:
+        cmd.append("--no-hosts")
+    if workspace:
+        cmd.extend(["--workspace", str(workspace)])
+
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise click.ClickException(f"uninstall failed with code {exc.returncode}") from exc
+
+
+class _DummyGroup:
+    """A placeholder for a Click group that does nothing."""
+
+    def command(self, *args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return lambda f: f
+
+    def group(self, *args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return lambda f: _DummyGroup()  # type: ignore
+
+
+def _dev_command(name: str | None = None, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Decorator to register a command ONLY if ATELIER_DEV_MODE is enabled."""
+    from atelier.core.service.config import cfg
+
+    if cfg.dev_mode:
+        return cli.command(name, **kwargs)
+    return lambda f: f
+
+
+def _dev_group(name: str | None = None, **kwargs: Any) -> Callable[[Callable[..., Any]], Any]:
+    """Decorator to register a group ONLY if ATELIER_DEV_MODE is enabled."""
+    from atelier.core.service.config import cfg
+
+    if cfg.dev_mode:
+        return cli.group(name, **kwargs)
+    return lambda f: _DummyGroup()
+
+
+@_dev_command("reembed")
 @click.option("--dry-run", is_flag=True, help="Count legacy rows without writing vectors.")
 @click.option("--batch-size", default=100, show_default=True, type=int)
 @click.option("--json", "as_json", is_flag=True)
@@ -895,7 +990,7 @@ def reembed(ctx: click.Context, dry_run: bool, batch_size: int, as_json: bool) -
 # ----- add-block ----------------------------------------------------------- #
 
 
-@cli.command("add-block")
+@_dev_command("add-block")
 @click.argument("path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.pass_context
 def add_block(ctx: click.Context, path: Path) -> None:
@@ -951,7 +1046,7 @@ def domain_info(ctx: click.Context, bundle_id: str, as_json: bool) -> None:
 # ----- search -------------------------------------------------------------- #
 
 
-@cli.command()
+@_dev_command("search")
 @click.argument("query_parts", nargs=-1)
 @click.option("--limit", default=10, show_default=True, type=int)
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON.")
@@ -998,7 +1093,7 @@ def _check_dev_mode(command_name: str, status: int = 1) -> None:
 # ----- reasoning ------------------------------------------------------------ #
 
 
-@cli.command("reasoning")
+@_dev_command("reasoning")
 @click.option("--task", required=True, help="Task description.")
 @click.option("--domain", default=None)
 @click.option("--file", "files", multiple=True, help="File path likely to be edited.")
@@ -1063,7 +1158,7 @@ def reasoning(
 # ----- lint ---------------------------------------------------------- #
 
 
-@cli.command("lint")
+@_dev_command("lint")
 @click.option(
     "--input",
     "input_path",
@@ -1118,7 +1213,7 @@ def check_plan_cmd(
 # ----- rescue -------------------------------------------------------------- #
 
 
-@cli.command()
+@_dev_command("rescue")
 @click.option("--task", required=True)
 @click.option("--error", required=True)
 @click.option("--domain", default=None)
@@ -1422,7 +1517,7 @@ def import_style_guide_cmd(
 # --------------------------------------------------------------------------- #
 
 
-@cli.group("block")
+@_dev_group("block")
 def block_group() -> None:
     """ReasonBlock curation commands."""
 
@@ -1494,7 +1589,7 @@ def block_extract(ctx: click.Context, trace_id: str, save: bool, as_json: bool) 
 # ----- list-blocks --------------------------------------------------------- #
 
 
-@cli.command("list-blocks")
+@_dev_command("list-blocks")
 @click.option("--domain", default=None)
 @click.option("--include-deprecated", is_flag=True)
 @click.option("--json", "as_json", is_flag=True)
@@ -1547,7 +1642,7 @@ def quarantine(ctx: click.Context, block_id: str) -> None:
 # ----- verify --------------------------- #
 
 
-@cli.command("verify")
+@_dev_command("verify")
 @click.argument("rubric_id")
 @click.option(
     "--input",
@@ -1862,7 +1957,7 @@ def _ledger_path(root: Path, session_id: str | None) -> Path:
         return _ledger_dir(root) / f"{session_id}.json"
     latest = _latest_ledger_path(root)
     if latest is None:
-        raise click.ClickException("no run ledger found. Pass --run-id or record one first.")
+        raise click.ClickException("no run ledger found. Pass --session-id or record one first.")
     return latest
 
 
@@ -1875,7 +1970,7 @@ def ledger() -> None:
 
 
 @ledger.command("show")
-@click.option("--run-id", default=None)
+@click.option("--session-id", default=None)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def ledger_show(ctx: click.Context, session_id: str | None, as_json: bool) -> None:
@@ -1894,7 +1989,7 @@ def ledger_show(ctx: click.Context, session_id: str | None, as_json: bool) -> No
 
 
 @ledger.command("reset")
-@click.option("--run-id", default=None)
+@click.option("--session-id", default=None)
 @click.confirmation_option(prompt="Delete this ledger snapshot?")
 @click.pass_context
 def ledger_reset(ctx: click.Context, session_id: str | None) -> None:
@@ -1904,7 +1999,7 @@ def ledger_reset(ctx: click.Context, session_id: str | None) -> None:
 
 
 @ledger.command("update")
-@click.option("--run-id", default=None)
+@click.option("--session-id", default=None)
 @click.option("--field", "field_name", required=True)
 @click.option("--value", required=True, help="Value (use JSON literal for lists/dicts).")
 @click.pass_context
@@ -1921,7 +2016,7 @@ def ledger_update(ctx: click.Context, session_id: str | None, field_name: str, v
 
 
 @ledger.command("summarize")
-@click.option("--run-id", default=None)
+@click.option("--session-id", default=None)
 @click.pass_context
 def ledger_summarize(ctx: click.Context, session_id: str | None) -> None:
     from atelier.infra.runtime.context_compressor import ContextCompressor
@@ -1937,7 +2032,7 @@ def ledger_summarize(ctx: click.Context, session_id: str | None) -> None:
 
 
 @cli.command("compress-context")
-@click.option("--run-id", default=None)
+@click.option("--session-id", default=None)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def compress_context_cmd(ctx: click.Context, session_id: str | None, as_json: bool) -> None:
@@ -2194,7 +2289,7 @@ def lesson_sync_pr(ctx: click.Context, lesson_id: str, dry_run: bool, as_json: b
     click.echo(f"created {payload.get('pr_url', '').strip()}")
 
 
-@cli.command("analyze-failures")
+@_dev_command("analyze-failures")
 @click.option("--since", default=None, help="ISO timestamp or shorthand like '7d' (filter by mtime).")
 @click.option("--trace", "trace_id", default=None, help="Single ledger run id to analyze.")
 @click.option("--json", "as_json", is_flag=True)
@@ -2452,7 +2547,7 @@ def tool_mode_set(ctx: click.Context, mode: str) -> None:
     click.echo(f"tool_mode={mode}")
 
 
-@cli.group("route")
+@_dev_group("route")
 def route_group() -> None:
     """Quality-aware routing helpers."""
 
@@ -2636,7 +2731,7 @@ def proof_group() -> None:
 
 @proof_group.command("run")
 @click.option(
-    "--run-id",
+    "--session-id",
     required=True,
     help="Stable identifier for this proof run (e.g. a git SHA or timestamp).",
 )
@@ -2710,7 +2805,7 @@ def _show_proof_report(ctx: click.Context, as_json: bool) -> None:
     report = capability.load()
 
     if report is None:
-        raise click.ClickException("No proof report found. Run `atelier proof run --run-id <id>` first.")
+        raise click.ClickException("No proof report found. Run `atelier proof run --session-id <id>` first.")
 
     payload = to_jsonable(report)
     if as_json:
@@ -2807,7 +2902,7 @@ def _build_proof_cases(session_id: str) -> list[Any]:
     return [BenchmarkCase(**c) for c in _CASES]
 
 
-@cli.command("read")
+@_dev_command("read")
 @click.argument("path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--max-lines", default=120, show_default=True)
 @click.pass_context
@@ -2818,7 +2913,7 @@ def read_cmd(ctx: click.Context, path: Path, max_lines: int) -> None:
     _emit(payload, as_json=True)
 
 
-@cli.command("edit")
+@_dev_command("edit")
 @click.option(
     "--input",
     "input_path",
@@ -2837,7 +2932,7 @@ def edit_cmd(ctx: click.Context, input_path: Path) -> None:
     _emit(result, as_json=True)
 
 
-@cli.group("memory")
+@_dev_group("memory")
 def memory_group() -> None:
     """Session memory operations."""
 
@@ -3374,9 +3469,26 @@ def savings_cmd(ctx: click.Context, as_json: bool) -> None:
 def optimize_cmd(ctx: click.Context, host: str | None, days: int, limit: int, as_json: bool) -> None:
     """Show session cost optimization recommendations from Atelier traces."""
     from atelier.core.capabilities.session_optimizer import build_trace_optimization_report
+    from atelier.gateway.integrations.external_analytics import (
+        persist_external_reports,
+        run_external_reports,
+    )
 
     store = _load_store(ctx.obj["root"])
     report = build_trace_optimization_report(store.list_traces(limit=5000), days=days, host=host, limit=limit)
+
+    # Also run and persist external codeburn optimize if possible
+    period = "week" if days <= 7 else "30days"
+    try:
+        external_batch = run_external_reports(
+            tool="codeburn:optimize", period=period, cwd=Path.cwd(), include_optimize=True
+        )
+        persist_external_reports(store, external_batch, source="cli_optimize")
+        report["external"] = external_batch["reports"][0] if external_batch["reports"] else None
+    except Exception as exc:
+        logger.debug("External optimization report failed: %s", exc)
+        report["external"] = None
+
     if as_json:
         _emit(report, as_json=True)
         return
@@ -3428,7 +3540,12 @@ def external_status_cmd(as_json: bool) -> None:
 
 
 @cli.command("external-report")
-@click.option("--tool", type=click.Choice(["all", "tokscale", "codeburn"]), default="all", show_default=True)
+@click.option(
+    "--tool",
+    type=click.Choice(["all", "tokscale", "codeburn", "codeburn:optimize"]),
+    default="all",
+    show_default=True,
+)
 @click.option(
     "--period", type=click.Choice(["today", "week", "month", "30days", "all"]), default="week", show_default=True
 )
@@ -3438,7 +3555,7 @@ def external_report_cmd(tool: str, period: str, as_json: bool) -> None:
     from atelier.gateway.integrations.external_analytics import run_external_reports
 
     try:
-        payload = run_external_reports(tool=tool, period=period, cwd=Path.cwd())
+        payload = run_external_reports(tool=tool, period=period, cwd=Path.cwd(), include_optimize=True)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -3473,6 +3590,12 @@ def external_report_cmd(tool: str, period: str, as_json: bool) -> None:
                 click.echo(
                     "  summary: "
                     f"cost={overview.get('cost', '-') } calls={overview.get('calls', '-') } sessions={overview.get('sessions', '-') }"
+                )
+            elif report["tool"] == "codeburn:optimize":
+                overview = body.get("overview") or {}
+                click.echo(
+                    "  summary: "
+                    f"waste={overview.get('estimated_usd_saved', '-') } grade={overview.get('health_grade', '-') } score={overview.get('health_score', '-') }"
                 )
             elif report["tool"] == "tokscale":
                 click.echo("  summary: " f"keys={', '.join(sorted(body.keys())[:6])}")
@@ -4235,6 +4358,7 @@ def servicectl_start(
 ) -> None:
     """Start the detached background controller."""
     root = ctx.obj["root"]
+    _kill_orphan_servicectl_processes(root)
     status = _servicectl_status_payload(root)
     if status["running"]:
         if as_json:
@@ -4439,8 +4563,8 @@ def servicectl_run(
 # --------------------------------------------------------------------------- #
 
 
-@cli.command("detect-loop")
-@click.option("--run-id", default=None, help="Specific run ID. Defaults to latest.")
+@_dev_command("detect-loop")
+@click.option("--session-id", default=None, help="Specific session ID. Defaults to latest.")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def detect_loop_cmd(ctx: click.Context, session_id: str | None, as_json: bool) -> None:
@@ -4461,7 +4585,7 @@ def detect_loop_cmd(ctx: click.Context, session_id: str | None, as_json: bool) -
 
 
 @cli.command("loop-report")
-@click.option("--run-id", default=None, help="Specific run ID. Defaults to latest.")
+@click.option("--session-id", default=None, help="Specific session ID. Defaults to latest.")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def loop_report_cmd(ctx: click.Context, session_id: str | None, as_json: bool) -> None:
@@ -4564,7 +4688,7 @@ def symbol_search_cmd(ctx: click.Context, query: str, limit: int, as_json: bool)
 
 
 @cli.command("context-report")
-@click.option("--run-id", default=None, help="Specific run ID. Defaults to latest.")
+@click.option("--session-id", default=None, help="Specific session ID. Defaults to latest.")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def context_report_cmd(ctx: click.Context, session_id: str | None, as_json: bool) -> None:

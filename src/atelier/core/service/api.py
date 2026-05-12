@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1108,6 +1109,10 @@ def _optimizations_summary_payload(root: Path, store: ReasoningStore, *, window_
     reread_telemetry = _build_reread_telemetry(root, window_days=window_days)
     model_routing_simulation = _build_model_routing_simulation(recent_traces, window_days=window_days)
 
+    # Fetch latest codeburn:optimize report
+    external_optimizations = store.list_external_analytics_runs(tool="codeburn:optimize", days=window_days, limit=1)
+    latest_external = external_optimizations[0] if external_optimizations else None
+
     automatic_hosts = sum(1 for item in runtime_coverage if item["automatic_at_start"])
     advisory_only_hosts = sum(1 for item in runtime_coverage if item["advisory_only"])
     observed_levers = sum(
@@ -1134,6 +1139,7 @@ def _optimizations_summary_payload(root: Path, store: ReasoningStore, *, window_
         "impact_validation": impact_validation,
         "reread_telemetry": reread_telemetry,
         "model_routing_simulation": model_routing_simulation,
+        "external_optimizations": latest_external,
         "savings": savings,
         "data_sources": [
             {
@@ -1218,10 +1224,13 @@ def create_app(store_root: str | Path | None = None) -> Any:
     # Late load store
     store_path = Path(store_root or cfg.atelier_root)
     store = ReasoningStore(store_path)
+    _store_init_lock = threading.Lock()
 
     def get_store() -> ReasoningStore:
         if not store._initialized:
-            store.init()
+            with _store_init_lock:
+                if not store._initialized:  # double-checked locking
+                    store.init()
         return store
 
     # ------------------------------------------------------------------ #
@@ -1295,11 +1304,14 @@ def create_app(store_root: str | Path | None = None) -> Any:
         status: str | None = Query(None),
         agent: str | None = Query(None),
         host: str | None = Query(None),
+        query: str | None = Query(None),
         limit: int = Query(50, ge=1, le=1000),
         offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
         store = get_store()
-        traces = store.list_traces(domain=domain, status=status, agent=agent, host=host, limit=limit, offset=offset)
+        traces = store.list_traces(
+            domain=domain, status=status, agent=agent, host=host, query=query, limit=limit, offset=offset
+        )
         # Fetch global metrics for the current domain/agent/host filters
         metrics = store.get_traces_metrics(domain=domain, agent=agent, host=host)
 

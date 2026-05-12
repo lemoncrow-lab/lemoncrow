@@ -137,8 +137,11 @@ data = json.loads(path.read_text(encoding="utf-8") or "{}")
 sl = data.get("statusLine", {})
 if isinstance(sl, dict) and "atelier" in sl.get("command", ""):
     data.pop("statusLine", None)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     print("[atelier:uninstall:claude] Removed atelier statusLine from ${CLAUDE_SETTINGS}")
+if data.get("agent") == "atelier:code":
+    data.pop("agent", None)
+    print("[atelier:uninstall:claude] Removed atelier-code default agent from ${CLAUDE_SETTINGS}")
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PYEOF2
     fi
 fi

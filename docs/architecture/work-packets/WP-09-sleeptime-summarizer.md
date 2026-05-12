@@ -76,7 +76,7 @@ LOCAL=1 uv run pytest tests/core/test_local_sleeptime.py \
                      tests/infra/test_sleeptime_writes_archival.py -v
 
 # MCP smoke
-LOCAL=1 uv run atelier memory summarize --run-id <some_session_id>  # uses 'memory summarize' alias
+LOCAL=1 uv run atelier memory summarize --session-id <some_session_id>  # uses 'memory summarize' alias
 
 make verify
 ```

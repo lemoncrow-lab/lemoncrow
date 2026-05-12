@@ -9,10 +9,10 @@ import {
   type TraceListResponse,
 } from "../api";
 import RunInspectorDrawer from "../components/RunInspectorDrawer";
-import { MetricCard, SectionHeader } from "../components/WorkbenchUI";
 
 export default function Traces() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const initialQuery = searchParams.get("q") ?? "";
   const [items, setItems] = useState<Trace[] | null>(null);
   const [metrics, setMetrics] = useState<TraceListResponse["metrics"] | null>(
     null
@@ -24,10 +24,37 @@ export default function Traces() {
   >("all");
   const [domainFilter, setDomainFilter] = useState<string>("all");
   const [hostFilter, setHostFilter] = useState<string>("all");
+  const [query, setQuery] = useState<string>(initialQuery);
+  const [searchInput, setSearchInput] = useState<string>(initialQuery);
   const [page, setPage] = useState(0);
+
+  useEffect(() => {
+    const urlQuery = searchParams.get("q") ?? "";
+    setSearchInput((prev) => (prev === urlQuery ? prev : urlQuery));
+    setQuery((prev) => (prev === urlQuery ? prev : urlQuery));
+  }, [searchParams]);
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const nextQuery = searchInput.trim();
+      setQuery((prev) => (prev === nextQuery ? prev : nextQuery));
+
+      const currentQuery = searchParams.get("q") ?? "";
+      if (currentQuery === nextQuery) return;
+
+      const next = new URLSearchParams(searchParams);
+      if (nextQuery) {
+        next.set("q", nextQuery);
+      } else {
+        next.delete("q");
+      }
+      setSearchParams(next, { replace: true });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchInput, searchParams, setSearchParams]);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [infoOpen, setInfoOpen] = useState(false);
   const [inspectorTrace, setInspectorTrace] = useState<Trace | null>(null);
   const deepLinkedTraceId = searchParams.get("trace");
 
@@ -45,8 +72,9 @@ export default function Traces() {
   useEffect(() => {
     setLoading(true);
     setPage(0);
+    setErr(null);
     api
-      .traces(50, 0, domainFilter, hostFilter)
+      .traces(50, 0, domainFilter, hostFilter, query)
       .then((res) => {
         setItems(res.items);
         setMetrics(res.metrics);
@@ -57,7 +85,7 @@ export default function Traces() {
         setErr(String(e));
         setLoading(false);
       });
-  }, [domainFilter, hostFilter]);
+  }, [domainFilter, hostFilter, query]);
 
   useEffect(() => {
     if (!deepLinkedTraceId) {
@@ -101,7 +129,7 @@ export default function Traces() {
     setLoading(true);
     const nextOffset = (page + 1) * 50;
     api
-      .traces(50, nextOffset, domainFilter, hostFilter)
+      .traces(50, nextOffset, domainFilter, hostFilter, query)
       .then((res) => {
         setItems((prev) => (prev ? [...prev, ...res.items] : res.items));
         setMetrics(res.metrics);
@@ -137,6 +165,9 @@ export default function Traces() {
     return metrics.domains;
   }, [metrics]);
 
+  const searchActive = query.length > 0;
+  const searchPending = searchInput.trim() !== query;
+
   if (err) return <div className="text-red-400">Error: {err}</div>;
   if (!items && !loading)
     return <div className="text-neutral-500">No traces found.</div>;
@@ -153,76 +184,35 @@ export default function Traces() {
 
   return (
     <div className="space-y-6">
-      <section className="grid grid-cols-2 gap-3">
-        <MetricCard
-          label="Total Database Runs"
-          value={String(metrics?.stats.total ?? 0)}
-          detail="All historical and live sessions."
-          tone="cyan"
-        />
-        <MetricCard
-          label="Hosts"
-          value={String(hosts.length)}
-          detail="Distinct agent hosts present."
-          tone="violet"
-        />
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-4">
-        <MetricCard
-          label="Filtered runs"
-          value={String(metrics?.stats.total ?? 0)}
-          detail="Matching current host/domain filters."
-          tone="neutral"
-        />
-        <MetricCard
-          label="Failed"
-          value={String(metrics?.stats.failed ?? 0)}
-          detail="Global failure count."
-          tone="amber"
-        />
-        <MetricCard
-          label="Partial"
-          value={String(metrics?.stats.partial ?? 0)}
-          detail="Global partial count."
-          tone="violet"
-        />
-        <MetricCard
-          label="Success"
-          value={String(metrics?.stats.success ?? 0)}
-          detail="Global success count."
-          tone="emerald"
-        />
-      </section>
-
       <section className="border border-neutral-800 bg-neutral-950/70 p-5">
-        <SectionHeader
-          eyebrow="Run controls"
-          title="Filter the live execution stream"
-          description="Start broad, then narrow by status, domain, or host. Once you open a run, the drawer gives you the run-ledger-backed operational details."
-          action={
-            <button
-              type="button"
-              onClick={() => setInfoOpen(!infoOpen)}
-              className="border border-neutral-700 px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-300 transition hover:border-neutral-500/50 hover:text-neutral-300"
-            >
-              {infoOpen ? "Hide explainer" : "Show explainer"}
-            </button>
-          }
-        />
-        {infoOpen && (
-          <div className="mt-5 border border-neutral-800 bg-neutral-950/80 p-4 text-sm text-neutral-300">
-            <div className="font-semibold text-neutral-100">
-              What this page catches
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
+          <label className="block">
+            <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-widest text-neutral-500">
+              <span>Search All Runs</span>
+              {searchPending && (
+                <span className="text-amber-300/70">Updating…</span>
+              )}
             </div>
-            <p className="mt-2 leading-relaxed">
-              Observable execution only: files touched, commands run, tools
-              called, validation results, and run-ledger summaries. This is the
-              right place to inspect behavior after the knowledge base has
-              already influenced a run.
-            </p>
-          </div>
-        )}
+            <div className="mt-2 flex gap-2">
+              <input
+                type="search"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder='Search tasks, reasoning, tools, commands, files, validations, and summaries. Use "" to search the whole word.'
+                className="w-full border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-200 outline-none transition placeholder:text-neutral-600 focus:border-amber-500/50"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => setSearchInput("")}
+                  className="border border-neutral-700 px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-300 transition hover:border-amber-500/50 hover:text-amber-300"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </label>
+        </div>
       </section>
 
       {/* Filters */}
@@ -274,6 +264,32 @@ export default function Traces() {
         </div>
       </div>
 
+      {searchActive && (
+        <section className="border border-amber-900/40 bg-amber-950/10 p-4 text-sm text-neutral-300">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-amber-300/80">
+                Cross-Session Search
+              </div>
+              <div className="mt-1 text-neutral-100">
+                Showing matches for{" "}
+                <span className="font-mono text-amber-200">{query}</span>
+              </div>
+            </div>
+            <div className="text-[11px] font-mono text-neutral-400">
+              {filtered.length}
+              {hasMore ? "+" : ""} loaded match
+              {filtered.length === 1 && !hasMore ? "" : "es"}
+            </div>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-neutral-500">
+            Each run card shows surrounding matched text so you can jump
+            straight to the right session without leaving{" "}
+            <span className="font-mono text-neutral-400">/runs</span>.
+          </p>
+        </section>
+      )}
+
       {/* Traces List */}
       <div className="space-y-2">
         {filtered.map((t) => (
@@ -292,7 +308,9 @@ export default function Traces() {
         )}
         {!loading && filtered.length === 0 && (
           <div className="text-neutral-500 text-sm italic py-4 font-mono">
-            No traces match the current filters.
+            {searchActive
+              ? "No runs match the current cross-session search."
+              : "No traces match the current filters."}
           </div>
         )}
         {!loading && hasMore && (
@@ -374,9 +392,14 @@ function TraceCard({
             <p className="font-mono text-sm text-neutral-200 mb-1">
               {trace.task}
             </p>
+            {trace.snippets && trace.snippets.length > 0 && (
+              <TraceSearchHits snippets={trace.snippets} />
+            )}
             <div className="flex items-center gap-3 text-[10px] text-neutral-500 font-mono">
+              <span>Session: {trace.session_id}</span>
               <span>Agent: {trace.agent}</span>
-              <span>ID: {trace.id.slice(0, 12)}…</span>
+              <span>ID: {trace.id}</span>
+              <span>{new Date(trace.created_at).toLocaleString()}</span>
             </div>
           </div>
         </div>
@@ -389,6 +412,44 @@ function TraceCard({
         </div>
       )}
     </div>
+  );
+}
+
+function TraceSearchHits({ snippets }: { snippets: string[] }) {
+  return (
+    <div className="mb-2 mt-2 space-y-1.5">
+      {snippets.slice(0, 4).map((snippet, index) => (
+        <div
+          key={`${snippet}-${index}`}
+          className="border border-amber-900/30 bg-amber-950/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-neutral-300"
+        >
+          <SnippetText text={snippet} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SnippetText({ text }: { text: string }) {
+  const compact = text.replace(/\s+/g, " ").trim();
+  const parts = compact.split(/(\[\[.*?\]\])/g);
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part.startsWith("[[") && part.endsWith("]]")) {
+          return (
+            <mark
+              key={`${part}-${index}`}
+              className="bg-amber-300/20 px-0.5 text-amber-100"
+            >
+              {part.slice(2, -2)}
+            </mark>
+          );
+        }
+        return <span key={`${part}-${index}`}>{part}</span>;
+      })}
+    </>
   );
 }
 
@@ -419,22 +480,6 @@ function TraceDetail({
   return (
     <div className="space-y-6 text-sm">
       <header>
-        <div className="flex items-center gap-2 mb-1">
-          <StatusBadge status={trace.status} />
-          {trace.domain && (
-            <span className="text-[10px] px-1.5 py-0.5 bg-neutral-800 uppercase font-bold tracking-tight">
-              {trace.domain}
-            </span>
-          )}
-        </div>
-        <h2 className="text-lg font-bold text-neutral-300 leading-tight">
-          {trace.task}
-        </h2>
-        <div className="font-mono text-[10px] text-neutral-500 flex gap-3 mt-1 flex-wrap">
-          {trace.session_id && <span>SESSION: {trace.session_id}</span>}
-          <span>{new Date(trace.created_at).toLocaleString()}</span>
-        </div>
-
         <div className="mt-3">
           <button
             type="button"
@@ -463,7 +508,10 @@ function TraceDetail({
             ))}
           </div>
         </div>
-        <FilesTouchedSection files={trace.files_touched} runId={trace.session_id} />
+        <FilesTouchedSection
+          files={trace.files_touched}
+          runId={trace.session_id}
+        />
       </div>
 
       {trace.commands_run.length > 0 && (

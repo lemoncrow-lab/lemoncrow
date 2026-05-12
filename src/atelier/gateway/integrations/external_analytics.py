@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -134,6 +135,135 @@ def _find_number(mapping: dict[str, Any], aliases: tuple[str, ...]) -> int | flo
     return None
 
 
+def _parse_tokens(raw: str) -> int:
+    """Parse strings like '746.5M' or '5.1K' into integers."""
+    if not raw:
+        return 0
+    raw = raw.strip().upper().replace("~", "").replace(",", "")
+    if raw.endswith("B"):
+        return int(float(raw[:-1]) * 1_000_000_000)
+    if raw.endswith("M"):
+        return int(float(raw[:-1]) * 1_000_000)
+    if raw.endswith("K"):
+        return int(float(raw[:-1]) * 1_000)
+    try:
+        return int(float(raw))
+    except ValueError:
+        return 0
+
+
+def _parse_usd(raw: str) -> float:
+    """Parse strings like '$98.43' into floats."""
+    if not raw:
+        return 0.0
+    raw = raw.strip().replace("$", "").replace("~", "").replace(",", "")
+    try:
+        return float(raw)
+    except ValueError:
+        return 0.0
+
+
+def parse_codeburn_optimize_output(text: str) -> dict[str, Any]:
+    """Parse the text output of `codeburn optimize` into a structured dict.
+
+    This is necessary because codeburn optimize does not currently support --json.
+    """
+    lines = text.split("\n")
+    payload: dict[str, Any] = {
+        "kind": "optimization_report",
+        "overview": {},
+        "recommendations": [],
+    }
+
+    # Extract overview numbers
+    # Example: 182 sessions   9,643 calls   $653.16   Health: F (20/100, 7 issues)
+    overview_pattern = re.compile(
+        r"(\d+,?\d*)\s+sessions\s+(\d+,?\d*)\s+calls\s+\$(\d+\.?\d*)\s+Health:\s+([A-F])\s+\((\d+)/100,\s+(\d+)\s+issues\)"
+    )
+    # Example: Potential savings: ~746.5M tokens (~$98.43, ~15% of spend)
+    savings_pattern = re.compile(r"Potential savings:\s+~?([\d\.]+M?B?K?)\s+tokens\s+\(~?\$([\d\.]+)")
+
+    for line in lines:
+        ov_match = overview_pattern.search(line)
+        if ov_match:
+            payload["overview"].update(
+                {
+                    "sessions": int(ov_match.group(1).replace(",", "")),
+                    "calls": int(ov_match.group(2).replace(",", "")),
+                    "cost": float(ov_match.group(3)),
+                    "health_grade": ov_match.group(4),
+                    "health_score": int(ov_match.group(5)),
+                    "issue_count": int(ov_match.group(6)),
+                }
+            )
+        sav_match = savings_pattern.search(line)
+        if sav_match and "estimated_tokens_saved" not in payload["overview"]:
+            payload["overview"].update(
+                {
+                    "estimated_tokens_saved": _parse_tokens(sav_match.group(1)),
+                    "estimated_usd_saved": _parse_usd(sav_match.group(2)),
+                }
+            )
+
+    # Extract recommendations
+    # Example: ─── 1. 14 MCP servers configured but never used ────────── High ───
+    # Potential savings: ~5.1M tokens (~$0.672)
+    # -- Run this command ────────────────────────────────────
+    rec_header_pattern = re.compile(r"[─\-]{3}\s+\d+\.\s+(.*?)\s+[─\-]{3,}\s+(High|Medium|Low)\s+[─\-]{3}")
+    current_rec: dict[str, Any] | None = None
+    collecting_action = False
+
+    for line in lines:
+        header_match = rec_header_pattern.search(line)
+        if header_match:
+            if current_rec:
+                payload["recommendations"].append(current_rec)
+            current_rec = {
+                "title": header_match.group(1).strip(),
+                "severity": header_match.group(2).lower(),
+                "description": "",
+                "estimated_tokens_saved": 0,
+                "estimated_usd_saved": 0.0,
+                "action": "",
+            }
+            collecting_action = False
+            continue
+
+        if current_rec:
+            if "Potential savings:" in line:
+                sav_match = savings_pattern.search(line)
+                if sav_match:
+                    current_rec["estimated_tokens_saved"] = _parse_tokens(sav_match.group(1))
+                    current_rec["estimated_usd_saved"] = _parse_usd(sav_match.group(2))
+                continue
+
+            if (
+                "-- Run this command" in line
+                or "-- One-time session opener" in line
+                or "-- Ask Claude" in line
+                or "-- Add to your shell config" in line
+            ):
+                collecting_action = True
+                continue
+
+            if collecting_action:
+                if line.strip() and "───" not in line and "───" not in line:
+                    current_rec["action"] += line.strip() + "\n"
+            else:
+                if line.strip() and "───" not in line and "───" not in line:
+                    current_rec["description"] += line.strip() + " "
+
+    if current_rec:
+        payload["recommendations"].append(current_rec)
+
+    # Clean up whitespace
+    for rec in payload["recommendations"]:
+        rec["description"] = rec["description"].strip()
+        rec["action"] = rec["action"].strip()
+
+    return payload
+
+
 def summarize_external_payload(tool: str, payload: Any) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "tool": tool,
@@ -199,7 +329,8 @@ def persist_external_reports(
         if not isinstance(report, dict):
             continue
         tool = str(report.get("tool") or "unknown")
-        summary = summarize_external_payload(tool, report.get("payload"))
+        payload = report.get("payload")
+        summary = summarize_external_payload(tool, payload)
         session_id = store.record_external_analytics_run(
             tool=tool,
             period=str(report.get("period") or batch.get("period") or "unknown"),
@@ -208,7 +339,7 @@ def persist_external_reports(
             command_display=str(report.get("command_display") or ""),
             returncode=report.get("returncode"),
             summary=summary,
-            payload=report.get("payload"),
+            payload=payload,
             stdout=_truncate_text(str(report.get("stdout") or "")),
             stderr=_truncate_text(str(report.get("stderr") or "")),
             collected_at=collected_at,
@@ -238,13 +369,23 @@ def _tokscale_command(binary: str, period: str) -> list[str]:
     return [binary, "--json", "--no-spinner", *flags[period]]
 
 
-def _codeburn_command(binary: str, period: str) -> list[str]:
+def _codeburn_command(binary: str, period: str, subcommand: str = "report") -> list[str]:
     if period not in CODEBURN.supports_periods:
         raise ValueError(f"CodeBurn supports only: {', '.join(CODEBURN.supports_periods)}")
-    return [binary, "report", "--format", "json", "-p", period]
+    cmd = [binary, subcommand]
+    if subcommand == "report":
+        cmd.extend(["--format", "json"])
+    cmd.extend(["-p", period])
+    return cmd
 
 
-def _run_json_command(command: list[str], *, cwd: Path | None = None, timeout_s: int = 120) -> dict[str, Any]:
+def _run_json_command(
+    command: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout_s: int = 120,
+    parser: Any | None = None,
+) -> dict[str, Any]:
     proc = subprocess.run(
         command,
         cwd=str(cwd) if cwd else None,
@@ -258,10 +399,16 @@ def _run_json_command(command: list[str], *, cwd: Path | None = None, timeout_s:
     payload: Any = None
     parse_error: str | None = None
     if stdout:
-        try:
-            payload = json.loads(stdout)
-        except json.JSONDecodeError as exc:
-            parse_error = str(exc)
+        if parser:
+            try:
+                payload = parser(stdout)
+            except Exception as exc:
+                parse_error = str(exc)
+        else:
+            try:
+                payload = json.loads(stdout)
+            except json.JSONDecodeError as exc:
+                parse_error = str(exc)
     return {
         "ok": proc.returncode == 0 and payload is not None,
         "returncode": proc.returncode,
@@ -274,6 +421,7 @@ def _run_json_command(command: list[str], *, cwd: Path | None = None, timeout_s:
 
 def run_external_report(tool: str, *, period: str = "week", cwd: Path | None = None) -> dict[str, Any]:
     normalized = tool.strip().lower()
+    parser = None
     if normalized == TOKSCALE.id:
         binary = _find_executable(TOKSCALE)
         if not binary:
@@ -294,10 +442,21 @@ def run_external_report(tool: str, *, period: str = "week", cwd: Path | None = N
                 "message": CODEBURN.install_hint,
             }
         command = _codeburn_command(binary, period)
+    elif normalized == f"{CODEBURN.id}:optimize":
+        binary = _find_executable(CODEBURN)
+        if not binary:
+            return {
+                "tool": f"{CODEBURN.id}:optimize",
+                "ok": False,
+                "error": "not_installed",
+                "message": CODEBURN.install_hint,
+            }
+        command = _codeburn_command(binary, period, subcommand="optimize")
+        parser = parse_codeburn_optimize_output
     else:
         raise ValueError(f"Unsupported external report tool: {tool}")
 
-    result = _run_json_command(command, cwd=cwd)
+    result = _run_json_command(command, cwd=cwd, parser=parser)
     return {
         "tool": normalized,
         "period": period,
@@ -312,13 +471,18 @@ def run_external_reports(
     tool: str = "all",
     period: str = "week",
     cwd: Path | None = None,
+    include_optimize: bool = False,
 ) -> dict[str, Any]:
     requested = tool.strip().lower()
     if requested == "all":
         selected = list(REPORTABLE_TOOL_IDS)
+        if include_optimize:
+            selected.append(f"{CODEBURN.id}:optimize")
     else:
-        if requested not in REPORTABLE_TOOL_IDS:
-            raise ValueError(f"Unsupported report tool '{tool}'. Choose one of: all, {', '.join(REPORTABLE_TOOL_IDS)}")
+        if requested not in REPORTABLE_TOOL_IDS and requested != f"{CODEBURN.id}:optimize":
+            raise ValueError(
+                f"Unsupported report tool '{tool}'. Choose one of: all, {', '.join(REPORTABLE_TOOL_IDS)}, codeburn:optimize"
+            )
         selected = [requested]
 
     reports = [run_external_report(item, period=period, cwd=cwd) for item in selected]

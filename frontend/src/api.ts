@@ -120,6 +120,7 @@ export interface Trace {
   trace?: NestedTrace;
   raw_artifact_ids?: string[];
   _live?: boolean; // true for RunLedger sessions not yet committed to SQLite
+  snippets?: string[];
 
   // Metrics
   input_tokens?: number;
@@ -614,6 +615,37 @@ export interface OptimizationsSummary {
   impact_validation: OptimizationImpactValidation;
   reread_telemetry: OptimizationRereadTelemetry;
   model_routing_simulation: OptimizationModelRoutingSimulation;
+  external_optimizations: {
+    id: string;
+    tool: string;
+    period: string;
+    source: string;
+    ok: boolean;
+    summary: any;
+    payload: {
+      kind: string;
+      overview: {
+        sessions: number;
+        calls: number;
+        cost: number;
+        health_grade: string;
+        health_score: number;
+        issue_count: number;
+        estimated_tokens_saved: number;
+        estimated_usd_saved: number;
+      };
+      recommendations: Array<{
+        title: string;
+        severity: "high" | "medium" | "low";
+        description: string;
+        estimated_tokens_saved: number;
+        estimated_usd_saved: number;
+        action: string;
+      }>;
+    };
+    stdout: string;
+    collected_at: string;
+  } | null;
   savings: SavingsSummaryV2;
   data_sources: Array<{
     id: string;
@@ -1027,12 +1059,19 @@ export const api = {
       "/pricing"
     ),
   plans: (limit = 50) => get<PlanRecord[]>(`/plans?limit=${limit}`),
-  traces: (limit = 50, offset = 0, domain?: string, agent?: string) => {
+  traces: (
+    limit = 50,
+    offset = 0,
+    domain?: string,
+    host?: string,
+    query?: string
+  ) => {
     const params = new URLSearchParams();
     params.set("limit", String(limit));
     params.set("offset", String(offset));
     if (domain && domain !== "all") params.set("domain", domain);
-    if (agent && agent !== "all") params.set("agent", agent);
+    if (host && host !== "all") params.set("host", host);
+    if (query) params.set("query", query);
     return get<TraceListResponse>(`/traces?${params.toString()}`);
   },
   trace: (id: string) => get<Trace>(`/v1/traces/${id}`),

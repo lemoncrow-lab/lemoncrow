@@ -21,10 +21,18 @@ def test_plugin_mcp_server_is_loaded_at_session_start() -> None:
     assert "${CLAUDE_PLUGIN_ROOT}" in " ".join(server["args"])
 
 
-def test_main_agent_forces_atelier_file_tools() -> None:
+def test_main_agent_bans_native_file_tools_in_dev_mode() -> None:
+    """code.md is the dev-mode agent definition.
+
+    It bans native file tools to enforce use of Atelier MCP equivalents.
+    The install script writes a passive-mode variant (no disallowedTools)
+    when ATELIER_DEV_MODE is not set.
+    """
     frontmatter = _frontmatter(PLUGIN / "agents" / "code.md")
+    # Native file tools must be banned — enforces Atelier tool use in dev mode
     for tool_name in ["Read", "Edit", "Write", "Grep", "Glob", "NotebookEdit"]:
         assert tool_name in frontmatter
+    # Atelier dev tool names must NOT appear in frontmatter (they're in the body)
     assert "mcp__atelier__search" not in frontmatter
 
 

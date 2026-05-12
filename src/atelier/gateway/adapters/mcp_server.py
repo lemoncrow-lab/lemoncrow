@@ -108,12 +108,15 @@ def mcp_tool(
             def handler_wrapper(args: dict[str, Any]) -> Any:
                 return func()
 
-        TOOLS[tool_name] = {
-            "handler": handler_wrapper,
-            "description": tool_description,
-            "inputSchema": schema,
-            "is_dev": is_dev,
-        }
+        from atelier.core.service.config import cfg
+
+        if not is_dev or cfg.dev_mode:
+            TOOLS[tool_name] = {
+                "handler": handler_wrapper,
+                "description": tool_description,
+                "inputSchema": schema,
+                "is_dev": is_dev,
+            }
         return handler_wrapper
 
     return decorator

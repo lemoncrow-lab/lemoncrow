@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from atelier.core.foundation.models import ReasonBlock, Rubric, Trace
+from atelier.core.foundation.models import ReasonBlock, Rubric, Trace, ValidationResult
 from atelier.core.foundation.store import ReasoningStore
 from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
 
@@ -63,6 +64,47 @@ def test_record_trace_writes_json_mirror(store: ReasoningStore) -> None:
     assert (store.traces_dir / "t1.json").exists()
     fetched = store.get_trace("t1")
     assert fetched is not None and fetched.agent == "codex"
+
+
+def test_trace_search_reindexes_existing_traces(tmp_path: Path) -> None:
+    root = tmp_path / "atelier"
+    store = ReasoningStore(root)
+    store.init()
+    store.record_trace(
+        Trace(
+            id="trace-search-1",
+            session_id="run-123",
+            agent="copilot",
+            host="copilot",
+            domain="coding",
+            task="Investigate deploy timeout",
+            status="failed",
+            files_touched=["frontend/src/pages/Traces.tsx"],
+            commands_run=["pytest tests/test_timeout.py"],
+            output_summary="timeout waiting for deployment worker",
+            validation_results=[
+                ValidationResult(
+                    name="lint",
+                    passed=False,
+                    detail="timeout during lint verification",
+                )
+            ],
+        ),
+        write_json=False,
+    )
+
+    with store._connect() as conn:
+        conn.execute("DELETE FROM traces_fts")
+
+    reloaded = ReasoningStore(root)
+    reloaded.init()
+
+    matches = reloaded.list_traces(query="run-123 timeout lint Traces")
+
+    assert [trace.id for trace in matches] == ["trace-search-1"]
+    assert matches[0].snippets is not None
+    assert any(snippet.startswith("Files:") for snippet in matches[0].snippets)
+    assert any(snippet.startswith("Validations:") for snippet in matches[0].snippets)
 
 
 def test_rubric_roundtrip(store: ReasoningStore) -> None:

@@ -65,7 +65,7 @@ make verify
 
 - [x] Recorder shipped, called on every tool dispatch
 - [x] Prometheus metric exposed at `/metrics`
-- [x] DB rows persisted; query via `atelier savings list --run-id ...`
+- [x] DB rows persisted; query via `atelier savings list --session-id ...`
 - [x] `make verify` green
 - [x] `INDEX.md` updated; trace recorded
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type MCPStatus } from "../api";
+import { getTelemetryConfig, type TelemetryConfig } from "../lib/insightsApi";
 
 // Namespace grouping — maps canonical tool names (without atelier_ prefix) to namespaces
 const NS_MAP: Record<string, string> = {
@@ -57,6 +58,7 @@ function canonicalName(name: string): string {
 
 export default function Tools() {
   const [mcpTools, setMcpTools] = useState<MCPStatus[] | null>(null);
+  const [config, setConfig] = useState<TelemetryConfig | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
@@ -66,6 +68,10 @@ export default function Tools() {
       .mcp_status()
       .then(setMcpTools)
       .catch((e) => setErr(String(e)));
+
+    getTelemetryConfig()
+      .then(setConfig)
+      .catch(() => undefined);
   }, []);
 
   if (err) return <div className="text-red-400">Error: {err}</div>;
@@ -174,15 +180,22 @@ export default function Tools() {
                           </span>
                         </div>
                         <div className="space-y-px">
-                          {groups[ns].map((tool) => {
-                            const isExpanded = expandedTool === tool.tool_name;
-                            const desc = tool.description;
-                            const isDev = !!desc && desc.startsWith("[DEV]");
-                            const cleanDescription = isDev
-                              ? desc!.slice("[DEV]".length).trim()
-                              : desc;
+                          {groups[ns]
+                            .filter((tool) => {
+                              const isDev =
+                                !!tool.description &&
+                                tool.description.startsWith("[DEV]");
+                              return !isDev || config?.dev_mode;
+                            })
+                            .map((tool) => {
+                              const isExpanded = expandedTool === tool.tool_name;
+                              const desc = tool.description;
+                              const isDev = !!desc && desc.startsWith("[DEV]");
+                              const cleanDescription = isDev
+                                ? desc!.slice("[DEV]".length).trim()
+                                : desc;
 
-                            return (
+                              return (
                               <div
                                 key={tool.tool_name}
                                 className={`border cursor-pointer transition-colors ${meta.color} ${isExpanded ? "border-b-0" : ""}`}

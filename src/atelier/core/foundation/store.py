@@ -18,6 +18,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import sqlite3
 from collections.abc import Iterable, Iterator
 from contextlib import closing
@@ -41,6 +42,47 @@ from atelier.core.foundation.models import (
 from atelier.core.foundation.paths import resolve_knowledge_root
 
 logger = logging.getLogger(__name__)
+
+TRACE_FTS_COLUMNS = [
+    "id",
+    "task",
+    "reasoning",
+    "tools",
+    "commands",
+    "errors",
+    "output",
+    "files",
+    "validations",
+    "meta",
+]
+
+TRACE_FTS_SNIPPETS = [
+    (1, "Task"),
+    (2, "Reasoning"),
+    (3, "Tools"),
+    (4, "Commands"),
+    (5, "Errors"),
+    (6, "Summary"),
+    (7, "Files"),
+    (8, "Validations"),
+    (9, "Run"),
+]
+
+TRACE_FTS_DDL = """
+CREATE VIRTUAL TABLE traces_fts USING fts5(
+    id UNINDEXED,
+    task,
+    reasoning,
+    tools,
+    commands,
+    errors,
+    output,
+    files,
+    validations,
+    meta,
+    tokenize = 'porter'
+)
+"""
 
 # --------------------------------------------------------------------------- #
 # Schema                                                                      #
@@ -76,7 +118,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS reasonblocks_fts USING fts5(
 CREATE TABLE IF NOT EXISTS traces (
     id TEXT PRIMARY KEY,
     agent TEXT NOT NULL,
-    domain TEXT NOT NULL,
+    host TEXT,
+    domain TEXT,
     status TEXT NOT NULL,
     task TEXT NOT NULL,
     workspace_path TEXT,
@@ -85,6 +128,20 @@ CREATE TABLE IF NOT EXISTS traces (
 );
 CREATE INDEX IF NOT EXISTS idx_traces_domain ON traces(domain);
 CREATE INDEX IF NOT EXISTS idx_traces_status ON traces(status);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS traces_fts USING fts5(
+    id UNINDEXED,
+    task,
+    reasoning,
+    tools,
+    commands,
+    errors,
+    output,
+    files,
+    validations,
+    meta,
+    tokenize = 'porter'
+);
 
 
 CREATE TABLE IF NOT EXISTS raw_artifacts (
@@ -295,6 +352,9 @@ class ReasoningStore:
             for h in SUPPORTED_SESSION_IMPORT_HOSTS:
                 conn.execute("UPDATE traces SET host = ? WHERE id LIKE ? AND host IS NULL", (h, f"{h}-%"))
 
+            recreated_trace_fts = self._ensure_trace_search_schema(conn)
+            self._reindex_traces_fts_if_needed(conn, force=recreated_trace_fts)
+
             for ddl in (
                 "ALTER TABLE lesson_candidate ADD COLUMN body TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE lesson_candidate ADD COLUMN evidence_json TEXT NOT NULL DEFAULT '{}'",
@@ -309,12 +369,13 @@ class ReasoningStore:
             self._apply_v2_migrations(conn)
             self.verify_v2_schema(conn)
             self.sync_knowledge()
+        self._initialized = True
 
     def _connect(self) -> sqlite3.Connection:
         if self._connection:
             return self._connection
 
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
@@ -344,6 +405,129 @@ class ReasoningStore:
                 (name,),
             )
             conn.commit()
+
+    def _ensure_trace_search_schema(self, conn: sqlite3.Connection) -> bool:
+        rows = conn.execute("PRAGMA table_info(traces_fts)").fetchall()
+        actual_columns = [row[1] for row in rows]
+        if actual_columns == TRACE_FTS_COLUMNS:
+            return False
+        conn.execute("DROP TABLE IF EXISTS traces_fts")
+        conn.execute(TRACE_FTS_DDL)
+        return True
+
+    def _reindex_traces_fts_if_needed(self, conn: sqlite3.Connection, *, force: bool = False) -> None:
+        trace_count = conn.execute("SELECT COUNT(*) FROM traces").fetchone()[0]
+        fts_count = conn.execute("SELECT COUNT(*) FROM traces_fts").fetchone()[0]
+        if not force and trace_count == fts_count:
+            return
+        self._reindex_traces_fts(conn)
+
+    def _reindex_traces_fts(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute("SELECT payload FROM traces").fetchall()
+        with closing(conn.cursor()) as cur:
+            cur.execute("DELETE FROM traces_fts")
+            for row in rows:
+                self._update_trace_fts(cur, Trace.model_validate_json(row["payload"]))
+
+    def _build_trace_search_document(self, trace: Trace) -> tuple[str, ...]:
+        reasoning = "\n".join(trace.reasoning)
+
+        tools_parts = []
+        for tool in trace.tools_called:
+            sections = [tool.name]
+            if tool.result_summary:
+                sections.append(tool.result_summary)
+            if tool.args:
+                sections.append(json.dumps(tool.args, ensure_ascii=False, sort_keys=True))
+            tools_parts.append("\n".join(part for part in sections if part))
+        tools = "\n\n".join(tools_parts)
+
+        command_parts = []
+        for command in trace.commands_run:
+            if isinstance(command, str):
+                command_parts.append(command)
+                continue
+            command_parts.append(
+                "\n".join(part for part in [command.command, command.stdout or "", command.stderr or ""] if part)
+            )
+        commands = "\n\n".join(command_parts)
+
+        errors = "\n".join(trace.errors_seen)
+        output = "\n\n".join(part for part in [trace.diff_summary, trace.output_summary] if part)
+
+        file_parts = []
+        for file_record in trace.files_touched:
+            if isinstance(file_record, str):
+                file_parts.append(file_record)
+                continue
+            sections = [file_record.path]
+            if file_record.event:
+                sections.append(file_record.event)
+            if file_record.diff:
+                sections.append(file_record.diff)
+            file_parts.append("\n".join(part for part in sections if part))
+        files = "\n\n".join(file_parts)
+
+        validation_parts = []
+        for validation in trace.validation_results:
+            status = "passed" if validation.passed else "failed"
+            validation_parts.append(
+                " ".join(part for part in [validation.name, status, validation.detail or ""] if part)
+            )
+        validations = "\n".join(validation_parts)
+
+        meta = "\n".join(
+            part
+            for part in [
+                trace.id,
+                trace.session_id or "",
+                trace.agent,
+                trace.host or "",
+                trace.domain or "",
+                trace.status,
+                trace.model,
+            ]
+            if part
+        )
+
+        return (
+            trace.task,
+            reasoning,
+            tools,
+            commands,
+            errors,
+            output,
+            files,
+            validations,
+            meta,
+        )
+
+    def _build_trace_search_query(self, query: str) -> str:
+        clauses: list[str] = []
+        for phrase, token in re.findall(r'"([^"]+)"|(\S+)', query):
+            term = (phrase or token).strip().lower()
+            if not term:
+                continue
+            if phrase:
+                escaped_term = term.replace('"', '""')
+                clauses.append(f'"{escaped_term}"')
+                continue
+            pieces = [piece for piece in re.split(r"[^0-9a-z_]+", term) if piece]
+            clauses.extend(f"{piece}*" for piece in pieces)
+        if clauses:
+            return " AND ".join(clauses)
+        escaped = query.strip().replace('"', '""')
+        return f'"{escaped}"'
+
+    def _trace_search_snippets(self, row: sqlite3.Row) -> list[str]:
+        snippets: list[str] = []
+        for _, label in TRACE_FTS_SNIPPETS:
+            value = row[f"s_{label.lower()}"]
+            if not value or "[[" not in value:
+                continue
+            cleaned_value = re.sub(r"\s+", " ", value).strip()
+            snippets.append(f"{label}: {cleaned_value}")
+        return snippets
 
     def verify_v2_schema(self, conn: sqlite3.Connection | None = None) -> bool:
         """Return True when every V2 table exists in SQLite."""
@@ -587,8 +771,8 @@ class ReasoningStore:
 
     def record_trace(self, trace: Trace, *, write_json: bool = True) -> None:
         payload = json.dumps(to_jsonable(trace), ensure_ascii=False)
-        with self._connect() as conn:
-            conn.execute(
+        with self._connect() as conn, closing(conn.cursor()) as cur:
+            cur.execute(
                 """
                 INSERT INTO traces (id, agent, host, domain, status, task, workspace_path, created_at, payload)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -613,8 +797,37 @@ class ReasoningStore:
                     payload,
                 ),
             )
+            # Update FTS index
+            self._update_trace_fts(cur, trace)
+
         if write_json:
             self._write_trace_json(trace)
+
+    def _update_trace_fts(self, cur: sqlite3.Cursor, trace: Trace) -> None:
+        """Update the FTS5 index for a single trace."""
+        task, reasoning, tools, commands, errors, output, files, validations, meta = self._build_trace_search_document(
+            trace
+        )
+
+        cur.execute("DELETE FROM traces_fts WHERE id = ?", (trace.id,))
+        cur.execute(
+            """
+            INSERT INTO traces_fts (
+                id,
+                task,
+                reasoning,
+                tools,
+                commands,
+                errors,
+                output,
+                files,
+                validations,
+                meta
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (trace.id, task, reasoning, tools, commands, errors, output, files, validations, meta),
+        )
 
     def get_trace(self, trace_id: str) -> Trace | None:
         with self._connect() as conn:
@@ -660,11 +873,58 @@ class ReasoningStore:
         status: str | None = None,
         agent: str | None = None,
         host: str | None = None,
+        query: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Trace]:
+        if query and query.strip():
+            search_query = self._build_trace_search_query(query)
+            sql = (
+                "SELECT t.payload, "
+                "snippet(traces_fts, 1, '[[', ']]', '...', 12) as s_task, "
+                "snippet(traces_fts, 2, '[[', ']]', '...', 12) as s_reasoning, "
+                "snippet(traces_fts, 3, '[[', ']]', '...', 12) as s_tools, "
+                "snippet(traces_fts, 4, '[[', ']]', '...', 12) as s_commands, "
+                "snippet(traces_fts, 5, '[[', ']]', '...', 12) as s_errors, "
+                "snippet(traces_fts, 6, '[[', ']]', '...', 12) as s_summary, "
+                "snippet(traces_fts, 7, '[[', ']]', '...', 12) as s_files, "
+                "snippet(traces_fts, 8, '[[', ']]', '...', 12) as s_validations, "
+                "snippet(traces_fts, 9, '[[', ']]', '...', 12) as s_run "
+                "FROM traces_fts "
+                "JOIN traces t ON t.id = traces_fts.id "
+                "WHERE traces_fts MATCH ? "
+            )
+            params: list[Any] = [search_query]
+            if domain:
+                sql += " AND t.domain = ?"
+                params.append(domain)
+            if status:
+                sql += " AND t.status = ?"
+                params.append(status)
+            if agent:
+                sql += " AND t.agent = ?"
+                params.append(agent)
+            if host:
+                sql += " AND t.host = ?"
+                params.append(host)
+
+            sql += " ORDER BY bm25(traces_fts), t.created_at DESC LIMIT ? OFFSET ?"
+            params.append(limit)
+            params.append(offset)
+
+            with self._connect() as conn:
+                rows = conn.execute(sql, params).fetchall()
+
+            results = []
+            for row in rows:
+                trace = Trace.model_validate_json(row["payload"])
+                trace.snippets = self._trace_search_snippets(row)
+                results.append(trace)
+            return results
+
+        # Standard filter path
         sql = "SELECT payload FROM traces WHERE 1=1"
-        params: list[Any] = []
+        params = []
         if domain:
             sql += " AND domain = ?"
             params.append(domain)

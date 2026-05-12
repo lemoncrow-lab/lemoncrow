@@ -166,23 +166,16 @@ AGENT_SRC="${ATELIER_REPO}/integrations/opencode/agents/atelier.md"
 
 # ---- check dev mode ---------------------------------------------------------
 DEV_MODE="${ATELIER_DEV_MODE:-0}"
-if [[ "$DEV_MODE" != "1" ]]; then
+STAGING_DIR="${HOME}/.atelier/opencode-slim"
+run "mkdir -p '$STAGING_DIR'"
+if [[ "$DEV_MODE" == "1" ]]; then
+    info "Dev mode enabled; using full agent instructions with reasoning loop"
+    run "cp '${AGENT_SRC/.md/.dev.md}' '$STAGING_DIR/atelier.md'"
+else
     info "Dev mode disabled; using slim agent instructions"
-    STAGING_DIR="${ATELIER_REPO}/.atelier/opencode-slim"
-    run "mkdir -p '$STAGING_DIR'"
-    # Create neutral instructions
-    if ! $DRY_RUN; then
-        cat > "$STAGING_DIR/atelier.md" <<EOF
-# Atelier
-
-Atelier is currently in **Passive Mode**. Active reasoning features are disabled.
-To enable active reasoning, set ATELIER_DEV_MODE=1 and re-run install.
-
-Budget optimizer guardrails still apply: name the deliverable and smallest viable plan before edits, keep context narrow, restate context in under 10 bullets before editing or after compaction, pause if 10 minutes pass without an edit, and do not retry the same failed approach a third time.
-EOF
-    fi
-    AGENT_SRC="$STAGING_DIR/atelier.md"
+    run "cp '${AGENT_SRC}' '$STAGING_DIR/atelier.md'"
 fi
+AGENT_SRC="$STAGING_DIR/atelier.md"
 
 if [ -f "$AGENT_SRC" ]; then
     run "mkdir -p '$AGENT_DEST_DIR'"

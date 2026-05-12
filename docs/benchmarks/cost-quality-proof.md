@@ -107,7 +107,7 @@ LOCAL=1 uv run pytest tests/core/test_cost_quality_proof_gate.py \
                      tests/gateway/test_cli_proof_gate.py -v
 
 # Generate the proof report manually:
-LOCAL=1 uv run atelier proof run --run-id <id> --json
+LOCAL=1 uv run atelier proof run --session-id <id> --json
 
 # Show the last saved proof report:
 LOCAL=1 uv run atelier proof report --json

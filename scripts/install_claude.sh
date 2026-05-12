@@ -69,32 +69,27 @@ run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 # ---- check dev mode ---------------------------------------------------------
 DEV_MODE="${ATELIER_DEV_MODE:-0}"
-if [[ "$DEV_MODE" != "1" ]]; then
-    info "Dev mode disabled; installing slim plugin (no skills/reasoning loop)"
-    STAGING_DIR="${ATELIER_REPO}/.atelier/claude-plugin-slim"
-    run "mkdir -p '$STAGING_DIR/.claude-plugin'"
-    run "cp '${PLUGIN_DIR}/.claude-plugin/plugin.json' '$STAGING_DIR/.claude-plugin/'"
-    run "cp '${PLUGIN_DIR}/.claude-plugin/marketplace.json' '$STAGING_DIR/.claude-plugin/'"
-    run "mkdir -p '$STAGING_DIR/agents'"
-    # Copy agents and neutralize
+STAGING_DIR="${HOME}/.atelier/claude-plugin-slim"
+run "mkdir -p '$STAGING_DIR/.claude-plugin'"
+run "cp '${SOURCE_PLUGIN_DIR}/.claude-plugin/plugin.json' '$STAGING_DIR/.claude-plugin/'"
+run "cp '${SOURCE_PLUGIN_DIR}/.claude-plugin/marketplace.json' '$STAGING_DIR/.claude-plugin/'"
+run "mkdir -p '$STAGING_DIR/agents'"
+if [[ "$DEV_MODE" == "1" ]]; then
+    info "Dev mode enabled; installing full plugin with reasoning loop"
     for agent in code explore review repair; do
-        if ! $DRY_RUN; then
-            cat > "$STAGING_DIR/agents/${agent}.md" <<EOF
-# atelier:${agent}
-
-Atelier is currently in **Passive Mode**. Active reasoning features are disabled.
-To enable active reasoning, set ATELIER_DEV_MODE=1 and re-run install.
-
-Budget optimizer guardrails still apply: name the deliverable and smallest viable plan before edits, keep context narrow, restate context in under 10 bullets before editing or after compaction, pause if 10 minutes pass without an edit, and do not retry the same failed approach a third time.
-EOF
-        fi
+        run "cp '${SOURCE_PLUGIN_DIR}/agents/${agent}.dev.md' '$STAGING_DIR/agents/${agent}.md'"
     done
-    run "cp -r '${PLUGIN_DIR}/hooks' '$STAGING_DIR/'"
-    run "cp -r '${PLUGIN_DIR}/servers' '$STAGING_DIR/'"
-    run "cp '${PLUGIN_DIR}/.mcp.json' '$STAGING_DIR/'"
-    PLUGIN_DIR="$STAGING_DIR"
-    INSTALL_SOURCE_DIR="$STAGING_DIR"
+else
+    info "Dev mode disabled; installing slim plugin (no skills/reasoning loop)"
+    for agent in code explore review repair; do
+        run "cp '${SOURCE_PLUGIN_DIR}/agents/${agent}.md' '$STAGING_DIR/agents/${agent}.md'"
+    done
 fi
+run "cp -r '${SOURCE_PLUGIN_DIR}/hooks' '$STAGING_DIR/'"
+run "cp -r '${SOURCE_PLUGIN_DIR}/servers' '$STAGING_DIR/'"
+run "cp '${SOURCE_PLUGIN_DIR}/.mcp.json' '$STAGING_DIR/'"
+PLUGIN_DIR="$STAGING_DIR"
+INSTALL_SOURCE_DIR="$STAGING_DIR"
 
 if $WORKSPACE_SET; then
     NEW_MCP_ENTRY=$(cat <<JSON
@@ -399,6 +394,28 @@ fi
 if $DRY_RUN; then
     info "Dry run complete; skipped post-install verification because no files were written."
     exit 0
+fi
+
+# ---- statusLine setting in ~/.claude/settings.json -------------------------
+STATUSLINE_SCRIPT="${ATELIER_REPO}/integrations/claude/plugin/scripts/statusline.sh"
+if $DRY_RUN; then
+    echo "  [dry-run] set statusLine in ${CLAUDE_SETTINGS} → ${STATUSLINE_SCRIPT}"
+elif [ -f "${STATUSLINE_SCRIPT}" ]; then
+    python3 - <<PYEOF2
+import json
+from pathlib import Path
+path = Path("${CLAUDE_SETTINGS}")
+if not path.exists():
+    path.write_text("{}\n")
+data = json.loads(path.read_text(encoding="utf-8") or "{}")
+data["statusLine"] = {"type": "command", "command": "${STATUSLINE_SCRIPT}", "padding": 1}
+data["agent"] = "atelier:code"
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+print("[atelier:claude] statusLine set → ${STATUSLINE_SCRIPT}")
+print("[atelier:claude] default agent set → atelier-code")
+PYEOF2
+else
+    warn "statusline.sh not found at ${STATUSLINE_SCRIPT} — skipping statusLine"
 fi
 
 info "Done. Start Claude Code in your workspace. Skills and agents are available."
