@@ -7,7 +7,7 @@ Covers:
 - failure show, eval show/deprecate, eval-from-cluster
 - search, cached-grep
 - savings-detail, savings-reset
-- benchmark-hosts, benchmark-full, benchmark-packs
+- benchmark hosts, benchmark full, benchmark packs
 - copilot/claude/codex/opencode import (with empty session dir)
 """
 
@@ -386,16 +386,16 @@ def test_savings_reset_clears_counters(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# benchmark-hosts / benchmark-packs / benchmark-full                         #
+# benchmark hosts / benchmark packs / benchmark full                         #
 # --------------------------------------------------------------------------- #
 
 
 def test_benchmark_hosts_command_runs(tmp_path: Path) -> None:
-    """benchmark-hosts runs the host verify script; may fail in CI but must emit valid JSON."""
+    """benchmark hosts runs the host verify script; may fail in CI but must emit valid JSON."""
     runner = CliRunner()
     result = runner.invoke(
         cli,
-        ["--root", str(tmp_path / ".atelier"), "benchmark-hosts", "--json"],
+        ["--root", str(tmp_path / ".atelier"), "benchmark", "hosts", "--json"],
     )
     # The exit code may be non-zero if the shell script exits non-zero,
     # but the JSON payload must be present and structurally valid.
@@ -424,7 +424,7 @@ def test_benchmark_packs_returns_domain_keys(tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(
         cli,
-        ["--root", str(tmp_path / ".atelier"), "benchmark-packs", "--json"],
+        ["--root", str(tmp_path / ".atelier"), "benchmark", "packs", "--json"],
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
@@ -433,11 +433,11 @@ def test_benchmark_packs_returns_domain_keys(tmp_path: Path) -> None:
 
 
 def test_benchmark_full_runs(tmp_path: Path) -> None:
-    """benchmark-full may fail due to host verification, but must emit valid JSON."""
+    """benchmark full may fail due to host verification, but must emit valid JSON."""
     runner = CliRunner()
     result = runner.invoke(
         cli,
-        ["--root", str(tmp_path / ".atelier"), "benchmark-full", "--json"],
+        ["--root", str(tmp_path / ".atelier"), "benchmark", "full", "--json"],
     )
     json_text = result.output.split("\nError:")[0].strip()
     payload = json.loads(json_text)

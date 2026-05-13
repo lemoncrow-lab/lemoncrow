@@ -40,17 +40,23 @@ ATELIER_REF="${ATELIER_REF:-main}"
 ATELIER_INSTALL_DIR="${ATELIER_INSTALL_DIR:-${HOME}/.local/share/atelier}"
 ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.local/bin}"
 ATELIER_TOOL_DIR="${ATELIER_TOOL_DIR:-${HOME}/.local/share/uv/tools}"
+ATELIER_INSTALL_RECORD="${HOME}/.atelier/install_dir"
 ATELIER_NO_HOSTS="${ATELIER_NO_HOSTS:-0}"
 ATELIER_NO_SERVICECTL="${ATELIER_NO_SERVICECTL:-0}"
 ATELIER_SERVICECTL_INTERVAL_SECONDS="${ATELIER_SERVICECTL_INTERVAL_SECONDS:-60}"
 ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS="${ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS:-21600}"
 ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_NO_STACK="${ATELIER_NO_STACK:-0}"
-# Default to local mode if running from within the Atelier repository
-if [[ -f "uv.lock" && -d "src/atelier" && -f "scripts/install.sh" ]]; then
-    ATELIER_LOCAL=1
-else
-    ATELIER_LOCAL=0
+ATELIER_LOCAL="${ATELIER_LOCAL:-0}"
+ATELIER_USE_CURRENT_REPO="${ATELIER_USE_CURRENT_REPO:-}"
+if [[ -z "$ATELIER_USE_CURRENT_REPO" ]]; then
+    if [[ "$ATELIER_LOCAL" == "1" ]]; then
+        ATELIER_USE_CURRENT_REPO=1
+    elif [[ -f "uv.lock" && -d "src/atelier" && -f "scripts/install.sh" ]]; then
+        ATELIER_USE_CURRENT_REPO=1
+    else
+        ATELIER_USE_CURRENT_REPO=0
+    fi
 fi
 PASSTHROUGH=()
 WARNINGS=()
@@ -60,8 +66,8 @@ FINAL_EXIT_CODE=0
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --local) ATELIER_LOCAL=1 ;;
-        --no-local) ATELIER_LOCAL=0 ;;
+        --local) ATELIER_LOCAL=1; ATELIER_USE_CURRENT_REPO=1 ;;
+        --no-local) ATELIER_LOCAL=0; ATELIER_USE_CURRENT_REPO=0 ;;
         --dry-run) ATELIER_DRY_RUN=1; PASSTHROUGH+=("$1") ;;
         --no-hosts) ATELIER_NO_HOSTS=1; PASSTHROUGH+=("$1") ;;
         --no-stack) ATELIER_NO_STACK=1; PASSTHROUGH+=("$1") ;;
@@ -196,18 +202,45 @@ prepare_repo() {
 }
 
 install_console_scripts() {
-    local extras="mcp,memory,embeddings,smart,cloud,repo-map,api,postgres,vector,parsers,telemetry"
+    local extras="mcp,memory,smart,cloud,repo-map,api,postgres,vector,parsers,telemetry"
     local package_spec="${ATELIER_INSTALL_DIR}[${extras}]"
+    local install_args=(tool install --force)
+
+    if [[ "$ATELIER_LOCAL" == "1" ]]; then
+        install_args+=(--editable)
+    fi
+    install_args+=("$package_spec")
 
     if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-        echo "[dry-run] UV_TOOL_BIN_DIR=$ATELIER_BIN_DIR UV_TOOL_DIR=$ATELIER_TOOL_DIR uv tool install --force --editable '$package_spec'"
+        printf '[dry-run] UV_TOOL_BIN_DIR=%q UV_TOOL_DIR=%q uv' "$ATELIER_BIN_DIR" "$ATELIER_TOOL_DIR"
+        printf ' %q' "${install_args[@]}"
+        printf '\n'
         return
     fi
 
     mkdir -p "$ATELIER_BIN_DIR" "$ATELIER_TOOL_DIR"
     UV_TOOL_BIN_DIR="$ATELIER_BIN_DIR" \
         UV_TOOL_DIR="$ATELIER_TOOL_DIR" \
-        uv tool install --force --editable "$package_spec"
+        uv "${install_args[@]}"
+
+    rm -f \
+        "$ATELIER_BIN_DIR/atelier-api" \
+        "$ATELIER_BIN_DIR/atelier-codex" \
+        "$ATELIER_BIN_DIR/atelier-bench"
+}
+
+persist_install_record() {
+    local record_dir
+    record_dir="$(dirname "$ATELIER_INSTALL_RECORD")"
+
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] mkdir -p $record_dir"
+        echo "[dry-run] printf '%s\\n' '$ATELIER_INSTALL_DIR' > '$ATELIER_INSTALL_RECORD'"
+        return
+    fi
+
+    mkdir -p "$record_dir"
+    printf '%s\n' "$ATELIER_INSTALL_DIR" > "$ATELIER_INSTALL_RECORD"
 }
 
 main() {
@@ -220,15 +253,21 @@ main() {
     need_cmd bash
     install_uv_if_needed
 
-    if [[ "$ATELIER_LOCAL" == "1" ]]; then
-        info "Local mode: using current directory as install source"
+    if [[ "$ATELIER_USE_CURRENT_REPO" == "1" ]]; then
+        if [[ "$ATELIER_LOCAL" == "1" ]]; then
+            info "Local mode: using current directory as an editable install source"
+        else
+            info "Using current directory as the install source"
+        fi
         ATELIER_INSTALL_DIR="$(pwd)"
     else
         prepare_repo
     fi
+    export ATELIER_INSTALL_DIR
 
     info "Installing Atelier console commands..."
     install_console_scripts
+    persist_install_record
 
     if command -v npm >/dev/null 2>&1; then
         info "Installing codeburn (token/cost reporting)..."
@@ -311,7 +350,7 @@ main() {
             if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
                 echo "[dry-run] $ATELIER_BIN_DIR/atelier stack start"
             else
-                "$ATELIER_BIN_DIR/atelier" stack start 2>/dev/null \
+                "$ATELIER_BIN_DIR/atelier" stack start \
                     && STACK_STARTED=1 \
                     || warn "Visualization stack did not start (Docker daemon may not be running)"
             fi

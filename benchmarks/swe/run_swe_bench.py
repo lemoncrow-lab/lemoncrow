@@ -1,4 +1,4 @@
-"""``atelier-bench swe`` — Click command group entry point.
+"""``atelier benchmark swe`` — Click command group entry point.
 
 Subcommands:
     run                     run the harness end-to-end against a config
@@ -41,7 +41,7 @@ def swe() -> None:
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 def cli() -> None:
-    """atelier-bench — benchmarking harnesses for Atelier."""
+    """SWE-bench benchmarking harnesses for Atelier."""
 
 
 cli.add_command(swe)
@@ -219,8 +219,8 @@ def cmd_measure_context_savings(suite_path: str | None, emit_json: bool) -> None
         raise click.ClickException(f"context savings {result.reduction_pct:.2f}% is below the 50% CI gate")
 
 
-def main() -> None:  # console-script entry point
-    cli()
+def main() -> None:
+    raise click.ClickException("atelier-bench has been removed; use `atelier benchmark swe ...`")
 
 
 if __name__ == "__main__":

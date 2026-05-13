@@ -167,7 +167,7 @@ atelier verify rubric_shopify_publish --checks '{"check_1": true, ...}'
 atelier block list --domain beseam.shopify.publish
 atelier eval list
 atelier eval run <case_id>
-atelier benchmark --apply
+atelier benchmark run
 atelier analyze-failures
 atelier savings
 atelier tool-mode set shadow

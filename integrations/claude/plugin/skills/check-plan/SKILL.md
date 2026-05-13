@@ -1,13 +1,13 @@
 ---
-description: "Use when: validating an implementation plan, checking a plan before edits, or asking whether a plan is blocked."
-allowed-tools: "mcp__atelier__lint"
+description: "Use when: drafting an implementation plan from Atelier task context before edits."
+allowed-tools: "mcp__atelier__task"
 ---
 
-Validate a plan with Atelier.
+Draft a plan with Atelier.
 
-1. Collect the task, plan steps, files, domain, tools, and known errors.
-2. Call `lint`.
-3. If blocked, show the blocking reason and the suggested replacement plan.
-4. If warnings exist, list them and update the plan before work continues.
+1. Collect the task, files, domain, tools, and known errors.
+2. Call `task`.
+3. Draft a concise plan from the returned procedures and dead-end warnings.
+4. If the procedures show a dead end, stop and revise the plan before work continues.
 
 Do not edit code before a blocked plan is corrected.

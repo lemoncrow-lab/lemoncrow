@@ -46,7 +46,6 @@ dependencies = [
 mcp = ["mcp>=1.0"]
 memory = ["letta-client>=1.7.12"]
 memory-server = ["letta>=0.16.7"]
-embeddings = ["sentence-transformers>=2.7"]
 smart = ["ollama>=0.4.0"]
 cloud = ["openai>=1.0"]
 repo-map = ["tree-sitter>=0.23", "tree-sitter-languages>=1.10; python_version < '3.13'", "networkx>=3.4"]
@@ -81,13 +80,6 @@ dev = [
 [project.scripts]
 atelier = "atelier.gateway.adapters.cli:main"
 atelier-mcp = "atelier.gateway.adapters.mcp_server:main"
-atelier-api = "atelier.core.service.api:main"
-atelier-codex = "atelier.gateway.adapters.wrappers:task_main"
-atelier-task = "atelier.gateway.adapters.wrappers:task_main"
-atelier-context = "atelier.gateway.adapters.wrappers:context_main"
-atelier-check-plan = "atelier.gateway.adapters.wrappers:check_plan_main"
-atelier-rescue = "atelier.gateway.adapters.wrappers:rescue_main"
-atelier-bench = "benchmarks.swe.run_swe_bench:main"
 
 [build-system]
 requires = ["hatchling"]

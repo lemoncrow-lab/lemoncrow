@@ -16,6 +16,7 @@ Run via CLI::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sqlite3
@@ -187,7 +188,7 @@ def _trace_model_usages(payload: dict[str, Any]) -> list[dict[str, Any]]:
             if not isinstance(raw_usage, dict):
                 continue
             model_id = str(raw_usage.get("model") or payload.get("model") or "").strip()
-            usage = {
+            usage: dict[str, Any] = {
                 "input_tokens": int(raw_usage.get("input_tokens") or 0),
                 "output_tokens": int(raw_usage.get("output_tokens") or 0),
                 "thinking_tokens": int(raw_usage.get("thinking_tokens") or 0),
@@ -1105,7 +1106,7 @@ def _savings_summary_payload(root: Path, *, window_days: int) -> dict[str, Any]:
     live_time_saved_ms = 0
     source_totals: dict[tuple[str, str], dict[str, Any]] = {}
 
-    for entry in (ops.values() if isinstance(ops, dict) else []):
+    for entry in ops.values() if isinstance(ops, dict) else []:
         calls = entry.get("calls", []) if isinstance(entry, dict) else []
         for call in calls:
             if not isinstance(call, dict):
@@ -1753,7 +1754,13 @@ def create_app(store_root: str | Path | None = None) -> Any:
     ) -> dict[str, Any]:
         store = get_store()
         traces = store.list_traces(
-            domain=domain, status=status, agent=agent, host=host, query=query, limit=limit, offset=offset
+            domain=domain,
+            status=status,
+            agent=agent,
+            host=host,
+            query=query,
+            limit=limit,
+            offset=offset,
         )
         # Fetch global metrics for the current domain/agent/host filters
         metrics = store.get_traces_metrics(domain=domain, agent=agent, host=host)
@@ -1767,13 +1774,187 @@ def create_app(store_root: str | Path | None = None) -> Any:
             raise HTTPException(status_code=404, detail=f"Trace not found: {trace_id}")
         return to_jsonable(trace)
 
+    # ------------------------------------------------------------------ #
+    # MCP service-backed task tools                                      #
+    # ------------------------------------------------------------------ #
+
+    def _runtime() -> Any:
+        from atelier.gateway.adapters.runtime import ReasoningRuntime
+
+        return ReasoningRuntime(root=Path(cfg.atelier_root))
+
+    @app.post("/v1/reasoning/context", tags=["reasoning"], dependencies=[Depends(verify_api_key)])
+    def task_context(payload: dict[str, Any]) -> dict[str, Any]:
+        task = str(payload.get("task") or "")
+        if not task:
+            raise HTTPException(status_code=400, detail="task is required")
+        result = _runtime().get_reasoning_context(
+            task=task,
+            domain=payload.get("domain"),
+            files=list(payload.get("files") or []),
+            tools=list(payload.get("tools") or []),
+            errors=list(payload.get("errors") or []),
+            max_blocks=int(payload.get("max_blocks", 5)),
+            token_budget=payload.get("token_budget", 2000),
+            dedup=bool(payload.get("dedup", True)),
+            include_telemetry=bool(payload.get("include_telemetry", False)),
+            agent_id=payload.get("agent_id"),
+            recall=bool(payload.get("recall", True)),
+        )
+        return result if isinstance(result, dict) else {"context": result}
+
+    @app.post("/v1/reasoning/rescue", tags=["reasoning"], dependencies=[Depends(verify_api_key)])
+    def rescue_failure(payload: dict[str, Any]) -> dict[str, Any]:
+        task = str(payload.get("task") or "")
+        error = str(payload.get("error") or "")
+        if not task or not error:
+            raise HTTPException(status_code=400, detail="task and error are required")
+        result = _runtime().rescue_failure(
+            task=task,
+            error=error,
+            files=list(payload.get("files") or []),
+            recent_actions=list(payload.get("recent_actions") or []),
+            domain=payload.get("domain"),
+        )
+        response = to_jsonable(result)
+        with contextlib.suppress(Exception):
+            analysis = _runtime().core_runtime.analyze_failure_for_error(
+                error,
+                domain=payload.get("domain"),
+            )
+            if analysis:
+                response["analysis"] = analysis
+        return response
+
+    @app.post("/v1/rubrics/run", tags=["rubrics"], dependencies=[Depends(verify_api_key)])
+    def run_rubric_gate(payload: dict[str, Any]) -> dict[str, Any]:
+        from atelier.core.foundation.rubric_gate import run_rubric
+
+        rubric_id = str(payload.get("rubric_id") or "")
+        if not rubric_id:
+            raise HTTPException(status_code=400, detail="rubric_id is required")
+        rubric = get_store().get_rubric(rubric_id)
+        if rubric is None:
+            raise HTTPException(status_code=404, detail=f"Rubric not found: {rubric_id}")
+        checks = payload.get("checks") or {}
+        if not isinstance(checks, dict):
+            raise HTTPException(status_code=400, detail="checks must be an object")
+        return to_jsonable(run_rubric(rubric, checks))
+
+    def _redact_trace_json(value: Any) -> Any:
+        from atelier.core.foundation.redaction import redact
+
+        if isinstance(value, str):
+            return redact(value)
+        if isinstance(value, list):
+            return [_redact_trace_json(item) for item in value]
+        if isinstance(value, dict):
+            return {str(key): _redact_trace_json(item) for key, item in value.items()}
+        return value
+
+    def _coerce_trace_validation_passed(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"pass", "passed", "success", "successful", "ok", "true"}:
+                return True
+            if lowered in {"fail", "failed", "failure", "error", "errored", "false"}:
+                return False
+        return False
+
+    def _normalize_trace_tool_calls(items: list[Any]) -> list[dict[str, Any]]:
+        from atelier.core.foundation.redaction import redact
+
+        normalized: list[dict[str, Any]] = []
+        for item in items:
+            if isinstance(item, str):
+                normalized.append({"name": redact(item), "args_hash": "", "count": 1})
+                continue
+            if isinstance(item, dict):
+                raw_count = item.get("count") or 1
+                with contextlib.suppress(TypeError, ValueError):
+                    raw_count = int(raw_count)
+                if not isinstance(raw_count, int):
+                    raw_count = 1
+                tool_call = {
+                    "name": redact(str(item.get("name") or item.get("tool") or "unknown")),
+                    "args_hash": redact(str(item.get("args_hash") or "")),
+                    "count": raw_count,
+                }
+                if "args" in item:
+                    tool_call["args"] = _redact_trace_json(item["args"])
+                if isinstance(item.get("result_summary"), str):
+                    tool_call["result_summary"] = redact(item["result_summary"])
+                normalized.append(tool_call)
+                continue
+            normalized.append({"name": redact(str(item)), "args_hash": "", "count": 1})
+        return normalized
+
+    def _normalize_trace_validation_results(items: list[Any]) -> list[dict[str, Any]]:
+        from atelier.core.foundation.redaction import redact
+
+        normalized: list[dict[str, Any]] = []
+        for item in items:
+            if isinstance(item, dict):
+                name = item.get("name") or item.get("check") or "validation"
+                detail = item.get("detail") or item.get("output") or ""
+                passed = item.get("passed")
+                if passed is None:
+                    passed = item.get("status")
+                normalized.append(
+                    {
+                        "name": redact(str(name)),
+                        "passed": _coerce_trace_validation_passed(passed),
+                        "detail": redact(str(detail)),
+                    }
+                )
+                continue
+            text = redact(str(item))
+            lowered = text.lower()
+            normalized.append(
+                {
+                    "name": text,
+                    "passed": not any(token in lowered for token in ("fail", "error", "not run")),
+                    "detail": "",
+                }
+            )
+        return normalized
+
+    def _normalize_trace_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        from atelier.core.foundation.redaction import redact, redact_list
+
+        normalized = dict(payload)
+        event_recorded = bool(normalized.pop("event_type", None))
+        normalized.pop("event_payload", None)
+        normalized.pop("prompt", None)
+        normalized.pop("response", None)
+        normalized.pop("bash_outputs", None)
+        normalized.pop("tool_outputs", None)
+
+        normalized["task"] = redact(str(normalized.get("task") or ""))
+        normalized["files_touched"] = redact_list([str(item) for item in normalized.get("files_touched") or []])
+        normalized["commands_run"] = redact_list([str(item) for item in normalized.get("commands_run") or []])
+        normalized["errors_seen"] = redact_list([str(item) for item in normalized.get("errors_seen") or []])
+        normalized["diff_summary"] = redact(str(normalized.get("diff_summary") or ""))
+        normalized["output_summary"] = redact(str(normalized.get("output_summary") or ""))
+        normalized["tools_called"] = _normalize_trace_tool_calls(list(normalized.get("tools_called") or []))
+        normalized["validation_results"] = _normalize_trace_validation_results(
+            list(normalized.get("validation_results") or [])
+        )
+        return normalized, event_recorded
+
     @app.post("/v1/traces", tags=["traces"], dependencies=[Depends(verify_api_key)])
-    def record_trace(payload: dict[str, Any]) -> dict[str, str]:
+    def record_trace(payload: dict[str, Any]) -> dict[str, Any]:
         if "id" not in payload:
             payload["id"] = Trace.make_id(payload.get("task", "untitled"), payload.get("agent", "agent"))
-        trace = Trace.model_validate(payload)
+        normalized_payload, event_recorded = _normalize_trace_payload(payload)
+        trace = Trace.model_validate(normalized_payload)
         get_store().record_trace(trace)
-        return {"id": trace.id}
+        response: dict[str, Any] = {"id": trace.id, "event_recorded": event_recorded}
+        if trace.session_id:
+            response["session_id"] = trace.session_id
+        return response
 
     # ------------------------------------------------------------------ #
     # Memory (agent long-term memory)                                     #
@@ -2144,7 +2325,13 @@ def create_app(store_root: str | Path | None = None) -> Any:
         for s in dashboard_sessions:
             day = s["day"]
             if day not in daily:
-                daily[day] = {"date": day, "sessions": 0, "cost": 0.0, "input_tokens": 0, "output_tokens": 0}
+                daily[day] = {
+                    "date": day,
+                    "sessions": 0,
+                    "cost": 0.0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                }
             daily[day]["sessions"] += 1
             daily[day]["cost"] += s["cost"]
             daily[day]["input_tokens"] += s["input_tokens"]
@@ -2183,7 +2370,13 @@ def create_app(store_root: str | Path | None = None) -> Any:
         for s in dashboard_sessions:
             h = s["host"]
             if h not in by_host:
-                by_host[h] = {"host": h, "sessions": 0, "cost": 0.0, "input_tokens": 0, "cached_tokens": 0}
+                by_host[h] = {
+                    "host": h,
+                    "sessions": 0,
+                    "cost": 0.0,
+                    "input_tokens": 0,
+                    "cached_tokens": 0,
+                }
             by_host[h]["sessions"] += 1
             by_host[h]["cost"] += s["cost"]
             by_host[h]["input_tokens"] += s["input_tokens"]
@@ -2458,7 +2651,8 @@ def create_app(store_root: str | Path | None = None) -> Any:
             with sqlite3.connect(store_inst.db_path) as conn:
                 # Use json_extract for efficient searching
                 row = conn.execute(
-                    "SELECT payload FROM traces WHERE json_extract(payload, '$.session_id') = ?", (session_id,)
+                    "SELECT payload FROM traces WHERE json_extract(payload, '$.session_id') = ?",
+                    (session_id,),
                 ).fetchone()
                 if row:
                     trace = Trace.model_validate_json(coerce_trace_json(row[0]))

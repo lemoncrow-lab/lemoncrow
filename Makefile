@@ -87,7 +87,7 @@ pre-commit: format lint typecheck test ## Format, lint, typecheck, and test
 # --------------------------------------------------------------------------- #
 
 benchmark: ## Run the full benchmark suite
-	LOCAL=1 atelier benchmark-full --json
+	LOCAL=1 atelier benchmark full --json
 
 bench-savings: ## Run the context-savings benchmark
 	LOCAL=1 uv run python -m benchmarks.swe.savings_bench --json

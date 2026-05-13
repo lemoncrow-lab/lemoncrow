@@ -350,11 +350,29 @@ def _project_root() -> Path:
     env = os.environ.get("ATELIER_INSTALL_DIR", "").strip()
     if env:
         return Path(env).expanduser().resolve()
+    install_record = Path.home() / ".atelier" / "install_dir"
+    with contextlib.suppress(OSError):
+        recorded = install_record.read_text(encoding="utf-8").strip()
+        if recorded:
+            recorded_path = Path(recorded).expanduser().resolve()
+            if recorded_path.exists():
+                return recorded_path
     return Path(__file__).resolve().parents[4]
 
 
 def _stack_compose_file() -> Path:
     return _project_root() / "docker-compose.yml"
+
+
+def _configured_stack_services(requested: list[str]) -> list[str]:
+    compose_file = _stack_compose_file()
+    with contextlib.suppress(OSError, yaml.YAMLError):
+        payload = yaml.safe_load(compose_file.read_text(encoding="utf-8")) or {}
+        services = payload.get("services")
+        if isinstance(services, dict):
+            available = {str(name) for name in services}
+            return [name for name in requested if name in available]
+    return requested
 
 
 def _run_stack_compose(args: list[str]) -> None:
@@ -805,6 +823,34 @@ def cli(ctx: click.Context, root: Path) -> None:
     ctx.obj["root"] = root
 
 
+@cli.command("help", context_settings={"ignore_unknown_options": True})
+@click.argument("command_path", nargs=-1)
+@click.pass_context
+def help_cmd(ctx: click.Context, command_path: tuple[str, ...]) -> None:
+    """Show help for Atelier or a specific command path."""
+    root_ctx = ctx.parent
+    if root_ctx is None:
+        click.echo(cli.get_help(ctx))
+        return
+
+    if not command_path:
+        click.echo(root_ctx.get_help())
+        return
+
+    command: click.Command = cli
+    command_ctx = root_ctx
+    for token in command_path:
+        if not isinstance(command, click.Group):
+            raise click.ClickException(f"{command_ctx.command_path} has no subcommands")
+        next_command = command.get_command(command_ctx, token)
+        if next_command is None:
+            raise click.ClickException(f"unknown command: {' '.join(command_path)}")
+        command = next_command
+        command_ctx = click.Context(command, info_name=token, parent=command_ctx)
+
+    click.echo(command.get_help(command_ctx))
+
+
 # ----- init ---------------------------------------------------------------- #
 
 
@@ -1081,10 +1127,10 @@ def _check_dev_mode(command_name: str, status: int = 1) -> None:
         sys.exit(status)
 
 
-# ----- reasoning ------------------------------------------------------------ #
+# ----- task ----------------------------------------------------------------- #
 
 
-@_dev_command("reasoning")
+@_dev_command("task")
 @click.option("--task", required=True, help="Task description.")
 @click.option("--domain", default=None)
 @click.option("--file", "files", multiple=True, help="File path likely to be edited.")
@@ -1096,7 +1142,7 @@ def _check_dev_mode(command_name: str, status: int = 1) -> None:
 @click.option("--telemetry", "include_telemetry", is_flag=True)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def reasoning(
+def task_context_cmd(
     ctx: click.Context,
     task: str,
     domain: str | None,
@@ -1109,8 +1155,8 @@ def reasoning(
     include_telemetry: bool,
     as_json: bool,
 ) -> None:
-    """Render the reasoning-context block to inject into an agent prompt."""
-    _check_dev_mode("reasoning")
+    """Render the task-context block to inject into an agent prompt."""
+    _check_dev_mode("task")
     from atelier.core.foundation.retriever import TaskContext, retrieve
     from atelier.core.service.telemetry.frustration import match_frustration
 
@@ -3233,13 +3279,13 @@ def stack_group() -> None:
 @click.option("--with-docs", is_flag=True, help="Also start the docs site on port 3200.")
 def stack_start(with_docs: bool) -> None:
     """Start the optional visualization stack via Docker Compose."""
-    services = ["service", "frontend", "otel-collector"]
+    services = _configured_stack_services(["service", "frontend", "otel-collector"])
     if with_docs:
-        services.append("docs")
+        services = _configured_stack_services([*services, "docs"])
     _run_stack_compose(["up", "--build", "-d", *services])
     click.echo("frontend: http://localhost:3125")
     click.echo("service: http://localhost:8787")
-    if with_docs:
+    if with_docs and "docs" in services:
         click.echo("docs: http://localhost:3200")
 
 
@@ -3988,8 +4034,12 @@ def plugin_settings_set(ctx: click.Context, key: str, value: str, as_json: bool)
     click.echo(f"set {key}={str(enabled).lower()}")
 
 
-@cli.command("benchmark")
-@click.argument("action", required=False)
+@cli.group("benchmark")
+def benchmark_group() -> None:
+    """Run Atelier benchmark suites and reports."""
+
+
+@benchmark_group.command("run")
 @click.option(
     "--prompt",
     "prompts",
@@ -3998,38 +4048,6 @@ def plugin_settings_set(ctx: click.Context, key: str, value: str, as_json: bool)
 )
 @click.option("--model", default="claude-sonnet-4.6", show_default=True)
 @click.option("--rounds", default=3, show_default=True, help="How many rounds per prompt.")
-@click.option(
-    "--baseline-command",
-    default=None,
-    help="Command template for benchmark savings baseline runs. Receives ATELIER_BENCH_PROMPT.",
-)
-@click.option(
-    "--atelier-command",
-    default=None,
-    help="Command template for benchmark savings Atelier-enabled runs. Receives ATELIER_BENCH_PROMPT.",
-)
-@click.option(
-    "--timeout",
-    "timeout_s",
-    default=600.0,
-    show_default=True,
-    type=float,
-    help="Seconds per command.",
-)
-@click.option(
-    "--max-prompts",
-    default=5,
-    show_default=True,
-    type=int,
-    help="Default replay prompts for savings action.",
-)
-@click.option(
-    "--input",
-    "inputs",
-    multiple=True,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Benchmark report JSON inputs for compare/report/export.",
-)
 @click.option(
     "--output",
     "output_path",
@@ -4046,112 +4064,164 @@ def plugin_settings_set(ctx: click.Context, key: str, value: str, as_json: bool)
 )
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def benchmark(
+def benchmark_run(
     ctx: click.Context,
-    action: str | None,
     prompts: tuple[str, ...],
     model: str,
     rounds: int,
-    baseline_command: str | None,
-    atelier_command: str | None,
-    timeout_s: float,
-    max_prompts: int,
-    inputs: tuple[Path, ...],
     output_path: Path | None,
     output_format: str,
     as_json: bool,
 ) -> None:
-    """Run, compare, render, or export Atelier runtime benchmarks.
-
-    Backward compatibility:
-    - ``atelier benchmark --prompt ...`` still runs the benchmark directly.
-    - ``atelier benchmark run --prompt ...`` is the new explicit form.
-    """
+    """Run the core runtime benchmark and write the latest report."""
     from atelier.infra.runtime.benchmarking import (
         benchmark_report_path,
-        compare_runtime_reports,
         export_runtime_report,
-        load_runtime_report,
         render_runtime_report,
         run_runtime_benchmark,
     )
 
-    selected_action = action or "run"
-    if selected_action == "run":
-        report = run_runtime_benchmark(
-            root=ctx.obj["root"],
-            prompts=prompts,
-            model=model,
-            rounds=rounds,
-        )
-        if output_path is not None:
-            export_runtime_report(report, output_path=output_path, output_format=output_format)
-        if as_json:
-            _emit(report, as_json=True)
-            return
-        click.echo(render_runtime_report(report))
-        click.echo(f"saved report: {benchmark_report_path(ctx.obj['root'])}")
+    report = run_runtime_benchmark(
+        root=ctx.obj["root"],
+        prompts=prompts,
+        model=model,
+        rounds=rounds,
+    )
+    if output_path is not None:
+        export_runtime_report(report, output_path=output_path, output_format=output_format)
+    if as_json:
+        _emit(report, as_json=True)
         return
+    click.echo(render_runtime_report(report))
+    click.echo(f"saved report: {benchmark_report_path(ctx.obj['root'])}")
 
-    if selected_action == "savings":
-        if baseline_command is None or atelier_command is None:
-            raise click.ClickException("benchmark savings requires --baseline-command and --atelier-command")
-        from benchmarks.swe.savings_replay import run_paired_command_benchmark
 
-        tasks = [
-            {"id": f"prompt-{idx}", "task_type": "ad_hoc", "task": prompt}
-            for idx, prompt in enumerate(prompts, start=1)
-        ]
-        paired_report = run_paired_command_benchmark(
-            root=ctx.obj["root"],
-            baseline_command=baseline_command,
-            atelier_command=atelier_command,
-            tasks=tasks or None,
-            model=model,
-            timeout_s=timeout_s,
-            max_prompts=max_prompts,
-        )
-        payload = paired_report.to_dict()
-        if output_path is not None:
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-        if as_json:
-            _emit(payload, as_json=True)
-            return
-        click.echo(
-            f"savings benchmark complete: {payload['tokens_saved']} tokens, "
-            f"{payload['reduction_pct']:.2f}% reduction, "
-            f"${payload['cost_saved_usd']:.4f} saved"
-        )
-        click.echo(f"saved report: {ctx.obj['root'] / 'benchmarks' / 'savings' / 'latest.json'}")
+@benchmark_group.command("savings")
+@click.option(
+    "--prompt",
+    "prompts",
+    multiple=True,
+    help="Prompts to benchmark (repeat). Defaults to replay prompts.",
+)
+@click.option("--model", default="claude-sonnet-4.6", show_default=True)
+@click.option(
+    "--baseline-command",
+    required=True,
+    help="Command template for baseline runs. Receives ATELIER_BENCH_PROMPT.",
+)
+@click.option(
+    "--atelier-command",
+    required=True,
+    help="Command template for Atelier-enabled runs. Receives ATELIER_BENCH_PROMPT.",
+)
+@click.option("--timeout", "timeout_s", default=600.0, show_default=True, type=float, help="Seconds per command.")
+@click.option("--max-prompts", default=5, show_default=True, type=int, help="Default replay prompts to run.")
+@click.option("--output", "output_path", type=click.Path(path_type=Path), default=None)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def benchmark_savings(
+    ctx: click.Context,
+    prompts: tuple[str, ...],
+    model: str,
+    baseline_command: str,
+    atelier_command: str,
+    timeout_s: float,
+    max_prompts: int,
+    output_path: Path | None,
+    as_json: bool,
+) -> None:
+    """Run paired baseline-vs-Atelier command savings benchmarks."""
+    from benchmarks.swe.savings_replay import run_paired_command_benchmark
+
+    tasks = [
+        {"id": f"prompt-{idx}", "task_type": "ad_hoc", "task": prompt} for idx, prompt in enumerate(prompts, start=1)
+    ]
+    paired_report = run_paired_command_benchmark(
+        root=ctx.obj["root"],
+        baseline_command=baseline_command,
+        atelier_command=atelier_command,
+        tasks=tasks or None,
+        model=model,
+        timeout_s=timeout_s,
+        max_prompts=max_prompts,
+    )
+    payload = paired_report.to_dict()
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    if as_json:
+        _emit(payload, as_json=True)
         return
+    click.echo(
+        f"savings benchmark complete: {payload['tokens_saved']} tokens, "
+        f"{payload['reduction_pct']:.2f}% reduction, "
+        f"${payload['cost_saved_usd']:.4f} saved"
+    )
+    click.echo(f"saved report: {ctx.obj['root'] / 'benchmarks' / 'savings' / 'latest.json'}")
 
-    if selected_action == "compare":
-        if len(inputs) < 2:
-            raise click.ClickException("benchmark compare requires at least two --input reports")
-        comparison = compare_runtime_reports(list(inputs))
-        _emit(comparison, as_json=True)
+
+@benchmark_group.command("compare")
+@click.option(
+    "--input",
+    "inputs",
+    multiple=True,
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Benchmark report JSON input. Provide at least two.",
+)
+def benchmark_compare(inputs: tuple[Path, ...]) -> None:
+    """Compare two or more runtime benchmark reports."""
+    from atelier.infra.runtime.benchmarking import compare_runtime_reports
+
+    if len(inputs) < 2:
+        raise click.ClickException("benchmark compare requires at least two --input reports")
+    comparison = compare_runtime_reports(list(inputs))
+    _emit(comparison, as_json=True)
+
+
+@benchmark_group.command("report")
+@click.option(
+    "--input",
+    "input_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Benchmark report JSON input.",
+)
+@click.option("--json", "as_json", is_flag=True)
+def benchmark_report(input_path: Path, as_json: bool) -> None:
+    """Render one runtime benchmark report."""
+    from atelier.infra.runtime.benchmarking import load_runtime_report, render_runtime_report
+
+    report = load_runtime_report(input_path)
+    if as_json:
+        _emit(report, as_json=True)
         return
+    click.echo(render_runtime_report(report))
 
-    if selected_action == "report":
-        if len(inputs) != 1:
-            raise click.ClickException("benchmark report requires exactly one --input report")
-        report = load_runtime_report(inputs[0])
-        if as_json:
-            _emit(report, as_json=True)
-            return
-        click.echo(render_runtime_report(report))
-        return
 
-    if selected_action == "export":
-        if len(inputs) != 1 or output_path is None:
-            raise click.ClickException("benchmark export requires one --input report and --output")
-        report = load_runtime_report(inputs[0])
-        exported = export_runtime_report(report, output_path=output_path, output_format=output_format)
-        _emit({"output": str(exported), "format": output_format}, as_json=True)
-        return
+@benchmark_group.command("export")
+@click.option(
+    "--input",
+    "input_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Benchmark report JSON input.",
+)
+@click.option("--output", "output_path", required=True, type=click.Path(path_type=Path))
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "markdown", "csv"]),
+    default="json",
+    show_default=True,
+)
+def benchmark_export(input_path: Path, output_path: Path, output_format: str) -> None:
+    """Export a runtime benchmark report."""
+    from atelier.infra.runtime.benchmarking import export_runtime_report, load_runtime_report
 
-    raise click.ClickException("benchmark action must be one of: run, savings, compare, report, export")
+    report = load_runtime_report(input_path)
+    exported = export_runtime_report(report, output_path=output_path, output_format=output_format)
+    _emit({"output": str(exported), "format": output_format}, as_json=True)
 
 
 def _repo_root() -> Path:
@@ -4210,7 +4280,7 @@ def _run_benchmark_packs(*, root: Path, host: str) -> dict[str, Any]:
     }
 
 
-@cli.command("benchmark-core")
+@benchmark_group.command("core")
 @click.option(
     "--prompt",
     "prompts",
@@ -4237,7 +4307,7 @@ def benchmark_core(
     click.echo(f"tasks: {len(payload['report'].get('tasks', []))}")
 
 
-@cli.command("benchmark-hosts")
+@benchmark_group.command("hosts")
 @click.option("--workspace", default=None, help="Optional workspace path passed to verify scripts.")
 @click.option("--json", "as_json", is_flag=True)
 def benchmark_hosts(workspace: str | None, as_json: bool) -> None:
@@ -4251,26 +4321,7 @@ def benchmark_hosts(workspace: str | None, as_json: bool) -> None:
         raise click.ClickException("host benchmark/verification failed")
 
 
-@cli.command("benchmark-host")
-@click.option("--workspace", default=None, help="Optional workspace path passed to verify scripts.")
-@click.option("--json", "as_json", is_flag=True)
-def benchmark_host(workspace: str | None, as_json: bool) -> None:
-    """Benchmark/verify host integration readiness (alias for benchmark-hosts)."""
-    payload = _run_benchmark_hosts(workspace=workspace)
-    if as_json:
-        _emit(payload, as_json=True)
-    else:
-        click.echo(payload["output"])
-    if payload["exit_code"] != 0:
-        raise click.ClickException("host benchmark/verification failed")
-
-
-@cli.group("bench")
-def bench_group() -> None:
-    """Benchmark commands."""
-
-
-@bench_group.command("runtime")
+@benchmark_group.command("runtime")
 @click.option(
     "--output",
     "output_path",
@@ -4292,7 +4343,7 @@ def bench_runtime(ctx: click.Context, output_path: Path | None, as_json: bool) -
     click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
-@cli.command("benchmark-packs")
+@benchmark_group.command("packs")
 @click.option("--host", default="codex", show_default=True)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
@@ -4309,7 +4360,7 @@ def benchmark_packs(ctx: click.Context, host: str, as_json: bool) -> None:
             click.echo(f"  - {item.get('bundle_id', item.get('pack_id', '?'))}: {item['error']}")
 
 
-@cli.command("benchmark-full")
+@benchmark_group.command("full")
 @click.option(
     "--prompt",
     "prompts",
@@ -4354,6 +4405,15 @@ def benchmark_full(
 
     if hosts_payload["exit_code"] != 0:
         raise click.ClickException("full benchmark failed in host verification")
+
+
+def _register_swe_benchmark_group() -> None:
+    from benchmarks.swe.run_swe_bench import swe as swe_benchmark_group
+
+    benchmark_group.add_command(swe_benchmark_group)
+
+
+_register_swe_benchmark_group()
 
 
 @cli.group("service")

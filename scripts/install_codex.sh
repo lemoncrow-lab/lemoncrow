@@ -73,24 +73,7 @@ warn()  { echo "[atelier:codex] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 # ---- resolve install profile ------------------------------------------------
-eval "$(
-    PYTHONPATH="${ATELIER_REPO}/src:${PYTHONPATH:-}" python3 - <<'PY'
-from atelier.core.environment import install_profile_warning, resolve_install_profile
-import shlex
-import sys
-
-try:
-    profile = resolve_install_profile()
-except ValueError as exc:
-    print(f"echo '[atelier:codex] ERROR: {exc}' >&2")
-    print("exit 1")
-    raise SystemExit(0)
-
-warning = install_profile_warning(profile)
-print(f"INSTALL_PROFILE={shlex.quote(profile)}")
-print(f"ATELIER_INSTALL_PROFILE_WARNING={shlex.quote(warning or '')}")
-PY
-)"
+atelier_resolve_install_profile "atelier:codex"
 if [[ -n "${ATELIER_INSTALL_PROFILE_WARNING:-}" ]]; then
     warn "$ATELIER_INSTALL_PROFILE_WARNING"
 fi
@@ -153,19 +136,15 @@ if [ -z "\${ATELIER_WORKSPACE_ROOT:-}" ]; then
     export ATELIER_WORKSPACE_ROOT="\${PWD}"
 fi
 
-if [ -z "\${ATELIER_ROOT:-}" ]; then
-    if [ -n "\${ATELIER_STORE_ROOT:-}" ]; then
-        export ATELIER_ROOT="\${ATELIER_STORE_ROOT}"
-    else
-        export ATELIER_ROOT="\${HOME}/.atelier"
-    fi
+if [ -z "\${ATELIER_SERVICE_URL:-}" ]; then
+    export ATELIER_SERVICE_URL="http://127.0.0.1:8787"
 fi
 
 if [ -z "\${ATELIER_KNOWLEDGE_ROOT:-}" ]; then
     export ATELIER_KNOWLEDGE_ROOT="\${ATELIER_WORKSPACE_ROOT}/.knowledge"
 fi
 
->&2 echo "[atelier-mcp] repo=\$ATELIER_REPO workspace=\${ATELIER_WORKSPACE_ROOT} root=\${ATELIER_ROOT:-\${ATELIER_STORE_ROOT:-unset}}"
+>&2 echo "[atelier-mcp] repo=\$ATELIER_REPO workspace=\${ATELIER_WORKSPACE_ROOT} service=\${ATELIER_SERVICE_URL}"
 
 cd "\$ATELIER_REPO"
 exec atelier-mcp "\$@"
@@ -224,10 +203,12 @@ server["args"] = server.get("args", [])
 if $workspace_mode:
     server["env"] = {
         "ATELIER_WORKSPACE_ROOT": "$WORKSPACE",
-        "ATELIER_ROOT": "${HOME}/.atelier",
+        "ATELIER_SERVICE_URL": "http://127.0.0.1:8787",
     }
 else:
-    server.pop("env", None)
+    server["env"] = {
+        "ATELIER_SERVICE_URL": "http://127.0.0.1:8787",
+    }
 server.pop("cwd", None)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PYEOF
@@ -382,13 +363,13 @@ fi
 
 if [ -d "${PLUGIN_DIR}/skills" ] && [ -f "${PLUGIN_DIR}/skills/status/SKILL.md" ]; then
     if [[ "$INSTALL_PROFILE" == "dev" ]]; then
-        if [ -f "${PLUGIN_DIR}/skills/reasoning/SKILL.md" ]; then
+        if [ -f "${PLUGIN_DIR}/skills/task/SKILL.md" ]; then
             vpass "Codex skill bundle installed with dev skills: ${PLUGIN_DIR}/skills"
         else
-            vfail "Codex dev skill bundle missing reasoning skill: ${PLUGIN_DIR}/skills"
+            vfail "Codex dev skill bundle missing task skill: ${PLUGIN_DIR}/skills"
         fi
     else
-        if [ ! -f "${PLUGIN_DIR}/skills/reasoning/SKILL.md" ]; then
+        if [ ! -f "${PLUGIN_DIR}/skills/task/SKILL.md" ]; then
             vpass "Codex stable skill bundle installed without dev-only skills: ${PLUGIN_DIR}/skills"
         else
             vfail "Codex stable skill bundle unexpectedly contains dev-only skills: ${PLUGIN_DIR}/skills"

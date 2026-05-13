@@ -38,7 +38,7 @@ The MCP config registers Atelier as a stdio server:
       "args": [],
       "env": &#123;
         "ATELIER_WORKSPACE_ROOT": "<workspace>",
-        "ATELIER_ROOT": "~/.atelier"
+        "ATELIER_SERVICE_URL": "http://127.0.0.1:8787"
       &#125;
     &#125;
   &#125;
@@ -56,7 +56,7 @@ make verify
 Open Copilot Chat and ask:
 
 ```
-@atelier check this plan
+@atelier record task context for this change
 ```
 
 Or use a prompt like:
@@ -67,18 +67,17 @@ Use atelier to check the plan for: [your task here]
 
 ## Expected Behavior
 
-- Copilot Chat can invoke Atelier MCP tools
+- Copilot Chat can invoke Atelier MCP tools through the local Atelier HTTP service
 - `copilot-instructions.md` provides Atelier context to every Copilot session
 - `atelier` chat mode is available from the chat mode selector
-- `Atelier: Copilot Preflight` runs `atelier context` and `atelier check-plan` from the VS Code task runner before you continue in Copilot Chat
+- `Atelier: Copilot Preflight` runs the task-context preflight before you continue in Copilot Chat
 
 ## Why Tasks Still Use Shell
 
 Copilot's MCP support applies to chat/tool calls inside the Copilot session. VS Code
 `tasks.json` entries are shell tasks, so the preflight task has to spawn the
 `atelier` CLI rather than invoke MCP directly. The MCP server remains the primary
-integration surface for in-chat `reasoning`, `lint`, `trace`, `memory`, and other
-Atelier tools.
+integration surface for in-chat `task`, `trace`, `memory`, and other Atelier tools.
 
 ## Reload Required
 
@@ -105,7 +104,7 @@ All V2 tools are available via the Atelier MCP server. These are **Atelier augme
 | `memory`                | Atelier augmentation | Compact sleeptime memory (reduces context window)         |
 | `search`                | Atelier augmentation | Token-saving combined search + read                       |
 | `edit`                  | Atelier augmentation | Deterministic multi-file batch edits (optional)           |
-| `atelier bench runtime` | Atelier augmentation | Capability efficiency metrics                             |
+| `atelier benchmark runtime` | Atelier augmentation | Capability efficiency metrics                             |
 | `compact`               | Atelier augmentation | Advise before context compaction; provides reinject hints |
 | `atelier lesson inbox`  | Atelier augmentation | List lesson candidates awaiting decision                  |
 | `atelier lesson decide` | Atelier augmentation | Approve or reject a lesson candidate                      |

@@ -1,4 +1,4 @@
-"""MCP server (stdio JSON-RPC) for the Atelier reasoning runtime.
+"""MCP server (stdio JSON-RPC) for the Atelier task runtime.
 
 Implements a minimal subset of the Model Context Protocol sufficient for
 Codex / Claude Code to discover and call the runtime tools.
@@ -7,7 +7,6 @@ Codex / Claude Code to discover and call the runtime tools.
 from __future__ import annotations
 
 import contextlib
-import difflib
 import inspect
 import json
 import logging
@@ -36,7 +35,6 @@ from atelier.core.environment import (
 )
 from atelier.core.foundation.memory_models import MemoryBlock
 from atelier.core.foundation.models import RawArtifact, Trace, to_jsonable
-from atelier.core.foundation.plan_checker import check_plan
 from atelier.core.foundation.redaction import redact
 from atelier.core.foundation.rubric_gate import run_rubric
 from atelier.gateway.adapters.runtime import ReasoningRuntime
@@ -49,7 +47,7 @@ from atelier.infra.storage.memory_store import MemoryConcurrencyError, MemorySid
 logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_NAME = "atelier-reasoning"
+SERVER_NAME = "atelier-task"
 SERVER_VERSION = atelier_version
 
 
@@ -146,6 +144,10 @@ _product_session_started_at: float | None = None
 _last_plan_hash_by_session: dict[str, str] = {}
 _last_plan_by_session: dict[str, list[str]] = {}
 _last_blocked_plan_hash_by_session: dict[str, str] = {}
+
+
+def _service_backed_state() -> bool:
+    return True
 
 
 def _detect_agent() -> str:
@@ -246,67 +248,6 @@ def _emit_mcp_session_end(exit_reason: str = "success") -> None:
     )
 
 
-def _plan_hash(plan: list[str]) -> str:
-    return sha256(json.dumps(plan, sort_keys=True).encode("utf-8", errors="replace")).hexdigest()
-
-
-def _observe_plan_change(plan: list[str], domain: str | None) -> None:
-    session_id = _get_product_session_id()
-    last_plan = _last_plan_by_session.get(session_id)
-    plan_hash = _plan_hash(plan)
-    if last_plan is not None and _last_plan_hash_by_session.get(session_id) != plan_hash:
-        from atelier.core.service.telemetry import emit_product
-        from atelier.core.service.telemetry.schema import bucket_edit_distance
-
-        matcher = difflib.SequenceMatcher(a=last_plan, b=plan)
-        added = max(0, len(plan) - len(last_plan))
-        removed = max(0, len(last_plan) - len(plan))
-        emit_product(
-            "plan_modified_by_user",
-            domain=domain or "",
-            edit_distance_bucket=bucket_edit_distance(1.0 - matcher.ratio()),
-            steps_added=added,
-            steps_removed=removed,
-            session_id=session_id,
-        )
-    _last_plan_hash_by_session[session_id] = plan_hash
-    _last_plan_by_session[session_id] = list(plan)
-
-
-def _observe_plan_result(result: Any, domain: str | None, plan: list[str]) -> None:
-    from atelier.core.service.telemetry import emit_product
-    from atelier.core.service.telemetry.schema import hash_identifier
-
-    session_id = _get_product_session_id()
-    status = getattr(result, "status", "")
-    matched_blocks = list(getattr(result, "matched_blocks", []) or [])
-    if status == "blocked":
-        plan_hash = _plan_hash(plan)
-        if _last_blocked_plan_hash_by_session.get(session_id) == plan_hash:
-            emit_product(
-                "frustration_signal_behavioral",
-                signal_type="plan_resubmitted_unchanged",
-                session_id=session_id,
-            )
-        _last_blocked_plan_hash_by_session[session_id] = plan_hash
-        emit_product(
-            "plan_check_blocked",
-            domain=domain or "",
-            blocking_rule_id=hash_identifier(str(matched_blocks[0] if matched_blocks else "blocked")),
-            severity="high",
-            session_id=session_id,
-        )
-        return
-
-    _last_blocked_plan_hash_by_session.pop(session_id, None)
-    emit_product(
-        "plan_check_passed",
-        domain=domain or "",
-        rule_count=len(matched_blocks),
-        session_id=session_id,
-    )
-
-
 def _match_mcp_lexical(args: dict[str, Any]) -> None:
     from atelier.core.service.telemetry.frustration import match_frustration
 
@@ -338,6 +279,8 @@ _context_budget_recorder: Any = None
 def _get_context_budget_recorder() -> Any:
     """Get or create the ContextBudgetRecorder singleton."""
     global _context_budget_recorder
+    if _service_backed_state():
+        return _NoOpContextBudgetRecorder()
     if _context_budget_recorder is None:
         try:
             from atelier.core.capabilities.telemetry.context_budget import ContextBudgetRecorder
@@ -383,6 +326,8 @@ def _read_session_state() -> dict[str, Any]:
 
 
 def _write_session_state(updates: dict[str, Any]) -> None:
+    if _service_backed_state():
+        return
     try:
         p = _session_state_path()
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -776,7 +721,7 @@ def _workspace_path(file_path: str) -> Path:
     return Path(workspace) / p
 
 
-@mcp_tool(name="reasoning", is_dev=True)
+@mcp_tool(name="task", is_dev=True)
 def tool_get_reasoning_context(
     task: str,
     domain: str | None = None,
@@ -791,8 +736,8 @@ def tool_get_reasoning_context(
     agent_id: str | None = None,
     recall: bool = True,
 ) -> dict[str, Any]:
-    """[DEV] Retrieve relevant ReasonBlocks for a task and render them as injection context."""
-    if stub := _check_dev_mode("reasoning"):
+    """[DEV] Record task context and retrieve relevant ReasonBlocks for the task."""
+    if stub := _check_dev_mode("task"):
         return {"context": stub}
 
     if errors is None:
@@ -852,70 +797,10 @@ def tool_get_reasoning_context(
         agent_id=agent_id,
         recall=recall,
     )
-    result = payload if isinstance(payload, dict) else {"context": payload}
+    result: dict[str, Any] = payload if isinstance(payload, dict) else {"context": payload}
     if include_run_ledger:
         result["run_ledger"] = led.snapshot()
     return result
-
-
-@mcp_tool(name="lint", is_dev=True)
-def tool_check_plan(
-    task: str,
-    plan: list[str],
-    domain: str | None = None,
-    files: list[str] | None = None,
-    tools: list[str] | None = None,
-    errors: list[str] | None = None,
-) -> dict[str, Any]:
-    """[DEV] Validate a proposed agent plan against ReasonBlocks. Returns status pass|warn|blocked."""
-    if stub := _check_dev_mode("lint"):
-        return {"status": "pass", "warnings": [], "message": stub}
-
-    if errors is None:
-        errors = []
-    if tools is None:
-        tools = []
-    if files is None:
-        files = []
-    rt = _runtime()
-    led = _get_ledger()
-    _match_mcp_lexical({"task": task})
-    _observe_plan_change(plan, domain)
-    led.set_plan(plan)
-
-    led.record_tool_call(
-        "check_plan",
-        {
-            "task": task,
-            "plan": plan,
-            "domain": domain,
-            "files": files,
-            "tools": tools,
-            "errors": errors,
-        },
-    )
-
-    result = check_plan(
-        rt.store,
-        task=task,
-        plan=plan,
-        domain=domain,
-        files=files,
-        tools=tools,
-        errors=errors,
-    )
-
-    if result.matched_blocks:
-        for b_id in result.matched_blocks:
-            if b_id not in led.active_reasonblocks:
-                led.active_reasonblocks.append(b_id)
-
-    if getattr(result, "status", None) in ("ok", "warn", "pass"):
-        _write_session_state({"last_plan_check_ok_ts": time.time()})
-
-    _observe_plan_result(result, domain, plan)
-
-    return to_jsonable(result)
 
 
 @mcp_tool(name="route", is_dev=True)
@@ -1135,6 +1020,7 @@ def tool_record_trace(
     response: str | None = None,
     bash_outputs: list[Any] | None = None,
     tool_outputs: list[Any] | None = None,
+    run_id: str | None = None,
     session_id: str | None = None,
     trace_confidence: str | None = None,
     capture_sources: list[str] | None = None,
@@ -1278,7 +1164,7 @@ def tool_record_trace(
         "errors_seen": redact_list([str(v) for v in errors_seen]),
         "diff_summary": redact(diff_summary),
         "output_summary": redact(output_summary),
-        "session_id": session_id or led.session_id,
+        "session_id": session_id or run_id or led.session_id,
         "host": _derive_host(agent),
         "trace_confidence": trace_confidence,
         "capture_sources": capture_sources,
@@ -2165,8 +2051,8 @@ def tool_compact(
 # Tools that are routed through the remote HTTP service in MCP remote mode.
 _REMOTE_TOOLS = frozenset(
     {
-        "reasoning",
-        "lint",
+        "task",
+        "memory",
         "rescue",
         "trace",
         "verify",
@@ -2201,10 +2087,10 @@ def _dispatch_remote(name: str, args: dict[str, Any]) -> dict[str, Any]:
     client = _get_remote_client()
     import typing
 
-    if name == "reasoning":
-        return typing.cast(dict[str, Any], client.get_reasoning_context(args))
-    if name == "lint":
-        return typing.cast(dict[str, Any], client.check_plan(args))
+    if name == "task":
+        return typing.cast(dict[str, Any], client.get_task_context(args))
+    if name == "memory":
+        return typing.cast(dict[str, Any], client.memory(args))
     if name == "rescue":
         return typing.cast(dict[str, Any], client.rescue_failure(args))
     if name == "trace":
@@ -2231,7 +2117,7 @@ def _lever_for_tool(tool_name: str) -> str:
         return "compact_lifecycle"
     if lowered == "memory" or lowered.endswith("_memory"):
         return "scoped_recall"
-    if lowered == "reasoning" or lowered.endswith("_reasoning"):
+    if lowered == "task" or lowered.endswith("_task"):
         return "reasonblock_inject"
     return lowered or "unknown"
 
@@ -2426,47 +2312,53 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
         if spec is None:
             return _err(rid, -32601, f"unknown tool: {name}")
 
-        mcp_mode = os.environ.get("ATELIER_MCP_MODE", "local")
         started_at = time.perf_counter()
+        remote_routed = name in _REMOTE_TOOLS
         try:
-            _match_mcp_lexical(args if isinstance(args, dict) else {})
-            rtc = _get_realtime_context()
-            rtc.record_tool_input(name, args)
-            if mcp_mode == "remote" and name in _REMOTE_TOOLS:
+            if not _service_backed_state():
+                _match_mcp_lexical(args if isinstance(args, dict) else {})
+            if not _service_backed_state():
+                rtc = _get_realtime_context()
+                rtc.record_tool_input(name, args)
+            if remote_routed:
                 result = _dispatch_remote(name, args)
             else:
                 handler: Callable[[dict[str, Any]], dict[str, Any]] = spec["handler"]
                 result = handler(args)
 
-            led = _get_ledger()
-            result_text = json.dumps(result, ensure_ascii=False, default=str)
-            compact_text = result_text if len(result_text) <= 1200 else result_text[:600] + "..." + result_text[-600:]
-            led.record(
-                "tool_result",
-                f"{name} result",
-                {
-                    "tool": name,
-                    "output": compact_text,
-                    "output_chars": len(result_text),
-                },
-            )
-            rtc.record_tool_output(name, result)
-            rtc.persist()
-
-            # Record context budget metrics
-            _record_context_budget_for_tool(name, args if isinstance(args, dict) else {}, led, result)
-
-            with contextlib.suppress(Exception):
-                from atelier.core.service.telemetry import emit_product
-                from atelier.core.service.telemetry.schema import bucket_duration_ms
-
-                emit_product(
-                    "mcp_tool_called",
-                    tool_name=name,
-                    session_id=_get_product_session_id(),
-                    duration_ms_bucket=bucket_duration_ms((time.perf_counter() - started_at) * 1000),
-                    ok=True,
+            if not _service_backed_state():
+                led = _get_ledger()
+                result_text = json.dumps(result, ensure_ascii=False, default=str)
+                compact_text = (
+                    result_text if len(result_text) <= 1200 else result_text[:600] + "..." + result_text[-600:]
                 )
+                led.record(
+                    "tool_result",
+                    f"{name} result",
+                    {
+                        "tool": name,
+                        "output": compact_text,
+                        "output_chars": len(result_text),
+                    },
+                )
+                rtc.record_tool_output(name, result)
+                rtc.persist()
+
+                # Record context budget metrics
+                _record_context_budget_for_tool(name, args if isinstance(args, dict) else {}, led, result)
+
+            if not _service_backed_state():
+                with contextlib.suppress(Exception):
+                    from atelier.core.service.telemetry import emit_product
+                    from atelier.core.service.telemetry.schema import bucket_duration_ms
+
+                    emit_product(
+                        "mcp_tool_called",
+                        tool_name=name,
+                        session_id=_get_product_session_id(),
+                        duration_ms_bucket=bucket_duration_ms((time.perf_counter() - started_at) * 1000),
+                        ok=True,
+                    )
 
             return _ok(
                 rid,
@@ -2476,21 +2368,22 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
                 },
             )
         except Exception as exc:
-            with contextlib.suppress(Exception):
+            if not _service_backed_state():
                 rtc = _get_realtime_context()
                 rtc.record_tool_error(name, str(exc))
                 rtc.persist()
-            with contextlib.suppress(Exception):
-                from atelier.core.service.telemetry import emit_product
-                from atelier.core.service.telemetry.schema import bucket_duration_ms
+            if not _service_backed_state():
+                with contextlib.suppress(Exception):
+                    from atelier.core.service.telemetry import emit_product
+                    from atelier.core.service.telemetry.schema import bucket_duration_ms
 
-                emit_product(
-                    "mcp_tool_called",
-                    tool_name=name,
-                    session_id=_get_product_session_id(),
-                    duration_ms_bucket=bucket_duration_ms((time.perf_counter() - started_at) * 1000),
-                    ok=False,
-                )
+                    emit_product(
+                        "mcp_tool_called",
+                        tool_name=name,
+                        session_id=_get_product_session_id(),
+                        duration_ms_bucket=bucket_duration_ms((time.perf_counter() - started_at) * 1000),
+                        ok=False,
+                    )
             return _err(rid, _tool_error_code(exc), str(exc))
 
     return _err(rid, -32601, f"unknown method: {method}")
@@ -2548,7 +2441,8 @@ def main() -> None:
             os.environ["ATELIER_ROOT"] = argv[i + 1]
     # Kick off background daemons immediately at server start, before any
     # tool call arrives.  Runs in daemon threads so they never block serve().
-    threading.Thread(target=_autostart_servicectl, args=(_atelier_root(),), daemon=True).start()
+    if not _service_backed_state():
+        threading.Thread(target=_autostart_servicectl, args=(_atelier_root(),), daemon=True).start()
     threading.Thread(target=_check_auto_update, daemon=True).start()
     serve()
 

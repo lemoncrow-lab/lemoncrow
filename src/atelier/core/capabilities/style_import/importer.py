@@ -19,7 +19,6 @@ from atelier.core.foundation.lesson_models import LessonCandidate
 from atelier.core.foundation.models import ReasonBlock
 from atelier.core.foundation.store import ReasoningStore
 from atelier.infra.embeddings.base import Embedder
-from atelier.infra.embeddings.local import LocalEmbedder
 from atelier.infra.embeddings.null_embedder import NullEmbedder
 from atelier.infra.internal_llm.ollama_client import chat
 from atelier.infra.storage.vector import cosine_similarity
@@ -63,7 +62,7 @@ def import_files(
 
     resolved_domain = domain or _DEFAULT_DOMAIN
     files = collect_markdown_files(paths)
-    active_embedder = embedder or LocalEmbedder()
+    active_embedder = embedder
     existing_blocks = store.list_blocks(domain=resolved_domain, include_deprecated=True) if store else []
     existing_vectors = _embed_existing_blocks(existing_blocks, active_embedder)
     candidates: list[LessonCandidate] = []

@@ -29,7 +29,7 @@ bash scripts/install_gemini.sh --workspace /path/to/workspace
 | Bundled GEMINI context  | loaded from `extension/GEMINI.md`                            | loaded from the same linked extension      |
 | Wrapper launcher        | `~/.local/bin/atelier-gemini`                                | `<workspace>/bin/atelier-gemini`           |
 
-The extension manifest wires MCP directly:
+The extension manifest wires Gemini to the local Atelier HTTP service by default:
 
 ```json
 {
@@ -40,7 +40,7 @@ The extension manifest wires MCP directly:
       "cwd": "${workspacePath}",
       "env": {
         "ATELIER_WORKSPACE_ROOT": "${workspacePath}",
-        "ATELIER_ROOT": "${env:HOME}${/}.atelier"
+        "ATELIER_SERVICE_URL": "http://127.0.0.1:8787"
       }
     }
   },
@@ -61,13 +61,14 @@ make verify
 Start Gemini CLI and ask:
 
 ```
-use atelier to check this plan
+use skill: task
 ```
 
 ## Expected Behavior
 
 - Gemini CLI loads the Atelier extension on startup
-- All Atelier tools (`lint`, `atelier_status`, etc.) are available through the bundled MCP server
+- The bundled MCP server talks to the local Atelier HTTP service at `http://127.0.0.1:8787`
+- Shared runtime state and memory are owned by that service, not the workspace
 - Bundled commands (`/atelier:status`, `/atelier:context`) and bundled skills are installed with the extension
 - `atelier-gemini --task "..."` can emit live start-time optimizer guidance before handing off to Gemini CLI
 

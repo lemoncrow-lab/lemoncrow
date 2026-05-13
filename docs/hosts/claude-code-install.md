@@ -107,7 +107,7 @@ Start Claude Code in your workspace and type:
 /atelier:status
 ```
 
-You should see the Atelier runtime info (run ledger, store path, version).
+You should see the Atelier runtime info (run ledger, service-backed state, version).
 
 ## Slash Commands (Skills)
 
@@ -129,7 +129,7 @@ Select from the `/agents` list in Claude Code:
 
 | Agent             | Role                                         |
 | ----------------- | -------------------------------------------- |
-| `atelier:code`    | Main coding agent — full reasoning loop      |
+| `atelier:code`    | Main coding agent — full task loop           |
 | `atelier:explore` | Read-only repo exploration                   |
 | `atelier:review`  | Verifier — plan checks + rubric gate         |
 | `atelier:repair`  | Repair specialist — rescue repeated failures |
@@ -160,7 +160,7 @@ The following V2 MCP tools are available once Atelier is installed. These are **
 | ----------------------- | ------------------------ | -------------------------------------------------------------------------------- |
 | `search`                | **Atelier augmentation** | Token-saving combined search + read; deduplicates repeated context fetches       |
 | `edit`                  | **Atelier augmentation** | Deterministic multi-file batch edits (optional — host MultiEdit remains default) |
-| `atelier bench runtime` | **Atelier augmentation** | Capability efficiency metrics                                                    |
+| `atelier benchmark runtime` | **Atelier augmentation** | Capability efficiency metrics                                                    |
 
 ### Lesson pipeline
 

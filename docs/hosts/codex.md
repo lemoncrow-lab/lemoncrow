@@ -28,17 +28,16 @@ repo-pinned MCP wrapper.
 ./bin/atelier-codex --task "Fix live state drift" --domain state.change
 ```
 
-The wrapper enforces:
+The wrapper talks to the local Atelier service by default and enforces:
 
-1. `reasoning`
-2. `lint`
-3. Optional rubric gate via `--rubric`, which maps to `verify`
+1. `task`
+2. Optional rubric gate via `--rubric`, which maps to `verify`
 
 ## MCP Tools
 
 Canonical MCP names:
 
-- `reasoning`, `lint`, `route`, `rescue`, `trace`, `verify`
+- `task`, `route`, `rescue`, `trace`, `verify`
 - `memory`, `search`, `read`, `edit`, `compact`, `atelier_repo_map`
 
 CLI-only workflows include `atelier sql inspect`, `atelier lesson inbox`, `atelier consolidation inbox`, `atelier report`, `atelier proof show`, and `atelier route contract`.

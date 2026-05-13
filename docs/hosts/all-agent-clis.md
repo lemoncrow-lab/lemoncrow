@@ -104,8 +104,7 @@ That repo wrapper remains the canonical MCP entrypoint for direct MCP-only insta
 
 All hosts receive the same capability tools from the MCP server:
 
-- `reasoning`
-- `lint`
+- `task`
 - `route`
 - `rescue`
 - `trace`

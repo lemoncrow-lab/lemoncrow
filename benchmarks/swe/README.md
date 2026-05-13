@@ -14,7 +14,7 @@ events, rescue events, rubric verdicts).
 ```
 benchmarks/swe/
 ├── README.md          ← you are here
-├── run_swe_bench.py   ← Click entry: `atelier-bench swe …`
+├── run_swe_bench.py   ← Click entry: `atelier benchmark swe ...`
 ├── config.py          ← strict pydantic config schema
 ├── datasets.py        ← swe_bench_lite / verified / mock / custom JSONL
 ├── task_runner.py     ← one (task × mode × attempt) → metrics row
@@ -45,14 +45,14 @@ benchmarks/swe/
 `show-modes` prints the matrix at runtime:
 
 ```bash
-uv run atelier-bench swe show-modes
+uv run atelier benchmark swe show-modes
 ```
 
 ## Quickstart (offline, no API keys)
 
 ```bash
 # 20-task mock run (uses built-in mock dataset + MockAgent)
-uv run atelier-bench swe run --config benchmarks/swe/configs/lite_20.yaml
+uv run atelier benchmark swe run --config benchmarks/swe/configs/lite_20.yaml
 
 # Output:
 #   benchmarks/swe/outputs/lite_20/<TIMESTAMP>/
@@ -64,10 +64,10 @@ uv run atelier-bench swe run --config benchmarks/swe/configs/lite_20.yaml
 #     report.json
 
 # Score predictions (mock evaluator if `swebench` not installed)
-uv run atelier-bench swe evaluate --run-dir benchmarks/swe/outputs/lite_20/<TS> --mock
+uv run atelier benchmark swe evaluate --run-dir benchmarks/swe/outputs/lite_20/<TS> --mock
 
 # Re-render report from existing metrics
-uv run atelier-bench swe report --run-dir benchmarks/swe/outputs/lite_20/<TS>
+uv run atelier benchmark swe report --run-dir benchmarks/swe/outputs/lite_20/<TS>
 ```
 
 ## Make targets
@@ -116,7 +116,7 @@ This is the schema accepted by
 
 ```bash
 uv pip install swebench
-uv run atelier-bench swe evaluate --run-dir benchmarks/swe/outputs/lite_20/<TS>
+uv run atelier benchmark swe evaluate --run-dir benchmarks/swe/outputs/lite_20/<TS>
 ```
 
 If `swebench` is missing the command prints exact install instructions and

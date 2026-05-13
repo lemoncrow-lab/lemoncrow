@@ -34,27 +34,41 @@ from atelier.gateway.sdk.client import (
 
 
 class _ServiceClient(Protocol):
-    def get_reasoning_context(self, args: dict[str, Any]) -> dict[str, Any]: ...
-    def check_plan(self, args: dict[str, Any]) -> dict[str, Any]: ...
+    def get_task_context(self, args: dict[str, Any]) -> dict[str, Any]: ...
+
     def rescue_failure(self, args: dict[str, Any]) -> dict[str, Any]: ...
+
     def run_rubric_gate(self, args: dict[str, Any]) -> dict[str, Any]: ...
+
     def record_trace(self, args: dict[str, Any]) -> dict[str, Any]: ...
+
     def list_reasonblocks(
         self,
         *,
         domain: str | None = None,
         query: str | None = None,
     ) -> list[dict[str, Any]]: ...
+
     def get_reasonblock(self, block_id: str) -> dict[str, Any]: ...
+
     def list_rubrics(self, *, domain: str | None = None) -> list[dict[str, Any]]: ...
+
     def get_rubric(self, rubric_id: str) -> dict[str, Any]: ...
+
     def analyze_failures(self, *, domain: str | None = None, limit: int = 100) -> dict[str, Any]: ...
+
     def get_savings(self) -> dict[str, Any]: ...
+
     def _get(self, path: str) -> dict[str, Any]: ...
+
     def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]: ...
+
     def list_evals(self, *, domain: str | None = None) -> dict[str, Any]: ...
+
     def run_evals(self, *, domain: str | None = None, limit: int = 50) -> dict[str, Any]: ...
+
     def lesson_inbox(self, args: dict[str, Any]) -> dict[str, Any]: ...
+
     def lesson_decide(self, args: dict[str, Any]) -> dict[str, Any]: ...
 
 
@@ -98,7 +112,7 @@ class RemoteClient(AtelierClient):
         recall: bool = True,
     ) -> ReasoningContextResult:
         payload = self._ensure_ok(
-            self._client.get_reasoning_context(
+            self._client.get_task_context(
                 {
                     "task": task,
                     "domain": domain,
@@ -126,19 +140,10 @@ class RemoteClient(AtelierClient):
         tools: list[str] | None = None,
         errors: list[str] | None = None,
     ) -> PlanCheckResult:
-        payload = self._ensure_ok(
-            self._client.check_plan(
-                {
-                    "task": task,
-                    "plan": plan,
-                    "domain": domain,
-                    "files": files or [],
-                    "tools": tools or [],
-                    "errors": errors or [],
-                }
-            )
+        raise RuntimeError(
+            "Service endpoint '/v1/reasoning/check-plan' was removed. "
+            "Use 'task' for planning context and 'verify' for checks."
         )
-        return PlanCheckResult.model_validate(payload)
 
     def rescue_failure(
         self,
@@ -160,6 +165,10 @@ class RemoteClient(AtelierClient):
                 }
             )
         )
+        payload = {
+            "rescue": str(payload.get("rescue") or ""),
+            "matched_blocks": list(payload.get("matched_blocks") or []),
+        }
         return RescueResult.model_validate(payload)
 
     def run_rubric_gate(self, *, rubric_id: str, checks: dict[str, bool | None]) -> RubricResult:
@@ -198,6 +207,7 @@ class RemoteClient(AtelierClient):
                 }
             )
         )
+        payload = {"id": str(payload.get("id") or payload.get("session_id") or "")}
         return TraceRecordResult.model_validate(payload)
 
     def analyze_failures(

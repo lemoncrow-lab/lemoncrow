@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,8 +14,7 @@ from atelier.gateway.adapters import mcp_server
 from atelier.gateway.adapters.mcp_server import TOOLS, _handle
 
 EXPECTED_TOOLS = {
-    "reasoning",
-    "lint",
+    "task",
     "route",
     "rescue",
     "trace",
@@ -61,6 +61,13 @@ def _seed_store(root: Path) -> None:
     assert result.exit_code == 0, result.output
 
 
+def _mock_client(return_values: dict[str, dict[str, Any]]) -> MagicMock:
+    client = MagicMock()
+    for method_name, retval in return_values.items():
+        getattr(client, method_name).return_value = retval
+    return client
+
+
 @pytest.fixture()
 def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / ".atelier"
@@ -70,6 +77,14 @@ def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("ATELIER_DEV_MODE", "1")
     mcp_server._current_ledger = None
     mcp_server._realtime_ctx = None
+    mcp_server._remote_client = _mock_client(
+        {
+            "get_task_context": {"context": "Here are the relevant procedures.", "run_ledger": []},
+            "rescue_failure": {"rescue": "Try a narrower reproduction.", "analysis": "repeat failure"},
+            "record_trace": {"id": "trace-123", "event_recorded": True},
+            "run_rubric_gate": {"status": "pass"},
+        }
+    )
     return root
 
 
@@ -83,7 +98,7 @@ def test_initialize_returns_server_info() -> None:
         }
     )
     assert resp is not None
-    assert resp["result"]["serverInfo"]["name"] == "atelier-reasoning"
+    assert resp["result"]["serverInfo"]["name"] == "atelier-task"
     assert resp["result"]["protocolVersion"] == "2024-11-05"
 
 
@@ -110,15 +125,11 @@ def test_tools_list_only_passive_decision_tools_without_dev_mode(
     tools = resp["result"]["tools"]
     names = {tool["name"] for tool in tools}
     assert names == NON_DEV_LLM_TOOLS
-    assert "read" not in names
-    assert "search" not in names
     assert "edit" not in names
-    assert "memory" not in names
-    assert "compact" not in names
     assert "shell" not in names
-    reasoning = next(tool for tool in tools if tool["name"] == "reasoning")
-    assert "passive" in reasoning["description"]
-    assert "no-op/pass" in reasoning["description"]
+    task = next(tool for tool in tools if tool["name"] == "task")
+    assert "passive" in task["description"]
+    assert "no-op/pass" in task["description"]
 
 
 def test_tools_list_each_entry_has_schema() -> None:
@@ -141,20 +152,14 @@ def test_unknown_tool_returns_error() -> None:
     assert "unknown tool" in resp["error"]["message"]
 
 
-def test_get_reasoning_context_can_include_folded_state(store_root: Path) -> None:
+def test_get_task_context_can_include_folded_state(store_root: Path) -> None:
     resp = _call(
-        "reasoning",
+        "task",
         {"task": "Fix publish regression", "include_run_ledger": True},
     )
     payload = _result(resp)
     assert isinstance(payload.get("context"), str)
     assert "run_ledger" in payload
-
-
-def test_check_plan_pass_status(store_root: Path) -> None:
-    _ = store_root
-    payload = _result(_call("lint", {"task": "Add tests", "plan": ["Write tests", "Run pytest"]}))
-    assert payload["status"] in {"ok", "pass", "warn", "blocked"}
 
 
 def test_rescue_failure_returns_procedure(store_root: Path) -> None:
@@ -235,9 +240,9 @@ def test_smart_read_and_search_surfaces(store_root: Path, tmp_path: Path) -> Non
     read_payload = _result(_call("read", {"path": str(target), "max_lines": 20}))
     assert read_payload["language"] == "python"
 
-    search_payload = _result(_call("search", {"query": "needle", "path": str(tmp_path)}))
-    assert search_payload["mode"] == "chunks"
-    assert search_payload["matches"]
+    search_payload = _result(_call("search", {"path": str(target), "content_regex": "needle"}))
+    assert search_payload["isError"] is False
+    assert search_payload["_meta"]["fileMatchCount"] == 1
 
 
 def test_smart_edit_surface_applies_patch(store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

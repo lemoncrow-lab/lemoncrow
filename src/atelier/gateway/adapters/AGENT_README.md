@@ -21,7 +21,7 @@ Host-facing integration surfaces for CLI, MCP, service, and embedded runtime ada
 
 ## Capability-driven tools and commands
 
-- CLI: `capability list/status`, `memory summarize`, `read smart`, `edit smart`, `sql inspect`, `benchmark-runtime`, `benchmark-host`
+- CLI: `capability list/status`, `memory summarize`, `read smart`, `edit smart`, `sql inspect`, `benchmark runtime`, `benchmark hosts`
 - MCP (Core-6): `reasoning`, `lint`, `rescue`, `trace`, `verify`, `compact`
 
 ## MCP Tool Surface (Core-6)

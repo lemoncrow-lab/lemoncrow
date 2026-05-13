@@ -1,7 +1,5 @@
 description = "Show current Atelier run state (one-line summary)"
 prompt = """
 Run the shell command `atelier-status` and report its output verbatim. If the
-command is not on PATH, fall back to running `bash $ATELIER_REPO/bin/atelier-status`
-or call the MCP tool `reasoning` with no arguments to fetch
-the latest run state.
+command is not on PATH, fall back to running `bash $ATELIER_REPO/bin/atelier-status`.
 """

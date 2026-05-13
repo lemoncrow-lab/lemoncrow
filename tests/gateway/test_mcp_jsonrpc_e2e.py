@@ -14,12 +14,9 @@ from atelier.core.environment import NON_DEV_LLM_TOOLS
 from atelier.gateway.adapters import mcp_server
 from atelier.gateway.adapters.cli import cli
 from atelier.gateway.adapters.mcp_server import TOOLS, _handle
-from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
-from atelier.infra.storage.sqlite_store import SQLiteStore
 
 EXPECTED_TOOLS = {
-    "reasoning",
-    "lint",
+    "task",
     "route",
     "rescue",
     "trace",
@@ -65,14 +62,78 @@ def _payload(response: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _session_state(workspace: Path) -> dict[str, Any]:
-    from atelier.core.foundation.paths import resolve_session_state_path
+class _FakeRemoteClient:
+    def __init__(self) -> None:
+        self._blocks: dict[tuple[str, str], dict[str, Any]] = {}
+        self._archives: list[dict[str, Any]] = []
+        self._trace_count = 0
 
-    path = resolve_session_state_path(workspace)
-    assert path.exists(), f"missing session state at {path}"
-    data = json.loads(path.read_text(encoding="utf-8"))
-    assert isinstance(data, dict)
-    return data
+    def get_task_context(self, args: dict[str, Any]) -> dict[str, Any]:
+        passages = [
+            item
+            for item in self._archives
+            if args.get("agent_id") is None or item.get("agent_id") == args.get("agent_id")
+        ]
+        context = "Here are the relevant procedures."
+        if passages:
+            context += "\n<memory>Use archived guidance.</memory>"
+        return {"context": context, "recalled_passages": passages}
+
+    def memory(self, args: dict[str, Any]) -> dict[str, Any] | None:
+        op = args["op"]
+        if op == "block_upsert":
+            key = (str(args["agent_id"]), str(args["label"]))
+            version = int(self._blocks.get(key, {}).get("version", 0)) + 1
+            block = {
+                "id": f"block-{args['agent_id']}-{args['label']}",
+                "agent_id": args["agent_id"],
+                "label": args["label"],
+                "value": args["value"],
+                "version": version,
+                "pinned": bool(args.get("pinned", False)),
+            }
+            self._blocks[key] = block
+            return block
+        if op == "block_get":
+            return self._blocks.get((str(args["agent_id"]), str(args["label"])))
+        if op == "archive":
+            archived = {
+                "id": f"mem-{len(self._archives) + 1}",
+                "agent_id": args["agent_id"],
+                "text": args["text"],
+                "tags": list(args.get("tags", [])),
+                "dedup_hit": False,
+            }
+            self._archives.append(archived)
+            return archived
+        if op == "recall":
+            query = str(args.get("query", "")).lower()
+            tags = {str(tag) for tag in args.get("tags", [])}
+            passages = [
+                item
+                for item in self._archives
+                if query in str(item["text"]).lower() and (not tags or tags.issubset(set(item.get("tags", []))))
+            ]
+            return {"passages": passages[: int(args.get("top_k", 5) or 5)]}
+        raise ValueError(f"memory op not supported in remote mode: {op}")
+
+    def rescue_failure(self, args: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "rescue": "Try a narrower reproduction.",
+            "analysis": f"Investigate failure for {args.get('task', 'task')}.",
+            "matched_blocks": ["read-after-write-verification"],
+        }
+
+    def record_trace(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._trace_count += 1
+        return {
+            "id": f"trace-{self._trace_count}",
+            "session_id": "remote-session",
+            "status": args.get("status", "success"),
+        }
+
+    def run_rubric_gate(self, args: dict[str, Any]) -> dict[str, Any]:
+        return {"status": "pass", "rubric_id": args.get("rubric_id")}
 
 
 @pytest.fixture()
@@ -94,6 +155,7 @@ def mcp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     mcp_server._product_session_id = None
     mcp_server._product_session_started_at = None
     mcp_server._reset_runtime_cache_for_testing()
+    mcp_server._remote_client = _FakeRemoteClient()
 
     mcp_server._last_plan_hash_by_session.clear()
     mcp_server._last_plan_by_session.clear()
@@ -125,15 +187,11 @@ def test_tools_list_only_passive_decision_tools_without_dev_mode(
     tools = response["result"]["tools"]
     names = {tool["name"] for tool in tools}
     assert names == NON_DEV_LLM_TOOLS
-    assert "read" not in names
-    assert "search" not in names
     assert "edit" not in names
-    assert "memory" not in names
-    assert "compact" not in names
     assert "shell" not in names
-    lint = next(tool for tool in tools if tool["name"] == "lint")
-    assert "passive" in lint["description"]
-    assert "no-op/pass" in lint["description"]
+    task = next(tool for tool in tools if tool["name"] == "task")
+    assert "passive" in task["description"]
+    assert "no-op/pass" in task["description"]
 
 
 def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) -> None:
@@ -211,7 +269,7 @@ def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) ->
 
     assert result.returncode == 0, result.stderr
     responses = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
-    assert responses[0]["result"]["serverInfo"]["name"] == "atelier-reasoning"
+    assert responses[0]["result"]["serverInfo"]["name"] == "atelier-task"
 
     edit_payload = json.loads(responses[1]["result"]["content"][0]["text"])
     assert edit_payload["failed"] == []
@@ -221,7 +279,7 @@ def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) ->
     assert search_payload["matches"]
 
 
-def test_memory_reasoning_and_transcript_recall_e2e(mcp_env: Path) -> None:
+def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
     block = _payload(
         _call(
             "memory",
@@ -256,7 +314,7 @@ def test_memory_reasoning_and_transcript_recall_e2e(mcp_env: Path) -> None:
             {
                 "op": "archive",
                 "agent_id": "atelier:code",
-                "text": "Archived checkout retry guidance for MCP JSON-RPC reasoning tests.",
+                "text": "Archived checkout retry guidance for MCP JSON-RPC task tests.",
                 "source": "user",
                 "source_ref": "pytest:e2e",
                 "tags": ["agent:atelier:code", "mcp-e2e"],
@@ -281,46 +339,31 @@ def test_memory_reasoning_and_transcript_recall_e2e(mcp_env: Path) -> None:
     assert recalled["passages"][0]["id"] == archived["id"]
     assert "checkout retry guidance" in recalled["passages"][0]["text"].lower()
 
-    reasoning = _payload(
+    task = _payload(
         _call(
-            "reasoning",
+            "task",
             {
-                "task": "Use checkout retry guidance in MCP JSON-RPC reasoning tests.",
+                "task": "Use checkout retry guidance in MCP JSON-RPC task tests.",
                 "agent_id": "atelier:code",
             },
         )
     )
-    assert "<memory>" in reasoning["context"]
-    assert reasoning["recalled_passages"]
-    assert archived["id"] in {item["id"] for item in reasoning["recalled_passages"]}
+    assert "<memory>" in task["context"]
+    assert task["recalled_passages"]
+    assert archived["id"] in {item["id"] for item in task["recalled_passages"]}
 
-    transcript = mcp_env / ".claude" / "projects" / "demo" / "session.jsonl"
-    transcript.parent.mkdir(parents=True)
-    transcript.write_text(
-        "\n".join(
-            [
-                json.dumps({"message": {"content": "We fixed sqlite auto limit behavior in the SQL tool."}}),
-                json.dumps({"message": {"content": "The MCP search path should hit real files."}}),
-            ]
-        ),
-        encoding="utf-8",
+    transcript_recall = _call(
+        "memory",
+        {
+            "op": "transcript_recall",
+            "query": "sqlite auto limit",
+            "top_k": 2,
+        },
     )
-
-    transcript_recall = _payload(
-        _call(
-            "memory",
-            {
-                "op": "transcript_recall",
-                "query": "sqlite auto limit",
-                "top_k": 2,
-            },
-        )
-    )
-    assert transcript_recall["matches"]
-    assert "sqlite auto limit" in transcript_recall["content"][0]["text"].lower()
+    assert transcript_recall["error"]["message"] == "memory op not supported in remote mode: transcript_recall"
 
 
-def test_read_search_edit_and_memory_summary_e2e(mcp_env: Path) -> None:
+def test_read_search_edit_and_compact_e2e(mcp_env: Path) -> None:
     target = mcp_env / "sample.py"
     target.write_text(
         "def alpha():\n    return 'needle'\n\ndef beta():\n    return 'secondary needle'\n",
@@ -424,15 +467,6 @@ def test_read_search_edit_and_memory_summary_e2e(mcp_env: Path) -> None:
     assert non_atomic["failed"]
     assert partial.read_text(encoding="utf-8") == "OK\n"
 
-    session_id = str(_session_state(mcp_env)["active_session_id"])
-    summary = _payload(_call("memory", {"op": "summarize", "session_id": session_id}))
-    assert summary["tokens_pre"] >= summary["tokens_post"]
-    assert session_id in summary["summary_md"]
-
-    frame = SqliteMemoryStore(mcp_env / ".atelier").get_run_frame(session_id)
-    assert frame is not None
-    assert frame.session_id == session_id
-
 
 def test_edit_atomic_rollback_e2e(mcp_env: Path) -> None:
     good = mcp_env / "atomic.txt"
@@ -515,18 +549,18 @@ def test_sql_actions_e2e(mcp_env: Path) -> None:
     assert query["results"][0]["rows"][0]["name"] == "Ada"
 
 
-def test_lint_route_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
-    lint = _payload(
+def test_task_route_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
+    task = _payload(
         _call(
-            "lint",
+            "task",
             {
                 "task": "Add MCP JSON-RPC end-to-end tests",
-                "plan": ["Write MCP gateway tests", "Run targeted pytest"],
                 "domain": "coding",
+                "files": ["tests/gateway/test_mcp_jsonrpc_e2e.py"],
             },
         )
     )
-    assert lint["status"] in {"ok", "pass", "warn", "blocked"}
+    assert isinstance(task.get("context"), str)
 
     rescue = _payload(
         _call(
@@ -612,11 +646,6 @@ def test_lint_route_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
     assert "should_compact" in compact_advise
     assert "suggested_prompt" in compact_advise
 
-    session_id = str(_session_state(mcp_env)["active_session_id"])
-    compact_session = _payload(_call("compact", {"op": "session", "session_id": session_id}))
-    assert "prompt_block" in compact_session
-    assert "realtime" in compact_session
-
     trace = _payload(
         _call(
             "trace",
@@ -636,11 +665,4 @@ def test_lint_route_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
         )
     )
     assert trace["id"]
-    assert trace["session_id"] == session_id
-
-    stored_trace = SQLiteStore(mcp_env / ".atelier").get_trace(trace["id"])
-    assert stored_trace is not None
-    assert stored_trace.task == "Exercise MCP JSON-RPC end-to-end coverage"
-
-    state = _session_state(mcp_env)
-    assert state["trace_recorded"] is True
+    assert trace["session_id"] == "remote-session"

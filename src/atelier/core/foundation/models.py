@@ -205,7 +205,10 @@ class Trace(BaseModel):
     @classmethod
     def _consolidate_session_id(cls, data: Any) -> Any:
         if isinstance(data, dict):
+            legacy_run_id = data.pop("run_id", None)
             session_id = data.pop("session_id", None)
+            if not session_id:
+                session_id = legacy_run_id
             if session_id and not data.get("session_id"):
                 data["session_id"] = session_id
         return data

@@ -76,7 +76,7 @@ This checklist is the release gate for Atelier Phase D hardening.
 - Pack dependency constraints must resolve internally.
 - New/updated pack artifacts require:
   - validation (`pack validate`)
-  - benchmark (`benchmark-packs`)
+  - benchmark (`atelier benchmark packs`)
   - host bootstrap compatibility check
 - Runtime-learned ReasonBlocks are review/promote candidates, not auto-published governance records.
 

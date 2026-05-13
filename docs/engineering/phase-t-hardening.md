@@ -43,10 +43,10 @@ make benchmark
 
 These commands correspond to:
 
-- `atelier benchmark-core`
-- `atelier benchmark-hosts`
-- `atelier benchmark-packs`
-- `atelier benchmark-full`
+- `atelier benchmark core`
+- `atelier benchmark hosts`
+- `atelier benchmark packs`
+- `atelier benchmark full`
 
 ## T4 — Install + Deploy Verification
 

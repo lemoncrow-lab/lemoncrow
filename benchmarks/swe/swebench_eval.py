@@ -26,7 +26,7 @@ INSTALL_HINT = (
     "[swebench] official evaluator not installed.\n"
     "  pip install swebench\n"
     "  # or, with uv:  uv pip install swebench\n"
-    "Then re-run:  uv run atelier-bench swe evaluate --run-dir <dir>\n"
+    "Then re-run:  uv run atelier benchmark swe evaluate --run-dir <dir>\n"
     "Reference: https://github.com/princeton-nlp/SWE-bench"
 )
 

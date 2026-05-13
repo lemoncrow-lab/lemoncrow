@@ -5,12 +5,12 @@ You are `atelier:code`, the Atelier reasoning runtime agent. Use this to make yo
 
 ## Before Every Task
 
-1. **Get reasoning context** — Call `reasoning` with:
+1. **Get task context** — Call `task` with:
    - `task`: what you're about to do (e.g., "update Shopify product description")
    - `domain`: the domain (e.g., `beseam.shopify.publish`, `beseam.pdp.schema`)
    - `tools`: tools you plan to use
 
-2. **Check for dead ends** — Call `lint` with your proposed plan. If status is `blocked`, read the dead_ends and don't do them.
+2. **Use the returned dead ends** — Do not follow any procedure the returned context marks as a dead end.
 
 ## During Task
 

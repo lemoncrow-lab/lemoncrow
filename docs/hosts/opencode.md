@@ -28,7 +28,7 @@ make verify
       "command": ["<atelier_repo>/scripts/atelier_mcp_stdio.sh"],
       "environment": &#123;
         "ATELIER_WORKSPACE_ROOT": "<workspace>",
-        "ATELIER_ROOT": "~/.atelier"
+        "ATELIER_SERVICE_URL": "http://127.0.0.1:8787"
       &#125;
     &#125;
   &#125;
@@ -39,7 +39,7 @@ make verify
 
 Canonical MCP names:
 
-- `reasoning`, `lint`, `route`, `rescue`, `trace`, `verify`
+- `task`, `route`, `rescue`, `trace`, `verify`
 - `memory`, `search`, `read`, `edit`, `compact`, `atelier_repo_map`
 
 CLI-only workflows include `atelier sql inspect`, `atelier lesson inbox`, `atelier consolidation inbox`, `atelier report`, `atelier proof show`, and `atelier route contract`.

@@ -1,12 +1,11 @@
 # Atelier V2 MCP Tools (reference)
 
-V2 adds reasoning-state, environment, monitor, savings, and smart-tool
-capabilities. All V1 tools listed in [workflow.md](workflow.md) remain
-available and **backward compatible**.
+V2 adds task-state, environment, monitor, savings, and smart-tool
+capabilities.
 
-## Run ledger (per-run reasoning state)
+## Run ledger (per-run task state)
 
-- `reasoning({ session_id })` — returns the current plan,
+- `task({ session_id })` — returns the current plan,
   hypotheses tried/rejected, verified facts, open questions, blockers,
   next required validation, tool/token counts, file/command/test
   history, and the recent event tail.
@@ -15,7 +14,7 @@ available and **backward compatible**.
   `add_verified_fact`, `add_open_question`, `set_blocker`,
   `set_next_validation`, `record_test`.
 
-Use these instead of restating prior reasoning in chat.
+Use these instead of restating prior task context in chat.
 
 ## Monitors
 
@@ -33,8 +32,8 @@ Use these instead of restating prior reasoning in chat.
 
 ## Environments
 
-- `reasoning({ id })` — full Environment definition.
-- `reasoning({ domain })` — auto-resolves the
+- `task({ id })` — full Environment definition.
+- `task({ domain })` — auto-resolves the
   environment by domain prefix and returns rules, forbidden phrases,
   required validations, attached procedures.
 
@@ -53,7 +52,7 @@ remain available when exact raw output is needed. Set
 
 ## Hard rules (additive to workflow.md)
 
-6. Do not omit `reasoning` when resuming a run mid-stream.
+6. Do not omit `task` when resuming a run mid-stream.
 7. Do not store hidden chain-of-thought in
    `trace` payloads — only observable facts.
 8. Do not remove host-native read/search tools; smart tools are an augmentation,

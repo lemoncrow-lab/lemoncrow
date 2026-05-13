@@ -22,6 +22,9 @@ make install
 Use `bash scripts/install_claude.sh --workspace /path/to/workspace` to write a
 project-local `.mcp.json` instead of Claude user MCP scope.
 
+The stdio wrapper defaults to the local Atelier HTTP service at
+`http://127.0.0.1:8787`, so shared task state and memory live in that service.
+
 Install profile selection:
 
 - `ATELIER_PROFILE=stable` is the default install profile.

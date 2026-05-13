@@ -1,4 +1,4 @@
-"""Tests for the action-based benchmark CLI workflow."""
+"""Tests for the benchmark CLI subcommand workflow."""
 
 from __future__ import annotations
 
@@ -134,7 +134,8 @@ def test_benchmark_core_command_runs(tmp_path: Path) -> None:
         [
             "--root",
             str(tmp_path / ".atelier"),
-            "benchmark-core",
+            "benchmark",
+            "core",
             "--prompt",
             "Validate publish workflow",
             "--rounds",
@@ -156,7 +157,8 @@ def test_benchmark_packs_command_runs(tmp_path: Path) -> None:
         [
             "--root",
             str(tmp_path / ".atelier"),
-            "benchmark-packs",
+            "benchmark",
+            "packs",
             "--json",
         ],
     )
@@ -165,3 +167,26 @@ def test_benchmark_packs_command_runs(tmp_path: Path) -> None:
     payload = json.loads(result.output)
     assert payload["suite"] == "domains"
     assert payload["domains_total"] >= payload["domains_benchmarked"]
+
+
+def test_benchmark_legacy_top_level_commands_are_removed(tmp_path: Path) -> None:
+    runner = CliRunner()
+    root = tmp_path / ".atelier"
+
+    assert runner.invoke(cli, ["--root", str(root), "benchmark-core", "--json"]).exit_code != 0
+    assert runner.invoke(cli, ["--root", str(root), "benchmark", "--prompt", "Fix PDP", "--json"]).exit_code != 0
+
+
+def test_help_command_shows_root_and_nested_command_help(tmp_path: Path) -> None:
+    runner = CliRunner()
+    root = tmp_path / ".atelier"
+
+    root_help = runner.invoke(cli, ["--root", str(root), "help"])
+    assert root_help.exit_code == 0, root_help.output
+    assert "Commands:" in root_help.output
+    assert "benchmark" in root_help.output
+
+    command_help = runner.invoke(cli, ["--root", str(root), "help", "benchmark", "run"])
+    assert command_help.exit_code == 0, command_help.output
+    assert "Usage: cli benchmark run" in command_help.output
+    assert "--prompt" in command_help.output

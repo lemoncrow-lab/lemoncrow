@@ -75,14 +75,14 @@ if $WORKSPACE_SET; then
 {
   "default_agent": "atelier",
   "mcp": {
-    "atelier": {
-      "type": "local",
-      "command": ["${ATELIER_WRAPPER}"],
-      "environment": {
-        "ATELIER_WORKSPACE_ROOT": "${WORKSPACE}",
-        "ATELIER_ROOT": "${HOME}/.atelier"
+      "atelier": {
+        "type": "local",
+        "command": ["${ATELIER_WRAPPER}"],
+        "environment": {
+          "ATELIER_WORKSPACE_ROOT": "${WORKSPACE}",
+          "ATELIER_SERVICE_URL": "http://127.0.0.1:8787"
+        }
       }
-    }
   }
 }
 JSON
@@ -166,31 +166,14 @@ fi
 AGENT_SRC="${ATELIER_REPO}/integrations/opencode/agents/atelier.md"
 
 # ---- resolve install profile ------------------------------------------------
-eval "$(
-    PYTHONPATH="${ATELIER_REPO}/src:${PYTHONPATH:-}" python3 - <<'PY'
-from atelier.core.environment import install_profile_warning, resolve_install_profile
-import shlex
-import sys
-
-try:
-    profile = resolve_install_profile()
-except ValueError as exc:
-    print(f"echo '[atelier:opencode] ERROR: {exc}' >&2")
-    print("exit 1")
-    raise SystemExit(0)
-
-warning = install_profile_warning(profile)
-print(f"INSTALL_PROFILE={shlex.quote(profile)}")
-print(f"ATELIER_INSTALL_PROFILE_WARNING={shlex.quote(warning or '')}")
-PY
-)"
+atelier_resolve_install_profile "atelier:opencode"
 if [[ -n "${ATELIER_INSTALL_PROFILE_WARNING:-}" ]]; then
     warn "$ATELIER_INSTALL_PROFILE_WARNING"
 fi
 STAGING_DIR="${HOME}/.atelier/opencode-${INSTALL_PROFILE}"
 run "mkdir -p '$STAGING_DIR'"
 if [[ "$INSTALL_PROFILE" == "dev" ]]; then
-    info "Install profile: dev; staging full agent instructions with reasoning loop"
+    info "Install profile: dev; staging full agent instructions with task loop"
     atelier_write_managed_copy "${AGENT_SRC/.md/.dev.md}" "$STAGING_DIR/atelier.md" "$DRY_RUN"
 else
     info "Install profile: stable; staging stable agent instructions"

@@ -51,14 +51,13 @@ when `atelier-mcp` is already available on your `PATH`.
 
 ## Usage
 
-- `reasoning` remains the default coding-task loop and drives the Atelier
-  reasoning workflow.
-- The `atelier-codex` preflight wrapper now runs `reasoning`, then `lint`, then
-  optional `verify` before handing off to Codex.
+- `task` is the default coding-task loop and records task context through the
+  local Atelier service.
+- The `atelier-codex` preflight wrapper now runs `task`, then optional `verify`
+  before handing off to Codex.
 
 ## Hard rules
 
-- Never edit before `lint` returns `ok`.
 - Never retry a failing command a third time without `rescue`.
 - Never declare success on high-risk domains without `verify`.
 - Never record secrets or hidden chain-of-thought.

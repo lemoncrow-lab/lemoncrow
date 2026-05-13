@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-plugin.json",
   "name": "atelier",
   "version": "0.1.0",
-  "description": "AI reasoning/procedure/runtime layer for agentic workflows",
+  "description": "AI task/procedure/runtime layer for agentic workflows",
   "keywords": [
     "read",
     "search",

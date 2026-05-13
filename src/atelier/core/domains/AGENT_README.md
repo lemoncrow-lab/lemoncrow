@@ -24,7 +24,7 @@ evals, benchmarks) without publish/install/registry complexity.
 
 ## Where to look next
 
-- CLI: `src/atelier/adapters/cli.py` — `domain list`, `domain info`, `benchmark-packs`
+- CLI: `src/atelier/adapters/cli.py` — `domain list`, `domain info`, `benchmark packs`
 - Runtime: `src/atelier/adapters/runtime.py` — `_load_domain_reasonblocks()`
 - Tests: `tests/test_domains.py`, `tests/test_phase_d3_d4.py`, `tests/test_runtime_pack_reasoning_context.py`
 - Built-in bundle: `builtin/swe.general/`

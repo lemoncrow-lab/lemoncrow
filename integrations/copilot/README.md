@@ -11,7 +11,8 @@ Support level: **MCP + custom instructions** — MCP server registration and Cop
 
 The installer writes user/global VS Code config by default. Pass
 `--workspace DIR` to create or merge workspace `.vscode/mcp.json` and
-`.github/copilot-instructions.md`.
+`.github/copilot-instructions.md`. The MCP wrapper defaults to the local
+Atelier HTTP service at `http://127.0.0.1:8787`.
 
 ## Install
 

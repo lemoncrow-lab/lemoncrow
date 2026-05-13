@@ -8,7 +8,6 @@ import os
 
 from atelier.infra.embeddings.base import Embedder
 from atelier.infra.embeddings.letta_embedder import LettaEmbedder
-from atelier.infra.embeddings.local import LocalEmbedder
 from atelier.infra.embeddings.null_embedder import NullEmbedder
 from atelier.infra.embeddings.openai_embedder import OpenAIEmbedder
 
@@ -26,7 +25,6 @@ def make_embedder(*, pin: str | None = None) -> Embedder:
        ``local`` | ``openai`` | ``letta`` | ``null``
     2. Letta sidecar available → ``LettaEmbedder``
     3. ``OPENAI_API_KEY`` set → ``OpenAIEmbedder``
-    4. Default → ``LocalEmbedder`` (lazy-loads sentence-transformers on first embed call)
     """
     raw_choice = pin if pin is not None else (os.environ.get("ATELIER_EMBEDDER") or "")
     chosen = raw_choice.strip().lower()
@@ -36,8 +34,6 @@ def make_embedder(*, pin: str | None = None) -> Embedder:
             raise ValueError(f"Unknown embedder pin {chosen!r}; must be one of {sorted(_PIN_CHOICES)}")
         if chosen == "null":
             return NullEmbedder()
-        if chosen == "local":
-            return LocalEmbedder()
         if chosen == "openai":
             return OpenAIEmbedder()  # raises if OPENAI_API_KEY missing
         if chosen == "letta":
@@ -58,7 +54,7 @@ def make_embedder(*, pin: str | None = None) -> Embedder:
     if os.environ.get("OPENAI_API_KEY"):
         return OpenAIEmbedder()
 
-    return LocalEmbedder()
+    return NullEmbedder()
 
 
 def _importable(module: str) -> bool:
@@ -71,7 +67,6 @@ def _importable(module: str) -> bool:
 
 __all__ = [
     "LettaEmbedder",
-    "LocalEmbedder",
     "NullEmbedder",
     "OpenAIEmbedder",
     "make_embedder",

@@ -141,7 +141,7 @@ LOCAL=1 uv run python -m pytest tests/test_swe_benchmark_harness.py -q
 
 ```bash
 atelier --root .atelier pack install src/atelier/packs/official/atelier-pack-coding-general --json
-atelier --root .atelier benchmark-packs --json
+atelier --root .atelier benchmark packs --json
 ```
 
 **Expected:** install succeeds and benchmark reports baseline vs host+core vs host+core+pack metrics.

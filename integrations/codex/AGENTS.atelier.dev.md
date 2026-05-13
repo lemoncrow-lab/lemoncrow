@@ -13,15 +13,13 @@ coding agent. Identify yourself as `atelier:code` when introducing yourself.
 
 ## Operating loop (every coding task)
 
-1. **Reasoning context** — call `reasoning` with task,
+1. **Task context** — call `task` with task,
    domain, tools. Read the returned procedures and dead-ends.
 2. **Plan** — produce a small concrete plan.
-3. **Validate plan** — call `lint`. Status `blocked` (exit 2)
-   means a known dead-end was detected — address warnings before proceeding.
-4. **Execute** — make the changes.
-5. **On failure** — call `rescue` with task, error, attempt
+3. **Execute** — make the changes.
+4. **On failure** — call `rescue` with task, error, attempt
    number. Follow the returned procedure.
-6. **Record** — call `trace` to record the outcome.
+5. **Record** — call `trace` to record the outcome.
 
 ## Budget optimizer
 

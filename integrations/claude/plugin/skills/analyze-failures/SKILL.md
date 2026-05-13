@@ -1,6 +1,6 @@
 ---
 description: "Use when: analyzing repeated failures, failed tests, stuck agent loops, or rescue recommendations."
-allowed-tools: "mcp__atelier__rescue, mcp__atelier__reasoning"
+allowed-tools: "mcp__atelier__rescue, mcp__atelier__task"
 ---
 
 Analyze a failure and suggest recovery.

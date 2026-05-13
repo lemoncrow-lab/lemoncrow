@@ -18,17 +18,17 @@ make verify
 
 ## Usage
 
-In Copilot Chat, ask explicitly for Atelier MCP tools when you need plan/context/rubric checks.
+In Copilot Chat, ask explicitly for Atelier MCP tools when you need task context or rubric checks.
 
 Example:
 
 ```text
-Use lint on this plan before editing files.
+Use `task` before editing files.
 ```
 
 ## MCP Tool Names
 
-Canonical MCP names: `reasoning`, `lint`, `route`, `rescue`, `trace`, `verify`, `memory`, `read`, `edit`, `search`, `compact`, `atelier_repo_map`.
+Canonical MCP names: `task`, `route`, `rescue`, `trace`, `verify`, `memory`, `read`, `edit`, `search`, `compact`, `atelier_repo_map`.
 
 CLI-only workflows include `atelier lesson inbox`, `atelier consolidation inbox`, `atelier report`, and `atelier proof show`.
 

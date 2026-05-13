@@ -15,6 +15,7 @@ import json
 import os
 import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -91,11 +92,8 @@ class RemoteClient:
     # Service tools (mirror of MCP local tools)                          #
     # ------------------------------------------------------------------ #
 
-    def get_reasoning_context(self, args: dict[str, Any]) -> dict[str, Any]:
+    def get_task_context(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/reasoning/context", args)
-
-    def check_plan(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v1/reasoning/check-plan", args)
 
     def rescue_failure(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/reasoning/rescue", args)
@@ -105,6 +103,24 @@ class RemoteClient:
 
     def record_trace(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/traces", args)
+
+    def memory(self, args: dict[str, Any]) -> dict[str, Any]:
+        op = str(args.get("op") or "")
+        if op == "block_upsert":
+            return self._post("/v1/memory/blocks", args)
+        if op == "block_get":
+            query = urllib.parse.urlencode(
+                {
+                    "agent_id": str(args.get("agent_id") or ""),
+                    "label": str(args.get("label") or ""),
+                }
+            )
+            return self._get(f"/v1/memory/blocks?{query}")
+        if op == "archive":
+            return self._post("/v1/memory/archive", args)
+        if op == "recall":
+            return self._post("/v1/memory/recall", args)
+        raise ValueError(f"memory op not supported in remote mode: {op}")
 
     def lesson_inbox(self, args: dict[str, Any]) -> dict[str, Any]:
         domain = args.get("domain")

@@ -2,8 +2,8 @@
 /**
  * atelier-mcp-wrapper.js
  *
- * Launches the local `atelier-mcp` stdio server pointing at the active
- * workspace's .atelier/ directory. Works when the atelier package is
+ * Launches the local `atelier-mcp` stdio server pointing at the local Atelier
+ * HTTP service. Works when the atelier package is
  * installed in any of:
  *   1. `${ATELIER_VENV}/bin/atelier-mcp`             (explicit venv)
  *   2. `${CLAUDE_WORKSPACE_ROOT}/atelier/.venv/bin/atelier-mcp`  (repo venv)
@@ -52,22 +52,19 @@ function resolveWorkspaceRoot() {
   );
 }
 
-function resolveRoot(resolvedBin) {
-  if (process.env.ATELIER_ROOT) return process.env.ATELIER_ROOT;
-  if (process.env.ATELIER_STORE_ROOT) return process.env.ATELIER_STORE_ROOT;
-
-  return path.join(process.env.HOME, ".atelier");
+function resolveServiceUrl() {
+  return process.env.ATELIER_SERVICE_URL || "http://127.0.0.1:8787";
 }
 
 const bin = resolveBinary();
-const root = resolveRoot(bin);
+const serviceUrl = resolveServiceUrl();
 const workspaceRoot = resolveWorkspaceRoot();
 
-const child = spawn(bin, ["--root", root], {
+const child = spawn(bin, [], {
   stdio: ["inherit", "inherit", "inherit"],
   env: {
     ...process.env,
-    ATELIER_ROOT: root,
+    ATELIER_SERVICE_URL: serviceUrl,
     ATELIER_WORKSPACE_ROOT: workspaceRoot,
   },
 });

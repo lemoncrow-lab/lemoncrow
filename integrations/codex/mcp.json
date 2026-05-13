@@ -2,9 +2,9 @@
   "mcpServers": {
     "atelier": {
       "command": "atelier-mcp",
-      "args": ["--root", "${workspaceRoot}/.atelier"],
+      "args": [],
       "env": {
-        "ATELIER_ROOT": "${workspaceRoot}/.atelier"
+        "ATELIER_SERVICE_URL": "http://127.0.0.1:8787"
       }
     }
   }

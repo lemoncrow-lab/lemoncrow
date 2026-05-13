@@ -22,7 +22,7 @@ atelier rescue --task "Fix PDP schema" --domain Agent.pdp.schema --error "availa
 ## Benchmark
 
 ```bash
-atelier benchmark --prompt "Fix PDP schema" --json
+atelier benchmark run --prompt "Fix PDP schema" --json
 ```
 
 ## Troubleshooting

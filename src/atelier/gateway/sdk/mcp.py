@@ -1,7 +1,7 @@
 """MCP-backed SDK client.
 
-This client supports the MCP-standard reasoning tools directly. For richer
-read operations like listing ReasonBlocks it falls back to a local store at
+This client supports the MCP-standard task tools directly. For richer read
+operations like listing ReasonBlocks it falls back to a local store at
 ``root`` so external hosts can embed Atelier without shelling out.
 """
 
@@ -33,8 +33,7 @@ from atelier.gateway.sdk.local import LocalClient
 class _LoopbackTransport(MCPToolTransport):
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         tools = {
-            "reasoning": mcp_server.tool_get_reasoning_context,
-            "lint": mcp_server.tool_check_plan,
+            "task": mcp_server.tool_get_reasoning_context,
             "rescue": mcp_server.tool_rescue_failure,
             "trace": mcp_server.tool_record_trace,
             "verify": mcp_server.tool_run_rubric_gate,
@@ -70,7 +69,7 @@ class MCPClient(LocalClient):
         recall: bool = True,
     ) -> ReasoningContextResult:
         payload = self._transport.call_tool(
-            "reasoning",
+            "task",
             {
                 "task": task,
                 "domain": domain,
@@ -98,18 +97,7 @@ class MCPClient(LocalClient):
         tools: list[str] | None = None,
         errors: list[str] | None = None,
     ) -> PlanCheckResult:
-        payload = self._transport.call_tool(
-            "lint",
-            {
-                "task": task,
-                "plan": plan,
-                "domain": domain,
-                "files": files or [],
-                "tools": tools or [],
-                "errors": errors or [],
-            },
-        )
-        return PlanCheckResult.model_validate(payload)
+        raise RuntimeError("MCP tool 'lint' was removed. Use 'task' for planning context and 'verify' for checks.")
 
     def memory_upsert_block(
         self,
@@ -231,6 +219,10 @@ class MCPClient(LocalClient):
                 "recent_actions": recent_actions or [],
             },
         )
+        payload = {
+            "rescue": str(payload.get("rescue") or ""),
+            "matched_blocks": list(payload.get("matched_blocks") or []),
+        }
         return RescueResult.model_validate(payload)
 
     def run_rubric_gate(self, *, rubric_id: str, checks: dict[str, bool | None]) -> RubricResult:

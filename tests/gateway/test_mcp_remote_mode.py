@@ -1,9 +1,7 @@
-"""Tests for MCP remote mode (P5).
+"""Tests for service-backed MCP mode.
 
 Validates that:
-- Local mode still works as before.
-- Remote mode routes the 5 HTTP-backed tools through RemoteClient.
-- Response shape is the same whether local or remote.
+- Service-backed tools route through RemoteClient.
 - Service unavailable returns a structured error dict.
 """
 
@@ -34,13 +32,7 @@ from atelier.infra.storage.sqlite_store import SQLiteStore
 
 
 @pytest.fixture()
-def local_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_MCP_MODE", raising=False)
-
-
-@pytest.fixture()
-def remote_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_MCP_MODE", "remote")
+def service_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     # Reset the module-level cache between tests.
     import atelier.gateway.adapters.mcp_server as m
 
@@ -116,7 +108,8 @@ def _live_service(root: Path) -> Any:
             sys.executable,
             "-m",
             "uvicorn",
-            "atelier.core.service.api:app",
+            "atelier.core.service.api:create_app",
+            "--factory",
             "--host",
             "127.0.0.1",
             "--port",
@@ -142,28 +135,7 @@ def _live_service(root: Path) -> Any:
                 process.wait(timeout=5)
 
 
-# --------------------------------------------------------------------------- #
-# Local mode                                                                  #
-# --------------------------------------------------------------------------- #
-
-
-def test_mcp_local_mode_still_works(local_mode: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_reasoning_context works in local mode with an empty store."""
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / ".atelier"))
-
-    from atelier.infra.storage.sqlite_store import SQLiteStore
-
-    st = SQLiteStore(tmp_path / ".atelier")
-    st.init()
-
-    resp = _call_tool("reasoning", {"task": "deploy the app"})
-    assert resp["result"]["content"][0]["type"] == "text"
-    text = resp["result"]["content"][0]["text"]
-    payload = json.loads(text)
-    assert "context" in payload
-
-
-def test_initialize_request_returns_server_info(local_mode: None) -> None:
+def test_initialize_request_returns_server_info(service_mode: None) -> None:
     req = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -173,17 +145,19 @@ def test_initialize_request_returns_server_info(local_mode: None) -> None:
     resp = _handle(req)
     assert resp is not None
     assert "result" in resp
-    assert resp["result"]["serverInfo"]["name"] == "atelier-reasoning"
+    assert resp["result"]["serverInfo"]["name"] == "atelier-task"
 
 
-def test_tools_list_returns_all_tools(local_mode: None) -> None:
+def test_tools_list_returns_all_tools(service_mode: None) -> None:
     req = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
     resp = _handle(req)
     assert resp is not None
     tools = {t["name"] for t in resp["result"]["tools"]}
     for remote_tool in _REMOTE_TOOLS:
         assert remote_tool in tools
-    assert "reasoning" in tools
+    assert "task" in tools
+    assert "reasoning" not in tools
+    assert "lint" not in tools
     assert "compact" in tools
 
 
@@ -192,43 +166,21 @@ def test_tools_list_returns_all_tools(local_mode: None) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_remote_check_plan_same_shape(remote_mode: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    """check_plan in remote mode returns the same top-level keys."""
-    expected = {
-        "status": "pass",
-        "warnings": [],
-        "suggested_plan": [],
-        "matched_blocks": [],
-    }
-    client = _mock_client({"check_plan": expected})
-
-    import atelier.gateway.adapters.mcp_server as m
-
-    m._remote_client = client
-
-    resp = _call_tool("lint", {"task": "deploy", "plan": ["step 1"]})
-    assert resp is not None
-    assert "result" in resp
-    payload = json.loads(resp["result"]["content"][0]["text"])
-    assert "status" in payload
-    assert payload["status"] == "pass"
-
-
-def test_remote_get_reasoning_context_same_shape(remote_mode: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_remote_task_context_same_shape(service_mode: None, monkeypatch: pytest.MonkeyPatch) -> None:
     expected = {"context": "Here are the relevant procedures."}
-    client = _mock_client({"get_reasoning_context": expected})
+    client = _mock_client({"get_task_context": expected})
 
     import atelier.gateway.adapters.mcp_server as m
 
     m._remote_client = client
 
-    resp = _call_tool("reasoning", {"task": "publish product"})
+    resp = _call_tool("task", {"task": "publish product"})
     assert "result" in resp
     payload = json.loads(resp["result"]["content"][0]["text"])
     assert payload["context"] == "Here are the relevant procedures."
 
 
-def test_remote_record_trace_same_shape(remote_mode: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_remote_record_trace_same_shape(service_mode: None, monkeypatch: pytest.MonkeyPatch) -> None:
     expected = {"id": "trace-abc-123"}
     client = _mock_client({"record_trace": expected})
 
@@ -245,8 +197,49 @@ def test_remote_record_trace_same_shape(remote_mode: None, monkeypatch: pytest.M
     assert "id" in payload
 
 
+def test_remote_routed_tools_do_not_create_local_runtime_state(
+    service_mode: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _mock_client({"get_task_context": {"context": "remote"}})
+    local_root = tmp_path / "no-local-atelier"
+    monkeypatch.setenv("ATELIER_ROOT", str(local_root))
+
+    import atelier.gateway.adapters.mcp_server as m
+
+    m._current_ledger = None
+    m._realtime_ctx = None
+    m._context_budget_recorder = None
+    m._remote_client = client
+
+    resp = _call_tool("task", {"task": "publish product"})
+
+    assert "result" in resp
+    assert m._current_ledger is None
+    assert m._realtime_ctx is None
+    assert not local_root.exists()
+
+
+def test_remote_memory_routes_to_service(service_mode: None) -> None:
+    expected = {"id": "mem-1", "version": 1}
+    client = _mock_client({"memory": expected})
+
+    import atelier.gateway.adapters.mcp_server as m
+
+    m._remote_client = client
+
+    resp = _call_tool(
+        "memory",
+        {"op": "block_upsert", "agent_id": "codex", "label": "note", "value": "remember"},
+    )
+
+    assert "result" in resp
+    payload = json.loads(resp["result"]["content"][0]["text"])
+    assert payload == expected
+    client.memory.assert_called_once()
+
+
 def test_remote_mode_live_service_round_trip(
-    remote_mode: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    service_mode: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / ".atelier"
     _seed_store(root)
@@ -260,13 +253,21 @@ def test_remote_mode_live_service_round_trip(
     with _live_service(root) as base_url:
         monkeypatch.setenv("ATELIER_SERVICE_URL", base_url)
 
-        reasoning = _call_tool("reasoning", {"task": "deploy the app"})
-        reasoning_payload = json.loads(reasoning["result"]["content"][0]["text"])
-        assert "context" in reasoning_payload
+        task = _call_tool("task", {"task": "deploy the app"})
+        task_payload = json.loads(task["result"]["content"][0]["text"])
+        assert "context" in task_payload
 
-        lint = _call_tool("lint", {"task": "deploy", "plan": ["write code", "run tests"]})
-        lint_payload = json.loads(lint["result"]["content"][0]["text"])
-        assert lint_payload["status"] in {"pass", "warn", "blocked"}
+        memory = _call_tool(
+            "memory",
+            {
+                "op": "block_upsert",
+                "agent_id": "codex",
+                "label": "deploy-note",
+                "value": "Use remote service storage.",
+            },
+        )
+        memory_payload = json.loads(memory["result"]["content"][0]["text"])
+        assert memory_payload["id"]
 
         rescue = _call_tool("rescue", {"task": "deploy", "error": "connection refused"})
         rescue_payload = json.loads(rescue["result"]["content"][0]["text"])
@@ -307,7 +308,7 @@ def test_remote_mode_live_service_round_trip(
 
 
 def test_remote_service_unavailable_returns_structured_error(
-    remote_mode: None, monkeypatch: pytest.MonkeyPatch
+    service_mode: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """When the remote service is unreachable, the MCP handler returns a JSON-RPC error."""
     from urllib.error import URLError
@@ -324,7 +325,7 @@ def test_remote_service_unavailable_returns_structured_error(
 
     # Monkeypatch urlopen to raise immediately.
     with patch("urllib.request.urlopen", side_effect=URLError("Connection refused")):
-        resp = _call_tool("lint", {"task": "t", "plan": ["s"]})
+        resp = _call_tool("task", {"task": "t"})
 
     # The MCP wrapper must return a structured error, not raise.
     assert resp is not None
@@ -356,15 +357,15 @@ def test_remote_client_routes_correctly() -> None:
         return {"ok": True}
 
     with _patch.object(RemoteClient, "_request", _fake_request):
-        client.get_reasoning_context({"task": "t"})
-        client.check_plan({"task": "t", "plan": []})
+        client.get_task_context({"task": "t"})
         client.rescue_failure({"task": "t", "error": "e"})
         client.run_rubric_gate({"rubric_id": "r", "checks": {}})
         client.record_trace({"agent": "a", "domain": "d", "task": "t", "status": "success"})
+        client.memory({"op": "block_get", "agent_id": "a", "label": "l"})
 
     paths = [p for _, p in captured]
     assert "/v1/reasoning/context" in paths
-    assert "/v1/reasoning/check-plan" in paths
     assert "/v1/reasoning/rescue" in paths
     assert "/v1/rubrics/run" in paths
     assert "/v1/traces" in paths
+    assert any(path.startswith("/v1/memory/blocks?") for path in paths)

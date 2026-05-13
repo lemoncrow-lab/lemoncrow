@@ -395,7 +395,6 @@ function SpendTimelineChart({
 
   const maxCost = Math.max(...buckets.map((d) => d.cost), 0.0001);
   const totalCost = buckets.reduce((a, d) => a + d.cost, 0);
-  const activeBuckets = buckets.filter((d) => d.sessions > 0).length;
 
   return (
     <section className="border border-neutral-800 bg-neutral-950/40 p-5 space-y-3">
@@ -454,21 +453,13 @@ function SpendTimelineChart({
         <span>{buckets[0]?.date}</span>
         <span>{buckets[buckets.length - 1]?.date}</span>
       </div>
-      <div className="grid grid-cols-3 gap-3 pt-2 border-t border-neutral-800/60">
+      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-neutral-800/60">
         <div>
           <div className="text-[9px] uppercase text-neutral-500 mb-0.5">
-            Buckets
+            Total
           </div>
-          <div className="text-sm font-mono text-neutral-200">
-            {buckets.length}
-          </div>
-        </div>
-        <div>
-          <div className="text-[9px] uppercase text-neutral-500 mb-0.5">
-            Active
-          </div>
-          <div className="text-sm font-mono text-neutral-200">
-            {activeBuckets}
+          <div className="text-sm font-mono text-emerald-300">
+            ${totalCost.toFixed(2)}
           </div>
         </div>
         <div>

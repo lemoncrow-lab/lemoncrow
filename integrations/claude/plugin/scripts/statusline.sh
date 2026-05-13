@@ -71,8 +71,8 @@ OUT_F=$(fmt_tok "${OUT_TOK:-0}")
 CACHE_F=$(fmt_tok "${CACHE_R:-0}")
 CACHE_WF=$(fmt_tok "${CACHE_W:-0}")
 
-ATELIER_ROOT="${ATELIER_ROOT:-${ATELIER_STORE_ROOT:-${HOME}/.atelier}}"
-export ATELIER_STATUS_ROOT="$ATELIER_ROOT"
+ATELIER_STATUS_ROOT="${ATELIER_ROOT:-${ATELIER_STORE_ROOT:-}}"
+export ATELIER_STATUS_ROOT
 export ATELIER_STATUS_USD_PER_1K="${ATELIER_USD_PER_1K_TOKENS:-0.003}"
 export ATELIER_STATUS_SESSION_ID="${SESSION_ID:-}"
 SAVED_LINE=$(python3 2>/dev/null <<'PYEOF'
@@ -80,7 +80,8 @@ import json
 import os
 from pathlib import Path
 
-root = Path(os.environ["ATELIER_STATUS_ROOT"])
+root_env = os.environ.get("ATELIER_STATUS_ROOT") or ""
+root = Path(root_env) if root_env else None
 usd_per_1k = float(os.environ["ATELIER_STATUS_USD_PER_1K"])
 saved_usd = 0.0
 ctx_saved = 0
@@ -89,6 +90,8 @@ session_id = os.environ.get("ATELIER_STATUS_SESSION_ID") or ""
 status_text = ""
 
 def read_json(name: str) -> dict:
+  if root is None:
+    return {}
   path = root / name
   if not path.is_file():
     return {}
@@ -99,8 +102,11 @@ def read_json(name: str) -> dict:
     return {}
 
 if session_id:
-  stats = root / "session_stats" / f"{session_id}.json"
-  if stats.is_file():
+  if root is None:
+    stats = None
+  else:
+    stats = root / "session_stats" / f"{session_id}.json"
+  if stats and stats.is_file():
     try:
       data = json.loads(stats.read_text(encoding="utf-8"))
       savings = data.get("savings") or {}

@@ -4,9 +4,9 @@ Atelier benchmarks runtime efficiency against baseline host behavior.
 
 ## CLI
 
-- `atelier benchmark-core`
-- `atelier benchmark-runtime`
-- `atelier benchmark-host`
+- `atelier benchmark core`
+- `atelier benchmark runtime`
+- `atelier benchmark hosts`
 
 ## Runtime metrics
 
@@ -38,6 +38,6 @@ Interpretation guidance:
 
 ## Notes
 
-`benchmark-runtime` emits capability-focused efficiency metrics.
-`benchmark-core` runs prompt/task benchmark rounds.
-`benchmark-host` verifies host integration health.
+`benchmark runtime` emits capability-focused efficiency metrics.
+`benchmark core` runs prompt/task benchmark rounds.
+`benchmark hosts` verifies host integration health.

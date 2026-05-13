@@ -1,18 +1,18 @@
 {
   "name": "atelier",
   "version": "0.1.0",
-  "description": "AI reasoning/procedure/runtime layer for agentic workflows",
+  "description": "AI task/procedure/runtime layer for agentic workflows",
   "author": {
     "name": "Atelier Team"
   },
   "license": "MIT",
-  "keywords": ["reasoning", "mcp", "skills", "workflow"],
+  "keywords": ["task", "mcp", "skills", "workflow"],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Atelier",
     "shortDescription": "Atelier trace capture for Codex.",
-    "longDescription": "Bundle the stable Atelier MCP transport for Codex. Non-development installs expose passive tracing only; reasoning and plan-validation tools are dev-profile features.",
+    "longDescription": "Bundle the stable Atelier MCP transport for Codex. Non-development installs expose passive tracing only; task, rescue, and trace tools are dev-profile features.",
     "developerName": "Atelier Team",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],

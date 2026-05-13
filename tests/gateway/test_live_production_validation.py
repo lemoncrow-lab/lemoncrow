@@ -378,7 +378,7 @@ def test_real_installer_runs_in_target_directory(tmp_path: Path) -> None:
     responses = [json.loads(line) for line in mcp_result.stdout.splitlines() if line.strip()]
     tools_list = next(response for response in responses if response.get("id") == 2)
     tool_names = {tool["name"] for tool in tools_list["result"]["tools"]}
-    assert {"reasoning", "sql", "trace"}.issubset(tool_names)
+    assert {"task", "sql", "trace"}.issubset(tool_names)
 
 
 def test_docker_deploy_load_latency_and_stability(tmp_path: Path) -> None:

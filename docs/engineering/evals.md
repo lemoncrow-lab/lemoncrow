@@ -36,8 +36,8 @@ atelier eval run [--domain TEXT] [--eval-id ID]
 Or via the benchmark command (runs all active evals):
 
 ```bash
-atelier benchmark
-atelier benchmark --json
+atelier benchmark run
+atelier benchmark run --json
 ```
 
 ## Eval Lifecycle
@@ -84,7 +84,7 @@ Eval cases are stored in `.atelier/evals/` as JSON files:
 ## Benchmark Output
 
 ```bash
-atelier benchmark
+atelier benchmark run
 ```
 
 Example output:

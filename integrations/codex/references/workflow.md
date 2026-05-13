@@ -1,6 +1,6 @@
-# Atelier Reasoning Workflow (reference)
+# Atelier Task Workflow (reference)
 
-This document is the canonical reasoning loop every Codex coding session
+This document is the canonical task loop every Codex coding session
 must follow when the Atelier MCP server is available.
 
 ## When this applies
@@ -16,10 +16,10 @@ in this workspace, especially anything touching:
 
 ## Loop
 
-### 1. Retrieve reasoning context
+### 1. Retrieve task context
 
 ```json
-reasoning({
+task({
   "task": "Fix Shopify publish validation",
   "domain": "beseam.shopify.publish",
   "files": ["backend/src/modules/shopify/publish.py"],
@@ -33,34 +33,11 @@ Read every returned ReasonBlock. Note their `dead_ends`.
 
 3–8 imperative steps. Reference the blocks where relevant.
 
-### 3. Validate the plan
-
-```json
-lint({
-  "task": "Fix Shopify publish validation",
-  "domain": "beseam.shopify.publish",
-  "plan": [
-    "Load product GID from catalog ingest record",
-    "Use GID to call productUpdate mutation",
-    "Verify userErrors is empty",
-    "Re-fetch product by GID and assert metafield value",
-    "Run audit pass against rubric_shopify_publish"
-  ],
-  "files": ["backend/src/modules/shopify/publish.py"],
-  "tools": ["shopify.gql"]
-})
-```
-
-- `status == "blocked"` → replace plan with `suggested_plan`, re-check.
-  **Do not edit code.**
-- `status == "warn"` → mitigate each warning.
-- `status == "ok"` → proceed.
-
-### 4. Implement
+### 3. Implement
 
 Smallest diff that satisfies the validated plan.
 
-### 5. Rescue repeated failures
+### 4. Rescue repeated failures
 
 Trigger: same command/test/tool fails twice with same error signature.
 
@@ -78,7 +55,7 @@ rescue({
 })
 ```
 
-### 6. Rubric gate (high-risk only)
+### 5. Rubric gate (high-risk only)
 
 ```json
 verify({
@@ -98,7 +75,7 @@ verify({
 
 `status == "blocked"` → fix the failing check before declaring success.
 
-### 7. Record trace
+### 6. Record trace
 
 ```json
 trace({
@@ -108,7 +85,7 @@ trace({
   "status": "success",
   "files_touched": ["backend/src/modules/shopify/publish.py"],
   "tools_called": [
-    {"name": "lint", "args_hash": "", "count": 2},
+    {"name": "task", "args_hash": "", "count": 1},
     {"name": "edit", "args_hash": "", "count": 3}
   ],
   "commands_run": ["pytest tests/test_publish.py"],
@@ -123,11 +100,10 @@ trace({
 
 ## Hard rules
 
-1. Never edit files before `lint` returns `ok`.
-2. Never retry a failing command a third time without
+1. Never retry a failing command a third time without
    `rescue`.
-3. Never declare success on a high-risk domain without
+2. Never declare success on a high-risk domain without
    `verify`.
-4. Never record secrets, tokens, API keys, customer PII, or hidden
+3. Never record secrets, tokens, API keys, customer PII, or hidden
    chain-of-thought.
-5. Never invent plan steps that contradict matched ReasonBlocks.
+4. Never invent plan steps that contradict matched ReasonBlocks.

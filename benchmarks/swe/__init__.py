@@ -8,7 +8,7 @@ events, rubric verdicts).
 Public entry points:
 
 * :func:`benchmarks.swe.run_swe_bench.cli` — Click command group exposed
-  as the ``atelier-bench`` console script.
+  as ``atelier benchmark swe`` subcommands.
 * :class:`benchmarks.swe.config.BenchConfig`
 * :class:`benchmarks.swe.modes.Mode`
 

@@ -9,7 +9,7 @@
     {
       "name": "atelier",
       "source": "./",
-      "description": "AI reasoning/procedure/runtime layer for agentic workflows",
+      "description": "AI task/procedure/runtime layer for agentic workflows",
       "version": "0.1.0",
       "author": {
         "name": "Atelier Team"

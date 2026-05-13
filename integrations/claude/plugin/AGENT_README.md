@@ -1,4 +1,4 @@
-# integrations/claude/plugin/
+# ccrintegrations/claude/plugin/
 
 Canonical Claude Code plugin package for Atelier.
 
@@ -26,9 +26,8 @@ skills/                Slash commands produced via /atelier:<name>
   evals/SKILL.md       /atelier:evals
   settings/SKILL.md    /atelier:settings
   atelier-task/        Internal skill — task loop orchestration
-  atelier-check-plan/  Internal skill — plan validation gate
   atelier-rescue/      Internal skill — rescue trigger
-  atelier-record-trace/ Internal skill — record outcomes
+  atelier-trace/       Internal skill — record outcomes
 hooks/hooks.json       PostToolUse/PreToolUse hooks (all enabled=false by default)
 scripts/statusline.sh  Multi-line Claude status chrome; separates `atelier:code` from `atelier`
 .mcp.json              MCP server wiring via ${CLAUDE_PLUGIN_ROOT}
@@ -45,10 +44,10 @@ settings.json          defaultAgent hint
 
 ## Install Paths
 
-| Path                      | Command                                            | Plugin name                   |
-| ------------------------- | -------------------------------------------------- | ----------------------------- |
-| Standard (recommended)    | `make install`                                     | `atelier@atelier`             |
-| Dev (no install)          | `claude --plugin-dir ./integrations/claude/plugin` | N/A                           |
+| Path                   | Command                                            | Plugin name       |
+| ---------------------- | -------------------------------------------------- | ----------------- |
+| Standard (recommended) | `make install`                                     | `atelier@atelier` |
+| Dev (no install)       | `claude --plugin-dir ./integrations/claude/plugin` | N/A               |
 
 See [docs/hosts/claude-code-install.md](../../docs/hosts/claude-code-install.md) for full guide.
 

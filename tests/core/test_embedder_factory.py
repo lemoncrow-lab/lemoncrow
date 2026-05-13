@@ -6,7 +6,6 @@ import pytest
 
 from atelier.infra.embeddings.base import Embedder
 from atelier.infra.embeddings.factory import make_embedder
-from atelier.infra.embeddings.local import LocalEmbedder
 from atelier.infra.embeddings.null_embedder import NullEmbedder
 from atelier.infra.embeddings.openai_embedder import OpenAIEmbedder
 
@@ -17,22 +16,9 @@ def test_make_embedder_returns_local_in_stripped_env(monkeypatch: pytest.MonkeyP
     monkeypatch.delenv("ATELIER_LETTA_URL", raising=False)
     monkeypatch.delenv("ATELIER_EMBEDDER", raising=False)
 
-    import importlib
-    import sys
-
-    # Stub out sentence_transformers so it looks unavailable
-    original = sys.modules.get("sentence_transformers")
-    sys.modules["sentence_transformers"] = None  # type: ignore[assignment]
-    try:
-        e = make_embedder()
-        assert isinstance(e, LocalEmbedder)
-        assert isinstance(e, Embedder)
-    finally:
-        if original is None:
-            sys.modules.pop("sentence_transformers", None)
-        else:
-            sys.modules["sentence_transformers"] = original
-        importlib.invalidate_caches()
+    e = make_embedder()
+    assert isinstance(e, NullEmbedder)
+    assert isinstance(e, Embedder)
 
 
 def test_make_embedder_null_pin(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -68,31 +54,9 @@ def test_openai_embedder_init_fails_without_key(monkeypatch: pytest.MonkeyPatch)
 def test_all_embedders_satisfy_protocol() -> None:
     from atelier.infra.embeddings.letta_embedder import LettaEmbedder
 
-    for cls in (NullEmbedder, LettaEmbedder, LocalEmbedder):
+    for cls in (NullEmbedder, LettaEmbedder):
         instance = cls()
         assert isinstance(instance, Embedder), f"{cls.__name__} does not satisfy Embedder protocol"
-
-
-def test_local_embedder_hash_fallback_without_sentence_transformers(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import importlib
-    import sys
-
-    original = sys.modules.get("sentence_transformers")
-    sys.modules["sentence_transformers"] = None  # type: ignore[assignment]
-    try:
-        embedder = LocalEmbedder()
-        vectors = embedder.embed(["checkout retry", "checkout retry"])
-        assert len(vectors) == 2
-        assert len(vectors[0]) == embedder.dim
-        assert vectors[0] == vectors[1]
-    finally:
-        if original is None:
-            sys.modules.pop("sentence_transformers", None)
-        else:
-            sys.modules["sentence_transformers"] = original
-        importlib.invalidate_caches()
 
 
 def test_null_embedder_dim_and_name() -> None:

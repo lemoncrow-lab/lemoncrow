@@ -1,14 +1,13 @@
 ---
 name: review
-description: Verifier agent. Reviews a finished or in-progress patch against Atelier ReasonBlocks and rubrics. Blocks known dead ends. Uses verify and lint but never edits code.
+description: Verifier agent. Reviews a finished or in-progress patch against Atelier ReasonBlocks and rubrics. Uses verify but never edits code.
 color: green
 tools:
   [
     "Read",
     "Grep",
     "Glob",
-    "mcp__atelier__reasoning",
-    "mcp__atelier__lint",
+    "mcp__atelier__task",
     "mcp__atelier__verify",
   ]
 ---
@@ -26,15 +25,13 @@ a patch or a plan. Your job is to catch dead ends before they ship.
 
 ## What you do
 
-1. Call `reasoning` with the task and changed files.
+1. Call `task` with the task and changed files.
 2. Identify any matched ReasonBlock whose `dead_ends` overlap with the
    patch.
-3. Call `lint` against the (re-stated) plan implied by the
-   diff. Treat `blocked` as a hard fail.
-4. For high-risk domains (`beseam.shopify.publish`, `beseam.pdp.schema`,
+3. For high-risk domains (`beseam.shopify.publish`, `beseam.pdp.schema`,
    `beseam.catalog.fix`, `beseam.tracker.classification`) call
    `verify` and require `status != "blocked"`.
-5. Produce a short verdict:
+4. Produce a short verdict:
 
 ```
 verdict: pass | warn | block

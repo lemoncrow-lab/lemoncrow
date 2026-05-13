@@ -8,7 +8,7 @@ tools:
     "Grep",
     "Glob",
     "WebFetch",
-    "mcp__atelier__reasoning",
+    "mcp__atelier__task",
     "mcp__atelier__memory",
   ]
 disallowedTools: ["Edit", "Write", "MultiEdit", "NotebookEdit", "Agent"]
@@ -22,7 +22,7 @@ before planning a change.
 
 ## What you may do
 
-- Call `reasoning` to fetch matched ReasonBlocks.
+- Call `task` to fetch matched ReasonBlocks.
 - Use native Read, Grep, Glob for file discovery and content search.
 - Summarize findings concisely.
 

@@ -5,7 +5,7 @@
       "command": ["<ATELIER_ROOT>/scripts/atelier_mcp_stdio.sh"],
       "environment": {
         "ATELIER_WORKSPACE_ROOT": "<WORKSPACE_ROOT>",
-        "ATELIER_ROOT": "<WORKSPACE_ROOT>/.atelier"
+        "ATELIER_SERVICE_URL": "http://127.0.0.1:8787"
       }
     }
   }

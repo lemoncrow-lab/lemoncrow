@@ -44,7 +44,7 @@ make verify
 Start Codex in your workspace, restart once so the marketplace is reloaded, and use the bundled skill:
 
 ```text
-use skill: lint
+use skill: task
 ```
 
 Or run the Atelier preflight wrapper:
@@ -57,7 +57,9 @@ Or run the Atelier preflight wrapper:
 
 - Codex finds the local `atelier` marketplace and installs the plugin source on restart
 - Codex loads bundled Atelier skills and connects to the generated MCP wrapper
-- Wrapper preflight always runs reasoning context, plan validation, and optional rubric gate
+- Codex talks to the local Atelier HTTP service at `http://127.0.0.1:8787` by default
+- The service owns the shared central store; Codex MCP does not directly write workspace `.atelier` state
+- Wrapper preflight records task context and can run an optional rubric gate
 
 ## Troubleshooting
 
@@ -81,7 +83,7 @@ The following V2 tools are available via MCP once installed. All are **Atelier a
 | `memory`                | Atelier augmentation                             | Compact sleeptime memory (reduces context window) |
 | `search`                | Atelier augmentation                             | Token-saving combined search + read               |
 | `edit`                  | Atelier augmentation                             | Deterministic multi-file batch edits (optional)   |
-| `atelier bench runtime` | Atelier augmentation                             | Capability efficiency metrics                     |
+| `atelier benchmark runtime` | Atelier augmentation                             | Capability efficiency metrics                     |
 | `compact`               | Atelier augmentation over host-native `/compact` | Advise before compaction; provides reinject hints |
 | `atelier lesson inbox`  | Atelier augmentation                             | List lesson candidates awaiting decision          |
 | `atelier lesson decide` | Atelier augmentation                             | Approve or reject a lesson candidate              |

@@ -38,14 +38,14 @@ bash scripts/install_gemini.sh --workspace /path/to/workspace
 gemini --prompt "List the current Atelier plans and tell me which ones are stale."
 ```
 
-If Gemini returns the plan list from `<workspace>/.atelier/plans/`, the extension is wired correctly.
+If Gemini can read Atelier run context through the local service, the extension is wired correctly.
 
 ## Files
 
 - `extension/gemini-extension.json` — extension manifest.
 - `extension/commands/` — bundled Gemini commands.
 - `extension/skills/` — generated from `integrations/skills`.
-- `verify.sh` — non-destructive smoke test (lists plans, prints the first reasoning block).
+- `verify.sh` — non-destructive smoke test.
 
 ## See also
 
@@ -56,9 +56,8 @@ If Gemini returns the plan list from `<workspace>/.atelier/plans/`, the extensio
 
 ## V2 tools
 
-Atelier V2 adds nine MCP tools (run-ledger, monitor, compress, two
-environment helpers, three smart-tool wrappers) on top of the original
-six. All V1 tools remain backward compatible. See
+Atelier V2 adds service-backed task/memory tooling and local read/search/compact
+augmentations. See
 [`atelier/codex-plugin/references/v2-tools.md`](../codex-plugin/references/v2-tools.md)
 for the full surface.
 

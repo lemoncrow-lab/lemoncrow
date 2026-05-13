@@ -478,9 +478,10 @@ def _persist_result(db_path: Path, result: ReplayResult, completed_at: datetime,
             conn.execute(
                 """
                 INSERT INTO benchmark_prompt_result (
-                    id, session_id, prompt_id, task_type, baseline_input_tokens,
-                    optimized_input_tokens, reduction_pct, lever_attribution_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    id, session_id, prompt_id, task_type, input_tokens_baseline,
+                    input_tokens_optimized, reduction_pct, duration_ms, created_at,
+                    baseline_input_tokens, optimized_input_tokens, lever_attribution_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     f"bpr-{make_uuid7()}",
@@ -490,6 +491,10 @@ def _persist_result(db_path: Path, result: ReplayResult, completed_at: datetime,
                     prompt.baseline_input_tokens,
                     prompt.optimized_input_tokens,
                     prompt.reduction_pct,
+                    0,
+                    completed_at.isoformat(),
+                    prompt.baseline_input_tokens,
+                    prompt.optimized_input_tokens,
                     json.dumps({prompt.lever: prompt.tokens_saved}, sort_keys=True),
                 ),
             )
@@ -530,9 +535,10 @@ def _persist_paired_command_result(
             conn.execute(
                 """
                 INSERT INTO benchmark_prompt_result (
-                    id, session_id, prompt_id, task_type, baseline_input_tokens,
-                    optimized_input_tokens, reduction_pct, lever_attribution_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    id, session_id, prompt_id, task_type, input_tokens_baseline,
+                    input_tokens_optimized, reduction_pct, duration_ms, created_at,
+                    baseline_input_tokens, optimized_input_tokens, lever_attribution_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     f"bpr-{make_uuid7()}",
@@ -542,6 +548,10 @@ def _persist_paired_command_result(
                     prompt.baseline.total_tokens,
                     prompt.atelier.total_tokens,
                     prompt.reduction_pct,
+                    prompt.baseline.elapsed_ms + prompt.atelier.elapsed_ms,
+                    completed_at.isoformat(),
+                    prompt.baseline.total_tokens,
+                    prompt.atelier.total_tokens,
                     json.dumps(
                         {
                             "tokens_saved": prompt.tokens_saved,

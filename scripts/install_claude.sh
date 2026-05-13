@@ -69,24 +69,7 @@ warn()  { echo "[atelier:claude] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 # ---- resolve install profile ------------------------------------------------
-eval "$(
-    PYTHONPATH="${ATELIER_REPO}/src:${PYTHONPATH:-}" python3 - <<'PY'
-from atelier.core.environment import install_profile_warning, resolve_install_profile
-import shlex
-import sys
-
-try:
-    profile = resolve_install_profile()
-except ValueError as exc:
-    print(f"echo '[atelier:claude] ERROR: {exc}' >&2")
-    print("exit 1")
-    raise SystemExit(0)
-
-warning = install_profile_warning(profile)
-print(f"INSTALL_PROFILE={shlex.quote(profile)}")
-print(f"ATELIER_INSTALL_PROFILE_WARNING={shlex.quote(warning or '')}")
-PY
-)"
+atelier_resolve_install_profile "atelier:claude"
 if [[ -n "${ATELIER_INSTALL_PROFILE_WARNING:-}" ]]; then
     warn "$ATELIER_INSTALL_PROFILE_WARNING"
 fi
@@ -96,12 +79,12 @@ run "cp '${SOURCE_PLUGIN_DIR}/.claude-plugin/plugin.json' '$STAGING_DIR/.claude-
 run "cp '${SOURCE_PLUGIN_DIR}/.claude-plugin/marketplace.json' '$STAGING_DIR/.claude-plugin/'"
 run "mkdir -p '$STAGING_DIR/agents'"
 if [[ "$INSTALL_PROFILE" == "dev" ]]; then
-    info "Install profile: dev; staging full plugin with reasoning loop"
+    info "Install profile: dev; staging full plugin with task loop"
     for agent in code explore review repair; do
         atelier_write_managed_copy "${SOURCE_PLUGIN_DIR}/agents/${agent}.dev.md" "$STAGING_DIR/agents/${agent}.md" "$DRY_RUN"
     done
 else
-    info "Install profile: stable; staging stable plugin without dev reasoning loop"
+    info "Install profile: stable; staging stable plugin without dev-only task loop"
     for agent in code explore review repair; do
         atelier_write_managed_copy "${SOURCE_PLUGIN_DIR}/agents/${agent}.md" "$STAGING_DIR/agents/${agent}.md" "$DRY_RUN"
     done
@@ -122,7 +105,7 @@ if $WORKSPACE_SET; then
       "args": [],
       "env": {
         "ATELIER_WORKSPACE_ROOT": "${WORKSPACE}",
-        "ATELIER_ROOT": "${HOME}/.atelier"
+        "ATELIER_SERVICE_URL": "http://127.0.0.1:8787"
       }
     }
   }
@@ -382,7 +365,7 @@ import json
 import sys
 
 path = sys.argv[1]
-hook_command = "echo '{\"systemMessage\": \"Atelier loop required: call reasoning then lint before editing.\"}'"
+hook_command = "echo '{\"systemMessage\": \"Atelier loop required: call task before editing and use rescue on repeated failures.\"}'"
 
 with open(path) as f:
     d = json.load(f)
@@ -441,5 +424,5 @@ fi
 
 info "Done. Start Claude Code in your workspace. Skills and agents are available."
 info "  /atelier:status  - show run ledger"
-info "  /atelier:context - show reasoning context"
+info "  /atelier:context - show task context"
 info "  Agents: atelier:code, atelier:explore, atelier:review, atelier:repair"

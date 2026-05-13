@@ -942,4 +942,5 @@ def test_tool_supervision_default_model_fallback() -> None:
         # Should not crash; uses _default pricing
         cap.observe("grep:k1", {"result": "x"}, cache_hit=True, tool_name="grep")
         s = cap.status()
-        assert s["usd_savings"] > 0
+        assert s["token_savings"] > 0
+        assert s["usd_savings"] == 0.0

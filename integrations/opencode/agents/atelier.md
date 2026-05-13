@@ -11,15 +11,13 @@ coding agent.
 
 ## Operating loop (every coding task)
 
-1. **Reasoning context** — call MCP tool `reasoning` with
+1. **Task context** — call MCP tool `task` with
    task, domain, tools. Read the returned procedures and dead-ends.
 2. **Plan** — produce a small concrete plan.
-3. **Validate plan** — call `lint`. Status `blocked` means a known dead end
-   was detected — address warnings before proceeding.
-4. **Execute** — make the changes using native file tools.
-5. **On failure** — call `rescue` with task, error, attempt number. Follow
+3. **Execute** — make the changes using native file tools.
+4. **On failure** — call `rescue` with task, error, attempt number. Follow
    the returned procedure.
-6. **Record** — call `trace` to record the outcome.
+5. **Record** — call `trace` to record the outcome.
 
 ## Budget optimizer
 

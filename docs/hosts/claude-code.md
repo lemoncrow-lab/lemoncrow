@@ -5,7 +5,7 @@ Atelier integrates with Claude Code via:
 1. An MCP server (primary — all V1 + V2 tools)
 2. Four specialized agents (`atelier:code`, `atelier:explore`, `atelier:review`, `atelier:repair`)
 3. Slash commands for status, context, savings, and evals
-4. Skills that auto-trigger on task start, plan check, failure, and trace record
+4. Skills that auto-trigger on task start, failure, and trace record
 5. Lifecycle hooks (optional, disabled by default)
 
 ## Quick Setup (Plugin)
@@ -39,7 +39,7 @@ If you prefer to wire the MCP server directly without the plugin:
       "args": ["run", "--project", "$&#123;workspaceFolder&#125;/atelier", "atelier-mcp"],
       "env": &#123;
         "ATELIER_WORKSPACE_ROOT": "$&#123;workspaceFolder&#125;",
-        "ATELIER_ROOT": "$&#123;env:HOME&#125;/.atelier"
+        "ATELIER_SERVICE_URL": "http://127.0.0.1:8787"
       &#125;
     &#125;
   &#125;
@@ -52,9 +52,9 @@ The plugin provides 4 agents selectable via `claude --agent`:
 
 | Agent             | Purpose                                                           |
 | ----------------- | ----------------------------------------------------------------- |
-| `atelier:code`    | Main coding agent — runs full reasoning loop (default)            |
+| `atelier:code`    | Main coding agent — runs the full task loop (default)             |
 | `atelier:explore` | Read-only investigator — retrieves context, reads files, no edits |
-| `atelier:review`  | Verifier — runs `lint` + `verify` against a patch                 |
+| `atelier:review`  | Verifier — runs `task` + `verify` against a patch                 |
 | `atelier:repair`  | Repair specialist — loads run ledger, asks for rescue, verifies   |
 
 ## Slash Commands
@@ -75,8 +75,7 @@ Skills auto-trigger based on context:
 
 | Skill                  | Trigger                                                   |
 | ---------------------- | --------------------------------------------------------- |
-| `reasoning`            | Start of every coding task — runs the full reasoning loop |
-| `lint`                 | Explicit plan validation                                  |
+| `task`                 | Start of every coding task — runs the full task loop      |
 | `rescue`               | Invoked on repeated failures                              |
 | `trace`                | End-of-task observable summary                            |
 
@@ -86,12 +85,12 @@ Hooks are **disabled by default**. Enable them in `integrations/claude/plugin/ho
 
 What each hook does:
 
-- **`pre_tool_use.py`** — On Edit/Write to risky paths (`shopify/`, `pdp/`, `catalog/`, etc.), require a recent successful `lint` in session state.
+- **`pre_tool_use.py`** — On Edit/Write to risky paths (`shopify/`, `pdp/`, `catalog/`, etc.), ask the agent to call `task` first.
 - **`post_tool_use_failure.py`** — On the second identical Bash failure (same command + error signature), tell the agent to call `rescue`.
 - **`stop.py`** — On session stop, ensure `trace` was called.
 - **`compact.py`** — On PreCompact/PostCompact, manage context preservation manifest (see section below).
 
-Hook state is kept at `$&#123;workspace&#125;/.atelier/session_state.json`. No secrets, no chain-of-thought stored.
+Hooks are optional and default-off in the service-backed setup. The default install path does not require local `.atelier` state.
 
 To enable hooks, edit `integrations/claude/plugin/hooks/hooks.json`:
 
@@ -112,7 +111,7 @@ When Claude Code compacts the conversation, Atelier preserves critical runtime s
 2. Atelier's `compact` MCP tool calculates:
    - **Context utilisation %** (tokens used / 200K context window)
    - **Should compact** (true if ≥60% utilized)
-   - **Top ReasonBlocks** to preserve (max 3)
+   - **Top task blocks** to preserve (max 3)
    - **Pinned memory blocks** for the agent
    - **Recently edited files** (last 5)
 3. The hook persists this manifest to `.atelier/runs/<session_id>/compact_manifest.json`.
@@ -122,8 +121,8 @@ When Claude Code compacts the conversation, Atelier preserves critical runtime s
 
 1. Claude Code triggers the `PostCompact` hook (after compaction).
 2. The hook reads the persisted manifest.
-3. Atelier records which ReasonBlocks and memory blocks were preserved.
-4. On next `/atelier:context` or reasoning call, Atelier re-injects preserved blocks into the new session.
+3. Atelier records which task blocks and memory blocks were preserved.
+4. On next `/atelier:context` or `task` call, Atelier re-injects preserved blocks into the new session.
 
 **Example Manifest:**
 
@@ -152,16 +151,15 @@ To enable the compact lifecycle:
 
 ## MCP Tools Available
 
-**V1 (core):** `reasoning`, `lint`, `rescue`, `verify`, `trace`, `search`
+**V1 (core):** `task`, `rescue`, `verify`, `trace`, `search`
 
-**V2 (extended):** `reasoning`, `trace`, `trace`, `compact`, `reasoning`, `reasoning`, `read`, `search`, `search`, `compact`
+**V2 (extended):** `task`, `trace`, `compact`, `read`, `search`
 
-## Reasoning Loop (Full)
+## Task Loop
 
-The `atelier:code` agent and `reasoning` skill enforce this loop on every task:
+The `atelier:code` agent and `task` skill enforce this loop on every task:
 
-1. `reasoning` — inject relevant procedures
-2. `lint` — validate plan before editing (exit 2 = abort)
-3. Execute task
-4. `verify` — verify output meets domain requirements
-5. `trace` — record what happened (for future rescue + block extraction)
+1. `task` — inject relevant procedures
+2. Execute task
+3. `verify` — verify output meets domain requirements
+4. `trace` — record what happened (for future rescue + block extraction)

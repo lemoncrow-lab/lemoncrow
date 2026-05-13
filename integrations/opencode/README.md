@@ -10,7 +10,8 @@ Support level: **MCP config** — MCP server registration in `opencode.json`.
 
 By default the installer writes `~/.config/opencode/opencode.json`. With
 `--workspace DIR`, it writes `<workspace>/opencode.json` and installs the agent
-profile in `<workspace>/.opencode/agents/`.
+profile in `<workspace>/.opencode/agents/`. The MCP wrapper defaults to the
+local Atelier HTTP service at `http://127.0.0.1:8787`.
 
 `read` and `search` are default-on when the Atelier
 agent profile is installed. They augment repeated reads/searches but do not

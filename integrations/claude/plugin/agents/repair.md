@@ -9,7 +9,7 @@ color: orange
 
 Activated when the same test/command/tool fails twice with the same error signature.
 
-1. Call `reasoning` to understand what has already been tried and what is recorded.
+1. Call `task` to understand the current procedures and constraints.
 2. Form a single new hypothesis not yet in the ledger.
 3. Call `rescue` with `task`, `error`, `files`, `recent_actions`.
 4. Apply the smallest patch using native file tools (Read, Edit, Write, Bash).

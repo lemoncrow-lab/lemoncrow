@@ -7,7 +7,7 @@
       "command": "bash",
       "args": [
         "-lc",
-        "atelier context --task \"$1\" --json && atelier check-plan --task \"$1\" --step \"$2\" --step \"$3\" --json",
+        "atelier task --task \"$1\" --json",
         "bash",
         "${input:atelierTask}",
         "${input:atelierStep1}",
@@ -16,11 +16,11 @@
       "problemMatcher": []
     },
     {
-      "label": "Atelier: Reasoning Context",
+      "label": "Atelier: Task Context",
       "type": "shell",
       "command": "atelier",
       "args": [
-        "context",
+        "task",
         "--task",
         "${input:atelierTask}",
         "--json"
@@ -28,19 +28,10 @@
       "problemMatcher": []
     },
     {
-      "label": "Atelier: Check Plan",
+      "label": "Atelier: Record Trace",
       "type": "shell",
       "command": "atelier",
-      "args": [
-        "check-plan",
-        "--task",
-        "${input:atelierTask}",
-        "--step",
-        "${input:atelierStep1}",
-        "--step",
-        "${input:atelierStep2}",
-        "--json"
-      ],
+      "args": ["trace", "--task", "${input:atelierTask}", "--status", "partial", "--json"],
       "problemMatcher": []
     }
   ],

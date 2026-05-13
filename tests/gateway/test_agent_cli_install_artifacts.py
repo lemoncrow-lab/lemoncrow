@@ -53,7 +53,7 @@ def test_mcp_stdio_wrapper_content() -> None:
     wrapper = SCRIPTS / "atelier_mcp_stdio.sh"
     content = wrapper.read_text()
     assert "atelier-mcp" in content, "Wrapper must invoke atelier-mcp directly"
-    assert "ATELIER_ROOT" in content, "Wrapper must set ATELIER_ROOT"
+    assert "ATELIER_SERVICE_URL" in content, "Wrapper must set ATELIER_SERVICE_URL"
     # Must not print to stdout in the wrapper itself (only exec)
     assert "exec " in content, "Wrapper should use exec to replace the process"
 
@@ -120,7 +120,9 @@ def test_build_host_skills_can_include_dev_skills(tmp_path: Path) -> None:
         check=True,
     )
     generated = {path.name for path in dest.iterdir() if path.is_dir()}
-    assert {"reasoning", "lint", "rescue", "trace"}.issubset(generated)
+    assert {"task", "rescue", "trace"}.issubset(generated)
+    assert "reasoning" not in generated
+    assert "lint" not in generated
 
 
 def test_verify_agent_clis_script_exists() -> None:
@@ -454,6 +456,8 @@ def test_install_sh_installs_tool_scripts_not_uv_runtime_wrappers() -> None:
     content = (SCRIPTS / "install.sh").read_text()
     assert "uv tool install" in content
     assert "UV_TOOL_BIN_DIR" in content
+    assert "mcp,memory,embeddings" not in content
+    assert "mcp,memory,smart,cloud,repo-map,api,postgres,vector,parsers,telemetry" in content
     assert 'exec uv --directory "$ATELIER_INSTALL_DIR" run' not in content
 
 
@@ -465,8 +469,7 @@ def test_copilot_tasks_include_preflight_wrapper() -> None:
     preflight_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "Atelier: Copilot Preflight")
     assert preflight_task.get("command") == "bash"
     args = preflight_task.get("args", [])
-    assert any("atelier context" in arg for arg in args)
-    assert any("atelier check-plan" in arg for arg in args)
+    assert any("atelier task" in arg for arg in args)
 
 
 # ---------------------------------------------------------------------------

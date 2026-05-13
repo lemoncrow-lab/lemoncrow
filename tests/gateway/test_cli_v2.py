@@ -274,6 +274,7 @@ def test_benchmark_dry_run(tmp_path: Path) -> None:
     res = _invoke(
         root,
         "benchmark",
+        "run",
         "--prompt",
         "Fix Shopify publish",
         "--prompt",

@@ -12,17 +12,29 @@ or user preferences.
 """
 
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from atelier.core.foundation.models import (
-    FailureCluster,
-    PlanCheckResult,
-    ReasonBlock,
-    RescueResult,
-    Rubric,
-    RubricResult,
-    Trace,
-)
+if TYPE_CHECKING:
+    from atelier.core.foundation.models import (
+        FailureCluster,
+        PlanCheckResult,
+        ReasonBlock,
+        RescueResult,
+        Rubric,
+        RubricResult,
+        Trace,
+    )
+
+
+_LAZY_EXPORTS = {
+    "FailureCluster": ("atelier.core.foundation.models", "FailureCluster"),
+    "PlanCheckResult": ("atelier.core.foundation.models", "PlanCheckResult"),
+    "ReasonBlock": ("atelier.core.foundation.models", "ReasonBlock"),
+    "RescueResult": ("atelier.core.foundation.models", "RescueResult"),
+    "Rubric": ("atelier.core.foundation.models", "Rubric"),
+    "RubricResult": ("atelier.core.foundation.models", "RubricResult"),
+    "Trace": ("atelier.core.foundation.models", "Trace"),
+}
 
 # The canonical version is in pyproject.toml.
 # At runtime we read the installed package metadata so they never drift.
@@ -36,6 +48,12 @@ except Exception:
 
 
 def __getattr__(name: str) -> Any:
+    lazy_export = _LAZY_EXPORTS.get(name)
+    if lazy_export is not None:
+        module_name, attr_name = lazy_export
+        value = getattr(import_module(module_name), attr_name)
+        globals()[name] = value
+        return value
     if name in {"hosts", "integrations", "sdk"}:
         return import_module(f"atelier.gateway.{name}")
     if name in {"AtelierClient", "LocalClient", "MCPClient", "RemoteClient"}:

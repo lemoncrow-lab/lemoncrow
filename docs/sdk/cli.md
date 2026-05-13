@@ -6,6 +6,7 @@ Atelier ships a full CLI for runtime operations, packs, benchmarking, and servic
 
 ```bash
 atelier [--root PATH] COMMAND [OPTIONS]
+atelier help [COMMAND...]
 ```
 
 | Option        | Default                         | Description                             |
@@ -13,11 +14,12 @@ atelier [--root PATH] COMMAND [OPTIONS]
 | `--root PATH` | `$ATELIER_ROOT` or `~/.atelier` | Path to the Atelier trace/history store |
 
 All commands that return data support `--json` to emit a machine-readable JSON envelope instead of human-readable text.
+Use `atelier help` for top-level help and `atelier help benchmark run` for a specific command path.
 
 ## Platform Surfaces
 
 - `atelier pack list|create|validate|install|uninstall|search|info|benchmark`
-- `atelier benchmark [run|compare|report|export]`
+- `atelier benchmark [run|core|runtime|savings|hosts|packs|full|compare|report|export|swe]`
 - `atelier service start|config`
 - `atelier worker start|run-once`
 
@@ -133,14 +135,18 @@ The local catalog writes installed pack checksums and compatibility metadata to 
 ## Benchmark Commands
 
 ```bash
-atelier benchmark --prompt "Fix live state drift" --json
 atelier benchmark run --prompt "Fix live state drift" --rounds 2 --json
+atelier benchmark runtime --json
+atelier benchmark hosts --json
+atelier benchmark packs --json
+atelier benchmark full --json
+atelier benchmark swe show-modes
 atelier benchmark compare --input .atelier/benchmarks/runtime/latest.json --input other.json
 atelier benchmark report --input .atelier/benchmarks/runtime/latest.json
 atelier benchmark export --input .atelier/benchmarks/runtime/latest.json --output report.csv --format csv
 ```
 
-The legacy no-action invocation remains valid; `run` is the new explicit action.
+Benchmark commands are exposed only as explicit subcommands under `atelier benchmark`.
 
 ---
 
@@ -324,7 +330,7 @@ atelier monitor-event --event-type TEXT [--data TEXT] [--json]
 ```bash
 atelier savings [--json]
 atelier savings-reset
-atelier benchmark [--json]
+atelier benchmark savings --baseline-command CMD --atelier-command CMD [--json]
 ```
 
 ---

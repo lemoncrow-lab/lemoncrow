@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 EXPECTED_TOOLS = {
-    "reasoning",
-    "lint",
+    "task",
     "route",
     "rescue",
     "trace",
@@ -15,6 +14,13 @@ EXPECTED_TOOLS = {
     "sql",
     "search",
     "compact",
+    "atelier_code_index",
+    "atelier_code_search",
+    "atelier_code_symbol",
+    "atelier_code_outline",
+    "atelier_code_context",
+    "atelier_code_impact",
+    "shell",
 }
 
 

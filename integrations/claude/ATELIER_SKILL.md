@@ -27,12 +27,8 @@ Atelier provides:
 You have these tools via the `atelier` MCP server:
 
 ```python
-# Before a task - get relevant ReasonBlock
-reasoning(task="...", domain="...", tools=[...])
-
-# Before executing a plan - check for dead ends
-lint(task="...", domain="...", plan=[...])
-# Returns: {"status": "passed" | "warn" | "blocked", "warnings": [...], "dead_ends": [...]}
+# Before a task - get relevant ReasonBlock context
+task(task="...", domain="...", tools=[...])
 
 # On repeated failure - get rescue procedure
 rescue(task="...", error="...", domain="...")
@@ -100,8 +96,7 @@ atelier lesson decide(lesson_id="les_001", decision="approve", reviewer="atelier
 
 ```
 You: Update the product title for handle "winter-coat"
-→ Call reasoning with domain=beseam.shopify.publish
-→ Call lint before making the API call
+→ Call task with domain=beseam.shopify.publish
 → Call verify after publish with checks
 → Call trace when done
 ```
