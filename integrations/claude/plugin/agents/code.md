@@ -2,7 +2,7 @@
 name: code
 description: Main coding agent. Edits, refactors, fixes bugs, and ships features. Uses the Atelier task loop for planning and validation.
 tools: ["*"]
-color: orange
+color: purple
 ---
 
 # Atelier Code Agent

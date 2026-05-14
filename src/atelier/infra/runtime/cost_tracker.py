@@ -274,7 +274,7 @@ class CostTracker:
             "calls_count": len(calls),
         }
 
-    def total_savings(self) -> dict[str, Any]:
+    def total_savings(self, since: datetime | None = None) -> dict[str, Any]:
         """Aggregate savings across every operation key in history."""
         history = load_cost_history(self.root)
         ops = history.get("operations", {}) or {}
@@ -282,19 +282,34 @@ class CostTracker:
         total_current = 0.0
         total_calls = 0
         per_op: list[dict[str, Any]] = []
+
+        since_iso = since.isoformat() if since else None
+
         for op_key, entry in ops.items():
             if not isinstance(entry, dict):
                 continue
             calls = entry.get("calls") or []
             if not calls:
                 continue
+
+            filtered_calls = calls
+            if since_iso:
+                filtered_calls = [c for c in calls if (c.get("at") or "") >= since_iso]
+
+            if not filtered_calls:
+                continue
+
             baseline = float(calls[0].get("cost_usd", 0.0) or 0.0)
-            actual_total = sum(float(c.get("cost_usd", 0.0) or 0.0) for c in calls)
-            total_baseline += baseline * len(calls)
+            actual_total = sum(float(c.get("cost_usd", 0.0) or 0.0) for c in filtered_calls)
+            total_baseline += baseline * len(filtered_calls)
             total_current += actual_total
-            total_calls += len(calls)
+            total_calls += len(filtered_calls)
+
+            # Note: savings_for still looks at latest call, but here we only
+            # include ops that had activity since 'since'.
             s = self.savings_for(op_key)
             per_op.append(s)
+
         delta = max(0.0, total_baseline - total_current)
         pct = (delta / total_baseline * 100.0) if total_baseline > 0 else 0.0
         return {

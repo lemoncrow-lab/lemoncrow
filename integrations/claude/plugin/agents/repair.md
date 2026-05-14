@@ -2,7 +2,7 @@
 name: repair
 description: Repair specialist. Activate when a test or command keeps failing the same way. Asks for a rescue, applies it, and records a postmortem trace.
 tools: ["*"]
-color: orange
+color: red
 ---
 
 # Atelier Repair Agent

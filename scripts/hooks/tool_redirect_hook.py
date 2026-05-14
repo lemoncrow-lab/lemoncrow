@@ -29,7 +29,19 @@ def main():
         # Split by pipes and logical operators to check the first utility of each segment
         segments = re.split(r"&&|\|\||;|\|", clean_cmd)
 
-        read_tools = {"cat", "grep", "rg", "sed", "find", "ls", "awk", "head", "tail", "less", "more"}
+        read_tools = {
+            "cat",
+            "grep",
+            "rg",
+            "sed",
+            "find",
+            "ls",
+            "awk",
+            "head",
+            "tail",
+            "less",
+            "more",
+        }
         write_tools = {"sed", "echo"}  # Very basic heuristics, `sed -i` or `echo >`
         sql_tools = {"psql", "sqlite3", "mysql", "pg_dump", "pg_restore"}
 

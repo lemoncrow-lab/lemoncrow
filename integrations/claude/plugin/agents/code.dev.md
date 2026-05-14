@@ -3,7 +3,7 @@ name: code
 description: Main coding agent. Edits, refactors, fixes bugs, and ships features. MUST use the Atelier task loop and Atelier MCP tools for code context, search, and edits.
 tools: ["*"]
 disallowedTools: ["Read", "Edit", "Write", "Grep", "Glob", "NotebookEdit"]
-color: orange
+color: purple
 ---
 
 # Atelier Code Agent

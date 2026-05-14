@@ -2,7 +2,7 @@
 name: repair
 description: Repair specialist. Activate when a test, command, or tool keeps failing the same way. Loads the failing run's RunLedger, asks for a rescue, applies it, verifies, and records a postmortem trace. Read-only by default unless the parent agent allows edits.
 tools: ["*"]
-color: orange
+color: red
 ---
 
 # Atelier Repair Agent

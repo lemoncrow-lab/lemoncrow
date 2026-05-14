@@ -27,11 +27,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from atelier.core.capabilities.pricing import usage_cost_usd
+from atelier.core.foundation.models import Trace, coerce_trace_json, to_jsonable
+from atelier.core.foundation.store import ContextStore
 from atelier.core.service.config import cfg
+from atelier.core.service.schemas import (
+    ContextRequest,
+    ContextResponse,
+)
 
 if TYPE_CHECKING:
-    from atelier.core.foundation.models import Trace
-    from atelier.core.foundation.store import ContextStore
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +185,14 @@ def _build_external_analytics_detail(
     }
 
 
-_BILLABLE_ANALYTICS_EVENTS = {"prompt", "cached_prompt", "cache_create", "result", "thinking", "tool_charge"}
+_BILLABLE_ANALYTICS_EVENTS = {
+    "prompt",
+    "cached_prompt",
+    "cache_create",
+    "result",
+    "thinking",
+    "tool_charge",
+}
 _NATIVE_ANALYTICS_TOOLS = {
     "Read",
     "Bash",
@@ -1795,16 +1807,9 @@ def _optimizations_summary_payload(root: Path, store: ContextStore, *, window_da
 
 def create_app(store_root: str | Path | None = None) -> Any:
     """Construct the FastAPI instance."""
-    from fastapi import Depends, FastAPI, HTTPException, Query, Security
+    from fastapi import Body, Depends, FastAPI, HTTPException, Query, Security
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
-    from atelier.core.foundation.models import Trace, coerce_trace_json, to_jsonable
-    from atelier.core.foundation.store import ContextStore
-    from atelier.core.service.schemas import (
-        ContextRequest,
-        ContextResponse,
-    )
 
     security = HTTPBearer(auto_error=False)
 
@@ -1867,7 +1872,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
         return cfg.as_dict()
 
     @app.get("/overview", tags=["compat"], dependencies=[Depends(verify_api_key)])
-    def compat_overview() -> dict[str, Any]:
+    def compat_overview(days: int = Query(30)) -> dict[str, Any]:
         """Compatibility: GET /overview -> basic summary stats."""
         from atelier.core.foundation.metrics import summarize
         from atelier.core.improvement.failure_analyzer import FailureAnalyzer
@@ -1875,10 +1880,10 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
         root = Path(cfg.atelier_root)
         store = get_store()
-        summary = summarize(store)
+        since = datetime.now(UTC) - timedelta(days=days)
+        summary = summarize(store, since=since)
 
-        # Calculate tokens/cost from ALL traces in database using the shared
-        # backend pricing path.
+        # Calculate tokens/cost from traces in database within the time window
         total_raw_tokens = 0
         total_cost_usd = 0.0
 
@@ -1890,14 +1895,15 @@ def create_app(store_root: str | Path | None = None) -> Any:
                     SUM(json_extract(payload, '$.cached_input_tokens')),
                     SUM(json_extract(payload, '$.thinking_tokens'))
                 FROM traces
+                WHERE created_at >= ?
             """
-            row = conn.execute(sql).fetchone()
+            row = conn.execute(sql, (since.isoformat(),)).fetchone()
             if row:
                 inp, out, cr, th = row
                 total_raw_tokens = (inp or 0) + (out or 0) + (cr or 0) + (th or 0)
 
             conn.row_factory = sqlite3.Row
-            for trace_row in conn.execute("SELECT payload FROM traces"):
+            for trace_row in conn.execute("SELECT payload FROM traces WHERE created_at >= ?", (since.isoformat(),)):
                 try:
                     payload = json.loads(trace_row["payload"] or "{}")
                 except (TypeError, json.JSONDecodeError):
@@ -1905,7 +1911,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 total_cost_usd += _trace_cost_from_payload(payload)
 
         tracker = CostTracker(root)
-        savings = tracker.total_savings()
+        savings = tracker.total_savings(since=since)
 
         analyzer = FailureAnalyzer(store=store)
         clusters = analyzer.analyze()
@@ -1933,21 +1939,24 @@ def create_app(store_root: str | Path | None = None) -> Any:
         agent: str | None = Query(None),
         host: str | None = Query(None),
         query: str | None = Query(None),
+        days: int | None = Query(None),
         limit: int = Query(50, ge=1, le=1000),
         offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
         store = get_store()
+        since = datetime.now(UTC) - timedelta(days=days) if days else None
         traces = store.list_traces(
             domain=domain,
             status=status,
             agent=agent,
             host=host,
             query=query,
+            since=since,
             limit=limit,
             offset=offset,
         )
         # Fetch global metrics for the current domain/agent/host filters
-        metrics = store.get_traces_metrics(domain=domain, agent=agent, host=host)
+        metrics = store.get_traces_metrics(domain=domain, agent=agent, host=host, since=since)
 
         return {"items": [to_jsonable(t) for t in traces], "metrics": metrics}
 
@@ -1967,8 +1976,13 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
         return ContextRuntime(root=Path(cfg.atelier_root))
 
-    @app.post("/v1/context", tags=["context"], dependencies=[Depends(verify_api_key)], response_model=ContextResponse)
-    def task_context(payload: ContextRequest) -> ContextResponse:
+    @app.post(
+        "/v1/reasoning/context",
+        tags=["context"],
+        dependencies=[Depends(verify_api_key)],
+        response_model=ContextResponse,
+    )
+    def task_context(payload: ContextRequest = Body(...)) -> ContextResponse:  # noqa: B008
         result = _runtime().get_context(
             task=payload.task,
             domain=payload.domain,
@@ -1986,8 +2000,8 @@ def create_app(store_root: str | Path | None = None) -> Any:
             return ContextResponse.model_validate(result)
         return ContextResponse(context=result)
 
-    @app.post("/v1/rescue", tags=["context"], dependencies=[Depends(verify_api_key)])
-    def rescue_failure(payload: dict[str, Any]) -> dict[str, Any]:
+    @app.post("/v1/reasoning/rescue", tags=["context"], dependencies=[Depends(verify_api_key)])
+    def rescue_failure(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:  # noqa: B008
         task = str(payload.get("task") or "")
         error = str(payload.get("error") or "")
         if not task or not error:
@@ -2518,7 +2532,10 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
         session_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
         for session in sessions:
-            key = (str(session.get("host") or "unknown"), str(session.get("session_key") or session["id"]))
+            key = (
+                str(session.get("host") or "unknown"),
+                str(session.get("session_key") or session["id"]),
+            )
             session_groups.setdefault(key, []).append(session)
 
         dashboard_sessions: list[dict[str, Any]] = []

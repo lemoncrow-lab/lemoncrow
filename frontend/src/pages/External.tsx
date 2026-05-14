@@ -7,7 +7,12 @@ import {
 import { MetricCard } from "../components/WorkbenchUI";
 import { useTimeRange } from "../lib/TimeRangeContext";
 
-const TOOL_PRIORITY = ["codeburn", "codeburn:optimize", "tokscale"] as const;
+const TOOL_PRIORITY = [
+  "codeburn",
+  "codeburn:optimize",
+  "tokscale",
+  "ccusage",
+] as const;
 const TOKSCALE_TABS = [
   "Overview",
   "Models",
@@ -120,6 +125,8 @@ function displayToolName(tool: string) {
       return "CodeBurn Optimize";
     case "tokscale":
       return "Tokscale";
+    case "ccusage":
+      return "ccusage";
     default:
       return titleCaseKey(tool);
   }
@@ -133,6 +140,8 @@ function toolDescription(tool: string) {
       return "CodeBurn Optimize captures historical waste patterns and explicit next actions. This keeps the recommendations readable instead of burying them in one long terminal dump.";
     case "tokscale":
       return "Tokscale is now captured as a bundled report: the overview snapshot plus native models, hourly, monthly, and graph outputs. Older stored snapshots still show limited data until they are refreshed.";
+    case "ccusage":
+      return "ccusage is the most popular community-built Claude Code usage tracker. Atelier captures its daily + session bundles as an independent cross-check on Anthropic dedup logic — if ccusage and Atelier disagree on Claude totals, suspect chunked-message accounting rather than pricing.";
     default:
       return "This tool does not have a specialized Atelier renderer yet, so this page keeps the important capture metadata visible and falls back to a shallow payload summary.";
   }
@@ -281,9 +290,14 @@ function toolTabClasses(tool: string, active: boolean) {
       ? "border-amber-500/50 bg-amber-500/10 text-amber-100"
       : "border-neutral-800 bg-neutral-900/40 text-neutral-400 hover:border-amber-900 hover:text-amber-100";
   }
+  if (tool === "ccusage") {
+    return active
+      ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
+      : "border-neutral-800 bg-neutral-900/40 text-neutral-400 hover:border-emerald-900 hover:text-emerald-200";
+  }
   return active
-    ? "border-orange-500/50 bg-orange-500/10 text-orange-100"
-    : "border-neutral-800 bg-neutral-900/40 text-neutral-400 hover:border-orange-900 hover:text-orange-100";
+    ? "border-purple-500/50 bg-purple-500/10 text-purple-100"
+    : "border-neutral-800 bg-neutral-900/40 text-neutral-400 hover:border-purple-900 hover:text-purple-100";
 }
 
 function CompactTableSection({
@@ -400,7 +414,7 @@ function CodeBurnDailyChart({ rows }: { rows: TableRow[] }) {
               </div>
               <div className="flex h-28 items-end">
                 <div
-                  className="w-7 rounded-t-sm bg-orange-400/70"
+                  className="w-7 rounded-t-sm bg-purple-400/70"
                   style={{ height: `${Math.max((cost / maxCost) * 112, 6)}px` }}
                 />
               </div>
@@ -682,7 +696,7 @@ function CodeBurnPanel({ toolWindow }: { toolWindow: ToolWindow }) {
                   <RelativeBar
                     value={toNumber(row.cost)}
                     max={maxModelCost}
-                    tone="bg-orange-400/70"
+                    tone="bg-purple-400/70"
                   />
                 </div>
               ),
@@ -1833,6 +1847,210 @@ function TokscalePanel({ toolWindow }: { toolWindow: ToolWindow }) {
   );
 }
 
+function CcusagePanel({ toolWindow }: { toolWindow: ToolWindow }) {
+  const payload = asRecord(toolWindow.latest.payload);
+  const totals = asRecord(payload.totals);
+  const daily = asRecordArray(payload.daily).sort((left, right) =>
+    String(left.date).localeCompare(String(right.date))
+  );
+  const models = asRecordArray(payload.modelEntries);
+  const sessions = asRecordArray(payload.sessions);
+  const maxModelCost = Math.max(
+    ...models.map((row) => toNumber(row.cost)),
+    0.01
+  );
+  const maxDayCost = Math.max(...daily.map((row) => toNumber(row.totalCost)), 0.01);
+
+  return (
+    <div className="space-y-6">
+      <section className="grid gap-4 md:grid-cols-4">
+        <MetricCard
+          label="Total Cost"
+          value={fmtCurrency(totals.totalCost, 2)}
+          tone="emerald"
+        />
+        <MetricCard
+          label="Input"
+          value={fmtTokens(totals.inputTokens)}
+          detail={`${fmtTokens(totals.cacheReadTokens)} cache read`}
+          tone="emerald"
+        />
+        <MetricCard
+          label="Output"
+          value={fmtTokens(totals.outputTokens)}
+          detail={`${fmtTokens(totals.cacheCreationTokens)} cache write`}
+          tone="neutral"
+        />
+        <MetricCard
+          label="Total Tokens"
+          value={fmtTokens(totals.totalTokens)}
+          detail={`${daily.length} day${daily.length === 1 ? "" : "s"} · ${sessions.length} session${sessions.length === 1 ? "" : "s"}`}
+          tone="neutral"
+        />
+      </section>
+
+      {daily.length > 0 && (
+        <section className="border border-neutral-800 bg-neutral-950/50 p-5 space-y-4">
+          <div>
+            <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+              Daily Spend (ccusage native)
+            </div>
+            <div className="mt-1 text-sm text-neutral-400">
+              Per-day totals straight from ccusage's daily view.
+            </div>
+          </div>
+          <div className="flex items-end gap-2 overflow-x-auto pb-2">
+            {daily.map((row) => {
+              const cost = toNumber(row.totalCost);
+              return (
+                <div
+                  key={String(row.date)}
+                  className="flex min-w-[54px] flex-col items-center gap-2"
+                  title={`${toText(row.date)} · ${fmtCurrency(cost, 2)} · ${fmtTokens(row.totalTokens)} tokens`}
+                >
+                  <div className="text-[10px] font-mono text-emerald-300">
+                    {fmtCurrency(cost, 2)}
+                  </div>
+                  <div className="flex h-28 items-end">
+                    <div
+                      className="w-8 rounded-t-sm bg-emerald-400/70"
+                      style={{
+                        height: `${Math.max((cost / maxDayCost) * 112, 6)}px`,
+                      }}
+                    />
+                  </div>
+                  <div className="text-[10px] font-mono text-neutral-500">
+                    {toText(row.date).slice(5)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <CompactTableSection
+          title="Models by Cost"
+          subtitle="Ranked across the selected window. Compare against Atelier's own Claude rows to spot dedup differences."
+          rows={models}
+          columns={[
+            {
+              label: "Model",
+              render: (row) => (
+                <span className="font-mono text-[11px] text-neutral-100">
+                  {toText(row.model)}
+                </span>
+              ),
+            },
+            {
+              label: "Input",
+              align: "right",
+              render: (row) => (
+                <span className="font-mono text-emerald-300">
+                  {fmtTokens(row.inputTokens)}
+                </span>
+              ),
+            },
+            {
+              label: "Output",
+              align: "right",
+              render: (row) => (
+                <span className="font-mono text-red-300">
+                  {fmtTokens(row.outputTokens)}
+                </span>
+              ),
+            },
+            {
+              label: "Cache R",
+              align: "right",
+              render: (row) => (
+                <span className="font-mono text-cyan-300">
+                  {fmtTokens(row.cacheReadTokens)}
+                </span>
+              ),
+            },
+            {
+              label: "Cache W",
+              align: "right",
+              render: (row) => (
+                <span className="font-mono text-amber-300">
+                  {fmtTokens(row.cacheCreationTokens)}
+                </span>
+              ),
+            },
+            {
+              label: "Cost",
+              align: "right",
+              render: (row) => (
+                <div className="inline-flex items-center gap-3">
+                  <span className="font-mono text-emerald-300">
+                    {fmtCurrency(row.cost, 2)}
+                  </span>
+                  <RelativeBar
+                    value={toNumber(row.cost)}
+                    max={maxModelCost}
+                    tone="bg-emerald-400/70"
+                  />
+                </div>
+              ),
+            },
+          ]}
+        />
+
+        <CompactTableSection
+          title="Top Sessions"
+          subtitle="ccusage's per-session aggregation. Useful for spotting outlier conversations."
+          rows={sessions
+            .slice()
+            .sort(
+              (left, right) =>
+                toNumber(right.totalCost) - toNumber(left.totalCost)
+            )
+            .slice(0, 12)}
+          emptyLabel="No per-session detail in this ccusage snapshot."
+          columns={[
+            {
+              label: "Session",
+              render: (row) => (
+                <span className="font-mono text-[10px] text-neutral-300">
+                  {toText(row.sessionId).slice(0, 24)}
+                </span>
+              ),
+            },
+            {
+              label: "Last Activity",
+              render: (row) => (
+                <span className="font-mono text-[10px] text-neutral-400">
+                  {toText(row.lastActivity)}
+                </span>
+              ),
+            },
+            {
+              label: "Tokens",
+              align: "right",
+              render: (row) => (
+                <span className="font-mono text-neutral-300">
+                  {fmtTokens(row.totalTokens)}
+                </span>
+              ),
+            },
+            {
+              label: "Cost",
+              align: "right",
+              render: (row) => (
+                <span className="font-mono text-emerald-300">
+                  {fmtCurrency(row.totalCost, 2)}
+                </span>
+              ),
+            },
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
 function GenericToolPanel({ toolWindow }: { toolWindow: ToolWindow }) {
   const payload = asRecord(toolWindow.latest.payload);
   const keys = Object.keys(payload).sort();
@@ -2011,8 +2229,14 @@ export default function External() {
               toolWindow={activeToolWindow}
             />
           )}
+          {activeToolWindow?.tool === "ccusage" && (
+            <CcusagePanel
+              key={activeToolWindow.tool}
+              toolWindow={activeToolWindow}
+            />
+          )}
           {activeToolWindow &&
-            !["codeburn", "codeburn:optimize", "tokscale"].includes(
+            !["codeburn", "codeburn:optimize", "tokscale", "ccusage"].includes(
               activeToolWindow.tool
             ) && (
               <GenericToolPanel

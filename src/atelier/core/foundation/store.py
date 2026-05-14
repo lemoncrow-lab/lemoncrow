@@ -891,6 +891,7 @@ class ContextStore:
         agent: str | None = None,
         host: str | None = None,
         query: str | None = None,
+        since: datetime | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Trace]:
@@ -924,6 +925,9 @@ class ContextStore:
             if host:
                 sql += " AND t.host = ?"
                 params.append(host)
+            if since:
+                sql += " AND t.created_at >= ?"
+                params.append(since.isoformat())
 
             sql += " ORDER BY bm25(traces_fts), t.created_at DESC LIMIT ? OFFSET ?"
             params.append(limit)
@@ -954,6 +958,9 @@ class ContextStore:
         if host:
             sql += " AND host = ?"
             params.append(host)
+        if since:
+            sql += " AND created_at >= ?"
+            params.append(since.isoformat())
         sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.append(limit)
         params.append(offset)
@@ -967,6 +974,7 @@ class ContextStore:
         domain: str | None = None,
         agent: str | None = None,
         host: str | None = None,
+        since: datetime | None = None,
     ) -> dict[str, Any]:
         """Return aggregate metrics for traces matching the filters."""
         base_sql = "FROM traces WHERE 1=1"
@@ -980,6 +988,9 @@ class ContextStore:
         if host:
             base_sql += " AND host = ?"
             params.append(host)
+        if since:
+            base_sql += " AND created_at >= ?"
+            params.append(since.isoformat())
 
         with self._connect() as conn:
             # 1. Total and status breakdown

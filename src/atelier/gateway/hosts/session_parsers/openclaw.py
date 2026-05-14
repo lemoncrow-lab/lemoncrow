@@ -39,7 +39,9 @@ class OpenClawImporter:
         from atelier.gateway.hosts.session_parsers._common import import_paths_with_progress
 
         return import_paths_with_progress(
-            "openclaw", list(find_openclaw_sessions(root)), lambda p: self.import_session(p, force=force)
+            "openclaw",
+            list(find_openclaw_sessions(root)),
+            lambda p: self.import_session(p, force=force),
         )
 
     def import_session(self, session_file: Path, *, force: bool = False) -> str | None:

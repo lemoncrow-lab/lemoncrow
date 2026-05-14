@@ -134,7 +134,7 @@ export default function Watchdogs() {
             <button
               type="button"
               disabled={!isDirty || saveState === "saving"}
-              className="border border-[#ff6041]/60 px-4 py-1 font-mono text-xs uppercase tracking-widest text-[#ff6041] hover:bg-[#ff6041]/10 disabled:opacity-30"
+              className="border border-purple-500/60 px-4 py-1 font-mono text-xs uppercase tracking-widest text-purple-400 hover:bg-purple-500/10 disabled:opacity-30"
               onClick={persistConfig}
             >
               {saveState === "saving" ? "Saving..." : "Save Configuration"}

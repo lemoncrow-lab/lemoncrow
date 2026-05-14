@@ -1,7 +1,7 @@
 ---
 name: explore
 description: Read-only repo exploration. Retrieves Atelier ReasonBlocks, reads files, runs grep/search. Never edits.
-color: yellow
+color: cyan
 tools:
   [
     "Read",

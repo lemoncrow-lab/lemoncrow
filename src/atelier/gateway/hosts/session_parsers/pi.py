@@ -46,7 +46,9 @@ class _BasePiImporter:
         from atelier.gateway.hosts.session_parsers._common import import_paths_with_progress
 
         return import_paths_with_progress(
-            self.host, list(_discover_sessions(self.host, root)), lambda p: self.import_session(p, force=force)
+            self.host,
+            list(_discover_sessions(self.host, root)),
+            lambda p: self.import_session(p, force=force),
         )
 
     def import_session(self, session_file: Path, *, force: bool = False) -> str | None:

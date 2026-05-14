@@ -104,7 +104,7 @@ export default function App() {
       <header className="border-b border-neutral-800 bg-neutral-950/95 px-6 py-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-4">
-            <h1 className="text-lg font-bold tracking-wide text-[#ff6041]">
+            <h1 className="text-lg font-bold tracking-wide text-purple-500">
               ❯ ATELIER - The Agents Runtime
             </h1>
             {config?.dev_mode && (
@@ -121,7 +121,7 @@ export default function App() {
               <select
                 value={range}
                 onChange={(e) => setRange(e.target.value as any)}
-                className="bg-transparent text-xs font-mono text-neutral-300 outline-none hover:text-[#ff8566]"
+                className="bg-transparent text-xs font-mono text-neutral-300 outline-none hover:text-purple-400"
                 aria-label="Global time window"
               >
                 {TIME_RANGE_OPTIONS.map((option) => (
@@ -153,7 +153,7 @@ export default function App() {
                   cx(
                     "inline-flex items-center gap-2 border px-3 py-2 text-xs transition",
                     isActive
-                      ? "border-[#ff6041]/60 bg-[#ff6041]/10 text-[#ff8566]"
+                      ? "border-purple-500/60 bg-purple-500/10 text-purple-400"
                       : "border-neutral-800 bg-neutral-900/40 text-neutral-400 hover:border-neutral-600 hover:text-neutral-200"
                   )
                 }

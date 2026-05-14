@@ -855,7 +855,10 @@ class TestCursorImporterTokens:
                                             {
                                                 "type": "paragraph",
                                                 "children": [
-                                                    {"type": "text", "text": "Find the failing Cursor billing rows."}
+                                                    {
+                                                        "type": "text",
+                                                        "text": "Find the failing Cursor billing rows.",
+                                                    }
                                                 ],
                                             }
                                         ]
@@ -883,7 +886,10 @@ class TestCursorImporterTokens:
                                             {
                                                 "type": "paragraph",
                                                 "children": [
-                                                    {"type": "text", "text": "Estimated output from rich text."}
+                                                    {
+                                                        "type": "text",
+                                                        "text": "Estimated output from rich text.",
+                                                    }
                                                 ],
                                             }
                                         ]

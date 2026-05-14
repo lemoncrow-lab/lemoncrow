@@ -142,7 +142,12 @@ def _parse_text_transcript(raw: str) -> list[tuple[str, str, list[str], str]]:
             body_lines.append(line)
         if pending_users:
             turns.append(
-                (pending_users.pop(0), "\n".join(body_lines).strip(), tools, "\n".join(reasoning_lines).strip())
+                (
+                    pending_users.pop(0),
+                    "\n".join(body_lines).strip(),
+                    tools,
+                    "\n".join(reasoning_lines).strip(),
+                )
             )
         assistant_lines.clear()
 

@@ -87,7 +87,10 @@ class DroidImporter:
         current_user = ""
         events: list[dict[str, Any]] = [
             make_session_line(
-                session_id, timestamp=timestamp, cwd=str(session_start.get("cwd") or "") or None, title=title
+                session_id,
+                timestamp=timestamp,
+                cwd=str(session_start.get("cwd") or "") or None,
+                title=title,
             )
         ]
 
@@ -109,7 +112,9 @@ class DroidImporter:
                     current_user = " ".join(non_system)[:500]
                     events.append(
                         make_user_message(
-                            current_user, timestamp=str(entry.get("timestamp") or "") or None, message_id=f"u-{index}"
+                            current_user,
+                            timestamp=str(entry.get("timestamp") or "") or None,
+                            message_id=f"u-{index}",
                         )
                     )
                 continue

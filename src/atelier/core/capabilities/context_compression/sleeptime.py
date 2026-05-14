@@ -55,7 +55,8 @@ def summarize_ledger(
         from atelier.core.foundation.paths import default_store_root
 
         backend = _memory_backend(
-            Path(__import__("os").environ.get("ATELIER_ROOT", str(default_store_root()))), prefer=None
+            Path(__import__("os").environ.get("ATELIER_ROOT", str(default_store_root()))),
+            prefer=None,
         )
         if backend == "letta":
             from atelier.infra.memory_bridges.letta_adapter import LettaAdapter

@@ -139,7 +139,12 @@ class GooseImporter:
         title = str(row["name"] or f"goose-{session_id}")
         timestamp = str(row["updated_at"] or row["created_at"] or "") or None
         events: list[dict[str, Any]] = [
-            make_session_line(session_id, timestamp=timestamp, cwd=str(row["working_dir"] or "") or None, title=title)
+            make_session_line(
+                session_id,
+                timestamp=timestamp,
+                cwd=str(row["working_dir"] or "") or None,
+                title=title,
+            )
         ]
         if user_message:
             events.append(make_user_message(user_message, timestamp=timestamp, message_id="u-0"))

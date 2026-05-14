@@ -61,8 +61,8 @@ export default function SavingsTimeChart({
       >
         <defs>
           <linearGradient id="naiveFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#fb923c" stopOpacity="0.45" />
-            <stop offset="100%" stopColor="#fb923c" stopOpacity="0.08" />
+            <stop offset="0%" stopColor="#c084fc" stopOpacity="0.45" />
+            <stop offset="100%" stopColor="#c084fc" stopOpacity="0.08" />
           </linearGradient>
           <linearGradient id="actualFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#10b981" stopOpacity="0.55" />

@@ -45,6 +45,21 @@ from atelier.core.foundation.renderer import (
 )
 from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers.registry import SUPPORTED_SESSION_IMPORT_HOSTS
+from atelier.gateway.integrations.external_analytics import REPORTABLE_TOOL_IDS
+
+# `--tool` choices for the external-report CLI. Built once from the source-of-
+# truth `SPECS` tuple plus the special-case `codeburn:optimize` sub-report and
+# the `all` aggregator. Adding a new analyzer to external_analytics.SPECS now
+# flows here automatically — no second hardcoded list to keep in sync.
+_EXTERNAL_REPORT_TOOL_CHOICES = ("all", *REPORTABLE_TOOL_IDS, "codeburn:optimize")
+# Order matters for the `all` iteration: tokscale, codeburn, codeburn:optimize,
+# then any additional reportable tools (ccusage, ...). Codeburn:optimize is
+# intentionally listed adjacent to codeburn so the CLI output groups them.
+_EXTERNAL_REPORT_ALL_TOOLS = (
+    *(t for t in REPORTABLE_TOOL_IDS if t in {"tokscale", "codeburn"}),
+    "codeburn:optimize",
+    *(t for t in REPORTABLE_TOOL_IDS if t not in {"tokscale", "codeburn"}),
+)
 
 logger = logging.getLogger(__name__)
 
@@ -3691,7 +3706,7 @@ def external_status_cmd(as_json: bool) -> None:
 @cli.command("external-report")
 @click.option(
     "--tool",
-    type=click.Choice(["all", "tokscale", "codeburn", "codeburn:optimize"]),
+    type=click.Choice(_EXTERNAL_REPORT_TOOL_CHOICES),
     default="all",
     show_default=True,
 )
@@ -3729,7 +3744,7 @@ def external_report_cmd(ctx: click.Context, tool: str, period: str, persist: boo
         _emit(payload, as_json=True)
         return
 
-    selected_tools = ["tokscale", "codeburn", "codeburn:optimize"] if tool == "all" else [tool]
+    selected_tools = list(_EXTERNAL_REPORT_ALL_TOOLS) if tool == "all" else [tool]
     store = _load_store(ctx.obj["root"]) if persist else None
 
     click.echo(f"External reports  period={period}")
@@ -4060,7 +4075,14 @@ def benchmark_run(
     required=True,
     help="Command template for Atelier-enabled runs. Receives ATELIER_BENCH_PROMPT.",
 )
-@click.option("--timeout", "timeout_s", default=600.0, show_default=True, type=float, help="Seconds per command.")
+@click.option(
+    "--timeout",
+    "timeout_s",
+    default=600.0,
+    show_default=True,
+    type=float,
+    help="Seconds per command.",
+)
 @click.option("--max-prompts", default=5, show_default=True, type=int, help="Default replay prompts to run.")
 @click.option("--output", "output_path", type=click.Path(path_type=Path), default=None)
 @click.option("--json", "as_json", is_flag=True)

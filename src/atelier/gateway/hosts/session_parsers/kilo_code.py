@@ -22,7 +22,11 @@ class KiloCodeImporter:
         imported: list[str] = []
         for task_dir in find_kilo_code_sessions(root):
             trace_id = import_task_dir(
-                self.store, host="kilo-code", extension_id=_EXTENSION_ID, task_dir=task_dir, force=force
+                self.store,
+                host="kilo-code",
+                extension_id=_EXTENSION_ID,
+                task_dir=task_dir,
+                force=force,
             )
             if trace_id:
                 imported.append(trace_id)

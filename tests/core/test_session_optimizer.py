@@ -71,7 +71,13 @@ def test_session_start_notice_supports_all_five_hosts() -> None:
 
 def test_trace_report_flags_outliers_context_and_low_delivery() -> None:
     traces = [
-        _trace("peer-low", input_tokens=80_000, output_tokens=4_000, files_touched=["a.py"], tools=["Edit"]),
+        _trace(
+            "peer-low",
+            input_tokens=80_000,
+            output_tokens=4_000,
+            files_touched=["a.py"],
+            tools=["Edit"],
+        ),
         _trace("outlier", input_tokens=1_000_000, output_tokens=10_000),
         _trace(
             "context-heavy",

@@ -66,7 +66,12 @@ def test_generate_report_aggregates_weekly_governance(store: ContextStore) -> No
     now = datetime(2026, 5, 5, 12, tzinfo=UTC)
     store.upsert_block(_block("rb-plan"), write_markdown=False)
     store.record_trace(
-        _trace("current-pass", created_at=now - timedelta(days=1), passed=True, session_id="run-current"),
+        _trace(
+            "current-pass",
+            created_at=now - timedelta(days=1),
+            passed=True,
+            session_id="run-current",
+        ),
         write_json=False,
     )
     store.record_trace(

@@ -203,7 +203,10 @@ def test_optimizations_summary_returns_runtime_catalog_and_recommendations(
 
     assert data["reread_telemetry"]["event_count"] == 2
     assert data["reread_telemetry"]["total_tokens_saved"] == 300
-    assert {item["id"] for item in data["reread_telemetry"]["kinds"]} == {"structure_map", "delta_read"}
+    assert {item["id"] for item in data["reread_telemetry"]["kinds"]} == {
+        "structure_map",
+        "delta_read",
+    }
     assert data["reread_telemetry"]["top_paths"][0]["path"] == "/workspace/app.py"
 
     assert data["model_routing_simulation"]["candidate_count"] == 1

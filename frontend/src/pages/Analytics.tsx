@@ -866,7 +866,7 @@ function ByProjectTable({
 function ToolTable({
   title,
   tools,
-  color = "bg-orange-500/50",
+  color = "bg-purple-500/50",
 }: {
   title: string;
   tools: DashboardTool[];
@@ -982,20 +982,20 @@ function SavingsInsights({ dashboard }: { dashboard: AnalyticsDashboard }) {
           )}
 
           {heavyContextSessions.length > 0 && (
-            <div className="border border-orange-900/40 bg-orange-950/20 p-3 rounded">
-              <div className="text-[10px] text-orange-400 font-bold uppercase mb-1">
-                🟠 {heavyContextSessions.length} Context-Heavy Session
+            <div className="border border-purple-900/40 bg-purple-950/20 p-3 rounded">
+              <div className="text-[10px] text-purple-400 font-bold uppercase mb-1">
+                🟣 {heavyContextSessions.length} Context-Heavy Session
                 {heavyContextSessions.length > 1 ? "s" : ""} (&gt;500k input
                 tokens)
               </div>
-              <div className="text-[10px] text-orange-300/70 space-y-0.5">
+              <div className="text-[10px] text-purple-300/70 space-y-0.5">
                 {heavyContextSessions.slice(0, 3).map((s, i) => (
                   <div key={i}>
                     {s.date} · {s.host} — {fmtM(s.input_tokens)} input tokens
                   </div>
                 ))}
               </div>
-              <div className="text-[9px] text-orange-400/50 mt-2">
+              <div className="text-[9px] text-purple-400/50 mt-2">
                 Add file chunking, selective context inclusion, and compact
                 intermediate results.
               </div>
@@ -1732,7 +1732,7 @@ export default function Analytics() {
                           <td className="px-4 py-2 text-right font-mono text-red-400/80">
                             {(row.cached_prompt_tokens / 1_000_000).toFixed(1)}
                           </td>
-                          <td className="px-4 py-2 text-right font-mono text-orange-400/80">
+                          <td className="px-4 py-2 text-right font-mono text-purple-400/80">
                             {(row.cache_write_tokens / 1_000_000).toFixed(1)}
                           </td>
                           <td className="px-4 py-2 text-right font-mono text-violet-400/80">

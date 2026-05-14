@@ -35,7 +35,7 @@ const AGENTS: AgentDef[] = [
     id: "explore",
     label: "atelier:explore",
     icon: "🔍",
-    color: "yellow",
+    color: "cyan",
     description:
       "Read-only repo exploration. Retrieves ReasonBlocks, reads files, runs grep/search. Never edits, never runs migrations, never executes destructive commands.",
     tools: ["Read", "Grep", "Glob", "WebFetch", "context"],
@@ -68,7 +68,7 @@ const AGENTS: AgentDef[] = [
     id: "repair",
     label: "atelier:repair",
     icon: "🔧",
-    color: "orange",
+    color: "red",
     description:
       "Repair specialist. Activated when a test/command/tool keeps failing the same way. Loads context, asks for rescue, applies smallest patch, and records postmortem trace.",
     tools: ["* (all tools)"],

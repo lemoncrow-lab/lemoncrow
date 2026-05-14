@@ -75,7 +75,10 @@ def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     mcp_server._remote_client = _mock_client(
         {
             "get_task_context": {"context": "Here are the relevant procedures.", "run_ledger": []},
-            "rescue_failure": {"rescue": "Try a narrower reproduction.", "analysis": "repeat failure"},
+            "rescue_failure": {
+                "rescue": "Try a narrower reproduction.",
+                "analysis": "repeat failure",
+            },
             "record_trace": {"id": "trace-123", "event_recorded": True},
             "run_rubric_gate": {"status": "pass"},
         }

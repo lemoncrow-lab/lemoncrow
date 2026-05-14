@@ -69,8 +69,13 @@ pattern = re.compile(
 match = pattern.fullmatch(source)
 if match:
     source = match.group(1).strip()
-managed = "$ATELIER_CODE_BLOCK_START\n" + source + "\n$ATELIER_CODE_BLOCK_END\n"
-Path("$dest_file").write_text(managed, encoding="utf-8")
+
+if source.startswith("---"):
+    # Frontmatter must be at the very top for Claude to parse colors/tools
+    Path("$dest_file").write_text(source + "\n", encoding="utf-8")
+else:
+    managed = "$ATELIER_CODE_BLOCK_START\n" + source + "\n$ATELIER_CODE_BLOCK_END\n"
+    Path("$dest_file").write_text(managed, encoding="utf-8")
 PYEOF
 }
 

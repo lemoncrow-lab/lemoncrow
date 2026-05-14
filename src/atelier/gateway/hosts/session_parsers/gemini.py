@@ -247,7 +247,6 @@ class GeminiImporter:
         usage_entries = []
 
         for ev in _canonicalize_gemini_events(raw_content):
-
             if "startTime" in ev and "sessionId" in ev:
                 with contextlib.suppress(BaseException):
                     created_at = datetime.fromisoformat(ev["startTime"].replace("Z", "+00:00"))
