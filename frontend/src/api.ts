@@ -914,11 +914,25 @@ export interface DashboardExternalLatest {
   collected_at: string;
 }
 
+export interface DashboardExternalProvider {
+  provider: string;
+  providerDisplayName: string;
+  models: number;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  costUSD: number;
+}
+
 export interface DashboardExternalSummary {
   runs_total: number;
   successful_runs: number;
   failed_runs: number;
   latest: DashboardExternalLatest[];
+  by_provider: DashboardExternalProvider[];
 }
 
 export interface ExternalAnalyticsRun {
@@ -1047,7 +1061,12 @@ export interface TraceListResponse {
 }
 
 export const api = {
-  overview: () => get<OverviewStats>("/overview"),
+  overview: (days?: number) => {
+    const params = new URLSearchParams();
+    if (days) params.set("days", String(days));
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return get<OverviewStats>(`/overview${suffix}`);
+  },
   granularAnalytics: (
     agent?: string,
     category?: string,
@@ -1105,7 +1124,8 @@ export const api = {
     offset = 0,
     domain?: string,
     host?: string,
-    query?: string
+    query?: string,
+    days?: number
   ) => {
     const params = new URLSearchParams();
     params.set("limit", String(limit));
@@ -1113,6 +1133,7 @@ export const api = {
     if (domain && domain !== "all") params.set("domain", domain);
     if (host && host !== "all") params.set("host", host);
     if (query) params.set("query", query);
+    if (days) params.set("days", String(days));
     return get<TraceListResponse>(`/traces?${params.toString()}`);
   },
   trace: (id: string) => get<Trace>(`/v1/traces/${id}`),

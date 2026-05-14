@@ -69,7 +69,8 @@ All install scripts:
 - [opencode-install.md](opencode-install.md)
 - [copilot-install.md](copilot-install.md)
 - [gemini-cli-install.md](gemini-cli-install.md)
-- [host-capability-matrix.md](host-capability-matrix.md)
+
+Archived capability-contract detail now lives under `docs-archive/hosts/host-capability-matrix.md`.
 
 ---
 
@@ -77,7 +78,7 @@ All install scripts:
 
 Detailed documentation and example configs for each host live in:
 
-```
+```text
 atelier/integrations/
 ├── claude/          # Full plugin config
 ├── codex/           # Codex plugin template + marketplace docs
@@ -94,30 +95,27 @@ Host install entrypoints are under `scripts/install_<host>.sh`.
 
 All hosts ultimately invoke the same Atelier MCP server, but packaged hosts now carry their own host-specific wrapper surfaces:
 
-```
+```text
 atelier/scripts/atelier_mcp_stdio.sh
 ```
 
 That repo wrapper remains the canonical MCP entrypoint for direct MCP-only installs. Codex and Gemini package that same runtime behavior behind a plugin-local or extension-local wrapper so the host can load a packaged surface instead of a raw settings merge.
 
-## Core Capability Tools
+## Common MCP Surfaces
 
-All hosts receive the same capability tools from the MCP server:
+All hosts ultimately use the same Atelier stdio MCP server.
 
-- `task`
-- `route`
-- `rescue`
-- `trace`
-- `verify`
-- `memory`
-- `read`
-- `edit`
-- `search`
-- `compact`
-- `atelier_repo_map`
+- `trace` is the consistently active observable recording surface.
+- With `ATELIER_DEV_MODE=1`, hosts can actively use `context`, `route`, `rescue`,
+  `verify`, `memory`, `read`, `edit`, `sql`, `search`, `compact`, `shell`, and
+  the `atelier_code_*` helpers.
+- Packaged hosts may add wrapper tasks, skills, or commands on top of that shared
+  MCP surface.
 
 ---
 
 ## Uninstalling
 
-Each host section above (see host-specific docs) has an Uninstall section. No global uninstall command — each host manages its own config location.
+Use `atelier uninstall` to remove the main Atelier install and managed host
+integrations. Host-specific uninstall scripts remain available when you only want
+to remove one host surface.

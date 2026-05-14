@@ -159,6 +159,23 @@ class ModelUsage(BaseModel):
     cache_creation_input_tokens: int = 0
 
 
+class UsageEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["llm", "tool"] = "llm"
+    model: str = ""
+    tool_name: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    thinking_tokens: int = 0
+    cached_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cost_usd: float = 0.0
+    source_type: str = ""
+    source_id: str = ""
+    created_at: datetime | None = None
+
+
 class Trace(BaseModel):
     """An observable record of an agent run.
 
@@ -196,6 +213,7 @@ class Trace(BaseModel):
     cached_input_tokens: int = 0
     cache_creation_input_tokens: int = 0
     model: str = ""
+    usage_entries: list[UsageEntry] = Field(default_factory=list)
     model_usages: list[ModelUsage] = Field(default_factory=list)
     workspace_path: str | None = None
     created_at: datetime = Field(default_factory=_utcnow)

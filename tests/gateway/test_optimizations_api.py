@@ -11,7 +11,7 @@ pytest.importorskip("fastapi", reason="FastAPI API tests require the api extra")
 from fastapi.testclient import TestClient
 
 from atelier.core.foundation.models import Trace
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.core.service.api import create_app
 
 
@@ -62,7 +62,7 @@ def _write_cost_history(path: Path) -> None:
 
 
 def _record_traces(root: Path) -> None:
-    store = ReasoningStore(root)
+    store = ContextStore(root)
     store.init()
     created_at = datetime.now(UTC)
     traces = [
@@ -203,7 +203,10 @@ def test_optimizations_summary_returns_runtime_catalog_and_recommendations(
 
     assert data["reread_telemetry"]["event_count"] == 2
     assert data["reread_telemetry"]["total_tokens_saved"] == 300
-    assert {item["id"] for item in data["reread_telemetry"]["kinds"]} == {"structure_map", "delta_read"}
+    assert {item["id"] for item in data["reread_telemetry"]["kinds"]} == {
+        "structure_map",
+        "delta_read",
+    }
     assert data["reread_telemetry"]["top_paths"][0]["path"] == "/workspace/app.py"
 
     assert data["model_routing_simulation"]["candidate_count"] == 1

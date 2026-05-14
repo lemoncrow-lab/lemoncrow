@@ -25,7 +25,15 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from atelier.core.foundation.models import ReasonBlock, Severity
-from atelier.core.foundation.plan_checker import _step_matches_phrase  # internal reuse
+
+
+def _step_matches_phrase(step: str, phrase: str) -> bool:
+    """True if step text matches a phrase (case-insensitive fuzzy match)."""
+    # Simple normalization: lower, strip punctuation
+    s = re.sub(r"[^\w\s]", "", step.lower())
+    p = re.sub(r"[^\w\s]", "", phrase.lower())
+    return p in s
+
 
 # --------------------------------------------------------------------------- #
 # Session state                                                               #

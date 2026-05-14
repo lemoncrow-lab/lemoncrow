@@ -28,7 +28,7 @@ type OverviewTone =
   | "violet"
   | "neutral"
   | "red"
-  | "orange";
+  | "purple";
 
 interface OverviewData {
   stats: OverviewStats | null;
@@ -99,10 +99,10 @@ const TONE_STYLES: Record<
     value: "text-red-100",
     title: "text-red-300",
   },
-  orange: {
-    chip: "border-orange-900/40 bg-orange-950/20",
-    value: "text-orange-100",
-    title: "text-orange-300",
+  purple: {
+    chip: "border-purple-900/40 bg-purple-950/20",
+    value: "text-purple-100",
+    title: "text-purple-300",
   },
 };
 
@@ -269,8 +269,8 @@ export default function Overview() {
     let active = true;
 
     void Promise.allSettled([
-      api.overview(),
-      api.traces(1, 0),
+      api.overview(days),
+      api.traces(1, 0, undefined, undefined, undefined, days),
       api.savingsSummary(days),
       api.analyticsDashboard(days),
       getTelemetrySummary({ since: Date.now() / 1000 - seconds }),
@@ -378,7 +378,7 @@ export default function Overview() {
       tone: "emerald",
     },
     {
-      label: "Saved In 14d",
+      label: `Saved In ${data.savings?.window_days ?? days}d`,
       value:
         data.savings?.saved_usd != null
           ? usd(data.savings.saved_usd)

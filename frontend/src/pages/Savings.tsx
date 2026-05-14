@@ -269,7 +269,7 @@ export default function Savings() {
             </div>
           </section>
 
-          <SavingsTimeChart data={data.by_day} />
+          <SavingsTimeChart data={data.by_day} windowDays={data.window_days} />
 
           {latestBenchmark && (
             <section className="border border-cyan-900/50 bg-cyan-950/20 p-5">

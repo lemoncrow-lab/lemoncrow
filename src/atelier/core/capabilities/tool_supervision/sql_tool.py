@@ -238,8 +238,6 @@ def sql_tool(
                 "table": table_name,
                 "columns": _sqlite_overview(conn)["schema"].get(table_name, {}).get("columns", []),
             }
-        if action == "lint":
-            return lint_sql(sql or "", allow_writes=allow_writes)
         if action != "query":
             return {"isError": True, "message": f"unsupported action: {action}"}
         batch = queries or [{"name": "result", "sql": sql or ""}]

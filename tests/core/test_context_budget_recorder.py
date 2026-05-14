@@ -14,10 +14,10 @@ from atelier.core.capabilities.telemetry.context_budget import (
     ContextBudgetRecorder,
     RunSavings,
 )
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 
-def test_context_budget_recorder_record(store: ReasoningStore) -> None:
+def test_context_budget_recorder_record(store: ContextStore) -> None:
     """Test recording a single context budget record."""
     recorder = ContextBudgetRecorder(store)
 
@@ -50,7 +50,7 @@ def test_context_budget_recorder_record(store: ReasoningStore) -> None:
     assert record.tool_calls == 2
 
 
-def test_context_budget_recorder_multiple_turns(store: ReasoningStore) -> None:
+def test_context_budget_recorder_multiple_turns(store: ContextStore) -> None:
     """Test recording multiple turns in a run."""
     recorder = ContextBudgetRecorder(store)
 
@@ -89,7 +89,7 @@ def test_context_budget_recorder_multiple_turns(store: ReasoningStore) -> None:
     assert records[1].turn_index == 1
 
 
-def test_context_budget_recorder_aggregate_run(store: ReasoningStore) -> None:
+def test_context_budget_recorder_aggregate_run(store: ContextStore) -> None:
     """Test aggregating metrics across a run."""
     recorder = ContextBudgetRecorder(store)
 
@@ -132,7 +132,7 @@ def test_context_budget_recorder_aggregate_run(store: ReasoningStore) -> None:
     }
 
 
-def test_context_budget_recorder_compact_method_totals(store: ReasoningStore) -> None:
+def test_context_budget_recorder_compact_method_totals(store: ContextStore) -> None:
     recorder = ContextBudgetRecorder(store)
 
     recorder.record_compact_tool_output(
@@ -159,7 +159,7 @@ def test_context_budget_recorder_compact_method_totals(store: ReasoningStore) ->
     assert savings.compact_method_totals == {"deterministic_truncate": 650}
 
 
-def test_context_budget_recorder_aggregate_empty_run(store: ReasoningStore) -> None:
+def test_context_budget_recorder_aggregate_empty_run(store: ContextStore) -> None:
     """Test aggregating metrics for a run with no records."""
     recorder = ContextBudgetRecorder(store)
 
@@ -171,7 +171,7 @@ def test_context_budget_recorder_aggregate_empty_run(store: ReasoningStore) -> N
     assert savings.lever_totals == {}
 
 
-def test_context_budget_record_with_zero_savings(store: ReasoningStore) -> None:
+def test_context_budget_record_with_zero_savings(store: ContextStore) -> None:
     """Test recording a turn with zero lever savings."""
     recorder = ContextBudgetRecorder(store)
 
@@ -210,7 +210,7 @@ def test_run_savings_to_dict() -> None:
     assert result["turn_count"] == 2
 
 
-def test_context_budget_get_single_record(store: ReasoningStore) -> None:
+def test_context_budget_get_single_record(store: ContextStore) -> None:
     """Test retrieving a single ContextBudget record by ID."""
     recorder = ContextBudgetRecorder(store)
 

@@ -1,14 +1,14 @@
 ---
 name: explore
 description: Read-only repo exploration. Retrieves Atelier ReasonBlocks, reads files, runs grep/search. Never edits.
-color: yellow
+color: cyan
 tools:
   [
     "Read",
     "Grep",
     "Glob",
     "WebFetch",
-    "mcp__atelier__task",
+    "mcp__atelier__context",
     "mcp__atelier__memory",
   ]
 disallowedTools: ["Edit", "Write", "MultiEdit", "NotebookEdit", "Agent"]
@@ -22,9 +22,9 @@ before planning a change.
 
 ## What you may do
 
-- Call `task` to fetch matched ReasonBlocks.
+- Call `context` to fetch matched ReasonBlocks and domain rules.
 - Use native Read, Grep, Glob for file discovery and content search.
-- Summarize findings concisely.
+- Use `memory` to recall past findings.
 
 ## What you must not do
 

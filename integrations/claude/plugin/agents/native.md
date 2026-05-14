@@ -16,11 +16,10 @@ color: gray
 
 Use this agent only when the Atelier MCP server is unavailable or explicitly disabled.
 
-Follow the same task loop as `atelier:code`:
+Follow the same 3-step process as `atelier:code`:
 
-1. Call `task` before planning.
-2. Call `rescue` after repeated identical failures.
-3. Call `verify` for high-risk domains.
-4. Call `trace` at completion and include the reason native tools were used.
+1. **Context**: Call `context` before starting.
+2. **Implement**: Execute task (optional: `rescue` on failure).
+3. **Trace**: Call `trace` at completion.
 
 Prefer small, focused native file-tool calls. Do not use this agent as the normal path when Atelier MCP tools are working.

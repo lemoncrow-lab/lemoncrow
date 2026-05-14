@@ -12,7 +12,6 @@ from typing import Any, cast
 
 from atelier.core.foundation.memory_models import MemoryBlock
 from atelier.core.foundation.models import (
-    PlanCheckResult,
     RescueResult,
     RubricResult,
     TraceStatus,
@@ -20,11 +19,11 @@ from atelier.core.foundation.models import (
 )
 from atelier.gateway.adapters import mcp_server
 from atelier.gateway.sdk.client import (
+    ContextResult,
     MCPToolTransport,
     MemoryArchiveResult,
     MemoryRecallResult,
     MemoryUpsertBlockResult,
-    ReasoningContextResult,
     TraceRecordResult,
 )
 from atelier.gateway.sdk.local import LocalClient
@@ -33,7 +32,7 @@ from atelier.gateway.sdk.local import LocalClient
 class _LoopbackTransport(MCPToolTransport):
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         tools = {
-            "task": mcp_server.tool_get_reasoning_context,
+            "context": mcp_server.tool_get_context,
             "rescue": mcp_server.tool_rescue_failure,
             "trace": mcp_server.tool_record_trace,
             "verify": mcp_server.tool_run_rubric_gate,
@@ -43,6 +42,7 @@ class _LoopbackTransport(MCPToolTransport):
             "search": mcp_server.tool_smart_search,
             "edit": mcp_server.tool_smart_edit,
             "compact": mcp_server.tool_compact,
+            "code": mcp_server.tool_code,
         }
         return cast(dict[str, Any], tools[name](arguments))
 
@@ -52,7 +52,7 @@ class MCPClient(LocalClient):
         self._transport = transport or _LoopbackTransport()
         super().__init__(root=root)
 
-    def get_reasoning_context(
+    def get_context(
         self,
         *,
         task: str,
@@ -67,15 +67,15 @@ class MCPClient(LocalClient):
         include_run_ledger: bool = False,
         agent_id: str | None = None,
         recall: bool = True,
-    ) -> ReasoningContextResult:
-        payload = self._transport.call_tool(
-            "task",
+    ) -> ContextResult:
+        payload = self.transport.call(
+            "context",
             {
                 "task": task,
                 "domain": domain,
-                "files": files or [],
-                "tools": tools or [],
-                "errors": errors or [],
+                "files": files,
+                "tools": tools,
+                "errors": errors,
                 "max_blocks": max_blocks,
                 "token_budget": token_budget,
                 "dedup": dedup,
@@ -85,19 +85,7 @@ class MCPClient(LocalClient):
                 "recall": recall,
             },
         )
-        return ReasoningContextResult.model_validate(payload)
-
-    def check_plan(
-        self,
-        *,
-        task: str,
-        plan: list[str],
-        domain: str | None = None,
-        files: list[str] | None = None,
-        tools: list[str] | None = None,
-        errors: list[str] | None = None,
-    ) -> PlanCheckResult:
-        raise RuntimeError("MCP tool 'lint' was removed. Use 'task' for planning context and 'verify' for checks.")
+        return ContextResult.model_validate(payload)
 
     def memory_upsert_block(
         self,

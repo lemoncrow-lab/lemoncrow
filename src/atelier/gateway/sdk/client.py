@@ -12,7 +12,6 @@ from atelier.core.foundation.lesson_models import LessonCandidate, LessonPromoti
 from atelier.core.foundation.memory_models import MemoryBlock
 from atelier.core.foundation.models import (
     FailureCluster,
-    PlanCheckResult,
     ReasonBlock,
     RescueResult,
     Rubric,
@@ -44,7 +43,7 @@ class ReasoningContextTokenBreakdown(BaseModel):
     total: int
 
 
-class ReasoningContextResult(BaseModel):
+class ContextResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     context: str
@@ -377,7 +376,7 @@ class AtelierClient(ABC):
         return MCPClient(root=root, transport=transport)
 
     @abstractmethod
-    def get_reasoning_context(
+    def get_context(
         self,
         *,
         task: str,
@@ -386,20 +385,7 @@ class AtelierClient(ABC):
         tools: builtins.list[str] | None = None,
         errors: builtins.list[str] | None = None,
         max_blocks: int = 5,
-    ) -> ReasoningContextResult:
-        raise NotImplementedError
-
-    @abstractmethod
-    def check_plan(
-        self,
-        *,
-        task: str,
-        plan: builtins.list[str],
-        domain: str | None = None,
-        files: builtins.list[str] | None = None,
-        tools: builtins.list[str] | None = None,
-        errors: builtins.list[str] | None = None,
-    ) -> PlanCheckResult:
+    ) -> ContextResult:
         raise NotImplementedError
 
     @abstractmethod

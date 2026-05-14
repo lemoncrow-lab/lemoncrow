@@ -1,9 +1,10 @@
 ## Atelier — Copilot Instructions
 
 
-Atelier is the Agent Reasoning Runtime. Before every coding task, call
-`task` with your task, domain, and tools. On failure, call `rescue`. After
-completing a task, call `trace`.
+Atelier is the Agent Reasoning Runtime. Use the **3-step process** for every task:
+1. **Context**: Call `context` with task, domain, and tools.
+2. **Implement**: Execute task (optional: `rescue` on failure, `route` for decisions).
+3. **Trace**: Call `trace` at completion.
 
 Budget optimizer: before changing files, name the deliverable and summarize
 the smallest viable plan. Keep context narrow: use only the current goal,

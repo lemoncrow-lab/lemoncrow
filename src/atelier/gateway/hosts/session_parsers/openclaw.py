@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers._common import record_normalized_session
 
 _OPENCLAW_ROOTS = (
@@ -32,14 +32,16 @@ def find_openclaw_sessions(root: Path | None = None) -> list[Path]:
 
 
 class OpenClawImporter:
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:
         from atelier.gateway.hosts.session_parsers._common import import_paths_with_progress
 
         return import_paths_with_progress(
-            "openclaw", list(find_openclaw_sessions(root)), lambda p: self.import_session(p, force=force)
+            "openclaw",
+            list(find_openclaw_sessions(root)),
+            lambda p: self.import_session(p, force=force),
         )
 
     def import_session(self, session_file: Path, *, force: bool = False) -> str | None:

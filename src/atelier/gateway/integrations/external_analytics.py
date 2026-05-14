@@ -72,7 +72,24 @@ CODEBURN = ExternalAnalyzerSpec(
     ),
 )
 
-SPECS: tuple[ExternalAnalyzerSpec, ...] = (TOKSCALE, CODEBURN)
+CCUSAGE = ExternalAnalyzerSpec(
+    id="ccusage",
+    display_name="ccusage",
+    license_name="MIT",
+    execution_mode="installed_cli",
+    install_hint="Install ccusage globally (`npm i -g ccusage`) or run via `npx ccusage` and set ATELIER_CCUSAGE_BIN accordingly.",
+    update_strategy="Pin a tested CLI version and upgrade independently from Atelier.",
+    env_var="ATELIER_CCUSAGE_BIN",
+    executable_names=("ccusage",),
+    reportable=True,
+    supports_periods=("today", "week", "month"),
+    notes=(
+        "Best for Claude-only daily/monthly/session usage with per-model cost breakdown.",
+        "Same data source as Atelier's claude.py importer; use it as a cross-check on Claude dedup.",
+    ),
+)
+
+SPECS: tuple[ExternalAnalyzerSpec, ...] = (TOKSCALE, CODEBURN, CCUSAGE)
 REPORTABLE_TOOL_IDS: tuple[str, ...] = tuple(spec.id for spec in SPECS if spec.reportable)
 
 _SUMMARY_METRIC_ALIASES: dict[str, tuple[str, ...]] = {
@@ -356,6 +373,7 @@ def persist_external_reports(
             stdout=_truncate_text(str(report.get("stdout") or "")),
             stderr=_truncate_text(str(report.get("stderr") or "")),
             collected_at=collected_at,
+            replace_period_snapshot=True,
         )
         persisted.append(
             {
@@ -416,6 +434,130 @@ def _tokscale_payload_dict(result: dict[str, Any]) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _codeburn_capture_metadata(command: list[str], result: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "ok": bool(result.get("ok")),
+        "command_display": shlex.join(command),
+        "returncode": result.get("returncode"),
+    }
+    payload = result.get("payload")
+    if isinstance(payload, list):
+        metadata["count"] = len(payload)
+    elif isinstance(payload, dict):
+        metadata["keys"] = sorted(str(key) for key in payload)[:20]
+    parse_error = str(result.get("parse_error") or "").strip()
+    if parse_error:
+        metadata["parse_error"] = parse_error
+    stderr = str(result.get("stderr") or "").strip()
+    if stderr:
+        metadata["stderr"] = _truncate_text(stderr, limit=600)
+    return metadata
+
+
+def _codeburn_period_flags(period: str) -> list[str]:
+    if period not in CODEBURN.supports_periods:
+        raise ValueError(f"CodeBurn supports only: {', '.join(CODEBURN.supports_periods)}")
+    return ["-p", period]
+
+
+def _codeburn_models_command(binary: str, period: str) -> list[str]:
+    return [binary, "models", "--format", "json", *_codeburn_period_flags(period)]
+
+
+def _codeburn_provider_entries(model_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    providers: dict[str, dict[str, Any]] = {}
+    for entry in model_entries:
+        if not isinstance(entry, dict):
+            continue
+        provider_id = str(entry.get("provider") or "unknown").strip() or "unknown"
+        provider_display = str(entry.get("providerDisplayName") or provider_id).strip() or provider_id
+        bucket = providers.setdefault(
+            provider_id,
+            {
+                "provider": provider_id,
+                "providerDisplayName": provider_display,
+                "models": 0,
+                "calls": 0,
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0,
+                "totalTokens": 0,
+                "costUSD": 0.0,
+                "_model_set": set(),
+            },
+        )
+        model_id = str(entry.get("model") or "").strip()
+        if model_id:
+            model_set = bucket["_model_set"]
+            if isinstance(model_set, set):
+                model_set.add(model_id)
+                bucket["models"] = len(model_set)
+        bucket["calls"] += int(entry.get("calls") or 0)
+        bucket["inputTokens"] += int(entry.get("inputTokens") or 0)
+        bucket["outputTokens"] += int(entry.get("outputTokens") or 0)
+        bucket["cacheReadTokens"] += int(entry.get("cacheReadTokens") or 0)
+        bucket["cacheWriteTokens"] += int(entry.get("cacheWriteTokens") or 0)
+        bucket["totalTokens"] += int(entry.get("totalTokens") or 0)
+        bucket["costUSD"] += float(entry.get("costUSD") or 0.0)
+
+    rows: list[dict[str, Any]] = []
+    for bucket in providers.values():
+        bucket.pop("_model_set", None)
+        bucket["costUSD"] = round(float(bucket["costUSD"]), 8)
+        rows.append(bucket)
+    rows.sort(key=lambda row: float(row.get("costUSD") or 0.0), reverse=True)
+    return rows
+
+
+def _run_codeburn_report_bundle(binary: str, period: str, *, cwd: Path | None = None) -> dict[str, Any]:
+    commands = {
+        "report": _codeburn_command(binary, period),
+        "models": _codeburn_models_command(binary, period),
+    }
+    results = {view: _run_json_command(command, cwd=cwd) for view, command in commands.items()}
+
+    report_payload = results["report"].get("payload")
+    base_payload = dict(report_payload) if isinstance(report_payload, dict) else {}
+    model_entries_raw = results["models"].get("payload")
+    model_entries = (
+        [entry for entry in model_entries_raw if isinstance(entry, dict)] if isinstance(model_entries_raw, list) else []
+    )
+
+    payload: dict[str, Any] = dict(base_payload)
+    payload["reportKind"] = "codeburn_bundle"
+    payload["modelEntries"] = model_entries
+    payload["providerEntries"] = _codeburn_provider_entries(model_entries)
+    payload["captures"] = {view: _codeburn_capture_metadata(commands[view], results[view]) for view in commands}
+
+    combined_stdout = "\n\n".join(
+        f"[{view}]\n{stdout}" for view, result in results.items() if (stdout := str(result.get("stdout") or "").strip())
+    )
+    combined_stderr = "\n\n".join(
+        f"[{view}]\n{stderr}" for view, result in results.items() if (stderr := str(result.get("stderr") or "").strip())
+    )
+    parse_errors = [
+        f"{view}: {parse_error}"
+        for view, result in results.items()
+        if (parse_error := str(result.get("parse_error") or "").strip())
+    ]
+    first_failure = next(
+        (result for result in results.values() if not bool(result.get("ok"))),
+        None,
+    )
+
+    return {
+        "ok": all(bool(result.get("ok")) for result in results.values()),
+        "returncode": first_failure.get("returncode") if first_failure else 0,
+        "stdout": combined_stdout,
+        "stderr": combined_stderr,
+        "payload": payload,
+        "parse_error": "; ".join(parse_errors) or None,
+        "command": commands["report"],
+        "command_display": " && ".join(shlex.join(command) for command in commands.values()),
+    }
+
+
 def _run_tokscale_report_bundle(binary: str, period: str, *, cwd: Path | None = None) -> dict[str, Any]:
     commands = {
         view: _tokscale_command(binary, period, view=view)
@@ -472,13 +614,145 @@ def _run_tokscale_report_bundle(binary: str, period: str, *, cwd: Path | None = 
 
 
 def _codeburn_command(binary: str, period: str, subcommand: str = "report") -> list[str]:
-    if period not in CODEBURN.supports_periods:
-        raise ValueError(f"CodeBurn supports only: {', '.join(CODEBURN.supports_periods)}")
     cmd = [binary, subcommand]
     if subcommand == "report":
         cmd.extend(["--format", "json"])
-    cmd.extend(["-p", period])
+    cmd.extend(_codeburn_period_flags(period))
     return cmd
+
+
+# ---------------------------------------------------------------------------
+# ccusage runner — Claude Code daily/monthly aggregator
+# ---------------------------------------------------------------------------
+
+
+def _ccusage_period_range(period: str) -> tuple[str, str]:
+    """Return (since, until) YYYYMMDD strings for a ccusage --since/--until pair."""
+    if period not in CCUSAGE.supports_periods:
+        raise ValueError(f"ccusage supports only: {', '.join(CCUSAGE.supports_periods)}")
+    today = datetime.now(UTC).date()
+    if period == "today":
+        return today.strftime("%Y%m%d"), today.strftime("%Y%m%d")
+    if period == "week":
+        from datetime import timedelta
+
+        since = today - timedelta(days=6)
+        return since.strftime("%Y%m%d"), today.strftime("%Y%m%d")
+    # period == "month"
+    since = today.replace(day=1)
+    return since.strftime("%Y%m%d"), today.strftime("%Y%m%d")
+
+
+def _ccusage_command(binary: str, period: str, *, view: str = "daily") -> list[str]:
+    since, until = _ccusage_period_range(period)
+    if view not in {"daily", "monthly", "weekly", "session"}:
+        raise ValueError(f"Unsupported ccusage view: {view}")
+    return [binary, view, "--json", "--breakdown", "--since", since, "--until", until]
+
+
+def _ccusage_capture_metadata(command: list[str], result: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "ok": bool(result.get("ok")),
+        "command_display": shlex.join(command),
+        "returncode": result.get("returncode"),
+    }
+    payload = result.get("payload")
+    if isinstance(payload, dict):
+        metadata["keys"] = sorted(str(key) for key in payload)[:20]
+    parse_error = str(result.get("parse_error") or "").strip()
+    if parse_error:
+        metadata["parse_error"] = parse_error
+    stderr = str(result.get("stderr") or "").strip()
+    if stderr:
+        metadata["stderr"] = _truncate_text(stderr, limit=600)
+    return metadata
+
+
+def _run_ccusage_report_bundle(binary: str, period: str, *, cwd: Path | None = None) -> dict[str, Any]:
+    """Run ccusage daily + session views; combine into a single payload.
+
+    ccusage's daily view gives per-date totals plus per-model breakdowns; the
+    session view groups by Claude Code session id. Together they cover the
+    same headline metrics codeburn / tokscale expose.
+    """
+    commands = {
+        "daily": _ccusage_command(binary, period, view="daily"),
+        "session": _ccusage_command(binary, period, view="session"),
+    }
+    results = {view: _run_json_command(command, cwd=cwd) for view, command in commands.items()}
+
+    daily_payload = results["daily"].get("payload")
+    daily = daily_payload if isinstance(daily_payload, dict) else {}
+    session_payload = results["session"].get("payload")
+    sessions = list(session_payload.get("sessions") or []) if isinstance(session_payload, dict) else []
+
+    totals = daily.get("totals") if isinstance(daily, dict) else None
+    totals_dict = totals if isinstance(totals, dict) else {}
+
+    daily_entries = daily.get("daily") if isinstance(daily, dict) else []
+    daily_list = (
+        [entry for entry in daily_entries if isinstance(entry, dict)] if isinstance(daily_entries, list) else []
+    )
+
+    # Roll per-model entries up across the window so the frontend can show a
+    # ranked model table without re-aggregating client-side.
+    model_aggregate: dict[str, dict[str, Any]] = {}
+    for day in daily_list:
+        for entry in day.get("modelBreakdowns") or []:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("modelName") or "").strip() or "unknown"
+            bucket = model_aggregate.setdefault(
+                name,
+                {
+                    "model": name,
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cacheCreationTokens": 0,
+                    "cacheReadTokens": 0,
+                    "cost": 0.0,
+                },
+            )
+            bucket["inputTokens"] += int(entry.get("inputTokens") or 0)
+            bucket["outputTokens"] += int(entry.get("outputTokens") or 0)
+            bucket["cacheCreationTokens"] += int(entry.get("cacheCreationTokens") or 0)
+            bucket["cacheReadTokens"] += int(entry.get("cacheReadTokens") or 0)
+            bucket["cost"] += float(entry.get("cost") or 0.0)
+
+    model_entries = sorted(model_aggregate.values(), key=lambda row: float(row.get("cost") or 0.0), reverse=True)
+
+    payload: dict[str, Any] = {
+        "reportKind": "ccusage_bundle",
+        "totals": totals_dict,
+        "daily": daily_list,
+        "modelEntries": model_entries,
+        "sessions": [s for s in sessions if isinstance(s, dict)],
+        "captures": {view: _ccusage_capture_metadata(commands[view], results[view]) for view in commands},
+    }
+
+    combined_stdout = "\n\n".join(
+        f"[{view}]\n{stdout}" for view, result in results.items() if (stdout := str(result.get("stdout") or "").strip())
+    )
+    combined_stderr = "\n\n".join(
+        f"[{view}]\n{stderr}" for view, result in results.items() if (stderr := str(result.get("stderr") or "").strip())
+    )
+    parse_errors = [
+        f"{view}: {parse_error}"
+        for view, result in results.items()
+        if (parse_error := str(result.get("parse_error") or "").strip())
+    ]
+    first_failure = next((r for r in results.values() if not bool(r.get("ok"))), None)
+
+    return {
+        "ok": all(bool(r.get("ok")) for r in results.values()),
+        "returncode": first_failure.get("returncode") if first_failure else 0,
+        "stdout": combined_stdout,
+        "stderr": combined_stderr,
+        "payload": payload,
+        "parse_error": "; ".join(parse_errors) or None,
+        "command": commands["daily"],
+        "command_display": " && ".join(shlex.join(command) for command in commands.values()),
+    }
 
 
 def _run_json_command(
@@ -548,7 +822,12 @@ def run_external_report(tool: str, *, period: str = "week", cwd: Path | None = N
                 "error": "not_installed",
                 "message": CODEBURN.install_hint,
             }
-        command = _codeburn_command(binary, period)
+        result = _run_codeburn_report_bundle(binary, period, cwd=cwd)
+        return {
+            "tool": normalized,
+            "period": period,
+            **result,
+        }
     elif normalized == f"{CODEBURN.id}:optimize":
         binary = _find_executable(CODEBURN)
         if not binary:
@@ -560,6 +839,21 @@ def run_external_report(tool: str, *, period: str = "week", cwd: Path | None = N
             }
         command = _codeburn_command(binary, period, subcommand="optimize")
         parser = parse_codeburn_optimize_output
+    elif normalized == CCUSAGE.id:
+        binary = _find_executable(CCUSAGE)
+        if not binary:
+            return {
+                "tool": CCUSAGE.id,
+                "ok": False,
+                "error": "not_installed",
+                "message": CCUSAGE.install_hint,
+            }
+        result = _run_ccusage_report_bundle(binary, period, cwd=cwd)
+        return {
+            "tool": normalized,
+            "period": period,
+            **result,
+        }
     else:
         raise ValueError(f"Unsupported external report tool: {tool}")
 

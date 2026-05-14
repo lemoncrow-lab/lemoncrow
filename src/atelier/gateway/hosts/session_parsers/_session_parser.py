@@ -217,7 +217,16 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
                         or arguments.get("new_string")
                         or ""
                     )
-                    turns.append(_turn("file_edit", f"{name}({path})", content_text, at=at, tokens=tokens, raw=event))
+                    turns.append(
+                        _turn(
+                            "file_edit",
+                            f"{name}({path})",
+                            content_text,
+                            at=at,
+                            tokens=tokens,
+                            raw=event,
+                        )
+                    )
                 else:
                     turns.append(
                         _turn(

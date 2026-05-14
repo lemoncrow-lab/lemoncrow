@@ -171,4 +171,6 @@ elif ! $WORKSPACE_SET; then
     warn "claude CLI not found, skipping plugin removal"
 fi
 
+
+
 info "Done."

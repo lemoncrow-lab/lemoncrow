@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { TimeRangeProvider } from "../lib/TimeRangeContext";
 import Savings from "./Savings";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -7,6 +8,14 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function renderSavings() {
+  return render(
+    <TimeRangeProvider>
+      <Savings />
+    </TimeRangeProvider>
+  );
 }
 
 describe("Savings page", () => {
@@ -21,7 +30,7 @@ describe("Savings page", () => {
         if (url.includes("/api/v1/savings/summary")) {
           return Promise.resolve(
             jsonResponse({
-              window_days: 14,
+              window_days: 7,
               total_naive_tokens: 412000,
               total_actual_tokens: 198000,
               reduction_pct: 51.9,
@@ -159,7 +168,7 @@ describe("Savings page", () => {
                 baseline_success_rate: 1,
                 atelier_success_rate: 1,
               },
-              by_day: Array.from({ length: 14 }, (_, i) => ({
+              by_day: Array.from({ length: 7 }, (_, i) => ({
                 day: `2026-04-${String(i + 10).padStart(2, "0")}`,
                 naive: 30000 - i * 400,
                 actual: 15000 - i * 180,
@@ -171,7 +180,7 @@ describe("Savings page", () => {
       }
     );
 
-    render(<Savings />);
+    renderSavings();
 
     expect(
       await screen.findByText("Tracked Proof Reduction")
@@ -191,7 +200,7 @@ describe("Savings page", () => {
     expect(await screen.findByText("Ast Truncation")).toBeInTheDocument();
     expect(await screen.findAllByText("Search Read")).not.toHaveLength(0);
     expect(
-      await screen.findByLabelText("14-day token savings trend")
+      await screen.findByLabelText("7-day token savings trend")
     ).toBeInTheDocument();
   });
 
@@ -202,12 +211,12 @@ describe("Savings page", () => {
         if (url.includes("/api/v1/savings/summary")) {
           return Promise.resolve(
             jsonResponse({
-              window_days: 14,
+              window_days: 7,
               total_naive_tokens: 0,
               total_actual_tokens: 0,
               reduction_pct: 0,
               per_lever: {},
-              by_day: Array.from({ length: 14 }, (_, i) => ({
+              by_day: Array.from({ length: 7 }, (_, i) => ({
                 day: `2026-04-${String(i + 10).padStart(2, "0")}`,
                 naive: 0,
                 actual: 0,
@@ -219,7 +228,7 @@ describe("Savings page", () => {
       }
     );
 
-    render(<Savings />);
+    renderSavings();
 
     expect(
       await screen.findByText("No savings telemetry yet")
@@ -235,12 +244,12 @@ describe("Savings page", () => {
         if (url.includes("/api/v1/savings/summary")) {
           return Promise.resolve(
             jsonResponse({
-              window_days: 14,
+              window_days: 7,
               total_naive_tokens: 515,
               total_actual_tokens: 515,
               reduction_pct: 0,
               per_lever: {},
-              by_day: Array.from({ length: 14 }, (_, i) => ({
+              by_day: Array.from({ length: 7 }, (_, i) => ({
                 day: `2026-04-${String(i + 10).padStart(2, "0")}`,
                 naive: 0,
                 actual: 0,
@@ -318,7 +327,7 @@ describe("Savings page", () => {
       }
     );
 
-    render(<Savings />);
+    renderSavings();
 
     await user.click(
       await screen.findByRole("button", { name: "Inspect evidence details" })

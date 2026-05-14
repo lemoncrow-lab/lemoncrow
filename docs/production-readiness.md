@@ -31,10 +31,11 @@ This checklist is the release gate for Atelier Phase D hardening.
 
 - Service health endpoints verified:
   - `/health`
-  - `/ready`
+  - `/config` (authenticated)
 - Run ledger persistence verified in `.atelier/runs/`.
-- Trace ingestion verified via `record_trace` and list/get trace endpoints.
-- Savings metrics endpoint checked (`/v1/metrics/savings`).
+- Trace ingestion verified via `atelier trace record` and `/v1/traces`.
+- Analytics summary checked via `/analytics/summary` or the dashboard summary endpoint.
+- Background controller status reviewed with `atelier servicectl status`.
 
 ## Logging
 
@@ -60,7 +61,7 @@ This checklist is the release gate for Atelier Phase D hardening.
 - Secret redaction tests pass (`tests/test_redaction.py`, `tests/test_security.py`).
 - Shell injection checks pass in MCP tool paths.
 - API auth enforced in non-local mode.
-- Malformed pack rejection validated in pack validation/install tests.
+- Dev-mode-only retrieval and rubric tools are gated behind `ATELIER_DEV_MODE=1` where expected.
 - Remote MCP mode tested with explicit API key boundary.
 
 ## Scaling Guidance
@@ -70,14 +71,12 @@ This checklist is the release gate for Atelier Phase D hardening.
 - Enable worker process for queued jobs in production.
 - Periodically archive old traces/runs to control storage growth.
 
-## Pack Governance
+## Knowledge Bundle Governance
 
-- Official packs must be versioned and schema-valid.
-- Pack dependency constraints must resolve internally.
-- New/updated pack artifacts require:
-  - validation (`pack validate`)
-  - benchmark (`atelier benchmark packs`)
-  - host bootstrap compatibility check
+- Built-in seed blocks under `src/atelier/infra/seed_blocks/` and built-in rubrics under `src/atelier/core/rubrics/` remain source-controlled artifacts.
+- Domain bundle metadata exposed through `atelier domain list` and `atelier domain info` should match the shipped content.
+- New or updated knowledge artifacts require a clean `atelier init` against a fresh store plus targeted benchmark or eval evidence when they affect routing, retrieval, or savings claims.
+- `atelier benchmark packs` remains the benchmark-only coverage surface; there is no public `atelier pack install` workflow on the current CLI.
 - Runtime-learned ReasonBlocks are review/promote candidates, not auto-published governance records.
 
 ## Release Sign-Off

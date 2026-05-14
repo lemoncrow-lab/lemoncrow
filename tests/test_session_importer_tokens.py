@@ -16,10 +16,11 @@ from typing import Any, ClassVar
 import yaml
 
 from atelier.core.foundation.models import Trace
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers.claude import ClaudeImporter
 from atelier.gateway.hosts.session_parsers.codex import CodexImporter
 from atelier.gateway.hosts.session_parsers.copilot import CopilotImporter
+from atelier.gateway.hosts.session_parsers.cursor import CursorImporter
 from atelier.gateway.hosts.session_parsers.gemini import GeminiImporter
 from atelier.gateway.hosts.session_parsers.opencode import OpenCodeImporter
 
@@ -28,7 +29,7 @@ from atelier.gateway.hosts.session_parsers.opencode import OpenCodeImporter
 # =========================================================================
 
 
-def _get_trace(store: ReasoningStore, host: str) -> Trace:
+def _get_trace(store: ContextStore, host: str) -> Trace:
     """Return the most recent trace for *host*."""
 
     traces = store.list_traces(host=host, limit=1)
@@ -96,7 +97,7 @@ class TestClaudeImporterTokens:
         },
     ]
 
-    def test_claude_token_fields(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_claude_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "test-session-uuid.jsonl"
         jsonl_path.write_text("\n".join(json.dumps(e, ensure_ascii=False) for e in self.FIXTURE_EVENTS))
 
@@ -199,7 +200,7 @@ class TestCodexImporterTokens:
         ),
     ]
 
-    def test_codex_token_fields(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_codex_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "rollout-2026-05-09T12-00-00-test-session.jsonl"
         jsonl_path.write_text("\n".join(self.FIXTURE_LINES))
 
@@ -213,7 +214,7 @@ class TestCodexImporterTokens:
         # input_tokens excludes cached_input_tokens, which are stored separately.
         assert trace.input_tokens == 260
         assert trace.output_tokens == 90
-        assert trace.thinking_tokens == 7  # reasoning_output_tokens
+        assert trace.thinking_tokens == 0
         assert trace.cached_input_tokens == 40  # cached_input_tokens (subset of input)
         assert trace.cache_creation_input_tokens == 0  # hard-coded
         assert trace.model == "codex-model-v1"
@@ -223,7 +224,7 @@ class TestCodexImporterTokens:
         #   tool.output_tokens (exec_command) = dist_in = 200 // 1 = 200
         _assert_tool_tokens(trace, "exec_command", input_t=60, output_t=200)
 
-    def test_codex_flat_recovers_model_and_usage(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_codex_flat_recovers_model_and_usage(self, store: ContextStore, tmp_path: Path) -> None:
         fixture_lines = [
             json.dumps(
                 {
@@ -274,10 +275,55 @@ class TestCodexImporterTokens:
         assert trace.model == "gpt-5-mini"
         assert trace.input_tokens == 100
         assert trace.output_tokens == 45
-        assert trace.thinking_tokens == 7
+        assert trace.thinking_tokens == 0
         assert trace.cached_input_tokens == 20
         assert trace.cache_creation_input_tokens == 0
         assert trace.user_prompt_tokens > 0
+
+    def test_codex_mixed_model_sessions_leave_trace_model_blank(self, store: ContextStore, tmp_path: Path) -> None:
+        fixture_lines = [
+            json.dumps(
+                {
+                    "type": "session_meta",
+                    "payload": {"id": "test-session-id", "timestamp": "2026-05-09T12:00:00Z"},
+                }
+            ),
+            json.dumps({"type": "turn_context", "payload": {"model": "gpt-5.4"}}),
+            json.dumps(
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {"last_token_usage": {"input_tokens": 200, "output_tokens": 60}},
+                    },
+                }
+            ),
+            json.dumps({"type": "turn_context", "payload": {"model": "gpt-5.4-mini"}}),
+            json.dumps(
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {"last_token_usage": {"input_tokens": 100, "output_tokens": 30}},
+                    },
+                }
+            ),
+        ]
+
+        jsonl_path = tmp_path / "rollout-2026-05-09T13-00-00-mixed-session.jsonl"
+        jsonl_path.write_text("\n".join(fixture_lines))
+
+        importer = CodexImporter(store)
+        result = importer.import_session(jsonl_path, force=True)
+        assert result is not None
+
+        trace = _get_trace(store, "codex")
+        usage_by_model = {usage.model: usage for usage in trace.model_usages}
+
+        assert trace.model == ""
+        assert len(trace.usage_entries) == 2
+        assert usage_by_model["gpt-5.4"].output_tokens == 60
+        assert usage_by_model["gpt-5.4-mini"].output_tokens == 30
 
 
 # =========================================================================
@@ -362,7 +408,7 @@ class TestCopilotImporterTokens:
         }
     )
 
-    def test_copilot_token_fields(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_copilot_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         session_dir = tmp_path / "copilot-session-abc123"
         session_dir.mkdir(parents=True)
 
@@ -388,7 +434,7 @@ class TestCopilotImporterTokens:
         #   tool.output_tokens (edit) = resultForLlmLength // 4 = 400 // 4 = 100
         _assert_tool_tokens(trace, "edit", input_t=80, output_t=100)
 
-    def test_copilot_falls_back_to_assistant_output_tokens(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_copilot_falls_back_to_assistant_output_tokens(self, store: ContextStore, tmp_path: Path) -> None:
         session_dir = tmp_path / "copilot-session-fallback"
         session_dir.mkdir(parents=True)
 
@@ -452,14 +498,424 @@ class TestCopilotImporterTokens:
 
         trace = _get_trace(store, "copilot")
 
-        assert trace.input_tokens == 125
+        # Copilot's assistant.message events only carry outputTokens — no
+        # input/cache fields exist in the per-turn payload. Output is captured
+        # accurately (80 + 30 = 110). input_tokens=0 reflects the absence of
+        # per-turn input data; we no longer fabricate it from user-prompt char/4
+        # because that produces a billable number disconnected from real usage.
+        assert trace.input_tokens == 0
         assert trace.output_tokens == 110
         assert trace.thinking_tokens == 0
         assert trace.cached_input_tokens == 0
         assert trace.cache_creation_input_tokens == 0
         assert trace.model == "gpt-5.5"
+        # The user-prompt char/4 estimate is still surfaced separately for
+        # analytics/UX (it's not used for cost computation).
+        assert trace.user_prompt_tokens == 125
 
         _assert_tool_tokens(trace, "edit", input_t=80, output_t=100)
+
+    def test_copilot_uses_assistant_message_model_when_selected_model_is_auto(
+        self, store: ContextStore, tmp_path: Path
+    ) -> None:
+        session_dir = tmp_path / "copilot-session-auto-model"
+        session_dir.mkdir(parents=True)
+
+        events = [
+            json.dumps(
+                {
+                    "type": "session.start",
+                    "data": {
+                        "startTime": "2026-05-09T12:00:00Z",
+                        "selectedModel": "auto",
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "user.message",
+                    "data": {"content": "x" * 400},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "assistant.message",
+                    "data": {
+                        "model": "claude-sonnet-4.6",
+                        "outputTokens": 64,
+                    },
+                }
+            ),
+        ]
+
+        (session_dir / "events.jsonl").write_text("\n".join(events))
+        (session_dir / "workspace.yaml").write_text(self.WORKSPACE_YAML)
+
+        importer = CopilotImporter(store)
+        result = importer.import_session(session_dir, force=True)
+        assert result is not None
+
+        trace = _get_trace(store, "copilot")
+
+        assert trace.model == "claude-sonnet-4.6"
+        # No shutdown/compaction in this fixture, so input_tokens=0 — per-turn
+        # assistant.message doesn't expose input. user_prompt char/4 stays out
+        # of the billable input field. See test_copilot_falls_back_to… above.
+        assert trace.input_tokens == 0
+        assert trace.output_tokens == 64
+        assert trace.user_prompt_tokens == 100
+        assert len(trace.usage_entries) == 1
+        assert trace.usage_entries[0].model == "claude-sonnet-4.6"
+
+    def test_copilot_mixed_model_sessions_leave_trace_model_blank(self, store: ContextStore, tmp_path: Path) -> None:
+        session_dir = tmp_path / "copilot-session-mixed"
+        session_dir.mkdir(parents=True)
+
+        events = [
+            json.dumps(
+                {
+                    "type": "session.shutdown",
+                    "timestamp": "2026-05-09T12:00:00Z",
+                    "data": {
+                        "modelMetrics": {
+                            "gpt-5.4": {
+                                "usage": {
+                                    "inputTokens": 300,
+                                    "outputTokens": 110,
+                                    "cacheReadTokens": 40,
+                                    "cacheWriteTokens": 15,
+                                    "reasoningTokens": 10,
+                                }
+                            },
+                            "gpt-5.4-mini": {
+                                "usage": {
+                                    "inputTokens": 120,
+                                    "outputTokens": 30,
+                                    "cacheReadTokens": 20,
+                                    "cacheWriteTokens": 5,
+                                    "reasoningTokens": 2,
+                                }
+                            },
+                        }
+                    },
+                }
+            )
+        ]
+
+        (session_dir / "events.jsonl").write_text("\n".join(events))
+        (session_dir / "workspace.yaml").write_text(self.WORKSPACE_YAML)
+
+        importer = CopilotImporter(store)
+        result = importer.import_session(session_dir, force=True)
+        assert result is not None
+
+        trace = _get_trace(store, "copilot")
+        usage_by_model = {usage.model: usage for usage in trace.model_usages}
+
+        assert trace.model == ""
+        assert len(trace.usage_entries) == 2
+        assert set(usage_by_model) == {"gpt-5.4", "gpt-5.4-mini"}
+        assert usage_by_model["gpt-5.4"].input_tokens == 300
+        assert usage_by_model["gpt-5.4-mini"].output_tokens == 30
+
+    def test_copilot_transcript_without_verified_parent_is_raw_only(self, store: ContextStore, tmp_path: Path) -> None:
+        transcript_path = tmp_path / "orphan-transcript.jsonl"
+        transcript_path.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "session.start",
+                            "data": {
+                                "sessionId": "orphan-transcript",
+                                "startTime": "2026-05-09T12:05:00Z",
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "assistant.message",
+                            "data": {
+                                "toolRequests": [
+                                    {
+                                        "toolCallId": "call-1",
+                                        "name": "read_file",
+                                        "arguments": json.dumps(
+                                            {
+                                                "filePath": "/outside/workspace/src/app.py",
+                                            }
+                                        ),
+                                    }
+                                ]
+                            },
+                        }
+                    ),
+                ]
+            )
+        )
+
+        store.record_trace(
+            Trace(
+                id="copilot-transcript-orphan-transcript",
+                session_id="orphan-transcript",
+                agent="atelier:code",
+                host="copilot",
+                domain="coding",
+                task="legacy standalone transcript",
+                status="success",
+            ),
+            write_json=False,
+        )
+
+        importer = CopilotImporter(store)
+        result = importer.import_transcript_file(transcript_path, force=True)
+
+        assert result is None
+        assert store.list_traces(host="copilot", limit=10) == []
+        assert store.get_trace("copilot-transcript-orphan-transcript") is None
+
+        artifacts = store.list_raw_artifacts(source="copilot", source_session_id="orphan-transcript", limit=10)
+        assert [artifact.id for artifact in artifacts] == ["copilot-transcript-orphan-transcript"]
+
+    def test_copilot_transcript_attaches_after_parent_session_is_imported(
+        self,
+        store: ContextStore,
+        tmp_path: Path,
+    ) -> None:
+        workspace_root = tmp_path / "workspace"
+        (workspace_root / "src").mkdir(parents=True)
+
+        transcript_path = tmp_path / "attached-transcript.jsonl"
+        transcript_path.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "session.start",
+                            "data": {
+                                "sessionId": "attached-transcript",
+                                "startTime": "2026-05-09T12:05:00Z",
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "assistant.message",
+                            "data": {
+                                "content": "Attach this transcript to the matching session.",
+                                "toolRequests": [
+                                    {
+                                        "toolCallId": "call-2",
+                                        "name": "read_file",
+                                        "arguments": json.dumps(
+                                            {
+                                                "filePath": str(workspace_root / "src" / "app.py"),
+                                            }
+                                        ),
+                                    }
+                                ],
+                            },
+                        }
+                    ),
+                ]
+            )
+        )
+
+        importer = CopilotImporter(store)
+        assert importer.import_transcript_file(transcript_path, force=True) is None
+
+        session_dir = tmp_path / "copilot-session-parent"
+        session_dir.mkdir(parents=True)
+        (session_dir / "events.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "session.start",
+                    "data": {"startTime": "2026-05-09T12:00:00Z"},
+                }
+            )
+        )
+        (session_dir / "workspace.yaml").write_text(
+            yaml.dump(
+                {
+                    "summary": "parent copilot session",
+                    "created_at": "2026-05-09T12:00:00Z",
+                    "cwd": str(workspace_root),
+                    "mc_session_id": "logical-session-1",
+                }
+            )
+        )
+
+        parent_id = importer.import_session(session_dir, force=True)
+        transcript_id = importer.import_transcript_file(transcript_path)
+
+        assert parent_id is not None
+        assert transcript_id == "copilot-transcript-attached-transcript"
+
+        parent_trace = store.get_trace(parent_id)
+        assert parent_trace is not None
+        assert parent_trace.workspace_path == str(workspace_root)
+
+        transcript_trace = store.get_trace(transcript_id)
+        assert transcript_trace is not None
+        assert transcript_trace.session_id == "logical-session-1"
+        assert transcript_trace.workspace_path == str(workspace_root)
+        assert transcript_trace.input_tokens == 0
+        assert transcript_trace.output_tokens == 0
+        assert transcript_trace.usage_entries == []
+
+        traces = store.list_traces(host="copilot", limit=10)
+        assert len(traces) == 2
+        assert {trace.session_id for trace in traces} == {"logical-session-1"}
+
+    def test_copilot_import_all_reconciles_stored_orphan_transcript(
+        self,
+        store: ContextStore,
+        tmp_path: Path,
+    ) -> None:
+        transcript_path = tmp_path / "stale-transcript.jsonl"
+        transcript_path.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "session.start",
+                            "data": {
+                                "sessionId": "stale-transcript",
+                                "startTime": "2026-05-09T12:05:00Z",
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "assistant.message",
+                            "data": {
+                                "toolRequests": [
+                                    {
+                                        "toolCallId": "call-3",
+                                        "name": "read_file",
+                                        "arguments": json.dumps(
+                                            {
+                                                "filePath": "/outside/workspace/src/app.py",
+                                            }
+                                        ),
+                                    }
+                                ]
+                            },
+                        }
+                    ),
+                ]
+            )
+        )
+
+        importer = CopilotImporter(store)
+        assert importer.import_transcript_file(transcript_path, force=True) is None
+
+        store.record_trace(
+            Trace(
+                id="copilot-transcript-stale-transcript",
+                session_id="stale-transcript",
+                agent="atelier:code",
+                host="copilot",
+                domain="coding",
+                task="legacy standalone transcript",
+                status="success",
+            ),
+            write_json=False,
+        )
+
+        transcript_path.unlink()
+
+        importer.import_all(tmp_path, force=True)
+
+        assert store.get_trace("copilot-transcript-stale-transcript") is None
+
+
+# =========================================================================
+# Cursor
+# =========================================================================
+
+
+class TestCursorImporterTokens:
+    def test_cursor_uses_rich_text_and_normalizes_placeholder_models(self, store: ContextStore, tmp_path: Path) -> None:
+        db_path = tmp_path / "state.vscdb"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE cursorDiskKV (key TEXT, value TEXT)")
+            conn.execute(
+                "INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)",
+                (
+                    "bubbleId:test-composer:user-bubble",
+                    json.dumps(
+                        {
+                            "type": 1,
+                            "createdAt": "2026-05-14T09:00:00Z",
+                            "richText": json.dumps(
+                                {
+                                    "root": {
+                                        "children": [
+                                            {
+                                                "type": "paragraph",
+                                                "children": [
+                                                    {
+                                                        "type": "text",
+                                                        "text": "Find the failing Cursor billing rows.",
+                                                    }
+                                                ],
+                                            }
+                                        ]
+                                    }
+                                }
+                            ),
+                            "tokenCount": {"inputTokens": 0, "outputTokens": 0},
+                        }
+                    ),
+                ),
+            )
+            conn.execute(
+                "INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)",
+                (
+                    "bubbleId:test-composer:assistant-bubble",
+                    json.dumps(
+                        {
+                            "type": 2,
+                            "createdAt": "2026-05-14T09:01:00Z",
+                            "modelInfo": {"modelName": "composer-2"},
+                            "richText": json.dumps(
+                                {
+                                    "root": {
+                                        "children": [
+                                            {
+                                                "type": "paragraph",
+                                                "children": [
+                                                    {
+                                                        "type": "text",
+                                                        "text": "Estimated output from rich text.",
+                                                    }
+                                                ],
+                                            }
+                                        ]
+                                    }
+                                }
+                            ),
+                            "tokenCount": {"inputTokens": 0, "outputTokens": 0},
+                            "codeBlocks": [],
+                        }
+                    ),
+                ),
+            )
+            conn.commit()
+
+        importer = CursorImporter(store)
+        results = importer.import_all(root=db_path, force=True)
+
+        assert len(results) == 1
+
+        trace = _get_trace(store, "cursor")
+
+        assert trace.model == "claude-sonnet-4-5"
+        assert trace.output_tokens > 0
+        assert trace.user_prompt_tokens > 0
+        assert len(trace.usage_entries) == 1
+        assert trace.usage_entries[0].model == "claude-sonnet-4-5"
 
 
 # =========================================================================
@@ -595,7 +1051,7 @@ class TestOpenCodeImporterTokens:
         finally:
             conn.close()
 
-    def test_opencode_token_fields(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_opencode_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         db_path = tmp_path / "opencode.db"
         self._create_db(db_path)
 
@@ -676,7 +1132,7 @@ class TestGeminiImporterTokens:
         ),
     ]
 
-    def test_gemini_token_fields(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_gemini_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "session-test-session.jsonl"
         jsonl_path.write_text("\n".join(self.FIXTURE_LINES))
 
@@ -703,7 +1159,7 @@ class TestGeminiImporterTokens:
         #   tool.output_tokens (run_shell_command) = dist_in = 100 // 1 = 100
         _assert_tool_tokens(trace, "run_shell_command", input_t=50, output_t=100)
 
-    def test_gemini_counts_same_id_events_when_payload_differs(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_gemini_counts_same_id_events_when_payload_differs(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "session-duplicate-ids.jsonl"
         fixture_lines = [
             json.dumps(
@@ -770,9 +1226,67 @@ class TestGeminiImporterTokens:
 
         _assert_tool_tokens(trace, "run_shell_command", input_t=50, output_t=100)
 
-    def test_gemini_tracks_per_model_usage_for_mixed_model_sessions(
-        self, store: ReasoningStore, tmp_path: Path
-    ) -> None:
+    def test_gemini_dedupes_same_event_id_and_timestamp(self, store: ContextStore, tmp_path: Path) -> None:
+        jsonl_path = tmp_path / "session-duplicate-event-keys.jsonl"
+        fixture_lines = [
+            json.dumps(
+                {
+                    "startTime": "2026-05-09T12:00:00Z",
+                    "sessionId": "duplicate-event-session",
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "user",
+                    "content": [{"text": "List files please"}],
+                }
+            ),
+            json.dumps(
+                {
+                    "id": "turn-1",
+                    "timestamp": "2026-05-09T12:01:00Z",
+                    "type": "gemini",
+                    "model": "gemini-3-flash",
+                    "tokens": {"input": 100, "output": 50, "thoughts": 5, "cached": 20},
+                }
+            ),
+            json.dumps(
+                {
+                    "id": "turn-1",
+                    "timestamp": "2026-05-09T12:01:00Z",
+                    "type": "gemini",
+                    "model": "gemini-3-flash",
+                    "tokens": {"input": 100, "output": 50, "thoughts": 5, "cached": 20},
+                    "toolCalls": [{"name": "run_shell_command", "args": {"command": "ls"}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "id": "turn-2",
+                    "timestamp": "2026-05-09T12:02:00Z",
+                    "type": "gemini",
+                    "model": "gemini-3-flash",
+                    "tokens": {"input": 80, "output": 30, "thoughts": 2, "cached": 5},
+                }
+            ),
+        ]
+        jsonl_path.write_text("\n".join(fixture_lines))
+
+        importer = GeminiImporter(store)
+        result = importer.import_session(jsonl_path, force=True)
+        assert result is not None
+
+        trace = _get_trace(store, "gemini")
+
+        assert trace.input_tokens == 155
+        assert trace.output_tokens == 80
+        assert trace.thinking_tokens == 7
+        assert trace.cached_input_tokens == 25
+        assert trace.model == "gemini-3-flash"
+
+        _assert_tool_tokens(trace, "run_shell_command", input_t=50, output_t=100)
+
+    def test_gemini_tracks_per_model_usage_for_mixed_model_sessions(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "session-mixed-models.jsonl"
         fixture_lines = [
             json.dumps({"startTime": "2026-05-09T12:00:00Z", "sessionId": "mixed-model-session"}),
@@ -801,7 +1315,8 @@ class TestGeminiImporterTokens:
         trace = _get_trace(store, "gemini")
         usage_by_model = {usage.model: usage for usage in trace.model_usages}
 
-        assert trace.model == "gemini-3.1-pro-preview"
+        assert trace.model == ""
+        assert len(trace.usage_entries) == 2
         assert set(usage_by_model) == {"gemini-3-flash-preview", "gemini-3.1-pro-preview"}
         assert usage_by_model["gemini-3-flash-preview"].input_tokens == 80
         assert usage_by_model["gemini-3-flash-preview"].cached_input_tokens == 20
@@ -812,7 +1327,7 @@ class TestGeminiImporterTokens:
 
     def test_gemini_reimports_when_content_changes_without_newer_mtime(
         self,
-        store: ReasoningStore,
+        store: ContextStore,
         tmp_path: Path,
     ) -> None:
         jsonl_path = tmp_path / "session-growing.jsonl"

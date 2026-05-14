@@ -1,4 +1,4 @@
-"""Tests for the consolidated 12-surface MCP contract."""
+"""Tests for the consolidated MCP contract."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from atelier.gateway.adapters import mcp_server
 from atelier.gateway.adapters.mcp_server import TOOLS, _handle
 
 EXPECTED_TOOLS = {
-    "task",
+    "context",
     "route",
     "rescue",
     "trace",
@@ -25,12 +25,7 @@ EXPECTED_TOOLS = {
     "sql",
     "search",
     "compact",
-    "atelier_code_index",
-    "atelier_code_search",
-    "atelier_code_symbol",
-    "atelier_code_outline",
-    "atelier_code_context",
-    "atelier_code_impact",
+    "code",
     "shell",
 }
 
@@ -80,7 +75,10 @@ def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     mcp_server._remote_client = _mock_client(
         {
             "get_task_context": {"context": "Here are the relevant procedures.", "run_ledger": []},
-            "rescue_failure": {"rescue": "Try a narrower reproduction.", "analysis": "repeat failure"},
+            "rescue_failure": {
+                "rescue": "Try a narrower reproduction.",
+                "analysis": "repeat failure",
+            },
             "record_trace": {"id": "trace-123", "event_recorded": True},
             "run_rubric_gate": {"status": "pass"},
         }
@@ -127,9 +125,9 @@ def test_tools_list_only_passive_decision_tools_without_dev_mode(
     assert names == NON_DEV_LLM_TOOLS
     assert "edit" not in names
     assert "shell" not in names
-    task = next(tool for tool in tools if tool["name"] == "task")
-    assert "passive" in task["description"]
-    assert "no-op/pass" in task["description"]
+    context = next(tool for tool in tools if tool["name"] == "context")
+    assert "passive" in context["description"]
+    assert "no-op/pass" in context["description"]
 
 
 def test_tools_list_each_entry_has_schema() -> None:
@@ -154,7 +152,7 @@ def test_unknown_tool_returns_error() -> None:
 
 def test_get_task_context_can_include_folded_state(store_root: Path) -> None:
     resp = _call(
-        "task",
+        "context",
         {"task": "Fix publish regression", "include_run_ledger": True},
     )
     payload = _result(resp)
@@ -289,27 +287,33 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     (tmp_path / "b.py").write_text("from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8")
 
-    indexed = _result(_call("atelier_code_index", {"repo_root": str(tmp_path)}))
+    indexed = _result(_call("code", {"op": "index", "repo_root": str(tmp_path)}))
     assert indexed["symbols_indexed"] >= 2
 
-    searched = _result(_call("atelier_code_search", {"repo_root": str(tmp_path), "query": "alpha"}))
+    searched = _result(_call("code", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
     assert searched["items"]
 
     symbol = _result(
         _call(
-            "atelier_code_symbol",
-            {"repo_root": str(tmp_path), "qualified_name": "alpha", "file_path": "a.py"},
+            "code",
+            {
+                "op": "symbol",
+                "repo_root": str(tmp_path),
+                "qualified_name": "alpha",
+                "file_path": "a.py",
+            },
         )
     )
     assert "def alpha" in symbol["source"]
 
-    outline = _result(_call("atelier_code_outline", {"repo_root": str(tmp_path), "file_path": "a.py"}))
+    outline = _result(_call("code", {"op": "outline", "repo_root": str(tmp_path), "file_path": "a.py"}))
     assert "a.py" in outline["files"]
 
     context = _result(
         _call(
-            "atelier_code_context",
+            "code",
             {
+                "op": "context",
                 "repo_root": str(tmp_path),
                 "task": "change alpha",
                 "seed_files": ["a.py"],
@@ -319,5 +323,5 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     )
     assert context["token_count"] <= context["budget_tokens"]
 
-    impact = _result(_call("atelier_code_impact", {"repo_root": str(tmp_path), "file_path": "a.py"}))
+    impact = _result(_call("code", {"op": "impact", "repo_root": str(tmp_path), "file_path": "a.py"}))
     assert "b.py" in impact["direct_importers"]

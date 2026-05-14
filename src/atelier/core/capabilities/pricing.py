@@ -23,11 +23,25 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Literal
+
+logger = logging.getLogger(__name__)
+
+# Placeholder model ids that legitimately carry no cost. Returning the zero-cost
+# default for these is correct and should not log a warning.
+#   "<synthetic>" — Anthropic placeholder for cached/instant assistant replies
+#                   (e.g. Claude Code injects this for synthesised tool follow-ups
+#                   that don't trigger a billable /v1/messages request).
+#   "_default"    — explicit sentinel used by the pricing table itself.
+#   ""            — missing/unknown at the call site.
+_PLACEHOLDER_MODEL_IDS = frozenset({"", "_default", "<synthetic>"})
+
+_warned_unknown_models: set[str] = set()
 
 with_model_cost: dict[str, object]
 try:
@@ -289,6 +303,34 @@ def _load_pricing_table() -> dict[str, dict[str, float | tuple[PricingTier, ...]
         for alias in _alias_candidates(model_id):
             _register_entry(table, priorities, alias, pricing_entry, priority=_alias_priority(model_id))
 
+    # Built-in zero-cost entries for host-internal model aliases that don't
+    # correspond to a real billable API. Without these, get_model_pricing would
+    # emit a "no entry for model" warning every time the operator imports a
+    # session that used one of these. We treat them as known-but-free so the
+    # warning channel stays useful for genuinely missing models.
+    #
+    # opencode/big-pickle:  opencode's internal routing alias; the opencode
+    #                       binary itself reports cost=0 in its own logs.
+    # copilot/<anything>:   GitHub Copilot chat models are subscription-covered
+    #                       ($19/mo Pro), not per-token billed. Importers
+    #                       prefix VSCode Copilot Chat calls with ``copilot/``
+    #                       so they all match this zero-cost wildcard.
+    _ZERO_COST = {
+        "input": 0.0,
+        "output": 0.0,
+        "cache_read": 0.0,
+        "cache_write": 0.0,
+        "thinking": 0.0,
+        "input_tiers": (),
+        "output_tiers": (),
+        "cache_read_tiers": (),
+        "cache_write_tiers": (),
+        "thinking_tiers": (),
+    }
+    for alias in ("opencode/big-pickle", "copilot/"):
+        if alias not in table:
+            table[alias] = dict(_ZERO_COST)
+
     for model_id, entry in _OVERRIDE_PRICING.items():
         table[model_id] = entry
 
@@ -300,12 +342,25 @@ def _load_pricing_table() -> dict[str, dict[str, float | tuple[PricingTier, ...]
 # ---------------------------------------------------------------------------
 
 
+def is_placeholder_model(model_id: str | None) -> bool:
+    """Return True when *model_id* is a known placeholder (no real billing).
+
+    Useful so callers (parsers, summarizers) can avoid surfacing things like
+    ``<synthetic>`` as the trace's resolved model.
+    """
+    return str(model_id or "").strip() in _PLACEHOLDER_MODEL_IDS
+
+
 def get_model_pricing(model_id: str) -> ModelPricing:
     """Return :class:`ModelPricing` for *model_id*.
 
     When the model id is not found in the pricing table (exact or prefix
     match), the default (all-zeros) entry is returned with ``known=False``.
     Matching is exact first, then prefix over the LiteLLM-backed catalog.
+
+    Placeholder ids (``<synthetic>``, ``_default``, empty) are returned as
+    zero-cost silently. Genuinely unknown model ids log a one-time warning so
+    the operator can extend ``_OVERRIDE_PRICING`` or upgrade LiteLLM.
     """
     table = _load_pricing_table()
     # Exact match
@@ -317,6 +372,13 @@ def get_model_pricing(model_id: str) -> ModelPricing:
         if key != "_default" and (model_id.startswith(key) or key.startswith(model_id)):
             return ModelPricing(model_id=key, known=True, **vals)
     # Fallback to zero-cost default (pricing not configured → known=False)
+    if model_id and model_id not in _PLACEHOLDER_MODEL_IDS and model_id not in _warned_unknown_models:
+        _warned_unknown_models.add(model_id)
+        logger.warning(
+            "atelier.pricing: no entry for model %r — costs for this model will be reported as $0. "
+            "Extend the LiteLLM catalog or call override_pricing() to fix.",
+            model_id,
+        )
     vals = table["_default"]
     return ModelPricing(model_id=model_id, known=False, **vals)
 

@@ -18,7 +18,7 @@ import re
 import traceback as _traceback
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from atelier.core.foundation.models import (
     FileEditRecord,
@@ -27,7 +27,11 @@ from atelier.core.foundation.models import (
     Trace,
 )
 from atelier.core.foundation.redaction import redact
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.hosts.session_parsers._common import (
+    make_llm_usage_entry,
+    summarize_usage_entries,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +137,7 @@ def _extract_task_text(history_entry: dict[str, Any], history: list[dict[str, An
 
 
 class ClineImporter:
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:
@@ -242,6 +246,16 @@ class ClineImporter:
         output_tokens = int(history_entry.get("tokensOut") or 0)
         cached_input_tokens = int(history_entry.get("cacheReads") or 0)
         cache_creation_input_tokens = int(history_entry.get("cacheWrites") or 0)
+        usage_entry = make_llm_usage_entry(
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=cached_input_tokens,
+            cache_creation_input_tokens=cache_creation_input_tokens,
+            source_type="cline.task_history",
+            source_id=str(task_id),
+        )
+        usage_summary = summarize_usage_entries([usage_entry] if usage_entry is not None else [], fallback_model=model)
 
         try:
             created_at = _ms_to_dt(int(task_id))
@@ -267,17 +281,19 @@ class ClineImporter:
                 )
                 for name, count in tools_called_counts.items()
             ],
-            commands_run=commands_run,
+            commands_run=cast(Any, commands_run),
             errors_seen=[],
             validation_results=[],
             reasoning=[],
             raw_artifact_ids=[artifact_id],
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cached_input_tokens=cached_input_tokens,
-            cache_creation_input_tokens=cache_creation_input_tokens,
+            input_tokens=usage_summary["input_tokens"],
+            output_tokens=usage_summary["output_tokens"],
+            cached_input_tokens=usage_summary["cached_input_tokens"],
+            cache_creation_input_tokens=usage_summary["cache_creation_input_tokens"],
             thinking_tokens=0,
-            model=model,
+            model=usage_summary["model"],
+            usage_entries=usage_summary["usage_entries"],
+            model_usages=usage_summary["model_usages"],
             created_at=created_at,
         )
         self.store.record_trace(trace, write_json=False)

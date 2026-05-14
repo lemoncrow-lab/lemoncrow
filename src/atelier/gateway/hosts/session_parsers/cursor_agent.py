@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers._common import (
     build_normalized_jsonl,
     char_tokens,
@@ -142,7 +142,12 @@ def _parse_text_transcript(raw: str) -> list[tuple[str, str, list[str], str]]:
             body_lines.append(line)
         if pending_users:
             turns.append(
-                (pending_users.pop(0), "\n".join(body_lines).strip(), tools, "\n".join(reasoning_lines).strip())
+                (
+                    pending_users.pop(0),
+                    "\n".join(body_lines).strip(),
+                    tools,
+                    "\n".join(reasoning_lines).strip(),
+                )
             )
         assistant_lines.clear()
 
@@ -176,7 +181,7 @@ def _parse_text_transcript(raw: str) -> list[tuple[str, str, list[str], str]]:
 
 
 class CursorAgentImporter:
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:

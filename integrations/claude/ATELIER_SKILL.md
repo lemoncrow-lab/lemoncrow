@@ -65,7 +65,11 @@ search(query="publish_product function", path="src/")
 edit(edits=[{"path": "src/foo.py", "old_string": "...", "new_string": "..."}])
 
 # Read-only SQL inspection
-atelier sql inspect(connection_alias="default", sql="SELECT * FROM products LIMIT 5")
+sql(connection_alias="default", sql="SELECT * FROM products LIMIT 5")
+
+# Code index operations
+code(op="search", repo_root=".", query="publish_product")
+code(op="impact", repo_root=".", file_path="src/foo.py")
 
 # Advise before host-native /compact — get preserve/reinject hints
 compact(session_id="run_123")
@@ -96,7 +100,7 @@ atelier lesson decide(lesson_id="les_001", decision="approve", reviewer="atelier
 
 ```
 You: Update the product title for handle "winter-coat"
-→ Call task with domain=beseam.shopify.publish
+→ Call context with domain=beseam.shopify.publish
 → Call verify after publish with checks
 → Call trace when done
 ```

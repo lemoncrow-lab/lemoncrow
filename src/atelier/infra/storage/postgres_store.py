@@ -858,11 +858,17 @@ class PostgresStore:
         stdout: str = "",
         stderr: str = "",
         collected_at: str | None = None,
+        replace_period_snapshot: bool = False,
     ) -> str:
         session_id = str(uuid4())
         created_at = datetime.now(UTC).isoformat()
         collected = collected_at or created_at
         with self._connect() as conn:
+            if replace_period_snapshot:
+                conn.execute(
+                    "DELETE FROM external_analytics_runs WHERE tool = %s AND period = %s",
+                    (tool, period),
+                )
             conn.execute(
                 """
                 INSERT INTO external_analytics_runs (

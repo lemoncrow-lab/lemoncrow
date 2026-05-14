@@ -13,10 +13,10 @@ import contextlib
 import pytest
 
 from atelier.core.capabilities.telemetry.context_budget import ContextBudgetRecorder
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 
-def test_context_budget_dispatch_loop(store: ReasoningStore) -> None:
+def test_context_budget_dispatch_loop(store: ContextStore) -> None:
     """Test recording metrics through a simulated dispatch loop."""
     recorder = ContextBudgetRecorder(store)
 
@@ -69,7 +69,7 @@ def test_context_budget_dispatch_loop(store: ReasoningStore) -> None:
     }
 
 
-def test_context_budget_database_schema_migration(store: ReasoningStore) -> None:
+def test_context_budget_database_schema_migration(store: ContextStore) -> None:
     """Test that the database schema includes the context_budget table."""
     # Verify the table exists by attempting to query it
     with store._connect() as conn:
@@ -78,7 +78,7 @@ def test_context_budget_database_schema_migration(store: ReasoningStore) -> None
         assert result is not None, "context_budget table should exist after init()"
 
 
-def test_context_budget_unique_constraint(store: ReasoningStore) -> None:
+def test_context_budget_unique_constraint(store: ContextStore) -> None:
     """Test that the unique constraint on (session_id, turn_index) is enforced."""
     recorder = ContextBudgetRecorder(store)
 
@@ -120,7 +120,7 @@ def test_context_budget_unique_constraint(store: ReasoningStore) -> None:
     assert records[0].lever_savings == {"test": 200}
 
 
-def test_context_budget_prometheus_counter_increments(store: ReasoningStore) -> None:
+def test_context_budget_prometheus_counter_increments(store: ContextStore) -> None:
     """Test that Prometheus metrics are incremented (if available)."""
     try:
         from prometheus_client import REGISTRY
@@ -157,7 +157,7 @@ def test_context_budget_prometheus_counter_increments(store: ReasoningStore) -> 
         pytest.skip("prometheus_client not available")
 
 
-def test_context_budget_large_run(store: ReasoningStore) -> None:
+def test_context_budget_large_run(store: ContextStore) -> None:
     """Test recording metrics for a large run with many turns."""
     recorder = ContextBudgetRecorder(store)
 
@@ -192,7 +192,7 @@ def test_context_budget_large_run(store: ReasoningStore) -> None:
     assert savings.total_tokens_saved == expected_total
 
 
-def test_context_budget_lever_savings_json_serialization(store: ReasoningStore) -> None:
+def test_context_budget_lever_savings_json_serialization(store: ContextStore) -> None:
     """Test that lever_savings dict is properly serialized/deserialized."""
     recorder = ContextBudgetRecorder(store)
 
@@ -221,7 +221,7 @@ def test_context_budget_lever_savings_json_serialization(store: ReasoningStore) 
     assert records[0].lever_savings == complex_savings
 
 
-def test_context_budget_index_performance(store: ReasoningStore) -> None:
+def test_context_budget_index_performance(store: ContextStore) -> None:
     """Test that the database index on (session_id) is present for query performance."""
     # Verify the index exists
     with store._connect() as conn:

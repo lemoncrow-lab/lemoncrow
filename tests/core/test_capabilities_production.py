@@ -1,7 +1,7 @@
 """Production-grade tests for all five Atelier V3 capabilities.
 
 Tests cover:
-- reasoning_reuse: BM25 ranking, rescue boost, savings accumulation
+- context_reuse: BM25 ranking, rescue boost, savings accumulation
 - semantic_file_memory: AST truncation, symbol details, module_summary, symbol_search, cache hits
 - loop_detection: LoopReport returned, signature stability, loop type detection
 - tool_supervision: token savings accumulation, tool_report structure
@@ -37,13 +37,13 @@ def _make_rt(tmp_path: Path) -> tuple[AtelierRuntimeCore, Path]:
 
 
 # --------------------------------------------------------------------------- #
-# reasoning_reuse                                                             #
+# context_reuse                                                               #
 # --------------------------------------------------------------------------- #
 
 
-def test_reasoning_reuse_returns_context(tmp_path: Path) -> None:
+def test_context_reuse_returns_context(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
-    ctx = rt.get_reasoning_context(
+    ctx = rt.get_context(
         task="Fix a failing live state change",
         domain="state.change",
         errors=["ConnectionError"],
@@ -52,7 +52,7 @@ def test_reasoning_reuse_returns_context(tmp_path: Path) -> None:
     assert isinstance(ctx, str)
 
 
-def test_reasoning_reuse_inject_runtime_reasoning(tmp_path: Path) -> None:
+def test_context_reuse_inject_runtime_reasoning(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     result = rt.inject_reasoning(
         task="Deploy configuration update",
@@ -68,9 +68,9 @@ def test_reasoning_reuse_inject_runtime_reasoning(tmp_path: Path) -> None:
     assert "dead_ends" in result
 
 
-def test_reasoning_reuse_retrieve_includes_phase2_breakdown(tmp_path: Path) -> None:
+def test_context_reuse_retrieve_includes_phase2_breakdown(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
-    scored = rt.reasoning_reuse.retrieve(
+    scored = rt.context_reuse.retrieve(
         task="Fix a flaky live deployment flow",
         domain="state.change",
         errors=["timeout", "connection reset"],
@@ -84,9 +84,9 @@ def test_reasoning_reuse_retrieve_includes_phase2_breakdown(tmp_path: Path) -> N
         assert "ann" in breakdown
 
 
-def test_reasoning_reuse_inject_includes_rescue_chains(tmp_path: Path) -> None:
+def test_context_reuse_inject_includes_rescue_chains(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
-    payload = rt.reasoning_reuse.inject_runtime_reasoning(
+    payload = rt.context_reuse.inject_runtime_reasoning(
         task="Recover from failed live change",
         domain="state.change",
         errors=["api quota exceeded"],
@@ -593,7 +593,7 @@ def test_telemetry_emit_and_query() -> None:
 
     bus = TelemetrySubstrate()
     bus.emit("loop_detection", "loop_probability", 0.8, session_id="r1")
-    bus.emit("reasoning_reuse", "hit_quality", 0.95, session_id="r1")
+    bus.emit("context_reuse", "hit_quality", 0.95, session_id="r1")
     bus.emit("loop_detection", "retry_count", 2.0, session_id="r1")
 
     all_events = bus.query()
@@ -675,22 +675,22 @@ def test_capability_registry_dependency_report() -> None:
     from atelier.core.capabilities.registry import CapabilityRegistry
 
     reg = CapabilityRegistry()
-    reg.register("reasoning_reuse", object())
+    reg.register("context_reuse", object())
     reg.register(
         "context_compression",
         object(),
-        depends_on=[("reasoning_reuse", 0.9)],
-        fallback="reasoning_reuse",
+        depends_on=[("context_reuse", 0.9)],
+        fallback="context_reuse",
         tags=["compression"],
     )
 
     report = reg.dependency_report()
-    assert "reasoning_reuse" in report["capabilities"]
+    assert "context_reuse" in report["capabilities"]
     assert "context_compression" in report["capabilities"]
-    assert report["capabilities"]["context_compression"]["fallback"] == "reasoning_reuse"
-    assert "reasoning_reuse" in report["capabilities"]["context_compression"]["depends_on"]
+    assert report["capabilities"]["context_compression"]["fallback"] == "context_reuse"
+    assert "context_reuse" in report["capabilities"]["context_compression"]["depends_on"]
     # At least one edge should appear
-    assert any(e["from"] == "reasoning_reuse" and e["to"] == "context_compression" for e in report["edges"])
+    assert any(e["from"] == "context_reuse" and e["to"] == "context_compression" for e in report["edges"])
 
 
 def test_capability_registry_activation_path_ordered() -> None:
@@ -741,7 +741,7 @@ def test_budget_optimizer_all_fit() -> None:
     from atelier.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
-        ContextBlock("a", "alpha", token_cost=50, utility=0.9, source="reasoning_reuse"),
+        ContextBlock("a", "alpha", token_cost=50, utility=0.9, source="context_reuse"),
         ContextBlock("b", "beta", token_cost=30, utility=0.7, source="semantic_memory"),
     ]
     opt = PromptBudgetOptimizer()
@@ -822,8 +822,8 @@ def test_budget_optimizer_diversity_bonus() -> None:
     # Two sources; same utility/token — diversity bonus should help
     # include one from each source when budget allows
     blocks = [
-        ContextBlock("r1", "reuse a", token_cost=50, utility=0.5, source="reasoning_reuse"),
-        ContextBlock("r2", "reuse b", token_cost=50, utility=0.5, source="reasoning_reuse"),
+        ContextBlock("r1", "reuse a", token_cost=50, utility=0.5, source="context_reuse"),
+        ContextBlock("r2", "reuse b", token_cost=50, utility=0.5, source="context_reuse"),
         ContextBlock("m1", "mem a", token_cost=50, utility=0.5, source="semantic_memory"),
     ]
     plan = PromptBudgetOptimizer(diversity_bonus=0.2).solve(blocks, token_budget=100)

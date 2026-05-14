@@ -7,7 +7,7 @@ type Tone =
   | "violet"
   | "neutral"
   | "red"
-  | "orange";
+  | "purple";
 
 const TONES: Record<
   Tone,
@@ -49,11 +49,11 @@ const TONES: Record<
     value: "text-red-200",
     border: "border-red-900/50",
   },
-  orange: {
-    panel: "border-orange-900/30 bg-orange-950/20",
-    eyebrow: "text-orange-400",
-    value: "text-orange-200",
-    border: "border-orange-900/50",
+  purple: {
+    panel: "border-purple-900/30 bg-purple-950/20",
+    eyebrow: "text-purple-400",
+    value: "text-purple-200",
+    border: "border-purple-900/50",
   },
 };
 

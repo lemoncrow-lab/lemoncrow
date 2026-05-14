@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from atelier.gateway.sdk.client import (
     AtelierClient,
+    ContextResult,
     FailureAnalysisResult,
     LessonDecisionResult,
     LessonInboxResult,
@@ -11,7 +12,6 @@ from atelier.gateway.sdk.client import (
     MemoryRecallResult,
     MemoryUpsertBlockResult,
     ReasoningContextRecalledPassage,
-    ReasoningContextResult,
     ReasoningContextTokenBreakdown,
     SavingsSummary,
 )
@@ -21,6 +21,7 @@ from atelier.gateway.sdk.remote import RemoteClient
 
 __all__ = [
     "AtelierClient",
+    "ContextResult",
     "FailureAnalysisResult",
     "LessonDecisionResult",
     "LessonInboxResult",
@@ -30,7 +31,6 @@ __all__ = [
     "MemoryRecallResult",
     "MemoryUpsertBlockResult",
     "ReasoningContextRecalledPassage",
-    "ReasoningContextResult",
     "ReasoningContextTokenBreakdown",
     "RemoteClient",
     "SavingsSummary",

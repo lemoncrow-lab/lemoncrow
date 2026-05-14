@@ -1356,7 +1356,13 @@ def _normalized_loop_event(raw_event: Any) -> dict[str, Any]:
     lowered = tool_name.lower().strip()
     if tool_is_edit(lowered):
         normalized_kind = "file_edit"
-    elif lowered.endswith("search") or lowered in {"search", "grep", "glob", "file_search", "symbol_search"}:
+    elif lowered.endswith("search") or lowered in {
+        "search",
+        "grep",
+        "glob",
+        "file_search",
+        "symbol_search",
+    }:
         normalized_kind = "search"
     elif lowered in {"read", "smart_read", "read_file"} or lowered.endswith("read"):
         normalized_kind = "read_file"

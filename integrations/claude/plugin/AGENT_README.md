@@ -14,9 +14,9 @@ Canonical Claude Code plugin package for Atelier.
   marketplace.json     Marketplace manifest for plugin-local install (name=atelier)
 agents/
   code.md              atelier:code — main coding agent; purple Claude frame
-  explore.md           atelier:explore — read-only exploration; yellow frame
+  explore.md           atelier:explore — read-only exploration; cyan frame
   review.md            atelier:review — plan/rubric verifier; green frame
-  repair.md            atelier:repair — repeated-failure rescue; orange frame
+  repair.md            atelier:repair — repeated-failure rescue; red frame
 skills/                Slash commands produced via /atelier:<name>
   status/SKILL.md      /atelier:status
   context/SKILL.md     /atelier:context

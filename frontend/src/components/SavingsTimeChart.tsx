@@ -2,6 +2,7 @@ import type { SavingsByDay } from "../api";
 
 interface SavingsTimeChartProps {
   data: SavingsByDay[];
+  windowDays: number;
 }
 
 const WIDTH = 880;
@@ -20,7 +21,10 @@ function buildAreaPath(
   return `${head} ${line} ${tail}`;
 }
 
-export default function SavingsTimeChart({ data }: SavingsTimeChartProps) {
+export default function SavingsTimeChart({
+  data,
+  windowDays,
+}: SavingsTimeChartProps) {
   if (data.length === 0) {
     return <div className="text-sm text-neutral-500">No trend data yet.</div>;
   }
@@ -46,19 +50,19 @@ export default function SavingsTimeChart({ data }: SavingsTimeChartProps) {
   return (
     <div className="border border-neutral-800 bg-neutral-950/70 p-3">
       <div className="mb-2 flex items-center justify-between text-[11px] text-neutral-400 font-mono uppercase tracking-widest">
-        <span>14-day token trend</span>
+        <span>{windowDays}-day token trend</span>
         <span>Naive vs Actual</span>
       </div>
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="w-full"
         role="img"
-        aria-label="14-day token savings trend"
+        aria-label={`${windowDays}-day token savings trend`}
       >
         <defs>
           <linearGradient id="naiveFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#fb923c" stopOpacity="0.45" />
-            <stop offset="100%" stopColor="#fb923c" stopOpacity="0.08" />
+            <stop offset="0%" stopColor="#c084fc" stopOpacity="0.45" />
+            <stop offset="100%" stopColor="#c084fc" stopOpacity="0.08" />
           </linearGradient>
           <linearGradient id="actualFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#10b981" stopOpacity="0.55" />

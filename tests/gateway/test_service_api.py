@@ -5,7 +5,7 @@ Uses FastAPI TestClient with an in-memory SQLite store so no server starts.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -242,7 +242,35 @@ def test_external_analytics_endpoints_return_summary_and_detail(
         command_display="codeburn report --format json -p today",
         returncode=0,
         summary={"highlights": [{"key": "cost_usd", "label": "cost usd", "value": 4.5}]},
-        payload={"overview": {"cost": 4.5, "calls": 9, "sessions": 2}},
+        payload={
+            "overview": {"cost": 4.5, "calls": 9, "sessions": 2},
+            "providerEntries": [
+                {
+                    "provider": "codex",
+                    "providerDisplayName": "Codex",
+                    "models": 1,
+                    "calls": 7,
+                    "inputTokens": 100,
+                    "outputTokens": 20,
+                    "cacheReadTokens": 10,
+                    "cacheWriteTokens": 0,
+                    "totalTokens": 130,
+                    "costUSD": 3.8,
+                },
+                {
+                    "provider": "gemini",
+                    "providerDisplayName": "Gemini",
+                    "models": 1,
+                    "calls": 2,
+                    "inputTokens": 40,
+                    "outputTokens": 8,
+                    "cacheReadTokens": 0,
+                    "cacheWriteTokens": 0,
+                    "totalTokens": 48,
+                    "costUSD": 0.7,
+                },
+            ],
+        },
         collected_at="2026-05-11T12:00:00+00:00",
     )
     store.record_external_analytics_run(
@@ -269,6 +297,187 @@ def test_external_analytics_endpoints_return_summary_and_detail(
     dashboard = dashboard_resp.json()
     assert dashboard["external"]["runs_total"] == 2
     assert {item["tool"] for item in dashboard["external"]["latest"]} == {"codeburn", "tokscale"}
+    assert dashboard["external"]["by_provider"] == [
+        {
+            "provider": "codex",
+            "providerDisplayName": "Codex",
+            "models": 1,
+            "calls": 7,
+            "inputTokens": 100,
+            "outputTokens": 20,
+            "cacheReadTokens": 10,
+            "cacheWriteTokens": 0,
+            "totalTokens": 130,
+            "costUSD": 3.8,
+        },
+        {
+            "provider": "gemini",
+            "providerDisplayName": "Gemini",
+            "models": 1,
+            "calls": 2,
+            "inputTokens": 40,
+            "outputTokens": 8,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "totalTokens": 48,
+            "costUSD": 0.7,
+        },
+    ]
+
+
+def test_dashboard_external_uses_period_matched_codeburn_snapshot(
+    app_no_auth: TestClient,
+    store: SQLiteStore,
+) -> None:
+    now = datetime.now(UTC)
+    today_collected_at = (now - timedelta(minutes=10)).isoformat()
+    month_collected_at = (now - timedelta(minutes=5)).isoformat()
+
+    store.record_external_analytics_run(
+        tool="codeburn",
+        period="today",
+        source="servicectl",
+        ok=True,
+        command_display="codeburn report --format json -p today",
+        returncode=0,
+        summary={"highlights": [{"key": "cost_usd", "label": "cost usd", "value": 4.5}]},
+        payload={
+            "overview": {"cost": 4.5, "calls": 9, "sessions": 2},
+            "providerEntries": [
+                {
+                    "provider": "copilot",
+                    "providerDisplayName": "Copilot",
+                    "models": 1,
+                    "calls": 9,
+                    "inputTokens": 120,
+                    "outputTokens": 40,
+                    "cacheReadTokens": 0,
+                    "cacheWriteTokens": 0,
+                    "totalTokens": 160,
+                    "costUSD": 4.5,
+                }
+            ],
+        },
+        collected_at=today_collected_at,
+    )
+    store.record_external_analytics_run(
+        tool="codeburn",
+        period="month",
+        source="servicectl",
+        ok=True,
+        command_display="codeburn report --format json -p month",
+        returncode=0,
+        summary={"highlights": [{"key": "cost_usd", "label": "cost usd", "value": 82.1}]},
+        payload={
+            "overview": {"cost": 82.1, "calls": 190, "sessions": 33},
+            "providerEntries": [
+                {
+                    "provider": "codex",
+                    "providerDisplayName": "Codex",
+                    "models": 2,
+                    "calls": 190,
+                    "inputTokens": 5000,
+                    "outputTokens": 1200,
+                    "cacheReadTokens": 0,
+                    "cacheWriteTokens": 0,
+                    "totalTokens": 6200,
+                    "costUSD": 82.1,
+                }
+            ],
+        },
+        collected_at=month_collected_at,
+    )
+
+    dashboard_resp = app_no_auth.get("/analytics/dashboard?days=1")
+    assert dashboard_resp.status_code == 200
+
+    dashboard = dashboard_resp.json()
+    codeburn_snapshot = next(item for item in dashboard["external"]["latest"] if item["tool"] == "codeburn")
+    assert codeburn_snapshot["period"] == "today"
+    assert dashboard["external"]["by_provider"] == [
+        {
+            "provider": "copilot",
+            "providerDisplayName": "Copilot",
+            "models": 1,
+            "calls": 9,
+            "inputTokens": 120,
+            "outputTokens": 40,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "totalTokens": 160,
+            "costUSD": 4.5,
+        }
+    ]
+
+
+def test_analytics_day_windows_use_calendar_days(
+    app_no_auth: TestClient,
+    store: SQLiteStore,
+) -> None:
+    from atelier.core.capabilities.pricing import usage_cost_usd
+    from atelier.core.foundation.models import Trace
+
+    local_now = datetime.now().astimezone()
+    today_start_local = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday_end = today_start_local - timedelta(minutes=1)
+    today_early = today_start_local + timedelta(minutes=1)
+
+    store.record_trace(
+        Trace(
+            id="trace-yesterday-recent",
+            agent="atelier:code",
+            host="copilot",
+            domain="coding",
+            task="yesterday but within 24h",
+            status="success",
+            model="gpt-5.4",
+            input_tokens=200,
+            output_tokens=40,
+            created_at=yesterday_end,
+        ),
+        write_json=False,
+    )
+    store.record_trace(
+        Trace(
+            id="trace-today-current",
+            agent="atelier:code",
+            host="copilot",
+            domain="coding",
+            task="today only",
+            status="success",
+            model="gpt-5.4",
+            input_tokens=120,
+            output_tokens=20,
+            created_at=today_early,
+        ),
+        write_json=False,
+    )
+
+    today_cost = usage_cost_usd("gpt-5.4", input_tokens=120, output_tokens=20)
+    two_day_cost = usage_cost_usd("gpt-5.4", input_tokens=200, output_tokens=40) + today_cost
+
+    summary_today = app_no_auth.get("/analytics/summary?days=1")
+    assert summary_today.status_code == 200
+    assert summary_today.json()["total_cost"] == today_cost
+
+    dashboard_today = app_no_auth.get("/analytics/dashboard?days=1")
+    assert dashboard_today.status_code == 200
+    dashboard_today_payload = dashboard_today.json()
+    assert dashboard_today_payload["summary"]["total_cost"] == today_cost
+    assert dashboard_today_payload["summary"]["total_sessions"] == 1
+    assert dashboard_today_payload["daily"] == [
+        {
+            "date": today_start_local.date().isoformat(),
+            "sessions": 1,
+            "cost": today_cost,
+            "input_tokens": 120,
+            "output_tokens": 20,
+        }
+    ]
+
+    summary_two_days = app_no_auth.get("/analytics/summary?days=2")
+    assert summary_two_days.status_code == 200
+    assert summary_two_days.json()["total_cost"] == round(two_day_cost, 6)
 
 
 def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
@@ -342,6 +551,125 @@ def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
 
     total_daily_sessions = sum(row["sessions"] for row in dashboard["daily"])
     assert total_daily_sessions == 2
+
+
+def test_dashboard_collapses_duplicate_trace_rows_into_one_session(
+    app_no_auth: TestClient,
+    store: SQLiteStore,
+) -> None:
+    from atelier.core.capabilities.pricing import usage_cost_usd
+    from atelier.core.foundation.models import Trace
+
+    created_at = datetime.now(UTC)
+    expected_cost = usage_cost_usd("gpt-5.4", input_tokens=120, output_tokens=20)
+
+    store.record_trace(
+        Trace(
+            id="trace-copilot-session-primary",
+            session_id="copilot-session-1",
+            agent="atelier:code",
+            host="copilot",
+            domain="coding",
+            task="priced copilot session",
+            status="success",
+            model="gpt-5.4",
+            input_tokens=120,
+            output_tokens=20,
+            created_at=created_at,
+        ),
+        write_json=False,
+    )
+    store.record_trace(
+        Trace(
+            id="trace-copilot-session-transcript",
+            session_id="copilot-session-1",
+            agent="atelier:code",
+            host="copilot",
+            domain="coding",
+            task="prompt-only transcript stub",
+            status="success",
+            created_at=created_at + timedelta(minutes=1),
+        ),
+        write_json=False,
+    )
+
+    resp = app_no_auth.get("/analytics/dashboard?days=1")
+    assert resp.status_code == 200
+    dashboard = resp.json()
+
+    assert dashboard["summary"]["total_sessions"] == 1
+
+    by_host = {row["host"]: row for row in dashboard["by_host"]}
+    assert by_host["copilot"]["sessions"] == 1
+    assert by_host["copilot"]["cost"] == expected_cost
+
+    assert dashboard["top_sessions"][0]["id"] == "copilot-session-1"
+    assert sum(row["sessions"] for row in dashboard["daily"]) == 1
+
+
+def test_dashboard_rolls_cursor_agent_into_cursor_host_family(
+    app_no_auth: TestClient,
+    store: SQLiteStore,
+) -> None:
+    from atelier.core.foundation.models import ModelUsage, Trace
+
+    created_at = datetime.now(UTC)
+
+    store.record_trace(
+        Trace(
+            id="trace-cursor-family",
+            agent="atelier:code",
+            host="cursor",
+            domain="coding",
+            task="cursor family usage",
+            status="success",
+            model="claude-sonnet-4-5",
+            model_usages=[
+                ModelUsage(
+                    model="claude-sonnet-4-5",
+                    input_tokens=100,
+                    output_tokens=40,
+                )
+            ],
+            input_tokens=100,
+            output_tokens=40,
+            created_at=created_at,
+        ),
+        write_json=False,
+    )
+    store.record_trace(
+        Trace(
+            id="trace-cursor-agent-family",
+            agent="atelier:code",
+            host="cursor-agent",
+            domain="coding",
+            task="cursor agent family usage",
+            status="success",
+            model="claude-sonnet-4-5",
+            model_usages=[
+                ModelUsage(
+                    model="claude-sonnet-4-5",
+                    input_tokens=80,
+                    output_tokens=20,
+                )
+            ],
+            input_tokens=80,
+            output_tokens=20,
+            created_at=created_at,
+        ),
+        write_json=False,
+    )
+
+    resp = app_no_auth.get("/analytics/dashboard")
+    assert resp.status_code == 200
+    dashboard = resp.json()
+
+    by_host = {row["host"]: row for row in dashboard["by_host"]}
+    assert by_host["cursor"]["sessions"] == 2
+    assert "cursor-agent" not in by_host
+
+    overview = {(row["host"], row["model"]): row for row in dashboard["host_model_overview"]}
+    assert overview[("cursor", "claude-sonnet-4-5")]["sessions"] == 2
 
 
 def test_dashboard_returns_hourly_usage_buckets(
@@ -418,7 +746,7 @@ def test_dashboard_splits_multi_model_usage_into_by_model_breakdown(
             domain="coding",
             task="mixed model session",
             status="success",
-            model="gemini-3.1-pro-preview",
+            model="",
             model_usages=[
                 ModelUsage(
                     model="gemini-3-flash-preview",

@@ -1,26 +1,45 @@
 # Atelier MCP
 
-Atelier's MCP server is the host-neutral way to plug procedural reasoning, rubric gates, failure rescue, compacting, smart file operations, and agent memory into existing agent CLIs.
+Atelier's MCP server is the host-neutral transport for context retrieval,
+rescue, trace recording, rubric gates, memory, and code-aware helper tools.
 
 ## Start Modes
 
-### Local stdio
+### Installed product
+
+```bash
+atelier-mcp
+```
+
+### Source checkout
 
 ```bash
 cd atelier
-atelier-mcp
+uv run atelier-mcp
 ```
 
 ### Remote service-backed mode
 
-Set `ATELIER_MCP_MODE=remote` plus `ATELIER_SERVICE_URL` and `ATELIER_API_KEY` to route supported core calls through the HTTP service.
+Set `ATELIER_MCP_MODE=remote` plus `ATELIER_SERVICE_URL` and `ATELIER_API_KEY`
+to route the supported core calls through the HTTP service.
 
-## Agent-Facing Tools
+## Active vs. Passive Mode
 
-The MCP registry exposes exactly these prefixed tool names:
+Atelier distinguishes between developer mode and passive compatibility mode.
 
-- `reasoning`
-- `lint`
+- With `ATELIER_DEV_MODE=1`, the stdio MCP server exposes the full active tool surface.
+- Without developer mode, `trace` remains active and the host may still see some
+  compatibility tools as passive `noop` surfaces, but context/retrieval/edit
+  workflows are intentionally not active.
+- Older host templates may use previous-generation tool names; the list below is
+  the current public stdio MCP surface.
+
+## Active Tool Names
+
+With `ATELIER_DEV_MODE=1`, the current stdio MCP registry exposes these tool
+names:
+
+- `task`
 - `route`
 - `rescue`
 - `trace`
@@ -28,21 +47,48 @@ The MCP registry exposes exactly these prefixed tool names:
 - `memory`
 - `read`
 - `edit`
+- `sql`
 - `search`
 - `compact`
-- `atelier_repo_map`
+- `code`
+- `shell`
 
-There are no unprefixed aliases. Use CLI commands for governance and admin workflows such as `atelier lesson inbox`, `atelier consolidation decide`, `atelier report`, `atelier sql inspect`, `atelier proof show`, and `atelier route contract`.
+## Structured Tool Operations
 
-## Dispatch Surfaces
+- `memory` uses an `op` field such as `block_upsert`, `block_get`, `archive`, and `recall`.
+- `compact` uses `op=output`, `op=session`, or `op=advise`.
+- `route` uses `op=decide` and `op=verify`.
+- `code` uses `op=index`, `op=search`, `op=symbol`, `op=outline`, `op=context`, or `op=impact`.
 
-`memory` uses an `op` field for `block_upsert`, `block_get`, `archive`, `recall`, and `summarize`.
+## Remote Mode Coverage
 
-`compact` uses an `op` field for `output`, `session`, and `advise`.
+In remote MCP mode, Atelier currently forwards the core service-backed flows for:
 
-`route` uses an `op` field for `decide` and `verify`.
+- context retrieval via `/v1/context`
+- rescue via `/v1/rescue`
+- rubric evaluation via `/v1/rubrics/run`
+- trace recording via `/v1/traces`
+- memory block/archive/recall operations via `/v1/memory/*`
 
 ## Host Example
+
+Installed-product config:
+
+```json
+{
+  "mcpServers": {
+    "atelier": {
+      "command": "atelier-mcp",
+      "env": {
+        "ATELIER_ROOT": "~/.atelier",
+        "ATELIER_WORKSPACE_ROOT": "."
+      }
+    }
+  }
+}
+```
+
+Source-checkout config:
 
 ```json
 {
@@ -50,6 +96,7 @@ There are no unprefixed aliases. Use CLI commands for governance and admin workf
     "atelier": {
       "command": "uv",
       "args": ["run", "atelier-mcp"],
+      "cwd": "/abs/path/to/atelier",
       "env": {
         "ATELIER_ROOT": "~/.atelier",
         "ATELIER_WORKSPACE_ROOT": "."
@@ -61,4 +108,6 @@ There are no unprefixed aliases. Use CLI commands for governance and admin workf
 
 ## Embedding via SDK
 
-When you want the MCP contract in-process, use `AtelierClient.mcp()` from the Python SDK. It uses the same tool semantics and can run in loopback mode for tests and embedded agents.
+When you want the MCP contract in-process, use `AtelierClient.mcp()` from the
+Python SDK. It mirrors the same tool semantics and dev-mode gating rules as the
+stdio server.

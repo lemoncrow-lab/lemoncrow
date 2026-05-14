@@ -2,15 +2,13 @@
 
 Usage:
 
-    from atelier.gateway.adapters.runtime import ReasoningRuntime
+    from atelier.gateway.adapters.runtime import ContextRuntime
 
-    rt = ReasoningRuntime()
-        with rt.run(domain="state.change", task=task,
-            tools=["api.write"]) as session:
-        session.inject_reasoning_context()
-        plan = agent.plan()
-        session.check_plan(plan)
-        result = agent.execute(watchdogs=session.watchdogs)
+    rt = ContextRuntime()
+    with rt.run(domain="state.change", task=task,
+        tools=["api.write"]) as session:
+        context = session.inject_reasoning_context()
+        result = agent.execute(context=context, watchdogs=session.watchdogs)
         session.verify(result, rubric_id="rubric_state_change_safety")
         session.record_trace(result)
         session.extract_candidate_blocks()
@@ -29,7 +27,6 @@ from atelier.core.foundation.extractor import CandidateBlock, extract_candidate
 from atelier.core.foundation.models import (
     CommandRecord,
     FileEditRecord,
-    PlanCheckResult,
     ReasonBlock,
     RescueResult,
     RubricResult,
@@ -38,7 +35,6 @@ from atelier.core.foundation.models import (
     ValidationResult,
 )
 from atelier.core.foundation.paths import default_store_root
-from atelier.core.foundation.plan_checker import check_plan
 from atelier.core.foundation.renderer import render_context_for_agent
 from atelier.core.foundation.retriever import (
     ScoredBlock,
@@ -50,7 +46,7 @@ from atelier.core.foundation.retriever import (
 )
 from atelier.core.foundation.routing_models import RouteDecision, StepType, TaskType
 from atelier.core.foundation.rubric_gate import run_rubric
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.core.foundation.watchdog_profiles import active_watchdog_weights
 from atelier.core.foundation.watchdogs import (
     SessionState,
@@ -80,7 +76,7 @@ def _load_domain_reasonblocks(store_root: Path) -> list[ReasonBlock]:
 
 
 def _retrieve_with_pack_context(
-    store: ReasoningStore,
+    store: ContextStore,
     ctx: TaskContext,
     *,
     limit: int,
@@ -128,7 +124,7 @@ class RuntimeSession:
     files: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     state: SessionState = field(default_factory=SessionState)
-    store: ReasoningStore | None = None
+    store: ContextStore | None = None
     trace_id: str | None = None
     watchdogs: list[Any] = field(default_factory=default_watchdogs)
     core_runtime: AtelierRuntimeCore | None = None
@@ -136,7 +132,7 @@ class RuntimeSession:
 
     # ----- context injection ---------------------------------------------- #
 
-    def inject_reasoning_context(
+    def inject_context(
         self,
         *,
         max_blocks: int = 5,
@@ -144,7 +140,7 @@ class RuntimeSession:
         dedup: bool = True,
     ) -> str:
         if self.core_runtime is not None:
-            context = self.core_runtime.get_reasoning_context(
+            context = self.core_runtime.get_context(
                 task=self.task,
                 domain=self.domain,
                 files=self.files,
@@ -175,38 +171,6 @@ class RuntimeSession:
                 rank=rank,
             )
         return render_context_for_agent([s.block for s in scored])
-
-    # ----- plan checking --------------------------------------------------- #
-
-    def check_plan(self, plan: list[str]) -> PlanCheckResult:
-        assert self.store is not None
-        self.state.plan = plan
-        result = check_plan(
-            self.store,
-            task=self.task,
-            plan=plan,
-            domain=self.domain,
-            files=self.files,
-            tools=self.tools,
-        )
-        from atelier.core.service.telemetry import emit_product
-        from atelier.core.service.telemetry.schema import hash_identifier
-
-        matched_blocks = list(getattr(result, "matched_blocks", []) or [])
-        if result.status == "blocked":
-            emit_product(
-                "plan_check_blocked",
-                domain=self.domain,
-                blocking_rule_id=hash_identifier(str(matched_blocks[0] if matched_blocks else "blocked")),
-                severity="high",
-            )
-        else:
-            emit_product(
-                "plan_check_passed",
-                domain=self.domain,
-                rule_count=len(matched_blocks),
-            )
-        return result
 
     # ----- monitor hooks --------------------------------------------------- #
 
@@ -373,7 +337,7 @@ class RuntimeSession:
 # --------------------------------------------------------------------------- #
 
 
-class ReasoningRuntime:
+class ContextRuntime:
     """Top-level facade for product agents."""
 
     def __init__(self, root: str | Path | None = None) -> None:
@@ -417,7 +381,7 @@ class ReasoningRuntime:
 
     # ----- standalone helpers used by MCP/CLI ----------------------------- #
 
-    def get_reasoning_context(
+    def get_context(
         self,
         *,
         task: str,
@@ -432,7 +396,7 @@ class ReasoningRuntime:
         agent_id: str | None = None,
         recall: bool = True,
     ) -> str | dict[str, Any]:
-        return self.core_runtime.get_reasoning_context(
+        return self.core_runtime.get_context(
             task=task,
             domain=domain,
             files=files,
@@ -455,7 +419,7 @@ class ReasoningRuntime:
         recent_actions: list[str] | None = None,
         domain: str | None = None,
     ) -> RescueResult:
-        scored = self.core_runtime.reasoning_reuse.retrieve(
+        scored = self.core_runtime.context_reuse.retrieve(
             task=task,
             domain=domain,
             files=files,

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers._common import (
     build_normalized_jsonl,
     make_assistant_message,
@@ -54,7 +54,7 @@ def find_goose_db(root: Path | None = None) -> Path | None:
 
 
 class GooseImporter:
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:
@@ -139,7 +139,12 @@ class GooseImporter:
         title = str(row["name"] or f"goose-{session_id}")
         timestamp = str(row["updated_at"] or row["created_at"] or "") or None
         events: list[dict[str, Any]] = [
-            make_session_line(session_id, timestamp=timestamp, cwd=str(row["working_dir"] or "") or None, title=title)
+            make_session_line(
+                session_id,
+                timestamp=timestamp,
+                cwd=str(row["working_dir"] or "") or None,
+                title=title,
+            )
         ]
         if user_message:
             events.append(make_user_message(user_message, timestamp=timestamp, message_id="u-0"))

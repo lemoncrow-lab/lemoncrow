@@ -17,12 +17,12 @@ def _init_root(root: Path) -> None:
     assert res.exit_code == 0, res.output
 
 
-def test_reasoning_reuse_returns_ranked_procedures(tmp_path: Path) -> None:
+def test_context_reuse_returns_ranked_procedures(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     _init_root(root)
     rt = AtelierRuntimeCore(root)
 
-    context = rt.get_reasoning_context(
+    context = rt.get_context(
         task="Apply a live state change safely",
         domain="state.change",
         errors=["wrong target updated"],

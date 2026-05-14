@@ -70,21 +70,24 @@ class AiderAdapter(AgentAdapter):
             track_savings=config.track_savings,
         )
 
-    def validate_plan(
+    def get_context(
         self,
         *,
         task: str,
-        plan: list[str],
         domain: str | None = None,
         files: list[str] | None = None,
     ) -> AdapterDecision:
-        """Check an Aider edit plan against loaded reasoning blocks.
+        """Fetch reasoning context for the task.
 
-        shadow  - observe only; never blocks the edit.
-        suggest - surface warnings but allow Aider to proceed.
-        enforce - block if any dead-end pattern is matched.
+        Returns an AdapterDecision containing the reasoning_context.
         """
-        return self.pre_plan_check(task=task, plan=plan, domain=domain, files=files)
+        context = super().get_context(task=task, domain=domain, files=files)
+        return AdapterDecision(
+            host=self.host,
+            mode=self.mode,
+            blocked=False,
+            reasoning_context=context.context,
+        )
 
     def rubric_gate(
         self,
@@ -110,8 +113,9 @@ class AiderAdapter(AgentAdapter):
             "1. pip install atelier-runtime\n"
             "2. atelier init\n"
             "3. In your Aider pre-edit hook or wrapper:\n"
-            "   adapter = AiderAdapter(client=AtelierClient.local(), mode='suggest')\n"
-            "   decision = adapter.validate_plan(task=task, plan=planned_edits)\n"
-            "   if decision.blocked: sys.exit(1)\n"
+            "    adapter = AiderAdapter(client=AtelierClient.local(), mode='suggest')\n"
+            "    decision = adapter.get_context(task=task)\n"
+            "    if decision.blocked: sys.exit(1)\n"
+            "\n"
             "See docs/integrations/aider.md for full reference."
         )

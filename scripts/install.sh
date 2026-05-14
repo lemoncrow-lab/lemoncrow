@@ -16,6 +16,7 @@
 #   ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS Periodic maintenance interval (default: 21600)
 #   ATELIER_DRY_RUN    If set to 1, print planned actions and exit
 #   ATELIER_NO_STACK   If set to 1, skip starting the visualization stack (service + frontend)
+#   ATELIER_LOCAL      If set to 1, install from the current checkout in editable mode
 #
 # Notes:
 #   Codex host install manages its Atelier AGENTS block with explicit START/END
@@ -26,13 +27,22 @@ set -euo pipefail
 if [[ -t 1 ]]; then
     C_RESET="$(printf '\033[0m')"
     C_BOLD="$(printf '\033[1m')"
+    C_GREEN="$(printf '\033[32m')"
     C_RED="$(printf '\033[31m')"
     C_YELLOW="$(printf '\033[33m')"
 else
     C_RESET=""
     C_BOLD=""
+    C_GREEN=""
     C_RED=""
     C_YELLOW=""
+fi
+if [[ -n "${FORCE_COLOR:-}${CLICOLOR_FORCE:-}" && -z "${NO_COLOR:-}" ]]; then
+    C_RESET="$(printf '\033[0m')"
+    C_BOLD="$(printf '\033[1m')"
+    C_GREEN="$(printf '\033[32m')"
+    C_RED="$(printf '\033[31m')"
+    C_YELLOW="$(printf '\033[33m')"
 fi
 
 ATELIER_REPO_URL="${ATELIER_REPO_URL:-https://github.com/pankaj4u4m/atelier.git}"
@@ -48,16 +58,6 @@ ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS="${ATELIER_SERVICECTL_MAINTENANC
 ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_NO_STACK="${ATELIER_NO_STACK:-0}"
 ATELIER_LOCAL="${ATELIER_LOCAL:-0}"
-ATELIER_USE_CURRENT_REPO="${ATELIER_USE_CURRENT_REPO:-}"
-if [[ -z "$ATELIER_USE_CURRENT_REPO" ]]; then
-    if [[ "$ATELIER_LOCAL" == "1" ]]; then
-        ATELIER_USE_CURRENT_REPO=1
-    elif [[ -f "uv.lock" && -d "src/atelier" && -f "scripts/install.sh" ]]; then
-        ATELIER_USE_CURRENT_REPO=1
-    else
-        ATELIER_USE_CURRENT_REPO=0
-    fi
-fi
 PASSTHROUGH=()
 WARNINGS=()
 ERRORS=()
@@ -66,8 +66,8 @@ FINAL_EXIT_CODE=0
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --local) ATELIER_LOCAL=1; ATELIER_USE_CURRENT_REPO=1 ;;
-        --no-local) ATELIER_LOCAL=0; ATELIER_USE_CURRENT_REPO=0 ;;
+        --local) ATELIER_LOCAL=1 ;;
+        --remote|--no-local) ATELIER_LOCAL=0 ;;
         --dry-run) ATELIER_DRY_RUN=1; PASSTHROUGH+=("$1") ;;
         --no-hosts) ATELIER_NO_HOSTS=1; PASSTHROUGH+=("$1") ;;
         --no-stack) ATELIER_NO_STACK=1; PASSTHROUGH+=("$1") ;;
@@ -91,6 +91,7 @@ collect_issues_from_output() {
     local output="$1"
     local line
     while IFS= read -r line; do
+        line="$(printf "%s\n" "$line" | sed $'s/\x1b\\[[0-9;]*m//g')"
         case "$line" in
             *"] WARN:"*)
                 WARNINGS+=("${line#*WARN: }")
@@ -222,11 +223,6 @@ install_console_scripts() {
     UV_TOOL_BIN_DIR="$ATELIER_BIN_DIR" \
         UV_TOOL_DIR="$ATELIER_TOOL_DIR" \
         uv "${install_args[@]}"
-
-    rm -f \
-        "$ATELIER_BIN_DIR/atelier-api" \
-        "$ATELIER_BIN_DIR/atelier-codex" \
-        "$ATELIER_BIN_DIR/atelier-bench"
 }
 
 persist_install_record() {
@@ -253,12 +249,8 @@ main() {
     need_cmd bash
     install_uv_if_needed
 
-    if [[ "$ATELIER_USE_CURRENT_REPO" == "1" ]]; then
-        if [[ "$ATELIER_LOCAL" == "1" ]]; then
-            info "Local mode: using current directory as an editable install source"
-        else
-            info "Using current directory as the install source"
-        fi
+    if [[ "$ATELIER_LOCAL" == "1" ]]; then
+        info "Local mode: using current directory as an editable install source"
         ATELIER_INSTALL_DIR="$(pwd)"
     else
         prepare_repo
@@ -306,12 +298,18 @@ main() {
         if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
             echo "[dry-run] bash $ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"
         else
-            local host_output host_ret
+            local host_output host_output_file host_ret
+            host_output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-hosts.XXXXXX")"
             set +e
-            host_output="$(bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} 2>&1)"
+            if [[ -n "$C_RESET" ]]; then
+                FORCE_COLOR=1 bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} 2>&1 | tee "$host_output_file"
+            else
+                bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} 2>&1 | tee "$host_output_file"
+            fi
             host_ret=$?
             set -e
-            printf "%s\n" "$host_output"
+            host_output="$(cat "$host_output_file")"
+            rm -f "$host_output_file"
             collect_issues_from_output "$host_output"
             if [[ $host_ret -ne 0 ]]; then
                 ERRORS+=("One or more host integrations failed")
@@ -384,16 +382,12 @@ main() {
             || warn "Session import failed or no sessions found (non-fatal)."
 
         echo ""
-        info "Collecting external reports (codeburn: month, tokscale: month)..."
-        "$ATELIER_BIN_DIR/atelier" external-report --tool codeburn --period month \
-            && info "codeburn report collected." \
-            || warn "codeburn not installed or failed (non-fatal)."
-        "$ATELIER_BIN_DIR/atelier" external-report --tool "codeburn:optimize" --period month \
-            && info "codeburn optimization report collected." \
-            || warn "codeburn optimization report failed (non-fatal)."
-        "$ATELIER_BIN_DIR/atelier" external-report --tool tokscale --period month \
-            && info "tokscale report collected." \
-            || warn "tokscale not installed or failed (non-fatal)."
+        info "Collecting and storing external reports (today, week, month)..."
+        for period in today week month; do
+            "$ATELIER_BIN_DIR/atelier" external-report --tool all --period "$period" --persist \
+                && info "external reports collected for $period." \
+                || warn "external reports failed for $period (non-fatal)."
+        done
     fi
 
     print_final_report

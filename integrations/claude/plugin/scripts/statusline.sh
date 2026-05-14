@@ -152,7 +152,7 @@ EOF
 if [ -n "${ATELIER_NO_COLOR:-}" ]; then
   C_BRAND=""; C_PIPE=""; C_DIM=""; C_GREEN=""; C_RESET=""
 else
-  C_BRAND=$'\033[1;38;2;230;100;55m'
+  C_BRAND=$'\033[1;38;2;168;85;247m'
   C_PIPE=$'\033[2;38;2;200;200;200m'
   C_DIM=$'\033[2;38;2;200;200;200m'
   C_GREEN=$'\033[1;38;2;72;199;116m'

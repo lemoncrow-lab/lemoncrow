@@ -1,6 +1,6 @@
 """Prompt budget optimizer — context knapsack packing.
 
-Given candidate content blocks from multiple capabilities (reasoning
+Given candidate content blocks from multiple capabilities (context
 reuse chains, memory fragments, loop-rescue suggestions, tool summaries)
 each annotated with an estimated token cost and expected utility, this
 module selects the optimal subset that maximises total utility within a
@@ -22,7 +22,7 @@ Usage::
 
     opt = PromptBudgetOptimizer()
     blocks = [
-        ContextBlock("r1", "prior chain ...", token_cost=120, utility=0.9, source="reasoning_reuse"),
+        ContextBlock("r1", "prior chain ...", token_cost=120, utility=0.9, source="context_reuse"),
         ContextBlock("m1", "memory frag ...", token_cost=80,  utility=0.7, source="semantic_memory"),
         ContextBlock("l1", "rescue hint ...", token_cost=40,  utility=0.6, source="loop_detection"),
     ]
@@ -59,7 +59,7 @@ class ContextBlock:
         content:     The actual text content.
         token_cost:  Estimated token count (used as knapsack weight).
         utility:     Expected prompt utility in ``[0, 1]``.
-        source:      Originating capability (e.g. ``'reasoning_reuse'``).
+        source:      Originating capability (e.g. ``'context_reuse'``).
         metadata:    Free-form extra data from the emitting capability.
     """
 

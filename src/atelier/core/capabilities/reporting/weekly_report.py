@@ -26,9 +26,9 @@ from atelier.core.foundation.models import (
     ValidationResult,
     coerce_trace_json,
 )
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
-_CONTEXT_TOOL_NAMES = {"get_reasoning_context", "reasoning"}
+_CONTEXT_TOOL_NAMES = {"get_context", "context"}
 _RESCUE_TOOL_NAMES = {"rescue_failure", "rescue"}
 
 
@@ -110,7 +110,7 @@ class Report(BaseModel):
 def generate_report(
     since: timedelta,
     *,
-    store: ReasoningStore,
+    store: ContextStore,
     now: datetime | None = None,
     repo_root: Path | None = None,
     git_sha: str | None = None,
@@ -240,7 +240,7 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def _list_traces_between(store: ReasoningStore, start: datetime, end: datetime) -> list[Trace]:
+def _list_traces_between(store: ContextStore, start: datetime, end: datetime) -> list[Trace]:
     with store._connect() as conn:
         rows = conn.execute(
             """
@@ -278,7 +278,7 @@ def _rubric_rates(traces: Iterable[Trace]) -> tuple[RateMetric, list[DomainRubri
     return RateMetric(passed=passed, total=total, pass_rate=_rate(passed, total)), domain_rates
 
 
-def _top_reasonblocks(store: ReasoningStore, traces: Iterable[Trace]) -> list[ReasonBlockRetrieval]:
+def _top_reasonblocks(store: ContextStore, traces: Iterable[Trace]) -> list[ReasonBlockRetrieval]:
     known_blocks = {block.id: block for block in store.list_blocks(include_deprecated=True)}
     counts: Counter[str] = Counter()
     for trace in traces:
@@ -392,13 +392,13 @@ def _trace_file_paths(trace: Trace) -> list[str]:
     return list(dict.fromkeys(paths))
 
 
-def _pending_lesson_count(store: ReasoningStore) -> int:
+def _pending_lesson_count(store: ContextStore) -> int:
     with store._connect() as conn:
         row = conn.execute("SELECT COUNT(*) AS n FROM lesson_candidate WHERE status = 'inbox'").fetchone()
     return int(row["n"] if row is not None else 0)
 
 
-def _top_lesson_candidates(store: ReasoningStore) -> list[LessonCandidateSummary]:
+def _top_lesson_candidates(store: ContextStore) -> list[LessonCandidateSummary]:
     candidates = store.list_lesson_candidates(status="inbox", limit=500)
     candidates.sort(key=lambda item: (-_cluster_size(item), item.created_at, item.id))
     return [
@@ -438,7 +438,7 @@ def _rescue_rate(traces: list[Trace]) -> float | None:
     return rescue_traces / len(traces)
 
 
-def _average_context_budget_usage(store: ReasoningStore, traces: Iterable[Trace]) -> float | None:
+def _average_context_budget_usage(store: ContextStore, traces: Iterable[Trace]) -> float | None:
     input_tokens = 0
     naive_tokens = 0
     seen_session_ids: set[str] = set()

@@ -15,7 +15,7 @@ If install/verify behavior changes, update `scripts/install_codex.sh`, `scripts/
 The following Atelier MCP tools are available and documented in `tasks/preflight.md`:
 
 - **Memory** (Atelier augmentation): `memory`, `memory`, `memory`, `memory`, `memory`
-- **Context savings** (Atelier augmentation): `search`, `edit`, `atelier sql inspect`, `compact`
+- **Context savings** (Atelier augmentation): `search`, `edit`, `code`, `sql`, `compact`
 - **Lesson pipeline** (Atelier augmentation): `atelier lesson inbox`, `atelier lesson decide`
 
 All V2 tools are Atelier augmentations. Native Codex `Read`, shell `rg`/`grep`, and `MultiEdit` remain the raw-access and editing defaults.

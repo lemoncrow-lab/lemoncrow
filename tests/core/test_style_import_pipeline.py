@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from atelier.core.capabilities.style_import.importer import import_files
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.infra.embeddings.null_embedder import NullEmbedder
 
 
@@ -22,7 +22,7 @@ def _chat(messages: list[dict[str, str]], json_schema: dict[str, Any] | None = N
     }
 
 
-def test_style_import_writes_lesson_candidates(store: ReasoningStore, tmp_path: Path) -> None:
+def test_style_import_writes_lesson_candidates(store: ContextStore, tmp_path: Path) -> None:
     guide = tmp_path / "CONTRIBUTING.md"
     guide.write_text(
         "## API Rules\nUse schemas at boundaries.\n\n## Test Rules\nAdd focused tests.\n",

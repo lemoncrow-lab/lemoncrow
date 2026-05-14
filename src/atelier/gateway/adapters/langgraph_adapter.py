@@ -22,7 +22,7 @@ Usage::
     )
 
     def plan_node(state):
-        decision = atelier.node_pre_check("plan_node", task=state["task"], plan=state["plan"])
+        decision = atelier.node_context("plan_node", task=state["task"])
         if decision.blocked:
             return {"error": decision.warnings}
         ...
@@ -81,26 +81,31 @@ class LangGraphAdapter(AgentAdapter):
         """Return the domain for a node, falling back to ``default_domain``."""
         return self.node_domain_map.get(node_name) or self.default_domain
 
-    def node_pre_check(
+    def node_context(
         self,
         node_name: str,
         *,
         task: str,
-        plan: list[str],
         files: list[str] | None = None,
         tools: list[str] | None = None,
     ) -> AdapterDecision:
-        """Run a pre-plan reasoning check at a LangGraph node boundary.
+        """Fetch reasoning context at a LangGraph node boundary.
 
         The domain is resolved from ``node_domain_map[node_name]`` if present,
         falling back to ``default_domain``.
         """
-        return self.pre_plan_check(
+        domain = self._domain_for(node_name)
+        context = self.get_context(
             task=task,
-            plan=plan,
-            domain=self._domain_for(node_name),
+            domain=domain,
             files=files,
             tools=tools,
+        )
+        return AdapterDecision(
+            host=self.host,
+            mode=self.mode,
+            blocked=False,
+            reasoning_context=context.context,
         )
 
     def edge_rubric_gate(
@@ -148,9 +153,10 @@ class LangGraphAdapter(AgentAdapter):
             "1. pip install atelier-runtime\n"
             "2. atelier init\n"
             "3. Instantiate LangGraphAdapter in your graph builder:\n"
-            "   atelier = LangGraphAdapter(client=AtelierClient.local(), mode='suggest')\n"
-            "   # In each node function:\n"
-            "   decision = atelier.node_pre_check(node_name, task=task, plan=plan)\n"
-            "   if decision.blocked: raise ValueError(decision.warnings)\n"
+            "    atelier = LangGraphAdapter(client=AtelierClient.local(), mode='suggest')\n"
+            "    # In each node function:\n"
+            "    decision = atelier.node_context(node_name, task=task)\n"
+            "    if decision.blocked: raise ValueError(decision.warnings)\n"
+            "\n"
             "See docs/integrations/langgraph.md for full reference."
         )

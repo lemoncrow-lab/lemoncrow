@@ -7,7 +7,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from atelier.core.foundation.models import Trace, ValidationResult
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.adapters.cli import cli
 
 
@@ -16,7 +16,7 @@ def test_report_cli_outputs_json_and_markdown(tmp_path: Path) -> None:
     runner = CliRunner()
     init = runner.invoke(cli, ["--root", str(root), "init"])
     assert init.exit_code == 0, init.output
-    store = ReasoningStore(root)
+    store = ContextStore(root)
     store.record_trace(
         Trace(
             id="trace-report",

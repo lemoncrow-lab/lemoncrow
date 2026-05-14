@@ -6,7 +6,7 @@ import pytest
 
 from atelier.core.capabilities.consolidation import consolidate
 from atelier.core.foundation.models import ReasonBlock
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.infra.internal_llm.ollama_client import OllamaUnavailable
 
 
@@ -23,7 +23,7 @@ def _block(block_id: str, title: str) -> ReasonBlock:
 
 
 def test_consolidate_writes_duplicate_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    store = ReasoningStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "atelier")
     store.init()
     store.upsert_block(_block("rb-one", "Checkout retry timeout"), write_markdown=False)
     store.upsert_block(_block("rb-two", "Checkout retry webhook timeout"), write_markdown=False)
@@ -45,7 +45,7 @@ def test_consolidate_writes_duplicate_candidate(tmp_path: Path, monkeypatch: pyt
 
 
 def test_consolidate_dry_run_does_not_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    store = ReasoningStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "atelier")
     store.init()
     store.upsert_block(_block("rb-one", "Checkout retry timeout"), write_markdown=False)
     store.upsert_block(_block("rb-two", "Checkout retry webhook timeout"), write_markdown=False)

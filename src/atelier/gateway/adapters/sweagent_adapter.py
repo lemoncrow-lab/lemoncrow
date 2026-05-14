@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict
 
 from atelier.gateway.adapters.adapter_base import AdapterDecision, AdapterMode, AgentAdapter
 from atelier.gateway.sdk import AtelierClient
-from atelier.gateway.sdk.client import ReasoningContextResult
+from atelier.gateway.sdk.client import ContextResult
 
 
 class SWEAgentConfig(BaseModel):
@@ -80,9 +80,9 @@ class SWEAgentAdapter(AgentAdapter):
         domain: str | None = None,
         files: list[str] | None = None,
         tools: list[str] | None = None,
-    ) -> ReasoningContextResult:
+    ) -> ContextResult:
         """Retrieve relevant reasoning blocks for a task before execution begins."""
-        return self.get_reasoning_context(task=task, domain=domain, files=files, tools=tools)
+        return self.get_context(task=task, domain=domain, files=files, tools=tools)
 
     def rescue_on_failure(
         self,

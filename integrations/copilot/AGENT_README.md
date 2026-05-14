@@ -21,7 +21,7 @@ Atelier cache.
 Additional V2 Atelier augmentations available via MCP:
 
 - **Memory**: `memory`, `memory`, `memory`, `memory`, `memory`
-- **Context savings**: `search`, `edit`, `atelier sql inspect`, `compact`
+- **Context savings**: `search`, `edit`, `code`, `sql`, `compact`
 - **Lesson pipeline**: `atelier lesson inbox`, `atelier lesson decide`
 
 All V2 tools are Atelier augmentations. Copilot native tools (file reads, search, edit) remain the defaults.

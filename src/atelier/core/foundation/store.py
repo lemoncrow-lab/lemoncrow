@@ -274,7 +274,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_type_status ON jobs(job_type, status, create
 # --------------------------------------------------------------------------- #
 
 
-class ReasoningStore:
+class ContextStore:
     """SQLite-backed store. Single-process, single-writer.
 
     The store is also responsible for mirroring blocks/traces to the filesystem
@@ -837,6 +837,15 @@ class ReasoningStore:
             (trace.id, task, reasoning, tools, commands, errors, output, files, validations, meta),
         )
 
+    def delete_trace(self, trace_id: str) -> None:
+        with self._connect() as conn, closing(conn.cursor()) as cur:
+            cur.execute("DELETE FROM traces WHERE id = ?", (trace_id,))
+            cur.execute("DELETE FROM traces_fts WHERE id = ?", (trace_id,))
+
+        trace_json_path = self.traces_dir / f"{trace_id}.json"
+        with contextlib.suppress(OSError):
+            trace_json_path.unlink()
+
     def get_trace(self, trace_id: str) -> Trace | None:
         with self._connect() as conn:
             row = conn.execute("SELECT payload FROM traces WHERE id = ?", (trace_id,)).fetchone()
@@ -882,6 +891,7 @@ class ReasoningStore:
         agent: str | None = None,
         host: str | None = None,
         query: str | None = None,
+        since: datetime | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Trace]:
@@ -915,6 +925,9 @@ class ReasoningStore:
             if host:
                 sql += " AND t.host = ?"
                 params.append(host)
+            if since:
+                sql += " AND t.created_at >= ?"
+                params.append(since.isoformat())
 
             sql += " ORDER BY bm25(traces_fts), t.created_at DESC LIMIT ? OFFSET ?"
             params.append(limit)
@@ -945,6 +958,9 @@ class ReasoningStore:
         if host:
             sql += " AND host = ?"
             params.append(host)
+        if since:
+            sql += " AND created_at >= ?"
+            params.append(since.isoformat())
         sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.append(limit)
         params.append(offset)
@@ -958,6 +974,7 @@ class ReasoningStore:
         domain: str | None = None,
         agent: str | None = None,
         host: str | None = None,
+        since: datetime | None = None,
     ) -> dict[str, Any]:
         """Return aggregate metrics for traces matching the filters."""
         base_sql = "FROM traces WHERE 1=1"
@@ -971,6 +988,9 @@ class ReasoningStore:
         if host:
             base_sql += " AND host = ?"
             params.append(host)
+        if since:
+            base_sql += " AND created_at >= ?"
+            params.append(since.isoformat())
 
         with self._connect() as conn:
             # 1. Total and status breakdown
@@ -1244,11 +1264,17 @@ class ReasoningStore:
         stdout: str = "",
         stderr: str = "",
         collected_at: str | None = None,
+        replace_period_snapshot: bool = False,
     ) -> str:
         session_id = uuid4().hex
         created_at = datetime.now(UTC).isoformat()
         collected = collected_at or created_at
         with self._connect() as conn:
+            if replace_period_snapshot:
+                conn.execute(
+                    "DELETE FROM external_analytics_runs WHERE tool = ? AND period = ?",
+                    (tool, period),
+                )
             conn.execute(
                 """
                 INSERT INTO external_analytics_runs (

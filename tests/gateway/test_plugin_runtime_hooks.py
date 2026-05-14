@@ -42,6 +42,7 @@ def test_tool_redirect_outputs_pretooluse_nudge_for_shell_reads() -> None:
     result = _run_hook(
         "tool_redirect.py",
         {"tool_name": "Bash", "tool_input": {"command": "cat src/app.ts"}},
+        env={"ATELIER_DEV_MODE": "1"},
     )
 
     output = json.loads(result.stdout)
@@ -49,6 +50,25 @@ def test_tool_redirect_outputs_pretooluse_nudge_for_shell_reads() -> None:
     assert hook_output["hookEventName"] == "PreToolUse"
     assert hook_output["permissionDecision"] == "allow"
     assert "search" in hook_output["additionalContext"]
+
+
+def test_tool_redirect_is_quiet_without_pythonpath() -> None:
+    payload = {"tool_name": "Bash", "tool_input": {"command": "rg -n foo ."}}
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    env.pop("ATELIER_DEV_MODE", None)
+
+    result = subprocess.run(
+        [sys.executable, str(HOOKS / "tool_redirect.py")],
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+
+    assert result.stdout == ""
+    assert result.stderr == ""
 
 
 def test_edit_batching_nudge_emits_after_second_single_edit(tmp_path: Path) -> None:

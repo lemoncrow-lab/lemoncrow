@@ -13,9 +13,8 @@ Usage::
 
     client = AtelierClient.local()
     adapter = OpenHandsAdapter.from_config(OpenHandsConfig(mode="suggest"), client=client)
-    decision = adapter.check_plan_and_gate(
+    decision = adapter.get_context_and_gate(
         task="Refactor auth module",
-        plan=["Read existing code", "Write new implementation"],
     )
     if decision.blocked:
         raise RuntimeError(decision.warnings)
@@ -49,9 +48,9 @@ class OpenHandsAdapter(AgentAdapter):
     """Atelier adapter for the OpenHands agent framework.
 
     Provides:
-    - ``check_plan_and_gate`` - pre-plan check + optional rubric gate
-    - ``rescue``              - failure analysis with recovery hint
-    - ``savings``             - cost-tracker benchmark summary
+    - ``get_context_and_gate`` - pre-task check + optional rubric gate
+    - ``rescue``               - failure analysis with recovery hint
+    - ``savings``              - cost-tracker benchmark summary
     """
 
     host: str = "openhands"
@@ -71,24 +70,29 @@ class OpenHandsAdapter(AgentAdapter):
             auto_rescue=config.auto_rescue,
         )
 
-    def check_plan_and_gate(
+    def get_context_and_gate(
         self,
         *,
         task: str,
-        plan: list[str],
         domain: str | None = None,
         files: list[str] | None = None,
         tools: list[str] | None = None,
         rubric_id: str | None = None,
         checks: dict[str, bool | None] | None = None,
     ) -> AdapterDecision:
-        """Pre-plan reasoning check + optional rubric gate.
+        """Fetch reasoning context + optional rubric gate.
 
         shadow  - never blocks; logs warnings only.
         suggest - surfaces warnings; execution continues.
         enforce - callers must check ``decision.blocked``.
         """
-        decision = self.pre_plan_check(task=task, plan=plan, domain=domain, files=files, tools=tools)
+        context = self.get_context(task=task, domain=domain, files=files, tools=tools)
+        decision = AdapterDecision(
+            host=self.host,
+            mode=self.mode,
+            blocked=False,
+            reasoning_context=context.context,
+        )
         rid = rubric_id or self.default_rubric_id
         if rid and checks:
             rubric_decision = self.verify_rubric(rubric_id=rid, checks=checks)
@@ -128,8 +132,9 @@ class OpenHandsAdapter(AgentAdapter):
             "1. pip install atelier-runtime\n"
             "2. atelier init              # creates ~/.atelier/\n"
             "3. In your OpenHands agent hook:\n"
-            "   adapter = OpenHandsAdapter(client=AtelierClient.local(), mode='suggest')\n"
-            "   decision = adapter.check_plan_and_gate(task=task, plan=steps)\n"
-            "   if decision.blocked: return decision.warnings\n"
+            "    adapter = OpenHandsAdapter(client=AtelierClient.local(), mode='suggest')\n"
+            "    decision = adapter.get_context_and_gate(task=task)\n"
+            "    if decision.blocked: return decision.warnings\n"
+            "\n"
             "See docs/integrations/openhands.md for full reference."
         )

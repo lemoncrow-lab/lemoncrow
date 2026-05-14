@@ -56,6 +56,28 @@ def test_uninstall_command_with_workspace(tmp_path: Path) -> None:
             assert str(workspace_path) in cmd
 
 
+def test_uninstall_command_with_purge(tmp_path: Path) -> None:
+    runner = CliRunner()
+    with patch("atelier.gateway.adapters.cli._project_root") as mock_root:
+        mock_root.return_value = tmp_path
+        script_dir = tmp_path / "scripts"
+        script_dir.mkdir()
+        uninstall_script = script_dir / "uninstall.sh"
+        uninstall_script.touch()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            result = runner.invoke(cli, ["uninstall", "--purge", "--dry-run"])
+
+            assert result.exit_code == 0
+            mock_run.assert_called_once()
+            args, _ = mock_run.call_args
+            cmd = args[0]
+            assert "--purge" in cmd
+            assert "--dry-run" in cmd
+
+
 def test_uninstall_command_script_not_found(tmp_path: Path) -> None:
     runner = CliRunner()
     with patch("atelier.gateway.adapters.cli._project_root") as mock_root:

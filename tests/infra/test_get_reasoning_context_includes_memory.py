@@ -17,7 +17,7 @@ def _call_context(args: dict[str, Any]) -> dict[str, Any]:
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": {"name": "reasoning", "arguments": args},
+            "params": {"name": "context", "arguments": args},
         }
     )
     assert response is not None
@@ -61,7 +61,7 @@ def _insert_passage(
     )
 
 
-def test_get_reasoning_context_injects_same_agent_memory(memory_root: Path) -> None:
+def test_get_context_injects_same_agent_memory(memory_root: Path) -> None:
     _insert_passage(
         memory_root,
         passage_id="pas-atelier-code",
@@ -84,7 +84,7 @@ def test_get_reasoning_context_injects_same_agent_memory(memory_root: Path) -> N
     assert payload["tokens_breakdown"]["total"] >= payload["tokens_breakdown"]["reasonblocks"]
 
 
-def test_get_reasoning_context_does_not_leak_other_agent_memory(memory_root: Path) -> None:
+def test_get_context_does_not_leak_other_agent_memory(memory_root: Path) -> None:
     _insert_passage(
         memory_root,
         passage_id="pas-legacy-external-agent",
@@ -105,7 +105,7 @@ def test_get_reasoning_context_does_not_leak_other_agent_memory(memory_root: Pat
     assert payload["tokens_breakdown"]["memory"] == 0
 
 
-def test_get_reasoning_context_can_disable_recall(memory_root: Path) -> None:
+def test_get_context_can_disable_recall(memory_root: Path) -> None:
     _insert_passage(
         memory_root,
         passage_id="pas-disabled",

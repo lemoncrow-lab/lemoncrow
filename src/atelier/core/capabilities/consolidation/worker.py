@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from atelier.core.foundation.models import ConsolidationCandidate, ReasonBlock
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.infra.internal_llm.ollama_client import OllamaUnavailable, chat
 
 
@@ -61,7 +61,7 @@ def _draft_merge(blocks: list[ReasonBlock]) -> tuple[str | None, bool]:
 
 
 def consolidate(
-    store: ReasoningStore,
+    store: ContextStore,
     *,
     since: timedelta = timedelta(days=7),
     dry_run: bool = False,

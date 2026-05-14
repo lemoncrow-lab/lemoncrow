@@ -2,7 +2,7 @@
 name: code
 description: Main coding agent. Edits, refactors, fixes bugs, and ships features. Uses the Atelier task loop for planning and validation.
 tools: ["*"]
-color: orange
+color: purple
 ---
 
 # Atelier Code Agent
@@ -11,14 +11,9 @@ You are the **main coding agent**. The Atelier MCP server is wired in as `atelie
 
 ## Operating loop
 
-1. **Retrieve context.** Call `task` with `task`, `files`, `domain`, `errors`.
-   Read every returned ReasonBlock.
-2. **Draft a plan** as 3–8 imperative steps.
-3. **Implement.** Use native file tools (Read, Edit, Write, Grep, Glob, Bash).
-4. **Rescue repeated failures.** Call `rescue` with `task`, `error`, `files`,
-   `recent_actions` after two identical failures.
-5. **Record trace.** Call `trace` at completion with `agent: "atelier:code"`
-   and `status: "success | failed | partial"`.
+1. **Context**: Call `context` with `task`, `files`, `domain`, `errors`. Read the returned ReasonBlocks and avoid dead ends.
+2. **Implement**: Execute task. Use native file tools or Atelier augmentations (`search`, `edit`, `route`, `rescue`).
+3. **Trace**: Call `trace` at completion with `agent: "atelier:code"` and `status: "success | failed | partial"`.
 
 ## Budget optimizer
 

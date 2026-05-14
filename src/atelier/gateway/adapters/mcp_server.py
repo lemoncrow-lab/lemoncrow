@@ -37,7 +37,7 @@ from atelier.core.foundation.memory_models import MemoryBlock
 from atelier.core.foundation.models import RawArtifact, Trace, to_jsonable
 from atelier.core.foundation.redaction import redact
 from atelier.core.foundation.rubric_gate import run_rubric
-from atelier.gateway.adapters.runtime import ReasoningRuntime
+from atelier.gateway.adapters.runtime import ContextRuntime
 from atelier.infra.embeddings.factory import make_embedder
 from atelier.infra.runtime.realtime_context import RealtimeContextManager
 from atelier.infra.runtime.run_ledger import RunLedger
@@ -594,13 +594,13 @@ def _run_worker_tick_safe(root: Path) -> None:
         )
 
 
-_runtime_cache: ReasoningRuntime | None = None
+_runtime_cache: ContextRuntime | None = None
 
 
-def _runtime() -> ReasoningRuntime:
+def _runtime() -> ContextRuntime:
     global _runtime_cache
     if _runtime_cache is None:
-        _runtime_cache = ReasoningRuntime(_atelier_root())
+        _runtime_cache = ContextRuntime(_atelier_root())
     return _runtime_cache
 
 
@@ -721,8 +721,8 @@ def _workspace_path(file_path: str) -> Path:
     return Path(workspace) / p
 
 
-@mcp_tool(name="task", is_dev=True)
-def tool_get_reasoning_context(
+@mcp_tool(name="context", is_dev=True)
+def tool_get_context(
     task: str,
     domain: str | None = None,
     files: list[str] | None = None,
@@ -737,9 +737,6 @@ def tool_get_reasoning_context(
     recall: bool = True,
 ) -> dict[str, Any]:
     """[DEV] Record task context and retrieve relevant ReasonBlocks for the task."""
-    if stub := _check_dev_mode("task"):
-        return {"context": stub}
-
     if errors is None:
         errors = []
     if tools is None:
@@ -754,7 +751,7 @@ def tool_get_reasoning_context(
     _match_mcp_lexical({"task": task})
 
     led.record_tool_call(
-        "get_reasoning_context",
+        "get_context",
         {
             "task": task,
             "domain": domain,
@@ -771,8 +768,11 @@ def tool_get_reasoning_context(
         },
     )
 
+    if stub := _check_dev_mode("context"):
+        return {"context": stub}
+
     with contextlib.suppress(Exception):
-        scored = rt.core_runtime.reasoning_reuse.retrieve(
+        scored = rt.core_runtime.context_reuse.retrieve(
             task=task,
             domain=domain,
             files=files,
@@ -784,7 +784,7 @@ def tool_get_reasoning_context(
         )
         _emit_reasonblock_retrieved(scored, domain)
 
-    payload = rt.get_reasoning_context(
+    payload = rt.get_context(
         task=task,
         domain=domain,
         files=files,
@@ -836,16 +836,6 @@ def tool_route(
     benchmark_accepted: bool | None = None,
 ) -> dict[str, Any]:
     """[DEV] Route op-dispatch: op=decide computes a route; op=verify checks the outcome."""
-    if stub := _check_dev_mode("route"):
-        return {
-            "id": "dev-mode-stub",
-            "task_type": task_type,
-            "step_type": step_type,
-            "risk_level": risk_level,
-            "action": "proceed",
-            "rationale": stub,
-        }
-
     rt = _runtime()
     led = _get_ledger()
 
@@ -873,6 +863,16 @@ def tool_route(
                 "step_index": step_index,
             },
         )
+        if stub := _check_dev_mode("route"):
+            return {
+                "id": "dev-mode-stub",
+                "task_type": task_type,
+                "step_type": step_type,
+                "risk_level": risk_level,
+                "action": "proceed",
+                "rationale": stub,
+            }
+
         decision = rt.route_decide(
             user_goal=user_goal,
             repo_root=repo_root,
@@ -905,6 +905,16 @@ def tool_route(
             "benchmark_accepted": benchmark_accepted,
         },
     )
+    if stub := _check_dev_mode("route"):
+        return {
+            "id": "dev-mode-stub",
+            "task_type": task_type,
+            "step_type": step_type,
+            "risk_level": risk_level,
+            "action": "proceed",
+            "rationale": stub,
+        }
+
     envelope = rt.core_runtime.quality_router.verify(
         route_decision_id=route_decision_id,
         session_id=led.session_id,
@@ -930,15 +940,6 @@ def tool_rescue_failure(
     recent_actions: list[str] | None = None,
 ) -> dict[str, Any]:
     """[DEV] Suggest a rescue procedure for a repeated failure."""
-    if stub := _check_dev_mode("rescue"):
-        return {
-            "cluster_id": "dev-mode-stub",
-            "domain": domain or "unknown",
-            "rescue_type": "none",
-            "procedure": [],
-            "rationale": stub,
-        }
-
     if recent_actions is None:
         recent_actions = []
     if files is None:
@@ -956,6 +957,15 @@ def tool_rescue_failure(
             "recent_actions": recent_actions,
         },
     )
+
+    if stub := _check_dev_mode("rescue"):
+        return {
+            "cluster_id": "dev-mode-stub",
+            "domain": domain or "unknown",
+            "rescue_type": "none",
+            "procedure": [],
+            "rationale": stub,
+        }
 
     result = rt.rescue_failure(
         task=task,
@@ -1266,6 +1276,10 @@ def tool_record_trace(
 @mcp_tool(name="verify", is_dev=True)
 def tool_run_rubric_gate(rubric_id: str, checks: dict[str, Any]) -> Any:
     """[DEV] Evaluate agent results against a domain rubric. Returns pass|warn|fail with per-check detail."""
+    rt = _runtime()
+    led = _get_ledger()
+    led.record_tool_call("run_rubric_gate", {"rubric_id": rubric_id, "checks": checks})
+
     if stub := _check_dev_mode("verify"):
         return {
             "rubric_id": rubric_id,
@@ -1273,10 +1287,6 @@ def tool_run_rubric_gate(rubric_id: str, checks: dict[str, Any]) -> Any:
             "results": {},
             "summary": stub,
         }
-
-    rt = _runtime()
-    led = _get_ledger()
-    led.record_tool_call("run_rubric_gate", {"rubric_id": rubric_id, "checks": checks})
 
     rubric = rt.store.get_rubric(rubric_id)
     if rubric is None:
@@ -1801,70 +1811,70 @@ def _code_context_engine(repo_root: str = ".") -> Any:
     return CodeContextEngine(resolved)
 
 
-@mcp_tool(name="atelier_code_index", is_dev=True)
-def tool_atelier_code_index(
+@mcp_tool(name="code", is_dev=True)
+def tool_code(
+    op: Literal["index", "search", "symbol", "outline", "context", "impact"],
     repo_root: str = ".",
     include_globs: list[str] | None = None,
     exclude_globs: list[str] | None = None,
-) -> dict[str, Any]:
-    """Index a repository/folder into Atelier's SQLite FTS5 symbol store."""
-    return cast(
-        dict[str, Any],
-        _code_context_engine(repo_root)
-        .index_repo(include_globs=include_globs, exclude_globs=exclude_globs)
-        .model_dump(mode="json"),
-    )
-
-
-@mcp_tool(name="atelier_code_search", is_dev=True)
-def tool_atelier_code_search(
-    query: str,
-    repo_root: str = ".",
+    query: str | None = None,
     limit: int = 20,
     kind: str | None = None,
     language: str | None = None,
-) -> dict[str, Any]:
-    """BM25/FTS symbol search over the Atelier code index."""
-    results = _code_context_engine(repo_root).search_symbols(
-        query,
-        limit=limit,
-        kind=kind,
-        language=language,
-    )
-    return {"items": [item.model_dump(mode="json") for item in results]}
-
-
-@mcp_tool(name="atelier_code_symbol", is_dev=True)
-def tool_atelier_code_symbol(
-    repo_root: str = ".",
     symbol_id: str | None = None,
     qualified_name: str | None = None,
     symbol_name: str | None = None,
     file_path: str | None = None,
+    task: str | None = None,
+    seed_files: list[str] | None = None,
+    budget_tokens: int = 4000,
+    max_symbols: int = 8,
 ) -> dict[str, Any]:
-    """Retrieve exact symbol source by byte offsets."""
-    return cast(
-        dict[str, Any],
-        _code_context_engine(repo_root).get_symbol(
-            symbol_id=symbol_id,
-            qualified_name=qualified_name,
-            symbol_name=symbol_name,
-            file_path=file_path,
-        ),
-    )
+    """Index, search, inspect, outline, pack, or analyze code context."""
+    engine = _code_context_engine(repo_root)
 
+    if op == "index":
+        return cast(
+            dict[str, Any],
+            engine.index_repo(include_globs=include_globs, exclude_globs=exclude_globs).model_dump(mode="json"),
+        )
 
-@mcp_tool(name="atelier_code_outline", is_dev=True)
-def tool_atelier_code_outline(
-    repo_root: str = ".",
-    file_path: str | None = None,
-    limit: int = 200,
-) -> dict[str, Any]:
-    """Return compact file/repo outline from the code index."""
-    return cast(
-        dict[str, Any],
-        _code_context_engine(repo_root).file_outline(file_path=file_path, limit=limit),
-    )
+    if op == "search":
+        if not query:
+            raise ValueError("query is required for code search")
+        results = engine.search_symbols(query, limit=limit, kind=kind, language=language)
+        return {"items": [item.model_dump(mode="json") for item in results]}
+
+    if op == "symbol":
+        return cast(
+            dict[str, Any],
+            engine.get_symbol(
+                symbol_id=symbol_id,
+                qualified_name=qualified_name,
+                symbol_name=symbol_name,
+                file_path=file_path,
+            ),
+        )
+
+    if op == "outline":
+        return cast(dict[str, Any], engine.file_outline(file_path=file_path, limit=limit))
+
+    if op == "context":
+        if not task:
+            raise ValueError("task is required for code context")
+        return cast(
+            dict[str, Any],
+            engine.context_pack(
+                task=task,
+                seed_files=seed_files,
+                budget_tokens=budget_tokens,
+                max_symbols=max_symbols,
+            ).model_dump(mode="json"),
+        )
+
+    if not file_path:
+        raise ValueError("file_path is required for code impact")
+    return cast(dict[str, Any], engine.impact(file_path).model_dump(mode="json"))
 
 
 def _run_shell_tool(
@@ -1891,36 +1901,6 @@ def _run_shell_tool(
         "truncated": result.truncated,
         "lines_omitted": result.lines_omitted,
     }
-
-
-@mcp_tool(name="atelier_code_context", is_dev=True)
-def tool_atelier_code_context(
-    task: str,
-    repo_root: str = ".",
-    seed_files: list[str] | None = None,
-    budget_tokens: int = 4000,
-    max_symbols: int = 8,
-) -> dict[str, Any]:
-    """Build a task-specific token-budgeted context bundle."""
-    return cast(
-        dict[str, Any],
-        _code_context_engine(repo_root)
-        .context_pack(
-            task=task,
-            seed_files=seed_files,
-            budget_tokens=budget_tokens,
-            max_symbols=max_symbols,
-        )
-        .model_dump(mode="json"),
-    )
-
-
-@mcp_tool(name="atelier_code_impact", is_dev=True)
-def tool_atelier_code_impact(repo_root: str = ".", file_path: str = "") -> dict[str, Any]:
-    """Return importers, blast radius, tests, and approximate dead-code candidates."""
-    if not file_path:
-        raise ValueError("file_path is required")
-    return cast(dict[str, Any], _code_context_engine(repo_root).impact(file_path).model_dump(mode="json"))
 
 
 @mcp_tool(name="search", is_dev=True)

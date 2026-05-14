@@ -11,15 +11,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from atelier.core.capabilities.pricing import is_placeholder_model
 from atelier.core.foundation.models import (
     CommandRecord,
     FileEditRecord,
+    ModelUsage,
     RawArtifact,
     ToolCall,
     Trace,
+    UsageEntry,
 )
 from atelier.core.foundation.redaction import redact
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +200,138 @@ def make_assistant_message(
     return line
 
 
+def make_llm_usage_entry(
+    *,
+    model: str | None,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    thinking_tokens: int = 0,
+    cached_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
+    source_type: str = "",
+    source_id: str = "",
+    created_at: datetime | None = None,
+) -> UsageEntry | None:
+    model_id = str(model or "").strip()
+    usage_values = {
+        "input_tokens": int(input_tokens or 0),
+        "output_tokens": int(output_tokens or 0),
+        "thinking_tokens": int(thinking_tokens or 0),
+        "cached_input_tokens": int(cached_input_tokens or 0),
+        "cache_creation_input_tokens": int(cache_creation_input_tokens or 0),
+    }
+    if not model_id and not any(usage_values.values()):
+        return None
+    return UsageEntry(
+        kind="llm",
+        model=model_id,
+        input_tokens=usage_values["input_tokens"],
+        output_tokens=usage_values["output_tokens"],
+        thinking_tokens=usage_values["thinking_tokens"],
+        cached_input_tokens=usage_values["cached_input_tokens"],
+        cache_creation_input_tokens=usage_values["cache_creation_input_tokens"],
+        source_type=source_type,
+        source_id=source_id,
+        created_at=created_at,
+    )
+
+
+def make_tool_usage_entry(
+    *,
+    tool_name: str,
+    cost_usd: float,
+    source_type: str = "",
+    source_id: str = "",
+    created_at: datetime | None = None,
+) -> UsageEntry | None:
+    tool = str(tool_name or "").strip()
+    cost = float(cost_usd or 0.0)
+    if not tool and cost == 0.0:
+        return None
+    return UsageEntry(
+        kind="tool",
+        tool_name=tool,
+        cost_usd=cost,
+        source_type=source_type,
+        source_id=source_id,
+        created_at=created_at,
+    )
+
+
+def summarize_usage_entries(
+    entries: Iterable[UsageEntry],
+    *,
+    fallback_model: str = "",
+) -> dict[str, Any]:
+    usage_entries = [entry for entry in entries if isinstance(entry, UsageEntry)]
+    aggregated: dict[str, dict[str, int]] = {}
+    total_input = 0
+    total_output = 0
+    total_thinking = 0
+    total_cache_read = 0
+    total_cache_write = 0
+    unique_models: set[str] = set()
+
+    for entry in usage_entries:
+        if entry.kind != "llm":
+            continue
+        total_input += int(entry.input_tokens or 0)
+        total_output += int(entry.output_tokens or 0)
+        total_thinking += int(entry.thinking_tokens or 0)
+        total_cache_read += int(entry.cached_input_tokens or 0)
+        total_cache_write += int(entry.cache_creation_input_tokens or 0)
+
+        model_id = str(entry.model or "").strip()
+        # Placeholder ids like "<synthetic>" should not influence the trace's
+        # single resolved model — they're noise that would otherwise either
+        # become the displayed model or force us to bucket as multi-model.
+        if model_id and not is_placeholder_model(model_id):
+            unique_models.add(model_id)
+        if not model_id and not any(
+            (
+                entry.input_tokens,
+                entry.output_tokens,
+                entry.thinking_tokens,
+                entry.cached_input_tokens,
+                entry.cache_creation_input_tokens,
+            )
+        ):
+            continue
+
+        bucket = aggregated.setdefault(
+            model_id,
+            {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "thinking_tokens": 0,
+                "cached_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            },
+        )
+        bucket["input_tokens"] += int(entry.input_tokens or 0)
+        bucket["output_tokens"] += int(entry.output_tokens or 0)
+        bucket["thinking_tokens"] += int(entry.thinking_tokens or 0)
+        bucket["cached_input_tokens"] += int(entry.cached_input_tokens or 0)
+        bucket["cache_creation_input_tokens"] += int(entry.cache_creation_input_tokens or 0)
+
+    model_usages = [ModelUsage(model=model, **usage) for model, usage in aggregated.items()]
+    single_model = next(iter(unique_models)) if len(unique_models) == 1 else ""
+    if not single_model and not unique_models:
+        candidate = str(fallback_model or "").strip()
+        single_model = "" if is_placeholder_model(candidate) else candidate
+
+    return {
+        "usage_entries": usage_entries,
+        "model_usages": model_usages,
+        "input_tokens": total_input,
+        "output_tokens": total_output,
+        "thinking_tokens": total_thinking,
+        "cached_input_tokens": total_cache_read,
+        "cache_creation_input_tokens": total_cache_write,
+        "model": single_model,
+    }
+
+
 def build_normalized_jsonl(events: Iterable[dict[str, Any]]) -> str:
     return "\n".join(json.dumps(event, ensure_ascii=False) for event in events if event)
 
@@ -232,6 +367,7 @@ def _build_trace_from_normalized_content(
     total_thinking = 0
     user_prompt_tokens = 0
     model_seen = ""
+    usage_entries: list[UsageEntry] = []
     created_at = source_mtime or utcnow()
     task_text = task or ""
     first_user_text = ""
@@ -306,6 +442,20 @@ def _build_trace_from_normalized_content(
         if model:
             model_seen = model
 
+        usage_entry = make_llm_usage_entry(
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            thinking_tokens=thinking_tokens,
+            cached_input_tokens=cache_read,
+            cache_creation_input_tokens=cache_write,
+            source_type="normalized.message",
+            source_id=str(event.get("id") or ""),
+            created_at=timestamp,
+        )
+        if usage_entry is not None:
+            usage_entries.append(usage_entry)
+
         tool_blocks = [
             block for block in content if isinstance(block, dict) and block.get("type") in {"toolCall", "tool_use"}
         ]
@@ -320,35 +470,41 @@ def _build_trace_from_normalized_content(
             distributed_output = (output_tokens + thinking_tokens) // len(tool_blocks)
             for block in tool_blocks:
                 name = str(block.get("name") or "unknown")
-                arguments = block.get("arguments") if isinstance(block.get("arguments"), dict) else {}
+                arguments = block.get("arguments")
+                arguments_dict = arguments if isinstance(arguments, dict) else {}
                 tools_called[name] = tools_called.get(name, 0) + 1
-                tool_args.setdefault(name, arguments or None)
+                tool_args.setdefault(name, arguments_dict or None)
                 tool_input_tokens[name] = tool_input_tokens.get(name, 0) + distributed_output
                 tool_output_tokens[name] = tool_output_tokens.get(name, 0) + distributed_input
 
                 if _is_file_tool(name):
                     path = str(
-                        arguments.get("file_path") or arguments.get("path") or arguments.get("target_file") or ""
+                        arguments_dict.get("file_path")
+                        or arguments_dict.get("path")
+                        or arguments_dict.get("target_file")
+                        or ""
                     ).strip()
                     if path:
                         files_touched[path] = FileEditRecord(
                             path=path,
                             diff=str(
-                                arguments.get("diff")
-                                or arguments.get("patch")
-                                or arguments.get("content")
-                                or arguments.get("new_string")
+                                arguments_dict.get("diff")
+                                or arguments_dict.get("patch")
+                                or arguments_dict.get("content")
+                                or arguments_dict.get("new_string")
                                 or ""
                             )[:4096],
                         )
 
                 if _is_command_tool(name):
-                    command = str(arguments.get("command") or "").strip()
+                    command = str(arguments_dict.get("command") or "").strip()
                     if command:
                         commands_run.append(CommandRecord(command=command[:4096]))
 
     if not task_text:
         task_text = f"untitled {source} session"
+
+    usage_summary = summarize_usage_entries(usage_entries, fallback_model=model_seen)
 
     trace = Trace(
         id=artifact.id,
@@ -370,18 +526,20 @@ def _build_trace_from_normalized_content(
             )
             for name, count in sorted(tools_called.items())
         ],
-        commands_run=commands_run,
+        commands_run=list(commands_run),
         errors_seen=[],
         validation_results=[],
         raw_artifact_ids=[artifact.id],
         reasoning=[item for item in reasoning if item][:32],
-        input_tokens=total_input,
+        input_tokens=usage_summary["input_tokens"],
         user_prompt_tokens=user_prompt_tokens,
-        output_tokens=total_output,
-        thinking_tokens=total_thinking,
-        cached_input_tokens=total_cache_read,
-        cache_creation_input_tokens=total_cache_write,
-        model=model_seen,
+        output_tokens=usage_summary["output_tokens"],
+        thinking_tokens=usage_summary["thinking_tokens"],
+        cached_input_tokens=usage_summary["cached_input_tokens"],
+        cache_creation_input_tokens=usage_summary["cache_creation_input_tokens"],
+        model=usage_summary["model"],
+        usage_entries=usage_summary["usage_entries"],
+        model_usages=usage_summary["model_usages"],
         created_at=created_at,
     )
     return trace
@@ -394,7 +552,6 @@ def import_paths_with_progress(
     source: str,
     paths: list[Path],
     import_fn: Any,
-    *,
     size_limit: int = _SIZE_LIMIT_BYTES,
 ) -> list[str]:
     """Iterate *paths*, print Gemini-style progress, call *import_fn(path)* for each."""
@@ -421,7 +578,7 @@ def import_paths_with_progress(
 
 
 def record_normalized_session(
-    store: ReasoningStore,
+    store: ContextStore,
     *,
     source: str,
     session_id: str,

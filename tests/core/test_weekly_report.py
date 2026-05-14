@@ -10,7 +10,7 @@ from atelier.core.capabilities.reporting.weekly_report import (
 from atelier.core.foundation.lesson_models import LessonCandidate
 from atelier.core.foundation.models import ReasonBlock, ToolCall, Trace, ValidationResult
 from atelier.core.foundation.savings_models import ContextBudget
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 
 def _block(block_id: str, title: str = "Plan Discipline") -> ReasonBlock:
@@ -62,11 +62,16 @@ def _trace(
     )
 
 
-def test_generate_report_aggregates_weekly_governance(store: ReasoningStore) -> None:
+def test_generate_report_aggregates_weekly_governance(store: ContextStore) -> None:
     now = datetime(2026, 5, 5, 12, tzinfo=UTC)
     store.upsert_block(_block("rb-plan"), write_markdown=False)
     store.record_trace(
-        _trace("current-pass", created_at=now - timedelta(days=1), passed=True, session_id="run-current"),
+        _trace(
+            "current-pass",
+            created_at=now - timedelta(days=1),
+            passed=True,
+            session_id="run-current",
+        ),
         write_json=False,
     )
     store.record_trace(
@@ -137,7 +142,7 @@ def test_generate_report_aggregates_weekly_governance(store: ReasoningStore) -> 
     assert report.drift.context_budget_usage_delta_pct == -30.0
 
 
-def test_report_json_round_trips_and_markdown_is_compact(store: ReasoningStore) -> None:
+def test_report_json_round_trips_and_markdown_is_compact(store: ContextStore) -> None:
     now = datetime(2026, 5, 5, 12, tzinfo=UTC)
     report = generate_report(timedelta(days=7), store=store, now=now, git_sha="abc123")
     schema = Report.model_json_schema()

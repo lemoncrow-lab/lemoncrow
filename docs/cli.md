@@ -1,118 +1,173 @@
 # Atelier CLI Reference
 
-Full command reference for the `atelier` command-line interface.
+The `atelier` command is the local control surface for the runtime, storage,
+imports, benchmarks, background processing, and the optional visualization
+stack.
+
+Use the built-in help for the exact command tree:
+
+```bash
+atelier -h
+atelier help trace
+atelier help benchmark
+atelier help servicectl
+```
 
 ## Global Options
 
-| Flag         | Description                     |
-| ------------ | ------------------------------- |
-| `--help`     | Show help message and exit      |
-| `--version`  | Show version and exit           |
-| `--verbose`  | Enable verbose/debug logging    |
-| `--root DIR` | Override Atelier root directory |
+| Flag           | Description                                                            |
+| -------------- | ---------------------------------------------------------------------- |
+| `--version`    | Show the installed Atelier version and exit.                           |
+| `--root PATH`  | Override the Atelier runtime data directory. Defaults to `~/.atelier`. |
+| `-h`, `--help` | Show help for the current command path.                                |
 
-## Commands
+## Core Lifecycle Commands
 
-### `atelier status`
+These commands cover installation state, local runtime initialization, and the
+optional visualization stack.
 
-Show Atelier runtime status including storage, active agents, and pack inventory.
+| Command                  | Purpose                                                 |
+| ------------------------ | ------------------------------------------------------- |
+| `atelier init`           | Initialize the runtime store under `--root`.            |
+| `atelier uninstall`      | Remove Atelier-managed host integrations and wrappers.  |
+| `atelier status`         | Show local plugin, auth, and subscription status.       |
+| `atelier stack ...`      | Start, stop, inspect, or log the optional UI/API stack. |
+| `atelier service ...`    | Manage the HTTP/API service surface.                    |
+| `atelier servicectl ...` | Manage the detached background processing controller.   |
+| `atelier worker ...`     | Inspect, enqueue, and run worker jobs.                  |
+
+Common examples:
 
 ```bash
-atelier status
-atelier status --json
+atelier init
+atelier servicectl status
+atelier stack start
+atelier stack logs
 ```
 
-### `atelier context`
+## Traces, Ledgers, and Operational State
 
-Retrieve and display cached reasoning context for the current workspace.
+Atelier persists observable execution state rather than hidden reasoning.
+
+| Command                    | Purpose                                               |
+| -------------------------- | ----------------------------------------------------- |
+| `atelier trace ...`        | Record, list, and inspect trace data.                 |
+| `atelier ledger ...`       | Manage run ledgers and session state.                 |
+| `atelier compress-context` | Summarize a run ledger into a smaller state packet.   |
+| `atelier context-report`   | Emit compression and provenance details for a run.    |
+| `atelier diff-context`     | Show git diff context for the specified source files. |
+
+Examples:
 
 ```bash
-atelier context
-atelier context --workspace /path/to/project
+atelier trace list
+atelier ledger list
+atelier compress-context --help
 ```
 
-### `atelier pack`
+## Retrieval, Search, and Code-Aware Helpers
 
-Manage Atelier packs.
+These commands expose the runtime's code retrieval and cached search utilities.
+
+| Command                  | Purpose                                                 |
+| ------------------------ | ------------------------------------------------------- |
+| `atelier search-read`    | Combined search and read workflow.                      |
+| `atelier cached-grep`    | Cache-aware grep for repeated queries.                  |
+| `atelier code ...`       | Code indexing, retrieval, and repo-map operations.      |
+| `atelier symbol-search`  | Search semantically cached symbols across the codebase. |
+| `atelier module-summary` | Generate concise module summaries.                      |
+| `atelier test-context`   | Find tests related to one or more source files.         |
+| `atelier tool-mode ...`  | Configure smart tool replacement/shadow/suggest modes.  |
+| `atelier tool-report`    | Report tool usage, savings, and redundancy patterns.    |
+| `atelier optimize`       | Show session cost optimization recommendations.         |
+
+Examples:
 
 ```bash
-atelier pack list                        # List installed packs
-atelier pack install <pack-id>           # Install a pack
-atelier pack uninstall <pack-id>         # Remove a pack
-atelier pack info <pack-id>              # Show pack details
-atelier pack search <query>              # Search available packs
-atelier pack benchmark                   # Run pack benchmark suite
+atelier search-read "trace schema"
+atelier module-summary src/atelier/gateway/adapters/cli.py
+atelier test-context src/atelier/core/runtime.py
 ```
 
-### `atelier run`
+## Knowledge, Lessons, and Failure Workflows
 
-Run an atelier workflow or benchmark.
+These commands manage the reusable knowledge layer and failure review flows.
+
+| Command                      | Purpose                                         |
+| ---------------------------- | ----------------------------------------------- |
+| `atelier lesson ...`         | Review and promote lesson candidates.           |
+| `atelier failure ...`        | Inspect and manage failure clusters.            |
+| `atelier eval ...`           | Manage and run evaluation cases.                |
+| `atelier eval-from-cluster`  | Draft an eval from an accepted failure cluster. |
+| `atelier report`             | Generate an engineering governance report.      |
+| `atelier import-style-guide` | Draft lesson candidates from Markdown guidance. |
+| `atelier deprecate`          | Mark a block as deprecated.                     |
+| `atelier quarantine`         | Quarantine a block from retrieval.              |
+| `atelier consolidate`        | Run manual consolidation.                       |
+| `atelier consolidation ...`  | Review consolidation candidates.                |
+| `atelier proof ...`          | Run cost-quality proof gate workflows.          |
+
+## Imports and Host Integrations
+
+Atelier ships import and integration commands for supported agent hosts.
+
+| Command                | Purpose                                               |
+| ---------------------- | ----------------------------------------------------- |
+| `atelier import`       | Import sessions from all supported hosts in one pass. |
+| `atelier claude ...`   | Claude Code import and session workflows.             |
+| `atelier codex ...`    | Codex session workflows.                              |
+| `atelier copilot ...`  | Copilot session workflows.                            |
+| `atelier gemini ...`   | Gemini CLI session workflows.                         |
+| `atelier opencode ...` | OpenCode session workflows.                           |
+| `atelier bash ...`     | Shell interception helpers.                           |
+
+Supported session import hosts are defined in the runtime registry, not in the
+docs. Use `atelier help import` or the host-specific help output to inspect the
+exact flags and options supported by your installed build.
+
+## Benchmarks, Savings, and External Reports
+
+These commands support performance validation and cost-accounting workflows.
+
+| Command                   | Purpose                                        |
+| ------------------------- | ---------------------------------------------- |
+| `atelier benchmark ...`   | Run benchmark suites and benchmark reports.    |
+| `atelier savings`         | Aggregate cost and token savings.              |
+| `atelier savings-detail`  | Show per-operation savings breakdowns.         |
+| `atelier savings-reset`   | Reset persisted savings state.                 |
+| `atelier loop-report`     | Generate a full loop/pathology report.         |
+| `atelier external-status` | Check optional upstream analyzer availability. |
+| `atelier external-report` | Run supported upstream JSON reports.           |
+
+Examples:
 
 ```bash
-atelier run <workflow-id>
-atelier run --pack <pack-id> <workflow>
-```
-
-### `atelier evals`
-
-Execute eval scenarios from installed packs.
-
-```bash
-atelier evals                            # Run all evals
-atelier evals <pack-id>                  # Run evals for a pack
-atelier evals --scenario <name>          # Run a named scenario
-```
-
-### `atelier settings`
-
-View or update Atelier configuration.
-
-```bash
-atelier settings                         # Show current settings
-atelier settings set <key> <value>       # Update a setting
-```
-
-### `atelier savings`
-
-Report token and cost savings from Atelier's context caching.
-
-```bash
-atelier savings
-atelier savings --since 7d
+atelier benchmark full --json
 atelier savings --json
+atelier loop-report --help
 ```
 
-## Exit Codes
+## Configuration and Account State
 
-| Code | Meaning             |
-| ---- | ------------------- |
-| `0`  | Success             |
-| `1`  | General error       |
-| `2`  | Configuration error |
-| `3`  | Storage error       |
-| `4`  | Pack not found      |
+| Command                 | Purpose                                                 |
+| ----------------------- | ------------------------------------------------------- |
+| `atelier settings ...`  | Manage local plugin settings.                           |
+| `atelier telemetry ...` | Enable, disable, or inspect product telemetry settings. |
+| `atelier login`         | Create local auth state for plugin operations.          |
+| `atelier logout`        | Remove local auth state.                                |
+| `atelier share`         | Render referral or share text.                          |
+| `atelier domain ...`    | Manage internal domain bundles.                         |
+| `atelier letta ...`     | Manage the self-hosted Letta sidecar.                   |
 
-## Trace Schema
+## JSON Output
 
-Atelier traces are stored as JSONL files in `<atelier-root>/traces/`. Each line is a JSON object with the following fields:
+Many commands accept `--json` when the output is intended for automation or
+other tools. Prefer the built-in help for each command path because JSON support
+is command-specific rather than universal.
 
-| Field        | Type   | Description              |
-| ------------ | ------ | ------------------------ |
-| `ts`         | float  | Unix timestamp           |
-| `session_id` | string | Unique run identifier    |
-| `agent`      | string | Agent name               |
-| `action`     | string | Action type              |
-| `args_sig`   | string | SHA1 prefix of arguments |
-| `tokens_in`  | int    | Input tokens             |
-| `tokens_out` | int    | Output tokens            |
-| `latency_ms` | float  | Latency in milliseconds  |
+## Related References
 
-## Environment Variables
-
-| Variable                  | Default      | Description                                              |
-| ------------------------- | ------------ | -------------------------------------------------------- |
-| `ATELIER_ROOT`            | `~/.atelier` | Root directory for all Atelier data                      |
-| `ATELIER_STORAGE_BACKEND` | `sqlite`     | Storage backend (`sqlite` or `postgres`)                 |
-| `ATELIER_DB_URL`          | —            | Postgres connection string (when using postgres backend) |
-| `ATELIER_API_KEY`         | —            | API key for the Atelier service (optional)               |
-| `ATELIER_LOG_LEVEL`       | `INFO`       | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`)          |
+- [README.md](../README.md)
+- [docs/quickstart.md](quickstart.md)
+- [docs/installation.md](installation.md)
+- [docs/sdk/mcp.md](sdk/mcp.md)

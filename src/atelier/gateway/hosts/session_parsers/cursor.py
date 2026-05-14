@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers._common import (
     build_normalized_jsonl,
     char_tokens,
@@ -21,6 +21,7 @@ from atelier.gateway.hosts.session_parsers._common import (
 )
 
 _DEFAULT_MODEL = "claude-sonnet-4-5"
+_PLACEHOLDER_MODELS = {"", "auto", "default", "composer-2"}
 
 
 def _db_path(root: Path | None = None) -> Path:
@@ -41,6 +42,47 @@ def _parse_composer_id(key: str) -> str | None:
     if not composer_id or any(ch in composer_id for ch in "\r\n\x00"):
         return None
     return composer_id
+
+
+def _normalize_model(value: Any) -> str:
+    model = str(value or "").strip()
+    if model in _PLACEHOLDER_MODELS:
+        return _DEFAULT_MODEL
+    return model
+
+
+def _collect_rich_text(node: Any, parts: list[str]) -> None:
+    if isinstance(node, dict):
+        text = str(node.get("text") or "").strip()
+        if text:
+            parts.append(text)
+        children = node.get("children")
+        if isinstance(children, list):
+            for child in children:
+                _collect_rich_text(child, parts)
+        for key, value in node.items():
+            if key in {"text", "children"}:
+                continue
+            if isinstance(value, (dict, list)):
+                _collect_rich_text(value, parts)
+    elif isinstance(node, list):
+        for child in node:
+            _collect_rich_text(child, parts)
+
+
+def _extract_row_text(text: Any, rich_text: Any) -> str:
+    plain_text = str(text or "").strip()
+    if plain_text:
+        return plain_text
+    rich_text_value = rich_text
+    if isinstance(rich_text_value, str):
+        try:
+            rich_text_value = json.loads(rich_text_value)
+        except json.JSONDecodeError:
+            return ""
+    parts: list[str] = []
+    _collect_rich_text(rich_text_value, parts)
+    return "\n".join(part for part in parts if part).strip()
 
 
 def _project_map(db_path: Path) -> dict[str, str]:
@@ -87,7 +129,7 @@ def find_cursor_db(root: Path | None = None) -> Path | None:
 
 
 class CursorImporter:
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:
@@ -99,8 +141,34 @@ class CursorImporter:
         groups: dict[str, dict[str, Any]] = defaultdict(lambda: {"events": [], "project": "cursor"})
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
+            # Cursor's bubble schema only ships tokenCount.{inputTokens,outputTokens}
+            # today; cache fields are pulled defensively so that if Cursor ever
+            # starts populating them we don't silently keep reporting $0 on cache.
             rows = conn.execute(
-                "SELECT key, json_extract(value, '$.tokenCount.inputTokens') AS input_tokens, json_extract(value, '$.tokenCount.outputTokens') AS output_tokens, json_extract(value, '$.modelInfo.modelName') AS model, json_extract(value, '$.createdAt') AS created_at, json_extract(value, '$.type') AS bubble_type, json_extract(value, '$.text') AS text, json_extract(value, '$.codeBlocks') AS code_blocks FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' ORDER BY ROWID ASC"
+                "SELECT key, "
+                "json_extract(value, '$.tokenCount.inputTokens') AS input_tokens, "
+                "json_extract(value, '$.tokenCount.outputTokens') AS output_tokens, "
+                "COALESCE("
+                "  json_extract(value, '$.tokenCount.cacheReadTokens'),"
+                "  json_extract(value, '$.tokenCount.cachedInputTokens'),"
+                "  json_extract(value, '$.tokenCount.cache_read_input_tokens')"
+                ") AS cache_read_tokens, "
+                "COALESCE("
+                "  json_extract(value, '$.tokenCount.cacheWriteTokens'),"
+                "  json_extract(value, '$.tokenCount.cacheCreationInputTokens'),"
+                "  json_extract(value, '$.tokenCount.cache_creation_input_tokens')"
+                ") AS cache_write_tokens, "
+                "COALESCE("
+                "  json_extract(value, '$.tokenCount.reasoningTokens'),"
+                "  json_extract(value, '$.tokenCount.thinkingTokens')"
+                ") AS thinking_tokens, "
+                "json_extract(value, '$.modelInfo.modelName') AS model, "
+                "json_extract(value, '$.createdAt') AS created_at, "
+                "json_extract(value, '$.type') AS bubble_type, "
+                "json_extract(value, '$.text') AS text, "
+                "json_extract(value, '$.richText') AS rich_text, "
+                "json_extract(value, '$.codeBlocks') AS code_blocks "
+                "FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' ORDER BY ROWID ASC"
             ).fetchall()
         for row in rows:
             composer_id = _parse_composer_id(str(row["key"] or ""))
@@ -109,7 +177,7 @@ class CursorImporter:
             project = project_map.get(composer_id, "cursor")
             group = groups[composer_id]
             group["project"] = project
-            text = str(row["text"] or "").strip()
+            text = _extract_row_text(row["text"], row["rich_text"])
             timestamp = str(row["created_at"] or datetime.fromtimestamp(db_path.stat().st_mtime, tz=UTC).isoformat())
             bubble_type = int(row["bubble_type"] or 0)
             if bubble_type == 1:
@@ -118,6 +186,9 @@ class CursorImporter:
                 continue
             input_tokens = int(row["input_tokens"] or 0)
             output_tokens = int(row["output_tokens"] or 0)
+            cache_read_tokens = int(row["cache_read_tokens"] or 0)
+            cache_write_tokens = int(row["cache_write_tokens"] or 0)
+            thinking_tokens = int(row["thinking_tokens"] or 0)
             if input_tokens == 0 and output_tokens == 0 and text:
                 output_tokens = char_tokens(text)
             tool_calls: list[dict[str, Any]] = []
@@ -135,9 +206,12 @@ class CursorImporter:
                     tool_calls.append(make_tool_call("cursor:edit", {"language": language}))
             group["events"].append(
                 make_assistant_message(
-                    model=str(row["model"] or _DEFAULT_MODEL),
+                    model=_normalize_model(row["model"]),
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
+                    cache_read=cache_read_tokens,
+                    cache_write=cache_write_tokens,
+                    thinking_tokens=thinking_tokens,
                     texts=[text] if text else [],
                     tool_calls=tool_calls,
                     timestamp=timestamp,

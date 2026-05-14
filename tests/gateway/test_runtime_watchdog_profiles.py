@@ -4,12 +4,12 @@ from pathlib import Path
 
 from atelier.core.foundation.monitor_profiles import save_watchdog_profile_config
 
-from atelier.gateway.adapters.runtime import ReasoningRuntime
+from atelier.gateway.adapters.runtime import ContextRuntime
 
 
 def test_runtime_session_uses_persisted_watchdog_profile(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
-    runtime = ReasoningRuntime(root=root)
+    runtime = ContextRuntime(root=root)
     save_watchdog_profile_config(
         root,
         active_profile="coding",

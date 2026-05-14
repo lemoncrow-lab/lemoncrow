@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers._common import (
     build_normalized_jsonl,
     make_assistant_message,
@@ -50,7 +50,7 @@ def _strip_model_prefix(raw: str) -> str:
 
 
 class DroidImporter:
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:
@@ -87,7 +87,10 @@ class DroidImporter:
         current_user = ""
         events: list[dict[str, Any]] = [
             make_session_line(
-                session_id, timestamp=timestamp, cwd=str(session_start.get("cwd") or "") or None, title=title
+                session_id,
+                timestamp=timestamp,
+                cwd=str(session_start.get("cwd") or "") or None,
+                title=title,
             )
         ]
 
@@ -109,7 +112,9 @@ class DroidImporter:
                     current_user = " ".join(non_system)[:500]
                     events.append(
                         make_user_message(
-                            current_user, timestamp=str(entry.get("timestamp") or "") or None, message_id=f"u-{index}"
+                            current_user,
+                            timestamp=str(entry.get("timestamp") or "") or None,
+                            message_id=f"u-{index}",
                         )
                     )
                 continue

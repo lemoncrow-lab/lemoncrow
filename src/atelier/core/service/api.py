@@ -27,13 +27,25 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from atelier.core.capabilities.pricing import usage_cost_usd
+from atelier.core.foundation.models import Trace, coerce_trace_json, to_jsonable
+from atelier.core.foundation.store import ContextStore
 from atelier.core.service.config import cfg
+from atelier.core.service.schemas import (
+    ContextRequest,
+    ContextResponse,
+)
 
 if TYPE_CHECKING:
-    from atelier.core.foundation.models import Trace
-    from atelier.core.foundation.store import ReasoningStore
+    pass
 
 logger = logging.getLogger(__name__)
+
+
+def _host_family(host: str | None) -> str:
+    host_name = str(host or "").strip() or "unknown"
+    if host_name == "cursor-agent":
+        return "cursor"
+    return host_name
 
 
 # --------------------------------------------------------------------------- #
@@ -62,33 +74,90 @@ def _normalize_lever(operation: str) -> str:
     return op
 
 
+_EXTERNAL_PERIOD_DAY_SPAN: dict[str, int] = {
+    "today": 1,
+    "week": 7,
+    "month": 30,
+    "30days": 30,
+    "all": 3650,
+}
+
+
+def _normalize_external_period(period: Any) -> str:
+    return str(period or "").strip().lower()
+
+
+def _pick_preferred_external_period(runs: list[dict[str, Any]], *, days: int) -> str | None:
+    target_days = max(1, days)
+    periods = {
+        _normalize_external_period(run.get("period")) for run in runs if _normalize_external_period(run.get("period"))
+    }
+    if not periods:
+        return None
+
+    return min(
+        periods,
+        key=lambda period: (
+            abs((_EXTERNAL_PERIOD_DAY_SPAN.get(period) or float("inf")) - target_days),
+            0 if (_EXTERNAL_PERIOD_DAY_SPAN.get(period) or float("inf")) >= target_days else 1,
+            _EXTERNAL_PERIOD_DAY_SPAN.get(period) or float("inf"),
+        ),
+    )
+
+
+def _select_external_run_for_days(runs: list[dict[str, Any]], *, days: int) -> dict[str, Any] | None:
+    if not runs:
+        return None
+
+    preferred_period = _pick_preferred_external_period(runs, days=days)
+    if preferred_period:
+        for run in runs:
+            if _normalize_external_period(run.get("period")) == preferred_period:
+                return run
+    return runs[0]
+
+
 def _build_external_analytics_summary(store: Any, *, days: int) -> dict[str, Any]:
     runs = store.list_external_analytics_runs(days=days, limit=200)
-    latest: list[dict[str, Any]] = []
-    seen: set[str] = set()
     successful_runs = sum(1 for run in runs if run.get("ok"))
+    runs_by_tool: dict[str, list[dict[str, Any]]] = {}
     for run in runs:
         tool = str(run.get("tool") or "unknown")
-        if tool in seen:
+        runs_by_tool.setdefault(tool, []).append(run)
+
+    latest: list[dict[str, Any]] = []
+    latest_codeburn_payload: dict[str, Any] | None = None
+    for tool, tool_runs in runs_by_tool.items():
+        selected_run = _select_external_run_for_days(tool_runs, days=days)
+        if selected_run is None:
             continue
+        if tool == "codeburn" and isinstance(selected_run.get("payload"), dict):
+            latest_codeburn_payload = selected_run.get("payload")
         latest.append(
             {
-                "id": run.get("id"),
+                "id": selected_run.get("id"),
                 "tool": tool,
-                "period": run.get("period"),
-                "source": run.get("source"),
-                "ok": run.get("ok"),
-                "returncode": run.get("returncode"),
-                "summary": run.get("summary") or {},
-                "collected_at": run.get("collected_at"),
+                "period": selected_run.get("period"),
+                "source": selected_run.get("source"),
+                "ok": selected_run.get("ok"),
+                "returncode": selected_run.get("returncode"),
+                "summary": selected_run.get("summary") or {},
+                "collected_at": selected_run.get("collected_at"),
             }
         )
-        seen.add(tool)
+
+    by_provider: list[dict[str, Any]] = []
+    if isinstance(latest_codeburn_payload, dict):
+        provider_rows = latest_codeburn_payload.get("providerEntries")
+        if isinstance(provider_rows, list):
+            by_provider = [row for row in provider_rows if isinstance(row, dict)]
+
     return {
         "runs_total": len(runs),
         "successful_runs": successful_runs,
         "failed_runs": len(runs) - successful_runs,
         "latest": latest,
+        "by_provider": by_provider,
     }
 
 
@@ -116,7 +185,14 @@ def _build_external_analytics_detail(
     }
 
 
-_BILLABLE_ANALYTICS_EVENTS = {"prompt", "cached_prompt", "cache_create", "result", "thinking"}
+_BILLABLE_ANALYTICS_EVENTS = {
+    "prompt",
+    "cached_prompt",
+    "cache_create",
+    "result",
+    "thinking",
+    "tool_charge",
+}
 _NATIVE_ANALYTICS_TOOLS = {
     "Read",
     "Bash",
@@ -180,64 +256,156 @@ def _model_usage_cost(usage: dict[str, Any]) -> float:
     )
 
 
-def _trace_model_usages(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    aggregated: dict[str, dict[str, Any]] = {}
+def _normalize_trace_usage_entry(raw_entry: Any, *, fallback_model: str = "") -> dict[str, Any] | None:
+    if not isinstance(raw_entry, dict):
+        return None
+
+    kind = str(raw_entry.get("kind") or "llm").strip().lower()
+    if kind == "tool":
+        tool_name = str(raw_entry.get("tool_name") or raw_entry.get("name") or "").strip()
+        input_tokens = int(raw_entry.get("input_tokens") or 0)
+        output_tokens = int(raw_entry.get("output_tokens") or 0)
+        cost_usd = float(raw_entry.get("cost_usd") or raw_entry.get("cost") or 0.0)
+        if not tool_name and input_tokens == 0 and output_tokens == 0 and cost_usd == 0.0:
+            return None
+        return {
+            "kind": "tool",
+            "tool_name": tool_name,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost_usd": cost_usd,
+            "source_type": str(raw_entry.get("source_type") or ""),
+            "source_id": str(raw_entry.get("source_id") or ""),
+        }
+
+    model_id = str(raw_entry.get("model") or fallback_model or "").strip()
+    entry = {
+        "kind": "llm",
+        "model": model_id,
+        "input_tokens": int(raw_entry.get("input_tokens") or 0),
+        "output_tokens": int(raw_entry.get("output_tokens") or 0),
+        "thinking_tokens": int(raw_entry.get("thinking_tokens") or 0),
+        "cached_input_tokens": int(raw_entry.get("cached_input_tokens") or 0),
+        "cache_creation_input_tokens": int(raw_entry.get("cache_creation_input_tokens") or 0),
+        "source_type": str(raw_entry.get("source_type") or ""),
+        "source_id": str(raw_entry.get("source_id") or ""),
+    }
+    token_fields = (
+        entry["input_tokens"],
+        entry["output_tokens"],
+        entry["thinking_tokens"],
+        entry["cached_input_tokens"],
+        entry["cache_creation_input_tokens"],
+    )
+    if not model_id and not any(token_fields):
+        return None
+    return entry
+
+
+def _trace_usage_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    fallback_model = str(payload.get("model") or "")
+    normalized: list[dict[str, Any]] = []
+
+    raw_entries = payload.get("usage_entries")
+    if isinstance(raw_entries, list):
+        for raw_entry in raw_entries:
+            entry = _normalize_trace_usage_entry(raw_entry, fallback_model=fallback_model)
+            if entry is not None:
+                normalized.append(entry)
+        if normalized:
+            return normalized
+
     raw_usages = payload.get("model_usages")
     if isinstance(raw_usages, list):
         for raw_usage in raw_usages:
-            if not isinstance(raw_usage, dict):
-                continue
-            model_id = str(raw_usage.get("model") or payload.get("model") or "").strip()
-            usage: dict[str, Any] = {
-                "input_tokens": int(raw_usage.get("input_tokens") or 0),
-                "output_tokens": int(raw_usage.get("output_tokens") or 0),
-                "thinking_tokens": int(raw_usage.get("thinking_tokens") or 0),
-                "cached_input_tokens": int(raw_usage.get("cached_input_tokens") or 0),
-                "cache_creation_input_tokens": int(raw_usage.get("cache_creation_input_tokens") or 0),
-            }
-            if not model_id and not any(usage.values()):
-                continue
-            bucket = aggregated.setdefault(model_id, {"model": model_id, **{key: 0 for key in usage}})
-            for field, value in usage.items():
-                bucket[field] += value
+            entry = _normalize_trace_usage_entry(raw_usage, fallback_model=fallback_model)
+            if entry is not None:
+                normalized.append(entry)
+        if normalized:
+            return normalized
 
-    if not aggregated:
-        model_id = str(payload.get("model") or "").strip()
-        usage = {
-            "model": model_id,
-            "input_tokens": int(payload.get("input_tokens") or 0),
-            "output_tokens": int(payload.get("output_tokens") or 0),
-            "thinking_tokens": int(payload.get("thinking_tokens") or 0),
-            "cached_input_tokens": int(payload.get("cached_input_tokens") or 0),
-            "cache_creation_input_tokens": int(payload.get("cache_creation_input_tokens") or 0),
+    entry = _normalize_trace_usage_entry(
+        {
+            "kind": "llm",
+            "model": fallback_model,
+            "input_tokens": payload.get("input_tokens") or 0,
+            "output_tokens": payload.get("output_tokens") or 0,
+            "thinking_tokens": payload.get("thinking_tokens") or 0,
+            "cached_input_tokens": payload.get("cached_input_tokens") or 0,
+            "cache_creation_input_tokens": payload.get("cache_creation_input_tokens") or 0,
         }
-        if model_id or any(value for key, value in usage.items() if key != "model"):
-            aggregated[model_id] = usage
+    )
+    return [entry] if entry is not None else []
+
+
+def _trace_model_usages(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    aggregated: dict[str, dict[str, Any]] = {}
+    for raw_entry in _trace_usage_entries(payload):
+        if raw_entry.get("kind") == "tool":
+            continue
+        model_id = str(raw_entry.get("model") or "").strip()
+        usage: dict[str, Any] = {
+            "input_tokens": int(raw_entry.get("input_tokens") or 0),
+            "output_tokens": int(raw_entry.get("output_tokens") or 0),
+            "thinking_tokens": int(raw_entry.get("thinking_tokens") or 0),
+            "cached_input_tokens": int(raw_entry.get("cached_input_tokens") or 0),
+            "cache_creation_input_tokens": int(raw_entry.get("cache_creation_input_tokens") or 0),
+        }
+        if not model_id and not any(usage.values()):
+            continue
+        bucket = aggregated.setdefault(model_id, {"model": model_id, **{key: 0 for key in usage}})
+        for field, value in usage.items():
+            bucket[field] += value
 
     usages = list(aggregated.values())
     usages.sort(key=lambda usage: (_model_usage_cost(usage), _usage_total_tokens(usage)), reverse=True)
     return usages
 
 
-def _trace_primary_model(payload: dict[str, Any], model_usages: list[dict[str, Any]] | None = None) -> str:
+def _trace_session_model(
+    payload: dict[str, Any],
+    usage_entries: list[dict[str, Any]] | None = None,
+    model_usages: list[dict[str, Any]] | None = None,
+) -> str:
+    entries = usage_entries if usage_entries is not None else _trace_usage_entries(payload)
+    unique_models = {
+        str(entry.get("model") or "").strip()
+        for entry in entries
+        if entry.get("kind") != "tool" and str(entry.get("model") or "").strip()
+    }
+    if len(unique_models) == 1:
+        return next(iter(unique_models))
+    if len(unique_models) > 1:
+        return ""
+
     usages = model_usages if model_usages is not None else _trace_model_usages(payload)
-    if usages:
-        return str(usages[0].get("model") or payload.get("model") or "")
-    return str(payload.get("model") or "")
+    usage_models = {str(usage.get("model") or "").strip() for usage in usages if str(usage.get("model") or "").strip()}
+    if len(usage_models) == 1:
+        return next(iter(usage_models))
+    if usage_models:
+        return ""
+    return str(payload.get("model") or "").strip()
 
 
 def _trace_cost_from_payload(payload: dict[str, Any]) -> float:
-    model_usages = _trace_model_usages(payload)
-    if model_usages:
-        return round(sum(_model_usage_cost(usage) for usage in model_usages), 8)
-    return _llm_usage_cost(
-        str(payload.get("model") or "_default"),
-        input_tokens=int(payload.get("input_tokens") or 0),
-        output_tokens=int(payload.get("output_tokens") or 0),
-        cache_read_tokens=int(payload.get("cached_input_tokens") or 0),
-        cache_write_tokens=int(payload.get("cache_creation_input_tokens") or 0),
-        thinking_tokens=int(payload.get("thinking_tokens") or 0),
-    )
+    usage_entries = _trace_usage_entries(payload)
+    if not usage_entries:
+        return 0.0
+
+    total_cost = 0.0
+    for entry in usage_entries:
+        if entry.get("kind") == "tool":
+            total_cost += float(entry.get("cost_usd") or 0.0)
+            continue
+        total_cost += _llm_usage_cost(
+            str(entry.get("model") or "_default"),
+            input_tokens=int(entry.get("input_tokens") or 0),
+            output_tokens=int(entry.get("output_tokens") or 0),
+            cache_read_tokens=int(entry.get("cached_input_tokens") or 0),
+            cache_write_tokens=int(entry.get("cache_creation_input_tokens") or 0),
+            thinking_tokens=int(entry.get("thinking_tokens") or 0),
+        )
+    return round(total_cost, 8)
 
 
 def _analytics_event_cost(model_id: str | None, event_type: str, input_tokens: int, output_tokens: int) -> float:
@@ -352,8 +520,9 @@ def _trace_analytics_events(
     payload: dict[str, Any],
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
+    usage_entries = _trace_usage_entries(payload)
     model_usages = _trace_model_usages(payload)
-    primary_model = _trace_primary_model(payload, model_usages)
+    session_model = _trace_session_model(payload, usage_entries, model_usages)
     session_host = host or agent
 
     def _append_event(
@@ -366,6 +535,7 @@ def _trace_analytics_events(
         output_tokens: int = 0,
         call_count: int = 1,
         sub_command: str | None = None,
+        cost_override: float | None = None,
     ) -> None:
         events.append(
             {
@@ -383,27 +553,44 @@ def _trace_analytics_events(
                 "last_seen": created_at,
                 "call_count": call_count,
                 "session_count": 1,
-                "cost": _analytics_event_cost(model, event_type, input_tokens, output_tokens),
+                "cost": (
+                    float(cost_override)
+                    if cost_override is not None
+                    else _analytics_event_cost(model, event_type, input_tokens, output_tokens)
+                ),
             }
         )
 
     user_prompt_tokens = int(payload.get("user_prompt_tokens") or 0)
     if user_prompt_tokens > 0:
         _append_event(
-            model=primary_model,
+            model=session_model,
             event_type="user_string",
             tool_name="User Entered String",
             category="User Activity",
             input_tokens=user_prompt_tokens,
         )
 
-    for usage in model_usages:
-        model_id = str(usage.get("model") or primary_model)
-        input_tokens = int(usage.get("input_tokens") or 0)
-        cached_input_tokens = int(usage.get("cached_input_tokens") or 0)
-        cache_write_tokens = int(usage.get("cache_creation_input_tokens") or 0)
-        output_tokens = int(usage.get("output_tokens") or 0)
-        thinking_tokens = int(usage.get("thinking_tokens") or 0)
+    for entry in usage_entries:
+        if entry.get("kind") == "tool":
+            tool_name = str(entry.get("tool_name") or "unknown")
+            cost_usd = float(entry.get("cost_usd") or 0.0)
+            if cost_usd > 0:
+                _append_event(
+                    model="",
+                    event_type="tool_charge",
+                    tool_name=tool_name,
+                    category="Tool Billing",
+                    cost_override=cost_usd,
+                )
+            continue
+
+        model_id = str(entry.get("model") or session_model)
+        input_tokens = int(entry.get("input_tokens") or 0)
+        cached_input_tokens = int(entry.get("cached_input_tokens") or 0)
+        cache_write_tokens = int(entry.get("cache_creation_input_tokens") or 0)
+        output_tokens = int(entry.get("output_tokens") or 0)
+        thinking_tokens = int(entry.get("thinking_tokens") or 0)
 
         if input_tokens > 0:
             _append_event(
@@ -451,7 +638,7 @@ def _trace_analytics_events(
             continue
         tool_name = str(raw_tool.get("name") or "unknown")
         _append_event(
-            model=primary_model,
+            model=session_model,
             event_type="tool_call",
             tool_name=tool_name,
             category=_tool_category(tool_name),
@@ -509,17 +696,22 @@ def _query_analytics_rows(
     days: int | None,
     limit: int,
 ) -> list[dict[str, Any]]:
+    start_day = None
+    if days is not None:
+        window_days = max(1, int(days))
+        start_day = (datetime.now().astimezone().date() - timedelta(days=window_days - 1)).isoformat()
+
     params: list[Any] = []
 
     sql = f"""
         SELECT id, agent, host, payload, created_at
         FROM traces
-        WHERE 1=1 {"AND created_at >= datetime('now', '-' || ? || ' days')" if days else ""}
+        WHERE 1=1 {"AND date(datetime(created_at, 'localtime')) >= ?" if start_day else ""}
         ORDER BY created_at DESC
     """
 
-    if days:
-        params.append(days)
+    if start_day:
+        params.append(start_day)
 
     events: list[dict[str, Any]] = []
     with sqlite3.connect(db_path) as conn:
@@ -634,14 +826,14 @@ def _trace_cache_leverage(trace: Trace) -> float:
     return round(int(trace.cached_input_tokens or 0) / effective_input, 4)
 
 
-def _recent_traces(store: ReasoningStore, *, window_days: int) -> list[Trace]:
+def _recent_traces(store: ContextStore, *, window_days: int) -> list[Trace]:
     cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
     traces = store.list_traces(limit=5000)
     recent = [trace for trace in traces if _trace_created_at(trace) >= cutoff]
     return sorted(recent, key=_trace_created_at)
 
 
-def _tracked_saved_tokens(store: ReasoningStore, trace: Trace) -> tuple[int, int]:
+def _tracked_saved_tokens(store: ContextStore, trace: Trace) -> tuple[int, int]:
     try:
         rows = store.list_context_budgets(_trace_run_key(trace))
     except Exception as exc:
@@ -667,7 +859,7 @@ def _tracked_saved_tokens(store: ReasoningStore, trace: Trace) -> tuple[int, int
     return saved_tokens, tracked_turns
 
 
-def _window_metrics(store: ReasoningStore, traces: list[Trace]) -> dict[str, Any]:
+def _window_metrics(store: ContextStore, traces: list[Trace]) -> dict[str, Any]:
     from atelier.core.capabilities.session_optimizer import trace_cost_usd
 
     entries: list[dict[str, Any]] = []
@@ -747,7 +939,7 @@ def _impact_verdict(tokens_delta_pct: float, cost_delta_pct: float, cache_delta_
 
 
 def _build_impact_validation(
-    store: ReasoningStore,
+    store: ContextStore,
     traces: list[Trace],
     *,
     window_days: int,
@@ -1406,7 +1598,7 @@ def _implemented_optimization_catalog(savings_payload: dict[str, Any]) -> list[d
         {
             "id": "reasonblock_inject",
             "title": "ReasonBlock injection",
-            "category": "reasoning_reuse",
+            "category": "context_reuse",
             "automation": "Automatic when matching reasoning blocks are selected",
             "status": "active",
             "observed_tokens_saved": _optimization_lever_tokens(per_lever, exact=("reasonblock_inject",)),
@@ -1511,7 +1703,7 @@ def _optimization_implementation_gaps() -> list[dict[str, Any]]:
     ]
 
 
-def _optimizations_summary_payload(root: Path, store: ReasoningStore, *, window_days: int) -> dict[str, Any]:
+def _optimizations_summary_payload(root: Path, store: ContextStore, *, window_days: int) -> dict[str, Any]:
     from atelier.core.capabilities.session_optimizer import (
         build_trace_optimization_report,
         render_session_optimizer_guidance,
@@ -1615,12 +1807,9 @@ def _optimizations_summary_payload(root: Path, store: ReasoningStore, *, window_
 
 def create_app(store_root: str | Path | None = None) -> Any:
     """Construct the FastAPI instance."""
-    from fastapi import Depends, FastAPI, HTTPException, Query, Security
+    from fastapi import Body, Depends, FastAPI, HTTPException, Query, Security
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
-    from atelier.core.foundation.models import Trace, coerce_trace_json, to_jsonable
-    from atelier.core.foundation.store import ReasoningStore
 
     security = HTTPBearer(auto_error=False)
 
@@ -1660,10 +1849,10 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
     # Late load store
     store_path = Path(store_root or cfg.atelier_root)
-    store = ReasoningStore(store_path)
+    store = ContextStore(store_path)
     _store_init_lock = threading.Lock()
 
-    def get_store() -> ReasoningStore:
+    def get_store() -> ContextStore:
         if not store._initialized:
             with _store_init_lock:
                 if not store._initialized:  # double-checked locking
@@ -1683,7 +1872,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
         return cfg.as_dict()
 
     @app.get("/overview", tags=["compat"], dependencies=[Depends(verify_api_key)])
-    def compat_overview() -> dict[str, Any]:
+    def compat_overview(days: int = Query(30)) -> dict[str, Any]:
         """Compatibility: GET /overview -> basic summary stats."""
         from atelier.core.foundation.metrics import summarize
         from atelier.core.improvement.failure_analyzer import FailureAnalyzer
@@ -1691,10 +1880,10 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
         root = Path(cfg.atelier_root)
         store = get_store()
-        summary = summarize(store)
+        since = datetime.now(UTC) - timedelta(days=days)
+        summary = summarize(store, since=since)
 
-        # Calculate tokens/cost from ALL traces in database using the shared
-        # backend pricing path.
+        # Calculate tokens/cost from traces in database within the time window
         total_raw_tokens = 0
         total_cost_usd = 0.0
 
@@ -1706,14 +1895,15 @@ def create_app(store_root: str | Path | None = None) -> Any:
                     SUM(json_extract(payload, '$.cached_input_tokens')),
                     SUM(json_extract(payload, '$.thinking_tokens'))
                 FROM traces
+                WHERE created_at >= ?
             """
-            row = conn.execute(sql).fetchone()
+            row = conn.execute(sql, (since.isoformat(),)).fetchone()
             if row:
                 inp, out, cr, th = row
                 total_raw_tokens = (inp or 0) + (out or 0) + (cr or 0) + (th or 0)
 
             conn.row_factory = sqlite3.Row
-            for trace_row in conn.execute("SELECT payload FROM traces"):
+            for trace_row in conn.execute("SELECT payload FROM traces WHERE created_at >= ?", (since.isoformat(),)):
                 try:
                     payload = json.loads(trace_row["payload"] or "{}")
                 except (TypeError, json.JSONDecodeError):
@@ -1721,7 +1911,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 total_cost_usd += _trace_cost_from_payload(payload)
 
         tracker = CostTracker(root)
-        savings = tracker.total_savings()
+        savings = tracker.total_savings(since=since)
 
         analyzer = FailureAnalyzer(store=store)
         clusters = analyzer.analyze()
@@ -1749,21 +1939,24 @@ def create_app(store_root: str | Path | None = None) -> Any:
         agent: str | None = Query(None),
         host: str | None = Query(None),
         query: str | None = Query(None),
+        days: int | None = Query(None),
         limit: int = Query(50, ge=1, le=1000),
         offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
         store = get_store()
+        since = datetime.now(UTC) - timedelta(days=days) if days else None
         traces = store.list_traces(
             domain=domain,
             status=status,
             agent=agent,
             host=host,
             query=query,
+            since=since,
             limit=limit,
             offset=offset,
         )
         # Fetch global metrics for the current domain/agent/host filters
-        metrics = store.get_traces_metrics(domain=domain, agent=agent, host=host)
+        metrics = store.get_traces_metrics(domain=domain, agent=agent, host=host, since=since)
 
         return {"items": [to_jsonable(t) for t in traces], "metrics": metrics}
 
@@ -1775,36 +1968,40 @@ def create_app(store_root: str | Path | None = None) -> Any:
         return to_jsonable(trace)
 
     # ------------------------------------------------------------------ #
-    # MCP service-backed task tools                                      #
+    # Context & Rescue                                                   #
     # ------------------------------------------------------------------ #
 
     def _runtime() -> Any:
-        from atelier.gateway.adapters.runtime import ReasoningRuntime
+        from atelier.gateway.adapters.runtime import ContextRuntime
 
-        return ReasoningRuntime(root=Path(cfg.atelier_root))
+        return ContextRuntime(root=Path(cfg.atelier_root))
 
-    @app.post("/v1/reasoning/context", tags=["reasoning"], dependencies=[Depends(verify_api_key)])
-    def task_context(payload: dict[str, Any]) -> dict[str, Any]:
-        task = str(payload.get("task") or "")
-        if not task:
-            raise HTTPException(status_code=400, detail="task is required")
-        result = _runtime().get_reasoning_context(
-            task=task,
-            domain=payload.get("domain"),
-            files=list(payload.get("files") or []),
-            tools=list(payload.get("tools") or []),
-            errors=list(payload.get("errors") or []),
-            max_blocks=int(payload.get("max_blocks", 5)),
-            token_budget=payload.get("token_budget", 2000),
-            dedup=bool(payload.get("dedup", True)),
-            include_telemetry=bool(payload.get("include_telemetry", False)),
-            agent_id=payload.get("agent_id"),
-            recall=bool(payload.get("recall", True)),
+    @app.post(
+        "/v1/reasoning/context",
+        tags=["context"],
+        dependencies=[Depends(verify_api_key)],
+        response_model=ContextResponse,
+    )
+    def task_context(payload: ContextRequest = Body(...)) -> ContextResponse:  # noqa: B008
+        result = _runtime().get_context(
+            task=payload.task,
+            domain=payload.domain,
+            files=payload.files,
+            tools=payload.tools,
+            errors=payload.errors,
+            max_blocks=payload.max_blocks,
+            token_budget=payload.token_budget,
+            dedup=payload.dedup,
+            include_telemetry=payload.include_telemetry,
+            agent_id=payload.agent_id,
+            recall=payload.recall,
         )
-        return result if isinstance(result, dict) else {"context": result}
+        if isinstance(result, dict):
+            return ContextResponse.model_validate(result)
+        return ContextResponse(context=result)
 
-    @app.post("/v1/reasoning/rescue", tags=["reasoning"], dependencies=[Depends(verify_api_key)])
-    def rescue_failure(payload: dict[str, Any]) -> dict[str, Any]:
+    @app.post("/v1/reasoning/rescue", tags=["context"], dependencies=[Depends(verify_api_key)])
+    def rescue_failure(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:  # noqa: B008
         task = str(payload.get("task") or "")
         error = str(payload.get("error") or "")
         if not task or not error:
@@ -2205,6 +2402,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
         top sessions, and tool-type distributions in one call.
         """
         db_path = store.db_path
+        start_day = (datetime.now().astimezone().date() - timedelta(days=max(1, days) - 1)).isoformat()
         host_filter = "AND COALESCE(host, agent) = ?" if host else ""
         sql = f"""
             SELECT
@@ -2220,13 +2418,14 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 CAST(json_extract(payload, '$.user_prompt_tokens') AS INTEGER) AS user_prompt_tokens,
                 payload,
                 created_at,
-                date(created_at) AS day
+                date(datetime(created_at, 'localtime')) AS day,
+                strftime('%Y-%m-%d %H:00', datetime(created_at, 'localtime')) AS hour_bucket
             FROM traces
-            WHERE created_at >= datetime('now', '-' || ? || ' days')
+            WHERE date(datetime(created_at, 'localtime')) >= ?
             {host_filter}
             ORDER BY created_at DESC
         """
-        params: list[Any] = [days]
+        params: list[Any] = [start_day]
         if host:
             params.append(host)
 
@@ -2256,8 +2455,9 @@ def create_app(store_root: str | Path | None = None) -> Any:
                     "cached_input_tokens": d.get("cached_tokens") or 0,
                     "cache_creation_input_tokens": d.get("cache_write_tokens") or 0,
                 }
+                usage_entries = _trace_usage_entries(payload_for_usage)
                 model_usages = _trace_model_usages(payload_for_usage)
-                primary_model = _trace_primary_model(payload_for_usage, model_usages)
+                session_model = _trace_session_model(payload_for_usage, usage_entries, model_usages)
 
                 in_t = d.get("input_tokens") or 0
                 out_t = d.get("output_tokens") or 0
@@ -2270,11 +2470,13 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 sessions.append(
                     {
                         "id": d["id"],
+                        "session_key": str(payload_obj.get("session_id") or d["id"]),
                         "host": d["host"] or "unknown",
                         "domain": d["domain"] or "unknown",
-                        "model": primary_model,
+                        "model": session_model,
                         "model_usages": model_usages,
                         "day": d.get("day") or "",
+                        "hour_bucket": d.get("hour_bucket") or "",
                         "created_at": d.get("created_at") or "",
                         "input_tokens": in_t,
                         "output_tokens": out_t,
@@ -2316,9 +2518,35 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 )
             )
 
-        # Imported host logs can contain prompt-only stubs with no model or assistant/tool activity.
-        # Excluding them keeps dashboard breakdowns aligned with real usage sessions.
-        dashboard_sessions = [session for session in sessions if _has_usage_signal(session)]
+        def _dashboard_session_rank(session: dict[str, Any]) -> tuple[Any, ...]:
+            return (
+                1 if _has_usage_signal(session) else 0,
+                float(session.get("cost") or 0.0),
+                int(session.get("output_tokens") or 0),
+                int(session.get("thinking_tokens") or 0),
+                int(session.get("input_tokens") or 0) + int(session.get("cached_tokens") or 0),
+                _tool_call_count(session),
+                _tool_output_tokens(session),
+                str(session.get("created_at") or ""),
+            )
+
+        session_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for session in sessions:
+            key = (
+                str(session.get("host") or "unknown"),
+                str(session.get("session_key") or session["id"]),
+            )
+            session_groups.setdefault(key, []).append(session)
+
+        dashboard_sessions: list[dict[str, Any]] = []
+        for (_, session_key), session_rows in session_groups.items():
+            chosen = max(session_rows, key=_dashboard_session_rank)
+            if not _has_usage_signal(chosen):
+                continue
+            collapsed = dict(chosen)
+            collapsed["session_key"] = session_key
+            dashboard_sessions.append(collapsed)
+        dashboard_sessions.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
 
         daily: dict[str, dict[str, Any]] = {}
         hourly: dict[str, dict[str, Any]] = {}
@@ -2337,9 +2565,8 @@ def create_app(store_root: str | Path | None = None) -> Any:
             daily[day]["input_tokens"] += s["input_tokens"]
             daily[day]["output_tokens"] += s["output_tokens"]
 
-            created_at = str(s.get("created_at") or "")
-            if len(created_at) >= 13:
-                hour = created_at[:13].replace("T", " ") + ":00"
+            hour = str(s.get("hour_bucket") or "")
+            if hour:
                 if hour not in hourly:
                     hourly[hour] = {
                         "date": hour,
@@ -2368,7 +2595,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
         by_host: dict[str, dict[str, Any]] = {}
         for s in dashboard_sessions:
-            h = s["host"]
+            h = _host_family(s["host"])
             if h not in by_host:
                 by_host[h] = {
                     "host": h,
@@ -2414,11 +2641,16 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
         host_model_overview: dict[tuple[str, str], dict[str, Any]] = {}
         for s in dashboard_sessions:
-            host_name = s["host"] or "unknown"
-            primary_model = s["model"] or "unknown"
+            host_name = _host_family(s["host"])
+            session_model = str(s.get("model") or "")
+            usage_rows = list(s.get("model_usages") or [])
+            overview_models = {str(usage.get("model") or "") or "unknown" for usage in usage_rows}
+            attributed_model = session_model
+            if not attributed_model and len(overview_models) == 1:
+                attributed_model = next(iter(overview_models))
             seen_pairs: set[tuple[str, str]] = set()
-            for usage in s.get("model_usages") or []:
-                model_name = str(usage.get("model") or primary_model) or "unknown"
+            for usage in usage_rows:
+                model_name = str(usage.get("model") or "") or "unknown"
                 key = (host_name, model_name)
                 if key not in host_model_overview:
                     host_model_overview[key] = {
@@ -2445,7 +2677,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 row["billable_output_tokens"] += int(usage.get("output_tokens") or 0)
                 row["thinking_tokens"] += int(usage.get("thinking_tokens") or 0)
                 row["cost"] += _model_usage_cost(usage)
-                if model_name == primary_model:
+                if attributed_model and model_name == attributed_model:
                     row["user_typed_tokens"] += s["user_prompt_tokens"]
                     row["tool_output_tokens"] += _tool_output_tokens(s)
                     row["tool_calls"] += _tool_call_count(s)
@@ -2457,7 +2689,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
         top_sessions_clean = [
             {
-                "id": s["id"],
+                "id": s.get("session_key") or s["id"],
                 "host": s["host"],
                 "domain": s["domain"],
                 "model": s["model"],

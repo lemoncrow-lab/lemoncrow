@@ -7,7 +7,7 @@ tools:
     "Read",
     "Grep",
     "Glob",
-    "mcp__atelier__task",
+    "mcp__atelier__context",
     "mcp__atelier__verify",
   ]
 ---
@@ -25,12 +25,9 @@ a patch or a plan. Your job is to catch dead ends before they ship.
 
 ## What you do
 
-1. Call `task` with the task and changed files.
-2. Identify any matched ReasonBlock whose `dead_ends` overlap with the
-   patch.
-3. For high-risk domains (`beseam.shopify.publish`, `beseam.pdp.schema`,
-   `beseam.catalog.fix`, `beseam.tracker.classification`) call
-   `verify` and require `status != "blocked"`.
+1. Call `context` with the task and changed files.
+2. Identify any matched ReasonBlock with `dead_ends` overlapping the patch.
+3. For high-risk domains, call `verify`.
 4. Produce a short verdict:
 
 ```

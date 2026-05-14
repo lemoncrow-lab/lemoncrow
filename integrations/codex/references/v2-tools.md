@@ -44,6 +44,12 @@ Use these instead of restating prior task context in chat.
 - `search({ pattern, path? })` — caches FTS hits.
 - `search({ pattern, path?, args? })` — wraps `grep`/`rg`
   with caching and command-injection rejection.
+- `code({ op: "index" | "search" | "symbol" | "outline" | "context" | "impact", ... })` —
+  dispatches repository code-index operations through one MCP tool.
+- `sql({ connection_alias, sql, params?, row_limit? })` — read-only SQL
+  inspection through configured aliases.
+- `shell({ command, timeout?, cwd?, max_lines? })` — compact supervised shell
+  command execution.
 
 These are default-on Atelier augmentations for bounded, repeated context
 reads/searches. Native `Read`, shell `rg`, `grep`, and direct repository search

@@ -7,7 +7,7 @@ Runtime-managed capability layer for compounding reasoning behavior.
 ## Entry Points
 
 - `__init__.py` - capability exports
-- `reasoning_reuse/` - reusable procedural retrieval and ranking
+- `context_reuse/` - reusable procedural retrieval and ranking
 - `semantic_file_memory/` - local semantic summaries and AST symbol maps
 - `loop_detection/` - repeated-failure and trajectory loop detection
 - `tool_supervision/` - redundancy tracking and tool efficiency metrics

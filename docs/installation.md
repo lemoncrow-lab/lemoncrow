@@ -5,7 +5,7 @@ This page starts with the installed product flow. Source-checkout and contributo
 ## Recommended Install for End Users
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/leanchain/atelier/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/pankaj4u4m/atelier/main/scripts/install.sh | bash
 ```
 
 What the installer does:
@@ -14,6 +14,7 @@ What the installer does:
 - clones or updates Atelier under `~/.local/share/atelier`
 - initializes `~/.atelier`
 - starts the detached `servicectl` loop
+- attempts to start the optional visualization stack when Docker is available
 - installs host integrations when compatible CLIs are found on `PATH`
 
 The installer uses uv at install time to create a managed tool environment.
@@ -26,6 +27,7 @@ Verify the install:
 atelier --version
 atelier-mcp --version
 atelier servicectl status
+atelier stack status
 ```
 
 ## Useful Installer Variants
@@ -39,7 +41,13 @@ curl -fsSL https://raw.githubusercontent.com/leanchain/atelier/main/scripts/inst
 Skip auto-starting the background controller:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/leanchain/atelier/main/scripts/install.sh | ATELIER_NO_SERVICECTL=1 bash
+curl -fsSL https://raw.githubusercontent.com/pankaj4u4m/atelier/main/scripts/install.sh | ATELIER_NO_SERVICECTL=1 bash
+```
+
+Skip auto-starting the visualization stack:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pankaj4u4m/atelier/main/scripts/install.sh | ATELIER_NO_STACK=1 bash
 ```
 
 Install from a local checkout instead of GitHub:
@@ -57,6 +65,9 @@ No HTTP server is required for normal usage.
 - `atelier ...` is the main CLI
 - `atelier-mcp` is the MCP server used by host integrations
 - `atelier servicectl ...` manages offline/background work
+
+If Docker is installed and `ATELIER_NO_STACK=1` was not set during install, the
+installer will also try to start the optional visualization stack for you.
 
 ### Optional UI Stack
 
@@ -107,6 +118,15 @@ atelier worker enqueue consolidate_reasonblocks
 atelier worker run-once
 atelier worker list
 ```
+
+### Installer Behavior Variables
+
+| Variable                | Default | Description                                         |
+| ----------------------- | ------- | --------------------------------------------------- |
+| `ATELIER_NO_HOSTS`      | `0`     | Skip host integration install scripts               |
+| `ATELIER_NO_SERVICECTL` | `0`     | Skip auto-starting `servicectl` during install      |
+| `ATELIER_NO_STACK`      | `0`     | Skip auto-starting the optional visualization stack |
+| `ATELIER_LOCAL`         | `0`     | Install from the current checkout in editable mode  |
 
 ## Storage Backends
 
@@ -177,6 +197,12 @@ atelier init
 | `ATELIER_NO_SERVICECTL`                           | `0`     | Skip auto-starting `servicectl` during install |
 | `ATELIER_SERVICECTL_INTERVAL_SECONDS`             | `60`    | Poll interval for the detached loop            |
 | `ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS` | `21600` | Periodic maintenance enqueue interval          |
+
+### Optional Stack
+
+| Variable           | Default | Description                           |
+| ------------------ | ------- | ------------------------------------- |
+| `ATELIER_NO_STACK` | `0`     | Skip auto-starting the optional stack |
 
 ### Optional HTTP Service
 

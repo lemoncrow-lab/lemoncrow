@@ -19,7 +19,7 @@ in this workspace, especially anything touching:
 ### 1. Retrieve task context
 
 ```json
-task({
+context({
   "task": "Fix Shopify publish validation",
   "domain": "beseam.shopify.publish",
   "files": ["backend/src/modules/shopify/publish.py"],

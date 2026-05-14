@@ -2,11 +2,13 @@
 
 PY_PATHS := src tests
 ATELIER_STORE ?= $(HOME)/.atelier
+ATELIER_CMD ?= uv run atelier
 FORCE_ARG := $(if $(f),--force,)
+EXTERNAL_PERIODS ?= today week month
 
 .PHONY: help install uninstall status start restart build-host-skills \
 	test test-fast test-cov security-test lint format-check format typecheck verify pre-commit \
-	benchmark bench-savings bench-savings-honest proof-cost-quality demo import-sessions clean
+	benchmark bench-savings bench-savings-honest proof-cost-quality demo import clean
 
 # --------------------------------------------------------------------------- #
 # Lifecycle                                                                   #
@@ -21,10 +23,8 @@ FORCE_ARG := $(if $(f),--force,)
 #         make install ARGS="--local --no-hosts --dry-run"
 # install: ## Install Atelier (use ARGS="--local" to install from current dir)
 install: ## Install Atelier (use ARGS="--local" to install from current dir)
-	@# This target calls scripts/install.sh which eventually runs scripts/install_agent_clis.sh
-	@INSTALL_ARGS="$(ARGS)"; \
-	if [ -z "$$INSTALL_ARGS" ]; then INSTALL_ARGS="$(args)"; fi; \
-	bash scripts/install.sh $$INSTALL_ARGS
+	@# This target calls scripts/install.sh
+	bash scripts/install.sh --local
 
 uninstall: ## Remove all Atelier agent-host integrations, hooks, and bin wrappers
 	@bash scripts/uninstall.sh $${ARGS:-}
@@ -101,27 +101,14 @@ proof-cost-quality: ## Run cost-quality proof gate tests and write proof-report.
 	LOCAL=1 atelier proof run --session-id wp32-proof --json
 	@test -s $(ATELIER_STORE)/proof/proof-report.json
 
-demo: ## Run a small blocked-plan demo in a temporary store
-	@DEMO_ROOT=$$(mktemp -d); \
-	atelier --root "$$DEMO_ROOT" init --seed; \
-	atelier --root "$$DEMO_ROOT" check-plan \
-		--task "Update Shopify product description" \
-		--domain "beseam.shopify.publish" \
-		--step "Parse product handle from the PDP URL" \
-		--step "Look up product by handle" \
-		--step "Update description" \
-		--step "Publish" \
-		--json; \
-	EXIT=$$?; rm -rf "$$DEMO_ROOT"; \
-	echo "exit code: $$EXIT (2=blocked, 0=pass)"; test $$EXIT -eq 2
-
 # --------------------------------------------------------------------------- #
 # Utilities                                                                   #
 # --------------------------------------------------------------------------- #
 
-import-sessions: ## Import sessions from all supported hosts: make import-sessions [f=1]
-	@for host in copilot claude codex opencode; do \
-		LOCAL=1 atelier --root "$(ATELIER_STORE)" "$$host" import $(FORCE_ARG); \
+import: ## Import sessions and external tool snapshots: make import [f=1]
+	LOCAL=1 $(ATELIER_CMD) --root "$(ATELIER_STORE)" import $(FORCE_ARG)
+	@for period in $(EXTERNAL_PERIODS); do \
+		LOCAL=1 $(ATELIER_CMD) --root "$(ATELIER_STORE)" external-report --tool all --period "$$period" --persist || true; \
 	done
 
 clean: ## Remove build artifacts, caches, and coverage data

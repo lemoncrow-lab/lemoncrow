@@ -38,9 +38,9 @@ def sync_usage(
     from atelier.core.capabilities.plugin_runtime import (
         get_session_stats_from_trace,
     )
-    from atelier.core.foundation.store import ReasoningStore
+    from atelier.core.foundation.store import ContextStore
 
-    store = ReasoningStore(root_path)
+    store = ContextStore(root_path)
 
     # 1. Handle pre-loaded sessions (explicitly provided)
     if sessions:

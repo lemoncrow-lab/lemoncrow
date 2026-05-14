@@ -10,7 +10,6 @@ from atelier.core.capabilities.archival_recall import ArchivalRecallCapability
 from atelier.core.capabilities.lesson_promotion import LessonPromoterCapability
 from atelier.core.foundation.memory_models import MemoryBlock
 from atelier.core.foundation.models import (
-    PlanCheckResult,
     ReasonBlock,
     RescueResult,
     Rubric,
@@ -20,13 +19,13 @@ from atelier.core.foundation.models import (
     ValidationResult,
     to_jsonable,
 )
-from atelier.core.foundation.plan_checker import check_plan
 from atelier.core.foundation.redaction import redact
 from atelier.core.foundation.rubric_gate import run_rubric
 from atelier.core.improvement.failure_analyzer import analyze_failures
-from atelier.gateway.adapters.runtime import ReasoningRuntime
+from atelier.gateway.adapters.runtime import ContextRuntime
 from atelier.gateway.sdk.client import (
     AtelierClient,
+    ContextResult,
     EvalRecord,
     EvalRunResult,
     FailureAnalysisResult,
@@ -35,7 +34,6 @@ from atelier.gateway.sdk.client import (
     MemoryArchiveResult,
     MemoryRecallResult,
     MemoryUpsertBlockResult,
-    ReasoningContextResult,
     SavingsSummary,
     TraceRecordResult,
 )
@@ -51,11 +49,11 @@ class LocalClient(AtelierClient):
 
             root = default_store_root()
         self.root = Path(root)
-        self.runtime = ReasoningRuntime(self.root)
+        self.runtime = ContextRuntime(self.root)
         self.store = self.runtime.store
         super().__init__()
 
-    def get_reasoning_context(
+    def get_context(
         self,
         *,
         task: str,
@@ -69,8 +67,8 @@ class LocalClient(AtelierClient):
         include_telemetry: bool = False,
         agent_id: str | None = None,
         recall: bool = True,
-    ) -> ReasoningContextResult:
-        payload = self.runtime.get_reasoning_context(
+    ) -> ContextResult:
+        payload = self.runtime.get_context(
             task=task,
             domain=domain,
             files=files,
@@ -84,28 +82,8 @@ class LocalClient(AtelierClient):
             recall=recall,
         )
         if isinstance(payload, dict):
-            return ReasoningContextResult.model_validate(payload)
-        return ReasoningContextResult(context=payload)
-
-    def check_plan(
-        self,
-        *,
-        task: str,
-        plan: list[str],
-        domain: str | None = None,
-        files: list[str] | None = None,
-        tools: list[str] | None = None,
-        errors: list[str] | None = None,
-    ) -> PlanCheckResult:
-        return check_plan(
-            self.store,
-            task=task,
-            plan=plan,
-            domain=domain,
-            files=files or [],
-            tools=tools or [],
-            errors=errors or [],
-        )
+            return ContextResult.model_validate(payload)
+        return ContextResult(context=payload)
 
     def rescue_failure(
         self,
@@ -342,27 +320,21 @@ class LocalClient(AtelierClient):
         domain: str | None = None,
         limit: int = 50,
     ) -> EvalRunResult:
+        """List eval cases (plan-check based evals are deprecated)."""
         items = self._list_evals(domain=domain)
         if case_id is not None:
             items = [item for item in items if item.get("id") == case_id]
         items = items[:limit]
         results: list[EvalRecord] = []
         for item in items:
-            plan = [str(step) for step in item.get("plan", [])]
-            task = str(item.get("task", item.get("description", "Untitled eval")))
-            actual = self.check_plan(
-                task=task,
-                plan=plan,
-                domain=item.get("domain"),
-            ).status
             results.append(
                 EvalRecord(
                     case_id=str(item.get("id", "unknown")),
                     domain=str(item.get("domain", "unknown")),
                     description=str(item.get("description", "")),
                     expected_status=str(item.get("expected_status", "pass")),
-                    actual_status=actual,
-                    passed=actual == str(item.get("expected_status", "pass")),
+                    actual_status="deprecated",
+                    passed=False,
                 )
             )
         return EvalRunResult(results=results)

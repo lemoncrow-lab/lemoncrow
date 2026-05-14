@@ -51,18 +51,18 @@ make verify
 
 ## First Task
 
-Start opencode in your workspace and ask:
+Start opencode in your workspace and use the installed wrapper:
 
-```
-use skill: task
+```bash
+atelier-opencode --task "Fix live state drift" --domain state.change
 ```
 
 ## Expected Behavior
 
 - opencode connects to the local Atelier HTTP service via the MCP stdio wrapper
 - Workspace Atelier agent profile is installed at `.opencode/agents/atelier.md`
-- Service-backed tools include `task`, `memory`, `rescue`, `trace`, and `verify`
-- Only `read`, `search`, and `compact` remain host-local
+- With `ATELIER_DEV_MODE=1`, opencode can actively use `context`, `route`, `rescue`, `verify`, `memory`, `read`, `edit`, `sql`, `search`, `compact`, `shell`, and the `atelier_code_*` helpers
+- `trace` remains the stable observable recording surface
 - `atelier-opencode --task "..."` can emit live start-time optimizer guidance before handing off to opencode
 
 ## Troubleshooting
@@ -72,23 +72,14 @@ use skill: task
 | MCP tools not showing | Restart opencode after install                                                     |
 | Config not found      | Global: check `~/.config/opencode/opencode.json`; workspace: check `opencode.json` |
 
-## V2 Tools — Memory, Context Savings, and Lesson Pipeline
+## MCP Tools and Dev Mode
 
-All V2 tools are available via the Atelier MCP server. These are **Atelier augmentations** — opencode native tools remain the primary interface.
+With `ATELIER_DEV_MODE=1`, the active Atelier MCP surface for opencode includes
+`context`, `route`, `rescue`, `trace`, `verify`, `memory`, `read`, `edit`,
+`sql`, `search`, `compact`, `shell`, and the `code` helpers.
 
-| Tool                    | Boundary             | Description                                               |
-| ----------------------- | -------------------- | --------------------------------------------------------- |
-| `memory`                | Atelier augmentation | Store named value in agent memory                         |
-| `memory`                | Atelier augmentation | Retrieve named memory block                               |
-| `memory`                | Atelier augmentation | FTS + vector search over archival memory                  |
-| `memory`                | Atelier augmentation | Persist text passage to archival memory                   |
-| `memory`                | Atelier augmentation | Compact sleeptime memory (reduces context window)         |
-| `search`                | Atelier augmentation | Token-saving combined search + read                       |
-| `edit`                  | Atelier augmentation | Deterministic multi-file batch edits (optional)           |
-| `atelier benchmark runtime` | Atelier augmentation | Capability efficiency metrics                             |
-| `compact`               | Atelier augmentation | Advise before context compaction; provides reinject hints |
-| `atelier lesson inbox`  | Atelier augmentation | List lesson candidates awaiting decision                  |
-| `atelier lesson decide` | Atelier augmentation | Approve or reject a lesson candidate                      |
+Without developer mode, `trace` remains the most reliable active surface and
+some other tools may still appear as passive compatibility stubs.
 
 ## Uninstall
 

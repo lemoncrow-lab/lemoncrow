@@ -11,13 +11,13 @@ __all__ = [
     "CapabilityRegistry",
     "ContextBlock",
     "ContextCompressionCapability",
+    "ContextReuseCapability",
     "FailureAnalysisCapability",
     "LessonPromoterCapability",
     "LoopDetectionCapability",
     "PromptBudgetOptimizer",
     "ProofGateCapability",
     "QualityRouterCapability",
-    "ReasoningReuseCapability",
     "SemanticFileMemoryCapability",
     "TelemetryEvent",
     "TelemetrySubstrate",
@@ -53,9 +53,9 @@ def __getattr__(name: str) -> Any:
             "atelier.core.capabilities.loop_detection",
             "LoopDetectionCapability",
         ),
-        "ReasoningReuseCapability": (
-            "atelier.core.capabilities.reasoning_reuse",
-            "ReasoningReuseCapability",
+        "ContextReuseCapability": (
+            "atelier.core.capabilities.context_reuse",
+            "ContextReuseCapability",
         ),
         "ProofGateCapability": (
             "atelier.core.capabilities.proof_gate.capability",

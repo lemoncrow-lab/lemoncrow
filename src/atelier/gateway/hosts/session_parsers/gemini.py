@@ -15,18 +15,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from atelier.core.capabilities.pricing import usage_cost_usd
 from atelier.core.foundation.models import (
     CommandRecord,
     FileEditRecord,
-    ModelUsage,
     RawArtifact,
     ToolCall,
     Trace,
 )
 from atelier.core.foundation.redaction import redact
-from atelier.core.foundation.store import ReasoningStore
-from atelier.gateway.hosts.session_parsers._common import _SIZE_LIMIT_BYTES
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.hosts.session_parsers._common import (
+    _SIZE_LIMIT_BYTES,
+    make_llm_usage_entry,
+    summarize_usage_entries,
+)
 
 
 def _utcnow() -> datetime:
@@ -43,14 +45,101 @@ def find_gemini_sessions(root: Path | None = None) -> Iterator[Path]:
     if not root.is_dir():
         return
 
-    # Discovery pattern: find all *.jsonl files that look like sessions
-    # in any subproject's chats/ directory.
-    # Pattern: ~/.gemini/tmp/*/chats/session-*.jsonl
-    yield from sorted(root.glob("**/chats/session-*.jsonl"))
+    # Two layouts coexist under ~/.gemini/tmp/<project>/chats/:
+    #   1. Top-level session files:    chats/session-YYYY-MM-DDTHH-MM-<id>.jsonl
+    #   2. Sub-agent / sub-session:    chats/<sessionId>/<subagent-id>.jsonl
+    #      (kind="subagent" in the first record). These carry real LLM events
+    #      with `tokens` blocks and were previously ignored, so atelier missed
+    #      ~15-20M cache_read tokens per day on heavy gemini days.
+    seen: set[Path] = set()
+    for p in sorted(root.glob("**/chats/session-*.jsonl")):
+        seen.add(p)
+        yield p
+    for p in sorted(root.glob("**/chats/*/*.jsonl")):
+        if p in seen:
+            continue
+        # Skip if the parent dir is "chats" itself (already handled above) — the
+        # pattern only matches one level deeper, so this is a sub-session file.
+        yield p
+
+
+def _gemini_event_key(event: dict[str, Any]) -> tuple[str, str] | None:
+    event_id = str(event.get("id") or "").strip()
+    timestamp = str(event.get("timestamp") or "").strip()
+    if not event_id or not timestamp:
+        return None
+    return (event_id, timestamp)
+
+
+def _token_total(tokens: dict[str, Any]) -> int:
+    total = 0
+    for key in ("input", "output", "cached", "thoughts", "tool", "total"):
+        try:
+            total += int(tokens.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def _merge_gemini_event(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(existing)
+    for key, value in incoming.items():
+        if key == "tokens" and isinstance(value, dict):
+            current = merged.get(key)
+            if not isinstance(current, dict) or _token_total(value) >= _token_total(current):
+                merged[key] = value
+            continue
+
+        if key in {"toolCalls", "thoughts", "content"} and isinstance(value, list):
+            current = merged.get(key)
+            if not isinstance(current, list) or len(value) >= len(current):
+                merged[key] = value
+            continue
+
+        if value in (None, "", [], {}):
+            continue
+
+        current = merged.get(key)
+        if current in (None, "", [], {}):
+            merged[key] = value
+
+    return merged
+
+
+def _canonicalize_gemini_events(raw_content: str) -> list[dict[str, Any]]:
+    seen_event_lines: set[str] = set()
+    canonical_events: list[dict[str, Any]] = []
+    event_indexes: dict[tuple[str, str], int] = {}
+
+    for raw_line in raw_content.splitlines():
+        line = raw_line.strip()
+        if not line or line in seen_event_lines:
+            continue
+        seen_event_lines.add(line)
+
+        try:
+            event = json.loads(line)
+        except Exception:
+            continue
+
+        key = _gemini_event_key(event)
+        if key is None:
+            canonical_events.append(event)
+            continue
+
+        existing_index = event_indexes.get(key)
+        if existing_index is None:
+            event_indexes[key] = len(canonical_events)
+            canonical_events.append(event)
+            continue
+
+        canonical_events[existing_index] = _merge_gemini_event(canonical_events[existing_index], event)
+
+    return canonical_events
 
 
 class GeminiImporter:
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:
@@ -66,9 +155,8 @@ class GeminiImporter:
             try:
                 # Performance safety: skip massive files (>50MB) for now
                 if jsonl_path.stat().st_size > _SIZE_LIMIT_BYTES:
-                    print(
-                        f"[atelier] gemini: skipping massive session {jsonl_path.name} ({jsonl_path.stat().st_size / 1e6:.1f}MB)"
-                    )
+                    size_mb = jsonl_path.stat().st_size / 1e6
+                    print(f"[atelier] gemini: skipping massive session {jsonl_path.name} ({size_mb:.1f}MB)")
                     continue
 
                 if i % 10 == 0 and i > 0:
@@ -156,23 +244,9 @@ class GeminiImporter:
         total_cached = 0
         user_prompt_tokens = 0
         model_seen = ""
-        seen_event_lines: set[str] = set()
-        model_usage_totals: dict[str, dict[str, int]] = {}
+        usage_entries = []
 
-        for line in raw_content.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            # Gemini can reuse the same event id across separate billable records.
-            # Only drop exact duplicate lines, not repeated ids with new payload.
-            if line in seen_event_lines:
-                continue
-            seen_event_lines.add(line)
-            try:
-                ev = json.loads(line)
-            except Exception:
-                continue
-
+        for ev in _canonicalize_gemini_events(raw_content):
             if "startTime" in ev and "sessionId" in ev:
                 with contextlib.suppress(BaseException):
                     created_at = datetime.fromisoformat(ev["startTime"].replace("Z", "+00:00"))
@@ -203,22 +277,18 @@ class GeminiImporter:
                 cached_t = int(tokens.get("cached", 0) or 0)
                 billable_in_t = max(0, in_t - cached_t)
 
-                usage_model = str(m or model_seen or "")
-                if usage_model:
-                    usage_bucket = model_usage_totals.setdefault(
-                        usage_model,
-                        {
-                            "input_tokens": 0,
-                            "output_tokens": 0,
-                            "thinking_tokens": 0,
-                            "cached_input_tokens": 0,
-                            "cache_creation_input_tokens": 0,
-                        },
-                    )
-                    usage_bucket["input_tokens"] += billable_in_t
-                    usage_bucket["output_tokens"] += out_t
-                    usage_bucket["thinking_tokens"] += thoughts_t
-                    usage_bucket["cached_input_tokens"] += cached_t
+                usage_entry = make_llm_usage_entry(
+                    model=str(m or model_seen or ""),
+                    input_tokens=billable_in_t,
+                    output_tokens=out_t,
+                    thinking_tokens=thoughts_t,
+                    cached_input_tokens=cached_t,
+                    source_type="gemini.event",
+                    source_id=str(ev.get("id") or ""),
+                    created_at=created_at,
+                )
+                if usage_entry is not None:
+                    usage_entries.append(usage_entry)
 
                 total_in_tokens += billable_in_t
                 total_out_tokens += out_t
@@ -276,22 +346,7 @@ class GeminiImporter:
                 )
             )
 
-        model_usages = [ModelUsage(model=model_name, **usage) for model_name, usage in model_usage_totals.items()]
-        model_usages.sort(
-            key=lambda usage: (
-                usage_cost_usd(
-                    usage.model,
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
-                    cache_read_tokens=usage.cached_input_tokens,
-                    cache_write_tokens=usage.cache_creation_input_tokens,
-                    thinking_tokens=usage.thinking_tokens,
-                ),
-                usage.input_tokens + usage.cached_input_tokens + usage.output_tokens + usage.thinking_tokens,
-            ),
-            reverse=True,
-        )
-        primary_model = model_usages[0].model if model_usages else model_seen
+        usage_summary = summarize_usage_entries(usage_entries, fallback_model=model_seen)
 
         trace = Trace(
             id=artifact_id,
@@ -308,14 +363,15 @@ class GeminiImporter:
             validation_results=[],
             raw_artifact_ids=[artifact.id],
             reasoning=reasoning_snippets,
-            input_tokens=total_in_tokens,
+            input_tokens=usage_summary["input_tokens"],
             user_prompt_tokens=user_prompt_tokens,
-            cached_input_tokens=total_cached,
+            cached_input_tokens=usage_summary["cached_input_tokens"],
             cache_creation_input_tokens=0,
-            model=primary_model,
-            model_usages=model_usages,
-            output_tokens=total_out_tokens,
-            thinking_tokens=total_thinking_tokens,
+            model=usage_summary["model"],
+            usage_entries=usage_summary["usage_entries"],
+            model_usages=usage_summary["model_usages"],
+            output_tokens=usage_summary["output_tokens"],
+            thinking_tokens=usage_summary["thinking_tokens"],
             created_at=created_at,
         )
         self.store.record_trace(trace, write_json=False)

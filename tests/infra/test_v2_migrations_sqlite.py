@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.infra.storage.migrations import V2_REQUIRED_TABLES
 from atelier.infra.storage.sqlite_store import SQLiteStore
 
@@ -17,7 +17,7 @@ def _tables(db_path: Path) -> set[str]:
 
 
 def test_v2_migrations_apply_idempotently_for_reasoning_store(tmp_path: Path) -> None:
-    store = ReasoningStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "atelier")
     store.init()
     store.init()
 

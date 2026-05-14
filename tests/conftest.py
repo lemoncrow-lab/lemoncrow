@@ -8,30 +8,30 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 if TYPE_CHECKING:
-    from atelier.gateway.adapters.runtime import ReasoningRuntime
+    from atelier.gateway.adapters.runtime import ContextRuntime
 
 
 @pytest.fixture()
-def store(tmp_path: Path) -> ReasoningStore:
-    s = ReasoningStore(tmp_path / "atelier")
+def store(tmp_path: Path) -> ContextStore:
+    s = ContextStore(tmp_path / "atelier")
     s.init()
     return s
 
 
 @pytest.fixture()
-def seeded_runtime(tmp_path: Path) -> Iterator[ReasoningRuntime]:
+def seeded_runtime(tmp_path: Path) -> Iterator[ContextRuntime]:
     """Runtime backed by the bundled seed blocks + rubrics."""
     from importlib import resources
 
     import yaml
 
     from atelier.core.foundation.models import ReasonBlock, Rubric
-    from atelier.gateway.adapters.runtime import ReasoningRuntime
+    from atelier.gateway.adapters.runtime import ContextRuntime
 
-    rt = ReasoningRuntime(root=tmp_path / "atelier")
+    rt = ContextRuntime(root=tmp_path / "atelier")
     blocks_dir = resources.files("atelier") / "infra" / "seed_blocks"
     rubrics_dir = resources.files("atelier") / "core" / "rubrics"
     for p in blocks_dir.iterdir():

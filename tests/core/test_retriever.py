@@ -4,7 +4,7 @@ from collections.abc import Sequence
 
 from atelier.core.foundation.models import ReasonBlock
 from atelier.core.foundation.retriever import TaskContext, retrieve
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 
 def _block(
@@ -30,7 +30,7 @@ def _block(
     )
 
 
-def test_retrieve_scores_by_domain_and_overlap(store: ReasoningStore) -> None:
+def test_retrieve_scores_by_domain_and_overlap(store: ContextStore) -> None:
     store.upsert_block(_block("a", domain="coding", title="domain match", triggers=["alpha"]))
     store.upsert_block(_block("b", domain="other", title="other domain"))
     store.upsert_block(
@@ -50,7 +50,7 @@ def test_retrieve_scores_by_domain_and_overlap(store: ReasoningStore) -> None:
     assert ids.index("c") < ids.index("a")  # c scored higher
 
 
-def test_retrieve_excludes_deprecated_and_quarantined(store: ReasoningStore) -> None:
+def test_retrieve_excludes_deprecated_and_quarantined(store: ContextStore) -> None:
     store.upsert_block(_block("keep", triggers=["foo"]))
     store.upsert_block(_block("dep", triggers=["foo"]))
     store.upsert_block(_block("qua", triggers=["foo"]))

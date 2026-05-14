@@ -1,20 +1,20 @@
-"""SQLiteStore — thin alias for atelier.core.store.ReasoningStore.
+"""SQLiteStore — thin alias for atelier.core.store.ContextStore.
 
 Provides:
   - the name ``SQLiteStore`` as the canonical export for the sqlite backend
   - a ``health_check`` method to satisfy StoreProtocol
-  - no behaviour change for existing callers that use ReasoningStore directly
+  - no behaviour change for existing callers that use ContextStore directly
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 
-class SQLiteStore(ReasoningStore):
-    """SQLite-backed store (extends ReasoningStore with storage-layer helpers)."""
+class SQLiteStore(ContextStore):
+    """SQLite-backed store (extends ContextStore with storage-layer helpers)."""
 
     def init(self) -> None:
         """Create core and V2 tables idempotently."""

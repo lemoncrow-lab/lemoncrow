@@ -1,13 +1,13 @@
 """Render ReasonBlocks and runtime artifacts to human-readable formats.
 
 Markdown is the canonical reviewable format. The injection format
-(used by `get_reasoning_context`) is a compact text block tuned for LLM
+(used by `get_context`) is a compact text block tuned for LLM
 context windows.
 """
 
 from __future__ import annotations
 
-from atelier.core.foundation.models import PlanCheckResult, ReasonBlock, RubricResult
+from atelier.core.foundation.models import ReasonBlock, RubricResult
 
 
 def render_block_markdown(block: ReasonBlock) -> str:
@@ -89,27 +89,14 @@ def render_context_for_agent(blocks: list[ReasonBlock], *, max_blocks: int = 5) 
     verification. Skips usage stats and creation metadata to save tokens.
     """
     if not blocks:
-        return "<reasoning_procedures>\n(no relevant procedures found)\n</reasoning_procedures>\n"
+        return "<context_procedures>\n(no relevant procedures found)\n</context_procedures>\n"
 
-    out = ["<reasoning_procedures>"]
+    out = ["<context_procedures>"]
     for block in blocks[:max_blocks]:
         out.append("")
         out.append(render_block_for_agent(block))
-    out.append("</reasoning_procedures>")
+    out.append("</context_procedures>")
     return "\n".join(out) + "\n"
-
-
-def render_plan_check(result: PlanCheckResult) -> str:
-    lines = [f"Plan check: {result.status.upper()}"]
-    if result.matched_blocks:
-        lines.append(f"Matched blocks: {', '.join(result.matched_blocks)}")
-    for w in result.warnings:
-        lines.append(f"  [{w.severity}] {w.reason_block}: {w.message}")
-    if result.suggested_plan:
-        lines.append("Suggested plan:")
-        for i, step in enumerate(result.suggested_plan, 1):
-            lines.append(f"  {i}. {step}")
-    return "\n".join(lines)
 
 
 def render_rubric_result(result: RubricResult) -> str:

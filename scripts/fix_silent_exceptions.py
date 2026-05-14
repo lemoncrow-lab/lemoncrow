@@ -144,7 +144,7 @@ def _fix_source(source: str, path: Path) -> tuple[str, list[str]]:
         for idx in pass_line_indices[1:]:
             patches.append((idx, ""))
 
-        changes.append(f"  {path}:{node.lineno}: added {logger_name}.warning() " f"(exc var: {exc_varname!r})")
+        changes.append(f"  {path}:{node.lineno}: added {logger_name}.warning() (exc var: {exc_varname!r})")
 
     if not patches:
         return source, []

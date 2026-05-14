@@ -488,7 +488,7 @@ export default function Insights() {
   const [summary, setSummary] = useState<TelemetrySummary | null>(null);
   const [schema, setSchema] = useState<TelemetrySchema | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { seconds: windowSeconds } = useTimeRange();
+  const { seconds: windowSeconds, range } = useTimeRange();
   const [hostFilter, setHostFilter] = useState("all");
   const [eventFilter, setEventFilter] = useState("all");
   const [knownHosts, setKnownHosts] = useState<string[]>([]);
@@ -696,7 +696,13 @@ export default function Insights() {
             hint={
               windowSeconds === null
                 ? "All retained telemetry currently in storage."
-                : `Sliding ${Math.round(windowSeconds / 60)} minute window.`
+                : range === "1d"
+                  ? "Today so far."
+                  : range === "7d"
+                    ? "This week so far."
+                    : range === "30d"
+                      ? "This month so far."
+                      : "This quarter so far."
             }
           />
           <MetricTile
