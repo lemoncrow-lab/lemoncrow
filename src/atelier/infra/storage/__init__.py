@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["ReasoningStore", "create_store", "make_memory_store"]
+__all__ = ["ContextStore", "create_store", "make_memory_store"]
 
 
 def __getattr__(name: str) -> Any:
-    if name == "ReasoningStore":
-        from atelier.core.foundation.store import ReasoningStore
+    if name == "ContextStore":
+        from atelier.core.foundation.store import ContextStore
 
-        return ReasoningStore
+        return ContextStore
     if name == "create_store":
         from atelier.infra.storage.factory import create_store
 

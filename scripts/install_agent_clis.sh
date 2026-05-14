@@ -20,12 +20,20 @@ set -euo pipefail
 
 if [[ -t 1 ]]; then
     C_RESET="$(printf '\033[0m')"
+    C_GREEN="$(printf '\033[32m')"
     C_RED="$(printf '\033[31m')"
     C_YELLOW="$(printf '\033[33m')"
 else
     C_RESET=""
+    C_GREEN=""
     C_RED=""
     C_YELLOW=""
+fi
+if [[ -n "${FORCE_COLOR:-}${CLICOLOR_FORCE:-}" && -z "${NO_COLOR:-}" ]]; then
+    C_RESET="$(printf '\033[0m')"
+    C_GREEN="$(printf '\033[32m')"
+    C_RED="$(printf '\033[31m')"
+    C_YELLOW="$(printf '\033[33m')"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -91,18 +99,38 @@ print_colored_output() {
     local output="$1"
     local line
     while IFS= read -r line; do
-        case "$line" in
-            *"] WARN:"*)
-                printf "%s\n" "${line/WARN:/${C_YELLOW}WARN:${C_RESET}}"
-                ;;
-            *"] ERROR:"*)
-                printf "%s\n" "${line/ERROR:/${C_RED}ERROR:${C_RESET}}"
-                ;;
-            *)
-                printf "%s\n" "$line"
-                ;;
-        esac
+        print_colored_line "$line"
     done <<<"$output"
+}
+
+print_colored_line() {
+    local line="$1"
+    case "$line" in
+        *"] PASS:"*)
+            printf "%s\n" "${line/PASS:/${C_GREEN}PASS:${C_RESET}}"
+            ;;
+        *"] WARN:"*)
+            printf "%s\n" "${line/WARN:/${C_YELLOW}WARN:${C_RESET}}"
+            ;;
+        *"] FAIL:"*)
+            printf "%s\n" "${line/FAIL:/${C_RED}FAIL:${C_RESET}}"
+            ;;
+        *"] ERROR:"*)
+            printf "%s\n" "${line/ERROR:/${C_RED}ERROR:${C_RESET}}"
+            ;;
+        *)
+            printf "%s\n" "$line"
+            ;;
+    esac
+}
+
+stream_colored_output() {
+    local output_file="$1"
+    local line
+    while IFS= read -r line; do
+        printf "%s\n" "$line" >>"$output_file"
+        print_colored_line "$line"
+    done
 }
 
 print_issue_group() {
@@ -133,6 +161,7 @@ print_issue_group() {
 run_installer() {
     local host="$1"
     local script
+    local output_file output ret
 
     case "$host" in
         claude) script="${SCRIPT_DIR}/install_claude.sh" ;;
@@ -143,11 +172,13 @@ run_installer() {
     echo "──────────────────────────────────────────"
     echo " Installing Atelier → ${host}"
     echo "──────────────────────────────────────────"
+    output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-${host}.XXXXXX")"
     set +e
-    output=$(bash "$script" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1)
-    local ret=$?
+    bash "$script" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1 | stream_colored_output "$output_file"
+    ret=${PIPESTATUS[0]}
     set -e
-    print_colored_output "$output"
+    output="$(cat "$output_file")"
+    rm -f "$output_file"
     collect_issues_from_output "$output"
 
     if echo "$output" | grep -q "=== SKIPPED"; then
@@ -171,9 +202,9 @@ echo ""
 echo "══════════════════════════════════════════════"
 echo " Atelier Install Summary"
 echo "══════════════════════════════════════════════"
-for h in "${PASS[@]+"${PASS[@]}"}"; do echo "  OK       $h"; done
+for h in "${PASS[@]+"${PASS[@]}"}"; do printf "  %bOK%b       %s\n" "$C_GREEN" "$C_RESET" "$h"; done
 for h in "${WARN[@]+"${WARN[@]}"}"; do printf "  %bWARN%b     %s\n" "$C_YELLOW" "$C_RESET" "$h"; done
-for h in "${SKIP[@]+"${SKIP[@]}"}"; do echo "  SKIPPED  $h (CLI not found)"; done
+for h in "${SKIP[@]+"${SKIP[@]}"}"; do printf "  %bSKIPPED%b  %s (CLI not found)\n" "$C_YELLOW" "$C_RESET" "$h"; done
 for h in "${FAIL[@]+"${FAIL[@]}"}"; do printf "  %bFAILED%b   %s\n" "$C_RED" "$C_RESET" "$h"; done
 echo ""
 print_issue_group "Host install errors" "$C_RED" "${ERRORS[@]+"${ERRORS[@]}"}"

@@ -11,7 +11,7 @@ pytest.importorskip("fastapi", reason="FastAPI API tests require the api extra")
 from fastapi.testclient import TestClient
 
 from atelier.core.foundation.models import Trace
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.core.service.api import create_app
 
 
@@ -62,7 +62,7 @@ def _write_cost_history(path: Path) -> None:
 
 
 def _record_traces(root: Path) -> None:
-    store = ReasoningStore(root)
+    store = ContextStore(root)
     store.init()
     created_at = datetime.now(UTC)
     traces = [

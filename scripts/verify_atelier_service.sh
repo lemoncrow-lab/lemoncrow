@@ -70,29 +70,21 @@ assert d.get('ready') is True, f'Expected ready=true, got {d}'
 print('PASS /ready')
 "
 
-# --- POST /v1/reasoning/check-plan (bad plan → blocked) ---------------------
-echo "--- POST /v1/reasoning/check-plan (bad Shopify URL plan) ---"
-RESULT=$(curl -sf -X POST "http://127.0.0.1:${PORT}/v1/reasoning/check-plan" \
+# --- POST /v1/reasoning/context ---------------------------------------------
+echo "--- POST /v1/reasoning/context ---"
+RESULT=$(curl -sf -X POST "http://127.0.0.1:${PORT}/v1/reasoning/context" \
     -H "Content-Type: application/json" \
     -d '{
         "task": "Update Shopify product description",
         "domain": "beseam.shopify.publish",
-        "plan": [
-            "Parse product handle from the PDP URL",
-            "Look up product by handle",
-            "Update description",
-            "Publish"
-        ],
-        "files": [],
         "tools": ["shopify.product.update"]
     }')
 echo "$RESULT"
 python3 -c "
 import json, sys
 d = json.loads('''$RESULT''')
-status = d.get('status', '')
-assert status == 'blocked', f'Expected status=blocked, got status={status!r}'
-print(f'PASS check-plan bad plan: status={status}')
+assert 'context' in d, f'Expected context in response, got {d}'
+print('PASS reasoning/context')
 "
 
 echo "=== PASS: all service checks passed ==="

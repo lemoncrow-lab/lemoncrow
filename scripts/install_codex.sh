@@ -361,22 +361,18 @@ else
     vfail "Codex plugin manifest missing: ${PLUGIN_DIR}/.codex-plugin/plugin.json"
 fi
 
-if [ -d "${PLUGIN_DIR}/skills" ] && [ -f "${PLUGIN_DIR}/skills/status/SKILL.md" ]; then
-    if [[ "$INSTALL_PROFILE" == "dev" ]]; then
-        if [ -f "${PLUGIN_DIR}/skills/task/SKILL.md" ]; then
-            vpass "Codex skill bundle installed with dev skills: ${PLUGIN_DIR}/skills"
-        else
-            vfail "Codex dev skill bundle missing task skill: ${PLUGIN_DIR}/skills"
-        fi
+if [[ "$INSTALL_PROFILE" == "dev" ]]; then
+    if [ -d "${PLUGIN_DIR}/skills" ] && [ -f "${PLUGIN_DIR}/skills/status/SKILL.md" ] && [ -f "${PLUGIN_DIR}/skills/task/SKILL.md" ]; then
+        vpass "Codex skill bundle installed with dev skills: ${PLUGIN_DIR}/skills"
     else
-        if [ ! -f "${PLUGIN_DIR}/skills/task/SKILL.md" ]; then
-            vpass "Codex stable skill bundle installed without dev-only skills: ${PLUGIN_DIR}/skills"
-        else
-            vfail "Codex stable skill bundle unexpectedly contains dev-only skills: ${PLUGIN_DIR}/skills"
-        fi
+        vfail "Codex dev skill bundle missing task or status skill: ${PLUGIN_DIR}/skills"
     fi
 else
-    vfail "Codex skill bundle missing required shared skills: ${PLUGIN_DIR}/skills"
+    if [ ! -f "${PLUGIN_DIR}/skills/task/SKILL.md" ] && [ ! -f "${PLUGIN_DIR}/skills/status/SKILL.md" ]; then
+        vpass "Codex stable skill bundle installed without dev-only skills: ${PLUGIN_DIR}/skills"
+    else
+        vfail "Codex stable skill bundle unexpectedly contains dev-only skills: ${PLUGIN_DIR}/skills"
+    fi
 fi
 
 if [ -f "$PLUGIN_MCP_JSON" ]; then

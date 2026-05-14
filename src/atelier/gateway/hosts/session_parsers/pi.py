@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers._common import record_normalized_session
 
 
@@ -38,7 +38,7 @@ def _discover_sessions(host: str, root: Path | None = None) -> list[Path]:
 
 
 class _BasePiImporter:
-    def __init__(self, store: ReasoningStore, *, host: str) -> None:
+    def __init__(self, store: ContextStore, *, host: str) -> None:
         self.store = store
         self.host = host
 
@@ -76,12 +76,12 @@ class _BasePiImporter:
 
 
 class PiImporter(_BasePiImporter):
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         super().__init__(store, host="pi")
 
 
 class OmpImporter(_BasePiImporter):
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         super().__init__(store, host="omp")
 
 

@@ -7,7 +7,7 @@ Resolve the Atelier environment context for the given domain.
 
 1. If `$1` is empty, ask the user which domain (e.g.
    `beseam.shopify.publish`, `beseam.pdp.schema`).
-2. Call `reasoning({ domain: "$1" })`.
+2. Call `context({ domain: "$1" })`.
 3. Render:
    - **Environment**: `<id>` — `<title>`
    - **Domain match**: `<domain prefix>`

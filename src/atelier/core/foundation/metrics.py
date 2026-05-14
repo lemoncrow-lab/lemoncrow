@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 
 @dataclass
@@ -21,7 +21,7 @@ class StoreSummary:
     rubrics_total: int
 
 
-def summarize(store: ReasoningStore) -> StoreSummary:
+def summarize(store: ContextStore) -> StoreSummary:
     all_blocks = store.list_blocks(include_deprecated=True)
     active = [b for b in all_blocks if b.status == "active"]
     deprecated = [b for b in all_blocks if b.status == "deprecated"]

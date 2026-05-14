@@ -5,10 +5,10 @@ This guide assumes you want to use the installed product, not work from a source
 ## Step 1 — Install Atelier
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/leanchain/atelier/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/pankaj4u4m/atelier/main/scripts/install.sh | bash
 ```
 
-That installs the `atelier` and `atelier-mcp` commands as user-level console scripts, initializes `~/.atelier`, and starts the detached `servicectl` loop.
+That installs the `atelier` and `atelier-mcp` commands as user-level console scripts, initializes `~/.atelier`, starts the detached `servicectl` loop, and attempts to start the optional visualization stack when Docker is available.
 
 ## Step 2 — Verify the Installed Runtime
 
@@ -16,6 +16,7 @@ That installs the `atelier` and `atelier-mcp` commands as user-level console scr
 atelier --version
 atelier-mcp --version
 atelier servicectl status
+atelier stack status
 ```
 
 Expected outcome:
@@ -23,57 +24,45 @@ Expected outcome:
 - `atelier` resolves on `PATH`
 - `atelier-mcp` resolves on `PATH`
 - `servicectl` reports a running background controller
+- `atelier stack status` shows whether the optional UI/API stack is already running
 
-## Step 3 — Check a Plan Before Doing the Work
+## Step 3 — Inspect the Installed Command Surface
 
-The fastest way to feel what Atelier does is to run a plan check.
-
-```bash
-atelier lint \
-  --task "Apply a live config update" \
-  --domain state.change \
-  --step "Resolve target from URL slug alone" \
-  --step "Apply the change"
-```
-
-Expected output looks like:
-
-```text
-status: blocked
-exit: 2
-warnings:
-  - dead end: resolve target from url slug alone
-  - suggested plan uses a canonical identifier plus read-after-write verification
-```
-
-Now try the safer version:
+The fastest way to orient yourself is to inspect the installed command tree.
 
 ```bash
-atelier lint \
-  --task "Apply a live config update" \
-  --domain state.change \
-  --step "Resolve and record the canonical identifier" \
-  --step "Capture pre-change state" \
-  --step "Apply the change" \
-  --step "Read back the state and diff against intent"
+atelier -h
+atelier help servicectl
+ATELIER_DEV_MODE=1 atelier help context
 ```
 
-Expected: `status: pass`
+`context`, `search`, `rescue`, and `verify` are developer-mode commands. Without
+`ATELIER_DEV_MODE=1` they intentionally return passive `noop` responses.
 
-## Step 4 — Get Reasoning Context for a Task
-
-Before an agent starts work, fetch relevant procedures and constraints:
+## Step 4 — Fetch Context for a Task (Dev Mode)
 
 ```bash
-atelier reasoning \
+ATELIER_DEV_MODE=1 atelier context \
   --task "Fix generated output that drifts back after refresh" \
   --domain source.truth \
   --file src/content/generate.py
 ```
 
-This returns a structured context block with matched ReasonBlocks, dead ends, and runtime guidance.
+This returns a rendered context block built from the current ReasonBlock store.
 
-## Step 5 — Run a Rubric Gate After the Work
+## Step 5 — Ask for Rescue After a Repeated Failure (Dev Mode)
+
+```bash
+ATELIER_DEV_MODE=1 atelier rescue \
+  --task "Apply a live config update" \
+  --domain state.change \
+  --error "known dead end triggered during apply"
+```
+
+Use this when you have enough evidence that the current path is failing and you
+want the nearest stored recovery procedure.
+
+## Step 6 — Run a Rubric Gate After the Work (Dev Mode)
 
 ```bash
 echo '&#123;
@@ -81,18 +70,33 @@ echo '&#123;
   "pre_change_state_captured": true,
   "read_after_write_completed": true,
   "observed_state_matches_intent": false
-&#125;' | atelier verify rubric_state_change_safety
+&#125;' | ATELIER_DEV_MODE=1 atelier verify rubric_state_change_safety
 ```
 
 Expected: `status: blocked` because a required verification check failed.
 
-## Step 6 — Check Background Processing
+## Step 7 — Record an Observable Trace
+
+```bash
+echo '&#123;
+  "agent": "quickstart",
+  "domain": "state.change",
+  "task": "Apply a live config update",
+  "status": "partial",
+  "errors_seen": ["known dead end triggered during apply"],
+  "output_summary": "Rescue requested before retrying"
+&#125;' | atelier trace record
+atelier trace list --limit 5
+```
+
+## Step 8 — Check Background Processing and the Optional Stack
 
 The installed runtime includes a detached offline processor.
 
 ```bash
 atelier servicectl status
 atelier worker list
+atelier stack status
 ```
 
 If you want to trigger work manually:
@@ -102,9 +106,7 @@ atelier worker enqueue consolidate_reasonblocks
 atelier worker run-once
 ```
 
-## Step 7 — Start the Optional UI Only If You Want It
-
-The UI is not required for CLI or MCP usage.
+If the installer did not start the UI stack for you, or if you stopped it:
 
 ```bash
 atelier stack start
@@ -115,7 +117,7 @@ Then open:
 - [http://localhost:3125](http://localhost:3125) for the frontend
 - [http://localhost:8787](http://localhost:8787) for the service API
 
-## Step 8 — Connect an Agent Host
+## Step 9 — Connect an Agent Host
 
 The installer already tries to wire supported hosts automatically. If you want to inspect or customize that setup, continue with:
 

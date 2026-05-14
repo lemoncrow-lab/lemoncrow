@@ -3,7 +3,6 @@ import { createContext, useContext, useState, ReactNode, useEffect } from "react
 export const TIME_RANGE_OPTIONS = [
   { value: "1d", label: "Last 24 Hours", days: 1, seconds: 86400 },
   { value: "7d", label: "Last 7 Days", days: 7, seconds: 604800 },
-  { value: "14d", label: "Last 14 Days", days: 14, seconds: 1209600 },
   { value: "30d", label: "Last 30 Days", days: 30, seconds: 2592000 },
   { value: "90d", label: "Last 90 Days", days: 90, seconds: 7776000 },
 ] as const;
@@ -25,7 +24,7 @@ export function TimeRangeProvider({ children }: { children: ReactNode }) {
     if (saved && TIME_RANGE_OPTIONS.some(o => o.value === saved)) {
       return saved as TimeRangeValue;
     }
-    return "14d";
+    return "7d";
   });
 
   const selectedOption = TIME_RANGE_OPTIONS.find(o => o.value === range)!;

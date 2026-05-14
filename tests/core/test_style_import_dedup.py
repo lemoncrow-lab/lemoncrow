@@ -5,11 +5,11 @@ from typing import Any
 
 from atelier.core.capabilities.style_import.importer import import_files
 from atelier.core.foundation.models import ReasonBlock
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.infra.embeddings.null_embedder import NullEmbedder
 
 
-def test_style_import_flags_near_duplicates(store: ReasoningStore, tmp_path: Path) -> None:
+def test_style_import_flags_near_duplicates(store: ContextStore, tmp_path: Path) -> None:
     store.upsert_block(
         ReasonBlock(
             id="rb-existing",

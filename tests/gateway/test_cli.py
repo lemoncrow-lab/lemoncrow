@@ -9,7 +9,7 @@ from click.testing import CliRunner, Result
 
 from atelier.core.capabilities.plugin_runtime import update_session_stats
 from atelier.core.foundation.models import ReasonBlock
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
 from atelier.gateway.adapters.cli import cli
 from atelier.infra.internal_llm.ollama_client import OllamaUnavailable
@@ -228,7 +228,7 @@ def test_worker_runs_consolidation_job_on_sqlite(
     root = tmp_path / "a"
     _invoke(root, "init")
 
-    store = ReasoningStore(root)
+    store = ContextStore(root)
     store.upsert_block(
         ReasonBlock(
             id="rb-one",
@@ -296,7 +296,7 @@ def test_servicectl_tick_enqueues_and_processes_periodic_consolidation(
     root = tmp_path / "a"
     _invoke(root, "init")
 
-    store = ReasoningStore(root)
+    store = ContextStore(root)
     store.upsert_block(
         ReasonBlock(
             id="rb-one",
@@ -488,7 +488,7 @@ def test_servicectl_tick_collects_external_analytics(
 
     monkeypatch.setattr(
         "atelier.gateway.integrations.external_analytics.run_external_reports",
-        lambda tool="all", period="today", cwd=None: {
+        lambda tool="all", period="today", cwd=None, include_optimize=False: {
             "generated_at": "2026-05-11T12:00:00+00:00",
             "tool": tool,
             "period": period,
@@ -543,7 +543,7 @@ def test_servicectl_tick_collects_external_analytics(
     assert payload["external_analytics_ran"] is True
     assert {item["tool"] for item in payload["external_analytics_runs"]} == {"tokscale", "codeburn"}
 
-    store = ReasoningStore(root)
+    store = ContextStore(root)
     runs = store.list_external_analytics_runs(limit=10)
     assert {item["tool"] for item in runs} == {"tokscale", "codeburn"}
     assert all(item["source"] == "servicectl" for item in runs)
@@ -560,8 +560,9 @@ def test_servicectl_tick_collects_multiple_external_analytics_periods(
         tool: str = "all",
         period: str = "today",
         cwd: Path | None = None,
+        include_optimize: bool = False,
     ) -> dict[str, object]:
-        _ = cwd
+        _ = (cwd, include_optimize)
         return {
             "generated_at": "2026-05-11T12:00:00+00:00",
             "tool": tool,
@@ -628,7 +629,7 @@ def test_servicectl_tick_collects_multiple_external_analytics_periods(
         "month",
     }
 
-    store = ReasoningStore(root)
+    store = ContextStore(root)
     runs = store.list_external_analytics_runs(limit=10)
     assert {item["period"] for item in runs} == {"week", "month"}
     assert {item["tool"] for item in runs} == {"tokscale", "codeburn"}

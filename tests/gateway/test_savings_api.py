@@ -563,7 +563,7 @@ def test_savings_summary_uses_nearest_ledger_tool_event_when_turn_index_drifts(
     _write_run_ledger_snapshot_with_events(
         root,
         session_id="run-ledger-nearest",
-        tools_called=["get_reasoning_context", "check_plan"],
+        tools_called=["get_context", "check_plan"],
         events=[
             {
                 "kind": "note",

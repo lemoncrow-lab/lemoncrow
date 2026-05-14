@@ -53,7 +53,7 @@ def main() -> int:
 
     msg = (
         f"Atelier: `{target}` is in a risky domain (shopify / pdp / catalog / "
-        "tracker / publish / schema). Call `task` with your "
+        "tracker / publish / schema). Call `context` with your "
         "current goal before editing."
     )
     print(json.dumps({"decision": "ask", "reason": msg}))

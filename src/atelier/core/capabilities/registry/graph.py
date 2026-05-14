@@ -43,25 +43,25 @@ class CapabilityRegistry:
 
     Typical inter-capability influences::
 
-        reasoning_reuse  ──►  context_compression
-        semantic_memory  ──►  reasoning_reuse
+        context_reuse    ──►  context_compression
+        semantic_memory  ──►  context_reuse
         tool_supervision ──►  loop_detection
         loop_detection   ──►  context_compression
 
     Usage::
 
         from atelier.core.capabilities import (
-            ContextCompressionCapability, ReasoningReuseCapability,
+            ContextCompressionCapability, ContextReuseCapability,
         )
         reg = CapabilityRegistry()
-        reg.register("reasoning_reuse", ReasoningReuseCapability())
+        reg.register("context_reuse", ContextReuseCapability())
         reg.register(
             "context_compression",
             ContextCompressionCapability(),
-            depends_on=[("reasoning_reuse", 0.9)],
+            depends_on=[("context_reuse", 0.9)],
         )
         path = reg.activation_path("context_compression")
-        # → ["reasoning_reuse", "context_compression"]
+        # → ["context_reuse", "context_compression"]
     """
 
     def __init__(self) -> None:

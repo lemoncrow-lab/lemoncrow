@@ -8,8 +8,7 @@ Reduced from 26 active MCP tools to 11. No features removed.
 
 **Renamed (atelier\_ prefix dropped; server name `atelier` provides namespace):**
 
-- `atelier_get_reasoning_context` → `reasoning`
-- `atelier_check_plan` → `lint`
+- `atelier_get_reasoning_context` → `context`
 - `atelier_rescue_failure` → `rescue`
 - `atelier_record_trace` → `trace`
 - `atelier_run_rubric_gate` → `verify`

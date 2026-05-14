@@ -9,14 +9,14 @@ import yaml
 from atelier.core.foundation.models import ReasonBlock
 from atelier.core.foundation.renderer import render_block_for_agent
 from atelier.core.foundation.retriever import TaskContext, count_tokens, retrieve
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 TASK = "live state change resolved from url slug verification drift"
 
 
 @pytest.fixture()
-def seeded_store(tmp_path: Path) -> ReasoningStore:
-    store = ReasoningStore(tmp_path / "atelier")
+def seeded_store(tmp_path: Path) -> ContextStore:
+    store = ContextStore(tmp_path / "atelier")
     store.init()
     blocks_dir = resources.files("atelier") / "infra" / "seed_blocks"
     loaded: dict[str, ReasonBlock] = {}
@@ -47,7 +47,7 @@ def _tokens(blocks: list[ReasonBlock]) -> int:
     return sum(count_tokens(render_block_for_agent(block)) for block in blocks)
 
 
-def test_dedup_and_budget_cut_tokens_at_least_30pct(seeded_store: ReasoningStore) -> None:
+def test_dedup_and_budget_cut_tokens_at_least_30pct(seeded_store: ContextStore) -> None:
     ctx = TaskContext(
         task=TASK,
         domain="state.change",

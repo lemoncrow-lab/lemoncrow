@@ -36,7 +36,7 @@ from atelier.core.capabilities.archival_recall.ranking import rank_archival_pass
 from atelier.core.foundation.memory_models import ArchivalPassage
 from atelier.core.foundation.models import ReasonBlock
 from atelier.core.foundation.renderer import render_block_for_agent
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 T = TypeVar("T")
 _DEFAULT_TOKEN_BUDGET = 2000
@@ -346,7 +346,7 @@ def score_block(
 
 
 def retrieve(
-    store: ReasoningStore,
+    store: ContextStore,
     ctx: TaskContext,
     *,
     limit: int = 5,

@@ -17,29 +17,16 @@ The procedures in the Atelier store encode hard-won lessons. Use them.
 
 ## The standing loop
 
-1. **Retrieve context.** Before drafting any plan, call
-   `task` with `task`, `files`, `domain`, `errors`.
-   Read every returned ReasonBlock.
+1. **Context**: Call `context` with `task`, `files`, `domain`, `errors`. Read the returned ReasonBlocks and avoid dead ends. Use `memory` for archival recall.
 
-2. **Draft a plan** as 3–8 imperative steps.
+2. **Implement**: Execute task. Use `search` for token-saving reads, `edit` for batch edits, and `route` for complex decisions.
 
-3. **Implement.** Keep edits aligned with the plan informed by the returned procedures.
+3. **Trace**: Call `trace` at completion with the observable summary (files_touched, tools_called, commands_run, errors_seen, diff_summary, status).
 
-4. **Rescue repeated failures.** If the same test/command/tool fails twice
-   with the same error signature, call `rescue` with
-   `task`, `error`, `files`, `recent_actions`. Apply the rescue **before**
-   re-running.
+## Advanced workflow
 
-5. **Rubric gate.** Before declaring success on
-   `beseam.shopify.publish`, `beseam.pdp.schema`, `beseam.catalog.fix`, or
-   `beseam.tracker.classification`, call `verify` with the
-   matching `rubric_id` and a `checks` object mapping every required
-   check to `true | false | null`.
-
-6. **Record trace.** At completion call `trace` with the
-   observable summary (files_touched, tools_called, commands_run,
-   errors_seen, diff_summary, output_summary, validation_results,
-   `agent: "atelier:code"`, `status: "success | failed | partial"`).
+- **Rescue repeated failures**: Call `rescue` after two identical failures. Apply the rescue before re-running.
+- **Rubric gate**: For high-risk domains, call `verify` before declaring success.
 
 ## Tool discipline
 

@@ -7,7 +7,7 @@ import yaml
 
 from atelier.core.foundation.models import ReasonBlock, Rubric, to_jsonable
 from atelier.core.foundation.renderer import render_block_markdown
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.infra.storage.factory import create_store
 
 
@@ -39,7 +39,7 @@ def test_reasoning_store_writes_knowledge_to_project_directory(tmp_path: Path, m
     monkeypatch.setenv("ATELIER_WORKSPACE_ROOT", str(workspace))
 
     store_root = tmp_path / "global" / ".atelier"
-    store = ReasoningStore(store_root)
+    store = ContextStore(store_root)
     store.init()
 
     block = _sample_block()

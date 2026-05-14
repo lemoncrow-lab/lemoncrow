@@ -15,8 +15,8 @@ Use the Shopify publish reasonblocks, rubrics, and traces under the `Agent.shopi
 ## Commands
 
 ```bash
-atelier context --task "Publish Shopify product" --domain Agent.shopify.publish
-atelier check-plan --task "Publish Shopify product" --domain Agent.shopify.publish --step "Parse product handle from PDP URL"
+ATELIER_DEV_MODE=1 atelier context --task "Publish Shopify product" --domain Agent.shopify.publish
+ATELIER_DEV_MODE=1 atelier rescue --task "Publish Shopify product" --domain Agent.shopify.publish --error "Parsed product handle from PDP URL only"
 ```
 
 ## Benchmark
@@ -27,5 +27,5 @@ atelier benchmark run --prompt "Publish Shopify product safely" --json
 
 ## Troubleshooting
 
-- If Atelier does not block handle-based workflows, inspect whether the publish rubric pack is installed.
+- If active context commands return `noop`, enable `ATELIER_DEV_MODE=1` in the shell or MCP environment.
 - Use trace recording after every failed publish flow so rescue procedures can stabilize.

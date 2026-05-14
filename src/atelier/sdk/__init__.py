@@ -8,24 +8,24 @@ from __future__ import annotations
 
 from atelier.gateway.sdk import (
     AtelierClient,
+    ContextResult,
     FailureAnalysisResult,
     LessonDecisionResult,
     LessonInboxResult,
     LocalClient,
     MCPClient,
-    ReasoningContextResult,
     RemoteClient,
     SavingsSummary,
 )
 
 __all__ = [
     "AtelierClient",
+    "ContextResult",
     "FailureAnalysisResult",
     "LessonDecisionResult",
     "LessonInboxResult",
     "LocalClient",
     "MCPClient",
-    "ReasoningContextResult",
     "RemoteClient",
     "SavingsSummary",
 ]

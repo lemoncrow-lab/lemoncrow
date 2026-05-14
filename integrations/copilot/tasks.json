@@ -7,7 +7,7 @@
       "command": "bash",
       "args": [
         "-lc",
-        "atelier task --task \"$1\" --json",
+        "atelier context --task \"$1\" --json",
         "bash",
         "${input:atelierTask}",
         "${input:atelierStep1}",

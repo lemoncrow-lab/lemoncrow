@@ -72,7 +72,7 @@ def _evaluate(rt: AtelierRuntimeCore, cases: list[dict[str, Any]], *, limit: int
     for case in cases:
         expected_ids = [str(block_id) for block_id in case["expected_block_ids"]]
         relevant = set(expected_ids)
-        scored = rt.reasoning_reuse.retrieve(
+        scored = rt.context_reuse.retrieve(
             task=str(case["task"]),
             domain=str(case.get("domain") or "") or None,
             files=[str(item) for item in case.get("files", [])],
@@ -136,7 +136,7 @@ def _cold_start_block_in_top_five(tmp_path: Path) -> bool:
             title="Cold Start Retrieval Trace Playbook",
             domain="coding",
             triggers=["retrieval trace", "candidate count", "token budget"],
-            file_patterns=["src/atelier/core/capabilities/reasoning_reuse/**"],
+            file_patterns=["src/atelier/core/capabilities/context_reuse/**"],
             tool_patterns=["search"],
             situation="When a retrieval pipeline needs candidate-level trace coverage.",
             dead_ends=["guessing why candidates disappeared without per-candidate evidence"],
@@ -160,7 +160,7 @@ def _cold_start_block_in_top_five(tmp_path: Path) -> bool:
                 title=f"Legacy Retrieval Trace Playbook {idx}",
                 domain="coding",
                 triggers=["retrieval trace", "candidate count", "token budget"],
-                file_patterns=["src/atelier/core/capabilities/reasoning_reuse/**"],
+                file_patterns=["src/atelier/core/capabilities/context_reuse/**"],
                 tool_patterns=["search"],
                 situation="When adding generic retrieval trace logging.",
                 dead_ends=["adding logs without rank attribution"],
@@ -176,18 +176,19 @@ def _cold_start_block_in_top_five(tmp_path: Path) -> bool:
             )
         )
 
-    ranked = runtime.reasoning_reuse.retrieve(
+    ranked = runtime.context_reuse.retrieve(
         task="Add retrieval trace for candidate count and token budget drop reasons",
         domain="coding",
-        files=["src/atelier/core/capabilities/reasoning_reuse/capability.py"],
+        files=["src/atelier/core/capabilities/context_reuse/capability.py"],
         tools=["search"],
         errors=["wrong_domain reason missing from retrieval trace"],
         limit=5,
     )
+    print(f"DEBUG: ranked ids: {[item.block.id for item in ranked]}")
     return any(item.block.id == "eval-cold-start-trace-playbook" for item in ranked)
 
 
-def test_reasoning_retrieval_eval_metrics(tmp_path: Path) -> None:
+def test_context_retrieval_eval_metrics(tmp_path: Path) -> None:
     runtime = _init_runtime(tmp_path)
     metrics = _evaluate(runtime, _load_cases(), limit=5)
 
@@ -201,14 +202,14 @@ def test_reasoning_retrieval_eval_metrics(tmp_path: Path) -> None:
     assert metrics["mean_distinct_domains_per_query"] > 0.0, metrics
 
 
-def test_reasoning_retrieval_trace_records_drop_reasons(
+def test_context_retrieval_trace_records_drop_reasons(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
     monkeypatch.setenv("ATELIER_RETRIEVAL_TRACE", "1")
     runtime = _init_runtime(tmp_path)
 
-    runtime.reasoning_reuse.retrieve(
+    runtime.context_reuse.retrieve(
         task="Investigate a production regression affecting user-visible decisions",
         domain="state.change",
         files=["src/workers/pipeline.py"],
@@ -217,7 +218,7 @@ def test_reasoning_retrieval_trace_records_drop_reasons(
         limit=5,
     )
 
-    trace = runtime.reasoning_reuse.last_retrieval_trace()
+    trace = runtime.context_reuse.last_retrieval_trace()
     assert trace is not None
     assert trace["retriever_version"] == 2
     assert trace["candidate_count"] > 0
@@ -230,7 +231,7 @@ def test_reasoning_retrieval_trace_records_drop_reasons(
     assert "wrong_domain" in gate_entry["drop_reasons"]
 
 
-def test_reasoning_retrieval_rubric_passes(tmp_path: Path) -> None:
+def test_context_retrieval_rubric_passes(tmp_path: Path) -> None:
     runtime = _init_runtime(tmp_path)
     metrics = _evaluate(runtime, _load_cases(), limit=5)
     rubric = runtime.store.get_rubric("atelier.retrieval.recall")
@@ -246,6 +247,7 @@ def test_reasoning_retrieval_rubric_passes(tmp_path: Path) -> None:
             case["recall"] > 0.0 for case in metrics["cases"] if str(case["case_id"]).startswith("procedure_only_")
         ),
     }
+    print(f"DEBUG: checks: {checks}")
 
     result = run_rubric(rubric, checks)
     assert result.status == "pass", result

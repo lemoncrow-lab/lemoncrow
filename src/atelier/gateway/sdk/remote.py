@@ -8,7 +8,6 @@ from typing import Any, Protocol, cast
 from atelier.core.foundation.memory_models import MemoryBlock
 from atelier.core.foundation.models import (
     FailureCluster,
-    PlanCheckResult,
     ReasonBlock,
     RescueResult,
     Rubric,
@@ -20,6 +19,7 @@ from atelier.core.foundation.models import (
 from atelier.gateway.adapters import remote_client as service_remote_client
 from atelier.gateway.sdk.client import (
     AtelierClient,
+    ContextResult,
     EvalRunResult,
     FailureAnalysisResult,
     LessonDecisionResult,
@@ -27,14 +27,13 @@ from atelier.gateway.sdk.client import (
     MemoryArchiveResult,
     MemoryRecallResult,
     MemoryUpsertBlockResult,
-    ReasoningContextResult,
     SavingsSummary,
     TraceRecordResult,
 )
 
 
 class _ServiceClient(Protocol):
-    def get_task_context(self, args: dict[str, Any]) -> dict[str, Any]: ...
+    def get_context(self, args: dict[str, Any]) -> dict[str, Any]: ...
 
     def rescue_failure(self, args: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -96,7 +95,7 @@ class RemoteClient(AtelierClient):
             raise RuntimeError(str(detail))
         return payload
 
-    def get_reasoning_context(
+    def get_context(
         self,
         *,
         task: str,
@@ -110,9 +109,9 @@ class RemoteClient(AtelierClient):
         include_telemetry: bool = False,
         agent_id: str | None = None,
         recall: bool = True,
-    ) -> ReasoningContextResult:
+    ) -> ContextResult:
         payload = self._ensure_ok(
-            self._client.get_task_context(
+            self._client.get_context(
                 {
                     "task": task,
                     "domain": domain,
@@ -128,22 +127,7 @@ class RemoteClient(AtelierClient):
                 }
             )
         )
-        return ReasoningContextResult.model_validate(payload)
-
-    def check_plan(
-        self,
-        *,
-        task: str,
-        plan: list[str],
-        domain: str | None = None,
-        files: list[str] | None = None,
-        tools: list[str] | None = None,
-        errors: list[str] | None = None,
-    ) -> PlanCheckResult:
-        raise RuntimeError(
-            "Service endpoint '/v1/reasoning/check-plan' was removed. "
-            "Use 'task' for planning context and 'verify' for checks."
-        )
+        return ContextResult.model_validate(payload)
 
     def rescue_failure(
         self,

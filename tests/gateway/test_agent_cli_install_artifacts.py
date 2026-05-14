@@ -137,6 +137,16 @@ def test_install_agent_clis_references_all_hosts() -> None:
         assert host in content, f"install_agent_clis.sh missing reference to {host}"
 
 
+def test_host_installers_stream_output_instead_of_buffering() -> None:
+    install_content = (SCRIPTS / "install.sh").read_text()
+    host_content = (SCRIPTS / "install_agent_clis.sh").read_text()
+
+    assert 'host_output="$(bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh"' not in install_content
+    assert '| tee "$host_output_file"' in install_content
+    assert 'output=$(bash "$script"' not in host_content
+    assert '| stream_colored_output "$output_file"' in host_content
+
+
 def test_verify_agent_clis_references_all_hosts() -> None:
     content = (SCRIPTS / "verify_agent_clis.sh").read_text()
     for host in ["claude", "codex", "opencode", "copilot", "gemini"]:
@@ -461,10 +471,21 @@ def test_install_sh_installs_tool_scripts_not_uv_runtime_wrappers() -> None:
     assert 'exec uv --directory "$ATELIER_INSTALL_DIR" run' not in content
 
 
+def test_install_sh_has_only_local_and_remote_source_modes() -> None:
+    content = (SCRIPTS / "install.sh").read_text()
+    assert "ATELIER_USE_CURRENT_REPO" not in content
+    assert 'elif [[ -f "uv.lock" && -d "src/atelier" && -f "scripts/install.sh" ]]' not in content
+    assert "--local) ATELIER_LOCAL=1" in content
+    assert "--remote|--no-local) ATELIER_LOCAL=0" in content
+    assert 'if [[ "$ATELIER_LOCAL" == "1" ]]; then' in content
+    assert "prepare_repo" in content
+
+
 def test_copilot_tasks_include_preflight_wrapper() -> None:
     tasks = json.loads((INTEGRATIONS / "copilot" / "tasks.json").read_text(encoding="utf-8"))
     labels = {task.get("label") for task in tasks.get("tasks", [])}
     assert "Atelier: Copilot Preflight" in labels
+    assert "Atelier: Copilot Preflight" in (SCRIPTS / "install_copilot.sh").read_text()
 
     preflight_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "Atelier: Copilot Preflight")
     assert preflight_task.get("command") == "bash"

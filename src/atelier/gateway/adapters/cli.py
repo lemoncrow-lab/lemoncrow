@@ -41,10 +41,9 @@ from atelier.core.foundation.paths import default_store_root
 from atelier.core.foundation.renderer import (
     render_block_markdown,
     render_context_for_agent,
-    render_plan_check,
     render_rubric_result,
 )
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers.registry import SUPPORTED_SESSION_IMPORT_HOSTS
 
 logger = logging.getLogger(__name__)
@@ -197,42 +196,6 @@ def _record_reasonblock_events(
         if event_name == "reasonblock_retrieved":
             props["rank"] = rank
         emit_product(event_name, **props)
-
-
-def _record_plan_telemetry(
-    *,
-    ctx: click.Context,
-    result: Any,
-    domain: str | None,
-    plan: list[str],
-) -> None:
-    session_id = _telemetry_session(ctx)
-    if session_id is None:
-        return
-    from atelier.core.service.telemetry import emit_product
-    from atelier.core.service.telemetry.schema import hash_identifier
-
-    status = getattr(result, "status", "")
-    matched_blocks = list(getattr(result, "matched_blocks", []) or [])
-    if status == "blocked":
-        blocking_rule_id = hash_identifier(str(matched_blocks[0] if matched_blocks else "blocked"))
-        emit_product(
-            "plan_check_blocked",
-            domain=domain or "",
-            blocking_rule_id=blocking_rule_id,
-            severity="high",
-            session_id=session_id,
-        )
-    else:
-        emit_product(
-            "plan_check_passed",
-            domain=domain or "",
-            rule_count=len(matched_blocks),
-            session_id=session_id,
-        )
-
-    if not plan:
-        return
 
 
 # --------------------------------------------------------------------------- #
@@ -561,7 +524,7 @@ def _servicectl_refresh_host_status(root: Path) -> dict[str, str]:
     return status
 
 
-def _servicectl_import_sessions(store: ReasoningStore) -> dict[str, int]:
+def _servicectl_import_sessions(store: ContextStore) -> dict[str, int]:
     """Import host sessions with importer-level timestamp dedup.
 
     Each importer already skips unchanged sessions by comparing source timestamp
@@ -917,11 +880,16 @@ def init(ctx: click.Context, seed: bool, stack: str | None, show_stacks: bool) -
 @click.option("--dry-run", is_flag=True, help="Print planned actions and exit.")
 @click.option("--no-hosts", is_flag=True, help="Skip per-host uninstallation.")
 @click.option(
+    "--purge",
+    is_flag=True,
+    help="Also remove runtime state, install dirs, tool envs, and known host residue.",
+)
+@click.option(
     "--workspace",
     type=click.Path(path_type=Path),
     help="Uninstall for a specific workspace.",
 )
-def uninstall(dry_run: bool, no_hosts: bool, workspace: Path | None) -> None:
+def uninstall(dry_run: bool, no_hosts: bool, purge: bool, workspace: Path | None) -> None:
     """Remove Atelier and all agent-host integrations."""
     root = _project_root()
     script = root / "scripts" / "uninstall.sh"
@@ -933,6 +901,8 @@ def uninstall(dry_run: bool, no_hosts: bool, workspace: Path | None) -> None:
         cmd.append("--dry-run")
     if no_hosts:
         cmd.append("--no-hosts")
+    if purge:
+        cmd.append("--purge")
     if workspace:
         cmd.extend(["--workspace", str(workspace)])
 
@@ -976,7 +946,7 @@ def reembed(ctx: click.Context, dry_run: bool, batch_size: int, as_json: bool) -
     from atelier.infra.embeddings.factory import make_embedder
 
     root: Path = ctx.obj["root"]
-    store = ReasoningStore(root)
+    store = ContextStore(root)
     store.init()
     embedder = make_embedder()
     counts = {"archival_passage": 0, "lesson_candidate": 0, "dry_run": dry_run}
@@ -1127,10 +1097,10 @@ def _check_dev_mode(command_name: str, status: int = 1) -> None:
         sys.exit(status)
 
 
-# ----- task ----------------------------------------------------------------- #
+# ----- context -------------------------------------------------------------- #
 
 
-@_dev_command("task")
+@_dev_command("context")
 @click.option("--task", required=True, help="Task description.")
 @click.option("--domain", default=None)
 @click.option("--file", "files", multiple=True, help="File path likely to be edited.")
@@ -1142,7 +1112,7 @@ def _check_dev_mode(command_name: str, status: int = 1) -> None:
 @click.option("--telemetry", "include_telemetry", is_flag=True)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def task_context_cmd(
+def context_cmd(
     ctx: click.Context,
     task: str,
     domain: str | None,
@@ -1155,8 +1125,8 @@ def task_context_cmd(
     include_telemetry: bool,
     as_json: bool,
 ) -> None:
-    """Render the task-context block to inject into an agent prompt."""
-    _check_dev_mode("task")
+    """Render the context block to inject into an agent prompt."""
+    _check_dev_mode("context")
     from atelier.core.foundation.retriever import TaskContext, retrieve
     from atelier.core.service.telemetry.frustration import match_frustration
 
@@ -1192,61 +1162,6 @@ def task_context_cmd(
     click.echo(context_text)
 
 
-# ----- lint ---------------------------------------------------------- #
-
-
-@_dev_command("lint")
-@click.option(
-    "--input",
-    "input_path",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Read JSON payload from file. Use '-' for stdin.",
-)
-@click.option("--task", default=None)
-@click.option("--domain", default=None)
-@click.option("--step", "steps", multiple=True, help="Plan step (repeatable).")
-@click.option("--file", "files", multiple=True)
-@click.option("--tool", "tools", multiple=True)
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def check_plan_cmd(
-    ctx: click.Context,
-    input_path: Path | None,
-    task: str | None,
-    domain: str | None,
-    steps: tuple[str, ...],
-    files: tuple[str, ...],
-    tools: tuple[str, ...],
-    as_json: bool,
-) -> None:
-    """Validate a proposed agent plan."""
-    _check_dev_mode("lint", status=2)
-    from atelier.core.foundation.plan_checker import check_plan
-
-    store = _load_store(ctx.obj["root"])
-    if input_path is not None:
-        raw = sys.stdin.read() if str(input_path) == "-" else input_path.read_text("utf-8")
-        payload = json.loads(raw)
-        task = payload.get("task", task)
-        domain = payload.get("domain", domain)
-        plan = list(payload.get("plan", steps))
-        files = tuple(payload.get("files", files))
-        tools = tuple(payload.get("tools", tools))
-    else:
-        plan = list(steps)
-    if not task or not plan:
-        raise click.ClickException("--task and at least one --step (or --input) required")
-
-    result = check_plan(store, task=task, plan=plan, domain=domain, files=list(files), tools=list(tools))
-    _record_plan_telemetry(ctx=ctx, result=result, domain=domain, plan=plan)
-    if as_json:
-        _emit(to_jsonable(result), as_json=True)
-    else:
-        click.echo(render_plan_check(result))
-    sys.exit(0 if result.status != "blocked" else 2)
-
-
 # ----- rescue -------------------------------------------------------------- #
 
 
@@ -1270,10 +1185,10 @@ def rescue(
     from atelier.core.service.telemetry import emit_product
     from atelier.core.service.telemetry.frustration import match_frustration
     from atelier.core.service.telemetry.schema import hash_identifier
-    from atelier.gateway.adapters.runtime import ReasoningRuntime
+    from atelier.gateway.adapters.runtime import ContextRuntime
 
     match_frustration(task, surface="cli_input", session_id=_telemetry_session(ctx))
-    rt = ReasoningRuntime(ctx.obj["root"])
+    rt = ContextRuntime(ctx.obj["root"])
     result = rt.rescue_failure(task=task, error=error, files=list(files), domain=domain)
     if _telemetry_session(ctx) is not None:
         cluster_id_hash = hash_identifier(result.matched_blocks[0] if result.matched_blocks else "unmatched_rescue")
@@ -2475,10 +2390,9 @@ def eval_deprecate(ctx: click.Context, case_id: str) -> None:
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def eval_run(ctx: click.Context, domain: str | None, case_id: str | None, as_json: bool) -> None:
-    """Run deterministic eval cases (plan-check based)."""
-    from atelier.core.foundation.plan_checker import check_plan
-
-    store = _load_store(ctx.obj["root"])
+    """Run deterministic eval cases."""
+    # Note: plan-check based evals have been deprecated.
+    # This command now only lists the cases if not in JSON mode.
     d = _eval_dir(ctx.obj["root"])
     cases: list[dict[str, Any]] = []
     if case_id:
@@ -2492,23 +2406,11 @@ def eval_run(ctx: click.Context, domain: str | None, case_id: str | None, as_jso
     if domain:
         cases = [c for c in cases if c.get("domain") == domain]
 
-    results: list[dict[str, Any]] = []
-    for c in cases:
-        plan = c.get("plan") or []
-        result = check_plan(
-            store,
-            task=c.get("task", c.get("description", "eval")),
-            plan=plan,
-            domain=c.get("domain"),
-        )
-        expected = c.get("expected_status", "pass")
-        passed = result.status == expected
-        results.append({"id": c["id"], "expected": expected, "got": result.status, "passed": passed})
     if as_json:
-        _emit(results, as_json=True)
+        _emit(cases, as_json=True)
     else:
-        for r in results:
-            click.echo(f"{r['id']}\t{'PASS' if r['passed'] else 'FAIL'}\texpected={r['expected']}\tgot={r['got']}")
+        for c in cases:
+            click.echo(f"{c.get('id', 'unknown')}\t{c.get('domain', 'unknown')}\t{c.get('description', '')}")
 
 
 @cli.command("eval-from-cluster")
@@ -3799,23 +3701,64 @@ def external_status_cmd(as_json: bool) -> None:
     default="week",
     show_default=True,
 )
+@click.option(
+    "--persist",
+    is_flag=True,
+    default=False,
+    help="Store the collected report snapshots for the API/UI.",
+)
 @click.option("--json", "as_json", is_flag=True)
-def external_report_cmd(tool: str, period: str, as_json: bool) -> None:
+@click.pass_context
+def external_report_cmd(ctx: click.Context, tool: str, period: str, persist: bool, as_json: bool) -> None:
     """Run upstream JSON reports from supported external analyzers."""
-    from atelier.gateway.integrations.external_analytics import run_external_reports
-
-    try:
-        payload = run_external_reports(tool=tool, period=period, cwd=Path.cwd(), include_optimize=True)
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
+    from atelier.gateway.integrations.external_analytics import (
+        persist_external_reports,
+        run_external_report,
+        run_external_reports,
+    )
 
     if as_json:
+        try:
+            payload = run_external_reports(tool=tool, period=period, cwd=Path.cwd(), include_optimize=True)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        if persist:
+            store = _load_store(ctx.obj["root"])
+            payload["persisted"] = persist_external_reports(store, payload, source="cli")
         _emit(payload, as_json=True)
         return
 
-    click.echo(f"External reports  period={payload['period']}")
+    selected_tools = ["tokscale", "codeburn", "codeburn:optimize"] if tool == "all" else [tool]
+    store = _load_store(ctx.obj["root"]) if persist else None
+
+    click.echo(f"External reports  period={period}")
     click.echo("")
-    for report in payload["reports"]:
+
+    total_persisted = 0
+    for selected_tool in selected_tools:
+        click.echo(f"[external-report] running {selected_tool} period={period}...")
+        sys.stdout.flush()
+        try:
+            report = run_external_report(selected_tool, period=period, cwd=Path.cwd())
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        persisted: list[dict[str, Any]] = []
+        if store is not None:
+            batch = {
+                "generated_at": datetime.now(UTC).isoformat(),
+                "tool": selected_tool,
+                "period": period,
+                "reports": [report],
+            }
+            persisted = persist_external_reports(store, batch, source="cli")
+            total_persisted += len(persisted)
+
+        status = "ok" if report.get("ok") else "failed"
+        persisted_suffix = f" persisted={len(persisted)}" if persist else ""
+        click.echo(f"[external-report] done {selected_tool} status={status}{persisted_suffix}")
+
         click.echo(f"- {report['tool']}")
         click.echo(f"  cmd: {report.get('command_display') or '-'}")
         if report["ok"]:
@@ -3850,6 +3793,9 @@ def external_report_cmd(tool: str, period: str, as_json: bool) -> None:
             elif report["tool"] == "tokscale":
                 click.echo(f"  summary: keys={', '.join(sorted(body.keys())[:6])}")
         click.echo("")
+
+    if persist:
+        click.echo(f"persisted {total_persisted} snapshots")
 
 
 @cli.command("savings-detail")

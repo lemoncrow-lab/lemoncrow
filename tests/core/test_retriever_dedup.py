@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from atelier.core.foundation.models import ReasonBlock
 from atelier.core.foundation.renderer import render_block_for_agent
 from atelier.core.foundation.retriever import TaskContext, count_tokens, retrieve
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 
 def _block(
@@ -32,7 +32,7 @@ def _block(
     )
 
 
-def test_dedup_collapses_near_duplicate_pair(store: ReasoningStore) -> None:
+def test_dedup_collapses_near_duplicate_pair(store: ContextStore) -> None:
     keeper = _block(
         "keeper",
         title="Keeper",
@@ -78,7 +78,7 @@ def test_dedup_collapses_near_duplicate_pair(store: ReasoningStore) -> None:
     assert "duplicate" not in tuned_ids
 
 
-def test_token_budget_greedy_packs_highest_scoring_blocks(store: ReasoningStore) -> None:
+def test_token_budget_greedy_packs_highest_scoring_blocks(store: ContextStore) -> None:
     top = _block(
         "top",
         title="Top",

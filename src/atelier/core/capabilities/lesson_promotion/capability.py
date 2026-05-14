@@ -17,7 +17,7 @@ from atelier.core.capabilities.lesson_promotion.reflection import draft_lesson_b
 from atelier.core.foundation.extractor import extract_candidate
 from atelier.core.foundation.lesson_models import LessonCandidate, LessonPromotion
 from atelier.core.foundation.models import Rubric, Trace
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.infra.embeddings.base import Embedder
 from atelier.infra.embeddings.factory import make_embedder
 from atelier.infra.embeddings.null_embedder import NullEmbedder
@@ -31,7 +31,7 @@ class LessonPromoterCapability:
 
     def __init__(
         self,
-        store: ReasoningStore,
+        store: ContextStore,
         *,
         now: Callable[[], datetime] | None = None,
         embedder: Embedder | None = None,

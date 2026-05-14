@@ -58,10 +58,10 @@ make verify
 
 ## First Task
 
-Start Gemini CLI and ask:
+Start Gemini CLI and run:
 
-```
-use skill: task
+```text
+/atelier:status
 ```
 
 ## Expected Behavior
@@ -83,21 +83,12 @@ use skill: task
 
 ## V2 Tools — Memory, Context Savings, and Lesson Pipeline
 
-All V2 tools are available via the Atelier MCP server. These are **Atelier augmentations** — Gemini CLI native tools remain the primary interface.
+With `ATELIER_DEV_MODE=1`, the active Atelier MCP surface for Gemini CLI includes
+`context`, `route`, `rescue`, `trace`, `verify`, `memory`, `read`, `edit`,
+`sql`, `search`, `compact`, `shell`, and the `code` helpers.
 
-| Tool                    | Boundary             | Description                                               |
-| ----------------------- | -------------------- | --------------------------------------------------------- |
-| `memory`                | Atelier augmentation | Store named value in agent memory                         |
-| `memory`                | Atelier augmentation | Retrieve named memory block                               |
-| `memory`                | Atelier augmentation | FTS + vector search over archival memory                  |
-| `memory`                | Atelier augmentation | Persist text passage to archival memory                   |
-| `memory`                | Atelier augmentation | Compact sleeptime memory (reduces context window)         |
-| `search`                | Atelier augmentation | Token-saving combined search + read                       |
-| `edit`                  | Atelier augmentation | Deterministic multi-file batch edits (optional)           |
-| `atelier sql inspect`   | Atelier augmentation | Read-only SQL schema/data inspection                      |
-| `compact`               | Atelier augmentation | Advise before context compaction; provides reinject hints |
-| `atelier lesson inbox`  | Atelier augmentation | List lesson candidates awaiting decision                  |
-| `atelier lesson decide` | Atelier augmentation | Approve or reject a lesson candidate                      |
+Without developer mode, `trace` remains the most reliable active surface and
+some other tools may still appear as passive compatibility stubs.
 
 ## Uninstall
 

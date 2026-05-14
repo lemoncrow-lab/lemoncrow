@@ -37,7 +37,7 @@ Tests for **operational backbone** — storage, memory, execution, ledger.
 
 | File | Purpose | Status |
 |------|---------|--------|
-| test_store.py | ReasoningStore (core foundation) | ✅ Passing |
+| test_store.py | ContextStore (core foundation) | ✅ Passing |
 | test_postgres_store.py | PostgreSQL persistence | ⚠️ 1 error (psycopg optional) |
 | test_storage.py | Storage factory (MOVED/DELETED) | ❌ Test removed |
 | test_run_ledger.py | Execution ledger tracking | ✅ Passing |
@@ -90,7 +90,7 @@ These tests were **removed** because they depend on code deleted during consolid
 - **test_adapters_phase_c.py** — Obsolete Phase C adapters
 - **test_sdk.py** — EvalClient (removed in Phase I consolidation)
 - **test_worker_jobs.py** — JobService (no longer in service/jobs)
-- **test_storage.py** — SQLiteStore (replaced by ReasoningStore + create_store)
+- **test_storage.py** — SQLiteStore (replaced by ContextStore + create_store)
 
 Backup copies: `deleted/<timestamp>/removed-tests/`
 

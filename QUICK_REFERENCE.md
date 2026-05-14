@@ -10,8 +10,7 @@ _For agents/automation, see [AGENT_README.md](AGENT_README.md) instead._
 
 **What should I do right now?**
 
-- **Starting a coding task?** → Use `/atelier:reasoning` or pick `atelier:code` agent
-- **Before editing code?** → Use `/atelier:lint` (must pass before you edit)
+- **Starting a coding task?** → Use `/atelier:context` or pick `atelier:code` agent
 - **Same error failed 2+ times?** → Use `/atelier:rescue`
 - **Done with the task?** → Use `/atelier:trace`
 - **Just reading code?** → Use `atelier:explore` agent (read-only)
@@ -26,10 +25,10 @@ _For agents/automation, see [AGENT_README.md](AGENT_README.md) instead._
 ```
 Core Loop
 ─────────────────────────────────────────────────
-/atelier:reasoning           Run full standing loop: context → plan → lint → implement → rescue → verify → trace
-/atelier:lint                Validate plan against dead-ends (blocks until ✅ ok)
-/atelier:rescue              Get recovery when same error fails 2x
+/atelier:context             Gather task context and procedures
+/atelier:implement           Execute task (optional: /atelier:rescue on failure)
 /atelier:trace               Record outcome (files, commands, errors, results)
+```
 
 Intelligence
 ─────────────────────────────────────────────────
@@ -45,14 +44,13 @@ Operations
 /atelier:settings [off|shadow|on] Control smart-tool mode
 ```
 
-**The 11 skills, grouped by use case:**
+**The 10 skills, grouped by use case:**
 
-### Core Skills (use in order)
+### Core Skills (The 3-Step Process)
 
-- `/atelier:reasoning` — Start here. Runs full loop: get context → plan → check → implement → rescue → verify → record
-- `/atelier:lint` — Validate your plan BEFORE editing code (blocks until ✅ pass)
-- `/atelier:rescue` — Stuck on same error? Get recovery procedure
-- `/atelier:trace` — Done? Record what happened for learning
+- `/atelier:context` — **Step 1: Gather Context**. Retrieve procedures, facts, and rules before starting.
+- **Step 2: Implement** — Execute the task. Use `/atelier:rescue` if stuck on the same error twice.
+- `/atelier:trace` — **Step 3: Record Trace**. Save what happened for the reasoning store once done.
 
 ### Intelligence Skills (as needed)
 
@@ -75,19 +73,19 @@ Operations
 
 ```
 atelier:code       Main coding agent
-├─ Loop: reasoning → plan → lint → implement → rescue → verify → trace
+├─ Loop: context → plan → implement → rescue → verify → trace
 ├─ Tools: All (editing + MCP + shell)
-└─ Hard rules: No secrets, no skipping check_plan, no plan contradictions
+└─ Hard rules: No secrets, no plan contradictions
 
 atelier:explore    Read-only investigator
 ├─ Use: Find symbol usage, summarize modules, fetch blocks
-├─ Tools: Read, Grep, Glob, reasoning
+├─ Tools: Read, Grep, Glob, context
 └─ Hard rules: Never edit, never mutate state
 
 atelier:review     Verifier/gatekeeper
 ├─ Use: Review patches before merge, catch dead ends
-├─ Tools: reasoning, lint, verify + read-only
-└─ Hard rules: Never edit, never approve "block" verdicts
+├─ Tools: context, verify + read-only
+└─ Hard rules: Never edit
 
 atelier:repair     Repair specialist (on repeated failures)
 ├─ Trigger: Same error fails 2x OR monitor alert
@@ -95,13 +93,12 @@ atelier:repair     Repair specialist (on repeated failures)
 └─ Hard rules: No repeated hypotheses, stop after 2 failures
 ```
 
-## 🔧 MCP Tools (12 total)
+## 🔧 MCP Tools (13 total)
 
 ```
 CORE WORKFLOW
 ─────────────────────────────────────────────────
-reasoning          Fetch ReasonBlocks, memory, ledger, and environment context
-lint         Validate plan against dead ends
+task             Fetch ReasonBlocks, memory, ledger, and environment context
 route              Dispatch route decide/verify operations
 rescue             Get recovery procedure
 trace       Save observable outcome for learning
@@ -114,10 +111,15 @@ read               Token-aware file reading
 edit               Deterministic supervised batch edits
 search             Search with chunk, full, and map output modes
 compact            Dispatch output, session, and advise compaction operations
-atelier_repo_map           Ranked repository map for broad navigation
+
+CODE + EXECUTION                                           [Atelier augmentation]
+─────────────────────────────────────────────────
+code               Dispatch index, search, symbol, outline, context, and impact ops
+sql                Read-only SQL inspection through configured aliases
+shell              Compact supervised shell command execution
 ```
 
-> **Boundary note**: `read`, `search`, `edit`, and `compact` are
+> **Boundary note**: `read`, `search`, `edit`, `compact`, `code`, `sql`, and `shell` are
 > Atelier augmentations. Host-native Read, MultiEdit, shell `rg`/`grep`, and search remain the
 > raw-access fallback. Disable Atelier cache with `ATELIER_CACHE_DISABLED=1`.
 
@@ -159,8 +161,7 @@ ID  Title                              Domain
 ## 🎮 CLI Commands
 
 ```
-atelier reasoning --task "..." --domain beseam.shopify.publish --files src/...
-atelier lint --task "..." --plan "step 1" "step 2" --domain ...
+atelier context --task "..." --domain beseam.shopify.publish --files src/...
 atelier rescue --task "..." --error "..." --files ... --recent-actions "tried X" "tried Y"
 atelier trace record --agent atelier:code --domain ... --status success --files-touched [...]
 atelier verify rubric_shopify_publish --checks '{"check_1": true, ...}'
@@ -221,7 +222,6 @@ Toggle: /atelier:settings [off | shadow | on]
 ```
 calls_avoided              Network calls saved by caching
 tokens_saved               Tokens saved by truncation/memoization
-bad_plans_blocked          Plans rejected by check_plan
 rescue_events              Failures recovered via rescue
 rubric_failures_caught     Pre-success checks that failed
 ```
@@ -231,7 +231,7 @@ rubric_failures_caught     Pre-success checks that failed
 ```
 AGENT_README.md (684 lines)
 ├─ Sections 1–10: Original Atelier design + workflows + installation
-├─ Section 11: MCP Tools (14 total) + availability matrix
+├─ Section 11: MCP Tools (13 total) + availability matrix
 ├─ Section 12: Atelier Skills (11 total) + invocation syntax
 ├─ Section 13: Agents (4) + roles + loops + hard rules
 ├─ Section 14: CLI Commands (30+)
@@ -250,7 +250,6 @@ AGENT_README.md (684 lines)
 
 ```
 DO NOT:
-❌ Skip lint before editing code
 ❌ Ignore high-severity Atelier warnings
 ❌ Invent plan steps that contradict ReasonBlocks
 ❌ Store secrets, API keys, tokens in traces
@@ -265,10 +264,7 @@ DO NOT:
 
 ```
 Q: I'm starting a coding task
-A: Use /atelier:reasoning OR atelier:code agent
-
-Q: My plan might be invalid
-A: Use /atelier:lint (blocks until ✅ ok)
+A: Use /atelier:context OR atelier:code agent
 
 Q: Same error just failed twice
 A: Use /atelier:rescue
@@ -290,6 +286,7 @@ A: Use /atelier:status
 
 Q: I want domain-specific rules
 A: Use /atelier:context <domain>
+
 ```
 
 ---

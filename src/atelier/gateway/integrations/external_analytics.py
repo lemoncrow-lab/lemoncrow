@@ -356,6 +356,7 @@ def persist_external_reports(
             stdout=_truncate_text(str(report.get("stdout") or "")),
             stderr=_truncate_text(str(report.get("stderr") or "")),
             collected_at=collected_at,
+            replace_period_snapshot=True,
         )
         persisted.append(
             {

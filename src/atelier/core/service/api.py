@@ -31,7 +31,7 @@ from atelier.core.service.config import cfg
 
 if TYPE_CHECKING:
     from atelier.core.foundation.models import Trace
-    from atelier.core.foundation.store import ReasoningStore
+    from atelier.core.foundation.store import ContextStore
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ def _build_external_analytics_detail(
     }
 
 
-_BILLABLE_ANALYTICS_EVENTS = {"prompt", "cached_prompt", "cache_create", "result", "thinking"}
+_BILLABLE_ANALYTICS_EVENTS = {"prompt", "cached_prompt", "cache_create", "result", "thinking", "tool_charge"}
 _NATIVE_ANALYTICS_TOOLS = {
     "Read",
     "Bash",
@@ -180,64 +180,156 @@ def _model_usage_cost(usage: dict[str, Any]) -> float:
     )
 
 
-def _trace_model_usages(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    aggregated: dict[str, dict[str, Any]] = {}
+def _normalize_trace_usage_entry(raw_entry: Any, *, fallback_model: str = "") -> dict[str, Any] | None:
+    if not isinstance(raw_entry, dict):
+        return None
+
+    kind = str(raw_entry.get("kind") or "llm").strip().lower()
+    if kind == "tool":
+        tool_name = str(raw_entry.get("tool_name") or raw_entry.get("name") or "").strip()
+        input_tokens = int(raw_entry.get("input_tokens") or 0)
+        output_tokens = int(raw_entry.get("output_tokens") or 0)
+        cost_usd = float(raw_entry.get("cost_usd") or raw_entry.get("cost") or 0.0)
+        if not tool_name and input_tokens == 0 and output_tokens == 0 and cost_usd == 0.0:
+            return None
+        return {
+            "kind": "tool",
+            "tool_name": tool_name,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost_usd": cost_usd,
+            "source_type": str(raw_entry.get("source_type") or ""),
+            "source_id": str(raw_entry.get("source_id") or ""),
+        }
+
+    model_id = str(raw_entry.get("model") or fallback_model or "").strip()
+    entry = {
+        "kind": "llm",
+        "model": model_id,
+        "input_tokens": int(raw_entry.get("input_tokens") or 0),
+        "output_tokens": int(raw_entry.get("output_tokens") or 0),
+        "thinking_tokens": int(raw_entry.get("thinking_tokens") or 0),
+        "cached_input_tokens": int(raw_entry.get("cached_input_tokens") or 0),
+        "cache_creation_input_tokens": int(raw_entry.get("cache_creation_input_tokens") or 0),
+        "source_type": str(raw_entry.get("source_type") or ""),
+        "source_id": str(raw_entry.get("source_id") or ""),
+    }
+    token_fields = (
+        entry["input_tokens"],
+        entry["output_tokens"],
+        entry["thinking_tokens"],
+        entry["cached_input_tokens"],
+        entry["cache_creation_input_tokens"],
+    )
+    if not model_id and not any(token_fields):
+        return None
+    return entry
+
+
+def _trace_usage_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    fallback_model = str(payload.get("model") or "")
+    normalized: list[dict[str, Any]] = []
+
+    raw_entries = payload.get("usage_entries")
+    if isinstance(raw_entries, list):
+        for raw_entry in raw_entries:
+            entry = _normalize_trace_usage_entry(raw_entry, fallback_model=fallback_model)
+            if entry is not None:
+                normalized.append(entry)
+        if normalized:
+            return normalized
+
     raw_usages = payload.get("model_usages")
     if isinstance(raw_usages, list):
         for raw_usage in raw_usages:
-            if not isinstance(raw_usage, dict):
-                continue
-            model_id = str(raw_usage.get("model") or payload.get("model") or "").strip()
-            usage: dict[str, Any] = {
-                "input_tokens": int(raw_usage.get("input_tokens") or 0),
-                "output_tokens": int(raw_usage.get("output_tokens") or 0),
-                "thinking_tokens": int(raw_usage.get("thinking_tokens") or 0),
-                "cached_input_tokens": int(raw_usage.get("cached_input_tokens") or 0),
-                "cache_creation_input_tokens": int(raw_usage.get("cache_creation_input_tokens") or 0),
-            }
-            if not model_id and not any(usage.values()):
-                continue
-            bucket = aggregated.setdefault(model_id, {"model": model_id, **{key: 0 for key in usage}})
-            for field, value in usage.items():
-                bucket[field] += value
+            entry = _normalize_trace_usage_entry(raw_usage, fallback_model=fallback_model)
+            if entry is not None:
+                normalized.append(entry)
+        if normalized:
+            return normalized
 
-    if not aggregated:
-        model_id = str(payload.get("model") or "").strip()
-        usage = {
-            "model": model_id,
-            "input_tokens": int(payload.get("input_tokens") or 0),
-            "output_tokens": int(payload.get("output_tokens") or 0),
-            "thinking_tokens": int(payload.get("thinking_tokens") or 0),
-            "cached_input_tokens": int(payload.get("cached_input_tokens") or 0),
-            "cache_creation_input_tokens": int(payload.get("cache_creation_input_tokens") or 0),
+    entry = _normalize_trace_usage_entry(
+        {
+            "kind": "llm",
+            "model": fallback_model,
+            "input_tokens": payload.get("input_tokens") or 0,
+            "output_tokens": payload.get("output_tokens") or 0,
+            "thinking_tokens": payload.get("thinking_tokens") or 0,
+            "cached_input_tokens": payload.get("cached_input_tokens") or 0,
+            "cache_creation_input_tokens": payload.get("cache_creation_input_tokens") or 0,
         }
-        if model_id or any(value for key, value in usage.items() if key != "model"):
-            aggregated[model_id] = usage
+    )
+    return [entry] if entry is not None else []
+
+
+def _trace_model_usages(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    aggregated: dict[str, dict[str, Any]] = {}
+    for raw_entry in _trace_usage_entries(payload):
+        if raw_entry.get("kind") == "tool":
+            continue
+        model_id = str(raw_entry.get("model") or "").strip()
+        usage: dict[str, Any] = {
+            "input_tokens": int(raw_entry.get("input_tokens") or 0),
+            "output_tokens": int(raw_entry.get("output_tokens") or 0),
+            "thinking_tokens": int(raw_entry.get("thinking_tokens") or 0),
+            "cached_input_tokens": int(raw_entry.get("cached_input_tokens") or 0),
+            "cache_creation_input_tokens": int(raw_entry.get("cache_creation_input_tokens") or 0),
+        }
+        if not model_id and not any(usage.values()):
+            continue
+        bucket = aggregated.setdefault(model_id, {"model": model_id, **{key: 0 for key in usage}})
+        for field, value in usage.items():
+            bucket[field] += value
 
     usages = list(aggregated.values())
     usages.sort(key=lambda usage: (_model_usage_cost(usage), _usage_total_tokens(usage)), reverse=True)
     return usages
 
 
-def _trace_primary_model(payload: dict[str, Any], model_usages: list[dict[str, Any]] | None = None) -> str:
+def _trace_session_model(
+    payload: dict[str, Any],
+    usage_entries: list[dict[str, Any]] | None = None,
+    model_usages: list[dict[str, Any]] | None = None,
+) -> str:
+    entries = usage_entries if usage_entries is not None else _trace_usage_entries(payload)
+    unique_models = {
+        str(entry.get("model") or "").strip()
+        for entry in entries
+        if entry.get("kind") != "tool" and str(entry.get("model") or "").strip()
+    }
+    if len(unique_models) == 1:
+        return next(iter(unique_models))
+    if len(unique_models) > 1:
+        return ""
+
     usages = model_usages if model_usages is not None else _trace_model_usages(payload)
-    if usages:
-        return str(usages[0].get("model") or payload.get("model") or "")
-    return str(payload.get("model") or "")
+    usage_models = {str(usage.get("model") or "").strip() for usage in usages if str(usage.get("model") or "").strip()}
+    if len(usage_models) == 1:
+        return next(iter(usage_models))
+    if usage_models:
+        return ""
+    return str(payload.get("model") or "").strip()
 
 
 def _trace_cost_from_payload(payload: dict[str, Any]) -> float:
-    model_usages = _trace_model_usages(payload)
-    if model_usages:
-        return round(sum(_model_usage_cost(usage) for usage in model_usages), 8)
-    return _llm_usage_cost(
-        str(payload.get("model") or "_default"),
-        input_tokens=int(payload.get("input_tokens") or 0),
-        output_tokens=int(payload.get("output_tokens") or 0),
-        cache_read_tokens=int(payload.get("cached_input_tokens") or 0),
-        cache_write_tokens=int(payload.get("cache_creation_input_tokens") or 0),
-        thinking_tokens=int(payload.get("thinking_tokens") or 0),
-    )
+    usage_entries = _trace_usage_entries(payload)
+    if not usage_entries:
+        return 0.0
+
+    total_cost = 0.0
+    for entry in usage_entries:
+        if entry.get("kind") == "tool":
+            total_cost += float(entry.get("cost_usd") or 0.0)
+            continue
+        total_cost += _llm_usage_cost(
+            str(entry.get("model") or "_default"),
+            input_tokens=int(entry.get("input_tokens") or 0),
+            output_tokens=int(entry.get("output_tokens") or 0),
+            cache_read_tokens=int(entry.get("cached_input_tokens") or 0),
+            cache_write_tokens=int(entry.get("cache_creation_input_tokens") or 0),
+            thinking_tokens=int(entry.get("thinking_tokens") or 0),
+        )
+    return round(total_cost, 8)
 
 
 def _analytics_event_cost(model_id: str | None, event_type: str, input_tokens: int, output_tokens: int) -> float:
@@ -352,8 +444,9 @@ def _trace_analytics_events(
     payload: dict[str, Any],
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
+    usage_entries = _trace_usage_entries(payload)
     model_usages = _trace_model_usages(payload)
-    primary_model = _trace_primary_model(payload, model_usages)
+    session_model = _trace_session_model(payload, usage_entries, model_usages)
     session_host = host or agent
 
     def _append_event(
@@ -366,6 +459,7 @@ def _trace_analytics_events(
         output_tokens: int = 0,
         call_count: int = 1,
         sub_command: str | None = None,
+        cost_override: float | None = None,
     ) -> None:
         events.append(
             {
@@ -383,27 +477,44 @@ def _trace_analytics_events(
                 "last_seen": created_at,
                 "call_count": call_count,
                 "session_count": 1,
-                "cost": _analytics_event_cost(model, event_type, input_tokens, output_tokens),
+                "cost": (
+                    float(cost_override)
+                    if cost_override is not None
+                    else _analytics_event_cost(model, event_type, input_tokens, output_tokens)
+                ),
             }
         )
 
     user_prompt_tokens = int(payload.get("user_prompt_tokens") or 0)
     if user_prompt_tokens > 0:
         _append_event(
-            model=primary_model,
+            model=session_model,
             event_type="user_string",
             tool_name="User Entered String",
             category="User Activity",
             input_tokens=user_prompt_tokens,
         )
 
-    for usage in model_usages:
-        model_id = str(usage.get("model") or primary_model)
-        input_tokens = int(usage.get("input_tokens") or 0)
-        cached_input_tokens = int(usage.get("cached_input_tokens") or 0)
-        cache_write_tokens = int(usage.get("cache_creation_input_tokens") or 0)
-        output_tokens = int(usage.get("output_tokens") or 0)
-        thinking_tokens = int(usage.get("thinking_tokens") or 0)
+    for entry in usage_entries:
+        if entry.get("kind") == "tool":
+            tool_name = str(entry.get("tool_name") or "unknown")
+            cost_usd = float(entry.get("cost_usd") or 0.0)
+            if cost_usd > 0:
+                _append_event(
+                    model="",
+                    event_type="tool_charge",
+                    tool_name=tool_name,
+                    category="Tool Billing",
+                    cost_override=cost_usd,
+                )
+            continue
+
+        model_id = str(entry.get("model") or session_model)
+        input_tokens = int(entry.get("input_tokens") or 0)
+        cached_input_tokens = int(entry.get("cached_input_tokens") or 0)
+        cache_write_tokens = int(entry.get("cache_creation_input_tokens") or 0)
+        output_tokens = int(entry.get("output_tokens") or 0)
+        thinking_tokens = int(entry.get("thinking_tokens") or 0)
 
         if input_tokens > 0:
             _append_event(
@@ -451,7 +562,7 @@ def _trace_analytics_events(
             continue
         tool_name = str(raw_tool.get("name") or "unknown")
         _append_event(
-            model=primary_model,
+            model=session_model,
             event_type="tool_call",
             tool_name=tool_name,
             category=_tool_category(tool_name),
@@ -634,14 +745,14 @@ def _trace_cache_leverage(trace: Trace) -> float:
     return round(int(trace.cached_input_tokens or 0) / effective_input, 4)
 
 
-def _recent_traces(store: ReasoningStore, *, window_days: int) -> list[Trace]:
+def _recent_traces(store: ContextStore, *, window_days: int) -> list[Trace]:
     cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
     traces = store.list_traces(limit=5000)
     recent = [trace for trace in traces if _trace_created_at(trace) >= cutoff]
     return sorted(recent, key=_trace_created_at)
 
 
-def _tracked_saved_tokens(store: ReasoningStore, trace: Trace) -> tuple[int, int]:
+def _tracked_saved_tokens(store: ContextStore, trace: Trace) -> tuple[int, int]:
     try:
         rows = store.list_context_budgets(_trace_run_key(trace))
     except Exception as exc:
@@ -667,7 +778,7 @@ def _tracked_saved_tokens(store: ReasoningStore, trace: Trace) -> tuple[int, int
     return saved_tokens, tracked_turns
 
 
-def _window_metrics(store: ReasoningStore, traces: list[Trace]) -> dict[str, Any]:
+def _window_metrics(store: ContextStore, traces: list[Trace]) -> dict[str, Any]:
     from atelier.core.capabilities.session_optimizer import trace_cost_usd
 
     entries: list[dict[str, Any]] = []
@@ -747,7 +858,7 @@ def _impact_verdict(tokens_delta_pct: float, cost_delta_pct: float, cache_delta_
 
 
 def _build_impact_validation(
-    store: ReasoningStore,
+    store: ContextStore,
     traces: list[Trace],
     *,
     window_days: int,
@@ -1406,7 +1517,7 @@ def _implemented_optimization_catalog(savings_payload: dict[str, Any]) -> list[d
         {
             "id": "reasonblock_inject",
             "title": "ReasonBlock injection",
-            "category": "reasoning_reuse",
+            "category": "context_reuse",
             "automation": "Automatic when matching reasoning blocks are selected",
             "status": "active",
             "observed_tokens_saved": _optimization_lever_tokens(per_lever, exact=("reasonblock_inject",)),
@@ -1511,7 +1622,7 @@ def _optimization_implementation_gaps() -> list[dict[str, Any]]:
     ]
 
 
-def _optimizations_summary_payload(root: Path, store: ReasoningStore, *, window_days: int) -> dict[str, Any]:
+def _optimizations_summary_payload(root: Path, store: ContextStore, *, window_days: int) -> dict[str, Any]:
     from atelier.core.capabilities.session_optimizer import (
         build_trace_optimization_report,
         render_session_optimizer_guidance,
@@ -1620,7 +1731,11 @@ def create_app(store_root: str | Path | None = None) -> Any:
     from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
     from atelier.core.foundation.models import Trace, coerce_trace_json, to_jsonable
-    from atelier.core.foundation.store import ReasoningStore
+    from atelier.core.foundation.store import ContextStore
+    from atelier.core.service.schemas import (
+        ContextRequest,
+        ContextResponse,
+    )
 
     security = HTTPBearer(auto_error=False)
 
@@ -1660,10 +1775,10 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
     # Late load store
     store_path = Path(store_root or cfg.atelier_root)
-    store = ReasoningStore(store_path)
+    store = ContextStore(store_path)
     _store_init_lock = threading.Lock()
 
-    def get_store() -> ReasoningStore:
+    def get_store() -> ContextStore:
         if not store._initialized:
             with _store_init_lock:
                 if not store._initialized:  # double-checked locking
@@ -1775,35 +1890,34 @@ def create_app(store_root: str | Path | None = None) -> Any:
         return to_jsonable(trace)
 
     # ------------------------------------------------------------------ #
-    # MCP service-backed task tools                                      #
+    # Context & Rescue                                                   #
     # ------------------------------------------------------------------ #
 
     def _runtime() -> Any:
-        from atelier.gateway.adapters.runtime import ReasoningRuntime
+        from atelier.gateway.adapters.runtime import ContextRuntime
 
-        return ReasoningRuntime(root=Path(cfg.atelier_root))
+        return ContextRuntime(root=Path(cfg.atelier_root))
 
-    @app.post("/v1/reasoning/context", tags=["reasoning"], dependencies=[Depends(verify_api_key)])
-    def task_context(payload: dict[str, Any]) -> dict[str, Any]:
-        task = str(payload.get("task") or "")
-        if not task:
-            raise HTTPException(status_code=400, detail="task is required")
-        result = _runtime().get_reasoning_context(
-            task=task,
-            domain=payload.get("domain"),
-            files=list(payload.get("files") or []),
-            tools=list(payload.get("tools") or []),
-            errors=list(payload.get("errors") or []),
-            max_blocks=int(payload.get("max_blocks", 5)),
-            token_budget=payload.get("token_budget", 2000),
-            dedup=bool(payload.get("dedup", True)),
-            include_telemetry=bool(payload.get("include_telemetry", False)),
-            agent_id=payload.get("agent_id"),
-            recall=bool(payload.get("recall", True)),
+    @app.post("/v1/context", tags=["context"], dependencies=[Depends(verify_api_key)], response_model=ContextResponse)
+    def task_context(payload: ContextRequest) -> ContextResponse:
+        result = _runtime().get_context(
+            task=payload.task,
+            domain=payload.domain,
+            files=payload.files,
+            tools=payload.tools,
+            errors=payload.errors,
+            max_blocks=payload.max_blocks,
+            token_budget=payload.token_budget,
+            dedup=payload.dedup,
+            include_telemetry=payload.include_telemetry,
+            agent_id=payload.agent_id,
+            recall=payload.recall,
         )
-        return result if isinstance(result, dict) else {"context": result}
+        if isinstance(result, dict):
+            return ContextResponse.model_validate(result)
+        return ContextResponse(context=result)
 
-    @app.post("/v1/reasoning/rescue", tags=["reasoning"], dependencies=[Depends(verify_api_key)])
+    @app.post("/v1/rescue", tags=["context"], dependencies=[Depends(verify_api_key)])
     def rescue_failure(payload: dict[str, Any]) -> dict[str, Any]:
         task = str(payload.get("task") or "")
         error = str(payload.get("error") or "")
@@ -2256,8 +2370,9 @@ def create_app(store_root: str | Path | None = None) -> Any:
                     "cached_input_tokens": d.get("cached_tokens") or 0,
                     "cache_creation_input_tokens": d.get("cache_write_tokens") or 0,
                 }
+                usage_entries = _trace_usage_entries(payload_for_usage)
                 model_usages = _trace_model_usages(payload_for_usage)
-                primary_model = _trace_primary_model(payload_for_usage, model_usages)
+                session_model = _trace_session_model(payload_for_usage, usage_entries, model_usages)
 
                 in_t = d.get("input_tokens") or 0
                 out_t = d.get("output_tokens") or 0
@@ -2272,7 +2387,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                         "id": d["id"],
                         "host": d["host"] or "unknown",
                         "domain": d["domain"] or "unknown",
-                        "model": primary_model,
+                        "model": session_model,
                         "model_usages": model_usages,
                         "day": d.get("day") or "",
                         "created_at": d.get("created_at") or "",
@@ -2415,10 +2530,15 @@ def create_app(store_root: str | Path | None = None) -> Any:
         host_model_overview: dict[tuple[str, str], dict[str, Any]] = {}
         for s in dashboard_sessions:
             host_name = s["host"] or "unknown"
-            primary_model = s["model"] or "unknown"
+            session_model = str(s.get("model") or "")
+            usage_rows = list(s.get("model_usages") or [])
+            overview_models = {str(usage.get("model") or "") or "unknown" for usage in usage_rows}
+            attributed_model = session_model
+            if not attributed_model and len(overview_models) == 1:
+                attributed_model = next(iter(overview_models))
             seen_pairs: set[tuple[str, str]] = set()
-            for usage in s.get("model_usages") or []:
-                model_name = str(usage.get("model") or primary_model) or "unknown"
+            for usage in usage_rows:
+                model_name = str(usage.get("model") or "") or "unknown"
                 key = (host_name, model_name)
                 if key not in host_model_overview:
                     host_model_overview[key] = {
@@ -2445,7 +2565,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 row["billable_output_tokens"] += int(usage.get("output_tokens") or 0)
                 row["thinking_tokens"] += int(usage.get("thinking_tokens") or 0)
                 row["cost"] += _model_usage_cost(usage)
-                if model_name == primary_model:
+                if attributed_model and model_name == attributed_model:
                     row["user_typed_tokens"] += s["user_prompt_tokens"]
                     row["tool_output_tokens"] += _tool_output_tokens(s)
                     row["tool_calls"] += _tool_call_count(s)

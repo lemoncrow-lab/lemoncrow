@@ -5,7 +5,7 @@ description: Use when a command, test, or tool call has failed twice with the sa
 
 # Rescue
 
-The third attempt at a failing command rarely succeeds without changing
+Part of the **Implement** phase. The third attempt at a failing command rarely succeeds without changing
 something. This skill consults the Atelier reasoning store for relevant
 recovery procedures.
 

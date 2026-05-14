@@ -7,11 +7,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from atelier.core.foundation.models import PlanCheckResult, RescueResult, RubricResult
+from atelier.core.foundation.models import RescueResult, RubricResult
 from atelier.gateway.sdk import (
     AtelierClient,
+    ContextResult,
     FailureAnalysisResult,
-    ReasoningContextResult,
     SavingsSummary,
 )
 
@@ -26,7 +26,6 @@ class AdapterDecision(BaseModel):
     blocked: bool
     reasoning_context: str = ""
     warnings: list[str] = Field(default_factory=list)
-    plan_result: PlanCheckResult | None = None
     rubric_result: RubricResult | None = None
     rescue_result: RescueResult | None = None
 
@@ -39,47 +38,19 @@ class AgentAdapter:
     default_domain: str | None = None
     default_tools: list[str] = field(default_factory=list)
 
-    def get_reasoning_context(
+    def get_context(
         self,
         *,
         task: str,
         domain: str | None = None,
         files: list[str] | None = None,
         tools: list[str] | None = None,
-    ) -> ReasoningContextResult:
-        return self.client.get_reasoning_context(
+    ) -> ContextResult:
+        return self.client.get_context(
             task=task,
             domain=domain or self.default_domain,
             files=files,
             tools=tools or self.default_tools,
-        )
-
-    def pre_plan_check(
-        self,
-        *,
-        task: str,
-        plan: list[str],
-        domain: str | None = None,
-        files: list[str] | None = None,
-        tools: list[str] | None = None,
-    ) -> AdapterDecision:
-        context = self.get_reasoning_context(task=task, domain=domain, files=files, tools=tools)
-        plan_result = self.client.check_plan(
-            task=task,
-            plan=plan,
-            domain=domain or self.default_domain,
-            files=files,
-            tools=tools or self.default_tools,
-        )
-        blocked = self.mode == "enforce" and plan_result.status == "blocked"
-        warnings = [warning.message for warning in plan_result.warnings]
-        return AdapterDecision(
-            host=self.host,
-            mode=self.mode,
-            blocked=blocked,
-            reasoning_context=context.context,
-            warnings=warnings,
-            plan_result=plan_result,
         )
 
     def verify_rubric(

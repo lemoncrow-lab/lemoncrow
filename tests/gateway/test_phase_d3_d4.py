@@ -14,12 +14,7 @@ EXPECTED_TOOLS = {
     "sql",
     "search",
     "compact",
-    "atelier_code_index",
-    "atelier_code_search",
-    "atelier_code_symbol",
-    "atelier_code_outline",
-    "atelier_code_context",
-    "atelier_code_impact",
+    "code",
     "shell",
 }
 

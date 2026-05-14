@@ -7,7 +7,7 @@ import pytest
 
 from atelier.core.capabilities.lesson_promotion import LessonPromoterCapability
 from atelier.core.foundation.models import ReasonBlock, Trace
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.infra.storage.vector import generate_embedding
 
 
@@ -28,7 +28,7 @@ def test_lesson_promotion_precision_on_fixture(tmp_path: Path, monkeypatch: pyte
         "atelier.core.capabilities.lesson_promotion.capability.draft_lesson_body",
         lambda traces: "fixture lesson body",
     )
-    store = ReasoningStore(tmp_path / ".atelier")
+    store = ContextStore(tmp_path / ".atelier")
     store.init()
     # Seed one existing block so edit_block candidates have a meaningful target.
     store.upsert_block(

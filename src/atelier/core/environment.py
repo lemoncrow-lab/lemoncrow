@@ -15,7 +15,20 @@ TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 INSTALL_PROFILES = frozenset({"stable", "dev"})
 
 NON_DEV_LLM_TOOLS = frozenset({"task", "memory", "read", "search", "compact", "route", "rescue", "verify", "trace"})
-DEV_ONLY_SKILLS = frozenset({"rescue", "task", "trace"})
+DEV_ONLY_SKILLS = frozenset(
+    {
+        "analyze-failures",
+        "benchmark",
+        "context",
+        "evals",
+        "rescue",
+        "savings",
+        "settings",
+        "status",
+        "task",
+        "trace",
+    }
+)
 
 PASSIVE_TOOL_DESCRIPTION_SUFFIX = (
     " In non-development runtime mode this tool is passive: it is visible to MCP clients, "

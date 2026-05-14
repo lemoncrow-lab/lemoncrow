@@ -34,7 +34,11 @@ from atelier.core.foundation.models import (
     ValidationResult,
 )
 from atelier.core.foundation.redaction import redact
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.hosts.session_parsers._common import (
+    make_llm_usage_entry,
+    summarize_usage_entries,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -179,7 +183,7 @@ class CopilotImporter:
     API keys, PII).
     """
 
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     # ------------------------------------------------------------------
@@ -235,7 +239,7 @@ class CopilotImporter:
         validation_results: list[ValidationResult] = []
         reasoning_snippets: list[str] = []
         task = initial_task or "untitled copilot session"
-        last_model_metrics: dict[str, dict[str, int]] = {}
+        usage_entries = []
         tool_in_tokens: dict[str, int] = {}
         tool_out_tokens: dict[str, int] = {}
         tool_call_in_buffer: dict[str, dict[str, Any]] = {}
@@ -314,15 +318,19 @@ class CopilotImporter:
                 if isinstance(mm, dict):
                     for mname, mdata in mm.items():
                         usage = (mdata or {}).get("usage") or {}
-                        bucket = last_model_metrics.setdefault(
-                            mname,
-                            {"in": 0, "out": 0, "cache_read": 0, "cache_write": 0, "reasoning": 0},
+                        usage_entry = make_llm_usage_entry(
+                            model=mname,
+                            input_tokens=int(usage.get("inputTokens", 0) or 0),
+                            output_tokens=int(usage.get("outputTokens", 0) or 0),
+                            cached_input_tokens=int(usage.get("cacheReadTokens", 0) or 0),
+                            cache_creation_input_tokens=int(usage.get("cacheWriteTokens", 0) or 0),
+                            thinking_tokens=int(usage.get("reasoningTokens", 0) or 0),
+                            source_type="copilot.session.shutdown",
+                            source_id=str(ev.get("id") or ev.get("timestamp") or ""),
+                            created_at=_parse_workspace_dt(ev.get("timestamp")) if ev.get("timestamp") else None,
                         )
-                        bucket["in"] += int(usage.get("inputTokens", 0) or 0)
-                        bucket["out"] += int(usage.get("outputTokens", 0) or 0)
-                        bucket["cache_read"] += int(usage.get("cacheReadTokens", 0) or 0)
-                        bucket["cache_write"] += int(usage.get("cacheWriteTokens", 0) or 0)
-                        bucket["reasoning"] += int(usage.get("reasoningTokens", 0) or 0)
+                        if usage_entry is not None:
+                            usage_entries.append(usage_entry)
 
             self._process_event(
                 ev,
@@ -343,25 +351,17 @@ class CopilotImporter:
             if tn:
                 tool_in_tokens[tn] = tool_in_tokens.get(tn, 0) + buf["in_t"]
 
-        tot_in = tot_out = tot_cache_read = tot_cache_write = tot_reasoning = 0
-        for bucket in last_model_metrics.values():
-            tot_in += bucket["in"]
-            tot_out += bucket["out"]
-            tot_cache_read += bucket["cache_read"]
-            tot_cache_write += bucket["cache_write"]
-            tot_reasoning += bucket["reasoning"]
+        if assistant_output_tokens > 0 and not usage_entries:
+            fallback_entry = make_llm_usage_entry(
+                model=fallback_model,
+                input_tokens=user_prompt_tokens,
+                output_tokens=assistant_output_tokens,
+                source_type="copilot.assistant_fallback",
+            )
+            if fallback_entry is not None:
+                usage_entries.append(fallback_entry)
 
-        if assistant_output_tokens > 0:
-            if tot_out == 0:
-                tot_out = assistant_output_tokens
-            if tot_in == 0:
-                tot_in = user_prompt_tokens
-
-        primary_model = ""
-        if last_model_metrics:
-            primary_model = max(last_model_metrics.items(), key=lambda kv: kv[1]["out"])[0]
-        if not primary_model:
-            primary_model = fallback_model
+        usage_summary = summarize_usage_entries(usage_entries, fallback_model=fallback_model)
 
         return {
             "task": task,
@@ -376,12 +376,14 @@ class CopilotImporter:
             "reasoning_snippets": reasoning_snippets,
             "tool_in_tokens": tool_in_tokens,
             "tool_out_tokens": tool_out_tokens,
-            "input_tokens": tot_in,
-            "output_tokens": tot_out,
-            "cached_input_tokens": tot_cache_read,
-            "cache_creation_input_tokens": tot_cache_write,
-            "thinking_tokens": tot_reasoning,
-            "model": primary_model,
+            "input_tokens": usage_summary["input_tokens"],
+            "output_tokens": usage_summary["output_tokens"],
+            "cached_input_tokens": usage_summary["cached_input_tokens"],
+            "cache_creation_input_tokens": usage_summary["cache_creation_input_tokens"],
+            "thinking_tokens": usage_summary["thinking_tokens"],
+            "model": usage_summary["model"],
+            "usage_entries": usage_summary["usage_entries"],
+            "model_usages": usage_summary["model_usages"],
             "user_prompt_tokens": user_prompt_tokens,
         }
 
@@ -488,6 +490,8 @@ class CopilotImporter:
             cached_input_tokens=state["cached_input_tokens"],
             cache_creation_input_tokens=state["cache_creation_input_tokens"],
             model=state["model"],
+            usage_entries=state["usage_entries"],
+            model_usages=state["model_usages"],
             created_at=_parse_workspace_dt(workspace_data.get("created_at")),
         )
         self.store.record_trace(trace, write_json=False)
@@ -563,6 +567,8 @@ class CopilotImporter:
             cached_input_tokens=state["cached_input_tokens"],
             cache_creation_input_tokens=state["cache_creation_input_tokens"],
             model=state["model"],
+            usage_entries=state["usage_entries"],
+            model_usages=state["model_usages"],
             created_at=state["start_time"],
         )
         self.store.record_trace(trace, write_json=False)

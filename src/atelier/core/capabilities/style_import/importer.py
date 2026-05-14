@@ -17,7 +17,7 @@ from atelier.core.capabilities.style_import.prompts import (
 )
 from atelier.core.foundation.lesson_models import LessonCandidate
 from atelier.core.foundation.models import ReasonBlock
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.infra.embeddings.base import Embedder
 from atelier.infra.embeddings.null_embedder import NullEmbedder
 from atelier.infra.internal_llm.ollama_client import chat
@@ -44,7 +44,7 @@ def import_files(
     paths: Sequence[Path | str],
     domain: str | None = None,
     *,
-    store: ReasoningStore | None = None,
+    store: ContextStore | None = None,
     write: bool = True,
     limit: int = 25,
     chat_func: ChatFn = chat,

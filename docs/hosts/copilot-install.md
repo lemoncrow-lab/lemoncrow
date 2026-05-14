@@ -53,31 +53,27 @@ make verify
 
 ## First Task
 
-Open Copilot Chat and ask:
+Open Copilot Chat and either run `Atelier: Copilot Preflight` from the VS Code
+task picker or, if developer mode is enabled for the MCP server, ask:
 
-```
-@atelier record task context for this change
-```
-
-Or use a prompt like:
-
-```
-Use atelier to check the plan for: [your task here]
+```text
+Use Atelier context for this task and record a trace summary when it is done.
 ```
 
 ## Expected Behavior
 
-- Copilot Chat can invoke Atelier MCP tools through the local Atelier HTTP service
+- Copilot Chat can invoke Atelier MCP tools through the local Atelier MCP wrapper
 - `copilot-instructions.md` provides Atelier context to every Copilot session
 - `atelier` chat mode is available from the chat mode selector
-- `Atelier: Copilot Preflight` runs the task-context preflight before you continue in Copilot Chat
+- `Atelier: Copilot Preflight` runs the shell-based preflight before you continue in Copilot Chat
+- Active context/retrieval/verify tools require `ATELIER_DEV_MODE=1`; otherwise some tools may be visible but return passive `noop`
 
 ## Why Tasks Still Use Shell
 
 Copilot's MCP support applies to chat/tool calls inside the Copilot session. VS Code
 `tasks.json` entries are shell tasks, so the preflight task has to spawn the
 `atelier` CLI rather than invoke MCP directly. The MCP server remains the primary
-integration surface for in-chat `task`, `trace`, `memory`, and other Atelier tools.
+integration surface for in-chat `context`, `trace`, `memory`, and related Atelier tools.
 
 ## Reload Required
 
@@ -91,23 +87,17 @@ After install, reload the VS Code window:
 | MCP tools not loading | Reload VS Code window; check user `mcp.json` or workspace `.vscode/mcp.json` |
 | `code` CLI not found  | Install VS Code CLI: in VS Code, run "Install 'code' command in PATH"        |
 
-## V2 Tools — Memory, Context Savings, and Lesson Pipeline
+## MCP Tools and Dev Mode
 
-All V2 tools are available via the Atelier MCP server. These are **Atelier augmentations** — VS Code native search, file reads, and editing remain the primary interfaces.
+With `ATELIER_DEV_MODE=1`, the active Atelier MCP surface for Copilot includes
+`context`, `route`, `rescue`, `trace`, `verify`, `memory`, `read`, `edit`,
+`sql`, `search`, `compact`, `shell`, and the `code` helpers.
 
-| Tool                    | Boundary             | Description                                               |
-| ----------------------- | -------------------- | --------------------------------------------------------- |
-| `memory`                | Atelier augmentation | Store named value in agent memory                         |
-| `memory`                | Atelier augmentation | Retrieve named memory block                               |
-| `memory`                | Atelier augmentation | FTS + vector search over archival memory                  |
-| `memory`                | Atelier augmentation | Persist text passage to archival memory                   |
-| `memory`                | Atelier augmentation | Compact sleeptime memory (reduces context window)         |
-| `search`                | Atelier augmentation | Token-saving combined search + read                       |
-| `edit`                  | Atelier augmentation | Deterministic multi-file batch edits (optional)           |
-| `atelier benchmark runtime` | Atelier augmentation | Capability efficiency metrics                             |
-| `compact`               | Atelier augmentation | Advise before context compaction; provides reinject hints |
-| `atelier lesson inbox`  | Atelier augmentation | List lesson candidates awaiting decision                  |
-| `atelier lesson decide` | Atelier augmentation | Approve or reject a lesson candidate                      |
+Without developer mode, `trace` remains the most reliable active surface and
+some other tools may still appear as passive compatibility stubs.
+
+VS Code's native search, file reads, and editing remain the preferred raw-access
+tools when you do not need Atelier-specific context or trace behavior.
 
 Disable Atelier cache: `ATELIER_CACHE_DISABLED=1`.
 

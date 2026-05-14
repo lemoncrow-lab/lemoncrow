@@ -16,7 +16,7 @@ from typing import Any, ClassVar
 import yaml
 
 from atelier.core.foundation.models import Trace
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers.claude import ClaudeImporter
 from atelier.gateway.hosts.session_parsers.codex import CodexImporter
 from atelier.gateway.hosts.session_parsers.copilot import CopilotImporter
@@ -28,7 +28,7 @@ from atelier.gateway.hosts.session_parsers.opencode import OpenCodeImporter
 # =========================================================================
 
 
-def _get_trace(store: ReasoningStore, host: str) -> Trace:
+def _get_trace(store: ContextStore, host: str) -> Trace:
     """Return the most recent trace for *host*."""
 
     traces = store.list_traces(host=host, limit=1)
@@ -96,7 +96,7 @@ class TestClaudeImporterTokens:
         },
     ]
 
-    def test_claude_token_fields(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_claude_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "test-session-uuid.jsonl"
         jsonl_path.write_text("\n".join(json.dumps(e, ensure_ascii=False) for e in self.FIXTURE_EVENTS))
 
@@ -199,7 +199,7 @@ class TestCodexImporterTokens:
         ),
     ]
 
-    def test_codex_token_fields(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_codex_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "rollout-2026-05-09T12-00-00-test-session.jsonl"
         jsonl_path.write_text("\n".join(self.FIXTURE_LINES))
 
@@ -223,7 +223,7 @@ class TestCodexImporterTokens:
         #   tool.output_tokens (exec_command) = dist_in = 200 // 1 = 200
         _assert_tool_tokens(trace, "exec_command", input_t=60, output_t=200)
 
-    def test_codex_flat_recovers_model_and_usage(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_codex_flat_recovers_model_and_usage(self, store: ContextStore, tmp_path: Path) -> None:
         fixture_lines = [
             json.dumps(
                 {
@@ -278,6 +278,51 @@ class TestCodexImporterTokens:
         assert trace.cached_input_tokens == 20
         assert trace.cache_creation_input_tokens == 0
         assert trace.user_prompt_tokens > 0
+
+    def test_codex_mixed_model_sessions_leave_trace_model_blank(self, store: ContextStore, tmp_path: Path) -> None:
+        fixture_lines = [
+            json.dumps(
+                {
+                    "type": "session_meta",
+                    "payload": {"id": "test-session-id", "timestamp": "2026-05-09T12:00:00Z"},
+                }
+            ),
+            json.dumps({"type": "turn_context", "payload": {"model": "gpt-5.4"}}),
+            json.dumps(
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {"last_token_usage": {"input_tokens": 200, "output_tokens": 60}},
+                    },
+                }
+            ),
+            json.dumps({"type": "turn_context", "payload": {"model": "gpt-5.4-mini"}}),
+            json.dumps(
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {"last_token_usage": {"input_tokens": 100, "output_tokens": 30}},
+                    },
+                }
+            ),
+        ]
+
+        jsonl_path = tmp_path / "rollout-2026-05-09T13-00-00-mixed-session.jsonl"
+        jsonl_path.write_text("\n".join(fixture_lines))
+
+        importer = CodexImporter(store)
+        result = importer.import_session(jsonl_path, force=True)
+        assert result is not None
+
+        trace = _get_trace(store, "codex")
+        usage_by_model = {usage.model: usage for usage in trace.model_usages}
+
+        assert trace.model == ""
+        assert len(trace.usage_entries) == 2
+        assert usage_by_model["gpt-5.4"].output_tokens == 60
+        assert usage_by_model["gpt-5.4-mini"].output_tokens == 30
 
 
 # =========================================================================
@@ -362,7 +407,7 @@ class TestCopilotImporterTokens:
         }
     )
 
-    def test_copilot_token_fields(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_copilot_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         session_dir = tmp_path / "copilot-session-abc123"
         session_dir.mkdir(parents=True)
 
@@ -388,7 +433,7 @@ class TestCopilotImporterTokens:
         #   tool.output_tokens (edit) = resultForLlmLength // 4 = 400 // 4 = 100
         _assert_tool_tokens(trace, "edit", input_t=80, output_t=100)
 
-    def test_copilot_falls_back_to_assistant_output_tokens(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_copilot_falls_back_to_assistant_output_tokens(self, store: ContextStore, tmp_path: Path) -> None:
         session_dir = tmp_path / "copilot-session-fallback"
         session_dir.mkdir(parents=True)
 
@@ -460,6 +505,57 @@ class TestCopilotImporterTokens:
         assert trace.model == "gpt-5.5"
 
         _assert_tool_tokens(trace, "edit", input_t=80, output_t=100)
+
+    def test_copilot_mixed_model_sessions_leave_trace_model_blank(self, store: ContextStore, tmp_path: Path) -> None:
+        session_dir = tmp_path / "copilot-session-mixed"
+        session_dir.mkdir(parents=True)
+
+        events = [
+            json.dumps(
+                {
+                    "type": "session.shutdown",
+                    "timestamp": "2026-05-09T12:00:00Z",
+                    "data": {
+                        "modelMetrics": {
+                            "gpt-5.4": {
+                                "usage": {
+                                    "inputTokens": 300,
+                                    "outputTokens": 110,
+                                    "cacheReadTokens": 40,
+                                    "cacheWriteTokens": 15,
+                                    "reasoningTokens": 10,
+                                }
+                            },
+                            "gpt-5.4-mini": {
+                                "usage": {
+                                    "inputTokens": 120,
+                                    "outputTokens": 30,
+                                    "cacheReadTokens": 20,
+                                    "cacheWriteTokens": 5,
+                                    "reasoningTokens": 2,
+                                }
+                            },
+                        }
+                    },
+                }
+            )
+        ]
+
+        (session_dir / "events.jsonl").write_text("\n".join(events))
+        (session_dir / "workspace.yaml").write_text(self.WORKSPACE_YAML)
+
+        importer = CopilotImporter(store)
+        result = importer.import_session(session_dir, force=True)
+        assert result is not None
+
+        trace = _get_trace(store, "copilot")
+        usage_by_model = {usage.model: usage for usage in trace.model_usages}
+
+        assert trace.model == ""
+        assert len(trace.usage_entries) == 2
+        assert set(usage_by_model) == {"gpt-5.4", "gpt-5.4-mini"}
+        assert usage_by_model["gpt-5.4"].input_tokens == 300
+        assert usage_by_model["gpt-5.4-mini"].output_tokens == 30
 
 
 # =========================================================================
@@ -595,7 +691,7 @@ class TestOpenCodeImporterTokens:
         finally:
             conn.close()
 
-    def test_opencode_token_fields(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_opencode_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         db_path = tmp_path / "opencode.db"
         self._create_db(db_path)
 
@@ -676,7 +772,7 @@ class TestGeminiImporterTokens:
         ),
     ]
 
-    def test_gemini_token_fields(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_gemini_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "session-test-session.jsonl"
         jsonl_path.write_text("\n".join(self.FIXTURE_LINES))
 
@@ -703,7 +799,7 @@ class TestGeminiImporterTokens:
         #   tool.output_tokens (run_shell_command) = dist_in = 100 // 1 = 100
         _assert_tool_tokens(trace, "run_shell_command", input_t=50, output_t=100)
 
-    def test_gemini_counts_same_id_events_when_payload_differs(self, store: ReasoningStore, tmp_path: Path) -> None:
+    def test_gemini_counts_same_id_events_when_payload_differs(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "session-duplicate-ids.jsonl"
         fixture_lines = [
             json.dumps(
@@ -770,9 +866,7 @@ class TestGeminiImporterTokens:
 
         _assert_tool_tokens(trace, "run_shell_command", input_t=50, output_t=100)
 
-    def test_gemini_tracks_per_model_usage_for_mixed_model_sessions(
-        self, store: ReasoningStore, tmp_path: Path
-    ) -> None:
+    def test_gemini_tracks_per_model_usage_for_mixed_model_sessions(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "session-mixed-models.jsonl"
         fixture_lines = [
             json.dumps({"startTime": "2026-05-09T12:00:00Z", "sessionId": "mixed-model-session"}),
@@ -801,7 +895,8 @@ class TestGeminiImporterTokens:
         trace = _get_trace(store, "gemini")
         usage_by_model = {usage.model: usage for usage in trace.model_usages}
 
-        assert trace.model == "gemini-3.1-pro-preview"
+        assert trace.model == ""
+        assert len(trace.usage_entries) == 2
         assert set(usage_by_model) == {"gemini-3-flash-preview", "gemini-3.1-pro-preview"}
         assert usage_by_model["gemini-3-flash-preview"].input_tokens == 80
         assert usage_by_model["gemini-3-flash-preview"].cached_input_tokens == 20
@@ -812,7 +907,7 @@ class TestGeminiImporterTokens:
 
     def test_gemini_reimports_when_content_changes_without_newer_mtime(
         self,
-        store: ReasoningStore,
+        store: ContextStore,
         tmp_path: Path,
     ) -> None:
         jsonl_path = tmp_path / "session-growing.jsonl"

@@ -25,9 +25,9 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict
 
-from atelier.gateway.adapters.adapter_base import AdapterDecision, AdapterMode, AgentAdapter
+from atelier.gateway.adapters.adapter_base import AdapterMode, AgentAdapter
 from atelier.gateway.sdk import AtelierClient
-from atelier.gateway.sdk.client import ReasoningContextResult
+from atelier.gateway.sdk.client import ContextResult
 
 
 class ContinueConfig(BaseModel):
@@ -51,7 +51,6 @@ class ContinueAdapter(AgentAdapter):
 
     Provides:
     - ``get_context``    - retrieve relevant reasoning blocks for a query
-    - ``check_plan``     - pre-plan validation before inline edits are applied
     - ``server_url``     - URL of the Atelier HTTP service (for remote mode)
     """
 
@@ -78,24 +77,13 @@ class ContinueAdapter(AgentAdapter):
         query: str,
         domain: str | None = None,
         files: list[str] | None = None,
-    ) -> ReasoningContextResult:
+    ) -> ContextResult:
         """Return relevant reasoning context for a Continue query string.
 
         This is the main entry point for a Continue context provider.
         The returned ``context`` string can be prepended to the chat prompt.
         """
-        return self.get_reasoning_context(task=query, domain=domain, files=files)
-
-    def check_plan(
-        self,
-        *,
-        task: str,
-        plan: list[str],
-        domain: str | None = None,
-        files: list[str] | None = None,
-    ) -> AdapterDecision:
-        """Validate an inline-edit plan before Continue applies it."""
-        return self.pre_plan_check(task=task, plan=plan, domain=domain, files=files)
+        return self.get_context(task=query, domain=domain, files=files)
 
     @classmethod
     def install(cls) -> str:

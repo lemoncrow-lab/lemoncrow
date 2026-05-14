@@ -418,7 +418,7 @@ def test_dashboard_splits_multi_model_usage_into_by_model_breakdown(
             domain="coding",
             task="mixed model session",
             status="success",
-            model="gemini-3.1-pro-preview",
+            model="",
             model_usages=[
                 ModelUsage(
                     model="gemini-3-flash-preview",

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from atelier.core.foundation.models import CommandRecord, Trace
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 
 @dataclass
@@ -87,9 +87,9 @@ def _trace_command_text(item: str | CommandRecord) -> str:
 class FailureAnalysisCapability:
     """Analyzes failures across traces and proposes actionable remediations."""
 
-    def __init__(self, store: ReasoningStore, reasoning_reuse: Any) -> None:
+    def __init__(self, store: ContextStore, context_reuse: Any) -> None:
         self._store = store
-        self._reasoning_reuse = reasoning_reuse
+        self._context_reuse = context_reuse
 
     def analyze(
         self,
@@ -202,7 +202,7 @@ class FailureAnalysisCapability:
 
         # Use representative task/error pair to fetch reusable procedures.
         rep = traces[0]
-        suggested_blocks = self._reasoning_reuse.retrieve(
+        suggested_blocks = self._context_reuse.retrieve(
             task=rep.task,
             domain=rep.domain,
             errors=rep.errors_seen[:3],
@@ -261,7 +261,7 @@ class FailureAnalysisCapability:
         return out[:8]
 
     def _fallback_fixes(self, *, task: str, error: str, domain: str | None) -> list[str]:
-        scored = self._reasoning_reuse.retrieve(
+        scored = self._context_reuse.retrieve(
             task=task,
             domain=domain,
             errors=[error],

@@ -15,18 +15,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from atelier.core.capabilities.pricing import usage_cost_usd
 from atelier.core.foundation.models import (
     CommandRecord,
     FileEditRecord,
-    ModelUsage,
     RawArtifact,
     ToolCall,
     Trace,
 )
 from atelier.core.foundation.redaction import redact
-from atelier.core.foundation.store import ReasoningStore
-from atelier.gateway.hosts.session_parsers._common import _SIZE_LIMIT_BYTES
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.hosts.session_parsers._common import (
+    _SIZE_LIMIT_BYTES,
+    make_llm_usage_entry,
+    summarize_usage_entries,
+)
 
 
 def _utcnow() -> datetime:
@@ -50,7 +52,7 @@ def find_gemini_sessions(root: Path | None = None) -> Iterator[Path]:
 
 
 class GeminiImporter:
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:
@@ -66,9 +68,8 @@ class GeminiImporter:
             try:
                 # Performance safety: skip massive files (>50MB) for now
                 if jsonl_path.stat().st_size > _SIZE_LIMIT_BYTES:
-                    print(
-                        f"[atelier] gemini: skipping massive session {jsonl_path.name} ({jsonl_path.stat().st_size / 1e6:.1f}MB)"
-                    )
+                    size_mb = jsonl_path.stat().st_size / 1e6
+                    print(f"[atelier] gemini: skipping massive session {jsonl_path.name} ({size_mb:.1f}MB)")
                     continue
 
                 if i % 10 == 0 and i > 0:
@@ -157,7 +158,7 @@ class GeminiImporter:
         user_prompt_tokens = 0
         model_seen = ""
         seen_event_lines: set[str] = set()
-        model_usage_totals: dict[str, dict[str, int]] = {}
+        usage_entries = []
 
         for line in raw_content.splitlines():
             line = line.strip()
@@ -203,22 +204,18 @@ class GeminiImporter:
                 cached_t = int(tokens.get("cached", 0) or 0)
                 billable_in_t = max(0, in_t - cached_t)
 
-                usage_model = str(m or model_seen or "")
-                if usage_model:
-                    usage_bucket = model_usage_totals.setdefault(
-                        usage_model,
-                        {
-                            "input_tokens": 0,
-                            "output_tokens": 0,
-                            "thinking_tokens": 0,
-                            "cached_input_tokens": 0,
-                            "cache_creation_input_tokens": 0,
-                        },
-                    )
-                    usage_bucket["input_tokens"] += billable_in_t
-                    usage_bucket["output_tokens"] += out_t
-                    usage_bucket["thinking_tokens"] += thoughts_t
-                    usage_bucket["cached_input_tokens"] += cached_t
+                usage_entry = make_llm_usage_entry(
+                    model=str(m or model_seen or ""),
+                    input_tokens=billable_in_t,
+                    output_tokens=out_t,
+                    thinking_tokens=thoughts_t,
+                    cached_input_tokens=cached_t,
+                    source_type="gemini.event",
+                    source_id=str(ev.get("id") or ""),
+                    created_at=created_at,
+                )
+                if usage_entry is not None:
+                    usage_entries.append(usage_entry)
 
                 total_in_tokens += billable_in_t
                 total_out_tokens += out_t
@@ -276,22 +273,7 @@ class GeminiImporter:
                 )
             )
 
-        model_usages = [ModelUsage(model=model_name, **usage) for model_name, usage in model_usage_totals.items()]
-        model_usages.sort(
-            key=lambda usage: (
-                usage_cost_usd(
-                    usage.model,
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
-                    cache_read_tokens=usage.cached_input_tokens,
-                    cache_write_tokens=usage.cache_creation_input_tokens,
-                    thinking_tokens=usage.thinking_tokens,
-                ),
-                usage.input_tokens + usage.cached_input_tokens + usage.output_tokens + usage.thinking_tokens,
-            ),
-            reverse=True,
-        )
-        primary_model = model_usages[0].model if model_usages else model_seen
+        usage_summary = summarize_usage_entries(usage_entries, fallback_model=model_seen)
 
         trace = Trace(
             id=artifact_id,
@@ -308,14 +290,15 @@ class GeminiImporter:
             validation_results=[],
             raw_artifact_ids=[artifact.id],
             reasoning=reasoning_snippets,
-            input_tokens=total_in_tokens,
+            input_tokens=usage_summary["input_tokens"],
             user_prompt_tokens=user_prompt_tokens,
-            cached_input_tokens=total_cached,
+            cached_input_tokens=usage_summary["cached_input_tokens"],
             cache_creation_input_tokens=0,
-            model=primary_model,
-            model_usages=model_usages,
-            output_tokens=total_out_tokens,
-            thinking_tokens=total_thinking_tokens,
+            model=usage_summary["model"],
+            usage_entries=usage_summary["usage_entries"],
+            model_usages=usage_summary["model_usages"],
+            output_tokens=usage_summary["output_tokens"],
+            thinking_tokens=usage_summary["thinking_tokens"],
             created_at=created_at,
         )
         self.store.record_trace(trace, write_json=False)

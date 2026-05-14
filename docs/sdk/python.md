@@ -1,10 +1,11 @@
 # Atelier Python SDK
 
-The Python SDK in `atelier.sdk` is the embeddable contract for service backends and custom hosts that want Atelier without shelling out.
-
-The SDK now routes through one runtime orchestrator (`AtelierRuntimeCore`) that manages capability execution centrally.
+The Python SDK in `atelier.sdk` is the embeddable contract for custom hosts,
+tests, and service-side integrations that want Atelier without shelling out.
 
 ## Install
+
+From a source checkout:
 
 ```bash
 cd atelier
@@ -15,19 +16,7 @@ uv sync --all-extras
 
 - `AtelierClient.local(root=".atelier")` uses the in-process runtime and local store.
 - `AtelierClient.remote(base_url=..., api_key=...)` targets the HTTP service.
-- `AtelierClient.mcp(root=".atelier")` uses the MCP tool contract with a local loopback transport by default.
-
-Concrete classes and namespaces shipped in Phase A/B:
-
-- `AtelierClient`
-- `LocalClient`
-- `RemoteClient`
-- `MCPClient`
-- `ReasonBlockClient`
-- `RubricClient`
-- `TraceClient`
-- `EvalClient`
-- `SavingsClient`
+- `AtelierClient.mcp(root=".atelier")` mirrors the MCP contract with a local loopback transport by default.
 
 ## Core Workflow
 
@@ -36,33 +25,26 @@ from atelier.sdk import AtelierClient
 
 client = AtelierClient.local(root=".atelier")
 
-context = client.get_reasoning_context(
+context = client.get_context(
     task="Fix generated output that drifts back after refresh",
     domain="source.truth",
 )
 
-check = client.check_plan(
+rescue = client.rescue_failure(
     task="Apply a live state change",
     domain="state.change",
-    plan=["Resolve target from URL slug alone"],
+    error="Known dead end triggered",
 )
-
-if check.status == "blocked":
-    rescue = client.rescue_failure(
-        task="Apply a live state change",
-        domain="state.change",
-        error="Known dead end triggered",
-    )
-    print(rescue.rescue)
+print(rescue.rescue)
 
 gate = client.run_rubric_gate(
     rubric_id="rubric_state_change_safety",
-    checks=&#123;
+    checks={
         "canonical_identifier_used": True,
         "pre_change_state_captured": True,
         "read_after_write_completed": True,
         "observed_state_matches_intent": True,
-    &#125;,
+    },
 )
 
 trace = client.traces.record(
@@ -75,33 +57,29 @@ trace = client.traces.record(
 
 ## Namespaces
 
-- `client.reasonblocks` / `client.blocks`: list, search, and fetch ReasonBlocks.
-- `client.rubrics`: list, fetch, and run rubric gates.
-- `client.traces`: record, list, and inspect traces.
-- `client.failures`: analyze failure clusters.
-- `client.evals`: run local eval fixtures or query remote eval status.
-- `client.savings`: summarize cost and benchmark savings.
+- `client.reasonblocks` / `client.blocks` — list, search, and fetch ReasonBlocks.
+- `client.rubrics` — list, fetch, and run rubric gates.
+- `client.traces` — record, list, and inspect traces.
+- `client.failures` — analyze failure clusters.
+- `client.evals` — list and run eval cases.
+- `client.savings` — summarize savings and cost deltas.
+- `client.memory` — upsert, fetch, archive, and recall memory blocks.
+- `client.lessons` — review lesson candidates where supported.
 
-## Adapter Integration
+## Dev-Mode Alignment
 
-For custom host middleware, the SDK can be extended via `src/atelier/adapters/`.
-Each adapter supports `shadow`, `suggest`, and `enforce` modes.
+The SDK follows the same runtime policy as the CLI and MCP surfaces.
 
-## Capability-Aligned Operations
+- Context retrieval, rescue, verification, memory, and MCP-backed helper flows
+  follow the same `ATELIER_DEV_MODE=1` gating rules as the runtime.
+- Trace recording and remote-service access remain available outside developer mode.
 
-When using MCP-backed SDK clients, these tools map directly to core runtime capabilities:
+## MCP-Aligned Operations
 
-- `reasoning`
-- `lint`
-- `route`
-- `rescue`
-- `trace`
-- `verify`
-- `memory`
-- `search`
-- `read`
-- `edit`
-- `compact`
-- `atelier_repo_map`
+When using `AtelierClient.mcp()`, the client mirrors the current MCP tool
+surface documented in [mcp.md](mcp.md), including `context`, `route`, `rescue`,
+`trace`, `verify`, `memory`, `read`, `edit`, `search`, and `compact`.
 
-CLI-only workflows include `atelier sql inspect`, `atelier lesson inbox`, `atelier consolidation inbox`, `atelier report`, `atelier proof show`, and `atelier route contract`.
+Use the CLI for operational workflows such as `atelier report`, `atelier
+benchmark ...`, `atelier service ...`, `atelier servicectl ...`, and `atelier
+domain ...`.

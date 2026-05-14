@@ -12,7 +12,7 @@ from typing import Any
 from atelier.core.foundation.lesson_models import LessonCandidate, LessonPromotion
 from atelier.core.foundation.models import ReasonBlock
 from atelier.core.foundation.renderer import render_block_markdown
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 _BOT_ENV_FLAG = "ATELIER_LESSON_PR_BOT_ENABLED"
 _BOT_TOKEN = "GITHUB_TOKEN"
@@ -33,7 +33,7 @@ class LessonPrBot:
     def __init__(
         self,
         *,
-        store: ReasoningStore,
+        store: ContextStore,
         root: Path,
         env: Mapping[str, str] | None = None,
         run_cmd: Callable[[Sequence[str], Path], subprocess.CompletedProcess[str]] = _run_subprocess,

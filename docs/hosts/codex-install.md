@@ -41,10 +41,10 @@ make verify
 
 ## First Task
 
-Start Codex in your workspace, restart once so the marketplace is reloaded, and use the bundled skill:
+Start Codex in your workspace, restart once so the marketplace is reloaded, and run the bundled status command:
 
 ```text
-use skill: task
+/atelier:status
 ```
 
 Or run the Atelier preflight wrapper:
@@ -72,21 +72,12 @@ Or run the Atelier preflight wrapper:
 
 ## V2 Tools — Memory, Context Savings, and Lesson Pipeline
 
-The following V2 tools are available via MCP once installed. All are **Atelier augmentations** — native Codex read/search tools remain the primary interface.
+With `ATELIER_DEV_MODE=1`, the active Atelier MCP surface for Codex includes
+`context`, `route`, `rescue`, `trace`, `verify`, `memory`, `read`, `edit`,
+`sql`, `search`, `compact`, `shell`, and the `code` helpers.
 
-| Tool                    | Boundary                                         | Description                                       |
-| ----------------------- | ------------------------------------------------ | ------------------------------------------------- |
-| `memory`                | Atelier augmentation                             | Store named value in agent memory                 |
-| `memory`                | Atelier augmentation                             | Retrieve named memory block                       |
-| `memory`                | Atelier augmentation                             | FTS + vector search over archival memory          |
-| `memory`                | Atelier augmentation                             | Persist text passage to archival memory           |
-| `memory`                | Atelier augmentation                             | Compact sleeptime memory (reduces context window) |
-| `search`                | Atelier augmentation                             | Token-saving combined search + read               |
-| `edit`                  | Atelier augmentation                             | Deterministic multi-file batch edits (optional)   |
-| `atelier benchmark runtime` | Atelier augmentation                             | Capability efficiency metrics                     |
-| `compact`               | Atelier augmentation over host-native `/compact` | Advise before compaction; provides reinject hints |
-| `atelier lesson inbox`  | Atelier augmentation                             | List lesson candidates awaiting decision          |
-| `atelier lesson decide` | Atelier augmentation                             | Approve or reject a lesson candidate              |
+Without developer mode, `trace` remains the most reliable active surface and
+some other tools may still appear as passive compatibility stubs.
 
 See `integrations/codex/tasks/preflight.md` for how to use `memory` and `search` in the preflight workflow.
 

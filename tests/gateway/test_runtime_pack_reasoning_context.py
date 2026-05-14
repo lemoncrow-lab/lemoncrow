@@ -7,12 +7,12 @@ from pathlib import Path
 import yaml
 
 from atelier.core.foundation.models import ReasonBlock
-from atelier.gateway.adapters.runtime import ReasoningRuntime
+from atelier.gateway.adapters.runtime import ContextRuntime
 
 
-def test_runtime_get_reasoning_context_merges_learned_and_domain_blocks(tmp_path: Path) -> None:
+def test_runtime_get_context_merges_learned_and_domain_blocks(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
-    runtime = ReasoningRuntime(root=root)
+    runtime = ContextRuntime(root=root)
 
     runtime.store.upsert_block(
         ReasonBlock(
@@ -59,7 +59,7 @@ def test_runtime_get_reasoning_context_merges_learned_and_domain_blocks(tmp_path
         encoding="utf-8",
     )
 
-    context = runtime.get_reasoning_context(
+    context = runtime.get_context(
         task="Publish Shopify product and validate GID",
         domain="Agent.shopify.publish",
         max_blocks=10,

@@ -20,6 +20,9 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## `atelier servicectl status` Shows Not Running
 
+The installer only attempts to start `servicectl`. If you installed with
+`ATELIER_NO_SERVICECTL=1`, or if it was stopped later, start it again manually:
+
 **Fix:** start it again manually:
 
 ```bash
@@ -44,10 +47,17 @@ docker --version
 docker compose version
 ```
 
-If ports `3125` or `8787` are already busy:
+If ports `3125` or `8787` are already busy, inspect what owns them first:
 
 ```bash
-lsof -ti :3125 :8787 | xargs kill -9 2>/dev/null || true
+atelier stack status
+ss -ltnp | grep -E ':3125|:8787'
+```
+
+Then stop or reconfigure the conflicting process, or reset the Atelier stack:
+
+```bash
+atelier stack stop
 atelier stack start
 ```
 
@@ -77,19 +87,26 @@ cd atelier
 uv sync --all-extras
 ```
 
-## `atelier lint` or `atelier reasoning` Looks Empty or Too Permissive
+## `atelier context`, `atelier rescue`, or `atelier verify` Returns `noop`
 
-**Cause:** the store was not initialized or the seeded blocks are missing.
+Those commands are developer-mode surfaces.
+
+**Cause:** `ATELIER_DEV_MODE=1` is not enabled in the shell or host environment.
 
 **Fix:**
 
 ```bash
-atelier init
+ATELIER_DEV_MODE=1 atelier context --task "Describe the task" --domain coding
 ```
 
-Then verify the store exists and background processing is alive:
+For host integrations, set `ATELIER_DEV_MODE=1` in the MCP server environment if
+you want active context/retrieval behavior instead of passive compatibility stubs.
+
+If the command still behaves unexpectedly, reinitialize the store and verify the
+runtime is healthy:
 
 ```bash
+atelier init
 atelier servicectl status
 atelier worker list
 ```
@@ -113,6 +130,39 @@ ERROR: extension "vector" is not available
 ```
 
 pgvector is optional. Atelier works normally without it. Only enable it when you want embedding-based similarity search on Postgres.
+
+## Atelier Spend Differs From External Analytics
+
+If Atelier and an external tool such as CodeBurn disagree on spend, check the
+trace pricing source before comparing totals.
+
+Atelier now prices imported sessions from persisted raw `usage_entries` on each
+trace. Mixed-model sessions intentionally leave `trace.model` blank; the source
+of truth is `usage_entries` and the derived `model_usages`, not a synthetic
+session-level “primary model”.
+
+If you changed importer or pricing logic, rebuild imported traces first:
+
+```bash
+atelier import --force
+```
+
+If the service is already running, restart it with a stop/start cycle so the
+HTTP endpoints use the new pricing code instead of an older in-memory process:
+
+```bash
+atelier servicectl stop
+atelier servicectl start
+atelier servicectl status
+```
+
+When comparing totals, keep these rules in mind:
+
+- Atelier totals come from backend pricing helpers over `usage_entries`.
+- Mixed-model sessions should be inspected via `model_usages`, not `trace.model`.
+- Explicit billed tools belong in `usage_entries` with `kind: tool` and `cost_usd`.
+- External tools may still disagree if they apply provider-specific synthetic
+  pricing instead of raw per-model billing.
 
 ## Source Checkout and Contributor Issues
 

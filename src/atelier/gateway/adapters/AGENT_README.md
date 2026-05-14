@@ -22,18 +22,25 @@ Host-facing integration surfaces for CLI, MCP, service, and embedded runtime ada
 ## Capability-driven tools and commands
 
 - CLI: `capability list/status`, `memory summarize`, `read smart`, `edit smart`, `sql inspect`, `benchmark runtime`, `benchmark hosts`
-- MCP (Core-6): `reasoning`, `lint`, `rescue`, `trace`, `verify`, `compact`
+- MCP: `task`, `route`, `rescue`, `trace`, `verify`, `memory`, `read`, `edit`, `sql`, `search`, `compact`, `code`, `shell`
 
-## MCP Tool Surface (Core-6)
+## MCP Tool Surface
 
 | Tool | Namespace | Purpose |
 |---|---|---|
-| `reasoning` | brain | Retrieves curated reasoning context from the ledger |
-| `lint` | brain | Validates a plan against rubrics before execution |
+| `task` | brain | Retrieves curated task context, memory, and ledger state |
+| `route` | brain | Decides and verifies execution routes |
 | `rescue` | brain | Suggests recovery for a failed step |
-| `verify` | brain | Evaluates rubric checks, returns pass/warn/blocked/fail |
+| `verify` | brain | Evaluates rubric checks and returns pass/blocked status |
 | `trace` | capture | Records trace + realtime prompt/response/bash compaction + optional Langfuse emit |
+| `memory` | memory | Dispatches block, archive, recall, and summary ops |
+| `read` | context | Reads files with smart truncation |
+| `search` | context | Searches files with chunk, full, and map modes |
+| `edit` | edit | Applies supervised deterministic edits |
+| `sql` | data | Runs bounded read-only SQL inspection |
 | `compact` | infra | Returns compact ledger prompt block plus realtime context snapshot |
+| `code` | code | Dispatches index, search, symbol, outline, context, and impact ops |
+| `shell` | execution | Executes compact supervised shell commands |
 
 Remote mode (`ATELIER_MCP_MODE=remote`) routes the core HTTP-backed tools through `remote_client.py`; `compact` is always local.
 

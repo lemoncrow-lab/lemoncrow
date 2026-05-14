@@ -378,7 +378,7 @@ export default function Overview() {
       tone: "emerald",
     },
     {
-      label: "Saved In 14d",
+      label: `Saved In ${data.savings?.window_days ?? days}d`,
       value:
         data.savings?.saved_usd != null
           ? usd(data.savings.saved_usd)

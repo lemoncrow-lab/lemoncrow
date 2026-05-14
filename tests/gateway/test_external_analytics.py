@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.integrations import external_analytics as ext
 
 
@@ -28,6 +29,66 @@ def test_run_external_reports_collects_reportable_tools(monkeypatch: pytest.Monk
 
     assert payload["tool"] == "all"
     assert [item["tool"] for item in payload["reports"]] == ["tokscale", "codeburn"]
+
+
+def test_persist_external_reports_replaces_same_tool_period_snapshot(
+    store: ContextStore,
+) -> None:
+    ext.persist_external_reports(
+        store,
+        {
+            "generated_at": "2026-05-13T20:00:00+00:00",
+            "period": "today",
+            "reports": [
+                {
+                    "tool": "codeburn",
+                    "period": "today",
+                    "ok": True,
+                    "payload": {"overview": {"calls": 23}},
+                },
+                {
+                    "tool": "codeburn",
+                    "period": "week",
+                    "ok": True,
+                    "payload": {"overview": {"calls": 140}},
+                },
+            ],
+        },
+        source="servicectl",
+    )
+
+    ext.persist_external_reports(
+        store,
+        {
+            "generated_at": "2026-05-14T09:00:00+00:00",
+            "period": "today",
+            "reports": [
+                {
+                    "tool": "codeburn",
+                    "period": "today",
+                    "ok": True,
+                    "payload": {"overview": {"calls": 48}},
+                }
+            ],
+        },
+        source="servicectl",
+    )
+
+    today_runs = store.list_external_analytics_runs(
+        tool="codeburn",
+        period="today",
+        limit=10,
+    )
+    week_runs = store.list_external_analytics_runs(
+        tool="codeburn",
+        period="week",
+        limit=10,
+    )
+
+    assert len(today_runs) == 1
+    assert today_runs[0]["payload"]["overview"]["calls"] == 48
+    assert len(week_runs) == 1
+    assert week_runs[0]["payload"]["overview"]["calls"] == 140
 
 
 def test_run_external_report_tokscale_combines_native_views(

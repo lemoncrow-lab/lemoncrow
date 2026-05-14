@@ -17,10 +17,10 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# ---- /v1/reasoning/context -------------------------------------------------
+# ---- /v1/context -----------------------------------------------------------
 
 
-class ReasoningContextRequest(_Strict):
+class ContextRequest(_Strict):
     task: str
     domain: str | None = None
     files: list[str] = Field(default_factory=list)
@@ -34,24 +34,12 @@ class ReasoningContextRequest(_Strict):
     recall: bool = True
 
 
-class ReasoningContextResponse(_Strict):
+class ContextResponse(_Strict):
     context: str
     tokens_used: int | None = None
     tokens_saved_vs_naive: int | None = None
     recalled_passages: list[dict[str, str | float]] = Field(default_factory=list)
     tokens_breakdown: dict[str, int] | None = None
-
-
-# ---- /v1/reasoning/check-plan ----------------------------------------------
-
-
-class CheckPlanRequest(_Strict):
-    task: str
-    plan: list[str]
-    domain: str | None = None
-    files: list[str] = Field(default_factory=list)
-    tools: list[str] = Field(default_factory=list)
-    errors: list[str] = Field(default_factory=list)
 
 
 # ---- /v1/reasoning/rescue --------------------------------------------------

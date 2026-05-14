@@ -20,7 +20,7 @@ from typing import Any, Literal
 
 from atelier.core.capabilities.lesson_promotion import LessonPromoterCapability
 from atelier.core.foundation.models import FailureCluster
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 
 
 def _fingerprint(snapshot: dict[str, Any]) -> str | None:
@@ -158,7 +158,7 @@ class FailureAnalyzer:
         self,
         runs_dir: Path | None = None,
         *,
-        store: ReasoningStore | None = None,
+        store: ContextStore | None = None,
         lesson_promoter: LessonPromoterCapability | None = None,
     ) -> None:
         self.runs_dir = Path(runs_dir) if runs_dir is not None else None

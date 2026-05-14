@@ -1,6 +1,6 @@
 ---
 description: "Use when: recalling prior Atelier memory, previous sessions, past commands, old fixes, or context from earlier work."
-allowed-tools: "mcp__atelier__memory, mcp__atelier__task"
+allowed-tools: "mcp__atelier__memory, mcp__atelier__context"
 ---
 
 Recall previous context.

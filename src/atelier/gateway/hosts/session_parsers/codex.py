@@ -54,8 +54,12 @@ from atelier.core.foundation.models import (
     Trace,
 )
 from atelier.core.foundation.redaction import redact
-from atelier.core.foundation.store import ReasoningStore
-from atelier.gateway.hosts.session_parsers._common import _SIZE_LIMIT_BYTES
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.hosts.session_parsers._common import (
+    _SIZE_LIMIT_BYTES,
+    make_llm_usage_entry,
+    summarize_usage_entries,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -276,7 +280,7 @@ class CodexImporter:
     Nothing is thrown away beyond what Atelier's redactor strips.
     """
 
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:
@@ -388,6 +392,8 @@ class CodexImporter:
         final_total_think = 0
         final_total_cached = 0
         model_seen = ""
+        models_seen: set[str] = set()
+        usage_entries = []
         curr_tool_calls: list[tuple[str, Any]] = []
         files_touched: set[str] = set()
         file_diffs: dict[str, str] = {}  # path → diff text
@@ -416,12 +422,14 @@ class CodexImporter:
                 m_meta = payload.get("model") or payload.get("model_id")
                 if m_meta and not model_seen:
                     model_seen = str(m_meta)
+                    models_seen.add(model_seen)
 
             elif ev_type == "turn_context":
                 # turn_context.payload.model is the canonical model name for this turn.
                 m_turn = (ev.get("payload") or {}).get("model")
                 if m_turn:
                     model_seen = str(m_turn)
+                    models_seen.add(model_seen)
 
             elif ev_type == "event_msg":
                 payload = ev.get("payload") or {}
@@ -431,14 +439,24 @@ class CodexImporter:
                     info = payload.get("info") or {}
                     last = info.get("last_token_usage") if isinstance(info, dict) else None
                     last = last or {}
-                    turn_in = int(last.get("input_tokens", 0) or 0)
-                    turn_out = int(last.get("output_tokens", 0) or 0)
+                    turn_in, turn_out, turn_think, turn_cached, turn_cache_write = _extract_flat_usage(last)
                     tot = info.get("total_token_usage") if isinstance(info, dict) else None
                     if isinstance(tot, dict):
                         final_total_in = int(tot.get("input_tokens", 0) or 0)
                         final_total_out = int(tot.get("output_tokens", 0) or 0)
                         final_total_think = int(tot.get("reasoning_output_tokens", 0) or 0)
                         final_total_cached = int(tot.get("cached_input_tokens", 0) or 0)
+                    usage_entry = make_llm_usage_entry(
+                        model=model_seen,
+                        input_tokens=max(turn_in - turn_cached, 0),
+                        output_tokens=turn_out,
+                        thinking_tokens=turn_think,
+                        cached_input_tokens=turn_cached,
+                        cache_creation_input_tokens=turn_cache_write,
+                        source_type="codex.event_msg.token_count",
+                    )
+                    if usage_entry is not None:
+                        usage_entries.append(usage_entry)
                     if curr_tool_calls and (turn_in or turn_out):
                         dist_in = turn_in // len(curr_tool_calls)
                         dist_out = turn_out // len(curr_tool_calls)
@@ -543,6 +561,32 @@ class CodexImporter:
             else:
                 files_enriched.append(f)
 
+        if any((final_total_in, final_total_out, final_total_think, final_total_cached)) and len(models_seen) <= 1:
+            usage_entries = []
+            fallback_usage = make_llm_usage_entry(
+                model=model_seen,
+                input_tokens=max(final_total_in - final_total_cached, 0),
+                output_tokens=final_total_out,
+                thinking_tokens=final_total_think,
+                cached_input_tokens=final_total_cached,
+                source_type="codex.event_msg.total_token_usage",
+            )
+            if fallback_usage is not None:
+                usage_entries.append(fallback_usage)
+        elif not usage_entries and any((final_total_in, final_total_out, final_total_think, final_total_cached)):
+            fallback_usage = make_llm_usage_entry(
+                model=model_seen,
+                input_tokens=max(final_total_in - final_total_cached, 0),
+                output_tokens=final_total_out,
+                thinking_tokens=final_total_think,
+                cached_input_tokens=final_total_cached,
+                source_type="codex.event_msg.total_token_usage",
+            )
+            if fallback_usage is not None:
+                usage_entries.append(fallback_usage)
+
+        usage_summary = summarize_usage_entries(usage_entries, fallback_model=model_seen)
+
         # ── Build Trace with reasoning ───────────────────────────────────────────────
         return Trace(
             id=f"codex-{session_id}",
@@ -569,13 +613,15 @@ class CodexImporter:
             validation_results=[],
             raw_artifact_ids=[artifact_id],
             reasoning=reasoning_snippets,
-            input_tokens=final_total_in - final_total_cached,
+            input_tokens=usage_summary["input_tokens"],
             user_prompt_tokens=user_prompt_tokens,
-            output_tokens=final_total_out,
-            thinking_tokens=final_total_think,
-            cached_input_tokens=final_total_cached,
-            cache_creation_input_tokens=0,
-            model=model_seen,
+            output_tokens=usage_summary["output_tokens"],
+            thinking_tokens=usage_summary["thinking_tokens"],
+            cached_input_tokens=usage_summary["cached_input_tokens"],
+            cache_creation_input_tokens=usage_summary["cache_creation_input_tokens"],
+            model=usage_summary["model"],
+            usage_entries=usage_summary["usage_entries"],
+            model_usages=usage_summary["model_usages"],
             created_at=created_at,
         )
 
@@ -594,12 +640,8 @@ class CodexImporter:
         created_at = _utcnow()
         first_ts_set = False
         user_prompt_tokens = 0
-        total_input_with_cache = 0
-        total_output = 0
-        total_thinking = 0
-        total_cached = 0
-        total_cache_write = 0
         model_seen = ""
+        usage_entries = []
 
         for line in raw_content.splitlines():
             line = line.strip()
@@ -640,11 +682,19 @@ class CodexImporter:
 
                 if ev.get("role") == "assistant":
                     turn_in, turn_out, turn_think, turn_cached, turn_cache_write = _extract_flat_usage(ev.get("usage"))
-                    total_input_with_cache += turn_in
-                    total_output += turn_out
-                    total_thinking += turn_think
-                    total_cached += turn_cached
-                    total_cache_write += turn_cache_write
+                    usage_entry = make_llm_usage_entry(
+                        model=model_seen,
+                        input_tokens=max(turn_in - turn_cached, 0),
+                        output_tokens=turn_out,
+                        thinking_tokens=turn_think,
+                        cached_input_tokens=turn_cached,
+                        cache_creation_input_tokens=turn_cache_write,
+                        source_type="codex.flat.message",
+                        source_id=str(ev.get("id") or ""),
+                        created_at=_parse_ts(ev.get("timestamp")) if ev.get("timestamp") else None,
+                    )
+                    if usage_entry is not None:
+                        usage_entries.append(usage_entry)
 
                 if ev.get("role") == "user":
                     # Extract task from content blocks
@@ -696,6 +746,8 @@ class CodexImporter:
             else:
                 files_enriched.append(f)
 
+        usage_summary = summarize_usage_entries(usage_entries, fallback_model=model_seen)
+
         return Trace(
             id=f"codex-{session_id}",
             session_id=session_id,
@@ -713,12 +765,14 @@ class CodexImporter:
             validation_results=[],
             raw_artifact_ids=[artifact_id],
             reasoning=reasoning_snippets,
-            input_tokens=max(total_input_with_cache - total_cached, 0),
-            output_tokens=total_output,
-            thinking_tokens=total_thinking,
-            cached_input_tokens=total_cached,
-            cache_creation_input_tokens=total_cache_write,
-            model=model_seen,
+            input_tokens=usage_summary["input_tokens"],
+            output_tokens=usage_summary["output_tokens"],
+            thinking_tokens=usage_summary["thinking_tokens"],
+            cached_input_tokens=usage_summary["cached_input_tokens"],
+            cache_creation_input_tokens=usage_summary["cache_creation_input_tokens"],
+            model=usage_summary["model"],
+            usage_entries=usage_summary["usage_entries"],
+            model_usages=usage_summary["model_usages"],
             user_prompt_tokens=user_prompt_tokens,
             created_at=created_at,
         )

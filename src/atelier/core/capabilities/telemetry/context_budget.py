@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from atelier.core.foundation.store import ReasoningStore
+    from atelier.core.foundation.store import ContextStore
 
 
 class RunSavings:
@@ -40,10 +40,10 @@ class ContextBudgetRecorder:
     """Records per-turn context budget and token savings.
 
     Attributes:
-        store: The ReasoningStore instance for persistence.
+        store: The ContextStore instance for persistence.
     """
 
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
         self._prometheus_enabled = self._check_prometheus()
 

@@ -103,7 +103,7 @@ bash scripts/install_claude.sh --print-only
 
 Start Claude Code in your workspace and type:
 
-```
+```text
 /atelier:status
 ```
 
@@ -136,38 +136,16 @@ Select from the `/agents` list in Claude Code:
 
 ## V2 Tools — Memory and Context Savings
 
-The following V2 MCP tools are available once Atelier is installed. These are **Atelier augmentations** — host-native file reads, search, and shell tools remain the raw-access fallback.
+With `ATELIER_DEV_MODE=1`, the active Atelier MCP surface for Claude Code includes
+`context`, `route`, `rescue`, `trace`, `verify`, `memory`, `read`, `edit`,
+`sql`, `search`, `compact`, `shell`, and the `code` helpers.
 
-### Memory tools
+Without developer mode, `trace` remains the most reliable active surface and
+some other tools may still appear as passive compatibility stubs.
 
-| Tool     | Description                                | Example                                                                               |
-| -------- | ------------------------------------------ | ------------------------------------------------------------------------------------- |
-| `memory` | Store a named value in agent memory        | `memory(&#123;agent_id: 'atelier:code', label: 'last_gid', value: 'gid://...'&#125;)` |
-| `memory` | Retrieve a named memory block              | `memory(&#123;agent_id: 'atelier:code', label: 'last_gid'&#125;)`                     |
-| `memory` | FTS + vector search over archival memory   | `memory(&#123;agent_id: 'atelier:code', query: 'Shopify GID pattern'&#125;)`          |
-| `memory` | Persist a text passage to archival memory  | `memory(&#123;agent_id: 'atelier:code', text: '...', source: 'run_123'&#125;)`        |
-| `memory` | Summarize sleeptime memory to save context | `memory(&#123;session_id: 'run_123'&#125;)`                                           |
-
-### Compact lifecycle
-
-| Tool      | Boundary                                             | Description                                                                                                                                                        |
-| --------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `compact` | **Atelier augmentation** over host-native `/compact` | Call before triggering `/compact`; Atelier provides `preserve_blocks` and `pin_memory` lists plus a `suggested_prompt` to reinject runtime facts after compaction. |
-
-### Context-savings tools
-
-| Tool                    | Boundary                 | Description                                                                      |
-| ----------------------- | ------------------------ | -------------------------------------------------------------------------------- |
-| `search`                | **Atelier augmentation** | Token-saving combined search + read; deduplicates repeated context fetches       |
-| `edit`                  | **Atelier augmentation** | Deterministic multi-file batch edits (optional — host MultiEdit remains default) |
-| `atelier benchmark runtime` | **Atelier augmentation** | Capability efficiency metrics                                                    |
-
-### Lesson pipeline
-
-| Tool                    | Description                                                         |
-| ----------------------- | ------------------------------------------------------------------- |
-| `atelier lesson inbox`  | List pending lesson candidates awaiting decision                    |
-| `atelier lesson decide` | Approve or reject a candidate; approved lessons become ReasonBlocks |
+Host-native file reads, search, shell, slash commands, and agents remain the raw
+control surface when you do not need Atelier-specific context, routing, or trace
+behavior.
 
 ## Troubleshooting
 

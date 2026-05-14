@@ -92,11 +92,11 @@ class RemoteClient:
     # Service tools (mirror of MCP local tools)                          #
     # ------------------------------------------------------------------ #
 
-    def get_task_context(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v1/reasoning/context", args)
+    def get_context(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v1/context", args)
 
     def rescue_failure(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v1/reasoning/rescue", args)
+        return self._post("/v1/rescue", args)
 
     def run_rubric_gate(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/rubrics/run", args)

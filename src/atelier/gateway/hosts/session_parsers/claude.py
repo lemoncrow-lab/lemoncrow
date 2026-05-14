@@ -30,8 +30,12 @@ from atelier.core.foundation.models import (
     Trace,
 )
 from atelier.core.foundation.redaction import redact
-from atelier.core.foundation.store import ReasoningStore
-from atelier.gateway.hosts.session_parsers._common import _SIZE_LIMIT_BYTES
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.hosts.session_parsers._common import (
+    _SIZE_LIMIT_BYTES,
+    make_llm_usage_entry,
+    summarize_usage_entries,
+)
 
 _FILE_TOOLS = {
     "read",
@@ -140,7 +144,7 @@ def _infer_file_edit_diff(tool_name: str, inp: dict[str, Any], result_text: str 
 class ClaudeImporter:
     """Claude Code session importer."""
 
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:
@@ -195,16 +199,12 @@ class ClaudeImporter:
             all_files.extend(sorted(subagent_dir.glob("*.jsonl")))
 
         artifact_ids: list[str] = []
-        total_in_tokens = 0
-        total_out_tokens = 0
-        total_cache_read = 0
-        total_cache_create = 0
-        total_thinking_tokens = 0
         model_seen = ""
         user_prompt_tokens = 0
 
         processed_msg_ids: set[str] = set()
-        last_assistant_tokens: dict[str, tuple[int, int, int, int, int]] = {}
+        assistant_usage_entries: dict[str, Any] = {}
+        orphan_usage_entries: list[Any] = []
         pending_tool_uses: dict[str, dict[str, Any]] = {}
         file_index_by_tool_use_id: dict[str, int] = {}
         command_index_by_tool_use_id: dict[str, int] = {}
@@ -324,16 +324,25 @@ class ClaudeImporter:
                                         files_touched[idx] = FileEditRecord(path=path, diff=diff[:4096], event="edit")
                 elif ev_type == "assistant":
                     usage = msg.get("usage", {}) or {}
-                    if msg_id:
-                        in_t = int(usage.get("input_tokens", 0) or 0)
-                        out_t = int(usage.get("output_tokens", 0) or 0)
-                        cr = int(usage.get("cache_read_input_tokens", 0) or 0)
-                        cw = int(usage.get("cache_creation_input_tokens", 0) or 0)
-                        th = int(usage.get("thinking_tokens", 0) or 0)
-                        last_assistant_tokens[msg_id] = (in_t, out_t, cr, cw, th)
                     m = msg.get("model") or ev.get("model")
                     if m:
                         model_seen = str(m)
+                    usage_entry = make_llm_usage_entry(
+                        model=str(m or model_seen),
+                        input_tokens=int(usage.get("input_tokens", 0) or 0),
+                        output_tokens=int(usage.get("output_tokens", 0) or 0),
+                        cached_input_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
+                        cache_creation_input_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
+                        thinking_tokens=int(usage.get("thinking_tokens", 0) or 0),
+                        source_type="claude.assistant",
+                        source_id=msg_id,
+                        created_at=_parse_ts(ev.get("timestamp")) if ev.get("timestamp") else None,
+                    )
+                    if usage_entry is not None:
+                        if msg_id:
+                            assistant_usage_entries[msg_id] = usage_entry
+                        else:
+                            orphan_usage_entries.append(usage_entry)
                     content = msg.get("content") or []
                     calls = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
                     if calls:
@@ -390,12 +399,10 @@ class ClaudeImporter:
                                 if tid:
                                     command_index_by_tool_use_id[tid] = len(commands_run) - 1
 
-        for _in, _out, _cr, _cw, _th in last_assistant_tokens.values():
-            total_in_tokens += _in
-            total_out_tokens += _out
-            total_cache_read += _cr
-            total_cache_create += _cw
-            total_thinking_tokens += _th
+        usage_summary = summarize_usage_entries(
+            [*assistant_usage_entries.values(), *orphan_usage_entries],
+            fallback_model=model_seen,
+        )
 
         if task == "untitled claude session" and title:
             task = title
@@ -425,13 +432,15 @@ class ClaudeImporter:
             validation_results=[],
             raw_artifact_ids=artifact_ids,
             reasoning=reasoning_snippets,
-            input_tokens=total_in_tokens,
+            input_tokens=usage_summary["input_tokens"],
             user_prompt_tokens=user_prompt_tokens,
-            cached_input_tokens=total_cache_read,
-            cache_creation_input_tokens=total_cache_create,
-            model=model_seen,
-            output_tokens=total_out_tokens,
-            thinking_tokens=total_thinking_tokens,
+            cached_input_tokens=usage_summary["cached_input_tokens"],
+            cache_creation_input_tokens=usage_summary["cache_creation_input_tokens"],
+            model=usage_summary["model"],
+            usage_entries=usage_summary["usage_entries"],
+            model_usages=usage_summary["model_usages"],
+            output_tokens=usage_summary["output_tokens"],
+            thinking_tokens=usage_summary["thinking_tokens"],
             created_at=created_at,
         )
         self.store.record_trace(trace, write_json=False)

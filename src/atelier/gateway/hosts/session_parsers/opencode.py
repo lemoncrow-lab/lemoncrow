@@ -21,7 +21,11 @@ from atelier.core.foundation.models import (
     Trace,
 )
 from atelier.core.foundation.redaction import redact
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.hosts.session_parsers._common import (
+    make_llm_usage_entry,
+    summarize_usage_entries,
+)
 
 
 def _ms_to_dt(ms: Any) -> datetime:
@@ -62,7 +66,7 @@ def find_opencode_sessions(db_path: Path | None = None) -> list[dict[str, Any]]:
 class OpenCodeImporter:
     """OpenCode session importer."""
 
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, db_path: Path | None = None, *, force: bool = False) -> list[str]:
@@ -126,6 +130,7 @@ class OpenCodeImporter:
         model_seen = ""
         user_prompt_tokens = 0
         curr_tool_calls: list[tuple[str, dict[str, Any]]] = []
+        usage_entries = []
 
         for line in redacted.splitlines():
             if not line.strip():
@@ -179,6 +184,20 @@ class OpenCodeImporter:
                     total_cache_read += cache_r
                     total_cache_write += cache_w
 
+                    usage_entry = make_llm_usage_entry(
+                        model=model_seen,
+                        input_tokens=in_t,
+                        output_tokens=out_t,
+                        thinking_tokens=int(ts_tok.get("reasoning", 0) or 0),
+                        cached_input_tokens=cache_r,
+                        cache_creation_input_tokens=cache_w,
+                        source_type="opencode.step_finish",
+                        source_id=str(ev.get("id") or ""),
+                        created_at=_ms_to_dt(ev.get("time_created")),
+                    )
+                    if usage_entry is not None:
+                        usage_entries.append(usage_entry)
+
                     if curr_tool_calls:
                         dist_in = (in_t + cache_r + cache_w) // len(curr_tool_calls)
                         dist_out = out_t // len(curr_tool_calls)
@@ -187,6 +206,8 @@ class OpenCodeImporter:
                             tool_in_tokens[t_name] = tool_in_tokens.get(t_name, 0) + dist_out
                             tool_out_tokens[t_name] = tool_out_tokens.get(t_name, 0) + dist_in
                         curr_tool_calls = []
+
+        usage_summary = summarize_usage_entries(usage_entries, fallback_model=model_seen)
 
         trace = Trace(
             id=artifact_id,
@@ -212,13 +233,15 @@ class OpenCodeImporter:
             validation_results=[],
             raw_artifact_ids=[artifact.id],
             reasoning=reasoning_snippets,
-            input_tokens=total_in,
+            input_tokens=usage_summary["input_tokens"],
             user_prompt_tokens=user_prompt_tokens,
-            output_tokens=total_out,
-            thinking_tokens=total_reason,
-            cached_input_tokens=total_cache_read,
-            cache_creation_input_tokens=total_cache_write,
-            model=model_seen,
+            output_tokens=usage_summary["output_tokens"],
+            thinking_tokens=usage_summary["thinking_tokens"],
+            cached_input_tokens=usage_summary["cached_input_tokens"],
+            cache_creation_input_tokens=usage_summary["cache_creation_input_tokens"],
+            model=usage_summary["model"],
+            usage_entries=usage_summary["usage_entries"],
+            model_usages=usage_summary["model_usages"],
             created_at=session_mtime,
         )
         self.store.record_trace(trace, write_json=False)
@@ -234,7 +257,7 @@ class OpenCodeImporter:
             # We use a UNION to get a combined stream of events
             sql = """
                 SELECT 'message' as etype, id, data, time_created, NULL as role
-                FROM message 
+                FROM message
                 WHERE session_id = ?
                 UNION ALL
                 SELECT 'part' as etype, p.id, p.data, p.time_created, json_extract(m.data, '$.role') as role

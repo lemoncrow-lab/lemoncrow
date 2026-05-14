@@ -7,7 +7,7 @@ import pytest
 from click.testing import CliRunner
 
 from atelier.core.foundation.models import ReasonBlock
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.adapters import cli as cli_module
 from atelier.gateway.adapters.cli import cli
 from atelier.infra.internal_llm.ollama_client import OllamaUnavailable
@@ -15,7 +15,7 @@ from atelier.infra.internal_llm.ollama_client import OllamaUnavailable
 
 def test_cli_reembed_rewrites_legacy_archival_passage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".atelier"
-    store = ReasoningStore(root)
+    store = ContextStore(root)
     store.init()
     with store._connect() as conn:
         conn.execute(
@@ -64,7 +64,7 @@ def test_cli_reembed_rewrites_legacy_archival_passage(tmp_path: Path, monkeypatc
 
 def test_cli_consolidate_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".atelier"
-    store = ReasoningStore(root)
+    store = ContextStore(root)
     store.init()
     for block_id in ["rb-one", "rb-two"]:
         store.upsert_block(

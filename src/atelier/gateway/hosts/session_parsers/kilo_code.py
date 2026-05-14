@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers._vscode_cline import find_task_dirs, import_task_dir
 
 _EXTENSION_ID = "kilocode.kilo-code"
@@ -15,7 +15,7 @@ def find_kilo_code_sessions(root: Path | None = None) -> list[Path]:
 
 
 class KiloCodeImporter:
-    def __init__(self, store: ReasoningStore) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False) -> list[str]:

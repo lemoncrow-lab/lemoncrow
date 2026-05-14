@@ -274,7 +274,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_type_status ON jobs(job_type, status, create
 # --------------------------------------------------------------------------- #
 
 
-class ReasoningStore:
+class ContextStore:
     """SQLite-backed store. Single-process, single-writer.
 
     The store is also responsible for mirroring blocks/traces to the filesystem
@@ -1244,11 +1244,17 @@ class ReasoningStore:
         stdout: str = "",
         stderr: str = "",
         collected_at: str | None = None,
+        replace_period_snapshot: bool = False,
     ) -> str:
         session_id = uuid4().hex
         created_at = datetime.now(UTC).isoformat()
         collected = collected_at or created_at
         with self._connect() as conn:
+            if replace_period_snapshot:
+                conn.execute(
+                    "DELETE FROM external_analytics_runs WHERE tool = ? AND period = ?",
+                    (tool, period),
+                )
             conn.execute(
                 """
                 INSERT INTO external_analytics_runs (

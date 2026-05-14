@@ -33,7 +33,7 @@ from atelier.core.foundation.routing_models import (
 )
 
 if TYPE_CHECKING:
-    from atelier.core.foundation.store import ReasoningStore
+    from atelier.core.foundation.store import ContextStore
     from atelier.infra.runtime.run_ledger import RunLedger
 
 
@@ -42,7 +42,7 @@ class QualityRouterCapability:
 
     def __init__(
         self,
-        store: ReasoningStore,
+        store: ContextStore,
         repo_root: str | Path,
         *,
         loop_detection: LoopDetectionCapability | None = None,

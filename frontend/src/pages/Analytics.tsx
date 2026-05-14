@@ -307,6 +307,19 @@ function utcHourKey(date: Date) {
   return `${utcDateKey(date)} ${String(date.getUTCHours()).padStart(2, "0")}:00`;
 }
 
+function timelineValueLabel(cost: number) {
+  if (cost > 0 && cost < 0.01) return "<$0.01";
+  return `$${cost.toFixed(2)}`;
+}
+
+function timelineBucketLabel(date: string, breakdown: TimelineBreakdownValue) {
+  if (breakdown === "hourly") {
+    const [, time = date] = date.split(" ");
+    return time.slice(0, 5);
+  }
+  return date.slice(5);
+}
+
 function timelineEndDate(daily: AnalyticsDashboard["daily"]) {
   const lastDate = daily
     .map((bucket) => bucket.date)
@@ -395,12 +408,19 @@ function SpendTimelineChart({
 
   const maxCost = Math.max(...buckets.map((d) => d.cost), 0.0001);
   const totalCost = buckets.reduce((a, d) => a + d.cost, 0);
+  const unitLabel = breakdown === "hourly" ? "hourly" : "daily";
+  const isHourly = breakdown === "hourly";
 
   return (
-    <section className="border border-neutral-800 bg-neutral-950/40 p-5 space-y-3">
+    <section className="border border-neutral-800 bg-neutral-950/40 p-5 space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-[11px] uppercase tracking-widest text-neutral-400 font-bold">
-          Spend by {breakdown === "hourly" ? "Hour" : "Day"}
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">
+            {breakdown === "hourly" ? "Hourly" : "Daily"} Activity
+          </div>
+          <div className="mt-1 text-sm text-neutral-400">
+            Last {buckets.length} {unitLabel} snapshots in the selected window.
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {TIMELINE_BREAKDOWN_OPTIONS.map((option) => {
@@ -423,35 +443,51 @@ function SpendTimelineChart({
           })}
         </div>
       </div>
+
       <div
-        className="grid items-end gap-px h-20 w-full pb-1"
-        style={{
-          gridTemplateColumns: `repeat(${buckets.length}, minmax(1px, 1fr))`,
-        }}
+        className={`flex items-end overflow-x-auto pb-2 ${
+          isHourly ? "gap-px" : "gap-2"
+        }`}
       >
         {buckets.map((d) => {
-          const h = Math.max(4, (d.cost / maxCost) * 80);
+          const h = Math.max(6, (d.cost / maxCost) * (isHourly ? 72 : 112));
           return (
             <div
               key={d.date}
-              className="flex h-20 min-w-0 items-end"
-              title={`${d.date}: $${d.cost.toFixed(3)} · ${d.sessions} sessions`}
+              className={`flex flex-col items-center ${
+                isHourly
+                  ? "min-w-[34px] flex-1 gap-1"
+                  : "min-w-[52px] flex-1 gap-2"
+              }`}
+              title={`${d.date}: ${timelineValueLabel(d.cost)} · ${d.sessions} sessions`}
             >
               <div
-                className={`w-full min-w-px rounded-sm transition-colors cursor-default ${
-                  d.sessions > 0
-                    ? "bg-emerald-500/60 hover:bg-emerald-400/80"
-                    : "bg-neutral-800/70"
-                }`}
-                style={{ height: `${h}px` }}
-              />
+                className={`max-w-full truncate font-mono ${
+                  d.cost > 0 ? "text-emerald-300" : "text-neutral-600"
+                } ${isHourly ? "text-[8px]" : "text-[10px]"}`}
+              >
+                {timelineValueLabel(d.cost)}
+              </div>
+              <div className={`flex items-end ${isHourly ? "h-20" : "h-28"}`}>
+                <div
+                  className={`rounded-t-sm transition-colors cursor-default ${
+                    d.sessions > 0
+                      ? "bg-emerald-500/60 hover:bg-emerald-400/80"
+                      : "bg-neutral-800/70"
+                  } ${isHourly ? "w-5" : "w-7"}`}
+                  style={{ height: `${h}px` }}
+                />
+              </div>
+              <div
+                className={`max-w-full truncate font-mono ${
+                  d.sessions > 0 ? "text-neutral-500" : "text-neutral-700"
+                } ${isHourly ? "h-3 text-[8px]" : "text-[10px]"}`}
+              >
+                {timelineBucketLabel(d.date, breakdown)}
+              </div>
             </div>
           );
         })}
-      </div>
-      <div className="flex justify-between text-[9px] text-neutral-600 font-mono">
-        <span>{buckets[0]?.date}</span>
-        <span>{buckets[buckets.length - 1]?.date}</span>
       </div>
       <div className="grid grid-cols-2 gap-3 pt-2 border-t border-neutral-800/60">
         <div>
@@ -1663,7 +1699,8 @@ export default function Analytics() {
                           <div className="flex items-center justify-end gap-2">
                             <span className="font-mono text-[10px] text-neutral-500">
                               {(
-                                (item.tokens / (stats.tool_output_tokens || 1)) *
+                                (item.tokens /
+                                  (stats.tool_output_tokens || 1)) *
                                 100
                               ).toFixed(1)}
                               %

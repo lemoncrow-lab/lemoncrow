@@ -14,11 +14,11 @@ from typing import Any, ClassVar, cast
 
 from atelier.core.capabilities import (
     ContextCompressionCapability,
+    ContextReuseCapability,
     FailureAnalysisCapability,
     LoopDetectionCapability,
     ProofGateCapability,
     QualityRouterCapability,
-    ReasoningReuseCapability,
     SemanticFileMemoryCapability,
     ToolSupervisionCapability,
 )
@@ -32,7 +32,7 @@ from atelier.core.foundation.retriever import (
     summarize_recalled_passages,
 )
 from atelier.core.foundation.routing_models import RouteDecision, StepType, TaskType
-from atelier.core.foundation.store import ReasoningStore
+from atelier.core.foundation.store import ContextStore
 from atelier.infra.runtime.run_ledger import RunLedger
 
 
@@ -45,7 +45,7 @@ class AtelierRuntimeCore:
         "loop_detection": "Repeated-failure and dead-end detection with runtime alerts.",
         "proof_gate": "Cost-quality proof gate combining context savings, routing evals, and trace confidence.",
         "quality_router": "Deterministic quality-aware route selection for runtime steps.",
-        "reasoning_reuse": "Reuse prior successful procedures and failure signatures.",
+        "context_reuse": "Reuse prior successful procedures and failure signatures.",
         "semantic_file_memory": "Semantic summaries and symbol maps for local files.",
         "tool_supervision": "Redundancy detection, observation cache, and efficiency metrics.",
     }
@@ -53,10 +53,10 @@ class AtelierRuntimeCore:
     def __init__(self, root: str | Path | None = None) -> None:
         resolved_root = default_store_root() if root is None else Path(root).resolve()
         self.root = resolved_root
-        self.store = ReasoningStore(self.root)
+        self.store = ContextStore(self.root)
         self.store.init()
 
-        self.reasoning_reuse = ReasoningReuseCapability(self.store, self.root)
+        self.context_reuse = ContextReuseCapability(self.store, self.root)
         self.semantic_memory = SemanticFileMemoryCapability(self.root)
         self.loop_detection = LoopDetectionCapability()
         self.quality_router = QualityRouterCapability(
@@ -66,7 +66,7 @@ class AtelierRuntimeCore:
         )
         self.tool_supervision = ToolSupervisionCapability(self.root)
         self.context_compression = ContextCompressionCapability()
-        self.failure_analysis = FailureAnalysisCapability(self.store, self.reasoning_reuse)
+        self.failure_analysis = FailureAnalysisCapability(self.store, self.context_reuse)
         self.proof_gate = ProofGateCapability(self.root)
 
     def capability_list(self) -> list[dict[str, str]]:
@@ -82,7 +82,7 @@ class AtelierRuntimeCore:
             "semantic_entries": len(self.semantic_memory._load().get("files", {})),
         }
 
-    def get_reasoning_context(
+    def get_context(
         self,
         *,
         task: str,
@@ -97,7 +97,7 @@ class AtelierRuntimeCore:
         agent_id: str | None = None,
         recall: bool = True,
     ) -> str | dict[str, Any]:
-        scored = self.reasoning_reuse.retrieve(
+        scored = self.context_reuse.retrieve(
             task=task,
             domain=domain,
             files=files,
@@ -142,7 +142,7 @@ class AtelierRuntimeCore:
         if not include_telemetry:
             return payload
 
-        naive = self.reasoning_reuse.retrieve(
+        naive = self.context_reuse.retrieve(
             task=task,
             domain=domain,
             files=files,
@@ -569,10 +569,10 @@ class AtelierRuntimeCore:
         )
 
     # ------------------------------------------------------------------ #
-    # Inject runtime reasoning                                             #
+    # Inject runtime context                                               #
     # ------------------------------------------------------------------ #
 
-    def inject_reasoning(
+    def inject_context(
         self,
         *,
         task: str,
@@ -582,10 +582,10 @@ class AtelierRuntimeCore:
         errors: list[str] | None = None,
         max_blocks: int = 5,
     ) -> dict[str, Any]:
-        """Return full inject_runtime_reasoning payload."""
+        """Return full inject_runtime_context payload."""
         return cast(
             dict[str, Any],
-            self.reasoning_reuse.inject_runtime_reasoning(
+            self.context_reuse.inject_runtime_context(
                 task=task,
                 domain=domain,
                 files=files,
@@ -608,14 +608,14 @@ class AtelierRuntimeCore:
     ) -> dict[str, Any]:
         """Hook: called before executing a plan.
 
-        Returns reasoning context and any loop/dead-end warnings.
+        Returns context information and any loop/dead-end warnings.
         """
-        reasoning = self.inject_reasoning(task=task, domain=domain)
+        context_data = self.inject_context(task=task, domain=domain)
         return {
             "hook": "pre_plan",
-            "procedures": reasoning.get("procedures", []),
-            "dead_ends": reasoning.get("dead_ends", []),
-            "rescue_strategies": reasoning.get("rescue_strategies", []),
+            "procedures": context_data.get("procedures", []),
+            "dead_ends": context_data.get("dead_ends", []),
+            "rescue_strategies": context_data.get("rescue_strategies", []),
             "plan_step_count": len(plan),
         }
 
@@ -712,14 +712,14 @@ class AtelierRuntimeCore:
         rubric_id: str | None = None,
     ) -> dict[str, Any]:
         """Hook: gather context before running validation rubric."""
-        reasoning = self.inject_reasoning(
+        context_data = self.inject_context(
             task=f"validation:{rubric_id or 'unknown'}",
         )
         return {
             "hook": "pre_validation",
             "checks": checks,
             "rubric_id": rubric_id,
-            "rescue_strategies": reasoning.get("rescue_strategies", []),
+            "rescue_strategies": context_data.get("rescue_strategies", []),
         }
 
     def post_validation(self, result: dict[str, Any]) -> None:

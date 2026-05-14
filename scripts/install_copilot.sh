@@ -341,7 +341,7 @@ else
     vpass "global install does not write project chat mode"
 fi
 
-if [ -f "$TASKS_DEST" ] && grep -q "Atelier: Check Plan" "$TASKS_DEST" 2>/dev/null; then
+if [ -f "$TASKS_DEST" ] && grep -q "Atelier: Copilot Preflight" "$TASKS_DEST" 2>/dev/null; then
     vpass "Atelier VS Code task presets installed in $TASKS_DEST"
 else
     vfail "$TASKS_DEST missing Atelier task presets"

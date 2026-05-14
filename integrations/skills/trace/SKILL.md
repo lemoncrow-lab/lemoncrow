@@ -5,7 +5,7 @@ description: Use at the end of every coding task to record an observable trace. 
 
 # Trace
 
-A trace captures what happened — files, commands, tools, errors, results.
+**Step 3: Record Trace**. A trace captures what happened — files, commands, tools, errors, results.
 **Never** captures secrets or hidden chain-of-thought.
 
 ## When to call
@@ -44,9 +44,3 @@ trace({
 - Use error *signatures* (the message itself, redacted), not full stack
   traces with paths and addresses.
 - Set `status` honestly. Do not mark `failed` runs as `success`.
-
-## After recording
-
-If the task involved a clean win in a high-risk domain, optionally call
-`atelier_extract_reasonblock` on the new trace id and propose the
-candidate block to the user. Do not auto-save.

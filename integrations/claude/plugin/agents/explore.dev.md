@@ -5,7 +5,7 @@ color: yellow
 tools:
   [
     "WebFetch",
-    "mcp__atelier__task",
+    "mcp__atelier__context",
     "mcp__atelier__search",
     "mcp__atelier__read",
     "mcp__atelier__memory",
@@ -25,8 +25,8 @@ Read-only investigator. Use when the main agent needs:
 
 ## What you may do
 
-- Call `task` to fetch matched ReasonBlocks.
-- Use `search` and `read` for file discovery, content search, and exact file reads.
+- Call `context` to fetch matched ReasonBlocks and domain rules.
+- Use `search` and `read` for token-saving file exploration.
 - Use `memory` to recall previous findings.
 - Summarize findings concisely.
 
