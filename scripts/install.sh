@@ -182,15 +182,21 @@ prepare_repo() {
     run mkdir -p "$dir"
 
     if [[ -d "$ATELIER_INSTALL_DIR/.git" ]]; then
-        info "Updating existing repository in $ATELIER_INSTALL_DIR"
+        info "Updating existing repository in $ATELIER_INSTALL_DIR (force-overwrite local changes)"
         if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
             echo "[dry-run] git -C $ATELIER_INSTALL_DIR fetch --tags --prune origin"
-            echo "[dry-run] git -C $ATELIER_INSTALL_DIR checkout $ATELIER_REF"
-            echo "[dry-run] git -C $ATELIER_INSTALL_DIR pull --ff-only origin $ATELIER_REF"
+            echo "[dry-run] git -C $ATELIER_INSTALL_DIR checkout -f $ATELIER_REF"
+            echo "[dry-run] git -C $ATELIER_INSTALL_DIR reset --hard origin/$ATELIER_REF"
+            echo "[dry-run] git -C $ATELIER_INSTALL_DIR clean -fd"
         else
             git -C "$ATELIER_INSTALL_DIR" fetch --tags --prune origin
-            git -C "$ATELIER_INSTALL_DIR" checkout "$ATELIER_REF"
-            git -C "$ATELIER_INSTALL_DIR" pull --ff-only origin "$ATELIER_REF"
+            git -C "$ATELIER_INSTALL_DIR" checkout -f "$ATELIER_REF"
+            if git -C "$ATELIER_INSTALL_DIR" rev-parse --verify "origin/$ATELIER_REF" >/dev/null 2>&1; then
+                git -C "$ATELIER_INSTALL_DIR" reset --hard "origin/$ATELIER_REF"
+            else
+                git -C "$ATELIER_INSTALL_DIR" reset --hard "$ATELIER_REF"
+            fi
+            git -C "$ATELIER_INSTALL_DIR" clean -fd
         fi
     else
         info "Cloning $ATELIER_REPO_URL into $ATELIER_INSTALL_DIR"
