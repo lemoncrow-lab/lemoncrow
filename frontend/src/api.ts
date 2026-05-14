@@ -927,26 +927,12 @@ export interface DashboardExternalProvider {
   costUSD: number;
 }
 
-export interface DashboardExternalHost {
-  host: string;
-  hostDisplayName: string;
-  models: number;
-  calls: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-  totalTokens: number;
-  costUSD: number;
-}
-
 export interface DashboardExternalSummary {
   runs_total: number;
   successful_runs: number;
   failed_runs: number;
   latest: DashboardExternalLatest[];
   by_provider: DashboardExternalProvider[];
-  by_host: DashboardExternalHost[];
 }
 
 export interface ExternalAnalyticsRun {

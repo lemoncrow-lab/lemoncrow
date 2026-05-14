@@ -142,15 +142,10 @@ def _build_external_analytics_summary(store: Any, *, days: int) -> dict[str, Any
         )
 
     by_provider: list[dict[str, Any]] = []
-    by_host: list[dict[str, Any]] = []
     if isinstance(latest_codeburn_payload, dict):
         provider_rows = latest_codeburn_payload.get("providerEntries")
         if isinstance(provider_rows, list):
             by_provider = [row for row in provider_rows if isinstance(row, dict)]
-
-        host_rows = latest_codeburn_payload.get("hostEntries")
-        if isinstance(host_rows, list):
-            by_host = [row for row in host_rows if isinstance(row, dict)]
 
     return {
         "runs_total": len(runs),
@@ -158,7 +153,6 @@ def _build_external_analytics_summary(store: Any, *, days: int) -> dict[str, Any
         "failed_runs": len(runs) - successful_runs,
         "latest": latest,
         "by_provider": by_provider,
-        "by_host": by_host,
     }
 
 

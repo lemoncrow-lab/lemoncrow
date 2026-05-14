@@ -242,6 +242,39 @@ def find_copilot_transcript_files(root: Path | None = None) -> Iterator[Path]:
                 yield from sorted(transcript_dir.glob("*.jsonl"))
 
 
+def find_copilot_debug_log_dirs(root: Path | None = None) -> Iterator[Path]:
+    """Yield per-session debug-log directories from VSCode Copilot Chat.
+
+    Each directory ``debug-logs/<sid>/`` contains ``main.jsonl`` plus
+    ``runSubagent-*.jsonl`` and ``title-*.jsonl`` files. They hold the only
+    per-LLM-request token telemetry (events of ``type:"llm_request"`` with
+    ``attrs.model / inputTokens / outputTokens``) that VSCode Copilot Chat
+    exposes — the sibling ``transcripts/<sid>.jsonl`` carries no token data.
+
+    Without this source atelier under-reports VSCode Copilot Chat activity by
+    several hundred LLM calls per active day.
+    """
+    if root is not None:
+        if root.is_dir():
+            for sid_dir in sorted(root.iterdir()):
+                if sid_dir.is_dir() and (sid_dir / "main.jsonl").exists():
+                    yield sid_dir
+        return
+    for vscode_base in [
+        Path("~/.config/Code/User/workspaceStorage").expanduser(),
+        Path("~/Library/Application Support/Code/User/workspaceStorage").expanduser(),
+    ]:
+        if not vscode_base.is_dir():
+            continue
+        for ws in sorted(vscode_base.iterdir()):
+            debug_root = ws / "GitHub.copilot-chat" / "debug-logs"
+            if not debug_root.is_dir():
+                continue
+            for sid_dir in sorted(debug_root.iterdir()):
+                if sid_dir.is_dir() and (sid_dir / "main.jsonl").exists():
+                    yield sid_dir
+
+
 # ---------------------------------------------------------------------------
 # Importer
 # ---------------------------------------------------------------------------
@@ -275,10 +308,12 @@ class CopilotImporter:
         skipped = 0
         all_sessions = list(find_copilot_sessions(root))
         all_transcripts = list(find_copilot_transcript_files(root))
-        total = len(all_sessions) + len(all_transcripts)
+        all_debug_logs = list(find_copilot_debug_log_dirs(root))
+        total = len(all_sessions) + len(all_transcripts) + len(all_debug_logs)
         print(
             "[atelier] copilot: discovering sessions "
-            f"(found {len(all_sessions)} directory, {len(all_transcripts)} transcript)"
+            f"(found {len(all_sessions)} directory, {len(all_transcripts)} transcript, "
+            f"{len(all_debug_logs)} debug-log)"
         )
         for i, session_dir in enumerate(all_sessions):
             try:
@@ -302,6 +337,16 @@ class CopilotImporter:
             except Exception as exc:
                 _traceback.print_exc()
                 print(f"[atelier] skipping transcript {transcript_path.name}: {exc}")
+        for debug_log_dir in all_debug_logs:
+            try:
+                sid = self.import_debug_log_dir(debug_log_dir, force=force)
+                if sid:
+                    imported_ids.append(sid)
+                else:
+                    skipped += 1
+            except Exception as exc:
+                _traceback.print_exc()
+                print(f"[atelier] skipping debug-log {debug_log_dir.name}: {exc}")
         for sid in self._reconcile_stored_transcripts():
             if sid not in imported_ids:
                 imported_ids.append(sid)
@@ -771,6 +816,192 @@ class CopilotImporter:
             redacted_events=redacted_events,
             artifact_id=artifact_id,
         )
+
+    # ------------------------------------------------------------------
+    # VSCode Copilot Chat debug-logs (per-LLM-call telemetry)
+    # ------------------------------------------------------------------
+
+    def import_debug_log_dir(self, debug_log_dir: Path, *, force: bool = False) -> str | None:
+        """Import a single ``debug-logs/<sid>/`` directory as one Trace per UTC day.
+
+        Concatenates every ``*.jsonl`` in the directory (main + subagent +
+        title) and harvests ``type:"llm_request"`` events into UsageEntry
+        records. Subagent / title files are tagged with distinct
+        ``source_type`` values so consumers can tell them apart at analysis
+        time.
+
+        Long-running chats span multiple UTC days; this importer **partitions
+        events by their UTC date** and emits one Trace per ``(session_id,
+        date)`` pair so day-level dashboards bucket each event in the correct
+        window. Without this split, every event in a multi-day chat would
+        land in the day the session *started*, hiding today's activity.
+
+        Returns the trace id of the most-recent day's trace, or ``None`` when
+        the directory has no billable events at all.
+        """
+        session_id = debug_log_dir.name
+        artifact_id = f"copilot-debug-log-{session_id}"
+        main_path = debug_log_dir / "main.jsonl"
+        if not main_path.exists():
+            return None
+
+        try:
+            file_mtime = datetime.fromtimestamp(max(p.stat().st_mtime for p in debug_log_dir.glob("*.jsonl")), tz=UTC)
+        except (OSError, ValueError):
+            file_mtime = _utcnow()
+
+        if not force:
+            existing = self.store.get_raw_artifact(artifact_id)
+            if existing and existing.source_file_mtime and file_mtime <= existing.source_file_mtime:
+                return None
+
+        # Concatenate every jsonl in the dir so a single raw artifact mirrors
+        # the directory contents — keeps redaction + dedup simple.
+        chunks: list[tuple[str, str]] = []  # (source_kind, content)
+        for jsonl_path in sorted(debug_log_dir.glob("*.jsonl")):
+            try:
+                content = jsonl_path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            chunks.append((jsonl_path.name, content))
+        if not chunks:
+            return None
+
+        combined_raw = "\n".join(content for _, content in chunks)
+        redacted = redact(combined_raw)
+        raw_bytes = combined_raw.encode("utf-8")
+        redacted_bytes = redacted.encode("utf-8")
+
+        artifact = RawArtifact(
+            id=artifact_id,
+            source="copilot",
+            source_session_id=session_id,
+            kind="vscode-copilot-chat.debug-logs",
+            relative_path=debug_log_dir.name,
+            content_path=f"raw/copilot/vscode-debug-logs/{session_id}.jsonl",
+            sha256_original=hashlib.sha256(raw_bytes).hexdigest(),
+            sha256_redacted=hashlib.sha256(redacted_bytes).hexdigest(),
+            byte_count_original=len(raw_bytes),
+            byte_count_redacted=len(redacted_bytes),
+            created_at=_utcnow(),
+            source_file_mtime=file_mtime,
+            source_path=str(debug_log_dir),
+        )
+        self.store.record_raw_artifact(artifact, redacted)
+
+        # Parse llm_request events into UsageEntries, partitioned by UTC date
+        # so a chat that spans multiple days bills correctly to each day.
+        # Bucket key: ISO date string YYYY-MM-DD.
+        from collections import defaultdict
+
+        per_day: dict[str, dict[str, Any]] = defaultdict(
+            lambda: {
+                "usage_entries": [],
+                "tools_called": {},
+                "user_prompt_tokens": 0,
+                "first_ts": None,
+                "task": "",
+            }
+        )
+        for source_kind, content in chunks:
+            for line in content.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                ts_ms = ev.get("ts")
+                ev_dt: datetime | None = None
+                if isinstance(ts_ms, (int, float)) and ts_ms > 0:
+                    ev_dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
+                day_key = ev_dt.date().isoformat() if ev_dt else "unknown"
+                bucket = per_day[day_key]
+                if ev_dt and (bucket["first_ts"] is None or ev_dt < bucket["first_ts"]):
+                    bucket["first_ts"] = ev_dt
+                etype = ev.get("type")
+                if etype == "user_message":
+                    text = _text_from_value((ev.get("attrs") or {}).get("text") or ev.get("name") or "")
+                    if text:
+                        bucket["user_prompt_tokens"] += max(1, len(text) // 4)
+                        if not bucket["task"]:
+                            bucket["task"] = text[:200]
+                    continue
+                if etype == "tool_call":
+                    name = _text_from_value((ev.get("attrs") or {}).get("toolName") or ev.get("name") or "")
+                    if name:
+                        bucket["tools_called"][name] = bucket["tools_called"].get(name, 0) + 1
+                    continue
+                if etype != "llm_request":
+                    continue
+                attrs = ev.get("attrs") or {}
+                raw_model = _text_from_value(attrs.get("model"))
+                in_t = _int_or_none(attrs.get("inputTokens")) or 0
+                out_t = _int_or_none(attrs.get("outputTokens")) or 0
+                if in_t == 0 and out_t == 0 and not raw_model:
+                    continue
+                # GitHub Copilot is a subscription product ($19/mo, with the
+                # underlying OpenAI/Anthropic calls included in the plan).
+                # Billing the raw token counts at the upstream API's per-token
+                # rate would massively overstate cost (>$200/day at gpt-5
+                # rates). We namespace these models as ``copilot/<model>`` so
+                # they price via dedicated zero-cost entries in pricing.py,
+                # mirroring how ``opencode/big-pickle`` is handled. Users who
+                # want a non-zero rate can call ``override_pricing``.
+                model = f"copilot/{raw_model}" if raw_model else ""
+                source_type = "copilot.vscode_chat.llm_request"
+                if source_kind != "main.jsonl":
+                    source_type = f"copilot.vscode_chat.{source_kind.replace('.jsonl', '')}.llm_request"
+                entry = make_llm_usage_entry(
+                    model=model,
+                    input_tokens=in_t,
+                    output_tokens=out_t,
+                    source_type=source_type,
+                    source_id=str(ev.get("spanId") or ev.get("ts") or ""),
+                    created_at=ev_dt,
+                )
+                if entry is not None:
+                    bucket["usage_entries"].append(entry)
+
+        last_trace_id: str | None = None
+        for day_key, bucket in sorted(per_day.items()):
+            if not bucket["usage_entries"]:
+                continue
+            day_artifact_id = f"copilot-debug-log-{session_id}-{day_key}"
+            usage_summary = summarize_usage_entries(bucket["usage_entries"])
+            trace = Trace(
+                id=day_artifact_id,
+                session_id=session_id,
+                agent="atelier:code",
+                host="copilot",
+                domain="coding",
+                task=bucket["task"] or "vscode copilot chat session",
+                status="success",
+                files_touched=[],
+                tools_called=[
+                    ToolCall(name=n, args_hash="", count=c) for n, c in sorted(bucket["tools_called"].items())
+                ],
+                commands_run=[],
+                errors_seen=[],
+                validation_results=[],
+                reasoning=[],
+                raw_artifact_ids=[artifact_id],
+                input_tokens=usage_summary["input_tokens"],
+                user_prompt_tokens=bucket["user_prompt_tokens"],
+                output_tokens=usage_summary["output_tokens"],
+                thinking_tokens=usage_summary["thinking_tokens"],
+                cached_input_tokens=usage_summary["cached_input_tokens"],
+                cache_creation_input_tokens=usage_summary["cache_creation_input_tokens"],
+                model=usage_summary["model"],
+                usage_entries=usage_summary["usage_entries"],
+                model_usages=usage_summary["model_usages"],
+                created_at=bucket["first_ts"] or file_mtime,
+            )
+            self.store.record_trace(trace, write_json=False)
+            last_trace_id = trace.id
+
+        return last_trace_id
 
     def _materialize_transcript_trace(self, *, session_id: str, redacted_events: str, artifact_id: str) -> str | None:
         transcript_paths, transcript_started_at = _extract_transcript_linkage(redacted_events)

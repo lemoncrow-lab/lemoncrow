@@ -308,20 +308,28 @@ def _load_pricing_table() -> dict[str, dict[str, float | tuple[PricingTier, ...]
     # emit a "no entry for model" warning every time the operator imports a
     # session that used one of these. We treat them as known-but-free so the
     # warning channel stays useful for genuinely missing models.
-    for alias in ("opencode/big-pickle",):
+    #
+    # opencode/big-pickle:  opencode's internal routing alias; the opencode
+    #                       binary itself reports cost=0 in its own logs.
+    # copilot/<anything>:   GitHub Copilot chat models are subscription-covered
+    #                       ($19/mo Pro), not per-token billed. Importers
+    #                       prefix VSCode Copilot Chat calls with ``copilot/``
+    #                       so they all match this zero-cost wildcard.
+    _ZERO_COST = {
+        "input": 0.0,
+        "output": 0.0,
+        "cache_read": 0.0,
+        "cache_write": 0.0,
+        "thinking": 0.0,
+        "input_tiers": (),
+        "output_tiers": (),
+        "cache_read_tiers": (),
+        "cache_write_tiers": (),
+        "thinking_tiers": (),
+    }
+    for alias in ("opencode/big-pickle", "copilot/"):
         if alias not in table:
-            table[alias] = {
-                "input": 0.0,
-                "output": 0.0,
-                "cache_read": 0.0,
-                "cache_write": 0.0,
-                "thinking": 0.0,
-                "input_tiers": (),
-                "output_tiers": (),
-                "cache_read_tiers": (),
-                "cache_write_tiers": (),
-                "thinking_tiers": (),
-            }
+            table[alias] = dict(_ZERO_COST)
 
     for model_id, entry in _OVERRIDE_PRICING.items():
         table[model_id] = entry

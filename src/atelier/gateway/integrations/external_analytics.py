@@ -447,110 +447,13 @@ def _codeburn_models_command(binary: str, period: str) -> list[str]:
     return [binary, "models", "--format", "json", *_codeburn_period_flags(period)]
 
 
-def _codeburn_host_entries(model_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Aggregate per-model entries by CodeBurn 'provider' (which are Atelier hosts/tools)."""
-    hosts: dict[str, dict[str, Any]] = {}
-    for entry in model_entries:
-        if not isinstance(entry, dict):
-            continue
-        host_id = str(entry.get("provider") or "unknown").strip() or "unknown"
-        host_display = str(entry.get("providerDisplayName") or host_id).strip() or host_id
-        bucket = hosts.setdefault(
-            host_id,
-            {
-                "host": host_id,
-                "hostDisplayName": host_display,
-                "models": 0,
-                "calls": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "cacheReadTokens": 0,
-                "cacheWriteTokens": 0,
-                "totalTokens": 0,
-                "costUSD": 0.0,
-                "_model_set": set(),
-            },
-        )
-        model_id = str(entry.get("model") or "").strip()
-        if model_id:
-            model_set = bucket["_model_set"]
-            if isinstance(model_set, set):
-                model_set.add(model_id)
-                bucket["models"] = len(model_set)
-        bucket["calls"] += int(entry.get("calls") or 0)
-        bucket["inputTokens"] += int(entry.get("inputTokens") or 0)
-        bucket["outputTokens"] += int(entry.get("outputTokens") or 0)
-        bucket["cacheReadTokens"] += int(entry.get("cacheReadTokens") or 0)
-        bucket["cacheWriteTokens"] += int(entry.get("cacheWriteTokens") or 0)
-        bucket["totalTokens"] += int(entry.get("totalTokens") or 0)
-        bucket["costUSD"] += float(entry.get("costUSD") or 0.0)
-
-    rows: list[dict[str, Any]] = []
-    for bucket in hosts.values():
-        bucket.pop("_model_set", None)
-        bucket["costUSD"] = round(float(bucket["costUSD"]), 8)
-        rows.append(bucket)
-    rows.sort(key=lambda row: float(row.get("costUSD") or 0.0), reverse=True)
-    return rows
-
-
-def _detect_codeburn_true_provider(entry: dict[str, Any]) -> str:
-    """Detect the actual LLM provider from CodeBurn model info."""
-    provider = str(entry.get("provider") or "").lower()
-    model = str(entry.get("model") or "").lower()
-    display = str(entry.get("modelDisplayName") or "").lower()
-    combined = f"{provider} {model} {display}"
-
-    if "openai" in combined or "gpt-" in combined or "o1-" in combined:
-        return "openai"
-    if (
-        "anthropic" in combined
-        or "claude" in combined
-        or "sonnet" in combined
-        or "opus" in combined
-        or "haiku" in combined
-    ):
-        return "anthropic"
-    if "google" in combined or "gemini" in combined:
-        return "google"
-    if "deepseek" in combined:
-        return "deepseek"
-    if "meta" in combined or "llama" in combined:
-        return "meta"
-    if "mistral" in combined or "mixtral" in combined:
-        return "mistral"
-    if "codex" in combined:
-        return "openai"
-
-    if provider in {"openai", "anthropic", "google", "gemini", "claude"}:
-        if provider == "gemini":
-            return "google"
-        if provider == "claude":
-            return "anthropic"
-        return provider
-
-    return "other"
-
-
 def _codeburn_provider_entries(model_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Aggregate per-model entries by actual LLM provider (OpenAI, Anthropic, etc)."""
     providers: dict[str, dict[str, Any]] = {}
-    display_names = {
-        "openai": "OpenAI",
-        "anthropic": "Anthropic",
-        "google": "Google",
-        "meta": "Meta",
-        "mistral": "Mistral",
-        "deepseek": "DeepSeek",
-        "other": "Other",
-    }
-
     for entry in model_entries:
         if not isinstance(entry, dict):
             continue
-        provider_id = _detect_codeburn_true_provider(entry)
-        provider_display = display_names.get(provider_id, provider_id.capitalize())
-
+        provider_id = str(entry.get("provider") or "unknown").strip() or "unknown"
+        provider_display = str(entry.get("providerDisplayName") or provider_id).strip() or provider_id
         bucket = providers.setdefault(
             provider_id,
             {
@@ -607,7 +510,6 @@ def _run_codeburn_report_bundle(binary: str, period: str, *, cwd: Path | None = 
     payload: dict[str, Any] = dict(base_payload)
     payload["reportKind"] = "codeburn_bundle"
     payload["modelEntries"] = model_entries
-    payload["hostEntries"] = _codeburn_host_entries(model_entries)
     payload["providerEntries"] = _codeburn_provider_entries(model_entries)
     payload["captures"] = {view: _codeburn_capture_metadata(commands[view], results[view]) for view in commands}
 

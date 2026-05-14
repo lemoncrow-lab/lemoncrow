@@ -14,8 +14,32 @@ from __future__ import annotations
 import json
 import re
 import sys
+from pathlib import Path
 
-from atelier.core.environment import is_dev_mode
+
+def _bootstrap_atelier_path() -> None:
+    """Make hooks runnable from a copied Claude plugin without PYTHONPATH."""
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[4] / "src",  # repo or ~/.local/share/atelier install layout
+        Path.home() / ".local" / "share" / "atelier" / "src",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            path = str(candidate)
+            if path not in sys.path:
+                sys.path.insert(0, path)
+
+
+def _is_dev_mode() -> bool:
+    try:
+        _bootstrap_atelier_path()
+        from atelier.core.environment import is_dev_mode
+
+        return is_dev_mode()
+    except Exception:
+        return False
+
 
 RISKY_PATTERNS = [
     re.compile(p)
@@ -41,7 +65,7 @@ def main() -> int:
     except Exception:
         return 0  # fail-open: never break the agent on hook parse error
 
-    if not is_dev_mode():
+    if not _is_dev_mode():
         print(json.dumps({"decision": "allow"}))
         return 0
 

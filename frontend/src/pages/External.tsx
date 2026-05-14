@@ -488,9 +488,6 @@ function CodeBurnPanel({ toolWindow }: { toolWindow: ToolWindow }) {
   const projects = asRecordArray(payload.projects).sort(
     (left, right) => toNumber(right.cost) - toNumber(left.cost)
   );
-  const hosts = asRecordArray(payload.hostEntries).sort(
-    (left, right) => toNumber(right.costUSD) - toNumber(left.costUSD)
-  );
   const providers = asRecordArray(payload.providerEntries).sort(
     (left, right) => toNumber(right.costUSD) - toNumber(left.costUSD)
   );
@@ -586,72 +583,38 @@ function CodeBurnPanel({ toolWindow }: { toolWindow: ToolWindow }) {
         <div className="space-y-4">
           <CodeBurnDailyChart rows={asRecordArray(payload.daily)} />
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <CompactTableSection
-              title="By Host"
-              rows={hosts}
-              columns={[
-                {
-                  label: "Host",
-                  render: (row) => (
-                    <span className="font-semibold text-neutral-100">
-                      {toText(row.hostDisplayName || row.host)}
-                    </span>
-                  ),
-                },
-                {
-                  label: "Calls",
-                  align: "right",
-                  render: (row) => (
-                    <span className="font-mono text-neutral-300">
-                      {Math.round(toNumber(row.calls)).toLocaleString()}
-                    </span>
-                  ),
-                },
-                {
-                  label: "Cost",
-                  align: "right",
-                  render: (row) => (
-                    <span className="font-mono text-amber-300">
-                      {fmtCurrency(row.costUSD, 3)}
-                    </span>
-                  ),
-                },
-              ]}
-            />
-            <CompactTableSection
-              title="By Provider"
-              rows={providers}
-              columns={[
-                {
-                  label: "Provider",
-                  render: (row) => (
-                    <span className="font-semibold text-neutral-100">
-                      {toText(row.providerDisplayName || row.provider)}
-                    </span>
-                  ),
-                },
-                {
-                  label: "Models",
-                  align: "right",
-                  render: (row) => (
-                    <span className="font-mono text-neutral-300">
-                      {Math.round(toNumber(row.models)).toLocaleString()}
-                    </span>
-                  ),
-                },
-                {
-                  label: "Cost",
-                  align: "right",
-                  render: (row) => (
-                    <span className="font-mono text-amber-300">
-                      {fmtCurrency(row.costUSD, 3)}
-                    </span>
-                  ),
-                },
-              ]}
-            />
-          </div>
+          <CompactTableSection
+            title="By Provider"
+            rows={providers}
+            columns={[
+              {
+                label: "Provider",
+                render: (row) => (
+                  <span className="font-semibold text-neutral-100">
+                    {toText(row.providerDisplayName || row.provider)}
+                  </span>
+                ),
+              },
+              {
+                label: "Models",
+                align: "right",
+                render: (row) => (
+                  <span className="font-mono text-neutral-300">
+                    {Math.round(toNumber(row.models)).toLocaleString()}
+                  </span>
+                ),
+              },
+              {
+                label: "Cost",
+                align: "right",
+                render: (row) => (
+                  <span className="font-mono text-amber-300">
+                    {fmtCurrency(row.costUSD, 3)}
+                  </span>
+                ),
+              },
+            ]}
+          />
         </div>
 
         <CompactTableSection

@@ -45,10 +45,22 @@ def find_gemini_sessions(root: Path | None = None) -> Iterator[Path]:
     if not root.is_dir():
         return
 
-    # Discovery pattern: find all *.jsonl files that look like sessions
-    # in any subproject's chats/ directory.
-    # Pattern: ~/.gemini/tmp/*/chats/session-*.jsonl
-    yield from sorted(root.glob("**/chats/session-*.jsonl"))
+    # Two layouts coexist under ~/.gemini/tmp/<project>/chats/:
+    #   1. Top-level session files:    chats/session-YYYY-MM-DDTHH-MM-<id>.jsonl
+    #   2. Sub-agent / sub-session:    chats/<sessionId>/<subagent-id>.jsonl
+    #      (kind="subagent" in the first record). These carry real LLM events
+    #      with `tokens` blocks and were previously ignored, so atelier missed
+    #      ~15-20M cache_read tokens per day on heavy gemini days.
+    seen: set[Path] = set()
+    for p in sorted(root.glob("**/chats/session-*.jsonl")):
+        seen.add(p)
+        yield p
+    for p in sorted(root.glob("**/chats/*/*.jsonl")):
+        if p in seen:
+            continue
+        # Skip if the parent dir is "chats" itself (already handled above) — the
+        # pattern only matches one level deeper, so this is a sub-session file.
+        yield p
 
 
 def _gemini_event_key(event: dict[str, Any]) -> tuple[str, str] | None:

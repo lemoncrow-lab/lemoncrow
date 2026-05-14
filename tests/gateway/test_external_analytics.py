@@ -245,36 +245,10 @@ def test_run_external_report_codeburn_combines_provider_entries(
     assert isinstance(payload, dict)
     assert payload["reportKind"] == "codeburn_bundle"
     assert payload["modelEntries"][0]["provider"] == "codex"
-    assert payload["hostEntries"] == [
-        {
-            "host": "codex",
-            "hostDisplayName": "Codex",
-            "models": 1,
-            "calls": 10,
-            "inputTokens": 100,
-            "outputTokens": 20,
-            "cacheReadTokens": 30,
-            "cacheWriteTokens": 0,
-            "totalTokens": 150,
-            "costUSD": 4.2,
-        },
-        {
-            "host": "gemini",
-            "hostDisplayName": "Gemini",
-            "models": 1,
-            "calls": 5,
-            "inputTokens": 50,
-            "outputTokens": 10,
-            "cacheReadTokens": 5,
-            "cacheWriteTokens": 0,
-            "totalTokens": 65,
-            "costUSD": 1.3,
-        },
-    ]
     assert payload["providerEntries"] == [
         {
-            "provider": "openai",
-            "providerDisplayName": "OpenAI",
+            "provider": "codex",
+            "providerDisplayName": "Codex",
             "models": 1,
             "calls": 10,
             "inputTokens": 100,
@@ -285,8 +259,8 @@ def test_run_external_report_codeburn_combines_provider_entries(
             "costUSD": 4.2,
         },
         {
-            "provider": "google",
-            "providerDisplayName": "Google",
+            "provider": "gemini",
+            "providerDisplayName": "Gemini",
             "models": 1,
             "calls": 5,
             "inputTokens": 50,
