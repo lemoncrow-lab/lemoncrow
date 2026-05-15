@@ -10,7 +10,7 @@ Use the built-in help for the exact command tree:
 atelier -h
 atelier help trace
 atelier help benchmark
-atelier help servicectl
+atelier help background
 ```
 
 ## Global Options
@@ -33,18 +33,42 @@ optional visualization stack.
 | `atelier status`         | Show local plugin, auth, and subscription status.       |
 | `atelier stack ...`      | Start, stop, inspect, or log the optional UI/API stack. |
 | `atelier service ...`    | Manage the HTTP/API service surface.                    |
-| `atelier servicectl ...` | Manage the detached background processing controller.   |
+| `atelier background ...` | Manage OS-level background services and auto-updates.   |
 | `atelier worker ...`     | Inspect, enqueue, and run worker jobs.                  |
 
 Common examples:
 
 ```bash
 atelier init
-atelier servicectl status
-atelier stack start
-atelier stack logs
+atelier background status
+atelier background restart
+atelier background logs controller
 ```
 
+## Background Services & Auto-Update
+
+Manage background components via your OS-native manager (systemd/launchd).
+
+| Subcommand                      | Purpose                                                    |
+| ------------------------------- | ---------------------------------------------------------- |
+| `atelier background install`    | Register services with systemd (Linux) or launchd (macOS). |
+| `atelier background uninstall`  | Unregister and stop background services.                   |
+| `atelier background status`     | Show service health and auto-update state.                 |
+| `atelier background restart`    | Trigger a clean restart of the entire environment.         |
+| `atelier background logs [svc]` | Stream logs for `controller` or `stack`.                   |
+
+### Auto-Update Mechanism
+
+The background controller automatically checks for git updates every hour (default).
+If updates are found, it pulls the code, syncs dependencies, and restarts the
+managed background services.
+
+To configure the loop manually (not recommended for general use):
+
+```bash
+# Start the internal loop with custom auto-update settings
+atelier servicectl run --auto-update --auto-update-interval-seconds 3600
+```
 ## Traces, Ledgers, and Operational State
 
 Atelier persists observable execution state rather than hidden reasoning.

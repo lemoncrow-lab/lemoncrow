@@ -26,8 +26,7 @@ Verify the install:
 ```bash
 atelier --version
 atelier-mcp --version
-atelier servicectl status
-atelier stack status
+atelier background status
 ```
 
 ## Useful Installer Variants
@@ -38,7 +37,7 @@ Skip host integrations:
 curl -fsSL https://raw.githubusercontent.com/leanchain/atelier/main/scripts/install.sh | bash -s -- --no-hosts
 ```
 
-Skip auto-starting the background controller:
+Skip auto-starting background services:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/pankaj4u4m/atelier/main/scripts/install.sh | ATELIER_NO_SERVICECTL=1 bash
@@ -64,14 +63,43 @@ No HTTP server is required for normal usage.
 
 - `atelier ...` is the main CLI
 - `atelier-mcp` is the MCP server used by host integrations
-- `atelier servicectl ...` manages offline/background work
+- `atelier background ...` manages background services and auto-updates
 
 If Docker is installed and `ATELIER_NO_STACK=1` was not set during install, the
-installer will also try to start the optional visualization stack for you.
+installer will also register the visualization stack as a background service for you.
+
+### Background Services & Auto-Update
+
+Atelier uses your OS-native manager (**systemd** on Linux, **launchd** on macOS) to ensure background tasks and the visualization stack are always running.
+
+```bash
+# Check service health and auto-update status
+atelier background status
+
+# View background logs
+atelier background logs controller
+atelier background logs stack
+
+# Restart the entire stack (e.g. after a manual code change)
+atelier background restart
+```
+
+#### Auto-Update
+
+The background controller periodically checks your git repository for updates. When found, it automatically:
+1. Pulls the latest code.
+2. Syncs dependencies using `uv`.
+3. Restarts the services to apply changes.
 
 ### Optional UI Stack
 
-Start the visualization UI only when you want it:
+Manage the visualization UI as a background service:
+
+```bash
+atelier background restart  # Restarts both controller and stack
+```
+
+Or control containers manually:
 
 ```bash
 atelier stack start
@@ -102,13 +130,11 @@ For authenticated deployments, set `ATELIER_API_KEY` and keep `ATELIER_REQUIRE_A
 
 ### Background Controller Variables
 
-The installer starts `servicectl` by default.
+The installer registers background services by default.
 
 ```bash
-atelier servicectl status
-atelier servicectl logs
-atelier servicectl stop
-atelier servicectl start
+atelier background status
+atelier background logs
 ```
 
 Manual job control is available too:
@@ -121,12 +147,12 @@ atelier worker list
 
 ### Installer Behavior Variables
 
-| Variable                | Default | Description                                         |
-| ----------------------- | ------- | --------------------------------------------------- |
-| `ATELIER_NO_HOSTS`      | `0`     | Skip host integration install scripts               |
-| `ATELIER_NO_SERVICECTL` | `0`     | Skip auto-starting `servicectl` during install      |
-| `ATELIER_NO_STACK`      | `0`     | Skip auto-starting the optional visualization stack |
-| `ATELIER_LOCAL`         | `0`     | Install from the current checkout in editable mode  |
+| Variable                | Default | Description                                              |
+| ----------------------- | ------- | -------------------------------------------------------- |
+| `ATELIER_NO_HOSTS`      | `0`     | Skip host integration install scripts                    |
+| `ATELIER_NO_SERVICECTL` | `0`     | Skip auto-registering background services during install |
+| `ATELIER_NO_STACK`      | `0`     | Skip auto-registering the visualization stack service    |
+| `ATELIER_LOCAL`         | `0`     | Install from the current checkout in editable mode       |
 
 ## Storage Backends
 

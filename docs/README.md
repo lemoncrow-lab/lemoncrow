@@ -6,13 +6,13 @@ This docs index is intentionally split into a small live surface for day-to-day 
 
 If you are using Atelier as a product, start here and stay in this set unless you are actively contributing to the runtime itself.
 
-| Doc                                                | What it covers                                                      |
-| -------------------------------------------------- | ------------------------------------------------------------------- |
-| [installation.md](installation.md)                 | Install script, installed commands, runtime modes, storage backends |
-| [quickstart.md](quickstart.md)                     | 5-minute walkthrough using installed `atelier` commands             |
-| [cli.md](cli.md)                                   | Current public CLI reference                                        |
-| [troubleshooting.md](troubleshooting.md)           | Common install, runtime, stack, and servicectl issues               |
-| [production-readiness.md](production-readiness.md) | Production and self-hosted deployment checklist                     |
+| Doc                                                | What it covers                                          |
+| -------------------------------------------------- | ------------------------------------------------------- |
+| [installation.md](installation.md)                 | Install script, background services, modes, and storage |
+| [quickstart.md](quickstart.md)                     | 5-minute walkthrough using installed `atelier` commands |
+| [cli.md](cli.md)                                   | Current public CLI reference                            |
+| [troubleshooting.md](troubleshooting.md)           | Common install, runtime, and background service issues  |
+| [production-readiness.md](production-readiness.md) | Production and self-hosted deployment checklist         |
 
 ## Host Installs
 
@@ -55,8 +55,7 @@ Installed product flow:
 
 ```bash
 atelier --version
-atelier servicectl status
-atelier stack status
+atelier background status
 ATELIER_DEV_MODE=1 atelier context --task "..." --domain "..."
 echo '{"canonical_identifier_used": true}' | ATELIER_DEV_MODE=1 atelier verify rubric_state_change_safety
 ```

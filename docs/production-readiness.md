@@ -35,7 +35,7 @@ This checklist is the release gate for Atelier Phase D hardening.
 - Run ledger persistence verified in `.atelier/runs/`.
 - Trace ingestion verified via `atelier trace record` and `/v1/traces`.
 - Analytics summary checked via `/analytics/summary` or the dashboard summary endpoint.
-- Background controller status reviewed with `atelier servicectl status`.
+- Background controller status reviewed with `atelier background status`.
 
 ## Logging
 

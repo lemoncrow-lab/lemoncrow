@@ -48,23 +48,21 @@ Check the installed runtime:
 ```bash
 atelier --version
 atelier-mcp --version
-atelier servicectl status
-atelier stack status
+atelier background status
 ```
 
 → User install guide: [docs/installation.md](docs/installation.md)
 
 ## What Runs After Install
 
-The installed product always gives you **CLI + MCP + background processing**.
+The installed product gives you **CLI + MCP + Background Services**.
 
-If Docker is available and `ATELIER_NO_STACK=1` is not set, the installer also
-tries to start the optional visualization stack on ports `3125` and `8787`.
+Atelier automatically registers itself with your OS background manager (**systemd** on Linux, **launchd** on macOS). This ensures it starts on boot and restarts automatically if it crashes.
 
 - `atelier ...` works with no HTTP server.
 - `atelier-mcp` works with no HTTP server.
-- `atelier servicectl ...` manages offline/background work.
-- `atelier stack ...` remains optional at runtime even if the installer started it for convenience.
+- `atelier background ...` manages the OS-level services (controller + stack).
+- `atelier stack ...` manages the visualization containers manually.
 
 Pure CLI mode still emits Atelier telemetry events unless you disable it with `atelier telemetry off` or `ATELIER_TELEMETRY=0`.
 
@@ -93,7 +91,7 @@ echo '{"canonical_identifier_used": true, "pre_change_state_captured": true, "re
 Common runtime commands:
 
 ```bash
-atelier servicectl status
+atelier background status
 atelier worker list
 atelier trace list
 atelier search "read after write verification"
@@ -103,14 +101,14 @@ atelier search "read after write verification"
 
 ## Optional UI Stack
 
-The UI is optional. If the installer already started it for you, you can leave it
-running, inspect it, or stop it. If Docker was unavailable during install, start
-it manually when you want visualization or a browser-based view of the runtime.
+The UI is optional. The installer registers it as a background service by default if Docker is available. You can manage it alongside the controller:
 
 ```bash
-atelier stack start
-atelier stack status
-atelier stack stop
+# View logs for the visualization stack
+atelier background logs stack
+
+# Restart the entire environment
+atelier background restart
 ```
 
 Then open:
@@ -118,23 +116,21 @@ Then open:
 - frontend: [http://localhost:3125](http://localhost:3125)
 - service API: [http://localhost:8787](http://localhost:8787)
 
-Useful stack commands:
+## Background Processing & Auto-Update
+
+Atelier includes an offline processing controller that runs as a background service. It handles session imports, maintenance jobs, and **automatic code updates**.
+
+The controller periodically checks your git repository for updates. When found, it automatically pulls the latest code, syncs dependencies, and restarts the services.
 
 ```bash
-atelier stack status
-atelier stack logs
-atelier stack stop
-```
+# Check service health and auto-update status
+atelier background status
 
-## Background Processing
+# View background logs (from journald/launchd)
+atelier background logs controller
 
-`servicectl` is the installed offline processing controller. It runs detached and periodically enqueues and processes maintenance work. It works on the default SQLite install and on Postgres-backed deployments.
-
-```bash
-atelier servicectl status
-atelier servicectl logs
-atelier servicectl stop
-atelier servicectl start
+# Manually trigger a restart
+atelier background restart
 ```
 
 You can also queue and process work manually:

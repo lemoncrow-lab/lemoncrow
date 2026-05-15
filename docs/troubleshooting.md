@@ -18,22 +18,32 @@ bash: atelier: command not found
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-## `atelier servicectl status` Shows Not Running
+## `atelier background status` Shows Services Are Not Running
 
-The installer only attempts to start `servicectl`. If you installed with
-`ATELIER_NO_SERVICECTL=1`, or if it was stopped later, start it again manually:
+Atelier background services should start automatically. If they are stopped or failed:
 
-**Fix:** start it again manually:
+**Fix:** Restart them using your background manager:
 
 ```bash
-atelier servicectl start
-atelier servicectl status
+atelier background restart
+atelier background status
 ```
 
-If you want to inspect what it is doing:
+If you want to inspect what the controller is doing:
 
 ```bash
-atelier servicectl logs
+atelier background logs controller
+```
+
+## `atelier background install` Fails on macOS
+
+**Cause:** `launchd` requires the target directory to exist and might have permission issues.
+
+**Fix:** Ensure `~/Library/LaunchAgents` exists and re-run:
+
+```bash
+mkdir -p ~/Library/LaunchAgents
+atelier background install --with-stack
 ```
 
 ## `atelier stack start` Fails
@@ -50,15 +60,20 @@ docker compose version
 If ports `3125` or `8787` are already busy, inspect what owns them first:
 
 ```bash
-atelier stack status
+# Check if the managed background service is already running
+atelier background status
+
+# Check for manual docker processes
+docker ps
+
+# Check network ports
 ss -ltnp | grep -E ':3125|:8787'
 ```
 
 Then stop or reconfigure the conflicting process, or reset the Atelier stack:
 
 ```bash
-atelier stack stop
-atelier stack start
+atelier background restart
 ```
 
 ## The UI Loads but API Calls Fail With Auth Errors
@@ -107,7 +122,7 @@ runtime is healthy:
 
 ```bash
 atelier init
-atelier servicectl status
+atelier background status
 atelier worker list
 ```
 
@@ -147,13 +162,11 @@ If you changed importer or pricing logic, rebuild imported traces first:
 atelier import --force
 ```
 
-If the service is already running, restart it with a stop/start cycle so the
-HTTP endpoints use the new pricing code instead of an older in-memory process:
+If the services are already running, restart them to pick up new code or configuration:
 
 ```bash
-atelier servicectl stop
-atelier servicectl start
-atelier servicectl status
+atelier background restart
+atelier background status
 ```
 
 When comparing totals, keep these rules in mind:

@@ -81,5 +81,5 @@ surface documented in [mcp.md](mcp.md), including `context`, `route`, `rescue`,
 `trace`, `verify`, `memory`, `read`, `edit`, `search`, and `compact`.
 
 Use the CLI for operational workflows such as `atelier report`, `atelier
-benchmark ...`, `atelier service ...`, `atelier servicectl ...`, and `atelier
+benchmark ...`, `atelier service ...`, `atelier background ...`, and `atelier
 domain ...`.
