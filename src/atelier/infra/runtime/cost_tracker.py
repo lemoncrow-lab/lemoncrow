@@ -322,6 +322,38 @@ class CostTracker:
             "per_operation": sorted(per_op, key=lambda x: -x["delta_vs_base_usd"]),
         }
 
+    # ----- per-tool breakdown -------------------------------------------- #
+
+    @staticmethod
+    def per_tool_cost_breakdown(
+        events: list[dict[str, Any]],
+    ) -> list[tuple[str, int, float]]:
+        """Estimate cost per MCP tool from ``model_recommendation`` ledger events.
+
+        Returns a list of ``(tool_name, call_count, estimated_cost_usd)`` tuples
+        sorted by cost descending.  Cost is estimated as::
+
+            estimated_input_tokens * recommended_model_input_price
+        """
+        from atelier.core.capabilities.pricing import get_model_pricing
+
+        buckets: dict[str, tuple[int, float]] = {}
+        for ev in events:
+            if ev.get("kind") != "model_recommendation":
+                continue
+            payload = ev.get("payload") or {}
+            tool = str(payload.get("tool_name") or "")
+            model = str(payload.get("model") or "claude-haiku-4-5")
+            tokens = int(payload.get("estimated_input_tokens") or 0)
+            cost = get_model_pricing(model).cost_usd(input_tokens=tokens)
+            count, total = buckets.get(tool, (0, 0.0))
+            buckets[tool] = (count + 1, total + cost)
+
+        return sorted(
+            [(t, c, round(v, 6)) for t, (c, v) in buckets.items()],
+            key=lambda x: -x[2],
+        )
+
     # ----- ledger snapshot helpers --------------------------------------- #
 
     def snapshot(self) -> dict[str, Any]:

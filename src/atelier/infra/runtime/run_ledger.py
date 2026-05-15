@@ -317,6 +317,24 @@ class RunLedger:
             "commands_run": commands_run,
         }
 
+    # ----- timing helpers ------------------------------------------------- #
+
+    @property
+    def first_event_at(self) -> datetime:
+        """Timestamp of the first ledger event, falling back to ``created_at``."""
+        return self.events[0].at if self.events else self.created_at
+
+    @property
+    def last_event_at(self) -> datetime:
+        """Timestamp of the most recent ledger event, falling back to ``updated_at``."""
+        return self.events[-1].at if self.events else self.updated_at
+
+    @property
+    def duration_seconds(self) -> float:
+        """Wall-clock seconds between first and last event (0 for single-event runs)."""
+        delta = self.last_event_at - self.first_event_at
+        return max(0.0, delta.total_seconds())
+
     # ----- snapshot / persistence ----------------------------------------- #
 
     def snapshot(self) -> dict[str, Any]:

@@ -23,6 +23,7 @@ These ship together as the launch. See [ROADMAP.md](../product/ROADMAP.md) for c
 | [03-memory-adapter.md](./week2/03-memory-adapter.md) — Read native memories | Shipped |
 | [04-insights-command.md](./week2/04-insights-command.md) — `atelier insights` | Shipped |
 | [05-benchmark-publication.md](./week2/05-benchmark-publication.md) — Publish pipeline | Shipped |
+| [06-web-wiring.md](./week2/06-web-wiring.md) — Surface specs 01–05 in the dashboard | Shipped |
 
 ## Phase 2 — 30-day wedge
 

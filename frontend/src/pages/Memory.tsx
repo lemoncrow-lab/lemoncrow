@@ -3,13 +3,14 @@ import {
   ApiError,
   api,
   type MemoryBlock,
+  type MemoryFact,
   type MemoryPassage,
   type MemoryRecallPassage,
   type Trace,
 } from "../api";
 import MemoryBlockCard from "../components/MemoryBlockCard";
 import ArchivalSearchBox from "../components/ArchivalSearchBox";
-import { MetricCard, SectionHeader } from "../components/WorkbenchUI";
+import { MetricCard, SectionHeader, cx } from "../components/WorkbenchUI";
 
 interface EditDraft {
   block: MemoryBlock;
@@ -40,6 +41,9 @@ function dedupeById<T extends { id: string }>(items: T[]): T[] {
 }
 
 export default function Memory() {
+  const [tab, setTab] = useState<"cross-vendor" | "knowledge">("cross-vendor");
+  const [facts, setFacts] = useState<MemoryFact[] | null>(null);
+  const [factsErr, setFactsErr] = useState<string | null>(null);
   const [traces, setTraces] = useState<Trace[]>([]);
   const [blocks, setBlocks] = useState<MemoryBlock[]>([]);
   const [recentPassages, setRecentPassages] = useState<MemoryPassage[]>([]);
@@ -50,6 +54,31 @@ export default function Memory() {
   const [error, setError] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [conflictMessage, setConflictMessage] = useState<string | null>(null);
+
+  // Load cross-vendor facts
+  useEffect(() => {
+    api
+      .memoryFacts()
+      .then(setFacts)
+      .catch((e) => setFactsErr(String(e)));
+  }, []);
+
+  // Group facts by vendor
+  const factsByVendor = useMemo(() => {
+    if (!facts) return {};
+    const groups: Record<string, MemoryFact[]> = {};
+    for (const f of facts) {
+      if (!groups[f.vendor]) groups[f.vendor] = [];
+      groups[f.vendor].push(f);
+    }
+    return groups;
+  }, [facts]);
+
+  const VENDOR_COLORS: Record<string, string> = {
+    anthropic: "text-orange-400",
+    openai: "text-green-400",
+    google: "text-blue-400",
+  };
 
   useEffect(() => {
     api
@@ -231,6 +260,79 @@ export default function Memory() {
 
   return (
     <div className="space-y-6">
+      {/* Tab bar */}
+      <div className="flex gap-0 border-b border-neutral-800">
+        {(["cross-vendor", "knowledge"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={cx(
+              "px-4 py-2 text-xs font-semibold uppercase tracking-widest transition-colors",
+              tab === t
+                ? "border-b-2 border-purple-500 text-purple-300"
+                : "text-neutral-500 hover:text-neutral-300"
+            )}
+          >
+            {t === "cross-vendor" ? "Cross-vendor" : "Knowledge Blocks"}
+          </button>
+        ))}
+      </div>
+
+      {/* Cross-vendor tab */}
+      {tab === "cross-vendor" && (
+        <div className="space-y-6">
+          {factsErr && (
+            <div className="text-sm text-red-400">{factsErr}</div>
+          )}
+          {facts === null && !factsErr && (
+            <div className="border border-neutral-800 p-6 text-center text-sm text-neutral-500">
+              Loading cross-vendor memory…
+            </div>
+          )}
+          {facts !== null && facts.length === 0 && (
+            <div className="border border-neutral-800 p-8 text-center text-sm text-neutral-500">
+              <p className="text-2xl mb-3">⬡</p>
+              <p className="font-semibold">No cross-vendor facts yet</p>
+              <p className="mt-1 text-neutral-600">
+                Facts are shared across vendors after they are written to the memory registry.
+              </p>
+            </div>
+          )}
+          {Object.entries(factsByVendor).map(([vendor, vfacts]) => (
+            <section key={vendor} className="border border-neutral-800">
+              <div
+                className={cx(
+                  "border-b border-neutral-800 px-4 py-2 text-xs font-bold uppercase tracking-widest",
+                  VENDOR_COLORS[vendor] ?? "text-neutral-400"
+                )}
+              >
+                {vendor}
+              </div>
+              <ul className="divide-y divide-neutral-800">
+                {vfacts.map((f) => (
+                  <li key={f.fact_id} className="px-4 py-3 text-xs">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="font-semibold text-neutral-200">{f.source_kind}</p>
+                        <p className="mt-0.5 text-neutral-400">{f.content}</p>
+                        {f.source_path && (
+                          <p className="mt-0.5 font-mono text-neutral-600">{f.source_path}{f.line_number != null ? `:${f.line_number}` : ""}</p>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-neutral-600">{f.fact_id.slice(0, 8)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
+
+      {/* Knowledge Blocks tab — existing content */}
+      {tab === "knowledge" && (
+        <div className="space-y-6">
       <section className="grid grid-cols-2 gap-3">
         <MetricCard
           label="Visible agents"
@@ -522,6 +624,8 @@ export default function Memory() {
               </button>
             </div>
           </div>
+        </div>
+      )}
         </div>
       )}
     </div>

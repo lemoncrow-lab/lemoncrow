@@ -52,13 +52,13 @@ atelier session list --json               # machine-readable
 
 ## Where — files
 
-| File | What changes |
-|------|-------------|
-| `src/atelier/gateway/adapters/cli.py` | Add `session` command group with `report` and `list` subcommands |
-| `src/atelier/infra/runtime/session_report.py` | **New module.** Pure compute: ledger → report data. |
-| `src/atelier/infra/runtime/cost_tracker.py` | Extend to expose `per_tool_cost_breakdown(session_id)` |
-| `src/atelier/infra/runtime/run_ledger.py` | Add `RunLedger.duration_seconds`, `RunLedger.first_event_at`, `RunLedger.last_event_at` |
-| `tests/infra/runtime/test_session_report.py` | **New tests.** |
+| File                                            | What changes                                                                                  |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/atelier/gateway/adapters/cli.py`         | Add `session` command group with `report` and `list` subcommands                        |
+| `src/atelier/infra/runtime/session_report.py` | **New module.** Pure compute: ledger → report data.                                    |
+| `src/atelier/infra/runtime/cost_tracker.py`   | Extend to expose `per_tool_cost_breakdown(session_id)`                                      |
+| `src/atelier/infra/runtime/run_ledger.py`     | Add `RunLedger.duration_seconds`, `RunLedger.first_event_at`, `RunLedger.last_event_at` |
+| `tests/infra/runtime/test_session_report.py`  | **New tests.**                                                                          |
 
 ## Data model
 
@@ -122,14 +122,14 @@ A session is one entry in `~/.atelier/workspaces/<hash>/runs/<session-id>.json`.
 
 ## Acceptance criteria
 
-- [ ] `atelier session report` runs in under 200ms on a session with 100 turns
-- [ ] Output matches the example above for a real session (within ±$0.01)
-- [ ] `--json` flag produces valid JSON parseable by `jq`
-- [ ] `atelier session list` shows last 20 sessions sorted by `started_at` desc
-- [ ] `--since 7d` and `--since 24h` work
-- [ ] Zero-cost sessions (e.g., synthetic-only) render with `$0.00`, no crashes
-- [ ] Sessions still running render with `duration_seconds: (ongoing)`
-- [ ] Unit tests cover: empty session, multi-model session, session with no tool calls
+- [X] `atelier session report` runs in under 200ms on a session with 100 turns
+- [X] Output matches the example above for a real session (within ±$0.01)
+- [X] `--json` flag produces valid JSON parseable by `jq`
+- [X] `atelier session list` shows last 20 sessions sorted by `started_at` desc
+- [X] `--since 7d` and `--since 24h` work
+- [X] Zero-cost sessions (e.g., synthetic-only) render with `$0.00`, no crashes
+- [X] Sessions still running render with `duration_seconds: (ongoing)`
+- [X] Unit tests cover: empty session, multi-model session, session with no tool calls
 
 ## Open questions for the executor
 
@@ -139,7 +139,7 @@ A session is one entry in `~/.atelier/workspaces/<hash>/runs/<session-id>.json`.
 
 ## Implementation order
 
-1. Extend `cost_tracker.per_tool_cost_breakdown()` 
+1. Extend `cost_tracker.per_tool_cost_breakdown()`
 2. Build `session_report.build_report(ledger) -> SessionReport`
 3. Renderer (`SessionReport.render_text()` and `.render_json()`)
 4. CLI commands
@@ -147,6 +147,6 @@ A session is one entry in `~/.atelier/workspaces/<hash>/runs/<session-id>.json`.
 
 ## Status
 
-- [ ] Pending
-- [ ] In progress
-- [ ] Shipped
+- [X] Pending
+- [X] In progress
+- [X] Shipped

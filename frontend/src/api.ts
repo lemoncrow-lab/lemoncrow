@@ -810,6 +810,110 @@ export interface WatchdogConfig {
   config_path: string;
 }
 
+// -------------------------------------------------------------------------
+// Week-2 types (Spec 06)
+// -------------------------------------------------------------------------
+
+export interface SessionSummary {
+  session_id: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number;
+  vendor: string;
+  total_turns: number;
+  total_cost_usd: number;
+  total_atelier_savings_usd: number;
+  label: string | null;
+  models_used: Record<string, number>;
+}
+
+export interface TopTool {
+  tool: string;
+  calls: number;
+  cost_usd: number;
+}
+
+export interface SessionReport extends SessionSummary {
+  tool_call_count: number;
+  input_token_cost_usd: number;
+  cache_write_cost_usd: number;
+  cache_read_cost_usd: number;
+  output_token_cost_usd: number;
+  input_tokens: number;
+  cache_write_tokens: number;
+  cache_read_tokens: number;
+  output_tokens: number;
+  routing_downtiered_turns: number;
+  routing_savings_usd: number;
+  compact_events: number;
+  compact_savings_estimate_usd: number;
+  top_tools_by_cost: TopTool[];
+}
+
+export interface MemoryFact {
+  fact_id: string;
+  vendor: "claude" | "codex" | "gemini";
+  source_path: string;
+  source_kind: string;
+  content: string;
+  line_number: number | null;
+  captured_at: string;
+  raw_meta: Record<string, unknown>;
+}
+
+export interface InsightsSessionSummary {
+  session_id: string;
+  cost_usd: number;
+  label: string;
+  duration_seconds: number;
+}
+
+export interface OutcomesSummary {
+  route_decisions: number;
+  route_avg_score: number;
+  compact_events: number;
+  compact_avg_score: number;
+  sessions_with_high_extra_reads: string[];
+}
+
+export interface Opportunity {
+  kind: string;
+  message: string;
+  estimated_savings_usd: number;
+  sessions_affected: number;
+}
+
+export interface InsightsWindow {
+  since: string;
+  until: string;
+  session_count: number;
+  total_duration_seconds: number;
+  total_cost_usd: number;
+  total_atelier_savings_usd: number;
+  cost_by_vendor: Record<string, number>;
+  cost_by_tool: Record<string, number>;
+  cost_by_model: Record<string, number>;
+  top_sessions: InsightsSessionSummary[];
+  outcomes_summary: OutcomesSummary;
+  opportunities: Opportunity[];
+}
+
+export interface ReportMeta {
+  week: string;
+  week_start: string;
+  generated_at: string;
+  routing_sessions: number | null;
+  total_routing_savings_usd: number | null;
+  routing_quality_score: number | null;
+  compact_retention_score: number | null;
+}
+
+export interface ReportContent {
+  week: string;
+  markdown: string;
+  json: Record<string, unknown>;
+}
+
 export interface GranularToolUsage {
   agent: string;
   host?: string;
@@ -1224,4 +1328,24 @@ export const api = {
     get<RawArtifact>(`/raw-artifacts/${artifactId}`),
   rawArtifactContent: (artifactId: string) =>
     getText(`/raw-artifacts/${artifactId}/content`),
+  // -----------------------------------------------------------------------
+  // Week-2 endpoints (Spec 06)
+  // -----------------------------------------------------------------------
+  sessions: (since = "7d", limit = 200) =>
+    get<SessionSummary[]>(`/v1/sessions?since=${since}&limit=${limit}`),
+  sessionReport: (id: string) => get<SessionReport>(`/v1/sessions/${id}`),
+  memoryFacts: (vendor?: string) => {
+    const suffix = vendor ? `?vendor=${encodeURIComponent(vendor)}` : "";
+    return get<MemoryFact[]>(`/v1/memory/facts${suffix}`);
+  },
+  memoryFact: (factId: string) =>
+    get<MemoryFact>(`/v1/memory/facts/${factId}`),
+  insightsWindow: (since = "7d") =>
+    get<InsightsWindow>(`/v1/insights?since=${since}`),
+  outcomesSummary: (since = "7d") =>
+    get<OutcomesSummary>(`/v1/outcomes/summary?since=${since}`),
+  outcomesForSession: (sessionId: string) =>
+    get<Record<string, unknown>[]>(`/v1/outcomes/${sessionId}`),
+  reports: () => get<ReportMeta[]>("/v1/reports"),
+  report: (week: string) => get<ReportContent>(`/v1/reports/${week}`),
 };

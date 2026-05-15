@@ -48,16 +48,16 @@ Found 2 matches:
 
 ## Where — files
 
-| File | What changes |
-|------|-------------|
-| `src/atelier/core/capabilities/cross_vendor_memory/__init__.py` | **New package.** |
-| `src/atelier/core/capabilities/cross_vendor_memory/base.py` | Abstract `MemoryAdapter` interface |
-| `src/atelier/core/capabilities/cross_vendor_memory/claude_adapter.py` | Reads `CLAUDE.md` files + session-memory directory |
-| `src/atelier/core/capabilities/cross_vendor_memory/codex_adapter.py` | Reads `~/.codex/memories/` markdown files |
+| File                                                                    | What changes                                                  |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `src/atelier/core/capabilities/cross_vendor_memory/__init__.py`       | **New package.**                                        |
+| `src/atelier/core/capabilities/cross_vendor_memory/base.py`           | Abstract `MemoryAdapter` interface                          |
+| `src/atelier/core/capabilities/cross_vendor_memory/claude_adapter.py` | Reads `CLAUDE.md` files + session-memory directory          |
+| `src/atelier/core/capabilities/cross_vendor_memory/codex_adapter.py`  | Reads `~/.codex/memories/` markdown files                   |
 | `src/atelier/core/capabilities/cross_vendor_memory/gemini_adapter.py` | Reads `GEMINI.md` hierarchy (global, project, subdirectory) |
-| `src/atelier/core/capabilities/cross_vendor_memory/registry.py` | Aggregator across all adapters |
-| `src/atelier/gateway/adapters/cli.py` | Add `memory` command group: `list`, `show`, `find` |
-| `tests/core/capabilities/cross_vendor_memory/...` | Fixture-based tests for each adapter |
+| `src/atelier/core/capabilities/cross_vendor_memory/registry.py`       | Aggregator across all adapters                                |
+| `src/atelier/gateway/adapters/cli.py`                                 | Add `memory` command group: `list`, `show`, `find`    |
+| `tests/core/capabilities/cross_vendor_memory/...`                     | Fixture-based tests for each adapter                          |
 
 ## Data model
 
@@ -95,12 +95,14 @@ class MemoryAdapter(Protocol):
 ### Claude adapter
 
 Reads:
+
 - `~/.claude/CLAUDE.md` (global instructions, if present)
 - `~/.claude/projects/<project>/CLAUDE.md` (per-project, multiple)
 - `~/.claude/projects/<project>/memory/MEMORY.md` (auto-memory)
 - `~/.claude/projects/<project>/session_memory/*.md` (Session Memory output)
 
 Parse rule for `CLAUDE.md` / `MEMORY.md`:
+
 - Bullet points (`- foo`, `* foo`) → one fact per line
 - Headings ignored as facts but kept as `raw_meta["section"]`
 - Code blocks treated as one multi-line fact
@@ -110,10 +112,12 @@ Parse rule for `CLAUDE.md` / `MEMORY.md`:
 ### Codex adapter
 
 Reads:
+
 - `~/.codex/memories/*.md` (consolidated session summaries)
 - `~/.codex/memories/global.md` if present
 
 Parse rule:
+
 - Each `## Heading` block is one fact, with the heading as `raw_meta["heading"]`
 - Bullet points under a heading become sub-facts only if they're standalone declarations (line starts with capital letter, ends with `.` or `;`)
 
@@ -122,6 +126,7 @@ Parse rule:
 ### Gemini adapter
 
 Reads in hierarchy order (most specific wins):
+
 - `~/.gemini/GEMINI.md` (global)
 - `<repo-root>/GEMINI.md` (project)
 - `<cwd>/GEMINI.md` (subdirectory, if different from project root)
@@ -168,15 +173,15 @@ atelier memory list --json
 
 ## Acceptance criteria
 
-- [ ] All three adapters parse real native memory files on a representative dev machine
-- [ ] `atelier memory list` shows all detected facts grouped by vendor, sorted by `source_path`
-- [ ] `atelier memory list --vendor X` filters correctly
-- [ ] `atelier memory show <fact-id>` returns the full fact with provenance
-- [ ] `atelier memory find "<query>"` does substring + fuzzy match, top 20 results
-- [ ] Missing memory files don't crash — adapter returns `is_available() == False`, registry skips it
-- [ ] `--json` flag works on every subcommand
-- [ ] Unit tests use fixtures in `tests/fixtures/memory/<vendor>/` — committed test files mimicking real layouts
-- [ ] Reading 1000 facts from disk takes under 100ms (validated)
+- [X] All three adapters parse real native memory files on a representative dev machine
+- [X] `atelier memory list` shows all detected facts grouped by vendor, sorted by `source_path`
+- [X] `atelier memory list --vendor X` filters correctly
+- [X] `atelier memory show <fact-id>` returns the full fact with provenance
+- [X] `atelier memory find "<query>"` does substring + fuzzy match, top 20 results
+- [X] Missing memory files don't crash — adapter returns `is_available() == False`, registry skips it
+- [X] `--json` flag works on every subcommand
+- [X] Unit tests use fixtures in `tests/fixtures/memory/<vendor>/` — committed test files mimicking real layouts
+- [X] Reading 1000 facts from disk takes under 100ms (validated)
 
 ## Open questions for the executor
 
@@ -195,6 +200,6 @@ atelier memory list --json
 
 ## Status
 
-- [ ] Pending
-- [ ] In progress
-- [ ] Shipped
+- [X] Pending
+- [X] In progress
+- [X] Shipped

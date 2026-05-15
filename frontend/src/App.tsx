@@ -8,12 +8,18 @@ import {
 } from "react-router-dom";
 import Overview from "./pages/Overview";
 import Traces from "./pages/Traces";
+import Sessions from "./pages/Sessions";
+import SessionDetail from "./pages/SessionDetail";
 import Learnings from "./pages/Learnings";
 import Savings from "./pages/Savings";
 import Host from "./pages/Host";
 import Agents from "./pages/Agents";
 import Tools from "./pages/Tools";
 import Insights from "./pages/Insights";
+import Telemetry from "./pages/Telemetry";
+import Memory from "./pages/Memory";
+import Outcomes from "./pages/Outcomes";
+import Reports from "./pages/Reports";
 import Watchdogs from "./pages/Watchdogs";
 import Analytics from "./pages/Analytics";
 import External from "./pages/External";
@@ -36,13 +42,18 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/overview", label: "Overview", icon: "◫" },
   { to: "/sessions", label: "Sessions", icon: "▶" },
+  { to: "/traces", label: "Traces", icon: "⌇" },
+  { to: "/memory", label: "Memory", icon: "⬡" },
+  { to: "/insights", label: "Insights", icon: "✦" },
+  { to: "/outcomes", label: "Outcomes", icon: "◎" },
+  { to: "/reports", label: "Reports", icon: "📄" },
   { to: "/savings", label: "Savings", icon: "₿", isDev: true },
   { to: "/watchdogs", label: "Watchdogs", icon: "⚑", isDev: true },
   { to: "/knowledge/blocks", label: "Knowledge", icon: "🧠", isDev: true },
   { to: "/host", label: "Hosts", icon: "⌘" },
   { to: "/tools", label: "Tools", icon: "⎇" },
   { to: "/agents", label: "Agents", icon: "☷" },
-  { to: "/insights", label: "Telemetry", icon: "◎" },
+  { to: "/telemetry", label: "Telemetry", icon: "◎" },
   { to: "/analytics", label: "Analytics", icon: "📊" },
   { to: "/external", label: "External", icon: "◬" },
   { to: "/optimizations", label: "Optimizations", icon: "⇲" },
@@ -180,18 +191,16 @@ export default function App() {
               path="/quickstart"
               element={<Navigate to="/host" replace />}
             />
-            <Route path="/sessions" element={<Traces />} />
+            <Route path="/sessions" element={<Sessions />} />
+            <Route path="/sessions/:id" element={<SessionDetail />} />
+            <Route path="/traces" element={<Traces />} />
             <Route
               path="/runs"
               element={<Navigate to="/sessions" replace />}
             />
             <Route
               path="/trace"
-              element={<Navigate to="/sessions" replace />}
-            />
-            <Route
-              path="/traces"
-              element={<Navigate to="/sessions" replace />}
+              element={<Navigate to="/traces" replace />}
             />
             <Route
               path="/knowledge"
@@ -243,10 +252,10 @@ export default function App() {
             />
             <Route path="/savings" element={<Savings />} />
             <Route path="/insights" element={<Insights />} />
-            <Route
-              path="/memory"
-              element={<Navigate to="/knowledge/memory" replace />}
-            />
+            <Route path="/telemetry" element={<Telemetry />} />
+            <Route path="/memory" element={<Memory />} />
+            <Route path="/outcomes" element={<Outcomes />} />
+            <Route path="/reports" element={<Reports />} />
             <Route path="/agents" element={<Agents />} />
             <Route path="/tools" element={<Tools />} />
             <Route path="/host" element={<Host />} />

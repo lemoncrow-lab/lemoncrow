@@ -128,15 +128,15 @@ This makes capture O(1) per turn, no background thread, no file locks beyond the
 
 ## Acceptance criteria
 
-- [ ] `outcome_capture.schedule()` and `advance()` exist and are typed
-- [ ] `session_state.json` schema extended without breaking existing readers
-- [ ] Every call to `_emit_model_recommendation` results in a pending outcome
-- [ ] Every successful compact event results in a pending outcome
-- [ ] Outcomes populate `outcome_window` within N turns (verified in test)
-- [ ] `atelier outcomes show <id>` prints JSON for a session
-- [ ] `atelier outcomes summary --since 7d` aggregates outcome_scores by `(kind, tool)` and prints averages
-- [ ] Unit tests cover: empty session, session ending early, multiple overlapping outcomes
-- [ ] Zero net latency impact on tool calls (validated by benchmark before/after)
+- [x] `outcome_capture.schedule()` and `advance()` exist and are typed
+- [x] `session_state.json` schema extended without breaking existing readers
+- [x] Every call to `_emit_model_recommendation` results in a pending outcome
+- [x] Every successful compact event results in a pending outcome
+- [x] Outcomes populate `outcome_window` within N turns (verified in test)
+- [x] `atelier outcomes show <id>` prints JSON for a session
+- [x] `atelier outcomes summary --since 7d` aggregates outcome_scores by `(kind, tool)` and prints averages
+- [x] Unit tests cover: empty session, session ending early, multiple overlapping outcomes
+- [x] Zero net latency impact on tool calls (validated by benchmark before/after)
 
 ## Open questions for the executor
 
@@ -154,6 +154,6 @@ This makes capture O(1) per turn, no background thread, no file locks beyond the
 
 ## Status
 
-- [ ] Pending
-- [ ] In progress
-- [ ] Shipped — link PR here
+- [x] Pending
+- [x] In progress
+- [x] Shipped — `src/atelier/infra/runtime/outcome_capture.py`, wired in `mcp_server.py` + `cli.py`, tests in `tests/infra/test_outcome_capture.py`

@@ -138,14 +138,14 @@ Each rule outputs a single `Opportunity`. Rules with `estimated_savings_usd < $0
 
 ## Acceptance criteria
 
-- [ ] `atelier insights` runs in <500ms with 200 sessions in window
-- [ ] Output matches the example layout
-- [ ] `--since 30d`, `--since 24h`, `--since 2026-05-01` all parse correctly
-- [ ] Empty window ("no sessions found in the last 7 days") renders without crash
-- [ ] `--json` produces valid JSON parseable by `jq`
-- [ ] Opportunities array contains at most 5 items, sorted by `estimated_savings_usd` desc
-- [ ] Unit tests with synthetic session data verify each opportunity rule fires correctly
-- [ ] Output uses no emoji (per repo convention)
+- [x] `atelier insights` runs in <500ms with 200 sessions in window
+- [x] Output matches the example layout
+- [x] `--since 30d`, `--since 24h`, `--since 2026-05-01` all parse correctly
+- [x] Empty window ("no sessions found in the last 7 days") renders without crash
+- [x] `--json` produces valid JSON parseable by `jq`
+- [x] Opportunities array contains at most 5 items, sorted by `estimated_savings_usd` desc
+- [x] Unit tests with synthetic session data verify each opportunity rule fires correctly
+- [x] Output uses no emoji (per repo convention)
 
 ## Open questions for the executor
 
@@ -165,4 +165,4 @@ Each rule outputs a single `Opportunity`. Rules with `estimated_savings_usd < $0
 
 - [ ] Pending
 - [ ] In progress
-- [ ] Shipped
+- [x] Shipped

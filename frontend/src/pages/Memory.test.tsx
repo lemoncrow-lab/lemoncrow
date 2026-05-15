@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import Memory from "./Memory";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -17,24 +18,32 @@ describe("Memory page", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(
       (input: RequestInfo | URL) => {
         const url = String(input);
+        // New cross-vendor memory facts endpoint
+        if (url.includes("/v1/memory/facts") && !url.includes("/v1/memory/facts/")) {
+          return Promise.resolve(jsonResponse([]));
+        }
         if (url.includes("/api/traces")) {
           return Promise.resolve(
-            jsonResponse([
-              {
-                id: "trace-1",
-                session_id: "run-1",
-                agent: "atelier:code",
-                task: "memory test",
-                status: "success",
-                files_touched: [],
-                tools_called: [],
-                commands_run: [],
-                errors_seen: [],
-                repeated_failures: [],
-                validation_results: [],
-                created_at: "2026-05-08T10:00:00Z",
-              },
-            ])
+            // api.traces() returns TraceListResponse { items: Trace[], total_traces: number }
+            jsonResponse({
+              items: [
+                {
+                  id: "trace-1",
+                  session_id: "run-1",
+                  agent: "atelier:code",
+                  task: "memory test",
+                  status: "success",
+                  files_touched: [],
+                  tools_called: [],
+                  commands_run: [],
+                  errors_seen: [],
+                  repeated_failures: [],
+                  validation_results: [],
+                  created_at: "2026-05-08T10:00:00Z",
+                },
+              ],
+              total_traces: 1,
+            })
           );
         }
         if (url.includes("/api/v1/memory/blocks?agent_id=atelier%3Acode")) {
@@ -84,19 +93,19 @@ describe("Memory page", () => {
 
     render(<Memory />);
 
+    // Default tab is "Cross-vendor" — switch to Knowledge Blocks tab
+    const knowledgeTab = await screen.findByRole("button", {
+      name: /Knowledge Blocks/i,
+    });
+    await userEvent.click(knowledgeTab);
+
     expect(await screen.findByText("Core blocks")).toBeInTheDocument();
     expect(await screen.findByText("working-style")).toBeInTheDocument();
-    expect(
-      await screen.findByText("claude · atelier:code")
-    ).toBeInTheDocument();
     expect(
       await screen.findByText("Recent archived passages")
     ).toBeInTheDocument();
     expect(
       await screen.findByText("A useful archived passage.")
     ).toBeInTheDocument();
-    expect(
-      screen.queryByLabelText("Filter memory by agent")
-    ).not.toBeInTheDocument();
   });
 });

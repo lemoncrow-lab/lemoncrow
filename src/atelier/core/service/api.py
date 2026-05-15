@@ -3641,6 +3641,349 @@ def create_app(store_root: str | Path | None = None) -> Any:
         passages = mem.list_passages(agent_id, limit=limit)
         return [p.model_dump(mode="json") for p in passages]
 
+    # ------------------------------------------------------------------ #
+    # Week-2 routes — Sessions, Memory facts, Insights, Outcomes,        #
+    # Reports (spec 06)                                                   #
+    # ------------------------------------------------------------------ #
+
+    @app.get("/v1/sessions", tags=["sessions"], dependencies=[Depends(verify_api_key)])
+    def list_sessions(
+        since: str = Query("7d", description="Time window, e.g. '7d', '30d'"),
+        limit: int = Query(200, ge=1, le=1000),
+    ) -> list[dict[str, Any]]:
+        """List recent sessions with headline cost/savings fields."""
+        from datetime import timedelta
+
+        from atelier.infra.runtime.session_report import (
+            build_report,
+            list_run_files,
+        )
+
+        root = Path(cfg.atelier_root)
+
+        # Parse since
+        days = 7
+        if since.endswith("d"):
+            try:
+                days = int(since[:-1])
+            except ValueError:
+                pass
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+
+        files = list_run_files(root, since=cutoff)
+        results: list[dict[str, Any]] = []
+        for f in files[:limit]:
+            try:
+                snap: dict[str, Any] = json.loads(f.read_text(encoding="utf-8"))
+                report = build_report(snap, root)
+                results.append(
+                    {
+                        "session_id": report.session_id,
+                        "started_at": report.started_at.isoformat(),
+                        "ended_at": report.ended_at.isoformat() if report.ended_at else None,
+                        "duration_seconds": report.duration_seconds,
+                        "vendor": report.vendor,
+                        "total_turns": report.total_turns,
+                        "total_cost_usd": report.total_cost_usd,
+                        "total_atelier_savings_usd": report.total_atelier_savings_usd,
+                        "label": None,
+                        "models_used": report.models_used,
+                    }
+                )
+            except Exception:
+                continue
+        return results
+
+    @app.get(
+        "/v1/sessions/{session_id}",
+        tags=["sessions"],
+        dependencies=[Depends(verify_api_key)],
+    )
+    def get_session(session_id: str) -> dict[str, Any]:
+        """Full session report for a single session_id."""
+        from atelier.infra.runtime.session_report import load_report
+
+        root = Path(cfg.atelier_root)
+        report = load_report(session_id, root)
+        if report is None:
+            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+        return {
+            "session_id": report.session_id,
+            "started_at": report.started_at.isoformat(),
+            "ended_at": report.ended_at.isoformat() if report.ended_at else None,
+            "duration_seconds": report.duration_seconds,
+            "vendor": report.vendor,
+            "total_turns": report.total_turns,
+            "total_cost_usd": report.total_cost_usd,
+            "total_atelier_savings_usd": report.total_atelier_savings_usd,
+            "label": None,
+            "models_used": report.models_used,
+            "tool_call_count": report.tool_call_count,
+            "input_token_cost_usd": report.input_token_cost_usd,
+            "cache_write_cost_usd": report.cache_write_cost_usd,
+            "cache_read_cost_usd": report.cache_read_cost_usd,
+            "output_token_cost_usd": report.output_token_cost_usd,
+            "input_tokens": report.input_tokens,
+            "cache_write_tokens": report.cache_write_tokens,
+            "cache_read_tokens": report.cache_read_tokens,
+            "output_tokens": report.output_tokens,
+            "routing_downtiered_turns": report.routing_downtiered_turns,
+            "routing_savings_usd": report.routing_savings_usd,
+            "compact_events": report.compact_events,
+            "compact_savings_estimate_usd": report.compact_savings_estimate_usd,
+            "top_tools_by_cost": [
+                {"tool": t, "calls": c, "cost_usd": v}
+                for t, c, v in report.top_tools_by_cost
+            ],
+        }
+
+    @app.get(
+        "/v1/memory/facts",
+        tags=["memory"],
+        dependencies=[Depends(verify_api_key)],
+    )
+    def list_memory_facts(
+        vendor: str | None = Query(None, description="Filter by vendor: claude, codex, gemini"),
+    ) -> list[dict[str, Any]]:
+        """List cross-vendor memory facts, optionally filtered by vendor."""
+        from atelier.core.capabilities.cross_vendor_memory.registry import MemoryRegistry
+
+        registry = MemoryRegistry()
+        facts = registry.by_vendor(vendor) if vendor else registry.all_facts()
+        return [
+            {
+                "fact_id": f.fact_id,
+                "vendor": f.vendor,
+                "source_path": str(f.source_path),
+                "source_kind": f.source_kind,
+                "content": f.content,
+                "line_number": f.line_number,
+                "captured_at": f.captured_at.isoformat(),
+                "raw_meta": f.raw_meta,
+            }
+            for f in facts
+        ]
+
+    @app.get(
+        "/v1/memory/facts/{fact_id}",
+        tags=["memory"],
+        dependencies=[Depends(verify_api_key)],
+    )
+    def get_memory_fact(fact_id: str) -> dict[str, Any]:
+        """Get a single cross-vendor memory fact by its stable fact_id."""
+        from atelier.core.capabilities.cross_vendor_memory.registry import MemoryRegistry
+
+        registry = MemoryRegistry()
+        fact = registry.show(fact_id)
+        if fact is None:
+            raise HTTPException(status_code=404, detail=f"Fact '{fact_id}' not found")
+        return {
+            "fact_id": fact.fact_id,
+            "vendor": fact.vendor,
+            "source_path": str(fact.source_path),
+            "source_kind": fact.source_kind,
+            "content": fact.content,
+            "line_number": fact.line_number,
+            "captured_at": fact.captured_at.isoformat(),
+            "raw_meta": fact.raw_meta,
+        }
+
+    # 60-second LRU cache — keyed on (since, root_str)
+    import functools
+
+    @functools.lru_cache(maxsize=32)
+    def _cached_insights(since_str: str, root_str: str) -> dict[str, Any]:
+        from datetime import timedelta
+
+        from atelier.infra.runtime.insights import build_insights
+
+        root = Path(root_str)
+        days = 7
+        if since_str.endswith("d"):
+            try:
+                days = int(since_str[:-1])
+            except ValueError:
+                pass
+        now = datetime.now(UTC)
+        since_dt = now - timedelta(days=days)
+        window = build_insights(root, since=since_dt, until=now)
+        return {
+            "since": window.since.isoformat(),
+            "until": window.until.isoformat(),
+            "session_count": window.session_count,
+            "total_duration_seconds": window.total_duration_seconds,
+            "total_cost_usd": window.total_cost_usd,
+            "total_atelier_savings_usd": window.total_atelier_savings_usd,
+            "cost_by_vendor": window.cost_by_vendor,
+            "cost_by_tool": window.cost_by_tool,
+            "cost_by_model": window.cost_by_model,
+            "top_sessions": [
+                {
+                    "session_id": s.session_id,
+                    "cost_usd": s.cost_usd,
+                    "label": s.label,
+                    "duration_seconds": s.duration_seconds,
+                }
+                for s in window.top_sessions
+            ],
+            "outcomes_summary": {
+                "route_decisions": window.outcomes_summary.route_decisions,
+                "route_avg_score": window.outcomes_summary.route_avg_score,
+                "compact_events": window.outcomes_summary.compact_events,
+                "compact_avg_score": window.outcomes_summary.compact_avg_score,
+                "sessions_with_high_extra_reads": window.outcomes_summary.sessions_with_high_extra_reads,
+            },
+            "opportunities": [
+                {
+                    "kind": o.kind,
+                    "message": o.message,
+                    "estimated_savings_usd": o.estimated_savings_usd,
+                    "sessions_affected": o.sessions_affected,
+                }
+                for o in window.opportunities
+            ],
+        }
+
+    import time as _time
+
+    _insights_cache_timestamps: dict[str, float] = {}
+    _INSIGHTS_CACHE_TTL = 60.0
+
+    @app.get("/v1/insights", tags=["insights"], dependencies=[Depends(verify_api_key)])
+    def get_insights(since: str = Query("7d")) -> dict[str, Any]:
+        """Weekly insights window — cost, top sessions, opportunities. Cached 60s."""
+        root_str = str(cfg.atelier_root)
+        cache_key = f"{since}:{root_str}"
+        now_ts = _time.monotonic()
+        if _insights_cache_timestamps.get(cache_key, 0) + _INSIGHTS_CACHE_TTL < now_ts:
+            _cached_insights.cache_clear()
+            _insights_cache_timestamps[cache_key] = now_ts
+        return _cached_insights(since, root_str)
+
+    @app.get(
+        "/v1/outcomes/summary",
+        tags=["outcomes"],
+        dependencies=[Depends(verify_api_key)],
+    )
+    def get_outcomes_summary(since: str = Query("7d")) -> dict[str, Any]:
+        """Aggregated route + compact outcome scores across all recent sessions."""
+        from datetime import timedelta
+
+        from atelier.infra.runtime.outcome_capture import load_outcomes_from_state
+        from atelier.infra.runtime.session_report import list_run_files
+
+        root = Path(cfg.atelier_root)
+        days = 7
+        if since.endswith("d"):
+            try:
+                days = int(since[:-1])
+            except ValueError:
+                pass
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+
+        files = list_run_files(root, since=cutoff)
+        route_scores: list[float] = []
+        compact_scores: list[float] = []
+        high_extra_reads: list[str] = []
+
+        for f in files:
+            session_id = f.stem
+            state_path = root / "runs" / f"{session_id}.outcomes.json"
+            if not state_path.exists():
+                continue
+            try:
+                outcomes = load_outcomes_from_state(state_path)
+            except Exception:
+                continue
+
+            for entry in outcomes.get("route_outcomes", []):
+                ow = entry.get("outcome_window") or {}
+                sc = ow.get("outcome_score")
+                if sc is not None:
+                    route_scores.append(float(sc))
+
+            for entry in outcomes.get("compact_outcomes", []):
+                ow = entry.get("outcome_window") or {}
+                sc = ow.get("outcome_score")
+                if sc is not None:
+                    compact_scores.append(float(sc))
+                er = ow.get("extra_read_rate")
+                if er is not None and float(er) > 0.3:
+                    high_extra_reads.append(session_id)
+
+        return {
+            "route_decisions": len(route_scores),
+            "route_avg_score": round(sum(route_scores) / len(route_scores), 4) if route_scores else 0.0,
+            "compact_events": len(compact_scores),
+            "compact_avg_score": round(sum(compact_scores) / len(compact_scores), 4) if compact_scores else 0.0,
+            "sessions_with_high_extra_reads": list(set(high_extra_reads)),
+        }
+
+    @app.get(
+        "/v1/outcomes/{session_id}",
+        tags=["outcomes"],
+        dependencies=[Depends(verify_api_key)],
+    )
+    def get_outcomes_for_session(session_id: str) -> list[dict[str, Any]]:
+        """All outcome entries (route + compact) for a single session."""
+        from atelier.infra.runtime.outcome_capture import load_outcomes_from_state
+
+        root = Path(cfg.atelier_root)
+        state_path = root / "runs" / f"{session_id}.outcomes.json"
+        if not state_path.exists():
+            raise HTTPException(status_code=404, detail=f"No outcomes for session '{session_id}'")
+        try:
+            outcomes = load_outcomes_from_state(state_path)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="Failed to load outcomes") from exc
+
+        entries: list[dict[str, Any]] = []
+        for entry in outcomes.get("route_outcomes", []):
+            entries.append({"kind": "route", **entry})
+        for entry in outcomes.get("compact_outcomes", []):
+            entries.append({"kind": "compact", **entry})
+        return entries
+
+    @app.get("/v1/reports", tags=["reports"], dependencies=[Depends(verify_api_key)])
+    def list_reports() -> list[dict[str, Any]]:
+        """List all published benchmark reports from reports/index.json."""
+        index_path = Path("reports") / "index.json"
+        if not index_path.exists():
+            return []
+        try:
+            index: list[dict[str, Any]] = json.loads(index_path.read_text())
+            return index
+        except (OSError, json.JSONDecodeError):
+            return []
+
+    @app.get(
+        "/v1/reports/{week}",
+        tags=["reports"],
+        dependencies=[Depends(verify_api_key)],
+    )
+    def get_report(week: str) -> dict[str, Any]:
+        """Get a published benchmark report (markdown + json) for a specific ISO week."""
+        # Validate week format to prevent path traversal
+        import re
+
+        if not re.fullmatch(r"\d{4}-W\d{2}", week):
+            raise HTTPException(status_code=400, detail="Invalid week format — expected YYYY-Www")
+
+        report_dir = Path("reports") / week
+        md_path = report_dir / "benchmark.md"
+        json_path = report_dir / "benchmark.json"
+
+        if not md_path.exists():
+            raise HTTPException(status_code=404, detail=f"Report for week '{week}' not found")
+
+        try:
+            markdown_content = md_path.read_text(encoding="utf-8")
+            json_data: dict[str, Any] = json.loads(json_path.read_text()) if json_path.exists() else {}
+        except (OSError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=500, detail="Failed to read report files") from exc
+
+        return {"week": week, "markdown": markdown_content, "json": json_data}
+
     return app
 
 

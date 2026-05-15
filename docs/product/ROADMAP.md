@@ -65,6 +65,19 @@ Build the things natives structurally can't.
 - $13K MRR
 - Decision point: bootstrap further vs raise seed
 
+## Cross-phase: Optimization Advisor
+
+Tracked on its own branch (`feat/optimization-autopilot`). The feature spans Phase 2 (advisory mode + presets) and Phase 3 (continuous tuning + web Pareto UI).
+
+See [`docs/specs/optimization-autopilot.md`](../specs/optimization-autopilot.md) for the full spec. Key idea: based on the user's last 7 days of real sessions, recommend the cheapest policy that preserves their quality floor. Splits compaction into 4 types (prompt-cache reorder, dedup, retrieval filter, lossy summary) and exposes them as separate savings. Always advisory, never silent.
+
+Phased delivery within the spec:
+
+- **PR-1**: 4-type compaction taxonomy (low-risk refactor, useful standalone)
+- **PR-2 → PR-5**: complexity scorer, golden tests, policy presets, `atelier optimize` advisor
+- **PR-6**: shadow runner
+- **PR-7**: web Pareto UI (depends on Spec 10)
+
 ## Phase 4 — Post-90-day options (not committed)
 
 - IDE plugins (VSCode, Cursor, Zed) — only if CLI adoption proves the wedge

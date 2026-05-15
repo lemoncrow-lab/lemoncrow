@@ -377,6 +377,18 @@ def _atelier_root() -> Path:
     return Path(os.environ.get("ATELIER_ROOT", str(default_store_root())))
 
 
+def _make_outcome_writer(led: RunLedger) -> Any:
+    """Return a FileStateWriter for outcomes alongside the run file, or None."""
+    with contextlib.suppress(Exception):
+        from atelier.infra.runtime.outcome_capture import FileStateWriter
+
+        root = led._root
+        if root is not None:
+            runs_dir = Path(root) / "runs"
+            return FileStateWriter(runs_dir / f"{led.session_id}_outcomes.json")
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # Zero-config background service                                              #
 # --------------------------------------------------------------------------- #
@@ -1340,6 +1352,20 @@ def _compress_context(session_id: str | None = None) -> Any:
     )
     if int(compaction_savings["tokens_saved"]) > 0:
         _append_live_savings_event(compaction_savings)
+
+    with contextlib.suppress(Exception):
+        from atelier.infra.runtime import outcome_capture
+
+        outcome_capture.schedule_compact(
+            session_id=led.session_id,
+            trigger="compact_session",
+            tokens_before=int(compaction_savings["tokens_before"]),
+            tokens_after=int(compaction_savings["tokens_after_estimate"]),
+            must_keep_keywords=list(led.active_reasonblocks),
+            errors_before=len(led.errors_seen) + len(led.repeated_failures),
+            writer=_make_outcome_writer(led),
+        )
+
     return {
         "preserved": {
             "latest_error": state.error_fingerprints[-1] if state.error_fingerprints else None,
@@ -2656,6 +2682,26 @@ def _emit_model_recommendation(
         payload,
     )
     _append_live_savings_event(payload)
+
+    with contextlib.suppress(Exception):
+        from atelier.infra.runtime import outcome_capture
+
+        tool_call_events = [e for e in led.events if e.kind == "tool_call"]
+        turn_number = len(tool_call_events)
+        outcome_capture.schedule_route(
+            session_id=led.session_id,
+            tool=tool_name,
+            recommended_tier=str(recommendation.tier),
+            recommended_model=str(recommendation.model),
+            recommendation_followed=True,
+            scored_state={
+                "turn_number": turn_number,
+                "prior_errors": len(led.errors_seen) + len(led.repeated_failures),
+                "session_phase": "execution" if turn_number > 5 else "exploration",
+            },
+            writer=_make_outcome_writer(led),
+        )
+
     return payload
 
 
@@ -2711,6 +2757,21 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
                 handler: Callable[[dict[str, Any]], dict[str, Any]] = spec["handler"]
                 result = handler(args)
 
+                with contextlib.suppress(Exception):
+                    from atelier.infra.runtime import outcome_capture
+
+                    _READ_TOOLS = {
+                        "Read", "View", "read_file", "view", "view_range",
+                        "search_read", "grep", "glob", "cached_grep",
+                    }
+                    outcome_capture.advance(
+                        led.session_id,
+                        tool_name=name,
+                        is_error=False,
+                        is_read_tool=name in _READ_TOOLS,
+                        writer=_make_outcome_writer(led),
+                    )
+
             if not remote_routed and not _service_backed_state():
                 result_text = json.dumps(result, ensure_ascii=False, default=str)
                 compact_text = (
@@ -2760,6 +2821,18 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
                 },
             )
         except Exception as exc:
+            if not remote_routed:
+                with contextlib.suppress(Exception):
+                    from atelier.infra.runtime import outcome_capture
+
+                    led = _get_ledger()
+                    outcome_capture.advance(
+                        led.session_id,
+                        tool_name=name,
+                        is_error=True,
+                        is_env_error=isinstance(exc, (OSError, IOError)),
+                        writer=_make_outcome_writer(led),
+                    )
             if not _service_backed_state():
                 rtc = _get_realtime_context()
                 rtc.record_tool_error(name, str(exc))
