@@ -230,6 +230,11 @@ def test_optimizations_summary_returns_runtime_catalog_and_recommendations(
     assert "high-cost-session-outliers" in recommendation_ids
     assert "context-heavy-sessions" in recommendation_ids
     assert "low-worth-expensive-sessions" in recommendation_ids
+    assert data["advisor"]["sessions_analysed"] == 3
+    assert data["advisor"]["current_candidate_id"] == "current"
+    assert data["advisor"]["recommended_candidate_id"] is None
+    assert len(data["advisor"]["candidates"]) >= 2
+    assert data["advisor_history"] == []
 
     auto_ids = {item["id"] for item in data["auto_optimizations"]}
     assert {

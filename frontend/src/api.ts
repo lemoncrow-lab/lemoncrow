@@ -433,6 +433,73 @@ export interface OptimizationGap {
   notes: string;
 }
 
+export interface OptimizationAdvisorRoutingPolicy {
+  policy: string;
+  simple: string;
+  medium: string;
+  hard: string;
+  escalate_on: string[];
+}
+
+export interface OptimizationAdvisorCompactionPolicy {
+  prompt_cache_reorder: boolean;
+  dedup: boolean;
+  retrieval_filter: boolean;
+  lossy_summary: boolean;
+  trigger_at_context_fraction: number;
+  preserve: string[];
+}
+
+export interface OptimizationAdvisorPolicy {
+  name: string;
+  preset: string;
+  quality_floor: number;
+  confidence_required: string;
+  routing: OptimizationAdvisorRoutingPolicy;
+  compaction: OptimizationAdvisorCompactionPolicy;
+}
+
+export interface OptimizationAdvisorCandidate {
+  id: string;
+  policy: OptimizationAdvisorPolicy;
+  weekly_cost_usd: number;
+  estimated_quality: number;
+  latency_mult: number;
+  escalation_rate: number;
+  compaction_breakdown: Record<string, number>;
+  routing_breakdown: Record<string, number>;
+}
+
+export interface OptimizationAdvisorGolden {
+  total: number;
+  passed: number;
+  score: number;
+  failures: string[];
+}
+
+export interface OptimizationAdvisor {
+  current_policy: OptimizationAdvisorPolicy;
+  recommended_policy: OptimizationAdvisorPolicy;
+  candidates: OptimizationAdvisorCandidate[];
+  current_candidate_id: string;
+  recommended_candidate_id: string | null;
+  confidence: string;
+  confidence_reason: string;
+  sessions_analysed: number;
+  replayable_tasks: number;
+  weekly_savings_usd: number;
+  quality_delta: number;
+  baseline_weekly_cost_usd: number;
+  has_recommendation: boolean;
+  message: string;
+  bucket_counts: Record<string, number>;
+  golden: OptimizationAdvisorGolden;
+}
+
+export interface OptimizationAdvisorHistoryEntry extends OptimizationAdvisor {
+  recorded_at: string;
+}
+
 export interface OptimizationRecommendationSession {
   trace_id: string;
   host?: string;
@@ -612,6 +679,8 @@ export interface OptimizationsSummary {
   budget_rules: OptimizationRule[];
   implemented_levers: OptimizationLever[];
   implementation_gaps: OptimizationGap[];
+  advisor: OptimizationAdvisor;
+  advisor_history: OptimizationAdvisorHistoryEntry[];
   recommendations: {
     window_days: number;
     host: string | null;

@@ -1,19 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   api,
-  type OptimizationAutoOptimization,
-  type OptimizationImpactValidation,
-  type OptimizationModelRoutingSimulation,
-  type OptimizationQualitySummary,
+  type OptimizationAdvisorCandidate,
   type OptimizationRecommendation,
-  type OptimizationRereadTelemetry,
+  type OptimizationRecommendationSession,
   type OptimizationsSummary,
 } from "../api";
 import {
+  Chip,
   MetricCard,
   PageHero,
   SectionHeader,
+  Slider,
+  SnippetCard,
+  Switch,
   cx,
 } from "../components/WorkbenchUI";
 import { useTimeRange } from "../lib/TimeRangeContext";
@@ -24,6 +25,22 @@ const usdFmt = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
+
+const COMPACTION_LABELS: Record<string, string> = {
+  prompt_cache_reorder: "Prompt-cache reorder",
+  dedup: "Dedup compaction",
+  retrieval_filter: "Retrieval filter",
+  lossy_summary: "Lossy summary",
+};
+
+type SessionEvidence = OptimizationRecommendationSession & {
+  recommendationId: string;
+  recommendationTitle: string;
+  recommendationSeverity: string;
+  recommendationAction: string;
+  estimatedUsdSaved: number;
+  estimatedTokensSaved: number;
+};
 
 function fmtTokens(value: number): string {
   const abs = Math.abs(value);
@@ -39,89 +56,44 @@ function fmtUsd(value: number): string {
   return usdFmt.format(value);
 }
 
-function fmtPct(value: number, digits = 1): string {
+function fmtDeltaPercent(value: number): string {
   const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(digits)}%`;
+  return `${sign}${(value * 100).toFixed(1)}%`;
 }
 
-function fmtRatio(value: number): string {
+function fmtPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function fmtRange(from: string | null, to: string | null): string {
-  if (!from || !to) return "No dated traces";
-  return `${new Date(from).toLocaleDateString()} to ${new Date(to).toLocaleDateString()}`;
+function fmtSignedUsd(value: number): string {
+  if (value === 0) return "$0.00";
+  return `${value > 0 ? "+" : "-"}${fmtUsd(Math.abs(value))}`;
 }
 
-function Pill({
-  label,
-  tone = "neutral",
-}: {
-  label: string;
-  tone?: "neutral" | "emerald" | "amber" | "red" | "cyan" | "violet";
-}) {
-  const toneClass: Record<string, string> = {
-    neutral: "border-neutral-800 bg-neutral-900/50 text-neutral-300",
-    emerald: "border-emerald-900/50 bg-emerald-950/20 text-emerald-300",
-    amber: "border-amber-900/50 bg-amber-950/20 text-amber-300",
-    red: "border-red-900/50 bg-red-950/20 text-red-300",
-    cyan: "border-cyan-900/50 bg-cyan-950/20 text-cyan-300",
-    violet: "border-violet-900/50 bg-violet-950/20 text-violet-300",
-  };
-
-  return (
-    <span
-      className={cx(
-        "inline-flex items-center border px-2 py-0.5 text-[10px] font-mono uppercase tracking-widest",
-        toneClass[tone]
-      )}
-    >
-      {label}
-    </span>
-  );
+function fmtPolicyLabel(value: string): string {
+  return value.replaceAll("_", " ").replaceAll("-", " ");
 }
 
-function gradeTone(grade: string): "emerald" | "cyan" | "amber" | "red" {
-  if (grade === "S" || grade === "A") return "emerald";
-  if (grade === "B") return "cyan";
-  if (grade === "C" || grade === "D") return "amber";
+function confidenceTone(value: string): "emerald" | "amber" | "red" {
+  if (value === "high") return "emerald";
+  if (value === "medium") return "amber";
   return "red";
 }
 
-function signalTone(score: number): string {
-  if (score >= 80) return "bg-emerald-400";
-  if (score >= 65) return "bg-cyan-400";
-  if (score >= 50) return "bg-amber-400";
-  return "bg-red-400";
+function severityTone(
+  value: string
+): "emerald" | "amber" | "red" | "neutral" {
+  if (value === "high") return "red";
+  if (value === "medium") return "amber";
+  if (value === "low") return "emerald";
+  return "neutral";
 }
 
-function signalWidthClass(score: number): string {
-  if (score >= 95) return "w-[95%]";
-  if (score >= 90) return "w-[90%]";
-  if (score >= 85) return "w-[85%]";
-  if (score >= 80) return "w-[80%]";
-  if (score >= 75) return "w-[75%]";
-  if (score >= 70) return "w-[70%]";
-  if (score >= 65) return "w-[65%]";
-  if (score >= 60) return "w-[60%]";
-  if (score >= 55) return "w-[55%]";
-  if (score >= 50) return "w-[50%]";
-  if (score >= 45) return "w-[45%]";
-  if (score >= 40) return "w-[40%]";
-  if (score >= 35) return "w-[35%]";
-  if (score >= 30) return "w-[30%]";
-  if (score >= 25) return "w-[25%]";
-  if (score >= 20) return "w-[20%]";
-  if (score >= 15) return "w-[15%]";
-  if (score >= 10) return "w-[10%]";
-  return "w-[6%]";
-}
-
-function verdictTone(verdict: string): "emerald" | "amber" | "red" | "cyan" {
-  if (verdict === "improved") return "emerald";
-  if (verdict === "regressed") return "red";
-  if (verdict === "mixed") return "amber";
-  return "cyan";
+function qualityTone(score: number): "emerald" | "cyan" | "amber" | "red" {
+  if (score >= 0.98) return "emerald";
+  if (score >= 0.95) return "cyan";
+  if (score >= 0.92) return "amber";
+  return "red";
 }
 
 function deltaTone(
@@ -133,319 +105,454 @@ function deltaTone(
   return improved ? "emerald" : "red";
 }
 
-function QualityScorePanel({
-  summary,
-}: {
-  summary: OptimizationQualitySummary;
-}) {
+function collectSessionEvidence(
+  recommendations: OptimizationRecommendation[]
+): SessionEvidence[] {
+  const byTrace = new Map<string, SessionEvidence>();
+  recommendations.forEach((recommendation) => {
+    recommendation.sessions.forEach((session) => {
+      if (!byTrace.has(session.trace_id)) {
+        byTrace.set(session.trace_id, {
+          ...session,
+          recommendationId: recommendation.id,
+          recommendationTitle: recommendation.title,
+          recommendationSeverity: recommendation.severity,
+          recommendationAction: recommendation.action,
+          estimatedUsdSaved: recommendation.estimated_usd_saved,
+          estimatedTokensSaved: recommendation.estimated_tokens_saved,
+        });
+      }
+    });
+  });
+  return Array.from(byTrace.values());
+}
+
+function candidateOrder(
+  candidate: OptimizationAdvisorCandidate,
+  currentCandidateId: string,
+  recommendedCandidateId: string | null
+): number {
+  if (candidate.id === currentCandidateId) return 0;
+  if (candidate.id === recommendedCandidateId) return 1;
+  return 2;
+}
+
+function Hint({ text }: { text: string }) {
   return (
-    <section className="border border-neutral-800 bg-neutral-950/60">
-      <div className="border-b border-neutral-800 px-5 py-4">
-        <SectionHeader
-          eyebrow="Quality"
-          title="Recent Trace Quality Score"
-          description="This stays because it is derived from recent traces, not from a static checklist. It tells you whether session behavior is degrading even when savings still look healthy."
-        />
-      </div>
-
-      <div className="grid gap-4 p-5 xl:grid-cols-[0.78fr_1.22fr]">
-        <div className="space-y-4">
-          <div className="border border-neutral-800 bg-black/20 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-                  Quality grade
-                </div>
-                <div className="mt-2 text-3xl font-semibold text-neutral-100">
-                  {summary.score}/100
-                </div>
-              </div>
-              <Pill label={summary.grade} tone={gradeTone(summary.grade)} />
-            </div>
-            <div className="mt-3 text-sm text-neutral-400 leading-relaxed">
-              {summary.trace_count.toLocaleString()} traces scored in the active
-              window.
-            </div>
-            <div className="mt-2 text-xs text-neutral-500">
-              Dominant model: {summary.dominant_model || "unknown"}
-              {summary.dominant_context_window_tokens > 0
-                ? ` • ${fmtTokens(summary.dominant_context_window_tokens)} window`
-                : ""}
-            </div>
-          </div>
-
-          <div className="border border-neutral-800 bg-black/20 p-4">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-              Recommendations
-            </div>
-            <div className="mt-3 space-y-2 text-sm text-neutral-300">
-              {summary.recommendations.map((item) => (
-                <div key={item} className="leading-relaxed">
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {summary.risk_flags.length > 0 && (
-            <div className="border border-amber-900/40 bg-amber-950/10 p-4">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-amber-300">
-                Risk flags
-              </div>
-              <div className="mt-3 space-y-2 text-sm text-amber-100/90">
-                {summary.risk_flags.map((item) => (
-                  <div key={item} className="leading-relaxed">
-                    {item}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-3">
-          {summary.signals.length === 0 ? (
-            <div className="border border-neutral-800 bg-black/20 p-4 text-sm text-neutral-500">
-              No signal data was available for this window.
-            </div>
-          ) : (
-            summary.signals.map((signal) => (
-              <article
-                key={signal.id}
-                className="border border-neutral-800 bg-black/20 p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-neutral-100">
-                      {signal.title}
-                    </div>
-                    <div className="mt-1 text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-                      Weight {signal.weight_pct}%
-                    </div>
-                  </div>
-                  <div className="text-sm font-mono text-neutral-300">
-                    {signal.score}
-                  </div>
-                </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-neutral-900">
-                  <div
-                    className={cx(
-                      "h-full rounded-full",
-                      signalTone(signal.score),
-                      signalWidthClass(signal.score)
-                    )}
-                  />
-                </div>
-                <p className="mt-3 text-sm text-neutral-400 leading-relaxed">
-                  {signal.detail}
-                </p>
-              </article>
-            ))
-          )}
-        </div>
-      </div>
-    </section>
+    <span
+      title={text}
+      className="inline-flex h-5 w-5 cursor-help items-center justify-center border border-neutral-700 text-[10px] font-mono text-neutral-400"
+    >
+      ?
+    </span>
   );
 }
 
-function ImpactValidationPanel({
-  validation,
+function CandidateSummaryCard({
+  label,
+  candidate,
+  currentCandidate,
+  badge,
+  note,
 }: {
-  validation: OptimizationImpactValidation;
+  label: string;
+  candidate: OptimizationAdvisorCandidate;
+  currentCandidate: OptimizationAdvisorCandidate;
+  badge?: "Current" | "Recommended";
+  note: string;
 }) {
-  const tokenTone = deltaTone(validation.deltas.tokens_pct, true);
-  const costTone = deltaTone(validation.deltas.cost_pct, true);
-  const cacheTone = deltaTone(validation.deltas.cache_leverage_pct, false);
+  const costDelta = candidate.weekly_cost_usd - currentCandidate.weekly_cost_usd;
+  const qualityDelta = candidate.estimated_quality - currentCandidate.estimated_quality;
 
   return (
-    <section className="border border-neutral-800 bg-neutral-950/60">
-      <div className="border-b border-neutral-800 px-5 py-4">
-        <SectionHeader
-          eyebrow="Impact Validation"
-          title="Before/After Proof"
-          description="The split is automatic and chronological. It compares earlier traces in the window against later ones so the tab can show whether token load, spend, and cache leverage actually moved."
+    <article className="border border-neutral-800 bg-neutral-950/60 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-mono uppercase tracking-[0.22em] text-neutral-500">
+            {label}
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <h2 className="text-xl font-semibold text-neutral-100">
+              {candidate.policy.name}
+            </h2>
+            <Hint text={note} />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Chip tone="neutral">{fmtPolicyLabel(candidate.policy.preset)}</Chip>
+            <Chip tone={qualityTone(candidate.estimated_quality)}>
+              quality floor {fmtPercent(candidate.policy.quality_floor)}
+            </Chip>
+            {badge && <Chip tone="amber">{badge}</Chip>}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-semibold text-neutral-100">
+            {fmtUsd(candidate.weekly_cost_usd)}
+          </div>
+          <div className="mt-1 text-xs text-neutral-500">weekly</div>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="Quality"
+          value={fmtPercent(candidate.estimated_quality)}
+          detail={fmtDeltaPercent(qualityDelta)}
+          tone={qualityTone(candidate.estimated_quality)}
+        />
+        <MetricCard
+          label="Cost delta"
+          value={fmtSignedUsd(-costDelta)}
+          detail="vs current"
+          tone={deltaTone(costDelta, true)}
+        />
+        <MetricCard
+          label="Latency"
+          value={`${candidate.latency_mult.toFixed(2)}x`}
+          detail="relative"
+          tone={deltaTone(candidate.latency_mult - currentCandidate.latency_mult, true)}
+        />
+        <MetricCard
+          label="Escalation"
+          value={fmtPercent(candidate.escalation_rate)}
+          detail="escalates"
+          tone={deltaTone(candidate.escalation_rate - currentCandidate.escalation_rate, true)}
         />
       </div>
 
-      <div className="space-y-4 p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-sm text-neutral-400">
-            Strategy:{" "}
-            <span className="text-neutral-200">
-              {validation.strategy.replaceAll("_", " ")}
-            </span>
-          </div>
-          <Pill
-            label={validation.verdict}
-            tone={verdictTone(validation.verdict)}
-          />
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <article className="border border-neutral-800 bg-black/20 p-4">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-              Avg tokens per trace
-            </div>
-            <div className="mt-3 text-sm text-neutral-300">
-              {fmtTokens(validation.before.avg_tokens)}
-              <span className="mx-2 text-neutral-600">→</span>
-              {fmtTokens(validation.after.avg_tokens)}
-            </div>
-            <div className="mt-2">
-              <Pill
-                label={fmtPct(validation.deltas.tokens_pct)}
-                tone={tokenTone}
-              />
-            </div>
-          </article>
-
-          <article className="border border-neutral-800 bg-black/20 p-4">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-              Avg cost per trace
-            </div>
-            <div className="mt-3 text-sm text-neutral-300">
-              {fmtUsd(validation.before.avg_cost_usd)}
-              <span className="mx-2 text-neutral-600">→</span>
-              {fmtUsd(validation.after.avg_cost_usd)}
-            </div>
-            <div className="mt-2">
-              <Pill
-                label={fmtPct(validation.deltas.cost_pct)}
-                tone={costTone}
-              />
-            </div>
-          </article>
-
-          <article className="border border-neutral-800 bg-black/20 p-4">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-              Cache leverage
-            </div>
-            <div className="mt-3 text-sm text-neutral-300">
-              {fmtRatio(validation.before.avg_cache_leverage)}
-              <span className="mx-2 text-neutral-600">→</span>
-              {fmtRatio(validation.after.avg_cache_leverage)}
-            </div>
-            <div className="mt-2">
-              <Pill
-                label={fmtPct(validation.deltas.cache_leverage_pct)}
-                tone={cacheTone}
-              />
-            </div>
-          </article>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <article className="border border-neutral-800 bg-black/20 p-4">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-              Before window
-            </div>
-            <div className="mt-3 text-sm text-neutral-300">
-              {validation.before.trace_count.toLocaleString()} traces
-            </div>
-            <div className="mt-1 text-xs text-neutral-500">
-              {fmtRange(validation.before.from, validation.before.to)}
-            </div>
-            <div className="mt-3 text-xs text-neutral-500">
-              Avg tracked tool savings:{" "}
-              {fmtTokens(validation.before.avg_saved_tokens)}
-            </div>
-          </article>
-
-          <article className="border border-neutral-800 bg-black/20 p-4">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-              After window
-            </div>
-            <div className="mt-3 text-sm text-neutral-300">
-              {validation.after.trace_count.toLocaleString()} traces
-            </div>
-            <div className="mt-1 text-xs text-neutral-500">
-              {fmtRange(validation.after.from, validation.after.to)}
-            </div>
-            <div className="mt-3 text-xs text-neutral-500">
-              Avg tracked tool savings:{" "}
-              {fmtTokens(validation.after.avg_saved_tokens)}
-            </div>
-          </article>
-        </div>
-
+      <div className="mt-5 grid gap-4 xl:grid-cols-2">
         <div className="border border-neutral-800 bg-black/20 p-4">
           <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-            What changed
+            Routing
           </div>
-          <div className="mt-3 space-y-2 text-sm text-neutral-300">
-            {validation.notes.map((item) => (
-              <div key={item} className="leading-relaxed">
-                {item}
-              </div>
-            ))}
+          <div className="mt-3 grid gap-2 text-sm text-neutral-300">
+            <div>Simple: {candidate.policy.routing.simple}</div>
+            <div>Medium: {candidate.policy.routing.medium}</div>
+            <div>Hard: {candidate.policy.routing.hard}</div>
+            <div
+              className="text-neutral-500"
+              title={candidate.policy.routing.escalate_on.join(", ")}
+            >
+              Escalation triggers
+            </div>
+          </div>
+        </div>
+        <div
+          className="border border-neutral-800 bg-black/20 p-4"
+          title={`Preserve: ${candidate.policy.compaction.preserve.join(", ")}`}
+        >
+          <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+            Compaction
+          </div>
+          <div className="mt-3 grid gap-2 text-sm text-neutral-300">
+            <div>
+              Trigger: {fmtPercent(candidate.policy.compaction.trigger_at_context_fraction)}
+            </div>
+            <div>Dedup: {candidate.policy.compaction.dedup ? "on" : "off"}</div>
+            <div>
+              Filter: {candidate.policy.compaction.retrieval_filter ? "on" : "off"}
+            </div>
+            <div>Lossy: {candidate.policy.compaction.lossy_summary ? "on" : "off"}</div>
           </div>
         </div>
       </div>
-    </section>
+    </article>
   );
 }
 
-function AutoOptimizationGrid({
-  rows,
+function CandidateOptions({
+  candidates,
+  currentCandidateId,
+  recommendedCandidateId,
+  selectedCandidateId,
+  onSelect,
 }: {
-  rows: OptimizationAutoOptimization[];
+  candidates: OptimizationAdvisorCandidate[];
+  currentCandidateId: string;
+  recommendedCandidateId: string | null;
+  selectedCandidateId: string;
+  onSelect: (candidateId: string) => void;
 }) {
   return (
     <section className="space-y-4">
       <SectionHeader
-        eyebrow="Auto Optimization"
-        title="Observed Automation At Work"
-        description="Only levers that saved tokens in the current window are shown here. Static capability catalogs were removed."
+        eyebrow="Optimization Frontier"
+        title="Select configuration"
+        action={
+          <Hint text="Current, recommended, and alternative policy points from the advisor frontier." />
+        }
       />
-      {rows.length === 0 ? (
+
+      <div className="grid gap-4 xl:grid-cols-5">
+        {candidates.map((candidate) => {
+          const selected = candidate.id === selectedCandidateId;
+          const isCurrent = candidate.id === currentCandidateId;
+          const isRecommended = candidate.id === recommendedCandidateId;
+          return (
+            <button
+              key={candidate.id}
+              type="button"
+              onClick={() => onSelect(candidate.id)}
+              className={cx(
+                "border p-4 text-left transition",
+                selected
+                  ? "border-amber-500/60 bg-amber-950/15"
+                  : "border-neutral-800 bg-neutral-950/60 hover:border-neutral-700"
+              )}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-sm font-semibold text-neutral-100">
+                  {candidate.policy.name}
+                </div>
+                {isCurrent && <Chip tone="neutral">Current</Chip>}
+                {isRecommended && <Chip tone="amber">Recommended</Chip>}
+              </div>
+              <div className="mt-2 text-xs uppercase tracking-widest text-neutral-500">
+                {fmtPolicyLabel(candidate.policy.preset)}
+              </div>
+              <div className="mt-4 text-2xl font-semibold text-neutral-100">
+                {fmtUsd(candidate.weekly_cost_usd)}
+              </div>
+              <div className="mt-1 text-xs text-neutral-500">per week</div>
+              <div className="mt-4 space-y-2 text-sm text-neutral-300">
+                <div>Quality {fmtPercent(candidate.estimated_quality)}</div>
+                <div>Latency {candidate.latency_mult.toFixed(2)}x</div>
+                <div>Escalation {fmtPercent(candidate.escalation_rate)}</div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function CandidateDetail({
+  candidate,
+  currentCandidate,
+  headerOverride,
+}: {
+  candidate: OptimizationAdvisorCandidate;
+  currentCandidate: OptimizationAdvisorCandidate;
+  headerOverride?: string;
+}) {
+  const compactionRows = Object.entries(candidate.compaction_breakdown);
+  const routingRows = Object.entries(candidate.routing_breakdown).sort(
+    ([left], [right]) => left.localeCompare(right)
+  );
+  const costDelta = candidate.weekly_cost_usd - currentCandidate.weekly_cost_usd;
+  const qualityDelta = candidate.estimated_quality - currentCandidate.estimated_quality;
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[0.88fr_1.12fr]">
+      <article className="border border-neutral-800 bg-neutral-950/60 p-5">
+        <SectionHeader
+          eyebrow="Advanced details"
+          title={headerOverride ?? candidate.policy.name}
+          action={
+            <Hint text="Inspect the exact routing and compaction mix for the selected option." />
+          }
+        />
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <MetricCard
+            label="Cost vs current"
+            value={fmtSignedUsd(-costDelta)}
+            detail={`${fmtUsd(candidate.weekly_cost_usd)} / week`}
+            tone={deltaTone(costDelta, true)}
+          />
+          <MetricCard
+            label="Quality vs current"
+            value={fmtDeltaPercent(qualityDelta)}
+            detail={fmtPercent(candidate.estimated_quality)}
+            tone={deltaTone(qualityDelta, false)}
+          />
+        </div>
+        <div
+          className="mt-5 border border-neutral-800 bg-black/20 p-4"
+          title={`Preserve: ${candidate.policy.compaction.preserve.join(", ")}`}
+        >
+          <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+            Policy details
+          </div>
+          <div className="mt-3 grid gap-2 text-sm text-neutral-300">
+            <div>Routing mode: {fmtPolicyLabel(candidate.policy.routing.policy)}</div>
+            <div>
+              Context trigger:{" "}
+              {fmtPercent(candidate.policy.compaction.trigger_at_context_fraction)}
+            </div>
+            <div>Confidence required: {candidate.policy.confidence_required}</div>
+          </div>
+        </div>
+      </article>
+
+      <div className="grid gap-4">
+        <article className="border border-neutral-800 bg-neutral-950/60 p-5">
+          <SectionHeader
+            eyebrow="Compaction breakdown"
+            title="Compaction"
+            action={
+              <Hint text="Split savings by compaction type so users can see what is free vs riskier." />
+            }
+          />
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-neutral-800 text-[10px] uppercase tracking-widest text-neutral-500">
+                  <th className="py-3 pr-4">Compaction type</th>
+                  <th className="py-3 pr-4">Enabled</th>
+                  <th className="py-3 text-right">Weekly savings</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-900">
+                {compactionRows.map(([key, value]) => {
+                  const enabled =
+                    key === "prompt_cache_reorder"
+                      ? candidate.policy.compaction.prompt_cache_reorder
+                      : key === "dedup"
+                        ? candidate.policy.compaction.dedup
+                        : key === "retrieval_filter"
+                          ? candidate.policy.compaction.retrieval_filter
+                          : candidate.policy.compaction.lossy_summary;
+                  return (
+                    <tr key={key}>
+                      <td className="py-3 pr-4 text-neutral-200">
+                        {COMPACTION_LABELS[key] ?? fmtPolicyLabel(key)}
+                      </td>
+                      <td className="py-3 pr-4">
+                        <Chip tone={enabled ? "emerald" : "neutral"}>
+                          {enabled ? "On" : "Off"}
+                        </Chip>
+                      </td>
+                      <td className="py-3 text-right font-mono text-neutral-300">
+                        {fmtUsd(value)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article className="border border-neutral-800 bg-neutral-950/60 p-5">
+          <SectionHeader
+            eyebrow="Routing breakdown"
+            title="Routing"
+            action={
+              <Hint text="Share of turns routed to cheap, medium, and expensive tiers." />
+            }
+          />
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {routingRows.length === 0 ? (
+              <div className="border border-neutral-800 bg-black/20 p-4 text-sm text-neutral-500 md:col-span-3">
+                No routing distribution was available for this option.
+              </div>
+            ) : (
+              routingRows.map(([tier, share]) => (
+                <div key={tier} className="border border-neutral-800 bg-black/20 p-4">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+                    {tier}
+                  </div>
+                  <div className="mt-2 text-xl font-semibold text-neutral-100">
+                    {fmtPercent(share)}
+                  </div>
+                  <div className="mt-2 text-xs text-neutral-500">of turns</div>
+                </div>
+              ))
+            )}
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function SessionsBehindRecommendation({
+  evidence,
+}: {
+  evidence: SessionEvidence[];
+}) {
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        eyebrow="Sessions"
+        title="Sessions"
+        action={
+          <Hint text="Concrete traces behind the recommendation. Open one in Sessions for the full context." />
+        }
+      />
+
+      {evidence.length === 0 ? (
         <section className="border border-neutral-800 bg-neutral-950/60 p-5 text-sm text-neutral-500">
-          No observed optimization levers were recorded in this window.
+          No concrete session examples were available in this window.
         </section>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
-          {rows.map((row) => (
+          {evidence.slice(0, 6).map((session) => (
             <article
-              key={row.id}
+              key={`${session.recommendationId}-${session.trace_id}`}
               className="border border-neutral-800 bg-neutral-950/60 p-4"
+              title={[
+                session.reason,
+                session.tools?.length ? `Tools: ${session.tools.join(", ")}` : "",
+                `Suggested action: ${session.recommendationAction}`,
+              ]
+                .filter(Boolean)
+                .join("\n")}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-neutral-100">
-                    {row.title}
+                    {session.recommendationTitle}
                   </div>
-                  <div className="mt-1 text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-                    {row.id.replaceAll("_", " ")}
+                  <div className="mt-1 font-mono text-xs text-neutral-500">
+                    {session.trace_id}
                   </div>
                 </div>
-                <Pill label={fmtTokens(row.tokens_saved)} tone="emerald" />
+                <Chip tone={severityTone(session.recommendationSeverity)}>
+                  {session.recommendationSeverity}
+                </Chip>
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <MetricCard
-                  label="Cost saved"
-                  value={fmtUsd(row.cost_saved_usd)}
-                  tone="amber"
+                  label="Estimated savings"
+                  value={fmtUsd(session.estimatedUsdSaved)}
+                  detail={fmtTokens(session.estimatedTokensSaved)}
+                  tone="emerald"
                 />
                 <MetricCard
-                  label="Calls saved"
-                  value={row.calls_saved.toLocaleString()}
-                  detail={`${row.session_count.toLocaleString()} sessions`}
-                  tone="cyan"
+                  label="Trace cost"
+                  value={
+                    typeof session.cost_usd === "number"
+                      ? fmtUsd(session.cost_usd)
+                      : "unknown"
+                  }
+                  detail={
+                    typeof session.multiple === "number"
+                      ? `${session.multiple.toFixed(1)}x peer average`
+                      : session.host || session.project || "session"
+                  }
+                  tone="neutral"
                 />
               </div>
 
-              <div className="mt-4 text-[11px] uppercase tracking-widest text-neutral-500">
-                Tools observed
+              <div className="mt-4 space-y-1 text-sm text-neutral-300">
+                <div>
+                  {session.project || session.host || "session"}
+                  {typeof session.input_output_ratio === "number"
+                    ? ` • ${session.input_output_ratio.toFixed(1)}:1 input/output`
+                    : ""}
+                </div>
+                <div className="text-xs text-neutral-500">Hover for details</div>
               </div>
-              <div className="mt-2 flex flex-wrap gap-2 text-xs text-neutral-400">
-                {row.tools.length > 0 ? (
-                  row.tools.map((tool) => (
-                    <Pill key={tool} label={tool} tone="neutral" />
-                  ))
-                ) : (
-                  <span>Telemetry came from aggregated savings history.</span>
-                )}
-              </div>
+
+              <Link
+                to={`/sessions?trace=${encodeURIComponent(session.trace_id)}`}
+                className="mt-4 inline-flex border border-neutral-700 px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-neutral-300 transition hover:border-amber-500/50 hover:text-amber-300"
+              >
+                Open in Sessions
+              </Link>
             </article>
           ))}
         </div>
@@ -454,497 +561,464 @@ function AutoOptimizationGrid({
   );
 }
 
-function RereadTelemetryPanel({
-  telemetry,
+function NextActions({
+  summary,
+  selectedCandidate,
 }: {
-  telemetry: OptimizationRereadTelemetry;
+  summary: OptimizationsSummary;
+  selectedCandidate: OptimizationAdvisorCandidate;
 }) {
-  return (
-    <section className="border border-neutral-800 bg-neutral-950/60">
-      <div className="border-b border-neutral-800 px-5 py-4">
-        <SectionHeader
-          eyebrow="Reread Telemetry"
-          title="Delta Read And Structure Map Savings"
-          description="Repeated file work is now measured explicitly. Outline-first reads land as structure-map savings; narrow follow-up reads land as delta-read savings."
-        />
-      </div>
-
-      <div className="space-y-4 p-5">
-        <div className="grid gap-4 md:grid-cols-2">
-          <MetricCard
-            label="Reread savings"
-            value={fmtTokens(telemetry.total_tokens_saved)}
-            detail={`${telemetry.event_count.toLocaleString()} measured rereads`}
-            tone="emerald"
-          />
-          <MetricCard
-            label="Cost saved"
-            value={fmtUsd(telemetry.total_cost_saved_usd)}
-            detail={`${telemetry.top_paths.length.toLocaleString()} active files`}
-            tone="cyan"
-          />
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-2">
-          <div className="space-y-3">
-            {telemetry.kinds.length === 0 ? (
-              <div className="border border-neutral-800 bg-black/20 p-4 text-sm text-neutral-500">
-                No structure-map or delta-read savings were recorded in this
-                window.
-              </div>
-            ) : (
-              telemetry.kinds.map((kind) => (
-                <article
-                  key={kind.id}
-                  className="border border-neutral-800 bg-black/20 p-4"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-neutral-100">
-                        {kind.title}
-                      </div>
-                      <div className="mt-1 text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-                        {kind.event_count.toLocaleString()} events •{" "}
-                        {kind.path_count.toLocaleString()} files
-                      </div>
-                    </div>
-                    <Pill label={fmtTokens(kind.tokens_saved)} tone="emerald" />
-                  </div>
-                  <div className="mt-3 text-xs text-neutral-500">
-                    Cost saved: {fmtUsd(kind.cost_saved_usd)}
-                    {kind.last_seen_at
-                      ? ` • Last seen ${new Date(kind.last_seen_at).toLocaleString()}`
-                      : ""}
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
-
-          <div className="border border-neutral-800 bg-black/20">
-            <div className="border-b border-neutral-800 px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-              Top files
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-neutral-800 bg-neutral-900/50 text-[10px] uppercase tracking-widest text-neutral-500 font-mono">
-                    <th className="px-4 py-3">Path</th>
-                    <th className="px-4 py-3 text-right">Events</th>
-                    <th className="px-4 py-3 text-right">Saved</th>
-                    <th className="px-4 py-3">Kinds</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-900">
-                  {telemetry.top_paths.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="px-4 py-8 text-center text-neutral-600 italic"
-                      >
-                        No reread-heavy files were recorded.
-                      </td>
-                    </tr>
-                  ) : (
-                    telemetry.top_paths.map((row) => (
-                      <tr
-                        key={row.path}
-                        className="hover:bg-neutral-900/40 align-top"
-                      >
-                        <td className="px-4 py-3 font-mono text-neutral-300">
-                          {row.path}
-                        </td>
-                        <td className="px-4 py-3 text-right text-neutral-400">
-                          {row.event_count.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-cyan-300">
-                          {fmtTokens(row.tokens_saved)}
-                        </td>
-                        <td className="px-4 py-3 text-neutral-500">
-                          {row.kinds.join(" • ")}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function RoutingSimulationPanel({
-  simulation,
-}: {
-  simulation: OptimizationModelRoutingSimulation;
-}) {
-  return (
-    <section className="border border-neutral-800 bg-neutral-950/60">
-      <div className="border-b border-neutral-800 px-5 py-4">
-        <SectionHeader
-          eyebrow="Routing Simulation"
-          title="Routine Trace Downshift"
-          description="This is a conservative simulation, not a policy change. It estimates what obviously routine traces would have cost on a cheaper tier."
-        />
-      </div>
-
-      <div className="space-y-4 p-5">
-        <div className="grid gap-4 md:grid-cols-3">
-          <MetricCard
-            label="Candidates"
-            value={simulation.candidate_count.toLocaleString()}
-            detail={fmtTokens(simulation.total_tokens_rerouted)}
-            tone="cyan"
-          />
-          <MetricCard
-            label="Current spend"
-            value={fmtUsd(simulation.current_cost_usd)}
-            detail="Across candidate traces"
-            tone="neutral"
-          />
-          <MetricCard
-            label="Estimated savings"
-            value={fmtUsd(simulation.estimated_cost_saved_usd)}
-            detail={fmtUsd(simulation.simulated_cost_usd)}
-            tone="emerald"
-          />
-        </div>
-
-        <div className="border border-neutral-800 bg-black/20 p-4 text-sm text-neutral-400 leading-relaxed">
-          {simulation.heuristic}
-        </div>
-
-        <div className="border border-neutral-800 bg-black/20">
-          <div className="border-b border-neutral-800 px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-            Live recommendations
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-neutral-800 bg-neutral-900/50 text-[10px] uppercase tracking-widest text-neutral-500 font-mono">
-                  <th className="px-4 py-3">When</th>
-                  <th className="px-4 py-3">Host / tool</th>
-                  <th className="px-4 py-3">Tier → model</th>
-                  <th className="px-4 py-3 text-right">Score</th>
-                  <th className="px-4 py-3">Why</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-900">
-                {simulation.live_recommendations.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={5}
-                      className="px-4 py-8 text-center text-neutral-600 italic"
-                    >
-                      No live routing recommendations were recorded in this
-                      window.
-                    </td>
-                  </tr>
-                ) : (
-                  simulation.live_recommendations.map((row) => (
-                    <tr
-                      key={`${row.session_id}-${row.tool_name}-${row.at}`}
-                      className="hover:bg-neutral-900/40 align-top"
-                    >
-                      <td className="px-4 py-3 font-mono text-neutral-500">
-                        {row.at ? new Date(row.at).toLocaleString() : "unknown"}
-                      </td>
-                      <td className="px-4 py-3 text-neutral-400">
-                        <div>{row.agent || "unknown"}</div>
-                        <div className="mt-1 font-mono text-neutral-500">
-                          {row.tool_name}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-neutral-300">
-                        {row.tier}
-                        <span className="mx-2 text-neutral-600">→</span>
-                        <span className="font-mono">{row.model}</span>
-                        {row.cache_affinity_model && (
-                          <div className="mt-1 text-[11px] text-violet-300">
-                            cache affinity
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-neutral-400">
-                        {row.score}
-                      </td>
-                      <td className="px-4 py-3 text-neutral-500 leading-relaxed">
-                        {row.reasons.join(" • ")}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-neutral-800 bg-neutral-900/50 text-[10px] uppercase tracking-widest text-neutral-500 font-mono">
-                <th className="px-4 py-3">Trace</th>
-                <th className="px-4 py-3">Current → Target</th>
-                <th className="px-4 py-3 text-right">Tokens</th>
-                <th className="px-4 py-3 text-right">Cost delta</th>
-                <th className="px-4 py-3">Why routine</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-900">
-              {simulation.candidates.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="px-4 py-8 text-center text-neutral-600 italic"
-                  >
-                    No conservative routing candidates were detected in this
-                    window.
-                  </td>
-                </tr>
-              ) : (
-                simulation.candidates.map((row) => (
-                  <tr
-                    key={row.trace_id}
-                    className="hover:bg-neutral-900/40 align-top"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="font-mono text-neutral-200">
-                        {row.trace_id}
-                      </div>
-                      <div className="mt-1 text-neutral-500">{row.task}</div>
-                    </td>
-                    <td className="px-4 py-3 text-neutral-400">
-                      {row.current_model}
-                      <span className="mx-2 text-neutral-600">→</span>
-                      {row.target_model}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-neutral-300">
-                      {fmtTokens(row.total_tokens)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="font-mono text-emerald-300">
-                        {fmtUsd(row.estimated_cost_saved_usd)}
-                      </div>
-                      <div className="mt-1 text-[11px] text-neutral-500">
-                        {fmtUsd(row.current_cost_usd)} →{" "}
-                        {fmtUsd(row.simulated_cost_usd)}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-neutral-500 leading-relaxed">
-                      {row.reason}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function Recommendations({ rows }: { rows: OptimizationRecommendation[] }) {
-  if (rows.length === 0) {
-    return (
-      <section className="border border-neutral-800 bg-neutral-950/60 p-5 text-sm text-neutral-400">
-        No high-confidence optimization opportunities were detected in this
-        trace window.
-      </section>
-    );
-  }
+  const applyCommand = summary.advisor.has_recommendation
+    ? "atelier optimize apply --recommended"
+    : "atelier optimize apply --preset balanced";
+  const shadowPolicy =
+    summary.advisor.has_recommendation && summary.advisor.recommended_candidate_id
+      ? "recommended"
+      : selectedCandidate.policy.preset;
+  const benchmarkCommand = `atelier optimize apply --preset ${selectedCandidate.policy.preset} && atelier benchmark run`;
 
   return (
     <section className="space-y-4">
       <SectionHeader
-        eyebrow="Recommendations"
-        title="Current Session Optimization Opportunities"
-        description="These still come from the recent trace window, not from static rules. They represent real sessions that look expensive or low-yield right now."
+        eyebrow="Active operations"
+        title="Actions"
+        action={
+          <Hint text="Commands to modify runtime policy or execute long-running validation suites (may incur LLM costs)." />
+        }
       />
+
       <div className="grid gap-4 xl:grid-cols-3">
-        {rows.map((row) => (
-          <article
-            key={row.id}
-            className={cx(
-              "border p-4",
-              row.severity === "high"
-                ? "border-amber-900/50 bg-amber-950/15"
-                : "border-neutral-800 bg-neutral-950/60"
-            )}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-neutral-100">
-                {row.title}
-              </div>
-              <Pill
-                label={row.severity}
-                tone={row.severity === "high" ? "amber" : "cyan"}
-              />
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <MetricCard
-                label="Sessions"
-                value={row.session_count.toString()}
-                tone="neutral"
-              />
-              <MetricCard
-                label="Est. Savings"
-                value={fmtUsd(row.estimated_usd_saved)}
-                detail={fmtTokens(row.estimated_tokens_saved)}
-                tone="amber"
-              />
-            </div>
-            <div className="mt-4 text-[11px] uppercase tracking-widest text-neutral-500">
-              Suggested action
-            </div>
-            <p className="mt-1 text-sm text-neutral-300 leading-relaxed">
-              {row.action}
-            </p>
-            <div className="mt-4 space-y-2">
-              {row.sessions.slice(0, 4).map((session) => (
-                <div
-                  key={session.trace_id}
-                  className="border border-neutral-800/80 bg-black/20 p-3 text-xs"
-                >
-                  <div className="font-mono text-neutral-200">
-                    {session.trace_id}
-                  </div>
-                  <div className="mt-1 text-neutral-400">
-                    {session.project || session.host || "session"}
-                    {typeof session.cost_usd === "number"
-                      ? ` • ${fmtUsd(session.cost_usd)}`
-                      : ""}
-                    {typeof session.input_output_ratio === "number"
-                      ? ` • ${session.input_output_ratio.toFixed(1)}:1 in/out`
-                      : ""}
-                    {typeof session.multiple === "number"
-                      ? ` • ${session.multiple.toFixed(1)}x peer avg`
-                      : ""}
-                  </div>
-                  {session.tools && session.tools.length > 0 && (
-                    <div className="mt-1 text-neutral-500">
-                      Tools: {session.tools.join(", ")}
-                    </div>
-                  )}
-                  {session.reason && (
-                    <div className="mt-1 text-neutral-500">
-                      {session.reason}
-                    </div>
-                  )}
-                  <Link
-                    to={`/sessions?trace=${encodeURIComponent(session.trace_id)}`}
-                    className="mt-3 inline-flex border border-neutral-700 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-neutral-300 transition hover:border-amber-500/50 hover:text-amber-300"
-                  >
-                    Open in Sessions
-                  </Link>
-                </div>
-              ))}
-            </div>
-          </article>
-        ))}
+        <SnippetCard
+          title="Apply"
+          body={applyCommand}
+          caption="Update local configuration"
+        />
+        <SnippetCard
+          title="Shadow"
+          body={`atelier optimize shadow --policy ${shadowPolicy} --days 7`}
+          caption="Test policy in parallel"
+        />
+        <SnippetCard
+          title="Benchmark"
+          body={benchmarkCommand}
+          caption="Run performance suite"
+        />
       </div>
     </section>
   );
 }
 
-function CodeBurnOptimizations({
-  external,
+function PolicySandbox({
+  initialPolicy,
 }: {
-  external: OptimizationsSummary["external_optimizations"];
+  initialPolicy: OptimizationAdvisorPolicy;
 }) {
-  if (!external || !external.payload) return null;
+  const [policy, setPolicy] = useState(initialPolicy);
 
-  const { overview, recommendations } = external.payload;
+  const updateCompaction = (
+    key: keyof OptimizationAdvisorCompactionPolicy,
+    val: any
+  ) => {
+    setPolicy((prev) => ({
+      ...prev,
+      compaction: { ...prev.compaction, [key]: val },
+    }));
+  };
+
+  const yamlConfig = useMemo(() => {
+    const config = {
+      name: "sandbox-policy",
+      preset: "custom",
+      quality_floor: policy.quality_floor,
+      confidence_required: policy.confidence_required,
+      routing: policy.routing,
+      compaction: policy.compaction,
+    };
+    return `name: ${config.name}\npreset: custom\nquality_floor: ${config.quality_floor}\nconfidence_required: ${config.confidence_required}\nrouting:\n  policy: ${config.routing.policy}\n  simple: ${config.routing.simple}\n  medium: ${config.routing.medium}\n  hard: ${config.routing.hard}\ncompaction:\n  trigger_at_context_fraction: ${config.compaction.trigger_at_context_fraction}\n  prompt_cache_reorder: ${config.compaction.prompt_cache_reorder}\n  dedup: ${config.compaction.dedup}\n  retrieval_filter: ${config.compaction.retrieval_filter}\n  lossy_summary: ${config.compaction.lossy_summary}`;
+  }, [policy]);
 
   return (
     <section className="space-y-4">
       <SectionHeader
-        eyebrow="External Insights"
-        title="CodeBurn Efficiency Report"
-        description="These recommendations are generated by CodeBurn's post-hoc efficiency analyzer. They complement Atelier's trace-based heuristics with historical waste detection."
+        eyebrow="Interactive"
+        title="Policy Sandbox"
+        action={
+          <Hint text="Tune optimization parameters in real-time. Copy the resulting YAML to apply a custom policy." />
+        }
+      />
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_0.7fr]">
+        <div className="grid gap-6 border border-neutral-800 bg-neutral-950/60 p-6 md:grid-cols-2">
+          <div className="space-y-8">
+            <Slider
+              label="Quality floor"
+              value={policy.quality_floor}
+              min={0.8}
+              max={1.0}
+              step={0.01}
+              formatValue={fmtPercent}
+              onChange={(v) => setPolicy((p) => ({ ...p, quality_floor: v }))}
+            />
+            <Slider
+              label="Context trigger"
+              value={policy.compaction.trigger_at_context_fraction}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              formatValue={fmtPercent}
+              onChange={(v) => updateCompaction("trigger_at_context_fraction", v)}
+            />
+            <div className="space-y-3">
+              <label className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+                Confidence required
+              </label>
+              <div className="flex gap-2">
+                {["low", "medium", "high"].map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() =>
+                      setPolicy((p) => ({
+                        ...p,
+                        confidence_required: level as any,
+                      }))
+                    }
+                    className={cx(
+                      "flex-1 border py-1.5 text-[10px] font-mono uppercase tracking-widest transition",
+                      policy.confidence_required === level
+                        ? "border-amber-500 bg-amber-950/20 text-amber-200"
+                        : "border-neutral-800 bg-black/20 text-neutral-500 hover:border-neutral-700"
+                    )}
+                  >
+                    {level}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+              Compaction features
+            </div>
+            <div className="grid gap-4">
+              <Switch
+                label="Prompt-cache reorder"
+                checked={policy.compaction.prompt_cache_reorder}
+                onChange={(v) => updateCompaction("prompt_cache_reorder", v)}
+              />
+              <Switch
+                label="Dedup compaction"
+                checked={policy.compaction.dedup}
+                onChange={(v) => updateCompaction("dedup", v)}
+              />
+              <Switch
+                label="Retrieval filter"
+                checked={policy.compaction.retrieval_filter}
+                onChange={(v) => updateCompaction("retrieval_filter", v)}
+              />
+              <Switch
+                label="Lossy summary"
+                checked={policy.compaction.lossy_summary}
+                onChange={(v) => updateCompaction("lossy_summary", v)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <SnippetCard
+          title="Custom Policy YAML"
+          body={yamlConfig}
+          caption="Save as policy.yaml and apply with --custom"
+        />
+      </div>
+    </section>
+  );
+}
+
+function OptimizationHistory({
+  history,
+}: {
+  history: OptimizationAdvisorHistoryEntry[];
+}) {
+  if (!history || history.length === 0) return null;
+
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        eyebrow="Past recommendations"
+        title="History"
+        action={<Hint text="Historical advisor snapshots and their recorded impact." />}
+      />
+      <div className="overflow-x-auto border border-neutral-800 bg-neutral-950/60">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-neutral-800 text-[10px] uppercase tracking-widest text-neutral-500">
+              <th className="px-5 py-3">Date</th>
+              <th className="px-5 py-3">Confidence</th>
+              <th className="px-5 py-3">Sessions</th>
+              <th className="px-5 py-3">Quality</th>
+              <th className="px-5 py-3 text-right">Potential savings</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-900">
+            {history.slice(0, 10).map((item, idx) => (
+              <tr key={idx} className="hover:bg-white/[0.02]">
+                <td className="px-5 py-3 text-neutral-400">
+                  {new Date(item.recorded_at).toLocaleDateString()}
+                </td>
+                <td className="px-5 py-3">
+                  <Chip tone={confidenceTone(item.confidence)}>
+                    {fmtPolicyLabel(item.confidence)}
+                  </Chip>
+                </td>
+                <td className="px-5 py-3 text-neutral-300">
+                  {item.sessions_analysed.toLocaleString()}
+                </td>
+                <td className="px-5 py-3">
+                  <span className={cx(qualityTone(item.quality_delta + 0.95), "font-mono")}>
+                    {fmtDeltaPercent(item.quality_delta)}
+                  </span>
+                </td>
+                <td className="px-5 py-3 text-right font-mono text-emerald-400">
+                  {fmtUsd(item.weekly_savings_usd)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function OptimizationComparison({
+  impact,
+}: {
+  impact: OptimizationImpactValidation;
+}) {
+  const deltas = [
+    { label: "Tokens", value: impact.deltas.tokens_pct, lowerIsBetter: true },
+    { label: "Cost", value: impact.deltas.cost_pct, lowerIsBetter: true },
+    {
+      label: "Cache leverage",
+      value: impact.deltas.cache_leverage_pct,
+      lowerIsBetter: false,
+    },
+    {
+      label: "Saved tokens",
+      value: impact.deltas.saved_tokens_pct,
+      lowerIsBetter: false,
+    },
+  ];
+
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        eyebrow="Shadow vs Live"
+        title="Comparison"
+        action={
+          <Hint text="Direct comparison of performance before and after applying the current policy (or during a shadow run)." />
+        }
       />
 
       <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard
-          label="Sessions analyzed"
-          value={overview.sessions?.toLocaleString() || "0"}
-          detail={`${overview.calls?.toLocaleString() || "0"} calls`}
-          tone="neutral"
-        />
-        <MetricCard
-          label="Waste detected"
-          value={fmtUsd(overview.estimated_usd_saved || 0)}
-          detail={fmtTokens(overview.estimated_tokens_saved || 0)}
-          tone="red"
-        />
-        <MetricCard
-          label="Health Grade"
-          value={overview.health_grade || "Unknown"}
-          detail={`Score: ${overview.health_score || 0}/100`}
-          tone={gradeTone(overview.health_grade)}
-        />
-        <MetricCard
-          label="Report Age"
-          value={new Date(external.collected_at).toLocaleDateString()}
-          detail={`Source: ${external.source}`}
-          tone="cyan"
-        />
+        {deltas.map((d) => (
+          <MetricCard
+            key={d.label}
+            label={d.label}
+            value={fmtDeltaPercent(d.value)}
+            detail="vs baseline"
+            tone={deltaTone(d.value, d.lowerIsBetter)}
+          />
+        ))}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        {recommendations.map((row, idx) => (
-          <article
-            key={idx}
-            className={cx(
-              "border p-4",
-              row.severity === "high"
-                ? "border-red-900/50 bg-red-950/15"
-                : "border-neutral-800 bg-neutral-950/60"
-            )}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-neutral-100">
-                {row.title}
-              </div>
-              <Pill
-                label={row.severity}
-                tone={row.severity === "high" ? "red" : "amber"}
-              />
-            </div>
-
-            <div className="mt-3 text-sm text-neutral-400 leading-relaxed">
-              {row.description}
-            </div>
-
-            <div className="mt-4 flex items-center gap-4">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-                Est. Savings:{" "}
-                <span className="text-emerald-400">
-                  {fmtTokens(row.estimated_tokens_saved)}
-                </span>{" "}
-                /{" "}
-                <span className="text-amber-400">
-                  {fmtUsd(row.estimated_usd_saved)}
-                </span>
+        <article className="border border-neutral-800 bg-neutral-950/60 p-5">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+            Baseline (Before)
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs text-neutral-500">Traces</div>
+              <div className="text-xl font-semibold text-neutral-100">
+                {impact.before.trace_count}
               </div>
             </div>
+            <div>
+              <div className="text-xs text-neutral-500">Avg Cost</div>
+              <div className="text-xl font-semibold text-neutral-100">
+                {fmtUsd(impact.before.avg_cost_usd)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-neutral-500">Avg Tokens</div>
+              <div className="text-xl font-semibold text-neutral-100">
+                {fmtTokens(impact.before.avg_tokens)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-neutral-500">Cache leverage</div>
+              <div className="text-xl font-semibold text-neutral-100">
+                {fmtPercent(impact.before.avg_cache_leverage)}
+              </div>
+            </div>
+          </div>
+        </article>
 
-            {row.action && (
-              <>
-                <div className="mt-4 text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-                  Action required
-                </div>
-                <div className="mt-2 border border-neutral-800 bg-black/40 p-3 font-mono text-[11px] text-neutral-300 whitespace-pre-wrap leading-relaxed">
-                  {row.action}
-                </div>
-              </>
-            )}
-          </article>
-        ))}
+        <article className="border border-neutral-800 bg-neutral-950/60 p-5">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+            Current / Shadow (After)
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs text-neutral-500">Traces</div>
+              <div className="text-xl font-semibold text-neutral-100">
+                {impact.after.trace_count}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-neutral-500">Avg Cost</div>
+              <div className="text-xl font-semibold text-neutral-100">
+                {fmtUsd(impact.after.avg_cost_usd)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-neutral-500">Avg Tokens</div>
+              <div className="text-xl font-semibold text-neutral-100">
+                {fmtTokens(impact.after.avg_tokens)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-neutral-500">Cache leverage</div>
+              <div className="text-xl font-semibold text-neutral-100">
+                {fmtPercent(impact.after.avg_cache_leverage)}
+              </div>
+            </div>
+          </div>
+        </article>
       </div>
+    </section>
+  );
+}
+
+function SupportingEvidence({ summary }: { summary: OptimizationsSummary }) {
+  return (
+    <section className="space-y-4">
+      <SectionHeader eyebrow="Supporting evidence" title="Evidence" />
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <MetricCard
+          label="Quality score"
+          value={`${summary.quality_score.score}/100`}
+          detail={`${summary.quality_score.grade} grade`}
+          tone={qualityTone(summary.quality_score.score / 100)}
+        />
+        <div title={summary.advisor.golden.failures.join("\n") || "No corpus issues"}>
+          <MetricCard
+            label="Golden failures"
+            value={summary.advisor.golden.failures.length.toLocaleString()}
+            detail={
+              summary.advisor.golden.failures.length === 0
+                ? `${summary.advisor.golden.passed.toLocaleString()} / ${summary.advisor.golden.total.toLocaleString()}`
+                : "hover"
+            }
+            tone={summary.advisor.golden.failures.length === 0 ? "emerald" : "red"}
+          />
+        </div>
+        <MetricCard
+          label="Reread savings"
+          value={fmtTokens(summary.reread_telemetry.total_tokens_saved)}
+          detail={fmtUsd(summary.reread_telemetry.total_cost_saved_usd)}
+          tone="cyan"
+        />
+        <MetricCard
+          label="Routine reroute"
+          value={fmtUsd(summary.model_routing_simulation.estimated_cost_saved_usd)}
+          detail={`${summary.model_routing_simulation.candidate_count} candidate traces`}
+          tone="violet"
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <article className="border border-neutral-800 bg-neutral-950/60 p-5">
+          <SectionHeader
+            eyebrow="Coverage"
+            title="Task mix"
+            action={
+              <Hint
+                text={[summary.advisor.confidence_reason, summary.advisor.message]
+                  .filter(Boolean)
+                  .join("\n")}
+              />
+            }
+          />
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {Object.entries(summary.advisor.bucket_counts).map(([bucket, count]) => (
+              <div key={bucket} className="border border-neutral-800 bg-black/20 p-3">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+                  {bucket}
+                </div>
+                <div className="mt-2 text-xl font-semibold text-neutral-100">
+                  {count.toLocaleString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="border border-neutral-800 bg-neutral-950/60 p-5">
+          <SectionHeader eyebrow="Observed wins" title="Top levers" />
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {summary.auto_optimizations.slice(0, 3).map((item) => (
+              <div
+                key={item.id}
+                className="border border-neutral-800 bg-black/20 p-3"
+                title={`${fmtTokens(item.tokens_saved)} saved across ${item.session_count.toLocaleString()} sessions`}
+              >
+                <div className="text-sm font-semibold text-neutral-100">
+                  {item.title}
+                </div>
+                <div className="mt-2 text-xs text-neutral-500">
+                  {fmtUsd(item.cost_saved_usd)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+      </div>
+
+      {summary.external_optimizations?.payload && (
+        <article className="border border-neutral-800 bg-neutral-950/60 p-5">
+          <SectionHeader eyebrow="External analyzer" title="Codeburn" />
+          <div className="mt-4 grid gap-4 md:grid-cols-4">
+            <MetricCard
+              label="Sessions"
+              value={summary.external_optimizations.payload.overview.sessions.toString()}
+              tone="neutral"
+            />
+            <MetricCard
+              label="Health"
+              value={summary.external_optimizations.payload.overview.health_grade}
+              detail={`${summary.external_optimizations.payload.overview.health_score}/100`}
+              tone="cyan"
+            />
+            <MetricCard
+              label="External savings"
+              value={fmtUsd(summary.external_optimizations.payload.overview.estimated_usd_saved)}
+              detail={fmtTokens(summary.external_optimizations.payload.overview.estimated_tokens_saved)}
+              tone="emerald"
+            />
+            <MetricCard
+              label="Issues"
+              value={summary.external_optimizations.payload.overview.issue_count.toString()}
+              detail={summary.external_optimizations.period}
+              tone="amber"
+            />
+          </div>
+        </article>
+      )}
     </section>
   );
 }
@@ -954,6 +1028,8 @@ export default function Optimizations() {
   const { days } = useTimeRange();
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
+  const [showSandbox, setShowSandbox] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -967,28 +1043,84 @@ export default function Optimizations() {
       .finally(() => setLoading(false));
   }, [days]);
 
-  if (err) return <div className="text-red-400 p-6">Error: {err}</div>;
-  if (!summary || loading)
-    return (
-      <div className="p-6 text-neutral-500 italic">Loading optimizations…</div>
+  useEffect(() => {
+    if (!summary) return;
+    const preferred =
+      summary.advisor.recommended_candidate_id ?? summary.advisor.current_candidate_id;
+    setSelectedCandidateId(preferred);
+  }, [summary]);
+
+  const orderedCandidates = useMemo(() => {
+    if (!summary) return [];
+    const presetOrder = ["conservative", "balanced", "economy", "maximum_saving"];
+    const baseCandidates = summary.advisor.candidates.filter(
+      (c) => presetOrder.includes(c.policy.preset) && c.id !== "current"
     );
+    return baseCandidates.sort((a, b) => {
+      return presetOrder.indexOf(a.policy.preset) - presetOrder.indexOf(b.policy.preset);
+    });
+  }, [summary]);
+
+  const currentCandidate = useMemo(() => {
+    if (!summary) return null;
+    return (
+      summary.advisor.candidates.find(
+        (candidate) => candidate.id === summary.advisor.current_candidate_id
+      ) ?? null
+    );
+  }, [summary]);
+
+  const recommendedCandidate = useMemo(() => {
+    if (!summary || !summary.advisor.recommended_candidate_id) return null;
+    return (
+      summary.advisor.candidates.find(
+        (candidate) => candidate.id === summary.advisor.recommended_candidate_id
+      ) ?? null
+    );
+  }, [summary]);
+
+  const selectedCandidate = useMemo(() => {
+    if (!summary) return null;
+    return (
+      summary.advisor.candidates.find(
+        (candidate) => candidate.id === selectedCandidateId
+      ) ??
+      recommendedCandidate ??
+      currentCandidate
+    );
+  }, [summary, selectedCandidateId, recommendedCandidate, currentCandidate]);
+
+  const sessionEvidence = useMemo(
+    () =>
+      summary
+        ? collectSessionEvidence(summary.recommendations.recommendations)
+        : [],
+    [summary]
+  );
+
+  if (err) return <div className="p-6 text-red-400">Error: {err}</div>;
+  if (!summary || loading || !currentCandidate || !selectedCandidate) {
+    return (
+      <div className="p-6 italic text-neutral-500">Loading optimizations...</div>
+    );
+  }
 
   return (
     <div className="space-y-8">
       <PageHero
-        eyebrow="Optimizations"
-        title="Measured Optimization Impact"
-        description="This view now keeps only observed telemetry and trace-derived comparisons. Static host coverage tables, rule dumps, gap catalogs, and raw guidance blocks were removed."
+        eyebrow="Optimization Advisor"
+        title="Current vs recommended"
+        description="Explore optimization options and verify impact with benchmarks."
         tone="amber"
       >
         <div className="border border-neutral-800 bg-neutral-950/60 p-4">
           <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
             Window
           </div>
-          <div className="mt-2 text-xs text-neutral-400">
-            {days} day{days === 1 ? "" : "s"} window active globally.
+          <div className="mt-2 text-sm text-neutral-300">
+            {days} day{days === 1 ? "" : "s"} active
           </div>
-          <div className="mt-1 text-[10px] text-neutral-500 italic">
+          <div className="mt-2 text-xs text-neutral-500">
             Generated {new Date(summary.generated_at).toLocaleString()}
           </div>
         </div>
@@ -996,51 +1128,155 @@ export default function Optimizations() {
 
       <section className="grid gap-4 md:grid-cols-4">
         <MetricCard
-          label="Auto savings tracked"
-          value={fmtUsd(summary.savings.saved_usd ?? 0)}
-          detail={fmtTokens(
-            (summary.savings.total_naive_tokens ?? 0) -
-              (summary.savings.total_actual_tokens ?? 0)
-          )}
-          tone="emerald"
+          label="Sessions analysed"
+          value={summary.advisor.sessions_analysed.toLocaleString()}
+          detail={`${summary.advisor.replayable_tasks.toLocaleString()} tasks`}
+          tone="neutral"
         />
+        <div title={summary.advisor.confidence_reason}>
+          <MetricCard
+            label="Confidence"
+            value={fmtPolicyLabel(summary.advisor.confidence)}
+            detail={
+              summary.advisor.has_recommendation
+                ? "hover for caveat"
+                : "not enough history"
+            }
+            tone={confidenceTone(summary.advisor.confidence)}
+          />
+        </div>
         <MetricCard
-          label="Impact verdict"
-          value={summary.impact_validation.verdict.replaceAll("_", " ")}
-          detail={`${fmtPct(summary.impact_validation.deltas.tokens_pct)} tokens • ${fmtPct(summary.impact_validation.deltas.cost_pct)} cost`}
-          tone="amber"
+          label="Current weekly cost"
+          value={fmtUsd(currentCandidate.weekly_cost_usd)}
+          detail={currentCandidate.policy.name}
+          tone="neutral"
         />
-        <MetricCard
-          label="Reread savings"
-          value={fmtTokens(summary.reread_telemetry.total_tokens_saved)}
-          detail={`${summary.reread_telemetry.event_count.toLocaleString()} measured rereads`}
-          tone="cyan"
-        />
-        <MetricCard
-          label="Routine reroute"
-          value={fmtUsd(
-            summary.model_routing_simulation.estimated_cost_saved_usd
-          )}
-          detail={`${summary.model_routing_simulation.candidate_count.toLocaleString()} candidates`}
-          tone="violet"
-        />
+        <div title={summary.advisor.message}>
+          <MetricCard
+            label="Potential weekly savings"
+            value={fmtUsd(summary.advisor.weekly_savings_usd)}
+            detail={
+              summary.advisor.has_recommendation
+                ? fmtDeltaPercent(
+                    -summary.advisor.weekly_savings_usd /
+                      Math.max(summary.advisor.baseline_weekly_cost_usd, 0.0001)
+                  )
+                : "hover for note"
+            }
+            tone={summary.advisor.has_recommendation ? "emerald" : "amber"}
+          />
+        </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
-        <QualityScorePanel summary={summary.quality_score} />
-        <ImpactValidationPanel validation={summary.impact_validation} />
+      <section className="space-y-4">
+        <SectionHeader
+          eyebrow="Optimization Frontier"
+          title="Select configuration"
+          action={
+            <Hint text="Current, recommended, and alternative policy points from the advisor frontier." />
+          }
+        />
+
+        <div className="grid gap-4 xl:grid-cols-5">
+          {orderedCandidates.map((candidate) => {
+            const selected = candidate.id === selectedCandidateId && !showSandbox;
+            const isCurrent = candidate.policy.preset === currentCandidate?.policy.preset;
+            const isRecommended =
+              candidate.policy.preset === recommendedCandidate?.policy.preset;
+            return (
+              <button
+                key={candidate.id}
+                type="button"
+                onClick={() => {
+                  setSelectedCandidateId(candidate.id);
+                  setShowSandbox(false);
+                }}
+                className={cx(
+                  "border p-4 text-left transition",
+                  selected
+                    ? "border-amber-500/60 bg-amber-950/15"
+                    : "border-neutral-800 bg-neutral-950/60 hover:border-neutral-700"
+                )}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-sm font-semibold text-neutral-100">
+                    {candidate.policy.name}
+                  </div>
+                  {isCurrent && <Chip tone="neutral">Current</Chip>}
+                  {isRecommended && <Chip tone="amber">Recommended</Chip>}
+                </div>
+                <div className="mt-2 text-xs uppercase tracking-widest text-neutral-500">
+                  {fmtPolicyLabel(candidate.policy.preset)}
+                </div>
+                {(() => {
+                  const savings = summary.advisor.baseline_weekly_cost_usd - candidate.weekly_cost_usd;
+                  const isSaving = savings > 0.01;
+                  return (
+                    <>
+                      <div
+                        className={cx(
+                          "mt-4 text-2xl font-semibold",
+                          isSaving ? "text-emerald-400" : "text-neutral-100"
+                        )}
+                      >
+                        {isSaving ? "+" : ""}
+                        {fmtUsd(Math.max(0, savings))}
+                      </div>
+                      <div className="mt-1 text-xs text-neutral-500">
+                        savings / week
+                      </div>
+                    </>
+                  );
+                })()}
+                <div className="mt-4 space-y-2 text-sm text-neutral-300">
+                  <div>Quality {fmtPercent(candidate.estimated_quality)}</div>
+                  <div>Latency {candidate.latency_mult.toFixed(2)}x</div>
+                  <div>Escalation {fmtPercent(candidate.escalation_rate)}</div>
+                </div>
+              </button>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => setShowSandbox(true)}
+            className={cx(
+              "border p-4 text-left transition",
+              showSandbox
+                ? "border-amber-500/60 bg-amber-950/15"
+                : "border-neutral-800 bg-neutral-950/60 hover:border-neutral-700"
+            )}
+          >
+            <div className="text-sm font-semibold text-neutral-100">Advanced</div>
+            <div className="mt-2 text-xs uppercase tracking-widest text-neutral-500">
+              Custom Tuning
+            </div>
+            <div className="mt-4 text-2xl font-semibold text-neutral-100">Sandbox</div>
+            <div className="mt-1 text-xs text-neutral-500">Interactive tuning</div>
+            <div className="mt-4 space-y-2 text-sm text-neutral-300 italic">
+              Adjust quality floors, compaction triggers, and routing.
+            </div>
+          </button>
+        </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[0.98fr_1.02fr]">
-        <AutoOptimizationGrid rows={summary.auto_optimizations} />
-        <RereadTelemetryPanel telemetry={summary.reread_telemetry} />
-      </section>
+      {showSandbox && <PolicySandbox initialPolicy={selectedCandidate.policy} />}
 
-      <RoutingSimulationPanel simulation={summary.model_routing_simulation} />
+      <CandidateDetail
+        candidate={selectedCandidate}
+        currentCandidate={currentCandidate}
+        headerOverride={showSandbox ? "Customized Policy" : undefined}
+      />
 
-      <CodeBurnOptimizations external={summary.external_optimizations} />
+      <OptimizationComparison impact={summary.impact_validation} />
 
-      <Recommendations rows={summary.recommendations.recommendations} />
+      <OptimizationHistory history={summary.advisor_history} />
+
+      <NextActions summary={summary} selectedCandidate={selectedCandidate} />
+
+      <SessionsBehindRecommendation evidence={sessionEvidence} />
+
+      <SupportingEvidence summary={summary} />
     </div>
   );
 }

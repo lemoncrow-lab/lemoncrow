@@ -3873,7 +3873,116 @@ def savings_cmd(ctx: click.Context, as_json: bool) -> None:
                 click.echo(f"{k}: {v}")
 
 
-@cli.command("optimize")
+def _legacy_optimize_report(ctx: click.Context, host: str | None, days: int, limit: int) -> dict[str, Any]:
+    from atelier.core.capabilities.session_optimizer import build_trace_optimization_report
+
+    store = _load_store(ctx.obj["root"])
+    return build_trace_optimization_report(store.list_traces(limit=5000), days=days, host=host, limit=limit)
+
+
+def _run_external_optimize(ctx: click.Context, days: int) -> dict[str, Any] | None:
+    from atelier.gateway.integrations.external_analytics import (
+        persist_external_reports,
+        run_external_reports,
+    )
+
+    period = "week" if days <= 7 else "30days"
+    try:
+        external_batch = run_external_reports(
+            tool="codeburn:optimize", period=period, cwd=Path.cwd(), include_optimize=True
+        )
+        store = _load_store(ctx.obj["root"])
+        persist_external_reports(store, external_batch, source="cli_optimize")
+        return external_batch["reports"][0] if external_batch["reports"] else None
+    except Exception as exc:
+        logger.debug("External optimization report failed: %s", exc)
+        return None
+
+
+def _advisor_result(ctx: click.Context, host: str | None, days: int) -> Any:
+    from atelier.core.capabilities.optimization import load_current_policy, optimize_from_traces
+
+    store = _load_store(ctx.obj["root"])
+    current_policy = load_current_policy(ctx.obj["root"])
+    return optimize_from_traces(store.list_traces(limit=5000), current_policy=current_policy, days=days, host=host)
+
+
+def _recommended_candidate(result: Any) -> Any:
+    if not result.has_recommendation:
+        return None
+    target_cost = result.baseline_weekly_cost_usd - result.weekly_savings_usd
+    candidates = [candidate for candidate in result.candidates if candidate.id != "current"]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda candidate: abs(candidate.weekly_cost_usd - target_cost))
+
+
+def _render_optimization_summary(result: Any) -> None:
+    current = next(candidate for candidate in result.candidates if candidate.id == "current")
+    recommended = _recommended_candidate(result)
+    click.echo("Optimization Autopilot")
+    click.echo("─────────────────────────────────────────────────")
+    click.echo(
+        f"Analysed your last 7 days: {result.sessions_analysed} sessions, "
+        f"{result.replayable_tasks} replayable tasks"
+    )
+    click.echo("")
+    click.echo(f"Current setting: {result.current_policy.name}")
+    click.echo(f"  Cost / week:      ${current.weekly_cost_usd:.2f}")
+    click.echo(f"  Estimated quality: {current.estimated_quality:.1%}")
+    click.echo(f"  Latency mult:      {current.latency_mult:.2f}x")
+    click.echo(f"  Escalation rate:   {current.escalation_rate:.0%}")
+    click.echo("")
+    if recommended is None:
+        click.echo(result.message)
+    else:
+        savings_pct = (
+            result.weekly_savings_usd / result.baseline_weekly_cost_usd
+            if result.baseline_weekly_cost_usd > 0
+            else 0.0
+        )
+        click.echo("Recommended: Custom (auto-tuned from your sessions)")
+        click.echo(f"  Cost / week:      ${recommended.weekly_cost_usd:.2f}  (-{savings_pct:.0%})")
+        click.echo(f"  Estimated quality: {recommended.estimated_quality:.1%}  ({result.quality_delta:+.1%})")
+        click.echo(f"  Latency mult:      {recommended.latency_mult:.2f}x")
+        click.echo(f"  Escalation rate:   {recommended.escalation_rate:.0%}")
+    click.echo("")
+    click.echo(f"Confidence: {result.confidence.title()}")
+    click.echo(f"  {result.confidence_reason}")
+    click.echo(
+        f"Golden corpus: {result.golden.passed}/{result.golden.total} well-formed tasks "
+        f"({result.golden.score:.0%})"
+    )
+
+
+def _render_optimization_details(result: Any) -> None:
+    click.echo("Pareto frontier — cost vs estimated correctness on your tasks")
+    click.echo("─────────────────────────────────────────────────")
+    sorted_candidates = sorted(result.candidates, key=lambda item: item.weekly_cost_usd, reverse=True)
+    recommended = _recommended_candidate(result)
+    for candidate in sorted_candidates:
+        marker = "★" if recommended is not None and candidate.id == recommended.id else " "
+        label = candidate.policy.name
+        click.echo(
+            f"{marker} {label:<18} ${candidate.weekly_cost_usd:>7.2f}   "
+            f"{candidate.estimated_quality:>6.1%}   latency {candidate.latency_mult:.2f}x   "
+            f"escalation {candidate.escalation_rate:.0%}"
+        )
+
+    if recommended is None:
+        return
+    click.echo("")
+    click.echo("Compaction breakdown for [recommended]:")
+    for name, saved in recommended.compaction_breakdown.items():
+        click.echo(f"  {name}: ${saved:.2f}/wk saved")
+    click.echo("")
+    click.echo("Routing breakdown for [recommended]:")
+    for tier, share in recommended.routing_breakdown.items():
+        click.echo(f"  {tier}-tier for {share:.0%} of turns")
+    click.echo(f"  Escalation rate: {recommended.escalation_rate:.0%}")
+
+
+@cli.group("optimize", invoke_without_command=True)
 @click.option(
     "--host",
     type=click.Choice(list(SUPPORTED_SESSION_IMPORT_HOSTS)),
@@ -3883,39 +3992,29 @@ def savings_cmd(ctx: click.Context, as_json: bool) -> None:
 @click.option("--limit", default=6, show_default=True, type=int)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def optimize_cmd(ctx: click.Context, host: str | None, days: int, limit: int, as_json: bool) -> None:
-    """Show session cost optimization recommendations from Atelier traces."""
-    from atelier.core.capabilities.session_optimizer import build_trace_optimization_report
-    from atelier.gateway.integrations.external_analytics import (
-        persist_external_reports,
-        run_external_reports,
-    )
+def optimize_group(ctx: click.Context, host: str | None, days: int, limit: int, as_json: bool) -> None:
+    """Show and apply Optimization Advisor recommendations."""
+    if ctx.invoked_subcommand is not None:
+        return
 
-    store = _load_store(ctx.obj["root"])
-    report = build_trace_optimization_report(store.list_traces(limit=5000), days=days, host=host, limit=limit)
+    from atelier.core.capabilities.optimization import append_history
 
-    # Also run and persist external codeburn optimize if possible
-    period = "week" if days <= 7 else "30days"
-    try:
-        external_batch = run_external_reports(
-            tool="codeburn:optimize", period=period, cwd=Path.cwd(), include_optimize=True
-        )
-        persist_external_reports(store, external_batch, source="cli_optimize")
-        report["external"] = external_batch["reports"][0] if external_batch["reports"] else None
-    except Exception as exc:
-        logger.debug("External optimization report failed: %s", exc)
-        report["external"] = None
-
+    report = _legacy_optimize_report(ctx, host, days, limit)
+    result = _advisor_result(ctx, host, days)
+    append_history(ctx.obj["root"], result)
+    report["advisor"] = result.to_dict()
+    report["external"] = _run_external_optimize(ctx, days)
     if as_json:
         _emit(report, as_json=True)
         return
-    click.echo(f"Atelier Optimize  {report['window_days']} days")
-    click.echo(f"Hosts: {', '.join(report['hosts_supported'])}")
+    _render_optimization_summary(result)
+    click.echo("")
     click.echo(
-        f"Estimated savings: {report['estimated_tokens_saved']} tokens, " f"${report['estimated_usd_saved']:.4f}"
+        f"Legacy trace recommendations: {report['estimated_tokens_saved']} tokens, "
+        f"${report['estimated_usd_saved']:.4f}"
     )
     if not report["recommendations"]:
-        click.echo("No optimization recommendations found for this window.")
+        click.echo("No legacy trace recommendations found for this window.")
         return
     for index, recommendation in enumerate(report["recommendations"], start=1):
         click.echo("")
@@ -3925,6 +4024,228 @@ def optimize_cmd(ctx: click.Context, host: str | None, days: int, limit: int, as
             f"   Savings: {recommendation['estimated_tokens_saved']} tokens, ${recommendation['estimated_usd_saved']:.4f}"
         )
         click.echo(f"   Action: {recommendation['action']}")
+
+
+@optimize_group.command("details")
+@click.option("--host", type=click.Choice(list(SUPPORTED_SESSION_IMPORT_HOSTS)), default=None)
+@click.option("--days", default=7, show_default=True, type=int)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def optimize_details(ctx: click.Context, host: str | None, days: int, as_json: bool) -> None:
+    """Show Pareto frontier, compaction, and routing breakdowns."""
+    result = _advisor_result(ctx, host, days)
+    if as_json:
+        _emit(result.to_dict(), as_json=True)
+        return
+    _render_optimization_details(result)
+
+
+@optimize_group.command("apply")
+@click.option("--preset", type=click.Choice(["conservative", "balanced", "economy"]), default=None)
+@click.option("--recommended", is_flag=True)
+@click.option("--custom", type=click.Path(path_type=Path), default=None)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def optimize_apply(
+    ctx: click.Context,
+    preset: str | None,
+    recommended: bool,
+    custom: Path | None,
+    as_json: bool,
+) -> None:
+    """Apply a preset, the latest recommendation, or a custom policy YAML."""
+    from atelier.core.capabilities.optimization.policy import (
+        policy_from_config,
+        preset_policy,
+        save_policy,
+    )
+
+    selected = sum(1 for value in (preset, custom) if value is not None) + (1 if recommended else 0)
+    if selected != 1:
+        raise click.ClickException("choose exactly one of --preset, --recommended, or --custom")
+
+    if preset is not None:
+        policy = preset_policy(preset)
+    elif custom is not None:
+        import yaml as _yaml
+
+        try:
+            raw = _yaml.safe_load(custom.read_text(encoding="utf-8"))
+        except _yaml.YAMLError as exc:
+            raise click.ClickException(f"invalid custom policy YAML: {exc}") from exc
+        if not isinstance(raw, dict):
+            raise click.ClickException("custom policy YAML must be a mapping")
+        policy = policy_from_config(raw)
+    else:
+        result = _advisor_result(ctx, None, 7)
+        if not result.has_recommendation:
+            raise click.ClickException(result.message)
+        policy = result.recommended_policy
+
+    path = save_policy(ctx.obj["root"], policy)
+    payload = {"applied": policy.to_dict(), "path": str(path)}
+    if as_json:
+        _emit(payload, as_json=True)
+    else:
+        click.echo(f"Applied optimization policy: {policy.name} ({policy.preset})")
+        click.echo(f"Saved: {path}")
+
+
+@optimize_group.group("shadow", invoke_without_command=True)
+@click.option("--policy", "policy_name", default="recommended", show_default=True)
+@click.option("--days", default=7, show_default=True, type=int)
+@click.option("--max-daily-spend-usd", type=float, default=None)
+@click.option("--i-understand-this-costs-money", is_flag=True)
+@click.option("--yes", is_flag=True, help="Accept the pre-run shadow cost estimate.")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def optimize_shadow(
+    ctx: click.Context,
+    policy_name: str,
+    days: int,
+    max_daily_spend_usd: float | None,
+    i_understand_this_costs_money: bool,
+    yes: bool,
+    as_json: bool,
+) -> None:
+    """Shadow-run a policy in parallel without changing live behavior."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    from atelier.core.capabilities.optimization.policy import record_shadow_consent, shadow_consent_at
+    from atelier.core.capabilities.optimization.shadow import build_shadow_state, save_shadow_state
+
+    if shadow_consent_at(ctx.obj["root"]) is None:
+        if not i_understand_this_costs_money:
+            raise click.ClickException(
+                "First shadow run requires --i-understand-this-costs-money because it may spend real money."
+            )
+        record_shadow_consent(ctx.obj["root"])
+
+    result = _advisor_result(ctx, None, max(1, days))
+    try:
+        state = build_shadow_state(
+            policy=policy_name,
+            days=days,
+            baseline_weekly_cost_usd=result.baseline_weekly_cost_usd,
+            max_daily_spend_usd=max_daily_spend_usd,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if as_json and not yes:
+        _emit(
+            {
+                "status": "confirmation_required",
+                "message": "Shadow run not started. Re-run with --yes to accept the pre-run cost estimate.",
+                "estimate": state.to_dict(),
+            },
+            as_json=True,
+        )
+        return
+    if not as_json and not yes:
+        click.echo(
+            f"Shadow will spend approximately ${state.estimated_weekly_spend_usd:.2f} this week "
+            f"against your ${state.baseline_weekly_cost_usd:.2f} baseline."
+        )
+        if not click.confirm("Continue?", default=False):
+            click.echo("Shadow run cancelled.")
+            return
+
+    save_shadow_state(ctx.obj["root"], state)
+    if as_json:
+        _emit(state.to_dict(), as_json=True)
+    else:
+        click.echo(f"Shadow run started for policy {policy_name}.")
+
+
+@optimize_shadow.command("status")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def optimize_shadow_status(ctx: click.Context, as_json: bool) -> None:
+    """Show live shadow spend versus cap."""
+    from atelier.core.capabilities.optimization.shadow import load_shadow_state
+
+    state = load_shadow_state(ctx.obj["root"]) or {"status": "not_running"}
+    if as_json:
+        _emit(state, as_json=True)
+        return
+    click.echo(f"Shadow status: {state.get('status', 'not_running')}")
+    if state.get("status") != "not_running":
+        click.echo(
+            f"Shadow spend (this run only): ${float(state.get('spend_usd', 0.0)):.2f} / "
+            f"${float(state.get('max_daily_spend_usd', 0.0)):.2f} daily cap"
+        )
+
+
+@optimize_shadow.command("stop")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def optimize_shadow_stop(ctx: click.Context, as_json: bool) -> None:
+    """Halt the active shadow run immediately."""
+    from atelier.core.capabilities.optimization.shadow import stop_shadow
+
+    state = stop_shadow(ctx.obj["root"])
+    if as_json:
+        _emit(state, as_json=True)
+    else:
+        click.echo(f"Shadow status: {state.get('status')}")
+
+
+@optimize_shadow.command("forget-consent")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def optimize_shadow_forget_consent(ctx: click.Context, as_json: bool) -> None:
+    """Revoke persistent shadow-run cost consent."""
+    from atelier.core.capabilities.optimization.policy import forget_shadow_consent
+
+    revoked = forget_shadow_consent(ctx.obj["root"])
+    payload = {"revoked": revoked}
+    if as_json:
+        _emit(payload, as_json=True)
+    else:
+        click.echo("Shadow consent revoked." if revoked else "No shadow consent was recorded.")
+
+
+@optimize_group.command("compare")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def optimize_compare(ctx: click.Context, as_json: bool) -> None:
+    """Compare current policy with the active or latest shadow run."""
+    from atelier.core.capabilities.optimization.shadow import load_shadow_state
+
+    result = _advisor_result(ctx, None, 7)
+    state = load_shadow_state(ctx.obj["root"]) or {"status": "not_running", "spend_usd": 0.0}
+    payload = {"advisor": result.to_dict(), "shadow": state}
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"Current weekly cost: ${result.baseline_weekly_cost_usd:.2f}")
+    if result.has_recommendation:
+        click.echo(f"Recommended weekly savings: ${result.weekly_savings_usd:.2f}")
+    click.echo(f"Shadow spend (this run only): ${float(state.get('spend_usd', 0.0)):.2f}")
+
+
+@optimize_group.command("history")
+@click.option("--limit", default=10, show_default=True, type=int)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def optimize_history(ctx: click.Context, limit: int, as_json: bool) -> None:
+    """Show past optimization recommendations and outcomes."""
+    from atelier.core.capabilities.optimization import load_history
+
+    history = load_history(ctx.obj["root"], limit=limit)
+    if as_json:
+        _emit(history, as_json=True)
+        return
+    if not history:
+        click.echo("No optimization history recorded yet.")
+        return
+    for item in reversed(history):
+        recorded_at = item.get("recorded_at", "-")
+        confidence = item.get("confidence", "-")
+        savings = float(item.get("weekly_savings_usd", 0.0) or 0.0)
+        click.echo(f"{recorded_at}  confidence={confidence}  weekly_savings=${savings:.2f}")
 
 
 @cli.command("external-status")

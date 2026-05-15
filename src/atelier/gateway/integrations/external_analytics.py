@@ -358,6 +358,11 @@ def persist_external_reports(
     for report in batch.get("reports", []):
         if not isinstance(report, dict):
             continue
+        # Never overwrite a successful snapshot with a failed run.
+        # A transient environment issue (e.g. missing PATH under systemd)
+        # shouldn't destroy previously persisted good data.
+        if not report.get("ok"):
+            continue
         tool = str(report.get("tool") or "unknown")
         payload = report.get("payload")
         summary = summarize_external_payload(tool, payload)

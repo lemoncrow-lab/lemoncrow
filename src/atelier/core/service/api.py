@@ -1005,27 +1005,27 @@ def _pct_change(before: float, after: float) -> float:
     if before <= 0:
         if after <= 0:
             return 0.0
-        return 100.0
-    return round(((after - before) / before) * 100.0, 1)
+        return 1.0
+    return round((after - before) / before, 4)
 
 
-def _impact_verdict(tokens_delta_pct: float, cost_delta_pct: float, cache_delta_pct: float) -> str:
+def _impact_verdict(tokens_delta: float, cost_delta: float, cache_delta: float) -> str:
     improvements = 0
     regressions = 0
 
-    if tokens_delta_pct <= -5.0:
+    if tokens_delta <= -0.05:
         improvements += 1
-    elif tokens_delta_pct >= 5.0:
+    elif tokens_delta >= 0.05:
         regressions += 1
 
-    if cost_delta_pct <= -5.0:
+    if cost_delta <= -0.05:
         improvements += 1
-    elif cost_delta_pct >= 5.0:
+    elif cost_delta >= 0.05:
         regressions += 1
 
-    if cache_delta_pct >= 5.0:
+    if cache_delta >= 0.05:
         improvements += 1
-    elif cache_delta_pct <= -5.0:
+    elif cache_delta <= -0.05:
         regressions += 1
 
     if improvements >= 2 and regressions == 0:
@@ -2098,6 +2098,11 @@ def _optimization_implementation_gaps() -> list[dict[str, Any]]:
 def _optimizations_summary_payload(
     root: Path, store: ContextStore, *, window_days: int
 ) -> dict[str, Any]:
+    from atelier.core.capabilities.optimization import (
+        load_current_policy,
+        load_history,
+        optimize_from_traces,
+    )
     from atelier.core.capabilities.session_optimizer import (
         build_trace_optimization_report,
         render_session_optimizer_guidance,
@@ -2109,6 +2114,12 @@ def _optimizations_summary_payload(
     recent_traces = _recent_traces(store, window_days=window_days)
     live_events = _iter_live_savings_events(root)
     recommendations = build_trace_optimization_report(traces, days=window_days)
+    advisor = optimize_from_traces(
+        traces,
+        current_policy=load_current_policy(root),
+        days=window_days,
+    )
+    advisor_history = load_history(root, limit=6)
     from atelier.core.foundation.paths import resolve_workspace_root
 
     project_root_candidate = resolve_workspace_root(root)
@@ -2172,6 +2183,8 @@ def _optimizations_summary_payload(
         "budget_rules": session_optimization_rules(),
         "implemented_levers": implemented_levers,
         "implementation_gaps": _optimization_implementation_gaps(),
+        "advisor": advisor.to_dict(),
+        "advisor_history": advisor_history,
         "recommendations": recommendations,
         "context_audit": context_audit,
         "quality_score": quality_score,

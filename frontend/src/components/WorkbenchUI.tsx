@@ -281,3 +281,78 @@ export function Chip({
     </span>
   );
 }
+
+export function Slider({
+  label,
+  value,
+  min,
+  max,
+  step = 0.01,
+  onChange,
+  formatValue = (v) => v.toString(),
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (value: number) => void;
+  formatValue?: (value: number) => string;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <label className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+          {label}
+        </label>
+        <span className="font-mono text-sm text-neutral-100">
+          {formatValue(value)}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="h-1 w-full cursor-pointer appearance-none bg-neutral-800 accent-amber-500"
+      />
+    </div>
+  );
+}
+
+export function Switch({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className="flex items-center gap-3 transition hover:opacity-80"
+    >
+      <div
+        className={cx(
+          "flex h-4 w-8 items-center rounded-full px-0.5 transition",
+          checked ? "bg-amber-600" : "bg-neutral-800"
+        )}
+      >
+        <div
+          className={cx(
+            "h-3 w-3 rounded-full bg-white transition",
+            checked ? "translate-x-4" : "translate-x-0"
+          )}
+        />
+      </div>
+      <span className="text-[10px] font-mono uppercase tracking-widest text-neutral-400">
+        {label}
+      </span>
+    </button>
+  );
+}
