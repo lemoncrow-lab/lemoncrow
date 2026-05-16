@@ -1,0 +1,38 @@
+# Built-in pricing overrides for Atelier.
+# Updated May 2026.
+#
+# DESIGN PHILOSOPHY:
+# 1. Models known to LiteLLM (like gpt-5.5) are automatically resolved via alias
+#    stripping (e.g. "copilot/gpt-5.5" -> "gpt-5.5").
+# 2. This file contains entries for models that are either:
+#    a) Missing from LiteLLM (like internal host aliases).
+#    b) Subscription-covered but deserve a "market value" proxy to show
+#       economic benefit (like Cursor Auto).
+
+overrides:
+  # Cursor Agent Auto Mode
+  # Routes between GPT-4o, GPT-5, and Claude 3.5 Sonnet.
+  # We use GPT-4o as a conservative "market value" proxy.
+  cursor-agent-auto:
+    input: 2.50
+    output: 10.00
+    cache_read: 1.25
+    cache_write: 2.50
+    thinking: 10.00
+
+  # Google Gemini 3 (Market rates as of May 2026)
+  auto-gemini-3:
+    input: 2.00
+    output: 12.00
+    cache_read: 0.20
+    cache_write: 2.00
+    thinking: 12.00
+
+  # OpenCode (Subscription-covered routing)
+  # Uses GPT-4o-mini as a proxy.
+  opencode/big-pickle:
+    input: 0.15
+    output: 0.60
+    cache_read: 0.075
+    cache_write: 0.15
+    thinking: 0.60

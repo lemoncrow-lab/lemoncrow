@@ -52,6 +52,10 @@ class MCPClient(LocalClient):
         self._transport = transport or _LoopbackTransport()
         super().__init__(root=root)
 
+    @property
+    def transport(self) -> MCPToolTransport:
+        return self._transport
+
     def get_context(
         self,
         *,
@@ -68,7 +72,7 @@ class MCPClient(LocalClient):
         agent_id: str | None = None,
         recall: bool = True,
     ) -> ContextResult:
-        payload = self.transport.call(
+        payload = self.transport.call_tool(
             "context",
             {
                 "task": task,

@@ -74,16 +74,17 @@ class ContinueAdapter(AgentAdapter):
     def get_context(
         self,
         *,
-        query: str,
+        task: str,
         domain: str | None = None,
         files: list[str] | None = None,
+        tools: list[str] | None = None,
     ) -> ContextResult:
         """Return relevant reasoning context for a Continue query string.
 
         This is the main entry point for a Continue context provider.
         The returned ``context`` string can be prepended to the chat prompt.
         """
-        return self.get_context(task=query, domain=domain, files=files)
+        return super().get_context(task=task, domain=domain, files=files, tools=tools)
 
     @classmethod
     def install(cls) -> str:

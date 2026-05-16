@@ -23,6 +23,7 @@ from atelier.gateway.hosts.session_parsers.copilot import CopilotImporter
 from atelier.gateway.hosts.session_parsers.cursor import CursorImporter
 from atelier.gateway.hosts.session_parsers.gemini import GeminiImporter
 from atelier.gateway.hosts.session_parsers.opencode import OpenCodeImporter
+from atelier.infra.runtime.session_report import load_report
 
 # =========================================================================
 # Helpers
@@ -41,12 +42,12 @@ def _assert_tool_tokens(trace: Trace, tool_name: str, input_t: int, output_t: in
     """Assert a specific tool has the expected token counts."""
     matches = [t for t in trace.tools_called if t.name == tool_name]
     assert len(matches) >= 1, f"Tool '{tool_name}' not found in trace.tools_called"
-    assert (
-        matches[0].input_tokens == input_t
-    ), f"Tool '{tool_name}'.input_tokens: expected {input_t}, got {matches[0].input_tokens}"
-    assert (
-        matches[0].output_tokens == output_t
-    ), f"Tool '{tool_name}'.output_tokens: expected {output_t}, got {matches[0].output_tokens}"
+    assert matches[0].input_tokens == input_t, (
+        f"Tool '{tool_name}'.input_tokens: expected {input_t}, got {matches[0].input_tokens}"
+    )
+    assert matches[0].output_tokens == output_t, (
+        f"Tool '{tool_name}'.output_tokens: expected {output_t}, got {matches[0].output_tokens}"
+    )
 
 
 # =========================================================================
@@ -77,7 +78,9 @@ class TestClaudeImporterTokens:
                     "cache_read_input_tokens": 20,
                     "cache_creation_input_tokens": 10,
                 },
-                "content": [{"type": "tool_use", "name": "Bash", "id": "tu1", "input": {"command": "ls"}}],
+                "content": [
+                    {"type": "tool_use", "name": "Bash", "id": "tu1", "input": {"command": "ls"}}
+                ],
             },
         },
         # Turn 2 — no tool call (plain text response)
@@ -99,7 +102,9 @@ class TestClaudeImporterTokens:
 
     def test_claude_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "test-session-uuid.jsonl"
-        jsonl_path.write_text("\n".join(json.dumps(e, ensure_ascii=False) for e in self.FIXTURE_EVENTS))
+        jsonl_path.write_text(
+            "\n".join(json.dumps(e, ensure_ascii=False) for e in self.FIXTURE_EVENTS)
+        )
 
         importer = ClaudeImporter(store)
         result = importer.import_session("test-slug", jsonl_path, force=True)
@@ -119,6 +124,13 @@ class TestClaudeImporterTokens:
         #   tool.input_tokens (Bash) = dist_out = 50 // 1 = 50
         #   tool.output_tokens (Bash) = dist_in = 130 // 1 = 130
         _assert_tool_tokens(trace, "Bash", input_t=50, output_t=130)
+        assert trace.usage_entries
+        assert trace.usage_entries[0].cost_usd > 0
+
+        report = load_report("test-session-uuid", store.root)
+        assert report is not None
+        assert report.total_cost_usd > 0
+        assert report.started_model == "claude-sonnet-4-6"
 
 
 # =========================================================================
@@ -237,7 +249,9 @@ class TestCodexImporterTokens:
                 {
                     "type": "message",
                     "role": "user",
-                    "content": [{"type": "input_text", "text": "Investigate failing analytics import"}],
+                    "content": [
+                        {"type": "input_text", "text": "Investigate failing analytics import"}
+                    ],
                 }
             ),
             json.dumps(
@@ -280,7 +294,9 @@ class TestCodexImporterTokens:
         assert trace.cache_creation_input_tokens == 0
         assert trace.user_prompt_tokens > 0
 
-    def test_codex_mixed_model_sessions_leave_trace_model_blank(self, store: ContextStore, tmp_path: Path) -> None:
+    def test_codex_mixed_model_sessions_leave_trace_model_blank(
+        self, store: ContextStore, tmp_path: Path
+    ) -> None:
         fixture_lines = [
             json.dumps(
                 {
@@ -434,7 +450,9 @@ class TestCopilotImporterTokens:
         #   tool.output_tokens (edit) = resultForLlmLength // 4 = 400 // 4 = 100
         _assert_tool_tokens(trace, "edit", input_t=80, output_t=100)
 
-    def test_copilot_falls_back_to_assistant_output_tokens(self, store: ContextStore, tmp_path: Path) -> None:
+    def test_copilot_falls_back_to_assistant_output_tokens(
+        self, store: ContextStore, tmp_path: Path
+    ) -> None:
         session_dir = tmp_path / "copilot-session-fallback"
         session_dir.mkdir(parents=True)
 
@@ -567,7 +585,9 @@ class TestCopilotImporterTokens:
         assert len(trace.usage_entries) == 1
         assert trace.usage_entries[0].model == "claude-sonnet-4.6"
 
-    def test_copilot_mixed_model_sessions_leave_trace_model_blank(self, store: ContextStore, tmp_path: Path) -> None:
+    def test_copilot_mixed_model_sessions_leave_trace_model_blank(
+        self, store: ContextStore, tmp_path: Path
+    ) -> None:
         session_dir = tmp_path / "copilot-session-mixed"
         session_dir.mkdir(parents=True)
 
@@ -618,7 +638,9 @@ class TestCopilotImporterTokens:
         assert usage_by_model["gpt-5.4"].input_tokens == 300
         assert usage_by_model["gpt-5.4-mini"].output_tokens == 30
 
-    def test_copilot_transcript_without_verified_parent_is_raw_only(self, store: ContextStore, tmp_path: Path) -> None:
+    def test_copilot_transcript_without_verified_parent_is_raw_only(
+        self, store: ContextStore, tmp_path: Path
+    ) -> None:
         transcript_path = tmp_path / "orphan-transcript.jsonl"
         transcript_path.write_text(
             "\n".join(
@@ -674,7 +696,9 @@ class TestCopilotImporterTokens:
         assert store.list_traces(host="copilot", limit=10) == []
         assert store.get_trace("copilot-transcript-orphan-transcript") is None
 
-        artifacts = store.list_raw_artifacts(source="copilot", source_session_id="orphan-transcript", limit=10)
+        artifacts = store.list_raw_artifacts(
+            source="copilot", source_session_id="orphan-transcript", limit=10
+        )
         assert [artifact.id for artifact in artifacts] == ["copilot-transcript-orphan-transcript"]
 
     def test_copilot_transcript_attaches_after_parent_session_is_imported(
@@ -836,7 +860,9 @@ class TestCopilotImporterTokens:
 
 
 class TestCursorImporterTokens:
-    def test_cursor_uses_rich_text_and_normalizes_placeholder_models(self, store: ContextStore, tmp_path: Path) -> None:
+    def test_cursor_uses_rich_text_and_normalizes_placeholder_models(
+        self, store: ContextStore, tmp_path: Path
+    ) -> None:
         db_path = tmp_path / "state.vscdb"
         with sqlite3.connect(db_path) as conn:
             conn.execute("CREATE TABLE cursorDiskKV (key TEXT, value TEXT)")
@@ -1159,7 +1185,9 @@ class TestGeminiImporterTokens:
         #   tool.output_tokens (run_shell_command) = dist_in = 100 // 1 = 100
         _assert_tool_tokens(trace, "run_shell_command", input_t=50, output_t=100)
 
-    def test_gemini_counts_same_id_events_when_payload_differs(self, store: ContextStore, tmp_path: Path) -> None:
+    def test_gemini_counts_same_id_events_when_payload_differs(
+        self, store: ContextStore, tmp_path: Path
+    ) -> None:
         jsonl_path = tmp_path / "session-duplicate-ids.jsonl"
         fixture_lines = [
             json.dumps(
@@ -1226,7 +1254,9 @@ class TestGeminiImporterTokens:
 
         _assert_tool_tokens(trace, "run_shell_command", input_t=50, output_t=100)
 
-    def test_gemini_dedupes_same_event_id_and_timestamp(self, store: ContextStore, tmp_path: Path) -> None:
+    def test_gemini_dedupes_same_event_id_and_timestamp(
+        self, store: ContextStore, tmp_path: Path
+    ) -> None:
         jsonl_path = tmp_path / "session-duplicate-event-keys.jsonl"
         fixture_lines = [
             json.dumps(
@@ -1286,7 +1316,9 @@ class TestGeminiImporterTokens:
 
         _assert_tool_tokens(trace, "run_shell_command", input_t=50, output_t=100)
 
-    def test_gemini_tracks_per_model_usage_for_mixed_model_sessions(self, store: ContextStore, tmp_path: Path) -> None:
+    def test_gemini_tracks_per_model_usage_for_mixed_model_sessions(
+        self, store: ContextStore, tmp_path: Path
+    ) -> None:
         jsonl_path = tmp_path / "session-mixed-models.jsonl"
         fixture_lines = [
             json.dumps({"startTime": "2026-05-09T12:00:00Z", "sessionId": "mixed-model-session"}),

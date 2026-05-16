@@ -32,12 +32,13 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+yaml: Any
 try:
     import yaml
 except ImportError:  # pragma: no cover
-    yaml = None  # type: ignore[assignment]
+    yaml = None
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -145,7 +146,7 @@ def _load_suite(suite_path: Path = _SUITE_YAML) -> list[dict[str, Any]]:
     if yaml is not None:
         with suite_path.open() as fh:
             data = yaml.safe_load(fh)
-        return data["prompts"]  # type: ignore[return-value]
+        return cast(list[dict[str, Any]], data["prompts"])
 
     # ------- minimal fallback parser (no pyyaml) -------
     # This is intentionally narrow: it only handles the exact structure

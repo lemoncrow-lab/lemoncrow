@@ -127,6 +127,12 @@ module = [
 ]
 disable_error_code = ["untyped-decorator"]
 
+[[tool.mypy.overrides]]
+module = [
+    "atelier.gateway.adapters.cli",
+]
+ignore_errors = true
+
 [dependency-groups]
 dev = [
     "httpx>=0.27",

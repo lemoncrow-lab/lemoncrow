@@ -11,7 +11,7 @@ import {
   extractHost,
   HOST_COLORS,
 } from "./sessions/helpers";
-import { StatusBadge } from "./sessions/StatusBadge";
+import { StatusDot } from "./sessions/StatusBadge";
 import { SessionExplorerDetail } from "./sessions/SessionDetail";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +43,33 @@ function highlightSearchText(value: string, query: string): ReactNode {
   );
 }
 
+function firstModelLabel(models?: Record<string, number>): string | null {
+  if (!models) return null;
+  const [firstModel] = Object.keys(models);
+  return firstModel || null;
+}
+
+function resolveSessionModel(
+  summary?: SessionSummary | null,
+  trace?: Trace | null
+): string | null {
+  return (
+    summary?.started_model ||
+    firstModelLabel(summary?.models_used) ||
+    trace?.model ||
+    null
+  );
+}
+
+function preferNonZeroMetric(
+  primary?: number | null,
+  fallback?: number | null
+): number {
+  if ((primary ?? 0) > 0) return primary ?? 0;
+  if ((fallback ?? 0) > 0) return fallback ?? 0;
+  return primary ?? fallback ?? 0;
+}
+
 // ---------------------------------------------------------------------------
 // Main Sessions page — sidebar list + master-detail routing
 // ---------------------------------------------------------------------------
@@ -63,6 +90,7 @@ export default function Sessions() {
   const tracesRequestSeq = useRef(0);
   const [summaries, setSummaries] = useState<SessionSummary[] | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const traceWindowDays = Number.parseInt(range, 10);
 
   // Debounce search input → query
   useEffect(() => {
@@ -84,7 +112,7 @@ export default function Sessions() {
     setPage(0);
     setErr(null);
     api
-      .traces(50, 0, "all", "all", query)
+      .traces(50, 0, "all", "all", query, traceWindowDays)
       .then((res) => {
         if (requestSeq !== tracesRequestSeq.current) return;
         setTraces(res.items);
@@ -112,7 +140,7 @@ export default function Sessions() {
     setLoadingTraces(true);
     const nextOffset = (page + 1) * 50;
     api
-      .traces(50, nextOffset, "all", "all", query)
+      .traces(50, nextOffset, "all", "all", query, traceWindowDays)
       .then((res) => {
         if (requestSeq !== tracesRequestSeq.current) return;
         setTraces((prev) => (prev ? [...prev, ...res.items] : res.items));
@@ -128,7 +156,7 @@ export default function Sessions() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-180px)] overflow-hidden border border-neutral-800 bg-[#070707]">
+    <div className="flex h-[calc(100vh-180px)] overflow-hidden border border-neutral-800/80 bg-[#070707] shadow-[0_28px_80px_rgba(0,0,0,0.45)]">
       {/* Sidebar — master list */}
       <aside
         className={cx(
@@ -165,7 +193,7 @@ export default function Sessions() {
         ) : (
           /* ── Expanded: full sidebar ── */
           <>
-            <div className="p-4 border-b border-neutral-800 space-y-3 bg-[#0d0d0d]">
+            <div className="p-4 border-b border-neutral-800 space-y-4 bg-[#0d0d0d]">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <h2 className="text-[10px] font-bold uppercase tracking-widest text-neutral-500 whitespace-nowrap">
@@ -202,8 +230,8 @@ export default function Sessions() {
                   type="search"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search history..."
-                  className="w-full bg-[#141414] border border-neutral-800 px-3 py-2 text-xs text-neutral-200 outline-none focus:border-purple-600 transition-all rounded-sm shadow-inner"
+                  placeholder="Search sessions, tasks, models..."
+                  className="w-full bg-[#141414] border border-neutral-800 px-3 py-2.5 text-xs text-neutral-200 outline-none focus:border-purple-600 transition-all rounded-sm shadow-inner"
                 />
                 {searchInput && (
                   <button
@@ -219,15 +247,29 @@ export default function Sessions() {
 
             <div className="flex-1 overflow-y-auto custom-scrollbar">
               {err && (
-                <div className="p-4 text-xs text-red-500 font-mono">
-                  {err}
-                </div>
+                <div className="p-4 text-xs text-red-500 font-mono">{err}</div>
               )}
 
               {traces?.map((t) => {
                 const sid = t.session_id || t.id;
                 const isActive = id === sid;
                 const summary = summaries?.find((s) => s.session_id === sid);
+                const sessionModel = resolveSessionModel(summary, t);
+                const inputTokens = preferNonZeroMetric(
+                  summary?.input_tokens,
+                  t.input_tokens
+                );
+                const outputTokens = preferNonZeroMetric(
+                  summary?.output_tokens,
+                  t.output_tokens
+                );
+                const cacheTokens = preferNonZeroMetric(
+                  summary?.cached_input_tokens,
+                  t.cached_input_tokens
+                );
+                const host = extractHost(t);
+                const hostTextClass =
+                  HOST_COLORS[host]?.split(" ")[1] || "text-neutral-500";
 
                 return (
                   <button
@@ -238,36 +280,64 @@ export default function Sessions() {
                       )
                     }
                     className={cx(
-                      "w-full text-left p-4 border-b border-neutral-800 transition-all hover:bg-neutral-800/40 group/card",
+                      "w-full border-b border-neutral-800 p-3.5 text-left transition-all hover:bg-neutral-800/40 group/card",
                       isActive
-                        ? "bg-purple-900/10 border-r-2 border-r-purple-500 shadow-[inset_0_0_20px_rgba(168,85,247,0.05)]"
+                        ? "bg-purple-900/10 border-r-2 border-r-purple-500 shadow-[inset_0_0_28px_rgba(168,85,247,0.08)]"
                         : ""
                     )}
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <StatusDot status={t.status} className="shrink-0" />
                         <span
                           className={cx(
-                            "text-[8px] px-1.5 py-0.5 border uppercase font-bold tracking-tight font-mono rounded-[1px]",
-                            HOST_COLORS[extractHost(t)] ||
-                              "bg-neutral-800 text-neutral-400 border-neutral-500"
+                            "shrink-0 text-[8px] font-mono uppercase tracking-[0.18em]",
+                            hostTextClass
                           )}
+                          title={host}
                         >
-                          {extractHost(t)}
+                          {host}
                         </span>
-                        <StatusBadge
-                          status={t.status}
-                          className="text-[7px] tracking-[0.2em]"
-                        />
+                        {sessionModel && (
+                          <span
+                            className="min-w-0 truncate text-[9px] font-mono text-sky-200"
+                            title={sessionModel}
+                          >
+                            {sessionModel}
+                          </span>
+                        )}
                       </div>
-                      <span className="text-[9px] text-neutral-400 font-mono">
-                        {fmtDate(t.created_at)}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="shrink-0 text-[9px] font-mono text-neutral-500"
+                          title={t.created_at}
+                        >
+                          {fmtDate(t.created_at)}
+                        </span>
+                        <span
+                          className="shrink-0 text-[9px] font-mono text-neutral-400"
+                          title={
+                            summary
+                              ? String(
+                                  summary.active_duration_seconds ||
+                                    summary.duration_seconds
+                                )
+                              : undefined
+                          }
+                        >
+                          {summary
+                            ? fmtDuration(
+                                summary.active_duration_seconds ||
+                                  summary.duration_seconds
+                              )
+                            : "—"}
+                        </span>
+                      </div>
                     </div>
 
                     <p
                       className={cx(
-                        "text-xs font-mono line-clamp-2 mb-3 leading-relaxed",
+                        "mb-2 text-xs font-mono line-clamp-2 leading-relaxed",
                         isActive
                           ? "text-neutral-100 font-bold"
                           : "text-neutral-400 group-hover/card:text-neutral-300"
@@ -276,8 +346,7 @@ export default function Sessions() {
                       {highlightSearchText(t.task || "Untitled Task", query)}
                     </p>
 
-                    {/* Embedded stats */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-neutral-800/40 pt-2.5">
+                    <div className="grid grid-cols-3 gap-1.5 rounded-sm border border-neutral-800/60 bg-black/20 p-2">
                       {(
                         [
                           [
@@ -292,45 +361,44 @@ export default function Sessions() {
                               : "—",
                             "text-emerald-500/90",
                           ],
+
                           [
-                            "In/Out",
-                            `${fmtTok(summary?.input_tokens ?? t.input_tokens ?? 0)}/${fmtTok(summary?.output_tokens ?? t.output_tokens ?? 0)}`,
+                            "Input",
+                            fmtTok(inputTokens),
+                            "text-neutral-400",
+                          ],
+                          [
+                            "Output",
+                            fmtTok(outputTokens),
                             "text-neutral-400",
                           ],
                           [
                             "Cache",
-                            fmtTok(
-                              summary?.cached_input_tokens ??
-                                t.cached_input_tokens ??
-                                0
-                            ),
+                            fmtTok(cacheTokens),
                             "text-neutral-400",
                           ],
                           [
                             "Turns",
-                            String(summary?.total_turns || "—"),
-                            "text-neutral-400",
-                          ],
-                          [
-                            "Time",
-                            summary
-                              ? fmtDuration(
-                                  summary.active_duration_seconds ||
-                                    summary.duration_seconds
-                                )
-                              : "—",
+                            summary ? String(summary.total_turns) : "—",
                             "text-neutral-400",
                           ],
                         ] as [string, string, string][]
                       ).map(([label, value, valCls]) => (
                         <div
                           key={label}
-                          className="flex justify-between text-[8px] font-mono tracking-widest uppercase"
+                          className="flex items-center justify-between gap-2 rounded-sm border border-neutral-800/50 bg-neutral-950/40 px-2 py-1.5"
                         >
-                          <span className="text-neutral-400">{label}</span>
-                          <span className={cx("font-black", valCls)}>
+                          <div className="truncate text-[8px] font-mono tracking-[0.18em] uppercase text-neutral-500 leading-none">
+                            {label}
+                          </div>
+                          <div
+                            className={cx(
+                              "shrink-0 text-[10px] font-black font-mono leading-none",
+                              valCls
+                            )}
+                          >
                             {value}
-                          </span>
+                          </div>
                         </div>
                       ))}
                     </div>

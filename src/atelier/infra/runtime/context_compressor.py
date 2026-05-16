@@ -357,7 +357,7 @@ def _dynamic_turn_budget(
     if outcome_events:
         def _is_failure(ev: dict[str, object]) -> bool:
             raw = ev.get("payload")
-            p: dict[str, object] = raw if isinstance(raw, dict) else {}  # type: ignore[assignment]
+            p: dict[str, object] = raw if isinstance(raw, dict) else {}
             ok = p.get("ok")
             passed = p.get("passed")
             if ok is not None:

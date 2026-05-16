@@ -85,6 +85,7 @@ def _live_savings_path(root: Path) -> Path:
 # Per-token cost estimation                                                    #
 # --------------------------------------------------------------------------- #
 
+
 def _cost_breakdown_from_calls(
     calls: list[dict[str, Any]],
 ) -> tuple[int, float, int, float, int, float, int, float]:
@@ -114,16 +115,21 @@ def _cost_breakdown_from_calls(
             total_cw_cost += pricing.cost_usd(input_tokens=cw_tok)
 
     return (
-        total_in_tok, round(total_in_cost, 6),
-        total_out_tok, round(total_out_cost, 6),
-        total_cr_tok, round(total_cr_cost, 6),
-        total_cw_tok, round(total_cw_cost, 6),
+        total_in_tok,
+        round(total_in_cost, 6),
+        total_out_tok,
+        round(total_out_cost, 6),
+        total_cr_tok,
+        round(total_cr_cost, 6),
+        total_cw_tok,
+        round(total_cw_cost, 6),
     )
 
 
 # --------------------------------------------------------------------------- #
 # Compact savings                                                              #
 # --------------------------------------------------------------------------- #
+
 
 def _read_compact_savings(session_id: str, root: Path) -> tuple[int, float]:
     """Read compact savings from ``live_savings_events.jsonl`` for *session_id*.
@@ -145,10 +151,7 @@ def _read_compact_savings(session_id: str, root: Path) -> tuple[int, float]:
                 ev = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if (
-                ev.get("session_id") == session_id
-                and ev.get("lever") == "session_compaction"
-            ):
+            if ev.get("session_id") == session_id and ev.get("lever") == "session_compaction":
                 count += 1
                 total_saved += float(ev.get("cost_saved_usd") or 0.0)
     except OSError:
@@ -159,6 +162,7 @@ def _read_compact_savings(session_id: str, root: Path) -> tuple[int, float]:
 # --------------------------------------------------------------------------- #
 # Routing savings                                                              #
 # --------------------------------------------------------------------------- #
+
 
 def _read_routing_savings(events: list[dict[str, Any]]) -> tuple[int, float]:
     """Extract routing savings from ledger events.
@@ -183,6 +187,7 @@ def _read_routing_savings(events: list[dict[str, Any]]) -> tuple[int, float]:
 # Data model                                                                   #
 # --------------------------------------------------------------------------- #
 
+
 @dataclass
 class SessionReport:
     session_id: str
@@ -195,6 +200,7 @@ class SessionReport:
     skills: list[str]
     telemetry: dict[str, Any]
     models_used: dict[str, int]
+    started_model: str | None
     total_turns: int
     tool_call_count: int
 
@@ -232,6 +238,7 @@ class SessionReport:
 # --------------------------------------------------------------------------- #
 # Build                                                                        #
 # --------------------------------------------------------------------------- #
+
 
 def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
     """Build a ``SessionReport`` from a run-ledger *snapshot* dict."""
@@ -276,7 +283,7 @@ def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
                 current_start = ts
             else:
                 current_start = ts
-    
+
     if active_duration <= 0:
         active_duration = duration
 
@@ -290,6 +297,9 @@ def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
     for call in calls:
         m = str(call.get("model") or "unknown")
         models_used[m] = models_used.get(m, 0) + 1
+    started_model = None
+    if calls:
+        started_model = str(calls[0].get("model") or "").strip() or None
     total_turns = len(calls)
 
     vendor = _derive_vendor(models_used)
@@ -301,10 +311,14 @@ def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
 
     # --- per-token cost breakdown ---
     (
-        in_tok, in_cost,
-        out_tok, out_cost,
-        cr_tok, cr_cost,
-        cw_tok, cw_cost,
+        in_tok,
+        in_cost,
+        out_tok,
+        out_cost,
+        cr_tok,
+        cr_cost,
+        cw_tok,
+        cw_cost,
     ) = _cost_breakdown_from_calls(calls)
 
     # Use total_cost from snapshot as ground truth; attribute remainder to input if needed
@@ -344,6 +358,7 @@ def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
         telemetry=telemetry,
         raw_artifact_ids=raw_artifact_ids,
         models_used=models_used,
+        started_model=started_model,
         total_turns=total_turns,
         tool_call_count=tool_call_count,
         input_token_cost_usd=in_cost,
@@ -397,6 +412,7 @@ def list_run_files(root: Path, *, since: datetime | None = None) -> list[Path]:
 # Renderers                                                                    #
 # --------------------------------------------------------------------------- #
 
+
 def _fmt_duration(seconds: float, running: bool) -> str:
     if running:
         return "(ongoing)"
@@ -433,10 +449,13 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
         return f"  {label:<22}{value}"
 
     # models used
-    models_str = ", ".join(
-        f"{m} ({c} turn{'s' if c != 1 else ''})"
-        for m, c in sorted(report.models_used.items(), key=lambda x: -x[1])
-    ) or "none"
+    models_str = (
+        ", ".join(
+            f"{m} ({c} turn{'s' if c != 1 else ''})"
+            for m, c in sorted(report.models_used.items(), key=lambda x: -x[1])
+        )
+        or "none"
+    )
 
     lines.append(row("Vendor:", report.vendor))
     lines.append(row("Models used:", models_str))
@@ -458,7 +477,9 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
 
     lines.append(cost_row("Input tokens:", report.input_tokens, report.input_token_cost_usd))
     if report.cache_write_tokens or report.cache_write_cost_usd:
-        lines.append(cost_row("Cache writes:", report.cache_write_tokens, report.cache_write_cost_usd))
+        lines.append(
+            cost_row("Cache writes:", report.cache_write_tokens, report.cache_write_cost_usd)
+        )
     lines.append(cost_row("Cache reads:", report.cache_read_tokens, report.cache_read_cost_usd))
     lines.append(cost_row("Output tokens:", report.output_tokens, report.output_token_cost_usd))
     lines.append("  " + "─" * 37)

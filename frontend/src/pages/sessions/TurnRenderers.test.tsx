@@ -88,4 +88,24 @@ describe("ConversationTurn rich cards", () => {
     expect(screen.getByText("@frontend/src/pages/sessions/")).toBeInTheDocument();
     expect(screen.queryByText("events.jsonl")).not.toBeInTheDocument();
   });
+
+  it("shows model badges in the turn header and subagent card", () => {
+    render(
+      <ConversationTurn
+        forceExpand
+        turn={{
+          kind: "subagent_event",
+          at: "2026-05-16T00:00:00Z",
+          summary: "Explore Agent",
+          content: "Investigate model labels",
+          model: "gpt-5.4",
+          subagent_status: "started",
+          subagent_name: "Explore Agent",
+        }}
+      />
+    );
+
+    expect(screen.getAllByText("gpt-5.4").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("STARTED")).toBeInTheDocument();
+  });
 });

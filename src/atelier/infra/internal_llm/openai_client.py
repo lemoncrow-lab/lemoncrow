@@ -33,7 +33,7 @@ class OpenAIClientUnavailable(RuntimeError):
 
 def _openai_module() -> Any:
     try:
-        import openai  # type: ignore[import-not-found]
+        import openai
     except ImportError as exc:
         raise OpenAIClientUnavailable("openai package is not installed; install atelier[cloud]") from exc
     return openai

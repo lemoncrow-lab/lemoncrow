@@ -142,6 +142,9 @@ def apply_batch_edit(
 
         backup_base = default_store_root() / "backups" / "batch_edit" / session_id
 
+    # Ensure backup_base is a Path — narrow for type checker
+    assert backup_base is not None
+
     # Collect unique paths we will touch.
     paths_to_touch: list[Path] = []
     resolved_edits: list[tuple[Path, dict[str, Any]]] = []

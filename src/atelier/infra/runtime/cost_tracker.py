@@ -64,13 +64,21 @@ def estimate_cost(
     input_tokens: int,
     output_tokens: int,
     cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    thinking_tokens: int = 0,
 ) -> float:
     """Compute USD cost using the shared LiteLLM-backed pricing table.
 
     Unknown models fall back to the zero-cost default until LiteLLM or a test
     override provides pricing data for them.
     """
-    return _get_model_pricing(model).cost_usd(input_tokens, output_tokens, cache_read_tokens)
+    return _get_model_pricing(model).cost_usd(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
+        thinking_tokens=thinking_tokens,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -101,14 +109,17 @@ def operation_key(domain: str | None, task: str) -> str:
 @dataclass
 class CallRecord:
     """One LLM call inside a run."""
-
-    operation: str  # short label e.g. "plan", "rescue", "verify"
+@dataclass(frozen=True)
+class CallRecord:
+    operation: str
     model: str
     input_tokens: int
     output_tokens: int
     cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    thinking_tokens: int = 0
     cost_usd: float = 0.0
-    lessons_used: list[str] = field(default_factory=list)  # block IDs injected
+    lessons_used: list[str] = field(default_factory=list)
     op_key: str = ""
     at: str = ""
 
@@ -119,8 +130,10 @@ class CallRecord:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+            "thinking_tokens": self.thinking_tokens,
             "cost_usd": self.cost_usd,
-            "lessons_used": list(self.lessons_used),
+            "lessons_used": self.lessons_used,
             "op_key": self.op_key,
             "at": self.at,
         }
@@ -180,6 +193,8 @@ class CostTracker:
         input_tokens: int,
         output_tokens: int,
         cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+        thinking_tokens: int = 0,
         domain: str | None = None,
         task: str = "",
         cost_usd: float | None = None,
@@ -188,7 +203,16 @@ class CostTracker:
     ) -> CallRecord:
         op_key = operation_key(domain, task or operation)
         cost = (
-            cost_usd if cost_usd is not None else estimate_cost(model, input_tokens, output_tokens, cache_read_tokens)
+            cost_usd
+            if cost_usd is not None
+            else estimate_cost(
+                model,
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                thinking_tokens,
+            )
         )
         rec = CallRecord(
             operation=operation,
@@ -196,6 +220,8 @@ class CostTracker:
             input_tokens=int(input_tokens),
             output_tokens=int(output_tokens),
             cache_read_tokens=int(cache_read_tokens),
+            cache_write_tokens=int(cache_write_tokens),
+            thinking_tokens=int(thinking_tokens),
             cost_usd=cost,
             lessons_used=list(lessons_used or []),
             op_key=op_key,

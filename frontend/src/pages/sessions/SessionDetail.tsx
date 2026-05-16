@@ -14,9 +14,13 @@ import {
   parseInspectorData,
   groupTurns,
 } from "./helpers";
-import { StatusBadge } from "./StatusBadge";
-import { FileDetail } from "./DiffView";
-import { ConversationTurn, ToolCallDetail, CommandDetail } from "./TurnRenderers";
+import { StatusDot } from "./StatusBadge";
+import { FileDetail, getFileEditInfo, type FileEditInfo } from "./DiffView";
+import {
+  ConversationTurn,
+  ToolCallDetail,
+  CommandDetail,
+} from "./TurnRenderers";
 
 // ---------------------------------------------------------------------------
 // Header stat chip
@@ -29,21 +33,23 @@ function HeaderStat({
 }: {
   label: string;
   value: string;
-  tone?: "amber" | "emerald";
+  tone?: "amber" | "emerald" | "violet";
 }) {
   return (
-    <div className="flex-1 min-w-0 px-4 py-2 border-r last:border-0 border-neutral-800/40 hover:bg-neutral-800/20 transition-colors group">
-      <div className="text-[8px] text-neutral-400 uppercase font-black tracking-widest mb-0.5 group-hover:text-neutral-500 transition-colors">
+    <div className="flex min-w-0 items-center justify-between gap-3 border border-neutral-800/40 bg-black/15 px-2.5 py-1.5 transition-colors hover:bg-neutral-800/20 group">
+      <div className="truncate text-[8px] text-neutral-400 uppercase font-black tracking-[0.18em] group-hover:text-neutral-500 transition-colors">
         {label}
       </div>
       <div
         className={cx(
-          "text-[11px] font-bold font-mono truncate",
+          "truncate text-[10px] font-bold font-mono leading-none",
           tone === "amber"
             ? "text-amber-500/90"
             : tone === "emerald"
               ? "text-emerald-500/90"
-              : "text-neutral-400"
+              : tone === "violet"
+                ? "text-violet-400"
+                : "text-neutral-400"
         )}
       >
         {value}
@@ -136,6 +142,32 @@ function SidebarList({
   );
 }
 
+function MetaPill({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "violet" | "amber";
+}) {
+  return (
+    <span
+      className={cx(
+        "inline-flex items-center gap-1 rounded-sm border px-2.5 py-1 text-[9px] font-mono uppercase tracking-[0.2em]",
+        tone === "violet"
+          ? "border-violet-900/30 bg-violet-950/25 text-violet-200"
+          : tone === "amber"
+            ? "border-amber-900/30 bg-amber-950/25 text-amber-200"
+            : "border-neutral-800 bg-black/20 text-neutral-400"
+      )}
+    >
+      <span className="text-neutral-500">{label}</span>
+      <span className="normal-case tracking-normal text-current">{value}</span>
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main detail view
 // ---------------------------------------------------------------------------
@@ -197,6 +229,33 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
     return ms / 1000;
   }, [inspectorData, report]);
 
+  const startedModel = useMemo(() => {
+    if (report?.started_model) return report.started_model;
+    const firstConversationModel = inspectorData?.conversations?.find(
+      (turn) => turn.model
+    )?.model;
+    if (firstConversationModel) return firstConversationModel;
+    if (trace?.model) return trace.model;
+    const reportModels = report?.models_used
+      ? Object.keys(report.models_used)
+      : [];
+    return reportModels[0] || null;
+  }, [inspectorData, report, trace]);
+
+  // Derive file changes from the session ledger directly — every file_edit turn
+  // is already captured there. The trace's files_touched is redundant for this;
+  // trace should only carry signals that can't be reconstructed from the session.
+  // Dedup by path: last-write wins (preserves the most recent diff).
+  const ledgerFilesTouched = useMemo((): FileEditInfo[] => {
+    const byPath = new Map<string, FileEditInfo>();
+    for (const turn of inspectorData?.conversations ?? []) {
+      if (turn.kind !== "file_edit") continue;
+      const info = getFileEditInfo(turn);
+      if (info?.path) byPath.set(info.path, info);
+    }
+    return [...byPath.values()];
+  }, [inspectorData]);
+
   if (loading)
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-4 bg-[#0a0a0a]">
@@ -225,34 +284,38 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
     <div className="flex flex-col h-full bg-[#0a0a0a] relative animate-in fade-in duration-500">
       {/* Header */}
       <header className="flex-shrink-0 px-8 py-4 border-b border-neutral-800/80 bg-[#0d0d0d]/95 backdrop-blur-md sticky top-0 z-20 shadow-2xl">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-8">
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex items-center gap-3">
+        <div className="space-y-3">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0 flex-1 space-y-2">
+              <h1 className="text-sm font-bold tracking-wide text-neutral-100 font-mono truncate uppercase">
                 {trace && (
-                  <StatusBadge
-                    status={trace.status}
-                    className="text-[10px] rounded-none px-2 py-0"
-                  />
+                  <span
+                    className="inline-flex items-center px-1"
+                    title={trace.status}
+                  >
+                    <StatusDot status={trace.status} className="h-2.5 w-2.5" />
+                  </span>
+                )}{" "}
+                {trace?.task || "Execution Detail"}
+              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <MetaPill label="Session" value={sessionId} />
+                <MetaPill
+                  label="Started"
+                  value={fmtDate(report?.started_at || trace?.created_at)}
+                />
+                {startedModel && (
+                  <MetaPill label="Model" value={startedModel} tone="violet" />
                 )}
-                <h1 className="text-sm font-bold tracking-wide text-neutral-100 font-mono truncate uppercase">
-                  {trace?.task || "Execution Detail"}
-                </h1>
-              </div>
-              <div className="flex flex-wrap items-center gap-x-3 text-[9px] text-neutral-400 font-mono font-bold uppercase">
-                <span>SESSION: {sessionId}</span>
-                <span>•</span>
-                <span>
-                  {fmtDate(report?.started_at || trace?.created_at)}
-                </span>
-                <span>•</span>
-                <span className="text-amber-600">
-                  @{trace?.agent || "unknown"}
-                </span>
+                <MetaPill
+                  label="Agent"
+                  value={`@${trace?.agent || "unknown"}`}
+                  tone="amber"
+                />
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 self-start">
               {report?.raw_artifact_ids &&
                 report.raw_artifact_ids.length > 0 && (
                   <a
@@ -286,10 +349,9 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
             </div>
           </div>
 
-          {/* Stats strip */}
-          <div className="flex flex-wrap items-center gap-px bg-neutral-800/20 border border-neutral-800/40 p-0.5 rounded-sm">
+          <div className="grid grid-cols-7 gap-1.5">
             <HeaderStat
-              label="Total Cost"
+              label="Cost"
               value={
                 report
                   ? fmtUsd(report.total_cost_usd)
@@ -300,41 +362,38 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               tone="amber"
             />
             <HeaderStat
-              label="Atelier Savings"
+              label="Saved"
               value={report ? fmtUsd(report.total_atelier_savings_usd) : "—"}
               tone="emerald"
             />
             <HeaderStat
-              label="Turns / Msgs"
+              label="Input"
               value={
-                report
-                  ? `${report.total_turns} / ${inspectorData?.conversations?.length || "—"}`
-                  : inspectorData?.conversations?.length
-                    ? `— / ${inspectorData.conversations.length}`
-                    : "—"
-              }
-            />
-            <HeaderStat
-              label="Total Tokens"
-              value={
-                report || trace
+                report || trace || inspectorData
                   ? fmtTok(
-                      (report?.input_tokens ?? trace?.input_tokens ?? 0) +
-                        (report?.output_tokens ?? trace?.output_tokens ?? 0)
+                      report?.input_tokens ??
+                        trace?.input_tokens ??
+                        inspectorData?.tokens_pre ??
+                        0
                     )
                   : "—"
               }
             />
             <HeaderStat
-              label="In / Out"
+              label="Output"
               value={
-                report || trace
-                  ? `${fmtTok(report?.input_tokens ?? trace?.input_tokens ?? 0)} / ${fmtTok(report?.output_tokens ?? trace?.output_tokens ?? 0)}`
+                report || trace || inspectorData
+                  ? fmtTok(
+                      report?.output_tokens ??
+                        trace?.output_tokens ??
+                        inspectorData?.tokens_post ??
+                        0
+                    )
                   : "—"
               }
             />
             <HeaderStat
-              label="Cached"
+              label="Cache"
               value={
                 report || trace
                   ? fmtTok(
@@ -346,17 +405,11 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               }
             />
             <HeaderStat
-              label="Tools"
-              value={
-                trace
-                  ? String(trace.tools_called.length)
-                  : report
-                    ? String(report.tool_call_count)
-                    : "—"
-              }
+              label="Turns"
+              value={report ? String(report.total_turns) : "—"}
             />
             <HeaderStat
-              label="Active Time"
+              label="Time"
               value={
                 report
                   ? fmtDuration(
@@ -436,7 +489,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                 </div>
               </section>
 
-              {trace?.files_touched && trace.files_touched.length > 0 && (
+              {ledgerFilesTouched.length > 0 && (
                 <section className="space-y-6 pt-12 border-t border-neutral-900/50">
                   <div className="flex items-center gap-6">
                     <h2 className="text-[10px] font-black uppercase tracking-[0.5em] text-neutral-500 whitespace-nowrap">
@@ -444,14 +497,17 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                     </h2>
                     <div className="h-px w-full bg-gradient-to-r from-neutral-800 to-transparent" />
                     <span className="text-[9px] text-neutral-500 font-mono font-bold uppercase tracking-widest flex-shrink-0">
-                      {trace.files_touched.length} file
-                      {trace.files_touched.length !== 1 ? "s" : ""} · current
-                      content &amp; total diff
+                      {ledgerFilesTouched.length} file
+                      {ledgerFilesTouched.length !== 1 ? "s" : ""} · from session
                     </span>
                   </div>
                   <div className="space-y-2">
-                    {trace.files_touched.map((f, i) => (
-                      <FileDetail key={i} file={f} forceExpand={allExpanded} />
+                    {ledgerFilesTouched.map((f, i) => (
+                      <FileDetail
+                        key={i}
+                        file={f.diff ? { path: f.path, diff: f.diff } : f.path}
+                        forceExpand={allExpanded}
+                      />
                     ))}
                   </div>
                 </section>
@@ -478,6 +534,11 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                       report ? fmtUsd(report.total_atelier_savings_usd) : "—"
                     }
                     color="text-emerald-500"
+                  />
+                  <SidebarMetric
+                    label="Started Model"
+                    value={startedModel || "—"}
+                    color="text-violet-400"
                   />
                   <SidebarMetric
                     label="Total Tokens"
@@ -592,16 +653,17 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                     items={inspectorData.source_files}
                   />
                 )}
-              {inspectorData?.artifacts && inspectorData.artifacts.length > 0 && (
-                <SidebarList
-                  title="Session Artifacts"
-                  items={inspectorData.artifacts.map((artifact) => ({
-                    path: `${artifact.scope === "subagent" ? "subagent" : "main"} · ${artifact.relative_path}`,
-                    artifact_id: artifact.id,
-                  }))}
-                  color="text-sky-500/70"
-                />
-              )}
+              {inspectorData?.artifacts &&
+                inspectorData.artifacts.length > 0 && (
+                  <SidebarList
+                    title="Session Artifacts"
+                    items={inspectorData.artifacts.map((artifact) => ({
+                      path: `${artifact.label || (artifact.scope === "subagent" ? "subagent" : "main")} · ${artifact.relative_path.split("/").pop() || artifact.relative_path}`,
+                      artifact_id: artifact.id,
+                    }))}
+                    color="text-sky-500/70"
+                  />
+                )}
               {inspectorData?.pinned_blocks &&
                 inspectorData.pinned_blocks.length > 0 && (
                   <SidebarList
@@ -624,28 +686,6 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                   Audit Telemetry
                 </h3>
                 <div className="space-y-1.5 text-[9px] font-mono text-neutral-500">
-                  {report?.raw_artifact_ids &&
-                    report.raw_artifact_ids.length > 0 && (
-                      <div className="flex flex-col border-b border-neutral-800/20 pb-1.5 mb-1.5 last:border-0">
-                        <span className="uppercase text-[8px] font-bold mb-1">
-                          Source_Artifacts
-                        </span>
-                        <div className="space-y-1">
-                          {report.raw_artifact_ids.map((id) => (
-                            <a
-                              key={id}
-                              href={`/api/raw-artifacts/${id}/content`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="block text-purple-500/70 hover:text-purple-400 transition-colors truncate"
-                              title={id}
-                            >
-                              → {id}
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   {report?.telemetry &&
                     Object.entries(report.telemetry).map(([key, val], i) => (
                       <div

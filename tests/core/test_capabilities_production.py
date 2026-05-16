@@ -912,6 +912,72 @@ def test_pricing_no_prefix_fallback_for_unknown_variant() -> None:
     assert p.output == 0.0
 
 
+def test_pricing_copilot_explicit_models() -> None:
+    from atelier.core.capabilities.pricing import get_model_pricing
+
+    # Explicit copilot models from LiteLLM should match via alias stripping.
+    p = get_model_pricing("copilot/gpt-5.5")
+    assert p.known is True
+    assert p.input == 5.0
+    assert p.output == 30.0
+    assert p.cache_read == 0.5
+    assert p.cache_write == 0.0
+    assert p.thinking == 30.0
+    assert p.model_id == "gpt-5.5"
+
+    # Other copilot models should NOT match a wildcard anymore.
+    p2 = get_model_pricing("copilot/some-new-model")
+    assert p2.known is False
+    assert p2.model_id == "copilot/some-new-model"
+
+
+def test_pricing_cursor_agent_auto() -> None:
+    from atelier.core.capabilities.pricing import get_model_pricing
+
+    # cursor-agent-auto should match the market value proxy (GPT-4o rates).
+    p = get_model_pricing("cursor-agent-auto")
+    assert p.known is True
+    assert p.input == 2.5
+    assert p.output == 10.0
+    assert p.model_id == "cursor-agent-auto"
+
+
+def test_pricing_yaml_overrides(tmp_path: Path) -> None:
+    import os
+    import yaml
+    from atelier.core.capabilities.pricing import get_model_pricing, _load_pricing_table
+
+    # Point ATELIER_ROOT to tmp_path
+    old_root = os.environ.get("ATELIER_ROOT")
+    os.environ["ATELIER_ROOT"] = str(tmp_path)
+    try:
+        overrides = {
+            "overrides": {
+                "yaml-model": {
+                    "input": 1.23,
+                    "output": 4.56,
+                    "cache_read": 0.1,
+                    "thinking": 9.99
+                }
+            }
+        }
+        (tmp_path / "pricing.yaml").write_text(yaml.dump(overrides))
+        _load_pricing_table.cache_clear()
+
+        p = get_model_pricing("yaml-model")
+        assert p.known is True
+        assert p.input == 1.23
+        assert p.output == 4.56
+        assert p.cache_read == 0.1
+        assert p.thinking == 9.99
+    finally:
+        if old_root:
+            os.environ["ATELIER_ROOT"] = old_root
+        else:
+            del os.environ["ATELIER_ROOT"]
+        _load_pricing_table.cache_clear()
+
+
 def test_pricing_dot_version_normalisation() -> None:
     from atelier.core.capabilities.pricing import get_model_pricing
 

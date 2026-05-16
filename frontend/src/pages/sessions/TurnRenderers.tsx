@@ -128,6 +128,14 @@ function shouldShowArtifactLabel(turn: ConversationEntry): boolean {
   return !GENERIC_MAIN_ARTIFACT_LABELS.has(turn.artifact_label);
 }
 
+function ModelPill({ model }: { model: string }) {
+  return (
+    <span className="max-w-full truncate border border-sky-900/30 bg-sky-950/25 px-2 py-0.5 text-[9px] normal-case tracking-normal text-sky-200">
+      {model}
+    </span>
+  );
+}
+
 function TextBlock({
   text,
   className,
@@ -385,9 +393,12 @@ function SubagentCard({ turn }: { turn: ConversationEntry }) {
             {turn.subagent_name || turn.summary}
           </div>
         </div>
-        <span className="border border-violet-900/25 bg-violet-950/25 px-2 py-0.5 text-[10px] font-mono uppercase tracking-[0.2em] text-violet-200">
-          {status}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {turn.model && <ModelPill model={turn.model} />}
+          <span className="border border-violet-900/25 bg-violet-950/25 px-2 py-0.5 text-[10px] font-mono uppercase tracking-[0.2em] text-violet-200">
+            {status}
+          </span>
+        </div>
       </div>
       {(turn.subagent_description || turn.content) && (
         <div className="mt-4 whitespace-pre-wrap text-sm leading-6 text-neutral-300">
@@ -515,6 +526,12 @@ export function ConversationTurn({
           {toolDisplayName && isTool && !isTodo && !isSubagent && (
             <span className="truncate text-[11px] normal-case tracking-normal text-amber-400/80">
               {toolDisplayName}
+            </span>
+          )}
+          {turn.model && <ModelPill model={turn.model} />}
+          {turn.count && turn.count > 1 && (
+            <span className="border border-neutral-800 bg-neutral-900/60 px-2 py-0.5 text-[9px] text-neutral-400">
+              ×{turn.count}
             </span>
           )}
           {turn.source_scope === "subagent" && (

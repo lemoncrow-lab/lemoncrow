@@ -160,6 +160,18 @@ export function parseInspectorData(
     });
   }
 
+  const defaultModel =
+    (typeof ledger?.model === "string" && ledger.model) ||
+    conversations.find((turn) => typeof turn?.model === "string" && turn.model)
+      ?.model ||
+    (typeof ledger?.trace?.model === "string" && ledger.trace.model) ||
+    null;
+  if (defaultModel) {
+    conversations = conversations.map((turn) =>
+      turn?.model ? turn : { ...turn, model: defaultModel }
+    );
+  }
+
   const recalled = events
     .filter((event) =>
       String(event?.kind || "")

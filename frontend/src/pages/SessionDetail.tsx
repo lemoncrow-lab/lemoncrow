@@ -76,6 +76,14 @@ export default function SessionDetail() {
       <SectionHeader
         title={`Session ${report.session_id.slice(0, 16)}…`}
         description={`${fmtDate(report.started_at)} · ${fmtDuration(report.duration_seconds)} · ${report.vendor}`}
+        action={
+          <div className="flex items-center gap-3">
+            <div className="text-[10px] font-mono text-neutral-500">Input</div>
+            <div className="text-[13px] font-black font-mono text-neutral-100">{fmtTok(report.input_tokens ?? 0)}</div>
+            <div className="ml-3 text-[10px] font-mono text-neutral-500">Output</div>
+            <div className="text-[13px] font-black font-mono text-neutral-100">{fmtTok(report.output_tokens ?? 0)}</div>
+          </div>
+        }
       />
 
       {/* Cost breakdown */}

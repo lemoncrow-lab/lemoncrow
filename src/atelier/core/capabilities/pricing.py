@@ -28,9 +28,77 @@ import os
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal, cast
 
 logger = logging.getLogger(__name__)
+
+
+def _load_overrides_from_file(path: Path) -> dict[str, dict[str, float | tuple[PricingTier, ...]]]:
+    """Helper to load overrides from a specific YAML path."""
+    try:
+        import yaml
+    except ImportError:
+        return {}
+
+    if not path.exists():
+        return {}
+
+    overrides: dict[str, dict[str, float | tuple[PricingTier, ...]]] = {}
+    try:
+        content = path.read_text(encoding="utf-8")
+        data = yaml.safe_load(content)
+        if not isinstance(data, dict):
+            return {}
+
+        raw_overrides = data.get("overrides", data)
+        if not isinstance(raw_overrides, dict):
+            return {}
+
+        for model_id, rates in raw_overrides.items():
+            if not isinstance(rates, dict):
+                continue
+            input_usd = float(rates.get("input", 0.0))
+            output_usd = float(rates.get("output", 0.0))
+            overrides[str(model_id)] = {
+                "input": input_usd,
+                "output": output_usd,
+                "cache_read": float(rates.get("cache_read", 0.0)),
+                "cache_write": float(rates.get("cache_write", 0.0)),
+                "thinking": float(rates.get("thinking", output_usd)),
+                "input_tiers": (),
+                "output_tiers": (),
+                "cache_read_tiers": (),
+                "cache_write_tiers": (),
+                "thinking_tiers": (),
+            }
+    except Exception as e:
+        logger.warning("Failed to load pricing overrides from %s: %s", path, e)
+
+    return overrides
+
+
+def _load_overrides_from_disk() -> dict[str, dict[str, float | tuple[PricingTier, ...]]]:
+    """Load pricing overrides from repo-local and global config files.
+
+    Checks:
+    1. src/atelier/core/capabilities/pricing.yaml (built-in repo config)
+    2. ~/.atelier/pricing.yaml (global user config)
+    """
+    from atelier.core.foundation.paths import default_store_root
+
+    overrides: dict[str, dict[str, float | tuple[PricingTier, ...]]] = {}
+
+    # 1. Built-in (packaged with code)
+    builtin_path = Path(__file__).parent / "pricing.yaml"
+    overrides.update(_load_overrides_from_file(builtin_path))
+
+    # 2. Global user config (~/.atelier/pricing.yaml)
+    global_path = default_store_root() / "pricing.yaml"
+    overrides.update(_load_overrides_from_file(global_path))
+
+    return overrides
+
 
 # Placeholder model ids that legitimately carry no cost. Returning the zero-cost
 # default for these is correct and should not log a warning.
@@ -178,8 +246,12 @@ def _extract_tiers(entry: dict[str, object], prefix: str) -> tuple[PricingTier, 
         if not match:
             continue
         threshold_tokens = int(match.group(1)) * 1000
+        if value is None:
+            continue
+        if not isinstance(value, (int, float, str)):
+            continue
         try:
-            rate = float(value or 0.0) * _TOKENS_PER_MILLION
+            rate = float(value) * _TOKENS_PER_MILLION
         except (TypeError, ValueError):
             continue
         if rate <= 0:
@@ -193,10 +265,13 @@ def _extract_pricing_entry(model_id: str, raw_entry: object) -> dict[str, float 
         return None
 
     def _rate(name: str) -> float:
-        try:
-            return float(raw_entry.get(name) or 0.0) * _TOKENS_PER_MILLION
-        except (TypeError, ValueError):
-            return 0.0
+        val = raw_entry.get(name)
+        if isinstance(val, (int, float, str)):
+            try:
+                return float(val) * _TOKENS_PER_MILLION
+            except (TypeError, ValueError):
+                return 0.0
+        return 0.0
 
     return {
         "input": _rate("input_cost_per_token"),
@@ -304,34 +379,11 @@ def _load_pricing_table() -> dict[str, dict[str, float | tuple[PricingTier, ...]
         for alias in _alias_candidates(model_id):
             _register_entry(table, priorities, alias, pricing_entry, priority=_alias_priority(model_id))
 
-    # Built-in zero-cost entries for host-internal model aliases that don't
-    # correspond to a real billable API. Without these, get_model_pricing would
-    # emit a "no entry for model" warning every time the operator imports a
-    # session that used one of these. We treat them as known-but-free so the
-    # warning channel stays useful for genuinely missing models.
-    #
-    # opencode/big-pickle:  opencode's internal routing alias; the opencode
-    #                       binary itself reports cost=0 in its own logs.
-    # copilot/<anything>:   GitHub Copilot chat models are subscription-covered
-    #                       ($19/mo Pro), not per-token billed. Importers
-    #                       prefix VSCode Copilot Chat calls with ``copilot/``
-    #                       so they all match this zero-cost wildcard.
-    _ZERO_COST = {
-        "input": 0.0,
-        "output": 0.0,
-        "cache_read": 0.0,
-        "cache_write": 0.0,
-        "thinking": 0.0,
-        "input_tiers": (),
-        "output_tiers": (),
-        "cache_read_tiers": (),
-        "cache_write_tiers": (),
-        "thinking_tiers": (),
-    }
-    for alias in ("opencode/big-pickle", "copilot/"):
-        if alias not in table:
-            table[alias] = dict(_ZERO_COST)
+    # Apply disk-based overrides from built-in and global config
+    for model_id, entry in _load_overrides_from_disk().items():
+        table[model_id] = entry
 
+    # Apply programmatic overrides (highest precedence)
     for model_id, entry in _OVERRIDE_PRICING.items():
         table[model_id] = entry
 
@@ -390,20 +442,26 @@ def get_model_pricing(model_id: str) -> ModelPricing:
 
     def _lookup(mid: str) -> ModelPricing | None:
         if mid in table:
-            return ModelPricing(model_id=mid, known=True, **table[mid])
+            entry = cast(dict[str, Any], table[mid])
+            return ModelPricing(model_id=mid, known=True, **entry)
         return None
 
     # 1. Exact match
     if hit := _lookup(model_id):
         return hit
 
-    # 2. Dot-version normalisation ("claude-sonnet-4.6" → "claude-sonnet-4-6")
+    # 2. Alias candidates on the raw id (strips "copilot/" prefix etc.)
+    for alias in _alias_candidates(model_id):
+        if hit := _lookup(alias):
+            return hit
+
+    # 3. Dot-version normalisation ("claude-sonnet-4.6" → "claude-sonnet-4-6")
     normalised = _normalize_model_id(model_id)
     if normalised != model_id:
         if hit := _lookup(normalised):
             return hit
 
-    # 3. Alias candidates on the normalised id (strips date / preview suffixes)
+    # 4. Alias candidates on the normalised id (strips date / preview suffixes)
     for alias in _alias_candidates(normalised):
         if hit := _lookup(alias):
             return hit
@@ -416,7 +474,8 @@ def get_model_pricing(model_id: str) -> ModelPricing:
             "Upgrade LiteLLM or call override_pricing() to fix.",
             model_id,
         )
-    return ModelPricing(model_id=model_id, known=False, **table["_default"])
+    entry = cast(dict[str, Any], table["_default"])
+    return ModelPricing(model_id=model_id, known=False, **entry)
 
 
 def usage_cost_usd(

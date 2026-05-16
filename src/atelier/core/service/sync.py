@@ -102,7 +102,11 @@ def _send_chunk(url: str, sessions: list[dict[str, Any]]) -> bool:
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status < 400
+            try:
+                status = int(getattr(resp, "status", 0))
+            except Exception:
+                return False
+            return status < 400
     except Exception as e:
         _logger.debug(f"sync chunk to {url} failed: {e}")
         return False

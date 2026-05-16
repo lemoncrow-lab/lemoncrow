@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from atelier.core.capabilities.pricing import is_placeholder_model
+from atelier.core.capabilities.pricing import is_placeholder_model, usage_cost_usd
 from atelier.core.foundation.models import (
     CommandRecord,
     FileEditRecord,
@@ -140,7 +140,9 @@ def make_session_line(
     return line
 
 
-def make_user_message(text: str, *, timestamp: str | None = None, message_id: str | None = None) -> dict[str, Any]:
+def make_user_message(
+    text: str, *, timestamp: str | None = None, message_id: str | None = None
+) -> dict[str, Any]:
     line: dict[str, Any] = {
         "type": "message",
         "message": {"role": "user", "content": [{"type": "text", "text": text}]},
@@ -222,6 +224,14 @@ def make_llm_usage_entry(
     }
     if not model_id and not any(usage_values.values()):
         return None
+    cost_usd = usage_cost_usd(
+        model_id or "_default",
+        input_tokens=usage_values["input_tokens"],
+        output_tokens=usage_values["output_tokens"],
+        cache_read_tokens=usage_values["cached_input_tokens"],
+        cache_write_tokens=usage_values["cache_creation_input_tokens"],
+        thinking_tokens=usage_values["thinking_tokens"],
+    )
     return UsageEntry(
         kind="llm",
         model=model_id,
@@ -230,6 +240,7 @@ def make_llm_usage_entry(
         thinking_tokens=usage_values["thinking_tokens"],
         cached_input_tokens=usage_values["cached_input_tokens"],
         cache_creation_input_tokens=usage_values["cache_creation_input_tokens"],
+        cost_usd=cost_usd,
         source_type=source_type,
         source_id=source_id,
         created_at=created_at,
@@ -336,6 +347,115 @@ def build_normalized_jsonl(events: Iterable[dict[str, Any]]) -> str:
     return "\n".join(json.dumps(event, ensure_ascii=False) for event in events if event)
 
 
+def infer_time_bounds(
+    raw_content: str,
+    *,
+    default: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    started_at = default or utcnow()
+    ended_at = started_at
+    seen = False
+
+    for line in raw_content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            event = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        timestamp = event.get("timestamp") or event.get("created_at") or event.get("updated_at")
+        if not timestamp:
+            continue
+        parsed = parse_datetime(timestamp, default=started_at)
+        if not seen:
+            started_at = parsed
+            ended_at = parsed
+            seen = True
+            continue
+        if parsed < started_at:
+            started_at = parsed
+        if parsed > ended_at:
+            ended_at = parsed
+
+    return started_at, ended_at
+
+
+def persist_imported_run_snapshot(
+    store: ContextStore,
+    trace: Trace,
+    *,
+    started_at: datetime,
+    ended_at: datetime,
+) -> Path:
+    runs_dir = store.root / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+
+    calls: list[dict[str, Any]] = []
+    total_cost_usd = 0.0
+    for entry in trace.usage_entries:
+        if entry.kind != "llm":
+            continue
+        model_id = str(entry.model or trace.model or "_default")
+        cost_usd = float(entry.cost_usd or 0.0)
+        if cost_usd <= 0:
+            cost_usd = usage_cost_usd(
+                model_id,
+                input_tokens=int(entry.input_tokens or 0),
+                output_tokens=int(entry.output_tokens or 0),
+                cache_read_tokens=int(entry.cached_input_tokens or 0),
+                cache_write_tokens=int(entry.cache_creation_input_tokens or 0),
+                thinking_tokens=int(entry.thinking_tokens or 0),
+            )
+        calls.append(
+            {
+                "operation": entry.source_type or "imported.message",
+                "model": model_id,
+                "input_tokens": int(entry.input_tokens or 0),
+                "output_tokens": int(entry.output_tokens or 0),
+                "cache_read_tokens": int(entry.cached_input_tokens or 0),
+                "cache_write_tokens": int(entry.cache_creation_input_tokens or 0),
+                "thinking_tokens": int(entry.thinking_tokens or 0),
+                "cost_usd": round(cost_usd, 8),
+                "at": (
+                    entry.created_at.isoformat()
+                    if isinstance(entry.created_at, datetime)
+                    else ended_at.isoformat()
+                ),
+                "source_id": entry.source_id,
+            }
+        )
+        total_cost_usd += cost_usd
+
+    payload = {
+        "session_id": trace.session_id or trace.id,
+        "agent": trace.agent,
+        "task": trace.task,
+        "domain": trace.domain,
+        "status": "done" if trace.status != "failed" else "failed",
+        "tool_call_count": sum(int(tool.count or 0) for tool in trace.tools_called),
+        "created_at": started_at.isoformat(),
+        "updated_at": ended_at.isoformat(),
+        "agent_settings": dict(trace.agent_settings),
+        "skills": list(trace.skills),
+        "telemetry": dict(trace.telemetry),
+        "raw_artifact_ids": list(trace.raw_artifact_ids),
+        "cost": {
+            "calls": calls,
+            "total_cost_usd": round(total_cost_usd, 6),
+            "total_input_tokens": sum(int(call["input_tokens"]) for call in calls),
+            "total_output_tokens": sum(int(call["output_tokens"]) for call in calls),
+            "total_cache_read_tokens": sum(int(call["cache_read_tokens"]) for call in calls),
+            "total_cache_write_tokens": sum(int(call["cache_write_tokens"]) for call in calls),
+        },
+        "events": [],
+    }
+
+    path = runs_dir / f"{trace.session_id or trace.id}.json"
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
 def _tool_args_hash(args: dict[str, Any] | None) -> str:
     payload = json.dumps(args or {}, sort_keys=True, default=str, ensure_ascii=False)
     return sha256_text(payload)
@@ -343,7 +463,9 @@ def _tool_args_hash(args: dict[str, Any] | None) -> str:
 
 def _is_command_tool(name: str) -> bool:
     lowered = name.strip().lower()
-    return lowered in _COMMAND_TOOL_NAMES or lowered.endswith("shell") or lowered.endswith("command")
+    return (
+        lowered in _COMMAND_TOOL_NAMES or lowered.endswith("shell") or lowered.endswith("command")
+    )
 
 
 def _is_file_tool(name: str) -> bool:
@@ -399,7 +521,7 @@ def _build_trace_from_normalized_content(
                 title = str(event.get("title") or "").strip()
                 if title:
                     task_text = title
-            
+
             # Extract settings if available
             if "settings" in event:
                 agent_settings.update(event["settings"])
@@ -419,7 +541,7 @@ def _build_trace_from_normalized_content(
 
         message = event.get("message") or event.get("data") or {}
         role = str(message.get("role") or "")
-        
+
         # Scrape for skills/settings in system messages or context
         if role == "user" or role == "system":
             texts_to_scan = []
@@ -428,7 +550,7 @@ def _build_trace_from_normalized_content(
                     texts_to_scan.append(part.get("text") or "")
             if message.get("text"):
                 texts_to_scan.append(message["text"])
-            
+
             for txt in texts_to_scan:
                 # Look for MCP servers/skills
                 if "active mcp servers" in txt.lower():
@@ -497,12 +619,16 @@ def _build_trace_from_normalized_content(
             usage_entries.append(usage_entry)
 
         tool_blocks = [
-            block for block in content if isinstance(block, dict) and block.get("type") in {"toolCall", "tool_use"}
+            block
+            for block in content
+            if isinstance(block, dict) and block.get("type") in {"toolCall", "tool_use"}
         ]
         reasoning.extend(
             str(block.get("text") or "").strip()
             for block in content
-            if isinstance(block, dict) and block.get("type") in {"reasoning", "thinking"} and block.get("text")
+            if isinstance(block, dict)
+            and block.get("type") in {"reasoning", "thinking"}
+            and block.get("text")
         )
 
         if tool_blocks:
@@ -546,7 +672,7 @@ def _build_trace_from_normalized_content(
 
     usage_summary = summarize_usage_entries(usage_entries, fallback_model=model_seen)
 
-    telemetry = {
+    telemetry: dict[str, Any] = {
         "synthetic_messages_count": synthetic_count,
     }
     if provider_id:
@@ -611,7 +737,9 @@ def import_paths_with_progress(
         try:
             size = path.stat().st_size
             if size > size_limit:
-                print(f"[atelier] {source}: skipping massive session {path.name} ({size / 1e6:.1f}MB)")
+                print(
+                    f"[atelier] {source}: skipping massive session {path.name} ({size / 1e6:.1f}MB)"
+                )
                 continue
             if i % 10 == 0 and i > 0:
                 print(f"[atelier] {source}: importing {i}/{total}...")
@@ -741,9 +869,13 @@ def record_normalized_session(
         source_mtime=source_mtime,
     )
     store.record_trace(trace, write_json=False)
+    started_at, ended_at = infer_time_bounds(raw_content, default=source_mtime)
+    persist_imported_run_snapshot(store, trace, started_at=started_at, ended_at=ended_at)
 
     # Best-effort: snapshot current on-disk state of every edited file
     if trace.files_touched:
-        snapshot_edited_files(store, trace.files_touched, session_id=session_id, source=source)
+        file_recs = [r for r in trace.files_touched if isinstance(r, FileEditRecord)]
+        if file_recs:
+            snapshot_edited_files(store, file_recs, session_id=session_id, source=source)
 
     return trace.id

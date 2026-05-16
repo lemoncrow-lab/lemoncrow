@@ -61,6 +61,19 @@ _SYSTEM_PREFIXES_CODEX = (
 
 _PASTED_CONTENT_TAG_RE = re.compile(r"<pasted_content\s+([^>]+?)\s*/?>", re.IGNORECASE)
 _PASTED_CONTENT_ATTR_RE = re.compile(r'(\w+)="([^"]*)"')
+_MODEL_FIELD_KEYS = (
+    "model",
+    "modelId",
+    "model_id",
+    "modelName",
+    "model_name",
+    "assistantModel",
+    "assistant_model",
+    "currentModel",
+    "current_model",
+    "defaultModel",
+    "default_model",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +136,9 @@ def _turn(
         "tokens": tokens or {},
         "raw": raw,
     }
+    model = extra.get("model") if "model" in extra else _extract_model_id(raw)
+    if isinstance(model, str) and model.strip():
+        turn["model"] = model.strip()
     # For file_edit turns, surface path + diff as top-level keys so the
     # frontend can render inline diffs without re-parsing the raw event.
     if kind == "file_edit":
@@ -135,6 +151,222 @@ def _turn(
             continue
         turn[key] = value
     return turn
+
+
+def _normalize_turn_tokens(tokens: dict[str, Any] | None) -> dict[str, int]:
+    payload = tokens if isinstance(tokens, dict) else {}
+    return {
+        "in": int(payload.get("in", 0) or 0),
+        "out": int(payload.get("out", 0) or 0),
+        "thinking": int(payload.get("thinking", 0) or 0),
+        "cache_read": int(payload.get("cache_read", 0) or 0),
+        "cache_write": int(payload.get("cache_write", 0) or 0),
+    }
+
+
+def _apply_tokens_once(
+    turns: list[dict[str, Any]], tokens: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    normalized = _normalize_turn_tokens(tokens)
+    if not turns or not any(normalized.values()):
+        return turns
+
+    preferred_kinds = (
+        "agent_message",
+        "thinking",
+        "todo_write",
+        "subagent_event",
+        "file_edit",
+        "shell_command",
+        "tool_call",
+        "user_message",
+        "attachment",
+    )
+    target: dict[str, Any] | None = None
+    for kind in preferred_kinds:
+        target = next((turn for turn in turns if turn.get("kind") == kind), None)
+        if target is not None:
+            break
+    if target is None:
+        target = turns[0]
+
+    for turn in turns:
+        turn["tokens"] = normalized if turn is target else {}
+    return turns
+
+
+def _empty_usage_summary() -> dict[str, Any]:
+    return {
+        "started_model": None,
+        "models_used": {},
+        "total_turns": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "thinking_tokens": 0,
+        "cached_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "usage_entries": [],
+    }
+
+
+def _record_usage_turn(
+    summary: dict[str, Any],
+    *,
+    model: str | None,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    thinking_tokens: int = 0,
+    cached_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
+) -> None:
+    model_id = str(model or "").strip()
+    if model_id.lower() in {"unknown", "<synthetic>", "_default"}:
+        model_id = ""
+
+    token_values = (
+        int(input_tokens or 0),
+        int(output_tokens or 0),
+        int(thinking_tokens or 0),
+        int(cached_input_tokens or 0),
+        int(cache_creation_input_tokens or 0),
+    )
+    if not model_id and not any(token_values):
+        return
+
+    if model_id:
+        if summary["started_model"] is None:
+            summary["started_model"] = model_id
+        models_used = summary["models_used"]
+        models_used[model_id] = int(models_used.get(model_id, 0)) + 1
+
+    summary["total_turns"] += 1
+    summary["input_tokens"] += token_values[0]
+    summary["output_tokens"] += token_values[1]
+    summary["thinking_tokens"] += token_values[2]
+    summary["cached_input_tokens"] += token_values[3]
+    summary["cache_creation_input_tokens"] += token_values[4]
+    summary["usage_entries"].append(
+        {
+            "kind": "llm",
+            "model": model_id,
+            "input_tokens": token_values[0],
+            "output_tokens": token_values[1],
+            "thinking_tokens": token_values[2],
+            "cached_input_tokens": token_values[3],
+            "cache_creation_input_tokens": token_values[4],
+        }
+    )
+
+
+def _merge_usage_summaries(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    if target["started_model"] is None and source.get("started_model"):
+        target["started_model"] = source["started_model"]
+    for key in (
+        "total_turns",
+        "input_tokens",
+        "output_tokens",
+        "thinking_tokens",
+        "cached_input_tokens",
+        "cache_creation_input_tokens",
+    ):
+        target[key] += int(source.get(key, 0) or 0)
+    for model_id, count in dict(source.get("models_used") or {}).items():
+        target["models_used"][model_id] = int(target["models_used"].get(model_id, 0)) + int(
+            count or 0
+        )
+    target["usage_entries"].extend(list(source.get("usage_entries") or []))
+    return target
+
+
+def _extract_codex_usage(usage: Any) -> tuple[int, int, int, int, int]:
+    if not isinstance(usage, dict):
+        return (0, 0, 0, 0, 0)
+
+    def _int(value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    input_tokens = _int(
+        usage.get("input_tokens")
+        or usage.get("inputTokens")
+        or usage.get("prompt_tokens")
+        or usage.get("promptTokens")
+    )
+    output_tokens = _int(
+        usage.get("output_tokens")
+        or usage.get("outputTokens")
+        or usage.get("completion_tokens")
+        or usage.get("completionTokens")
+    )
+    cached_tokens = _int(
+        usage.get("cached_input_tokens")
+        or usage.get("cachedInputTokens")
+        or usage.get("cache_read_tokens")
+        or usage.get("cacheReadTokens")
+    )
+    input_details = usage.get("input_tokens_details") or usage.get("inputTokensDetails")
+    if cached_tokens == 0 and isinstance(input_details, dict):
+        cached_tokens = _int(
+            input_details.get("cached_tokens")
+            or input_details.get("cachedTokens")
+            or input_details.get("cache_read_tokens")
+            or input_details.get("cacheReadTokens")
+        )
+
+    cache_write_tokens = _int(
+        usage.get("cache_creation_input_tokens")
+        or usage.get("cacheCreationInputTokens")
+        or usage.get("cache_write_tokens")
+        or usage.get("cacheWriteTokens")
+    )
+    if cache_write_tokens == 0 and isinstance(input_details, dict):
+        cache_write_tokens = _int(
+            input_details.get("cache_creation_input_tokens")
+            or input_details.get("cacheCreationInputTokens")
+            or input_details.get("cache_write_tokens")
+            or input_details.get("cacheWriteTokens")
+        )
+
+    return (input_tokens, output_tokens, 0, cached_tokens, cache_write_tokens)
+
+
+def _extract_model_id(value: Any, *, max_depth: int = 4) -> str | None:
+    queue: list[tuple[Any, int]] = [(value, 0)]
+    seen: set[int] = set()
+
+    while queue:
+        current, depth = queue.pop(0)
+        if current is None or depth > max_depth:
+            continue
+        marker = id(current)
+        if marker in seen:
+            continue
+        seen.add(marker)
+
+        if isinstance(current, dict):
+            for key in _MODEL_FIELD_KEYS:
+                raw_model = current.get(key)
+                if isinstance(raw_model, str):
+                    model = raw_model.strip()
+                    if model and model.lower() not in {"unknown", "auto", "default"}:
+                        return model
+            if depth == max_depth:
+                continue
+            for child in current.values():
+                if isinstance(child, (dict, list)):
+                    queue.append((child, depth + 1))
+            continue
+
+        if isinstance(current, list):
+            if depth == max_depth:
+                continue
+            for child in current:
+                if isinstance(child, (dict, list)):
+                    queue.append((child, depth + 1))
+
+    return None
 
 
 def _coerce_jsonish(value: Any) -> Any:
@@ -297,6 +529,318 @@ def _extract_pasted_content_attachment(text: str) -> dict[str, Any] | None:
     )
 
 
+def extract_session_usage_summary(content: str, source: str) -> dict[str, Any]:
+    if source == "claude":
+        return _summarize_claude_usage(content)
+    if source == "codex":
+        return _summarize_codex_usage(content)
+    if source == "copilot":
+        return _summarize_copilot_usage(content)
+    if source == "gemini":
+        return _summarize_gemini_usage(content)
+    if source == "opencode":
+        return _summarize_opencode_usage(content)
+    if source in _NORMALIZED_SESSION_SOURCES:
+        return _usage_summary_from_turns(_parse_normalized_session(content))
+    return _usage_summary_from_turns(parse_session_turns(content, source))
+
+
+def _usage_summary_from_turns(turns: list[dict[str, Any]]) -> dict[str, Any]:
+    summary = _empty_usage_summary()
+    for turn in turns:
+        tokens = _normalize_turn_tokens(turn.get("tokens"))
+        model_id = str(turn.get("model") or "").strip()
+        if any(tokens.values()) or model_id:
+            _record_usage_turn(
+                summary,
+                model=model_id,
+                input_tokens=tokens["in"],
+                output_tokens=tokens["out"],
+                thinking_tokens=tokens["thinking"],
+                cached_input_tokens=tokens["cache_read"],
+                cache_creation_input_tokens=tokens["cache_write"],
+            )
+    return summary
+
+
+def _summarize_claude_usage(content: str) -> dict[str, Any]:
+    summary = _empty_usage_summary()
+    merged: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for line in content.splitlines():
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        if ev.get("type") != "assistant":
+            continue
+        msg = ev.get("message") or {}
+        msg_id = str(msg.get("id") or ev.get("uuid") or ev.get("id") or "")
+        if not msg_id:
+            msg_id = f"assistant-{len(order)}"
+        if msg_id not in merged:
+            merged[msg_id] = {
+                "model": "",
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "thinking_tokens": 0,
+                "cached_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            }
+            order.append(msg_id)
+        usage = msg.get("usage") or {}
+        record = merged[msg_id]
+        record["model"] = str(msg.get("model") or record["model"] or "").strip()
+        record["input_tokens"] = max(record["input_tokens"], int(usage.get("input_tokens", 0) or 0))
+        record["output_tokens"] = max(
+            record["output_tokens"], int(usage.get("output_tokens", 0) or 0)
+        )
+        record["cached_input_tokens"] = max(
+            record["cached_input_tokens"],
+            int(usage.get("cache_read_input_tokens", 0) or 0),
+        )
+        record["cache_creation_input_tokens"] = max(
+            record["cache_creation_input_tokens"],
+            int(usage.get("cache_creation_input_tokens", 0) or 0),
+        )
+    for msg_id in order:
+        _record_usage_turn(summary, **merged[msg_id])
+    return summary
+
+
+def _summarize_codex_usage(content: str) -> dict[str, Any]:
+    summary = _empty_usage_summary()
+    current_model = ""
+    saw_flat_usage = False
+    legacy_totals: dict[str, dict[str, int | str]] = {}
+    legacy_order: list[str] = []
+    for line in content.splitlines():
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        et = ev.get("type")
+        if et == "turn_context":
+            payload = ev.get("payload") or {}
+            model = str(payload.get("model") or "").strip()
+            if model:
+                current_model = model
+            continue
+        if et == "message" and str(ev.get("role") or "") == "assistant":
+            model = str(ev.get("model") or current_model or "").strip()
+            in_t, out_t, think_t, cached_t, cache_write_t = _extract_codex_usage(ev.get("usage"))
+            if model or in_t or out_t or cached_t or cache_write_t:
+                saw_flat_usage = True
+                _record_usage_turn(
+                    summary,
+                    model=model,
+                    input_tokens=max(in_t - cached_t, 0),
+                    output_tokens=out_t,
+                    thinking_tokens=think_t,
+                    cached_input_tokens=cached_t,
+                    cache_creation_input_tokens=cache_write_t,
+                )
+            continue
+        if et != "event_msg" or saw_flat_usage:
+            continue
+        payload = ev.get("payload") or {}
+        if payload.get("type") != "token_count":
+            continue
+        info = payload.get("info") or {}
+        total_usage = info.get("total_token_usage") or {}
+        model = current_model or str(payload.get("model") or "").strip()
+        model_key = model or "_default"
+        total_in, total_out, total_think, cached_total, cache_write_total = _extract_codex_usage(
+            total_usage
+        )
+        if model_key not in legacy_totals:
+            legacy_totals[model_key] = {
+                "model": model,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "thinking_tokens": 0,
+                "cached_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            }
+            legacy_order.append(model_key)
+        bucket = legacy_totals[model_key]
+        bucket["model"] = model
+        bucket["input_tokens"] = max(int(bucket["input_tokens"]), max(total_in - cached_total, 0))
+        bucket["output_tokens"] = max(int(bucket["output_tokens"]), total_out)
+        bucket["thinking_tokens"] = max(int(bucket["thinking_tokens"]), total_think)
+        bucket["cached_input_tokens"] = max(int(bucket["cached_input_tokens"]), cached_total)
+        bucket["cache_creation_input_tokens"] = max(
+            int(bucket["cache_creation_input_tokens"]), cache_write_total
+        )
+    if not saw_flat_usage:
+        for model_key in legacy_order:
+            bucket = legacy_totals[model_key]
+            _record_usage_turn(
+                summary,
+                model=str(bucket["model"]),
+                input_tokens=int(bucket["input_tokens"]),
+                output_tokens=int(bucket["output_tokens"]),
+                thinking_tokens=int(bucket["thinking_tokens"]),
+                cached_input_tokens=int(bucket["cached_input_tokens"]),
+                cache_creation_input_tokens=int(bucket["cache_creation_input_tokens"]),
+            )
+    return summary
+
+
+def _summarize_copilot_usage(content: str) -> dict[str, Any]:
+    fallback_summary = _empty_usage_summary()
+    shutdown_summary = _empty_usage_summary()
+    current_model = ""
+    selected_model = ""
+    assistant_turn_models: list[str] = []
+    compaction_turns = 0
+    for line in content.splitlines():
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        et = ev.get("type")
+        data = ev.get("data") or {}
+        if et == "session.start":
+            selected = str(data.get("selectedModel") or "").strip()
+            if selected and selected.lower() != "auto":
+                selected_model = selected
+                current_model = selected
+            continue
+        if et == "session.model_change":
+            model = str(data.get("newModel") or "").strip()
+            if model and model.lower() != "auto":
+                current_model = model
+            continue
+        if et == "assistant.message":
+            model = str(data.get("model") or current_model or selected_model or "").strip()
+            if model and model.lower() == "auto":
+                model = current_model or selected_model
+            out_t = int(data.get("outputTokens", 0) or 0)
+            if out_t > 0 or model:
+                assistant_turn_models.append(model)
+                _record_usage_turn(fallback_summary, model=model, output_tokens=out_t)
+            continue
+        if et == "session.compaction_complete":
+            compaction = data.get("compactionTokensUsed") or {}
+            if not isinstance(compaction, dict):
+                continue
+            model = str(compaction.get("model") or current_model or selected_model or "").strip()
+            if model and model.lower() == "auto":
+                model = current_model or selected_model
+            _record_usage_turn(
+                fallback_summary,
+                model=model,
+                input_tokens=int(compaction.get("inputTokens", 0) or 0),
+                output_tokens=int(compaction.get("outputTokens", 0) or 0),
+                thinking_tokens=int(compaction.get("reasoningTokens", 0) or 0),
+                cached_input_tokens=int(compaction.get("cacheReadTokens", 0) or 0),
+                cache_creation_input_tokens=int(compaction.get("cacheWriteTokens", 0) or 0),
+            )
+            compaction_turns += 1
+            continue
+        if et == "session.shutdown":
+            metrics = data.get("modelMetrics") or {}
+            if not isinstance(metrics, dict):
+                continue
+            for model, model_data in metrics.items():
+                usage = (model_data or {}).get("usage") or {}
+                _record_usage_turn(
+                    shutdown_summary,
+                    model=str(model).strip(),
+                    input_tokens=int(usage.get("inputTokens", 0) or 0),
+                    output_tokens=int(usage.get("outputTokens", 0) or 0),
+                    thinking_tokens=int(usage.get("reasoningTokens", 0) or 0),
+                    cached_input_tokens=int(usage.get("cacheReadTokens", 0) or 0),
+                    cache_creation_input_tokens=int(usage.get("cacheWriteTokens", 0) or 0),
+                )
+    if shutdown_summary["total_turns"] > 0:
+        if assistant_turn_models:
+            shutdown_summary["total_turns"] = len(assistant_turn_models) + compaction_turns
+            shutdown_summary["models_used"] = {}
+            shutdown_summary["started_model"] = None
+            for model in assistant_turn_models:
+                model_id = str(model or "").strip()
+                if not model_id:
+                    continue
+                if shutdown_summary["started_model"] is None:
+                    shutdown_summary["started_model"] = model_id
+                shutdown_summary["models_used"][model_id] = (
+                    int(shutdown_summary["models_used"].get(model_id, 0)) + 1
+                )
+        return shutdown_summary
+    return fallback_summary
+
+
+def _summarize_gemini_usage(content: str) -> dict[str, Any]:
+    summary = _empty_usage_summary()
+    merged: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for line in content.splitlines():
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        if ev.get("type") != "gemini":
+            continue
+        mid = str(ev.get("id") or "")
+        if not mid:
+            continue
+        if mid not in merged:
+            merged[mid] = {
+                "model": "",
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "thinking_tokens": 0,
+                "cached_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            }
+            order.append(mid)
+        record = merged[mid]
+        tokens = ev.get("tokens") or {}
+        record["model"] = str(ev.get("model") or record["model"] or "").strip()
+        record["input_tokens"] = max(record["input_tokens"], int(tokens.get("input", 0) or 0))
+        record["output_tokens"] = max(record["output_tokens"], int(tokens.get("output", 0) or 0))
+        record["thinking_tokens"] = max(
+            record["thinking_tokens"], int(tokens.get("thoughts", 0) or 0)
+        )
+        record["cached_input_tokens"] = max(
+            record["cached_input_tokens"], int(tokens.get("cached", 0) or 0)
+        )
+    for mid in order:
+        _record_usage_turn(summary, **merged[mid])
+    return summary
+
+
+def _summarize_opencode_usage(content: str) -> dict[str, Any]:
+    summary = _empty_usage_summary()
+    for line in content.splitlines():
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        if ev.get("_type") != "message":
+            continue
+        data = ev.get("data") or {}
+        if data.get("role") != "assistant":
+            continue
+        tokens = data.get("tokens") or {}
+        cache = tokens.get("cache") or {}
+        model_id = str(data.get("modelID") or data.get("model") or "").strip()
+        provider_id = str(data.get("providerID") or "").strip()
+        model = f"{provider_id}/{model_id}" if provider_id and model_id else model_id
+        _record_usage_turn(
+            summary,
+            model=model,
+            input_tokens=int(tokens.get("input", 0) or 0),
+            output_tokens=int(tokens.get("output", 0) or 0),
+            thinking_tokens=int(tokens.get("reasoning", 0) or 0),
+            cached_input_tokens=int(cache.get("read", 0) or 0),
+            cache_creation_input_tokens=int(cache.get("write", 0) or 0),
+        )
+    return summary
+
+
 def _extract_text_from_claude_content(content: Any) -> str:
     """Extract plain text from a Claude user-message content field."""
     if isinstance(content, str):
@@ -375,6 +919,7 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
         if role != "assistant":
             continue
 
+        assistant_turns: list[dict[str, Any]] = []
         for block in blocks:
             if not isinstance(block, dict):
                 continue
@@ -382,13 +927,13 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
             if block_type == "text":
                 text = str(block.get("text") or "").strip()
                 if text:
-                    turns.append(
+                    assistant_turns.append(
                         _turn("agent_message", text[:80], text, at=at, tokens=tokens, raw=event)
                     )
             elif block_type in {"reasoning", "thinking"}:
                 text = str(block.get("text") or "").strip()
                 if text:
-                    turns.append(
+                    assistant_turns.append(
                         _turn("thinking", text[:80], text, at=at, tokens=tokens, raw=event)
                     )
             elif block_type in {"toolCall", "tool_use"}:
@@ -408,7 +953,7 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
                     or lowered
                     in {"exec", "execute", "run_shell_command", "execute_command", "run_command"}
                 ):
-                    turns.append(
+                    assistant_turns.append(
                         _turn(
                             "shell_command", command[:100], command, at=at, tokens=tokens, raw=event
                         )
@@ -435,7 +980,7 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
                         or arguments.get("text")
                         or ""
                     )
-                    turns.append(
+                    assistant_turns.append(
                         _turn(
                             "file_edit",
                             f"{name}({path})",
@@ -448,7 +993,7 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
                         )
                     )
                 else:
-                    turns.append(
+                    assistant_turns.append(
                         _turn(
                             "tool_call",
                             f"{name}(...)" if arguments else name,
@@ -458,6 +1003,7 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
                             raw=event,
                         )
                     )
+        turns.extend(_apply_tokens_once(assistant_turns, tokens))
 
     return turns
 
@@ -546,7 +1092,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                 "cache_write": usage.get("cache_creation_input_tokens", 0),
             }
 
-            blocks = []
+            blocks: list[dict[str, Any]] = []
             for block in msg.get("content") or []:
                 if not isinstance(block, dict):
                     continue
@@ -662,7 +1208,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                     )
 
             if blocks:
-                messages[msg_id] = blocks
+                messages.setdefault(msg_id, []).extend(_apply_tokens_once(blocks, tokens))
 
         elif et == "attachment":
             attachment = ev.get("attachment") or {}
@@ -1016,6 +1562,14 @@ def _parse_codex_format_b(content: str) -> list[dict[str, Any]]:
                 turns.append(_turn("thinking", t[:80], t, at=at, raw=ev))
         elif et == "message":
             role = ev.get("role", "")
+            in_t, out_t, think_t, cached_t, cache_write_t = _extract_codex_usage(ev.get("usage"))
+            tokens = {
+                "in": max(in_t - cached_t, 0),
+                "out": out_t,
+                "thinking": think_t,
+                "cache_read": cached_t,
+                "cache_write": cache_write_t,
+            }
             msg = "".join(
                 str(b.get("text", "")) for b in ev.get("content", []) if isinstance(b, dict)
             )
@@ -1026,6 +1580,7 @@ def _parse_codex_format_b(content: str) -> list[dict[str, Any]]:
                         msg[:80],
                         msg,
                         at=at,
+                        tokens=tokens if role == "assistant" else None,
                         raw=ev,
                     )
                 )
@@ -1268,8 +1823,9 @@ def _parse_gemini(content: str) -> list[dict[str, Any]]:
     final = []
     for mid in order:
         turn = merged[mid]
+        assistant_turns: list[dict[str, Any]] = []
         if turn.get("thinking_content"):
-            final.append(
+            assistant_turns.append(
                 _turn(
                     "thinking",
                     turn["thinking_content"][:80],
@@ -1281,7 +1837,7 @@ def _parse_gemini(content: str) -> list[dict[str, Any]]:
             )
         # Emit file_edit turns before the agent response turn
         for fe_name, fe_path, fe_diff, fe_content in turn.get("file_edits", []):
-            final.append(
+            assistant_turns.append(
                 _turn(
                     "file_edit",
                     f"{fe_name}({fe_path or ''})",
@@ -1293,9 +1849,9 @@ def _parse_gemini(content: str) -> list[dict[str, Any]]:
                     diff=fe_diff,
                 )
             )
-        final.extend(turn.get("structured_turns", []))
+        assistant_turns.extend(turn.get("structured_turns", []))
         if turn["kind"] != "unknown":
-            final.append(
+            assistant_turns.append(
                 _turn(
                     turn["kind"],
                     turn["content"][:80],
@@ -1305,6 +1861,7 @@ def _parse_gemini(content: str) -> list[dict[str, Any]]:
                     tokens=turn["tokens"],
                 )
             )
+        final.extend(_apply_tokens_once(assistant_turns, turn["tokens"]))
     return final
 
 
@@ -1379,21 +1936,24 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
         elif et == "assistant.message":
             msg = str(data.get("content") or "")
             toks = {"out": data.get("outputTokens", 0)}
+            assistant_turns: list[dict[str, Any]] = []
             # reasoning text (skip encrypted opaque content)
             reasoning = str(data.get("reasoningText") or "")
             if reasoning:
-                turns.append(
+                assistant_turns.append(
                     _turn("thinking", reasoning[:80], reasoning, at=at, tokens=toks, raw=ev)
                 )
             if msg:
-                turns.append(_turn("agent_message", msg[:80], msg, at=at, tokens=toks, raw=ev))
+                assistant_turns.append(
+                    _turn("agent_message", msg[:80], msg, at=at, tokens=toks, raw=ev)
+                )
             for req in data.get("toolRequests") or []:
                 name = req.get("name", "unknown")
                 args_raw = req.get("arguments") or {}
                 args = _coerce_mapping(args_raw)
                 todos = _extract_todos(args_raw)
                 if todos:
-                    turns.append(
+                    assistant_turns.append(
                         _turn(
                             "todo_write",
                             f"{name} · {len(todos)} item{'s' if len(todos) != 1 else ''}",
@@ -1408,7 +1968,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                     )
                     continue
                 if str(name).lower() in {"agent", "task"}:
-                    turns.append(
+                    assistant_turns.append(
                         _turn(
                             "subagent_event",
                             f"{name} subagent",
@@ -1462,7 +2022,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                         or args.get("text")
                         or json.dumps(args, ensure_ascii=False)
                     )
-                    turns.append(
+                    assistant_turns.append(
                         _turn(
                             "file_edit",
                             f"{name}({_fpath or ''})",
@@ -1482,7 +2042,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                         if isinstance(args, dict) and args
                         else str(args_raw)
                     )
-                    turns.append(
+                    assistant_turns.append(
                         _turn(
                             "tool_call",
                             f"{name}(...)",
@@ -1494,6 +2054,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                             arguments=args or args_raw,
                         )
                     )
+            turns.extend(_apply_tokens_once(assistant_turns, toks))
         elif et in {"subagent.started", "subagent.completed", "subagent.failed"}:
             status = et.split(".", 1)[1]
             description = str(data.get("agentDescription") or "").strip()

@@ -14,11 +14,15 @@ URL: `https://atelier.dev/dashboard` (production) or `http://localhost:8765` (lo
 
 **Pages:**
 
-1. **Overview** — weekly spend, cost-by-vendor pie, top sessions list
-2. **Sessions** — sortable table, click for `SessionReport` view
-3. **Memory** — facts from all vendors, grouped, searchable
-4. **Outcomes** — route + compact outcome scores over time
-5. **Settings** — sync status, machines, API key presence (not values)
+**Overview** — weekly spend, cost-by-vendor pie, top sessions list
+
+**Sessions** — sortable table, click for `SessionReport` view
+
+**Memory** — facts from all vendors, grouped, searchable
+
+**Outcomes** — route + compact outcome scores over time
+
+**Settings** — sync status, machines, API key presence (not values)
 
 **Local mode**: serves from local data, single-user, no auth needed.
 
@@ -28,11 +32,11 @@ URL: `https://atelier.dev/dashboard` (production) or `http://localhost:8765` (lo
 
 This is a separate frontend repo: **`atelier-dashboard`**. Out of this monorepo's scope to build the React/Next.js app itself. This spec describes the **Atelier-side API** the dashboard reads from.
 
-| File | What changes (in this repo) |
-|------|----------------------------|
-| `src/atelier/gateway/web/__init__.py` | **New package.** |
-| `src/atelier/gateway/web/server.py` | Local HTTP server (FastAPI) |
-| `src/atelier/gateway/web/routes.py` | Read-only JSON endpoints |
+| File                                    | What changes (in this repo)                |
+| --------------------------------------- | ------------------------------------------ |
+| `src/atelier/gateway/web/__init__.py` | **New package.**                     |
+| `src/atelier/gateway/web/server.py`   | Local HTTP server (FastAPI)                |
+| `src/atelier/gateway/web/routes.py`   | Read-only JSON endpoints                   |
 | `src/atelier/gateway/adapters/cli.py` | Add `web` command: `atelier web start` |
 
 ## Local web server

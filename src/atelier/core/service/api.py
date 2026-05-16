@@ -25,7 +25,7 @@ import threading
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from atelier.core.capabilities.pricing import usage_cost_usd
 from atelier.core.foundation.models import Trace, coerce_trace_json, to_jsonable
@@ -423,6 +423,73 @@ def _trace_cost_from_payload(payload: dict[str, Any]) -> float:
             thinking_tokens=int(entry.get("thinking_tokens") or 0),
         )
     return round(total_cost, 8)
+
+
+def _trace_cost_breakdown_from_payload(payload: dict[str, Any]) -> dict[str, float]:
+    usage_entries = _trace_usage_entries(payload)
+    if not usage_entries:
+        return {
+            "input_token_cost_usd": 0.0,
+            "output_token_cost_usd": 0.0,
+            "cache_read_cost_usd": 0.0,
+            "cache_write_cost_usd": 0.0,
+        }
+
+    input_token_cost_usd = 0.0
+    output_token_cost_usd = 0.0
+    cache_read_cost_usd = 0.0
+    cache_write_cost_usd = 0.0
+    for entry in usage_entries:
+        if entry.get("kind") == "tool":
+            continue
+        model_id = str(entry.get("model") or "_default")
+        input_token_cost_usd += _llm_usage_cost(
+            model_id, input_tokens=int(entry.get("input_tokens") or 0)
+        )
+        output_token_cost_usd += _llm_usage_cost(
+            model_id, output_tokens=int(entry.get("output_tokens") or 0)
+        )
+        cache_read_cost_usd += _llm_usage_cost(
+            model_id, cache_read_tokens=int(entry.get("cached_input_tokens") or 0)
+        )
+        cache_write_cost_usd += _llm_usage_cost(
+            model_id,
+            cache_write_tokens=int(entry.get("cache_creation_input_tokens") or 0),
+        )
+    return {
+        "input_token_cost_usd": round(input_token_cost_usd, 8),
+        "output_token_cost_usd": round(output_token_cost_usd, 8),
+        "cache_read_cost_usd": round(cache_read_cost_usd, 8),
+        "cache_write_cost_usd": round(cache_write_cost_usd, 8),
+    }
+
+
+def _trace_models_used_from_payload(
+    payload: dict[str, Any],
+    usage_entries: list[dict[str, Any]] | None = None,
+    model_usages: list[dict[str, Any]] | None = None,
+) -> dict[str, int]:
+    entries = usage_entries if usage_entries is not None else _trace_usage_entries(payload)
+    models_used: dict[str, int] = {}
+    for entry in entries:
+        if entry.get("kind") == "tool":
+            continue
+        model_id = str(entry.get("model") or "").strip()
+        if model_id:
+            models_used[model_id] = models_used.get(model_id, 0) + 1
+    if models_used:
+        return models_used
+
+    usages = model_usages if model_usages is not None else _trace_model_usages(payload)
+    for usage in usages:
+        model_id = str(usage.get("model") or "").strip()
+        if model_id:
+            models_used[model_id] = 1
+    if models_used:
+        return models_used
+
+    started_model = _trace_session_model(payload, entries, usages).strip()
+    return {started_model: 1} if started_model else {}
 
 
 def _analytics_event_cost(
@@ -2564,9 +2631,19 @@ def create_app(store_root: str | Path | None = None) -> Any:
         normalized.pop("tool_outputs", None)
 
         normalized["task"] = redact(str(normalized.get("task") or ""))
-        normalized["files_touched"] = redact_list(
-            [str(item) for item in normalized.get("files_touched") or []]
-        )
+        _raw_files = normalized.get("files_touched") or []
+        _files_normalized: list[Any] = []
+        for _item in _raw_files:
+            if isinstance(_item, dict) and "path" in _item:
+                _entry: dict[str, Any] = {"path": redact(str(_item["path"]))}
+                if _item.get("diff"):
+                    _entry["diff"] = str(_item["diff"])
+                if _item.get("event"):
+                    _entry["event"] = str(_item["event"])
+                _files_normalized.append(_entry)
+            else:
+                _files_normalized.append(redact(str(_item)))
+        normalized["files_touched"] = _files_normalized
         normalized["commands_run"] = redact_list(
             [str(item) for item in normalized.get("commands_run") or []]
         )
@@ -3829,16 +3906,6 @@ def create_app(store_root: str | Path | None = None) -> Any:
                             if "subagents/" in str(artifact.relative_path).replace("\\", "/")
                             else "main"
                         )
-                        artifacts.append(
-                            {
-                                "id": artifact.id,
-                                "source": artifact.source,
-                                "kind": artifact.kind,
-                                "relative_path": artifact.relative_path,
-                                "source_path": artifact.source_path,
-                                "scope": scope,
-                            }
-                        )
                         if artifact.source_path:
                             source_file_key = (artifact.source_path, artifact.id)
                             if source_file_key not in seen_source_files:
@@ -3853,16 +3920,53 @@ def create_app(store_root: str | Path | None = None) -> Any:
                             )
 
                             artifact_turns = parse_session_turns(raw_content, artifact.source)
+                            artifact_label = "main"
+                            if scope == "subagent":
+                                artifact_label = (
+                                    next(
+                                        (
+                                            str(turn.get("subagent_name") or "").strip()
+                                            for turn in artifact_turns
+                                            if str(turn.get("subagent_name") or "").strip()
+                                        ),
+                                        "",
+                                    )
+                                    or Path(artifact.relative_path).stem
+                                )
+                            artifacts.append(
+                                {
+                                    "id": artifact.id,
+                                    "source": artifact.source,
+                                    "kind": artifact.kind,
+                                    "relative_path": artifact.relative_path,
+                                    "source_path": artifact.source_path,
+                                    "scope": scope,
+                                    "label": artifact_label,
+                                }
+                            )
                             for turn in artifact_turns:
                                 turn["artifact_id"] = artifact.id
                                 turn["artifact_source"] = artifact.source
                                 turn["artifact_kind"] = artifact.kind
-                                turn["artifact_label"] = Path(artifact.relative_path).name
+                                turn["artifact_label"] = artifact_label
                                 turn["source_scope"] = scope
                                 if scope == "subagent" and not turn.get("subagent_name"):
-                                    turn["subagent_name"] = Path(artifact.relative_path).stem
+                                    turn["subagent_name"] = artifact_label
                             conversations.extend(artifact_turns)
                         except Exception as exc:
+                            artifacts.append(
+                                {
+                                    "id": artifact.id,
+                                    "source": artifact.source,
+                                    "kind": artifact.kind,
+                                    "relative_path": artifact.relative_path,
+                                    "source_path": artifact.source_path,
+                                    "scope": scope,
+                                    "label": "main"
+                                    if scope == "main"
+                                    else Path(artifact.relative_path).stem,
+                                }
+                            )
                             logger.error(
                                 "Failed to reconstruct conversations from artifact %s (source=%s): %s",
                                 art_id,
@@ -3875,9 +3979,21 @@ def create_app(store_root: str | Path | None = None) -> Any:
             # Calculate turn costs on the fly using backend pricing
             from atelier.core.capabilities.pricing import get_model_pricing
 
-            pricing = get_model_pricing(trace.model or "_default")
+            report = None
+            with contextlib.suppress(Exception):
+                from atelier.infra.runtime.session_report import load_report
+
+                report = load_report(session_id, Path(cfg.atelier_root))
+
+            started_model = (
+                getattr(report, "started_model", None)
+                or next(iter(getattr(report, "models_used", {}) or {}), None)
+                or trace.model
+                or "_default"
+            )
             for turn in conversations:
                 t_toks = turn.get("tokens") or {}
+                pricing = get_model_pricing(str(turn.get("model") or started_model or "_default"))
                 turn["cost"] = pricing.cost_usd(
                     input_tokens=t_toks.get("in", 0),
                     output_tokens=t_toks.get("out", 0),
@@ -4167,6 +4283,693 @@ def create_app(store_root: str | Path | None = None) -> Any:
     # Reports (spec 06)                                                   #
     # ------------------------------------------------------------------ #
 
+    def _parse_session_datetime(value: Any) -> datetime | None:
+        if isinstance(value, (int, float)):
+            with contextlib.suppress(OSError, OverflowError, ValueError):
+                return datetime.fromtimestamp(float(value) / 1000, tz=UTC)
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.isdigit():
+                with contextlib.suppress(OSError, OverflowError, ValueError):
+                    return datetime.fromtimestamp(int(stripped) / 1000, tz=UTC)
+                return None
+            with contextlib.suppress(ValueError):
+                return datetime.fromisoformat(stripped.replace("Z", "+00:00"))
+        return None
+
+    def _conversation_sort_key(turn: dict[str, Any]) -> tuple[int, str]:
+        parsed = _parse_session_datetime(turn.get("at"))
+        if parsed is not None:
+            return (0, parsed.isoformat())
+        raw_at = turn.get("at")
+        if isinstance(raw_at, str):
+            return (1, raw_at.strip())
+        return (2, "")
+
+    def _load_trace_for_session(session_id: str) -> Trace | None:
+        store = get_store()
+        trace = store.get_trace(session_id)
+        if trace is not None:
+            return trace
+
+        from atelier.gateway.hosts.session_parsers.registry import (
+            SUPPORTED_SESSION_IMPORT_HOSTS,
+        )
+
+        for host in SUPPORTED_SESSION_IMPORT_HOSTS:
+            trace = store.get_trace(f"{host}-{session_id}")
+            if trace is not None:
+                return trace
+
+        with sqlite3.connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT payload FROM traces WHERE json_extract(payload, '$.session_id') = ?",
+                (session_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return Trace.model_validate_json(coerce_trace_json(row[0]))
+
+    def _reconstruct_trace_conversations(
+        session_id: str,
+        trace: Trace,
+        store_inst: Any | None = None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        store_inst = store_inst or get_store()
+        conversations: list[dict[str, Any]] = []
+        source_files: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
+        seen_source_files: set[tuple[str, str]] = set()
+
+        if not trace.raw_artifact_ids:
+            return conversations, source_files, artifacts
+
+        from atelier.gateway.hosts.session_parsers._session_parser import (
+            parse_session_turns,
+        )
+
+        for art_id in trace.raw_artifact_ids:
+            artifact = store_inst.get_raw_artifact(art_id)
+            if artifact is None:
+                continue
+            scope = (
+                "subagent"
+                if "subagents/" in str(artifact.relative_path).replace("\\", "/")
+                else "main"
+            )
+            if artifact.source_path:
+                source_file_key = (artifact.source_path, artifact.id)
+                if source_file_key not in seen_source_files:
+                    source_files.append({"path": artifact.source_path, "artifact_id": artifact.id})
+                    seen_source_files.add(source_file_key)
+            try:
+                raw_content = store_inst.read_raw_artifact_content(artifact)
+                artifact_turns = parse_session_turns(raw_content, artifact.source)
+                artifact_label = "main"
+                if scope == "subagent":
+                    artifact_label = (
+                        next(
+                            (
+                                str(turn.get("subagent_name") or "").strip()
+                                for turn in artifact_turns
+                                if str(turn.get("subagent_name") or "").strip()
+                            ),
+                            "",
+                        )
+                        or Path(artifact.relative_path).stem
+                    )
+                artifacts.append(
+                    {
+                        "id": artifact.id,
+                        "source": artifact.source,
+                        "kind": artifact.kind,
+                        "relative_path": artifact.relative_path,
+                        "source_path": artifact.source_path,
+                        "scope": scope,
+                        "label": artifact_label,
+                    }
+                )
+                for turn in artifact_turns:
+                    turn["artifact_id"] = artifact.id
+                    turn["artifact_source"] = artifact.source
+                    turn["artifact_kind"] = artifact.kind
+                    turn["artifact_label"] = artifact_label
+                    turn["source_scope"] = scope
+                    if scope == "subagent" and not turn.get("subagent_name"):
+                        turn["subagent_name"] = artifact_label
+                conversations.extend(artifact_turns)
+            except Exception as exc:
+                artifacts.append(
+                    {
+                        "id": artifact.id,
+                        "source": artifact.source,
+                        "kind": artifact.kind,
+                        "relative_path": artifact.relative_path,
+                        "source_path": artifact.source_path,
+                        "scope": scope,
+                        "label": "main" if scope == "main" else Path(artifact.relative_path).stem,
+                    }
+                )
+                logger.error(
+                    "Failed to reconstruct conversations from artifact %s for session %s: %s",
+                    art_id,
+                    session_id,
+                    exc,
+                    exc_info=True,
+                )
+
+        conversations.sort(key=_conversation_sort_key)
+        return conversations, source_files, artifacts
+
+    def _build_imported_session_payload(
+        session_id: str,
+        trace: Trace,
+        store_inst: Any | None = None,
+    ) -> dict[str, Any]:
+        from atelier.gateway.hosts.session_parsers._session_parser import (
+            extract_session_usage_summary,
+        )
+        from atelier.infra.runtime.session_report import _derive_vendor
+
+        def _prefer_positive_int(authoritative: int, fallback: int) -> int:
+            return authoritative if authoritative > 0 else fallback
+
+        def _prefer_positive_float(authoritative: float, fallback: float) -> float:
+            return authoritative if authoritative > 0 else fallback
+
+        store_inst = store_inst or get_store()
+        conversations, _, _ = _reconstruct_trace_conversations(session_id, trace, store_inst)
+        trace_payload = to_jsonable(trace)
+        trace_usage_entries = _trace_usage_entries(trace_payload)
+        trace_model_usages = _trace_model_usages(trace_payload)
+        raw_usage_summary: dict[str, Any] = {
+            "started_model": None,
+            "models_used": {},
+            "total_turns": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "thinking_tokens": 0,
+            "cached_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "usage_entries": [],
+        }
+
+        for art_id in trace.raw_artifact_ids:
+            artifact = store_inst.get_raw_artifact(art_id)
+            if artifact is None:
+                continue
+            try:
+                raw_content = store_inst.read_raw_artifact_content(artifact)
+                summary = extract_session_usage_summary(raw_content, artifact.source)
+            except Exception as exc:
+                logger.error(
+                    "Failed to summarize imported artifact %s for session %s: %s",
+                    art_id,
+                    session_id,
+                    exc,
+                    exc_info=True,
+                )
+                continue
+            if raw_usage_summary["started_model"] is None and summary.get("started_model"):
+                raw_usage_summary["started_model"] = summary["started_model"]
+            for key in (
+                "total_turns",
+                "input_tokens",
+                "output_tokens",
+                "thinking_tokens",
+                "cached_input_tokens",
+                "cache_creation_input_tokens",
+            ):
+                raw_usage_summary[key] += int(summary.get(key, 0) or 0)
+            for model_id, count in dict(summary.get("models_used") or {}).items():
+                raw_usage_summary["models_used"][model_id] = int(
+                    raw_usage_summary["models_used"].get(model_id, 0)
+                ) + int(count or 0)
+            raw_usage_summary["usage_entries"].extend(list(summary.get("usage_entries") or []))
+
+        started_at = trace.created_at
+        ended_at = trace.created_at
+        active_duration_seconds = 0.0
+        current_active_start: datetime | None = None
+
+        reconstructed_models_used: dict[str, int] = {}
+        reconstructed_started_model: str | None = None
+        reconstructed_input_tokens = 0
+        reconstructed_output_tokens = 0
+        reconstructed_cache_read_tokens = 0
+        reconstructed_cache_write_tokens = 0
+        reconstructed_input_token_cost_usd = 0.0
+        reconstructed_output_token_cost_usd = 0.0
+        reconstructed_cache_read_cost_usd = 0.0
+        reconstructed_cache_write_cost_usd = 0.0
+        reconstructed_total_turns = 0
+        tool_costs: dict[str, dict[str, float]] = {}
+
+        for turn in conversations:
+            parsed_at = _parse_session_datetime(turn.get("at"))
+            if parsed_at is not None:
+                if parsed_at < started_at:
+                    started_at = parsed_at
+                if parsed_at > ended_at:
+                    ended_at = parsed_at
+                if turn.get("kind") == "user_message":
+                    current_active_start = parsed_at
+                elif current_active_start is not None:
+                    chunk = (parsed_at - current_active_start).total_seconds()
+                    if 0 < chunk < 3600:
+                        active_duration_seconds += chunk
+                    current_active_start = parsed_at
+
+            tokens = turn.get("tokens") or {}
+            turn_input = int(tokens.get("in") or 0)
+            turn_output = int(tokens.get("out") or 0)
+            turn_cache_read = int(tokens.get("cache_read") or 0)
+            turn_cache_write = int(tokens.get("cache_write") or 0)
+            if turn_input or turn_output or turn_cache_read or turn_cache_write:
+                reconstructed_total_turns += 1
+
+            model_id = str(turn.get("model") or "").strip()
+            countable_model_id = (
+                model_id
+                if model_id and model_id.lower() not in {"<synthetic>", "_default", "unknown"}
+                else ""
+            )
+            if countable_model_id:
+                if reconstructed_started_model is None:
+                    reconstructed_started_model = countable_model_id
+                reconstructed_models_used[countable_model_id] = (
+                    reconstructed_models_used.get(countable_model_id, 0) + 1
+                )
+
+            turn_input_cost = _llm_usage_cost(model_id or "_default", input_tokens=turn_input)
+            turn_output_cost = _llm_usage_cost(model_id or "_default", output_tokens=turn_output)
+            turn_cache_read_cost = _llm_usage_cost(
+                model_id or "_default", cache_read_tokens=turn_cache_read
+            )
+            turn_cache_write_cost = _llm_usage_cost(
+                model_id or "_default", cache_write_tokens=turn_cache_write
+            )
+            turn_total_cost = (
+                turn_input_cost + turn_output_cost + turn_cache_read_cost + turn_cache_write_cost
+            )
+            turn["cost"] = round(turn_total_cost, 8)
+
+            reconstructed_input_tokens += turn_input
+            reconstructed_output_tokens += turn_output
+            reconstructed_cache_read_tokens += turn_cache_read
+            reconstructed_cache_write_tokens += turn_cache_write
+            reconstructed_input_token_cost_usd += turn_input_cost
+            reconstructed_output_token_cost_usd += turn_output_cost
+            reconstructed_cache_read_cost_usd += turn_cache_read_cost
+            reconstructed_cache_write_cost_usd += turn_cache_write_cost
+
+            if turn_total_cost > 0:
+                tool_name = str(
+                    turn.get("tool_name")
+                    or turn.get("subagent_name")
+                    or (
+                        "assistant"
+                        if turn.get("kind") == "agent_message"
+                        else "shell"
+                        if turn.get("kind") == "shell_command"
+                        else turn.get("kind") or "session"
+                    )
+                )
+                bucket = tool_costs.setdefault(tool_name, {"calls": 0.0, "cost_usd": 0.0})
+                bucket["calls"] += 1
+                bucket["cost_usd"] += turn_total_cost
+
+        duration_seconds = max(0.0, (ended_at - started_at).total_seconds())
+        if active_duration_seconds <= 0:
+            active_duration_seconds = duration_seconds
+
+        def _usage_cost_breakdown(
+            usage_entries: list[dict[str, Any]],
+            *,
+            fallback_model: str | None,
+        ) -> dict[str, float]:
+            input_cost = 0.0
+            output_cost = 0.0
+            cache_read_cost = 0.0
+            cache_write_cost = 0.0
+            for entry in usage_entries:
+                model_id = str(entry.get("model") or fallback_model or "_default")
+                input_cost += _llm_usage_cost(
+                    model_id, input_tokens=int(entry.get("input_tokens") or 0)
+                )
+                output_cost += _llm_usage_cost(
+                    model_id, output_tokens=int(entry.get("output_tokens") or 0)
+                )
+                cache_read_cost += _llm_usage_cost(
+                    model_id, cache_read_tokens=int(entry.get("cached_input_tokens") or 0)
+                )
+                cache_write_cost += _llm_usage_cost(
+                    model_id,
+                    cache_write_tokens=int(entry.get("cache_creation_input_tokens") or 0),
+                )
+            return {
+                "input_token_cost_usd": input_cost,
+                "output_token_cost_usd": output_cost,
+                "cache_read_cost_usd": cache_read_cost,
+                "cache_write_cost_usd": cache_write_cost,
+                "total_cost_usd": input_cost + output_cost + cache_read_cost + cache_write_cost,
+            }
+
+        trace_started_model = (
+            _trace_session_model(
+                trace_payload,
+                trace_usage_entries,
+                trace_model_usages,
+            )
+            or None
+        )
+        trace_models_used = _trace_models_used_from_payload(
+            trace_payload,
+            trace_usage_entries,
+            trace_model_usages,
+        )
+        trace_input_tokens = int(trace_payload.get("input_tokens") or 0)
+        trace_output_tokens = int(trace_payload.get("output_tokens") or 0)
+        trace_cache_read_tokens = int(trace_payload.get("cached_input_tokens") or 0)
+        trace_cache_write_tokens = int(trace_payload.get("cache_creation_input_tokens") or 0)
+        trace_total_turns = len(
+            [entry for entry in trace_usage_entries if entry.get("kind") != "tool"]
+        )
+        if trace_total_turns <= 0 and (
+            trace_input_tokens > 0
+            or trace_output_tokens > 0
+            or trace_cache_read_tokens > 0
+            or trace_cache_write_tokens > 0
+            or bool(trace_models_used)
+        ):
+            trace_total_turns = 1
+
+        trace_cost_breakdown = _trace_cost_breakdown_from_payload(trace_payload)
+        trace_input_token_cost_usd = float(trace_cost_breakdown["input_token_cost_usd"])
+        trace_output_token_cost_usd = float(trace_cost_breakdown["output_token_cost_usd"])
+        trace_cache_read_cost_usd = float(trace_cost_breakdown["cache_read_cost_usd"])
+        trace_cache_write_cost_usd = float(trace_cost_breakdown["cache_write_cost_usd"])
+        trace_total_cost_usd = _trace_cost_from_payload(trace_payload)
+        if trace_total_cost_usd <= 0 and (
+            trace_input_tokens > 0
+            or trace_output_tokens > 0
+            or trace_cache_read_tokens > 0
+            or trace_cache_write_tokens > 0
+        ):
+            pricing_model = (
+                trace_started_model or reconstructed_started_model or trace.model or "_default"
+            )
+            trace_input_token_cost_usd = _llm_usage_cost(
+                pricing_model, input_tokens=trace_input_tokens
+            )
+            trace_output_token_cost_usd = _llm_usage_cost(
+                pricing_model, output_tokens=trace_output_tokens
+            )
+            trace_cache_read_cost_usd = _llm_usage_cost(
+                pricing_model, cache_read_tokens=trace_cache_read_tokens
+            )
+            trace_cache_write_cost_usd = _llm_usage_cost(
+                pricing_model, cache_write_tokens=trace_cache_write_tokens
+            )
+            trace_total_cost_usd = round(
+                trace_input_token_cost_usd
+                + trace_output_token_cost_usd
+                + trace_cache_read_cost_usd
+                + trace_cache_write_cost_usd,
+                8,
+            )
+
+        authoritative_started_model = (
+            str(raw_usage_summary.get("started_model") or "").strip() or None
+        )
+        authoritative_models_used = dict(raw_usage_summary.get("models_used") or {})
+        authoritative_input_tokens = int(raw_usage_summary.get("input_tokens") or 0)
+        authoritative_output_tokens = int(raw_usage_summary.get("output_tokens") or 0)
+        authoritative_cache_read_tokens = int(raw_usage_summary.get("cached_input_tokens") or 0)
+        authoritative_cache_write_tokens = int(
+            raw_usage_summary.get("cache_creation_input_tokens") or 0
+        )
+        authoritative_total_turns = int(raw_usage_summary.get("total_turns") or 0)
+        has_authoritative_usage = (
+            authoritative_total_turns > 0
+            or authoritative_input_tokens > 0
+            or authoritative_output_tokens > 0
+            or authoritative_cache_read_tokens > 0
+            or authoritative_cache_write_tokens > 0
+            or bool(authoritative_models_used)
+        )
+        authoritative_cost_breakdown = _usage_cost_breakdown(
+            list(raw_usage_summary.get("usage_entries") or []),
+            fallback_model=authoritative_started_model
+            or trace_started_model
+            or reconstructed_started_model
+            or trace.model,
+        )
+
+        started_model = (
+            authoritative_started_model
+            or reconstructed_started_model
+            or trace_started_model
+            or (trace.model or None)
+        )
+        models_used = authoritative_models_used or reconstructed_models_used or trace_models_used
+        if not models_used and started_model:
+            models_used = {started_model: 1}
+
+        input_tokens = (
+            authoritative_input_tokens
+            if has_authoritative_usage
+            else _prefer_positive_int(trace_input_tokens, reconstructed_input_tokens)
+        )
+        output_tokens = (
+            authoritative_output_tokens
+            if has_authoritative_usage
+            else _prefer_positive_int(trace_output_tokens, reconstructed_output_tokens)
+        )
+        cache_read_tokens = (
+            authoritative_cache_read_tokens
+            if has_authoritative_usage
+            else _prefer_positive_int(trace_cache_read_tokens, reconstructed_cache_read_tokens)
+        )
+        cache_write_tokens = (
+            authoritative_cache_write_tokens
+            if has_authoritative_usage
+            else _prefer_positive_int(trace_cache_write_tokens, reconstructed_cache_write_tokens)
+        )
+        total_turns = (
+            authoritative_total_turns
+            if authoritative_total_turns > 0
+            else trace_total_turns
+            if trace_total_turns > 0
+            else reconstructed_total_turns
+        )
+
+        input_token_cost_usd = (
+            float(authoritative_cost_breakdown["input_token_cost_usd"])
+            if has_authoritative_usage
+            else _prefer_positive_float(
+                trace_input_token_cost_usd, reconstructed_input_token_cost_usd
+            )
+        )
+        output_token_cost_usd = (
+            float(authoritative_cost_breakdown["output_token_cost_usd"])
+            if has_authoritative_usage
+            else _prefer_positive_float(
+                trace_output_token_cost_usd, reconstructed_output_token_cost_usd
+            )
+        )
+        cache_read_cost_usd = (
+            float(authoritative_cost_breakdown["cache_read_cost_usd"])
+            if has_authoritative_usage
+            else _prefer_positive_float(
+                trace_cache_read_cost_usd, reconstructed_cache_read_cost_usd
+            )
+        )
+        cache_write_cost_usd = (
+            float(authoritative_cost_breakdown["cache_write_cost_usd"])
+            if has_authoritative_usage
+            else _prefer_positive_float(
+                trace_cache_write_cost_usd, reconstructed_cache_write_cost_usd
+            )
+        )
+        total_cost_usd = (
+            round(float(authoritative_cost_breakdown["total_cost_usd"]), 6)
+            if has_authoritative_usage
+            else _prefer_positive_float(
+                trace_total_cost_usd,
+                round(
+                    reconstructed_input_token_cost_usd
+                    + reconstructed_output_token_cost_usd
+                    + reconstructed_cache_read_cost_usd
+                    + reconstructed_cache_write_cost_usd,
+                    6,
+                ),
+            )
+        )
+
+        trace_tool_costs = [
+            {
+                "tool": str(tool.name or "unknown"),
+                "calls": int(tool.count or 1),
+                "cost_usd": round(
+                    _analytics_event_cost(
+                        started_model or "_default",
+                        "tool_call",
+                        int(tool.input_tokens or 0),
+                        int(tool.output_tokens or 0),
+                    ),
+                    6,
+                ),
+            }
+            for tool in trace.tools_called
+        ]
+        top_tools_by_cost = sorted(
+            trace_tool_costs
+            if trace_tool_costs
+            else [
+                {
+                    "tool": name,
+                    "calls": int(values["calls"]),
+                    "cost_usd": round(values["cost_usd"], 6),
+                }
+                for name, values in tool_costs.items()
+            ],
+            key=lambda item: cast(float, item["cost_usd"]),
+            reverse=True,
+        )[:5]
+
+        return {
+            "session_id": session_id,
+            "started_at": started_at.isoformat(),
+            "ended_at": ended_at.isoformat(),
+            "duration_seconds": duration_seconds,
+            "active_duration_seconds": active_duration_seconds,
+            "vendor": _derive_vendor(models_used),
+            "agent_settings": trace.agent_settings,
+            "skills": trace.skills,
+            "telemetry": trace.telemetry,
+            "raw_artifact_ids": trace.raw_artifact_ids,
+            "total_turns": total_turns,
+            "total_cost_usd": total_cost_usd,
+            "total_atelier_savings_usd": 0.0,
+            "label": None,
+            "models_used": models_used,
+            "started_model": started_model,
+            "cost_status": (
+                "estimated"
+                if (
+                    total_turns > 0
+                    or input_tokens > 0
+                    or output_tokens > 0
+                    or cache_read_tokens > 0
+                    or cache_write_tokens > 0
+                )
+                else "unavailable"
+            ),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cached_input_tokens": cache_read_tokens,
+            "tool_call_count": sum(int(tool.count or 1) for tool in trace.tools_called),
+            "input_token_cost_usd": round(input_token_cost_usd, 6),
+            "cache_write_cost_usd": round(cache_write_cost_usd, 6),
+            "cache_read_cost_usd": round(cache_read_cost_usd, 6),
+            "output_token_cost_usd": round(output_token_cost_usd, 6),
+            "cache_write_tokens": cache_write_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "routing_downtiered_turns": 0,
+            "routing_savings_usd": 0.0,
+            "compact_events": 0,
+            "compact_savings_estimate_usd": 0.0,
+            "top_tools_by_cost": top_tools_by_cost,
+        }
+
+    def _build_session_payload(report: Any, trace: Trace | None = None) -> dict[str, Any]:
+        active_trace = trace or _load_trace_for_session(report.session_id)
+        estimated_payload = (
+            _build_imported_session_payload(report.session_id, active_trace)
+            if active_trace is not None
+            else None
+        )
+
+        models_used = dict(report.models_used) or dict(
+            (estimated_payload or {}).get("models_used", {})
+        )
+        started_model = report.started_model or (estimated_payload or {}).get("started_model")
+
+        input_tokens = int(report.input_tokens or (estimated_payload or {}).get("input_tokens", 0))
+        output_tokens = int(
+            report.output_tokens or (estimated_payload or {}).get("output_tokens", 0)
+        )
+        cache_read_tokens = int(
+            report.cache_read_tokens or (estimated_payload or {}).get("cache_read_tokens", 0)
+        )
+        cache_write_tokens = int(
+            report.cache_write_tokens or (estimated_payload or {}).get("cache_write_tokens", 0)
+        )
+        duration_seconds = float(
+            report.duration_seconds or (estimated_payload or {}).get("duration_seconds", 0.0)
+        )
+        active_duration_seconds = float(
+            report.active_duration_seconds
+            or (estimated_payload or {}).get("active_duration_seconds", 0.0)
+        )
+        total_cost_usd = float(report.total_cost_usd)
+        input_token_cost_usd = float(report.input_token_cost_usd)
+        output_token_cost_usd = float(report.output_token_cost_usd)
+        cache_read_cost_usd = float(report.cache_read_cost_usd)
+        cache_write_cost_usd = float(report.cache_write_cost_usd)
+        top_tools_by_cost = [
+            {"tool": t, "calls": c, "cost_usd": v} for t, c, v in report.top_tools_by_cost
+        ]
+
+        cost_status = (
+            "recorded"
+            if (total_cost_usd > 0 or report.total_turns > 0 or bool(report.models_used))
+            else "unavailable"
+        )
+
+        if estimated_payload is not None:
+            if total_cost_usd <= 0 and float(estimated_payload["total_cost_usd"]) > 0:
+                total_cost_usd = float(estimated_payload["total_cost_usd"])
+                input_token_cost_usd = float(estimated_payload["input_token_cost_usd"])
+                output_token_cost_usd = float(estimated_payload["output_token_cost_usd"])
+                cache_read_cost_usd = float(estimated_payload["cache_read_cost_usd"])
+                cache_write_cost_usd = float(estimated_payload["cache_write_cost_usd"])
+                top_tools_by_cost = list(estimated_payload["top_tools_by_cost"])
+                cost_status = "estimated"
+            elif not top_tools_by_cost:
+                top_tools_by_cost = list(estimated_payload["top_tools_by_cost"])
+            if not started_model:
+                started_model = estimated_payload.get("started_model")
+            if not models_used:
+                models_used = dict(estimated_payload.get("models_used", {}))
+            estimated_active = float(estimated_payload.get("active_duration_seconds", 0.0))
+            if estimated_active > 0 and (
+                active_duration_seconds <= 0 or active_duration_seconds >= duration_seconds
+            ):
+                active_duration_seconds = estimated_active
+
+        if not started_model and models_used:
+            started_model = next(iter(models_used))
+
+        return {
+            "session_id": report.session_id,
+            "started_at": report.started_at.isoformat(),
+            "ended_at": report.ended_at.isoformat() if report.ended_at else None,
+            "duration_seconds": duration_seconds,
+            "active_duration_seconds": active_duration_seconds,
+            "vendor": report.vendor,
+            "agent_settings": report.agent_settings,
+            "skills": report.skills,
+            "telemetry": report.telemetry,
+            "raw_artifact_ids": report.raw_artifact_ids,
+            "total_turns": report.total_turns
+            or int((estimated_payload or {}).get("total_turns", 0)),
+            "total_cost_usd": total_cost_usd,
+            "total_atelier_savings_usd": report.total_atelier_savings_usd,
+            "label": None,
+            "models_used": models_used,
+            "started_model": started_model,
+            "cost_status": cost_status,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cached_input_tokens": cache_read_tokens,
+            "tool_call_count": report.tool_call_count
+            or int((estimated_payload or {}).get("tool_call_count", 0)),
+            "input_token_cost_usd": input_token_cost_usd,
+            "cache_write_cost_usd": cache_write_cost_usd,
+            "cache_read_cost_usd": cache_read_cost_usd,
+            "output_token_cost_usd": output_token_cost_usd,
+            "cache_write_tokens": cache_write_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "routing_downtiered_turns": report.routing_downtiered_turns,
+            "routing_savings_usd": report.routing_savings_usd,
+            "compact_events": report.compact_events,
+            "compact_savings_estimate_usd": report.compact_savings_estimate_usd,
+            "top_tools_by_cost": top_tools_by_cost,
+        }
+
     @app.get("/v1/sessions", tags=["sessions"], dependencies=[Depends(verify_api_key)])
     def list_sessions(
         since: str = Query("7d", description="Time window, e.g. '7d', '30d'"),
@@ -4185,42 +4988,34 @@ def create_app(store_root: str | Path | None = None) -> Any:
         # Parse since
         days = 7
         if since.endswith("d"):
-            try:
+            with contextlib.suppress(ValueError):
                 days = int(since[:-1])
-            except ValueError:
-                pass
         cutoff = datetime.now(UTC) - timedelta(days=days)
 
         files = list_run_files(root, since=cutoff)
         results: list[dict[str, Any]] = []
+        seen_session_ids: set[str] = set()
         for f in files[:limit]:
             try:
                 snap: dict[str, Any] = json.loads(f.read_text(encoding="utf-8"))
                 report = build_report(snap, root)
-                results.append(
-                    {
-                        "session_id": report.session_id,
-                        "started_at": report.started_at.isoformat(),
-                        "ended_at": report.ended_at.isoformat() if report.ended_at else None,
-                        "duration_seconds": report.duration_seconds,
-                        "active_duration_seconds": report.active_duration_seconds,
-                        "vendor": report.vendor,
-                        "agent_settings": report.agent_settings,
-                        "skills": report.skills,
-                        "telemetry": report.telemetry,
-                        "raw_artifact_ids": report.raw_artifact_ids,
-                        "total_turns": report.total_turns,
-                        "total_cost_usd": report.total_cost_usd,
-                        "total_atelier_savings_usd": report.total_atelier_savings_usd,
-                        "label": None,
-                        "models_used": report.models_used,
-                        "input_tokens": report.input_tokens,
-                        "output_tokens": report.output_tokens,
-                        "cached_input_tokens": report.cache_read_tokens,
-                    }
-                )
+                payload = _build_session_payload(report)
+                results.append(payload)
+                seen_session_ids.add(payload["session_id"])
             except Exception:
                 continue
+        store_inst = get_store()
+        for trace in store_inst.list_traces(since=cutoff, limit=max(limit * 5, limit)):
+            sid = trace.session_id or trace.id
+            if sid in seen_session_ids:
+                continue
+            results.append(_build_imported_session_payload(sid, trace, store_inst))
+            seen_session_ids.add(sid)
+            if len(results) >= limit:
+                break
+        results.sort(key=lambda item: str(item.get("started_at") or ""), reverse=True)
+        if len(results) > limit:
+            results = results[:limit]
         return results
 
     @app.get(
@@ -4235,40 +5030,11 @@ def create_app(store_root: str | Path | None = None) -> Any:
         root = Path(cfg.atelier_root)
         report = load_report(session_id, root)
         if report is None:
-            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
-        return {
-            "session_id": report.session_id,
-            "started_at": report.started_at.isoformat(),
-            "ended_at": report.ended_at.isoformat() if report.ended_at else None,
-            "duration_seconds": report.duration_seconds,
-            "active_duration_seconds": report.active_duration_seconds,
-            "vendor": report.vendor,
-            "agent_settings": report.agent_settings,
-            "skills": report.skills,
-            "telemetry": report.telemetry,
-            "raw_artifact_ids": report.raw_artifact_ids,
-            "total_turns": report.total_turns,
-            "total_cost_usd": report.total_cost_usd,
-            "total_atelier_savings_usd": report.total_atelier_savings_usd,
-            "label": None,
-            "models_used": report.models_used,
-            "tool_call_count": report.tool_call_count,
-            "input_token_cost_usd": report.input_token_cost_usd,
-            "cache_write_cost_usd": report.cache_write_cost_usd,
-            "cache_read_cost_usd": report.cache_read_cost_usd,
-            "output_token_cost_usd": report.output_token_cost_usd,
-            "input_tokens": report.input_tokens,
-            "cache_write_tokens": report.cache_write_tokens,
-            "cache_read_tokens": report.cache_read_tokens,
-            "output_tokens": report.output_tokens,
-            "routing_downtiered_turns": report.routing_downtiered_turns,
-            "routing_savings_usd": report.routing_savings_usd,
-            "compact_events": report.compact_events,
-            "compact_savings_estimate_usd": report.compact_savings_estimate_usd,
-            "top_tools_by_cost": [
-                {"tool": t, "calls": c, "cost_usd": v} for t, c, v in report.top_tools_by_cost
-            ],
-        }
+            trace = _load_trace_for_session(session_id)
+            if trace is None:
+                raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+            return _build_imported_session_payload(session_id, trace)
+        return _build_session_payload(report)
 
     @app.get(
         "/v1/memory/facts",
@@ -4333,10 +5099,8 @@ def create_app(store_root: str | Path | None = None) -> Any:
         root = Path(root_str)
         days = 7
         if since_str.endswith("d"):
-            try:
+            with contextlib.suppress(ValueError):
                 days = int(since_str[:-1])
-            except ValueError:
-                pass
         now = datetime.now(UTC)
         since_dt = now - timedelta(days=days)
         window = build_insights(root, since=since_dt, until=now)
@@ -4408,10 +5172,8 @@ def create_app(store_root: str | Path | None = None) -> Any:
         root = Path(cfg.atelier_root)
         days = 7
         if since.endswith("d"):
-            try:
+            with contextlib.suppress(ValueError):
                 days = int(since[:-1])
-            except ValueError:
-                pass
         cutoff = datetime.now(UTC) - timedelta(days=days)
 
         files = list_run_files(root, since=cutoff)

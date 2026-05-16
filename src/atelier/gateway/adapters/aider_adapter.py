@@ -28,7 +28,7 @@ from pydantic import BaseModel, ConfigDict
 
 from atelier.gateway.adapters.adapter_base import AdapterDecision, AdapterMode, AgentAdapter
 from atelier.gateway.sdk import AtelierClient
-from atelier.gateway.sdk.client import SavingsSummary
+from atelier.gateway.sdk.client import ContextResult, SavingsSummary
 
 
 class AiderConfig(BaseModel):
@@ -76,11 +76,19 @@ class AiderAdapter(AgentAdapter):
         task: str,
         domain: str | None = None,
         files: list[str] | None = None,
-    ) -> AdapterDecision:
-        """Fetch reasoning context for the task.
+        tools: list[str] | None = None,
+    ) -> ContextResult:
+        """Return the low-level ContextResult (keeps compatibility with AgentAdapter)."""
+        return super().get_context(task=task, domain=domain, files=files, tools=tools)
 
-        Returns an AdapterDecision containing the reasoning_context.
-        """
+    def get_context_decision(
+        self,
+        *,
+        task: str,
+        domain: str | None = None,
+        files: list[str] | None = None,
+    ) -> AdapterDecision:
+        """Fetch reasoning context and return an AdapterDecision (helper)."""
         context = super().get_context(task=task, domain=domain, files=files)
         return AdapterDecision(
             host=self.host,

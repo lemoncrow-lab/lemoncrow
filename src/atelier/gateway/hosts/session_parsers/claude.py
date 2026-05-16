@@ -35,6 +35,7 @@ from atelier.core.foundation.store import ContextStore
 from atelier.gateway.hosts.session_parsers._common import (
     _SIZE_LIMIT_BYTES,
     make_llm_usage_entry,
+    persist_imported_run_snapshot,
     snapshot_edited_files,
     summarize_usage_entries,
 )
@@ -114,7 +115,9 @@ def _extract_user_text(content: Any) -> str:
         if any(text.startswith(p) for p in _SYSTEM_PREFIXES_CLAUDE):
             return ""
         # Claude Code often wraps the main task in <task> tags
-        xml_match = re.search(r"<(task|prompt|request|question)[^>]*>(.*?)</\1>", text, re.IGNORECASE | re.DOTALL)
+        xml_match = re.search(
+            r"<(task|prompt|request|question)[^>]*>(.*?)</\1>", text, re.IGNORECASE | re.DOTALL
+        )
         if xml_match:
             return xml_match.group(2).strip()
         return text
@@ -155,29 +158,30 @@ def _tool_result_streams(content: Any, is_error: bool = False) -> tuple[str, str
     return text, ""
 
 
-def _infer_file_edit_diff(tool_name: str, inp: dict[str, Any], result_text: str | None = None) -> str:
+def _infer_file_edit_diff(
+    tool_name: str, inp: dict[str, Any], result_text: str | None = None
+) -> str:
     # Smarter diff inference for Claude's Write/Edit tools
     if tool_name in {"Write", "write", "write_file"}:
         content = inp.get("content", "")
         if content:
             return f"+ {content[:4000]}"
-    
-    if result_text:
+
+    if result_text and "--- " in result_text and "+++ " in result_text:
         # If the tool result contains a unified diff, use it
-        if "--- " in result_text and "+++ " in result_text:
-            lines = result_text.splitlines()
-            for i, line in enumerate(lines):
-                if line.startswith("--- "):
-                    return "\n".join(lines[i:])
-    
+        lines = result_text.splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith("--- "):
+                return "\n".join(lines[i:])
+
     # Check input for patch/diff
     patch = inp.get("patch") or inp.get("diff")
     if patch:
         return str(patch)
-        
+
     if tool_name in {"Edit", "EditFile", "replace"}:
         return f"Modified {inp.get('file_path') or inp.get('path')}"
-        
+
     return ""
 
 
@@ -199,7 +203,9 @@ class ClaudeImporter:
             try:
                 size = jsonl_path.stat().st_size
                 if size > _SIZE_LIMIT_BYTES:
-                    print(f"[atelier] claude: skipping massive session {jsonl_path.name} ({size / 1e6:.1f}MB)")
+                    print(
+                        f"[atelier] claude: skipping massive session {jsonl_path.name} ({size / 1e6:.1f}MB)"
+                    )
                     continue
                 if i % 10 == 0 and i > 0:
                     print(f"[atelier] claude: importing {i}/{total}...")
@@ -211,7 +217,9 @@ class ClaudeImporter:
                 print(f"[atelier] skipping claude session {jsonl_path.name}: {exc}")
         return imported_ids
 
-    def import_session(self, workspace_slug: str, jsonl_path: Path, *, force: bool = False) -> str | None:
+    def import_session(
+        self, workspace_slug: str, jsonl_path: Path, *, force: bool = False
+    ) -> str | None:
         """Import a Claude session and its subagents. Returns the session ID on success."""
         session_id = jsonl_path.stem
         project_dir = jsonl_path.parent
@@ -246,6 +254,7 @@ class ClaudeImporter:
         task = "untitled claude session"
         title = ""
         created_at: datetime = _utcnow()
+        updated_at: datetime = created_at
         first_ts_set = False
         agent_settings: dict[str, Any] = {}
         skills: list[str] = []
@@ -300,7 +309,12 @@ class ClaudeImporter:
 
                 if ts_str and not first_ts_set:
                     created_at = _parse_ts(ts_str)
+                    updated_at = created_at
                     first_ts_set = True
+                elif ts_str:
+                    parsed_ts = _parse_ts(ts_str)
+                    if parsed_ts > updated_at:
+                        updated_at = parsed_ts
 
                 if ev_type == "ai-title":
                     t = ev.get("aiTitle") or ev.get("title", "")
@@ -308,7 +322,12 @@ class ClaudeImporter:
                         title = str(t)
                 elif ev_type == "last-prompt":
                     lp = str(ev.get("lastPrompt", "")).strip()
-                    if lp and task == "untitled claude session" and not lp.startswith("<") and len(lp) > 5:
+                    if (
+                        lp
+                        and task == "untitled claude session"
+                        and not lp.startswith("<")
+                        and len(lp) > 5
+                    ):
                         task = lp[:200]
                 elif ev_type == "user":
                     if ev.get("isMeta"):
@@ -327,7 +346,11 @@ class ClaudeImporter:
                     if (
                         task == "untitled claude session"
                         and text_ext
-                        and (not text_ext.startswith("<") and not text_ext.startswith("/") and len(text_ext) > 5)
+                        and (
+                            not text_ext.startswith("<")
+                            and not text_ext.startswith("/")
+                            and len(text_ext) > 5
+                        )
                     ):
                         task = text_ext[:200]
                     if isinstance(content, list):
@@ -349,7 +372,9 @@ class ClaudeImporter:
                                         block.get("content"), bool(block.get("is_error"))
                                     )
                                     commands_run[idx] = CommandRecord(
-                                        command=str((pending.get("input") or {}).get("command") or "")[:200],
+                                        command=str(
+                                            (pending.get("input") or {}).get("command") or ""
+                                        )[:200],
                                         exit_code=block.get("exit_code"),
                                         stdout=stdout,
                                         stderr=stderr,
@@ -361,7 +386,9 @@ class ClaudeImporter:
                                     path = str(inp.get("file_path") or inp.get("path") or "")
                                     diff = _infer_file_edit_diff(name, inp, res_txt)
                                     if diff:
-                                        files_touched[idx] = FileEditRecord(path=path, diff=diff[:4096], event="edit")
+                                        files_touched[idx] = FileEditRecord(
+                                            path=path, diff=diff[:4096], event="edit"
+                                        )
                 elif ev_type == "assistant":
                     # Capture performance telemetry
                     perf = ev.get("performance") or {}
@@ -385,7 +412,9 @@ class ClaudeImporter:
                         input_tokens=int(usage.get("input_tokens", 0) or 0),
                         output_tokens=int(usage.get("output_tokens", 0) or 0),
                         cached_input_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
-                        cache_creation_input_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
+                        cache_creation_input_tokens=int(
+                            usage.get("cache_creation_input_tokens", 0) or 0
+                        ),
                         thinking_tokens=int(usage.get("thinking_tokens", 0) or 0),
                         source_type="claude.assistant",
                         source_id=msg_id,
@@ -397,7 +426,9 @@ class ClaudeImporter:
                         else:
                             orphan_usage_entries.append(usage_entry)
                     content = msg.get("content") or []
-                    calls = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
+                    calls = [
+                        b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"
+                    ]
                     if calls:
                         in_t = int(usage.get("input_tokens", 0) or 0)
                         out_t = int(usage.get("output_tokens", 0) or 0)
@@ -437,7 +468,9 @@ class ClaudeImporter:
                                     diff = _infer_file_edit_diff(name, inp)
                                     if diff:
                                         files_touched.append(
-                                            FileEditRecord(path=fp_str, diff=diff[:4096], event="edit")
+                                            FileEditRecord(
+                                                path=fp_str, diff=diff[:4096], event="edit"
+                                            )
                                         )
                                     else:
                                         files_touched.append(fp_str)
@@ -506,6 +539,7 @@ class ClaudeImporter:
             created_at=created_at,
         )
         self.store.record_trace(trace, write_json=False)
+        persist_imported_run_snapshot(self.store, trace, started_at=created_at, ended_at=updated_at)
 
         # Best-effort: snapshot current on-disk state of every edited file
         ft = [r for r in files_touched if isinstance(r, FileEditRecord)]

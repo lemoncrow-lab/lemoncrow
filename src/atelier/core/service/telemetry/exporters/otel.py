@@ -65,7 +65,7 @@ def _apply_silence() -> None:
             logger.addFilter(_sdk_noise_filter)
         return logger
 
-    logging.getLogger = _silencing_get_logger  # type: ignore[misc]
+    logging.getLogger = _silencing_get_logger
 
 
 _apply_silence()

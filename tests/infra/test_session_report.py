@@ -101,6 +101,7 @@ def _model_rec_event(
 # _derive_vendor                                                               #
 # --------------------------------------------------------------------------- #
 
+
 def test_derive_vendor_anthropic() -> None:
     assert _derive_vendor({"claude-haiku-4-5": 10}) == "Anthropic"
 
@@ -124,6 +125,7 @@ def test_derive_vendor_empty() -> None:
 # --------------------------------------------------------------------------- #
 # _read_routing_savings                                                        #
 # --------------------------------------------------------------------------- #
+
 
 def test_read_routing_savings_empty() -> None:
     downtiered, saved = _read_routing_savings([])
@@ -153,6 +155,7 @@ def test_read_routing_savings_zero_saved_not_counted() -> None:
 # _read_compact_savings                                                        #
 # --------------------------------------------------------------------------- #
 
+
 def test_read_compact_savings_no_file(tmp_path: Path) -> None:
     count, saved = _read_compact_savings("xyz", tmp_path)
     assert count == 0
@@ -162,9 +165,12 @@ def test_read_compact_savings_no_file(tmp_path: Path) -> None:
 def test_read_compact_savings_filters_by_session_id(tmp_path: Path) -> None:
     jl = tmp_path / "live_savings_events.jsonl"
     jl.write_text(
-        json.dumps({"session_id": "abc", "lever": "session_compaction", "cost_saved_usd": 0.10}) + "\n"
-        + json.dumps({"session_id": "xyz", "lever": "session_compaction", "cost_saved_usd": 0.20}) + "\n"
-        + json.dumps({"session_id": "abc", "lever": "model_routing", "cost_saved_usd": 0.30}) + "\n",
+        json.dumps({"session_id": "abc", "lever": "session_compaction", "cost_saved_usd": 0.10})
+        + "\n"
+        + json.dumps({"session_id": "xyz", "lever": "session_compaction", "cost_saved_usd": 0.20})
+        + "\n"
+        + json.dumps({"session_id": "abc", "lever": "model_routing", "cost_saved_usd": 0.30})
+        + "\n",
         encoding="utf-8",
     )
     count, saved = _read_compact_savings("abc", tmp_path)
@@ -175,8 +181,10 @@ def test_read_compact_savings_filters_by_session_id(tmp_path: Path) -> None:
 def test_read_compact_savings_multiple_events(tmp_path: Path) -> None:
     jl = tmp_path / "live_savings_events.jsonl"
     jl.write_text(
-        json.dumps({"session_id": "s1", "lever": "session_compaction", "cost_saved_usd": 0.15}) + "\n"
-        + json.dumps({"session_id": "s1", "lever": "session_compaction", "cost_saved_usd": 0.25}) + "\n",
+        json.dumps({"session_id": "s1", "lever": "session_compaction", "cost_saved_usd": 0.15})
+        + "\n"
+        + json.dumps({"session_id": "s1", "lever": "session_compaction", "cost_saved_usd": 0.25})
+        + "\n",
         encoding="utf-8",
     )
     count, saved = _read_compact_savings("s1", tmp_path)
@@ -187,6 +195,7 @@ def test_read_compact_savings_multiple_events(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # build_report — empty session                                                 #
 # --------------------------------------------------------------------------- #
+
 
 def test_build_report_empty_session(tmp_path: Path) -> None:
     snap = _make_snapshot()
@@ -207,6 +216,7 @@ def test_build_report_empty_session(tmp_path: Path) -> None:
 # build_report — multi-model session                                           #
 # --------------------------------------------------------------------------- #
 
+
 def test_build_report_multi_model(tmp_path: Path) -> None:
     calls = [
         _llm_call(model="claude-sonnet-4-6", input_tokens=5000, cost_usd=0.015),
@@ -219,6 +229,7 @@ def test_build_report_multi_model(tmp_path: Path) -> None:
     assert report.total_turns == 3
     assert report.models_used["claude-sonnet-4-6"] == 2
     assert report.models_used["claude-haiku-4-5"] == 1
+    assert report.started_model == "claude-sonnet-4-6"
     assert report.vendor == "Anthropic"
     assert abs(report.total_cost_usd - 0.031) < 1e-6
 
@@ -226,6 +237,7 @@ def test_build_report_multi_model(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # build_report — no tool calls                                                 #
 # --------------------------------------------------------------------------- #
+
 
 def test_build_report_no_tool_calls(tmp_path: Path) -> None:
     calls = [_llm_call(cost_usd=0.005)]
@@ -238,6 +250,7 @@ def test_build_report_no_tool_calls(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # build_report — ongoing session                                               #
 # --------------------------------------------------------------------------- #
+
 
 def test_build_report_ongoing_session(tmp_path: Path) -> None:
     snap = _make_snapshot(status="running")
@@ -257,6 +270,7 @@ def test_build_report_completed_session(tmp_path: Path) -> None:
 # build_report — routing + compact savings                                     #
 # --------------------------------------------------------------------------- #
 
+
 def test_build_report_routing_savings(tmp_path: Path) -> None:
     events = [
         _model_rec_event(cost_saved_usd=0.08),
@@ -272,7 +286,8 @@ def test_build_report_routing_savings(tmp_path: Path) -> None:
 def test_build_report_compact_savings(tmp_path: Path) -> None:
     jl = tmp_path / "live_savings_events.jsonl"
     jl.write_text(
-        json.dumps({"session_id": "abc123", "lever": "session_compaction", "cost_saved_usd": 0.30}) + "\n",
+        json.dumps({"session_id": "abc123", "lever": "session_compaction", "cost_saved_usd": 0.30})
+        + "\n",
         encoding="utf-8",
     )
     snap = _make_snapshot()
@@ -286,7 +301,8 @@ def test_build_report_compact_savings(tmp_path: Path) -> None:
 def test_build_report_total_savings_combined(tmp_path: Path) -> None:
     jl = tmp_path / "live_savings_events.jsonl"
     jl.write_text(
-        json.dumps({"session_id": "abc123", "lever": "session_compaction", "cost_saved_usd": 0.20}) + "\n",
+        json.dumps({"session_id": "abc123", "lever": "session_compaction", "cost_saved_usd": 0.20})
+        + "\n",
         encoding="utf-8",
     )
     events = [_model_rec_event(cost_saved_usd=0.10)]
@@ -300,6 +316,7 @@ def test_build_report_total_savings_combined(tmp_path: Path) -> None:
 # build_report — zero cost (synthetic session)                                 #
 # --------------------------------------------------------------------------- #
 
+
 def test_build_report_zero_cost_no_crash(tmp_path: Path) -> None:
     snap = _make_snapshot(calls=[], events=[])
     report = build_report(snap, tmp_path)
@@ -311,6 +328,7 @@ def test_build_report_zero_cost_no_crash(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # load_report                                                                  #
 # --------------------------------------------------------------------------- #
+
 
 def test_load_report_missing_returns_none(tmp_path: Path) -> None:
     result = load_report("nonexistent_session_id", tmp_path)
@@ -331,6 +349,7 @@ def test_load_report_reads_run_file(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # list_run_files                                                               #
 # --------------------------------------------------------------------------- #
+
 
 def test_list_run_files_empty_dir(tmp_path: Path) -> None:
     files = list_run_files(tmp_path)
@@ -362,6 +381,7 @@ def test_list_run_files_since_filter(tmp_path: Path) -> None:
 # render_text                                                                  #
 # --------------------------------------------------------------------------- #
 
+
 def test_render_text_includes_session_id(tmp_path: Path) -> None:
     snap = _make_snapshot(session_id="deadbeef1234")
     report = build_report(snap, tmp_path)
@@ -387,6 +407,7 @@ def test_render_text_cost_values(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # render_json                                                                  #
 # --------------------------------------------------------------------------- #
+
 
 def test_render_json_valid(tmp_path: Path) -> None:
     snap = _make_snapshot()

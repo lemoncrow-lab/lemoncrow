@@ -62,7 +62,7 @@ def import_files(
 
     resolved_domain = domain or _DEFAULT_DOMAIN
     files = collect_markdown_files(paths)
-    active_embedder = embedder
+    active_embedder = embedder or NullEmbedder()
     existing_blocks = store.list_blocks(domain=resolved_domain, include_deprecated=True) if store else []
     existing_vectors = _embed_existing_blocks(existing_blocks, active_embedder)
     candidates: list[LessonCandidate] = []
@@ -236,7 +236,7 @@ def _candidate_from_response(
     *,
     chunk: MarkdownChunk,
     domain: str,
-    embedder: Embedder,
+    embedder: Embedder | None,
     existing_vectors: list[tuple[ReasonBlock, list[float]]],
 ) -> LessonCandidate | None:
     data = _response_dict(response)
@@ -264,7 +264,8 @@ def _candidate_from_response(
         failure_signals=[],
         when_not_to_apply="When the imported source no longer represents current team policy.",
     )
-    embedding = _embed_block(block, embedder)
+    embedder_local = embedder or NullEmbedder()
+    embedding = _embed_block(block, embedder_local)
     near_duplicates = _near_duplicates(block, embedding, existing_vectors)
     fingerprint = _fingerprint(chunk=chunk, body=body)
     return LessonCandidate(
@@ -282,7 +283,7 @@ def _candidate_from_response(
             "near_duplicates": near_duplicates,
         },
         embedding=embedding,
-        embedding_provenance=getattr(embedder, "name", embedder.__class__.__name__),
+        embedding_provenance=getattr(embedder_local, "name", embedder_local.__class__.__name__),
         confidence=confidence,
     )
 
@@ -297,10 +298,11 @@ def _response_dict(response: str | dict[str, Any]) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {"procedural": False}
 
 
-def _embed_existing_blocks(blocks: list[ReasonBlock], embedder: Embedder) -> list[tuple[ReasonBlock, list[float]]]:
+def _embed_existing_blocks(blocks: list[ReasonBlock], embedder: Embedder | None) -> list[tuple[ReasonBlock, list[float]]]:
+    embedder_local = embedder or NullEmbedder()
     out: list[tuple[ReasonBlock, list[float]]] = []
     for block in blocks:
-        out.append((block, _embed_block(block, embedder)))
+        out.append((block, _embed_block(block, embedder_local)))
     return out
 
 

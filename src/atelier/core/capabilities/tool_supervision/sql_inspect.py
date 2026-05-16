@@ -42,6 +42,11 @@ class SqlInspectCapability:
             root = default_store_root()
         self._root = Path(root)
 
+    @property
+    def root(self) -> Path:
+        """Repository root as a Path."""
+        return self._root
+
     def inspect(
         self,
         *,

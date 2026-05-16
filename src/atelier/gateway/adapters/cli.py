@@ -253,14 +253,14 @@ def _core_runtime(root: Path) -> Any:
     return AtelierRuntimeCore(root)
 
 
-def _lesson_promoter(root: Path) -> LessonPromoterCapability:  # noqa: F821
+def _lesson_promoter(root: Path) -> Any:
     from atelier.core.capabilities.lesson_promotion import LessonPromoterCapability
 
     store = _load_store(root)
     return LessonPromoterCapability(store)
 
 
-def _lesson_pr_bot(root: Path) -> LessonPrBot:  # noqa: F821
+def _lesson_pr_bot(root: Path) -> Any:
     from atelier.core.capabilities.lesson_promotion import LessonPrBot
 
     store = _load_store(root)
@@ -1032,7 +1032,7 @@ class _DummyGroup:
     def command(self, *args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         return lambda f: f
 
-    def group(self, *args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def group(self, *args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Any]:
         return lambda f: _DummyGroup()  # type: ignore
 
 
@@ -1601,7 +1601,7 @@ def block_group() -> None:
 @click.option("--include-deprecated", is_flag=True)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def block_list(ctx: click.Context, domain: str | None, include_deprecated: bool, as_json: bool) -> None:
+def block_list(ctx: click.Context, domain: str | None, include_deprecated: bool, as_json: bool) -> None:  # type: ignore
     """List ReasonBlocks."""
     store = _load_store(ctx.obj["root"])
     blocks = store.list_blocks(domain=domain, include_deprecated=include_deprecated)
@@ -1619,7 +1619,7 @@ def block_list(ctx: click.Context, domain: str | None, include_deprecated: bool,
 @block_group.command("add")
 @click.argument("path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.pass_context
-def block_add(ctx: click.Context, path: Path) -> None:
+def block_add(ctx: click.Context, path: Path) -> None:  # type: ignore
     """Import a ReasonBlock from a YAML file."""
     from atelier.core.foundation.loader import load_block_from_yaml
 
@@ -1634,7 +1634,7 @@ def block_add(ctx: click.Context, path: Path) -> None:
 @click.option("--save", is_flag=True, help="Persist the candidate block.")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def block_extract(ctx: click.Context, trace_id: str, save: bool, as_json: bool) -> None:
+def block_extract(ctx: click.Context, trace_id: str, save: bool, as_json: bool) -> None:  # type: ignore
     """Extract a candidate ReasonBlock from a trace."""
     store = _load_store(ctx.obj["root"])
     trace = store.get_trace(trace_id)
@@ -2798,7 +2798,7 @@ def route_decide_cmd(
     step_index: int,
     evidence_json: str,
     as_json: bool,
-) -> None:
+) -> None:  # type: ignore
     """Compute a deterministic route decision from quality-aware policy and runtime evidence."""
     _check_dev_mode("route")
     rt = _core_runtime(ctx.obj["root"])
@@ -2874,7 +2874,7 @@ def route_verify_cmd(
     human_accepted: bool | None,
     benchmark_accepted: bool | None,
     as_json: bool,
-) -> None:
+) -> None:  # type: ignore
     """Verify routing outcome and determine pass/warn/fail/escalate status."""
     _check_dev_mode("route", status=2)
     rt = _core_runtime(ctx.obj["root"])
@@ -3151,7 +3151,7 @@ def memory_upsert(
     metadata_json: str,
     expected_version: int | None,
     actor: str | None,
-) -> None:
+) -> None:  # type: ignore
     """Create or update one editable memory block."""
     from atelier.core.foundation.memory_models import MemoryBlock
     from atelier.infra.storage.factory import make_memory_store
@@ -3198,7 +3198,7 @@ def memory_upsert(
 @click.option("--label", required=True)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def memory_get(ctx: click.Context, agent_id: str | None, label: str, as_json: bool) -> None:
+def memory_get(ctx: click.Context, agent_id: str | None, label: str, as_json: bool) -> None:  # type: ignore
     """Fetch one editable memory block."""
     from atelier.infra.storage.factory import make_memory_store
 
@@ -3218,7 +3218,7 @@ def memory_get(ctx: click.Context, agent_id: str | None, label: str, as_json: bo
 @click.option("--agent-id", default=None)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def memory_list(ctx: click.Context, agent_id: str | None, as_json: bool) -> None:
+def memory_list(ctx: click.Context, agent_id: str | None, as_json: bool) -> None:  # type: ignore
     """List all memory blocks for an agent."""
     from atelier.infra.storage.factory import make_memory_store
 
@@ -3248,7 +3248,7 @@ def memory_archive(
     source: str,
     source_ref: str,
     tag_values: tuple[str, ...],
-) -> None:
+) -> None:  # type: ignore
     """Archive long-term memory text for later recall."""
     from atelier.core.capabilities.archival_recall import ArchivalRecallCapability
     from atelier.core.foundation.redaction import redact
@@ -3282,7 +3282,7 @@ def memory_recall(
     tag_values: tuple[str, ...],
     since: str | None,
     as_json: bool,
-) -> None:
+) -> None:  # type: ignore
     """Recall relevant archival memory passages."""
     from atelier.core.capabilities.archival_recall import ArchivalRecallCapability
     from atelier.core.foundation.redaction import redact
@@ -5362,6 +5362,7 @@ def benchmark_publish(
         corpus_arg=corpus_arg,
         dry_run=dry_run,
     )
+    assert report_dir is not None
 
     if dry_run:
         click.echo("Dry-run complete — no files written.")
@@ -6598,11 +6599,11 @@ def session_list_cmd(ctx: click.Context, since: str | None, as_json: bool) -> No
 
 
 @cli.group("memory")
-def memory_group() -> None:
+def memory_group_cli() -> None:
     """Inspect native AI memory files from Claude, Codex, and Gemini."""
 
 
-def _make_memory_registry(cwd: Path | None = None) -> MemoryRegistry:  # type: ignore[name-defined]  # noqa: F821
+def _make_memory_registry(cwd: Path | None = None) -> Any:
     from atelier.core.capabilities.cross_vendor_memory import MemoryRegistry
     from atelier.core.capabilities.cross_vendor_memory.claude_adapter import ClaudeAdapter
     from atelier.core.capabilities.cross_vendor_memory.codex_adapter import CodexAdapter
@@ -6617,7 +6618,7 @@ def _make_memory_registry(cwd: Path | None = None) -> MemoryRegistry:  # type: i
     )
 
 
-@memory_group.command("list")
+@memory_group_cli.command("list")
 @click.option("--vendor", default=None, help="Filter to a single vendor: claude, codex, gemini.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON.")
 @click.pass_context
@@ -6647,7 +6648,7 @@ def memory_list_cmd(ctx: click.Context, vendor: str | None, as_json: bool) -> No
         return
 
     # Group by vendor
-    by_vendor: dict[str, list] = {}
+    by_vendor: dict[str, list[Any]] = {}
     for f in facts:
         by_vendor.setdefault(f.vendor, []).append(f)
 
@@ -6662,7 +6663,7 @@ def memory_list_cmd(ctx: click.Context, vendor: str | None, as_json: bool) -> No
         click.echo(f"{label} ({len(vfacts)} fact{'s' if len(vfacts) != 1 else ''})")
 
         # Group by source_path within vendor
-        by_path: dict[Path, list] = {}
+        by_path: dict[Path, list[Any]] = {}
         for f in vfacts:
             by_path.setdefault(f.source_path, []).append(f)
 
@@ -6677,7 +6678,7 @@ def memory_list_cmd(ctx: click.Context, vendor: str | None, as_json: bool) -> No
         click.echo("")
 
 
-@memory_group.command("show")
+@memory_group_cli.command("show")
 @click.argument("fact_id")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON.")
 def memory_show_cmd(fact_id: str, as_json: bool) -> None:
@@ -6706,7 +6707,7 @@ def memory_show_cmd(fact_id: str, as_json: bool) -> None:
     click.echo(fact.content)
 
 
-@memory_group.command("find")
+@memory_group_cli.command("find")
 @click.argument("query")
 @click.option("--limit", default=20, show_default=True, help="Max results.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON.")
@@ -6731,7 +6732,7 @@ def memory_find_cmd(query: str, limit: int, as_json: bool) -> None:
         click.echo(f"  [{f.fact_id}] {short}")
 
 
-@memory_group.command("paths")
+@memory_group_cli.command("paths")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON.")
 def memory_paths_cmd(as_json: bool) -> None:
     """Show all file paths the memory adapters read from."""

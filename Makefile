@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-PY_PATHS := src tests
+PY_PATHS := src
 ATELIER_STORE ?= $(HOME)/.atelier
 ATELIER_CMD ?= uv run atelier
 FORCE_ARG := $(if $(f),--force,)

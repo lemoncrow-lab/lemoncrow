@@ -132,7 +132,8 @@ class DroidImporter:
                 if not isinstance(block, dict) or block.get("type") != "tool_use":
                     continue
                 name = str(block.get("name") or "unknown")
-                arguments = block.get("input") if isinstance(block.get("input"), dict) else {}
+                input_obj = block.get("input")
+                arguments: dict[str, Any] = dict(input_obj) if isinstance(input_obj, dict) else {}
                 command = str(arguments.get("command") or "").strip()
                 if command:
                     arguments = {**arguments, "command": command.splitlines()[0]}

@@ -25,6 +25,7 @@ const sampleTraces: TraceListResponse = {
     {
       id: "abc123def456ghi",
       agent: "anthropic",
+      model: "claude-3-5-sonnet",
       task: "Fix login bug",
       status: "completed",
       files_touched: [],
@@ -54,6 +55,8 @@ const sampleSessions: SessionSummary[] = [
     duration_seconds: 1800,
     active_duration_seconds: 1500,
     vendor: "anthropic",
+    started_model: "claude-3-5-sonnet",
+    cost_status: "estimated",
     total_turns: 10,
     total_cost_usd: 0.42,
     total_atelier_savings_usd: 0.1,
@@ -109,8 +112,46 @@ describe("Sessions page", () => {
     renderSessions();
     // Task text from the trace item
     expect(await screen.findByText("Fix login bug")).toBeInTheDocument();
+    expect(screen.getByText("claude-3-5-sonnet")).toBeInTheDocument();
+    expect(screen.getByLabelText("Status: completed")).toBeInTheDocument();
+    expect(screen.queryByText("Estimated from tokens")).not.toBeInTheDocument();
     // $0.42 appears in summary MetricCards
     expect(screen.getAllByText("$0.420").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("requests traces for the active time window", async () => {
+    const fetchSpy = mockFetch({
+      "/api/traces": jsonResponse(sampleTraces),
+      "/api/v1/sessions": jsonResponse(sampleSessions),
+    });
+    renderSessions();
+    await screen.findByText("Fix login bug");
+    expect(
+      fetchSpy.mock.calls.some(
+        ([input]) =>
+          String(input).includes("/api/traces?") &&
+          String(input).includes("days=7")
+      )
+    ).toBe(true);
+  });
+
+  it("falls back to trace token counts when summary tokens are zero", async () => {
+    mockFetch({
+      "/api/traces": jsonResponse(sampleTraces),
+      "/api/v1/sessions": jsonResponse([
+        {
+          ...sampleSessions[0],
+          input_tokens: 0,
+          output_tokens: 0,
+          cached_input_tokens: 0,
+        },
+      ]),
+    });
+    renderSessions();
+    expect(await screen.findByText("Fix login bug")).toBeInTheDocument();
+    expect(screen.getAllByText("500").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("200").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("100").length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows empty state when no sessions", async () => {

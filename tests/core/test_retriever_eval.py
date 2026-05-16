@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from click.testing import CliRunner
 
 from atelier.core.foundation.models import ReasonBlock

@@ -101,6 +101,7 @@ export interface Trace {
   id: string;
   session_id?: string;
   agent: string;
+  model?: string;
   host?: string;
   domain?: string;
   task: string;
@@ -136,9 +137,11 @@ export interface ConversationEntry {
   at: string;
   summary: string;
   content?: string;
+  model?: string;
   tokens?: Record<string, number>;
   raw?: any;
   cost?: number;
+  count?: number;
   path?: string;
   diff?: string;
   tool_name?: string;
@@ -178,6 +181,7 @@ export interface SessionArtifact {
   source: string;
   kind: string;
   relative_path: string;
+  label?: string;
   source_path?: string | null;
   scope: string;
 }
@@ -926,6 +930,8 @@ export interface SessionSummary {
   duration_seconds: number;
   active_duration_seconds: number;
   vendor: string;
+  started_model?: string | null;
+  cost_status?: "recorded" | "estimated" | "unavailable";
   agent_settings?: Record<string, any>;
   skills?: string[];
   telemetry?: Record<string, any>;

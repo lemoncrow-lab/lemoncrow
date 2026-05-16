@@ -221,9 +221,9 @@ class RuntimeSession:
             from atelier.core.service.telemetry import emit_product
 
             for alert in alerts:
-                if alert.monitor == "repeated_command_failure":
+                if alert.watchdog == "repeated_command_failure":
                     emit_product("frustration_signal_behavioral", signal_type="retry_burst")
-                elif alert.monitor == "known_dead_end":
+                elif alert.watchdog == "known_dead_end":
                     emit_product("frustration_signal_behavioral", signal_type="repeated_dead_end")
         return alerts
 
