@@ -1032,8 +1032,8 @@ class _DummyGroup:
     def command(self, *args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         return lambda f: f
 
-    def group(self, *args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        return lambda f: f
+    def group(self, *args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Any]:
+        return lambda f: _DummyGroup()  # type: ignore
 
 
 MCP_TOOL_ONLY_COMMANDS = frozenset({"context", "rescue", "verify", "read", "edit", "search"})
@@ -1049,13 +1049,13 @@ def _dev_command(name: str | None = None, **kwargs: Any) -> Callable[[Callable[.
     return lambda f: f
 
 
-def _dev_group(name: str | None = None, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def _dev_group(name: str | None = None, **kwargs: Any) -> Callable[[Callable[..., Any]], Any]:
     """Decorator to register a group ONLY if ATELIER_DEV_MODE is enabled."""
     if name in MCP_TOOL_ONLY_GROUPS:
-        return lambda f: f
+        return lambda f: _DummyGroup()
     if is_dev_mode():
         return cli.group(name, **kwargs)
-    return lambda f: f
+    return lambda f: _DummyGroup()
 
 
 @_dev_command("reembed")
