@@ -7,13 +7,22 @@ from typing import Any
 
 from atelier.core.capabilities.repo_map.budget import count_tokens
 
+FROZEN_DROP_STAGES = (
+    "drop_optional_below_top3",
+    "drop_optional_top3",
+    "drop_non_essential_below_top3",
+    "drop_trailing_items",
+    "drop_non_essential_top3",
+)
+PROTECTED_TOP_RANK = 3
+
 
 def _token_count(items: list[dict[str, Any]]) -> int:
     return count_tokens(json.dumps(items, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str))
 
 
 class BudgetPacker:
-    """Pack ranked JSON items into a token budget while preserving top essentials."""
+    """Pack ranked JSON items into a token budget using the frozen M12 drop order."""
 
     def pack(
         self,
@@ -32,7 +41,7 @@ class BudgetPacker:
         if token_count <= budget_tokens:
             return working, dropped_count, token_count
 
-        keep_top = min(3, len(working))
+        keep_top = min(PROTECTED_TOP_RANK, len(working))
         for key in optional_keys_in_drop_order:
             for start, stop in ((keep_top, len(working)), (0, keep_top)):
                 changed = False
@@ -74,4 +83,4 @@ class BudgetPacker:
         return working, dropped_count, token_count
 
 
-__all__ = ["BudgetPacker"]
+__all__ = ["BudgetPacker", "FROZEN_DROP_STAGES", "PROTECTED_TOP_RANK"]

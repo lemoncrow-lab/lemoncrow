@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from atelier.core.capabilities.code_context.budget import BudgetPacker
+from atelier.core.capabilities.code_context.budget import BudgetPacker, FROZEN_DROP_STAGES, PROTECTED_TOP_RANK
 from atelier.core.capabilities.code_context.cache import RetrievalCache
 from atelier.core.capabilities.code_context.intel_store import SymbolIntelStore
 from atelier.core.capabilities.code_context.models import (
@@ -96,6 +96,17 @@ _CONTEXT_ESSENTIAL_KEYS = [
 _IMPACT_ESSENTIAL_KEYS = ["file_path", "direct_importers", "affected_tests", "risk_level", "provenance"]
 _PATTERN_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column", "captures"]
 _PATTERN_OPTIONAL_KEYS = ["snippet"]
+_CACHE_STATUS_ESSENTIAL_KEYS = ["repo_id", "index_version", "entry_count", "entries_by_tool", "total_bytes", "max_bytes"]
+_CACHE_INVALIDATE_ESSENTIAL_KEYS = ["repo_id", "index_version", "invalidated_entries", "entries_by_tool", "scope"]
+_CACHE_TOOL_ALIASES = {
+    "all": None,
+    "search": "code.search",
+    "symbol": "code.symbol",
+    "outline": "code.outline",
+    "context": "code.context",
+    "impact": "code.impact",
+    "pattern": "code.pattern",
+}
 
 
 def _canonical_json(value: Any) -> str:
@@ -538,6 +549,12 @@ class CodeContextEngine:
                 result = adapter.search(pattern=pattern, language=language, file_glob=file_glob, limit=limit)
             except AstGrepToolUnavailable as exc:
                 return exc.payload
+            if len(result.matches) > limit:
+                result = PatternSearchResult(
+                    matches=result.matches[:limit],
+                    truncated=True,
+                    total_matches=result.total_matches if result.total_matches is not None else len(result.matches),
+                )
             payload = self._pack_pattern_matches(
                 result,
                 budget_tokens=budget_tokens,
@@ -558,6 +575,57 @@ class CodeContextEngine:
         if not dry_run and rewrite_result.files_changed:
             self._reindex_files(rewrite_result.files_changed)
         return self._pack_pattern_rewrite(rewrite_result, budget_tokens=budget_tokens)
+
+    def tool_cache_status(
+        self,
+        *,
+        cache_tool: str | None = None,
+        budget_tokens: int = 4000,
+    ) -> dict[str, Any]:
+        tool_name = self._normalize_cache_tool(cache_tool)
+        payload = {
+            "repo_id": self.repo_id,
+            "index_version": self._current_index_version(),
+            **self._cache.stats(
+                repo_id=self.repo_id,
+                index_version=self._current_index_version(),
+                tool_name=tool_name,
+            ),
+            "scope": {
+                "cache_tool": cache_tool or "all",
+                "tool_name": tool_name,
+                "frozen_drop_stages": list(FROZEN_DROP_STAGES),
+            },
+            "provenance": _LOCAL_PROVENANCE,
+        }
+        return self._pack_single_payload(
+            payload,
+            budget_tokens=budget_tokens,
+            essential_keys=_CACHE_STATUS_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=["last_hit_at", "scope"],
+        )
+
+    def tool_cache_invalidate(
+        self,
+        *,
+        cache_tool: str | None = None,
+        budget_tokens: int = 4000,
+    ) -> dict[str, Any]:
+        tool_name = self._normalize_cache_tool(cache_tool)
+        index_version = self._current_index_version()
+        invalidated = self._cache.invalidate(repo_id=self.repo_id, index_version=index_version, tool_name=tool_name)
+        return self._pack_single_payload(
+            {
+                "repo_id": self.repo_id,
+                "index_version": index_version,
+                **invalidated,
+                "scope": {"cache_tool": cache_tool or "all", "tool_name": tool_name},
+                "provenance": _LOCAL_PROVENANCE,
+            },
+            budget_tokens=budget_tokens,
+            essential_keys=_CACHE_INVALIDATE_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=[],
+        )
 
     def search_symbols(
         self,
@@ -1418,6 +1486,7 @@ class CodeContextEngine:
         essential_keys: list[str],
         optional_keys_in_drop_order: list[str],
         build_payload: Callable[[list[dict[str, Any]]], dict[str, Any]],
+        enforce_protected_top_rank: bool = True,
     ) -> dict[str, Any]:
         minimal_items, _, _ = self._budget.pack(
             items,
@@ -1425,6 +1494,15 @@ class CodeContextEngine:
             essential_keys=essential_keys,
             optional_keys_in_drop_order=optional_keys_in_drop_order,
         )
+        protected_items = minimal_items[: min(PROTECTED_TOP_RANK, len(minimal_items))]
+        protected_payload = build_payload(protected_items)
+        if enforce_protected_top_rank and protected_items and protected_payload["total_tokens"] > budget_tokens:
+            return self._budget_error_payload(
+                budget_tokens=budget_tokens,
+                minimum_required_tokens=int(protected_payload["total_tokens"]),
+                provenance=str(protected_payload.get("provenance") or _LOCAL_PROVENANCE),
+            )
+
         best_payload = build_payload(minimal_items)
         if best_payload["total_tokens"] > budget_tokens:
             for end in range(len(minimal_items) - 1, -1, -1):
@@ -1451,6 +1529,25 @@ class CodeContextEngine:
                 high = mid - 1
 
         return best_payload
+
+    def _budget_error_payload(
+        self,
+        *,
+        budget_tokens: int,
+        minimum_required_tokens: int,
+        provenance: str,
+    ) -> dict[str, Any]:
+        return self._finalize_packed_payload(
+            {
+                "error": "budget_too_small",
+                "message": "budget_tokens cannot fit the protected top-ranked essentials",
+                "budget_tokens": budget_tokens,
+                "minimum_required_tokens": minimum_required_tokens,
+                "cache_hit": False,
+                "provenance": provenance,
+            },
+            full_total_tokens=max(minimum_required_tokens, 0),
+        )
 
     def _pack_items_payload(
         self,
@@ -1575,6 +1672,7 @@ class CodeContextEngine:
             essential_keys=[*essential_keys, "cache_hit", "tokens_saved", "provenance"],
             optional_keys_in_drop_order=optional_keys_in_drop_order,
             build_payload=build_payload,
+            enforce_protected_top_rank=False,
         )
 
     def _mark_cache_hit(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1583,6 +1681,13 @@ class CodeContextEngine:
         cached["provenance"] = "cached"
         cached["total_tokens"] = self._compute_total_tokens(cached)
         return cached
+
+    def _normalize_cache_tool(self, cache_tool: str | None) -> str | None:
+        normalized = (cache_tool or "all").strip().lower()
+        if normalized not in _CACHE_TOOL_ALIASES:
+            choices = ", ".join(sorted(_CACHE_TOOL_ALIASES))
+            raise ValueError(f"cache_tool must be one of: {choices}")
+        return _CACHE_TOOL_ALIASES[normalized]
 
     def _attach_snippet(
         self,

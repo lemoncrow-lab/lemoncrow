@@ -1913,7 +1913,7 @@ def _code_context_engine(repo_root: str = ".") -> Any:
 
 @mcp_tool(name="code", is_dev=True)
 def tool_code(
-    op: Literal["index", "search", "symbol", "outline", "context", "impact", "pattern"],
+    op: Literal["index", "search", "symbol", "outline", "context", "impact", "pattern", "cache_status", "cache_invalidate"],
     repo_root: str = ".",
     include_globs: list[str] | None = None,
     exclude_globs: list[str] | None = None,
@@ -1936,6 +1936,7 @@ def tool_code(
     budget_tokens: int = 4000,
     max_symbols: int = 8,
     dry_run: bool = True,
+    cache_tool: Literal["all", "search", "symbol", "outline", "context", "impact", "pattern"] | None = None,
 ) -> dict[str, Any]:
     """Index, search, inspect, outline, pack, or analyze code context."""
     engine = _code_context_engine(repo_root)
@@ -2014,6 +2015,16 @@ def tool_code(
                 budget_tokens=budget_tokens,
             ),
         )
+
+    if op == "cache_status":
+        if cache_tool is None:
+            return cast(dict[str, Any], engine.tool_cache_status(budget_tokens=budget_tokens))
+        return cast(dict[str, Any], engine.tool_cache_status(cache_tool=cache_tool, budget_tokens=budget_tokens))
+
+    if op == "cache_invalidate":
+        if cache_tool is None:
+            return cast(dict[str, Any], engine.tool_cache_invalidate(budget_tokens=budget_tokens))
+        return cast(dict[str, Any], engine.tool_cache_invalidate(cache_tool=cache_tool, budget_tokens=budget_tokens))
 
     if not file_path:
         raise ValueError("file_path is required for code impact")

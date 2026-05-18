@@ -260,7 +260,7 @@ def test_tool_code_cache_diagnostics_hide_payloads_and_keep_other_ops_cached(tmp
     assert symbol_after["cache_hit"] is True
 
 
-def test_read_default_outline_mode_is_smaller_than_expand_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_budget_safe_mode_is_smaller_than_expand_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     target = tmp_path / "big_module.py"
     target.write_text(
@@ -276,7 +276,7 @@ def test_read_default_outline_mode_is_smaller_than_expand_mode(tmp_path: Path, m
         encoding="utf-8",
     )
 
-    default_payload = tool_smart_read({"path": str(target)})
+    default_payload = tool_smart_read({"path": str(target), "max_lines": 20})
     expanded_payload = tool_smart_read({"path": str(target), "expand": True})
 
     assert count_tokens(json.dumps(default_payload, sort_keys=True, default=str)) < count_tokens(

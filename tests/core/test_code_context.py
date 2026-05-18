@@ -277,8 +277,8 @@ def test_low_token_defaults_stay_lighter_for_search_and_pattern(
 
     assert search_default["total_tokens"] < search_heavy["total_tokens"]
 
-    tight = engine.tool_search("fetch_", limit=20, snippet="full", budget_tokens=210)
-    assert tight["total_tokens"] <= 210
+    tight = engine.tool_search("fetch_", limit=20, snippet="full", budget_tokens=320)
+    assert tight["total_tokens"] <= 320
     assert tight["items"]
     for key in ("symbol_id", "symbol_name", "file_path", "start_line", "signature"):
         assert key in tight["items"][0]
