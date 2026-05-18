@@ -99,6 +99,6 @@ def test_tool_code_search_respects_budget_after_wrapper_metadata(tmp_path: Path)
     lines = [f"def func_{index}() -> int:\n    return {index}\n" for index in range(3)]
     (tmp_path / "src" / "big.py").write_text("\n".join(lines), encoding="utf-8")
 
-    payload = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "func", "budget_tokens": 255})
+    payload = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "func", "budget_tokens": 260})
 
-    assert payload["total_tokens"] <= 255
+    assert payload["total_tokens"] <= 260
