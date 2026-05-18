@@ -32,6 +32,13 @@ from atelier.core.capabilities.repo_map.budget import count_tokens
 from atelier.core.capabilities.repo_map.graph import iter_source_files
 from atelier.core.foundation.paths import default_store_root
 from atelier.core.service.telemetry import emit_product_local
+from atelier.infra.code_intel.astgrep import (
+    AstGrepAdapter,
+    AstGrepToolUnavailable,
+    PatternMatch,
+    PatternRewriteResult,
+    PatternSearchResult,
+)
 from atelier.infra.tree_sitter.tags import detect_language, extract_tags
 
 _MAX_FILE_BYTES = 1_000_000
@@ -88,6 +95,8 @@ _CONTEXT_ESSENTIAL_KEYS = [
     "provenance",
 ]
 _IMPACT_ESSENTIAL_KEYS = ["file_path", "direct_importers", "affected_tests", "risk_level", "provenance"]
+_PATTERN_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column", "captures"]
+_PATTERN_OPTIONAL_KEYS = ["snippet"]
 
 
 def _canonical_json(value: Any) -> str:
@@ -502,6 +511,54 @@ class CodeContextEngine:
         )
         self._cache_set("code.impact", cache_args, payload)
         return payload
+
+    def tool_pattern(
+        self,
+        *,
+        pattern: str,
+        rewrite: str | None = None,
+        language: str | None = None,
+        file_glob: str | None = None,
+        dry_run: bool = True,
+        limit: int = 20,
+        budget_tokens: int = 4000,
+    ) -> dict[str, Any]:
+        adapter = AstGrepAdapter(self.repo_root)
+        if rewrite is None:
+            cache_args = {
+                "pattern": pattern,
+                "language": language,
+                "file_glob": file_glob,
+                "limit": limit,
+                "budget_tokens": budget_tokens,
+            }
+            hit, cached = self._cache_get("code.pattern", cache_args)
+            if hit and cached is not None:
+                return self._mark_cache_hit(cached)
+            try:
+                result = adapter.search(pattern=pattern, language=language, file_glob=file_glob, limit=limit)
+            except AstGrepToolUnavailable as exc:
+                return exc.payload
+            payload = self._pack_pattern_matches(
+                result,
+                budget_tokens=budget_tokens,
+            )
+            self._cache_set("code.pattern", cache_args, payload)
+            return payload
+
+        try:
+            rewrite_result = adapter.rewrite(
+                pattern=pattern,
+                rewrite=rewrite,
+                language=language,
+                file_glob=file_glob,
+                dry_run=dry_run,
+            )
+        except AstGrepToolUnavailable as exc:
+            return exc.payload
+        if not dry_run and rewrite_result.files_changed:
+            self._reindex_files(rewrite_result.files_changed)
+        return self._pack_pattern_rewrite(rewrite_result, budget_tokens=budget_tokens)
 
     def search_symbols(
         self,
@@ -1282,6 +1339,11 @@ class CodeContextEngine:
             payload=payload,
         )
 
+    def _reindex_files(self, file_paths: list[str]) -> None:
+        if not file_paths:
+            return
+        self.index_repo()
+
     def _current_index_version(self) -> int:
         with self._connect() as conn:
             self._init_schema(conn)
@@ -1426,6 +1488,62 @@ class CodeContextEngine:
             essential_keys=essential_keys,
             optional_keys_in_drop_order=optional_keys_in_drop_order,
             build_payload=build_payload,
+        )
+
+    def _pack_pattern_matches(
+        self,
+        result: PatternSearchResult,
+        *,
+        budget_tokens: int,
+    ) -> dict[str, Any]:
+        items = [match.to_dict() for match in result.matches]
+        full_payload = {
+            "matches": items,
+            "truncated": bool(result.truncated),
+            "total_matches": result.total_matches if result.total_matches is not None else len(items),
+            "cache_hit": False,
+            "provenance": "ast-grep",
+            "provenance_breakdown": {"ast-grep": len(items)},
+        }
+        full_total_tokens = self._compute_total_tokens({**full_payload, "tokens_saved": 0})
+
+        def build_payload(packed_items: list[dict[str, Any]]) -> dict[str, Any]:
+            truncated = bool(result.truncated) or len(packed_items) < len(items)
+            return self._finalize_packed_payload(
+                {
+                    "matches": packed_items,
+                    "truncated": truncated,
+                    "total_matches": result.total_matches if result.total_matches is not None else len(items),
+                    "cache_hit": False,
+                    "provenance": "ast-grep",
+                    "provenance_breakdown": {"ast-grep": len(packed_items)},
+                },
+                full_total_tokens=full_total_tokens,
+            )
+
+        return self._fit_items_to_budget(
+            items,
+            budget_tokens=budget_tokens,
+            essential_keys=_PATTERN_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=_PATTERN_OPTIONAL_KEYS,
+            build_payload=build_payload,
+        )
+
+    def _pack_pattern_rewrite(
+        self,
+        result: PatternRewriteResult,
+        *,
+        budget_tokens: int,
+    ) -> dict[str, Any]:
+        return self._pack_single_payload(
+            {
+                "diff": result.diff,
+                "files_changed": result.files_changed,
+                "provenance": "ast-grep",
+            },
+            budget_tokens=budget_tokens,
+            essential_keys=["diff", "files_changed", "provenance"],
+            optional_keys_in_drop_order=[],
         )
 
     def _pack_single_payload(

@@ -1913,11 +1913,13 @@ def _code_context_engine(repo_root: str = ".") -> Any:
 
 @mcp_tool(name="code", is_dev=True)
 def tool_code(
-    op: Literal["index", "search", "symbol", "outline", "context", "impact"],
+    op: Literal["index", "search", "symbol", "outline", "context", "impact", "pattern"],
     repo_root: str = ".",
     include_globs: list[str] | None = None,
     exclude_globs: list[str] | None = None,
     query: str | None = None,
+    pattern: str | None = None,
+    rewrite: str | None = None,
     limit: int = 20,
     kind: str | None = None,
     language: str | None = None,
@@ -1933,6 +1935,7 @@ def tool_code(
     seed_files: list[str] | None = None,
     budget_tokens: int = 4000,
     max_symbols: int = 8,
+    dry_run: bool = True,
 ) -> dict[str, Any]:
     """Index, search, inspect, outline, pack, or analyze code context."""
     engine = _code_context_engine(repo_root)
@@ -1993,6 +1996,22 @@ def tool_code(
                 seed_files=seed_files,
                 budget_tokens=budget_tokens,
                 max_symbols=max_symbols,
+            ),
+        )
+
+    if op == "pattern":
+        if not pattern:
+            raise ValueError("pattern is required for code pattern")
+        return cast(
+            dict[str, Any],
+            engine.tool_pattern(
+                pattern=pattern,
+                rewrite=rewrite,
+                language=language,
+                file_glob=file_glob,
+                dry_run=dry_run,
+                limit=limit,
+                budget_tokens=budget_tokens,
             ),
         )
 
