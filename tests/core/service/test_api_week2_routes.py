@@ -819,3 +819,7 @@ class TestGetReport:
     def test_400_bad_format(self, client: TestClient) -> None:
         resp = client.get("/v1/reports/../secrets")
         assert resp.status_code in (400, 404, 422)
+
+    def test_400_encoded_path_traversal(self, client: TestClient) -> None:
+        resp = client.get("/v1/reports/2026-W20%2F..%2Fsecrets")
+        assert resp.status_code in (400, 404, 422)

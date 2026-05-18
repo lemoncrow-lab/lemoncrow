@@ -5512,16 +5512,20 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         if not re.fullmatch(r"\d{4}-W\d{2}", week):
             raise HTTPException(status_code=400, detail="Invalid week format — expected YYYY-Www")
 
-        report_dir = Path("reports") / week
+        reports_root = Path("reports").resolve(strict=False)
+        report_dir = (reports_root / week).resolve(strict=False)
         md_path = report_dir / "benchmark.md"
         json_path = report_dir / "benchmark.json"
+
+        if not report_dir.is_relative_to(reports_root):
+            raise HTTPException(status_code=400, detail="Invalid week format — expected YYYY-Www")
 
         if not md_path.exists():
             raise HTTPException(status_code=404, detail=f"Report for week '{week}' not found")
 
         try:
             markdown_content = md_path.read_text(encoding="utf-8")
-            json_data: dict[str, Any] = json.loads(json_path.read_text()) if json_path.exists() else {}
+            json_data: dict[str, Any] = json.loads(json_path.read_text(encoding="utf-8")) if json_path.exists() else {}
         except (OSError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=500, detail="Failed to read report files") from exc
 
