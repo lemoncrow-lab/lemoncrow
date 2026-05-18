@@ -194,6 +194,7 @@ class CodeContextEngine:
             local_search=self._search_symbols_local,
             local_get_symbol=self._get_symbol_local,
         )
+        self._register_symbol_intel_providers()
 
     def index_repo(
         self,
@@ -275,6 +276,7 @@ class CodeContextEngine:
         force: bool = True,
         budget_tokens: int = 4000,
     ) -> dict[str, Any]:
+        self._sync_symbol_intel()
         stats = self.index_repo(include_globs=include_globs, exclude_globs=exclude_globs, force=force)
         return self._pack_single_payload(
             stats.model_dump(mode="json"),
@@ -295,6 +297,7 @@ class CodeContextEngine:
     ) -> dict[str, Any]:
         if auto_index:
             self._ensure_indexed()
+        self._sync_symbol_intel()
         cache_args = {
             "query": query,
             "limit": limit,
@@ -331,6 +334,7 @@ class CodeContextEngine:
     ) -> dict[str, Any]:
         if auto_index:
             self._ensure_indexed()
+        self._sync_symbol_intel()
         normalized_file_path = self._normalize_file_arg(file_path) if file_path else None
         cache_args = {
             "symbol_id": symbol_id,
@@ -368,6 +372,7 @@ class CodeContextEngine:
     ) -> dict[str, Any]:
         if auto_index:
             self._ensure_indexed()
+        self._sync_symbol_intel()
         normalized_file_path = self._normalize_file_arg(file_path) if file_path else None
         cache_args = {
             "file_path": normalized_file_path,
@@ -422,6 +427,7 @@ class CodeContextEngine:
     ) -> dict[str, Any]:
         if auto_index:
             self._ensure_indexed()
+        self._sync_symbol_intel()
         normalized_seeds = [self._normalize_file_arg(seed) for seed in seed_files or []]
         cache_args = {
             "task": task,
@@ -459,6 +465,7 @@ class CodeContextEngine:
     ) -> dict[str, Any]:
         if auto_index:
             self._ensure_indexed()
+        self._sync_symbol_intel()
         normalized_file_path = self._normalize_file_arg(file_path)
         cache_args = {
             "file_path": normalized_file_path,
@@ -1278,6 +1285,15 @@ class CodeContextEngine:
                 return measured
             total_tokens = measured
 
+    def _items_provenance(self, items: list[dict[str, Any]]) -> str:
+        provenances = [str(item.get("provenance")) for item in items if item.get("provenance")]
+        if not provenances:
+            return _LOCAL_PROVENANCE
+        first = provenances[0]
+        if all(provenance == first for provenance in provenances):
+            return first
+        return _LOCAL_PROVENANCE
+
     def _finalize_packed_payload(
         self,
         payload: dict[str, Any],
@@ -1342,10 +1358,11 @@ class CodeContextEngine:
         essential_keys: list[str],
         optional_keys_in_drop_order: list[str],
     ) -> dict[str, Any]:
+        provenance = self._items_provenance(items)
         full_payload = {
             "items": items,
             "cache_hit": False,
-            "provenance": _LOCAL_PROVENANCE,
+            "provenance": provenance,
         }
         full_total_tokens = self._compute_total_tokens({**full_payload, "tokens_saved": 0})
 
@@ -1354,7 +1371,7 @@ class CodeContextEngine:
                 {
                     "items": packed_items,
                     "cache_hit": False,
-                    "provenance": _LOCAL_PROVENANCE,
+                    "provenance": provenance,
                 },
                 full_total_tokens=full_total_tokens,
             )
@@ -1384,7 +1401,7 @@ class CodeContextEngine:
         def build_payload(packed_items: list[dict[str, Any]]) -> dict[str, Any]:
             packed_payload = dict(packed_items[0]) if packed_items else dict(full_payload)
             packed_payload["cache_hit"] = False
-            packed_payload["provenance"] = _LOCAL_PROVENANCE
+            packed_payload["provenance"] = str(full_payload.get("provenance") or _LOCAL_PROVENANCE)
             return self._finalize_packed_payload(
                 packed_payload,
                 full_total_tokens=full_total_tokens,
@@ -1440,6 +1457,40 @@ class CodeContextEngine:
                     if len(matches) >= limit:
                         return matches
         return matches
+
+    def _register_symbol_intel_providers(self) -> None:
+        try:
+            from atelier.infra.code_intel.scip import ScipSymbolIntelProvider
+        except Exception:
+            return
+        self.intel_store.register(
+            ScipSymbolIntelProvider(
+                repo_root=self.repo_root,
+                repo_id=self.repo_id,
+                state_sync=self._sync_external_artifact_state,
+            )
+        )
+
+    def _sync_symbol_intel(self) -> None:
+        self.intel_store.refresh()
+
+    def _sync_external_artifact_state(self, state_key: str, signature: str) -> bool:
+        with self._connect() as conn:
+            self._init_schema(conn)
+            row = conn.execute("SELECT value FROM engine_state WHERE key = ?", (state_key,)).fetchone()
+            previous = str(row["value"]) if row is not None else None
+            conn.execute(
+                """
+                INSERT INTO engine_state(key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (state_key, signature),
+            )
+            if previous is not None and previous != signature:
+                self._bump_index_version(conn)
+                return True
+        return False
 
 
 __all__ = ["CodeContextEngine"]
