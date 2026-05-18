@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from atelier.gateway.adapters.mcp_server import tool_smart_edit, tool_smart_search, tool_sql
+from atelier.gateway.adapters.mcp_server import (
+    tool_code,
+    tool_smart_edit,
+    tool_smart_search,
+    tool_sql,
+)
 
 
 def test_mcp_search_native_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -46,3 +51,54 @@ def test_mcp_sql_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert result["isError"] is False
     assert result["results"][0]["rows"] == [{"id": 1}]
+
+
+def test_tool_code_search_returns_cache_hit_field(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "orders.py").write_text(
+        "class OrderService:\n"
+        "    def calculate_total(self, items: list[int]) -> int:\n"
+        "        return sum(items)\n",
+        encoding="utf-8",
+    )
+
+    first = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
+    second = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
+
+    assert first["cache_hit"] is False
+    assert second["cache_hit"] is True
+    assert "tokens_saved" in first
+    assert first["provenance"] == "local"
+    assert second["provenance"] == "cached"
+
+
+def test_tool_code_search_invalidates_cache_after_reindex(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "orders.py").write_text(
+        "class OrderService:\n"
+        "    def calculate_total(self, items: list[int]) -> int:\n"
+        "        return sum(items)\n",
+        encoding="utf-8",
+    )
+
+    _ = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
+    cached = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
+    indexed = tool_code({"op": "index", "repo_root": str(tmp_path), "budget_tokens": 4000})
+    fresh = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
+
+    assert cached["cache_hit"] is True
+    assert indexed["index_version"] >= 2
+    assert fresh["cache_hit"] is False
+    assert fresh["provenance"] == "local"
+
+
+def test_tool_code_search_respects_budget_after_wrapper_metadata(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    lines = [f"def func_{index}() -> int:\n    return {index}\n" for index in range(3)]
+    (tmp_path / "src" / "big.py").write_text("\n".join(lines), encoding="utf-8")
+
+    payload = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "func", "budget_tokens": 255})
+
+    assert payload["total_tokens"] <= 255
