@@ -43,7 +43,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — Route SCIP-backed symbol lookup through `SymbolIntelStore` with safe fallback on the existing `code` surface (M1)
+- [x] 01-02-PLAN.md — Route SCIP-backed symbol lookup through `SymbolIntelStore` with safe fallback on the existing `code` surface (M1)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -166,7 +166,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Retrieval Core & Routed Symbol Search | 1/3 | In Progress|  |
+| 1. Retrieval Core & Routed Symbol Search | 2/3 | In Progress|  |
 | 2. Structural Discovery & Symbol-Safe Change Flows | 0/4 | Not started | - |
 | 3. Semantic Recall & Relationship Navigation | 0/3 | Not started | - |
 | 4. Historical Code Intelligence | 0/2 | Not started | - |

@@ -8,7 +8,7 @@
 ### Foundation
 
 - [x] **FNDN-01**: Agent receives cached, budget-packed responses on existing `code` operations with `cache_hit`, `tokens_saved`, and `provenance` metadata.
-- [ ] **FNDN-02**: Agent can query symbol intelligence through routed precomputed backends behind the existing `code` surface, starting with SCIP when an index is available.
+- [x] **FNDN-02**: Agent can query symbol intelligence through routed precomputed backends behind the existing `code` surface, starting with SCIP when an index is available.
 
 ### Navigation
 
@@ -62,7 +62,7 @@ Roadmap mapping for all v1 requirements.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | FNDN-01 | Phase 1 | Complete |
-| FNDN-02 | Phase 1 | Pending |
+| FNDN-02 | Phase 1 | Complete |
 | NAVG-01 | Phase 1 | Pending |
 | NAVG-02 | Phase 2 | Pending |
 | NAVG-03 | Phase 3 | Pending |

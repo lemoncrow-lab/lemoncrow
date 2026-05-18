@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 1 planning completed; 3 execution plans are ready with accepted warning-level scope notes.
-last_updated: "2026-05-18T20:06:57.783Z"
+last_updated: "2026-05-18T20:46:59.716Z"
 last_activity: 2026-05-18
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-18)
 ## Current Position
 
 Phase: 01 (retrieval-core-routed-symbol-search) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-05-18
 
-Progress: [███░░░░░░░] 33%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [███░░░░░░░] 33%
 
 *Updated after each plan completion*
 | Phase 01 P01 | 24min | 3 tasks | 10 files |
+| Phase 01 P02 | 33m | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ Recent decisions affecting current work:
 - [Init] Keep the M18 build-vs-integrate checkpoint as the gate for M16 large-repo backend work.
 - [Phase 01]: Budget-fit helpers now size packed code payloads against the final wrapper envelope.
 - [Phase 01]: Phase 1 benchmark coverage starts with deterministic repeated symbol-search smoke checks before threshold assertions.
+- [Phase 01]: Use repo-local .atelier/cache/scip/<repo_id>/*.scip artifacts with local-only binary discovery for the Phase 1 M1 bootstrap path.
+- [Phase 01]: Persist SCIP artifact signatures in engine_state so fresh CodeContextEngine instances invalidate stale retrieval-cache entries after artifact refresh.
 
 ### Pending Todos
 
@@ -87,6 +90,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-18T20:04:56.166Z
+Last session: 2026-05-18T20:46:20.581Z
 Stopped at: Phase 1 planning completed; 3 execution plans are ready with accepted warning-level scope notes.
 Resume file: None
