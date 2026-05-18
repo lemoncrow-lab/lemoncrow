@@ -63,11 +63,21 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
+**Wave 1**
 
-- [ ] 02-01: Structural pattern search and rewrite via ast-grep on `code op="pattern"` (M5)
-- [ ] 02-02: Outline-first audit, cache hardening, and budget-policy freeze across code-intel surfaces (M12)
-- [ ] 02-03: Rich symbol-scoped edits on the existing `edit` tool (M4)
-- [ ] 02-04: `code op="usages"` symbol reference navigation (M3)
+- [ ] 02-01-PLAN.md — Add `code op="pattern"` via ast-grep on the existing `code` surface with explicit binary handling, budget-safe payloads, and benchmark evidence (M5)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — Freeze cache, budget, defaults, and diagnostics across current code-intel flows, but keep M12 marked partial until Plans 03 and 04 complete follow-through validation (M12 core freeze)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-03-PLAN.md — Add `kind="symbol"` edits through a new core seam behind the existing `edit` tool and complete the edit-side M12 follow-through checks (M4)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 02-04-PLAN.md — Add `code op="usages"` routed reference navigation, benchmark it against grep/read, and close the remaining M12 follow-through validation (M3)
 
 ### Phase 3: Semantic Recall & Relationship Navigation
 
