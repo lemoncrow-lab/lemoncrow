@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import subprocess
 from bisect import bisect_right
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -1270,7 +1271,7 @@ class CodeContextEngine:
         budget_tokens: int,
         essential_keys: list[str],
         optional_keys_in_drop_order: list[str],
-        build_payload: Any,
+        build_payload: Callable[[list[dict[str, Any]]], dict[str, Any]],
     ) -> dict[str, Any]:
         minimal_items, _, _ = self._budget.pack(
             items,
