@@ -57,34 +57,34 @@
 
 ## Traceability
 
-Roadmap mapping will be filled in during roadmap creation.
+Roadmap mapping for all v1 requirements.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FNDN-01 | TBC | Pending |
-| FNDN-02 | TBC | Pending |
-| NAVG-01 | TBC | Pending |
-| NAVG-02 | TBC | Pending |
-| NAVG-03 | TBC | Pending |
-| NAVG-04 | TBC | Pending |
-| DISC-01 | TBC | Pending |
-| DISC-02 | TBC | Pending |
-| DISC-03 | TBC | Pending |
-| DISC-04 | TBC | Pending |
-| DISC-05 | TBC | Pending |
-| HIST-01 | TBC | Pending |
-| HIST-02 | TBC | Pending |
-| SCAL-01 | TBC | Pending |
-| SCAL-02 | TBC | Pending |
-| ENBL-01 | TBC | Pending |
-| ENBL-02 | TBC | Pending |
-| ENBL-03 | TBC | Pending |
+| FNDN-01 | Phase 1 | Pending |
+| FNDN-02 | Phase 1 | Pending |
+| NAVG-01 | Phase 1 | Pending |
+| NAVG-02 | Phase 2 | Pending |
+| NAVG-03 | Phase 3 | Pending |
+| NAVG-04 | Phase 6 | Pending |
+| DISC-01 | Phase 2 | Pending |
+| DISC-02 | Phase 2 | Pending |
+| DISC-03 | Phase 3 | Pending |
+| DISC-04 | Phase 3 | Pending |
+| DISC-05 | Phase 6 | Pending |
+| HIST-01 | Phase 4 | Pending |
+| HIST-02 | Phase 4 | Pending |
+| SCAL-01 | Phase 5 | Pending |
+| SCAL-02 | Phase 5 | Pending |
+| ENBL-01 | Phase 6 | Pending |
+| ENBL-02 | Phase 7 | Pending |
+| ENBL-03 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18 ⚠
+- Mapped to phases: 18
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-18*
-*Last updated: 2026-05-18 after initial definition*
+*Last updated: 2026-05-18 after roadmap creation*
