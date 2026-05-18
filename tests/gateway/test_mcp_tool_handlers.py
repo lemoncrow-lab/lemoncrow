@@ -13,6 +13,12 @@ import pytest
 from click.testing import CliRunner
 
 from atelier.core.capabilities.code_context import CodeContextEngine
+from atelier.infra.code_intel.astgrep import (
+    AstGrepToolUnavailable,
+    PatternMatch,
+    PatternRewriteResult,
+    PatternSearchResult,
+)
 from atelier.core.environment import (
     DEV_LLM_TOOLS,
     NON_DEV_LLM_TOOLS,
@@ -613,3 +619,137 @@ def test_code_context_mcp_falls_back_when_scip_artifact_is_invalid(store_root: P
     assert searched["cache_hit"] is False
     assert searched["provenance"] == "local"
     assert searched["items"][0]["symbol_name"] == "alpha"
+
+
+def test_code_context_pattern_search_surface_is_cached(
+    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = store_root
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("requests.get(url)\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "atelier.core.capabilities.code_context.engine.AstGrepAdapter.search",
+        lambda self, *, pattern, language=None, file_glob=None, limit=20: PatternSearchResult(
+            matches=[
+                PatternMatch(
+                    file_path="src/app.py",
+                    line=1,
+                    column=0,
+                    end_line=1,
+                    end_column=17,
+                    snippet="requests.get(url)",
+                    captures={"URL": "url"},
+                )
+            ],
+            truncated=False,
+            total_matches=1,
+        ),
+    )
+
+    first = _result(
+        _call(
+            "code",
+            {"op": "pattern", "repo_root": str(tmp_path), "pattern": "requests.get($URL)", "budget_tokens": 220},
+        )
+    )
+    cached = _result(
+        _call(
+            "code",
+            {"op": "pattern", "repo_root": str(tmp_path), "pattern": "requests.get($URL)", "budget_tokens": 220},
+        )
+    )
+
+    assert first["cache_hit"] is False
+    assert first["provenance"] == "ast-grep"
+    assert first["matches"][0]["captures"] == {"URL": "url"}
+    assert first["total_tokens"] <= 220
+    assert cached["cache_hit"] is True
+    assert cached["provenance"] == "cached"
+
+
+def test_code_context_pattern_rewrite_reindexes_changed_files(
+    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = store_root
+    target = tmp_path / "src" / "app.py"
+    target.parent.mkdir()
+    target.write_text("requests.get(url)\n", encoding="utf-8")
+
+    def fake_rewrite(self, *, pattern, rewrite, language=None, file_glob=None, dry_run=True):  # type: ignore[no-untyped-def]
+        before = target.read_text(encoding="utf-8")
+        after = before.replace("requests.get(url)", "requests.get(url, timeout=30)")
+        diff = "--- a/src/app.py\n+++ b/src/app.py\n@@\n-requests.get(url)\n+requests.get(url, timeout=30)\n"
+        if not dry_run:
+            target.write_text(after, encoding="utf-8")
+        return PatternRewriteResult(diff=diff, files_changed=["src/app.py"])
+
+    reindexed: list[list[str]] = []
+
+    monkeypatch.setattr("atelier.core.capabilities.code_context.engine.AstGrepAdapter.rewrite", fake_rewrite)
+    monkeypatch.setattr(
+        CodeContextEngine,
+        "_reindex_files",
+        lambda self, file_paths: reindexed.append(list(file_paths)),
+        raising=False,
+    )
+
+    preview = _result(
+        _call(
+            "code",
+            {
+                "op": "pattern",
+                "repo_root": str(tmp_path),
+                "pattern": "requests.get($URL)",
+                "rewrite": "requests.get($URL, timeout=30)",
+                "dry_run": True,
+            },
+        )
+    )
+    applied = _result(
+        _call(
+            "code",
+            {
+                "op": "pattern",
+                "repo_root": str(tmp_path),
+                "pattern": "requests.get($URL)",
+                "rewrite": "requests.get($URL, timeout=30)",
+                "dry_run": False,
+            },
+        )
+    )
+
+    assert "--- a/src/app.py" in preview["diff"]
+    assert applied["files_changed"] == ["src/app.py"]
+    assert reindexed == [["src/app.py"]]
+    assert target.read_text(encoding="utf-8") == "requests.get(url, timeout=30)\n"
+
+
+def test_code_context_pattern_returns_structured_tool_unavailable(
+    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = store_root
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("requests.get(url)\n", encoding="utf-8")
+
+    payload = {
+        "error": "tool_unavailable",
+        "tool": "ast-grep",
+        "expected_binary": "ast-grep",
+        "message": "ast-grep is unavailable",
+        "checked": [],
+        "hint": "install ast-grep",
+    }
+    monkeypatch.setattr(
+        "atelier.core.capabilities.code_context.engine.AstGrepAdapter.search",
+        lambda self, *, pattern, language=None, file_glob=None, limit=20: (_ for _ in ()).throw(
+            AstGrepToolUnavailable(payload)
+        ),
+    )
+
+    result = _result(
+        _call("code", {"op": "pattern", "repo_root": str(tmp_path), "pattern": "requests.get($URL)"})
+    )
+
+    assert result["error"] == "tool_unavailable"
+    assert result["expected_binary"] == "ast-grep"

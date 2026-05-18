@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -137,3 +138,42 @@ def test_tool_code_search_accepts_hardened_params(tmp_path: Path) -> None:
     assert payload["provenance_breakdown"] == {"local": len(payload["items"])}
     assert payload["items"][0]["file_path"] == "src/orders.py"
     assert payload["items"][0]["snippet"] == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
+
+
+def test_tool_code_pattern_requires_pattern(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="pattern is required for code pattern"):
+        tool_code({"op": "pattern", "repo_root": str(tmp_path), "dry_run": True})
+
+
+def test_tool_code_pattern_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_engine = MagicMock()
+    fake_engine.tool_pattern.return_value = {
+        "matches": [{"file_path": "src/app.py", "line": 1, "column": 0, "captures": {"URL": "url"}}],
+        "cache_hit": False,
+        "provenance": "ast-grep",
+        "tokens_saved": 10,
+        "total_tokens": 100,
+    }
+    monkeypatch.setattr("atelier.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
+
+    payload = tool_code(
+        {
+            "op": "pattern",
+            "repo_root": str(tmp_path),
+            "pattern": "requests.get($URL)",
+            "dry_run": True,
+            "budget_tokens": 220,
+        }
+    )
+
+    assert payload["cache_hit"] is False
+    assert payload["provenance"] == "ast-grep"
+    fake_engine.tool_pattern.assert_called_once_with(
+        pattern="requests.get($URL)",
+        rewrite=None,
+        language=None,
+        file_glob=None,
+        dry_run=True,
+        limit=20,
+        budget_tokens=220,
+    )
