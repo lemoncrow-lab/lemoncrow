@@ -24,6 +24,7 @@ class SymbolRecord(BaseModel):
     end_line: int
     parent_symbol: str | None = None
     doc_summary: str | None = None
+    snippet: str | None = None
     content_hash: str
     score: float | None = None
     provenance: str = "local"

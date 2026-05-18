@@ -54,7 +54,7 @@ _SEARCH_ESSENTIAL_KEYS = [
     "language",
     "provenance",
 ]
-_SEARCH_OPTIONAL_KEYS = ["doc_summary", "score", "repo_id", "content_hash", "parent_symbol", "start_byte", "end_byte"]
+_SEARCH_OPTIONAL_KEYS = ["snippet", "doc_summary", "score", "repo_id", "content_hash", "parent_symbol", "start_byte", "end_byte"]
 _OUTLINE_ESSENTIAL_KEYS = ["file_path", "name", "qualified_name", "kind", "signature", "line_start", "line_end"]
 _SYMBOL_ESSENTIAL_KEYS = [
     "symbol_id",
@@ -292,6 +292,10 @@ class CodeContextEngine:
         limit: int = 20,
         kind: str | None = None,
         language: str | None = None,
+        snippet: Literal["none", "head", "full"] = "head",
+        snippet_lines: int = 8,
+        file_glob: str | None = None,
+        scope: Literal["repo", "external", "deleted"] = "repo",
         budget_tokens: int = 4000,
         auto_index: bool = True,
     ) -> dict[str, Any]:
@@ -303,6 +307,10 @@ class CodeContextEngine:
             "limit": limit,
             "kind": kind,
             "language": language,
+            "snippet": snippet,
+            "snippet_lines": snippet_lines,
+            "file_glob": file_glob,
+            "scope": scope,
             "budget_tokens": budget_tokens,
         }
         hit, cached = self._cache_get("code.search", cache_args)
@@ -311,7 +319,17 @@ class CodeContextEngine:
 
         items = [
             item.model_dump(mode="json")
-            for item in self.search_symbols(query, limit=limit, kind=kind, language=language, auto_index=False)
+            for item in self.search_symbols(
+                query,
+                limit=limit,
+                kind=kind,
+                language=language,
+                snippet=snippet,
+                snippet_lines=snippet_lines,
+                file_glob=file_glob,
+                scope=scope,
+                auto_index=False,
+            )
         ]
         payload = self._pack_items_payload(
             items,
@@ -492,12 +510,24 @@ class CodeContextEngine:
         limit: int = 20,
         kind: str | None = None,
         language: str | None = None,
+        snippet: Literal["none", "head", "full"] = "head",
+        snippet_lines: int = 8,
+        file_glob: str | None = None,
+        scope: Literal["repo", "external", "deleted"] = "repo",
         auto_index: bool = True,
     ) -> list[SymbolRecord]:
         """BM25/FTS-ranked symbol search with routed-provider fallback."""
         if auto_index:
             self._ensure_indexed()
-        return self.intel_store.search_symbols(query, limit=limit, kind=kind, language=language)
+        hits = self.intel_store.search_symbols(query, limit=limit, kind=kind, language=language)
+        if scope != "repo":
+            return []
+        if file_glob:
+            hits = [hit for hit in hits if Path(hit.file_path).match(file_glob)]
+        return [
+            self._attach_snippet(symbol, snippet=snippet, snippet_lines=snippet_lines)
+            for symbol in hits[:limit]
+        ]
 
     def _search_symbols_local(
         self,
@@ -1294,6 +1324,13 @@ class CodeContextEngine:
             return first
         return _LOCAL_PROVENANCE
 
+    def _provenance_breakdown(self, items: list[dict[str, Any]]) -> dict[str, int]:
+        breakdown: dict[str, int] = {}
+        for item in items:
+            provenance = str(item.get("provenance") or _LOCAL_PROVENANCE)
+            breakdown[provenance] = breakdown.get(provenance, 0) + 1
+        return breakdown
+
     def _finalize_packed_payload(
         self,
         payload: dict[str, Any],
@@ -1359,10 +1396,12 @@ class CodeContextEngine:
         optional_keys_in_drop_order: list[str],
     ) -> dict[str, Any]:
         provenance = self._items_provenance(items)
+        provenance_breakdown = self._provenance_breakdown(items)
         full_payload = {
             "items": items,
             "cache_hit": False,
             "provenance": provenance,
+            "provenance_breakdown": provenance_breakdown,
         }
         full_total_tokens = self._compute_total_tokens({**full_payload, "tokens_saved": 0})
 
@@ -1372,6 +1411,7 @@ class CodeContextEngine:
                     "items": packed_items,
                     "cache_hit": False,
                     "provenance": provenance,
+                    "provenance_breakdown": self._provenance_breakdown(packed_items),
                 },
                 full_total_tokens=full_total_tokens,
             )
@@ -1422,6 +1462,45 @@ class CodeContextEngine:
         cached["provenance"] = "cached"
         cached["total_tokens"] = self._compute_total_tokens(cached)
         return cached
+
+    def _attach_snippet(
+        self,
+        symbol: SymbolRecord,
+        *,
+        snippet: Literal["none", "head", "full"],
+        snippet_lines: int,
+    ) -> SymbolRecord:
+        if snippet == "none":
+            return symbol.model_copy(update={"snippet": None})
+        safe_line_count = max(1, snippet_lines)
+        snippet_text = self._read_symbol_snippet(
+            symbol.file_path,
+            start_line=symbol.start_line,
+            end_line=symbol.end_line,
+            mode=snippet,
+            snippet_lines=safe_line_count,
+        )
+        return symbol.model_copy(update={"snippet": snippet_text})
+
+    def _read_symbol_snippet(
+        self,
+        file_path: str,
+        *,
+        start_line: int,
+        end_line: int,
+        mode: Literal["head", "full"],
+        snippet_lines: int,
+    ) -> str:
+        resolved = self._resolve_inside_repo(file_path)
+        lines = resolved.read_text(encoding="utf-8", errors="replace").splitlines()
+        if not lines:
+            return ""
+        start_index = max(0, start_line - 1)
+        max_end_index = min(len(lines), start_index + snippet_lines)
+        if mode == "full":
+            max_end_index = min(max_end_index, max(start_index + 1, end_line))
+        snippet_slice = lines[start_index:max_end_index]
+        return "\n".join(snippet_slice)
 
     def _flatten_outline(self, files: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []

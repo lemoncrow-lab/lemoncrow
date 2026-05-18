@@ -1921,6 +1921,10 @@ def tool_code(
     limit: int = 20,
     kind: str | None = None,
     language: str | None = None,
+    snippet: Literal["none", "head", "full"] = "head",
+    snippet_lines: int = 8,
+    file_glob: str | None = None,
+    scope: Literal["repo", "external", "deleted"] = "repo",
     symbol_id: str | None = None,
     qualified_name: str | None = None,
     symbol_name: str | None = None,
@@ -1936,45 +1940,65 @@ def tool_code(
     if op == "index":
         return cast(
             dict[str, Any],
-            engine.index_repo(include_globs=include_globs, exclude_globs=exclude_globs).model_dump(mode="json"),
+            engine.tool_index(
+                include_globs=include_globs,
+                exclude_globs=exclude_globs,
+                budget_tokens=budget_tokens,
+            ),
         )
 
     if op == "search":
         if not query:
             raise ValueError("query is required for code search")
-        results = engine.search_symbols(query, limit=limit, kind=kind, language=language)
-        return {"items": [item.model_dump(mode="json") for item in results]}
+        return cast(
+            dict[str, Any],
+            engine.tool_search(
+                query,
+                limit=limit,
+                kind=kind,
+                language=language,
+                snippet=snippet,
+                snippet_lines=snippet_lines,
+                file_glob=file_glob,
+                scope=scope,
+                budget_tokens=budget_tokens,
+            ),
+        )
 
     if op == "symbol":
         return cast(
             dict[str, Any],
-            engine.get_symbol(
+            engine.tool_symbol(
                 symbol_id=symbol_id,
                 qualified_name=qualified_name,
                 symbol_name=symbol_name,
                 file_path=file_path,
+                budget_tokens=budget_tokens,
             ),
         )
 
     if op == "outline":
-        return cast(dict[str, Any], engine.file_outline(file_path=file_path, limit=limit))
+        return cast(
+            dict[str, Any],
+            engine.tool_outline(file_path=file_path, limit=limit, budget_tokens=budget_tokens),
+        )
 
     if op == "context":
         if not task:
             raise ValueError("task is required for code context")
         return cast(
             dict[str, Any],
-            engine.context_pack(
+            engine.tool_context(
                 task=task,
                 seed_files=seed_files,
                 budget_tokens=budget_tokens,
                 max_symbols=max_symbols,
-            ).model_dump(mode="json"),
+            ),
         )
 
     if not file_path:
         raise ValueError("file_path is required for code impact")
-    return cast(dict[str, Any], engine.impact(file_path).model_dump(mode="json"))
+    return cast(dict[str, Any], engine.tool_impact(file_path, budget_tokens=budget_tokens))
 
 
 def _run_shell_tool(
@@ -2350,6 +2374,13 @@ def _record_context_budget_for_tool(
             tokens_saved=tokens_saved,
             default_lever=base_lever,
         )
+        if "cache_hit" in result and "cache_hit" not in savings_metadata:
+            savings_metadata["cache_hit"] = bool(result.get("cache_hit"))
+        if isinstance(result.get("provenance"), str):
+            savings_metadata.setdefault("provenance", str(result["provenance"]))
+        op = args.get("op") if isinstance(args, dict) else None
+        if isinstance(op, str) and op:
+            savings_metadata.setdefault("op", op)
 
         raw_lever_savings = result.get("tokens_saved")
         lever_savings = raw_lever_savings.copy() if isinstance(raw_lever_savings, dict) else {}

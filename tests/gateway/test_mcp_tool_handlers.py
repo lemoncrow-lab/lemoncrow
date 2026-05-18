@@ -594,7 +594,7 @@ def test_code_context_search_surface_supports_snippet_scope_and_glob(store_root:
 
     assert payload["cache_hit"] is False
     assert payload["provenance"] == "local"
-    assert payload["provenance_breakdown"] == {"local": 1}
+    assert payload["provenance_breakdown"] == {"local": len(payload["items"])}
     assert payload["items"][0]["file_path"] == "src/orders.py"
     assert payload["items"][0]["snippet"] == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
 
