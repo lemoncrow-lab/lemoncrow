@@ -19,6 +19,7 @@ from typing import Any, Literal, cast
 
 from atelier.core.capabilities.code_context.budget import BudgetPacker
 from atelier.core.capabilities.code_context.cache import RetrievalCache
+from atelier.core.capabilities.code_context.intel_store import SymbolIntelStore
 from atelier.core.capabilities.code_context.models import (
     ContextPack,
     ImpactResult,
@@ -187,6 +188,12 @@ class CodeContextEngine:
         self.db_path = Path(db_path).resolve() if db_path is not None else _default_db_path(self.repo_root)
         self._cache = RetrievalCache(self.db_path)
         self._budget = BudgetPacker()
+        self.intel_store = SymbolIntelStore(
+            cache=self._cache,
+            packer=self._budget,
+            local_search=self._search_symbols_local,
+            local_get_symbol=self._get_symbol_local,
+        )
 
     def index_repo(
         self,
@@ -480,9 +487,19 @@ class CodeContextEngine:
         language: str | None = None,
         auto_index: bool = True,
     ) -> list[SymbolRecord]:
-        """BM25/FTS-ranked symbol search."""
+        """BM25/FTS-ranked symbol search with routed-provider fallback."""
         if auto_index:
             self._ensure_indexed()
+        return self.intel_store.search_symbols(query, limit=limit, kind=kind, language=language)
+
+    def _search_symbols_local(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        kind: str | None = None,
+        language: str | None = None,
+    ) -> list[SymbolRecord]:
         fts_query = _safe_fts_query(query)
         if not fts_query:
             return []
@@ -535,6 +552,21 @@ class CodeContextEngine:
         """Retrieve exact symbol metadata and source by byte offsets."""
         if auto_index:
             self._ensure_indexed()
+        return self.intel_store.get_symbol(
+            symbol_id=symbol_id,
+            qualified_name=qualified_name,
+            file_path=file_path,
+            symbol_name=symbol_name,
+        )
+
+    def _get_symbol_local(
+        self,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        file_path: str | None = None,
+        symbol_name: str | None = None,
+    ) -> dict[str, Any]:
         clauses = ["repo_id = ?"]
         params: list[Any] = [self.repo_id]
         if symbol_id:
