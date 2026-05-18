@@ -26,4 +26,12 @@ Before opening a pull request, please run:
 make pre-commit
 ```
 
+To enable the repository-managed pre-push hook:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+That hook runs `make install` before push-time validation.
+
 Small issues, design critiques, bug reports, docs fixes, and "this abstraction feels wrong" feedback are all welcome.

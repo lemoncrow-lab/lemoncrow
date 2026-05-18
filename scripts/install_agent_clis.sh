@@ -23,20 +23,29 @@ if [[ -t 1 ]]; then
     C_GREEN="$(printf '\033[32m')"
     C_RED="$(printf '\033[31m')"
     C_YELLOW="$(printf '\033[33m')"
+    C_CYAN="$(printf '\033[36m')"
 else
     C_RESET=""
     C_GREEN=""
     C_RED=""
     C_YELLOW=""
+    C_CYAN=""
 fi
 if [[ -n "${FORCE_COLOR:-}${CLICOLOR_FORCE:-}" && -z "${NO_COLOR:-}" ]]; then
     C_RESET="$(printf '\033[0m')"
     C_GREEN="$(printf '\033[32m')"
     C_RED="$(printf '\033[31m')"
     C_YELLOW="$(printf '\033[33m')"
+    C_CYAN="$(printf '\033[36m')"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+print_message() {
+    local color="$1"
+    shift
+    printf "%b%s%b\n" "$color" "$*" "$C_RESET"
+}
 
 DO_CLAUDE=false
 DO_CODEX=false
@@ -57,13 +66,13 @@ while [[ $# -gt 0 ]]; do
         --dry-run|--print-only|--strict) PASSTHROUGH+=("$1") ;;
         --workspace)
             if [ $# -lt 2 ]; then
-                echo "Missing value for --workspace" >&2
+                print_message "$C_RED" "Missing value for --workspace" >&2
                 exit 1
             fi
             PASSTHROUGH+=("$1" "$2")
             shift
             ;;
-        *) echo "Unknown option: $1" >&2; exit 1 ;;
+        *) print_message "$C_RED" "Unknown option: $1" >&2; exit 1 ;;
     esac
     shift
 done
@@ -118,6 +127,9 @@ print_colored_line() {
         *"] ERROR:"*)
             printf "%s\n" "${line/ERROR:/${C_RED}ERROR:${C_RESET}}"
             ;;
+        "=== SKIPPED"*)
+            print_message "$C_YELLOW" "$line"
+            ;;
         *)
             printf "%s\n" "$line"
             ;;
@@ -169,9 +181,9 @@ run_installer() {
     esac
 
     echo ""
-    echo "──────────────────────────────────────────"
-    echo " Installing Atelier → ${host}"
-    echo "──────────────────────────────────────────"
+    print_message "$C_CYAN" "──────────────────────────────────────────"
+    print_message "$C_CYAN" " Installing Atelier -> ${host}"
+    print_message "$C_CYAN" "──────────────────────────────────────────"
     output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-${host}.XXXXXX")"
     set +e
     bash "$script" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1 | stream_colored_output "$output_file"
@@ -199,9 +211,9 @@ $DO_COPILOT   && run_installer copilot
 $DO_GEMINI    && run_installer gemini
 
 echo ""
-echo "══════════════════════════════════════════════"
-echo " Atelier Install Summary"
-echo "══════════════════════════════════════════════"
+print_message "$C_CYAN" "══════════════════════════════════════════════"
+print_message "$C_CYAN" " Atelier Install Summary"
+print_message "$C_CYAN" "══════════════════════════════════════════════"
 for h in "${PASS[@]+"${PASS[@]}"}"; do printf "  %bOK%b       %s\n" "$C_GREEN" "$C_RESET" "$h"; done
 for h in "${WARN[@]+"${WARN[@]}"}"; do printf "  %bWARN%b     %s\n" "$C_YELLOW" "$C_RESET" "$h"; done
 for h in "${SKIP[@]+"${SKIP[@]}"}"; do printf "  %bSKIPPED%b  %s (CLI not found)\n" "$C_YELLOW" "$C_RESET" "$h"; done
@@ -211,13 +223,13 @@ print_issue_group "Host install errors" "$C_RED" "${ERRORS[@]+"${ERRORS[@]}"}"
 print_issue_group "Host install warnings" "$C_YELLOW" "${WARNINGS[@]+"${WARNINGS[@]}"}"
 
 if [ ${#FAIL[@]} -gt 0 ]; then
-    echo "Some installs failed. Scroll up for the error output from each failed host."
-    echo "Next: fix the errors above, then re-run: make install"
+    print_message "$C_RED" "Some installs failed. Scroll up for the error output from each failed host."
+    print_message "$C_CYAN" "Next: fix the errors above, then re-run: make install"
 elif [ ${#WARN[@]} -gt 0 ]; then
-    echo "Host installs completed with warnings. Review the warnings above before continuing."
-    echo "Next: make verify"
+    print_message "$C_YELLOW" "Host installs completed with warnings. Review the warnings above before continuing."
+    print_message "$C_CYAN" "Next: make verify"
 else
-    echo "Next: make verify"
+    print_message "$C_GREEN" "Next: make verify"
 fi
 
 # Persist host detection results for the Docker service (write-only, no terminal output)

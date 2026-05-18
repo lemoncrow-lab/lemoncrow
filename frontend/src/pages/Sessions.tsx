@@ -2,7 +2,6 @@ import { useEffect, useState, useRef, type ReactNode } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type Trace, type SessionSummary } from "../api";
 import { MetricCard, SectionHeader, cx } from "../components/WorkbenchUI";
-import { useTimeRange } from "../lib/TimeRangeContext";
 import {
   fmtUsd,
   fmtTok,
@@ -70,12 +69,27 @@ function preferNonZeroMetric(
   return primary ?? fallback ?? 0;
 }
 
+// Latest activity timestamp for a session — prefers session-summary fields
+// (ended_at → started_at) and falls back to the head-trace created_at.
+function latestActivityMs(
+  trace: Trace,
+  summary?: SessionSummary | null
+): number {
+  const candidate =
+    summary?.ended_at || summary?.started_at || trace.created_at;
+  const ts = candidate ? Date.parse(candidate) : NaN;
+  return Number.isFinite(ts) ? ts : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Main Sessions page — sidebar list + master-detail routing
 // ---------------------------------------------------------------------------
 
+// History sidebar is intentionally independent of the global time range —
+// show everything we have, newest activity first.
+const SESSIONS_SINCE_ALL = "36500d";
+
 export default function Sessions() {
-  const { range } = useTimeRange();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -90,7 +104,6 @@ export default function Sessions() {
   const tracesRequestSeq = useRef(0);
   const [summaries, setSummaries] = useState<SessionSummary[] | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const traceWindowDays = Number.parseInt(range, 10);
 
   // Debounce search input → query
   useEffect(() => {
@@ -105,14 +118,14 @@ export default function Sessions() {
     return () => clearTimeout(timer);
   }, [searchInput, setSearchParams, searchParams]);
 
-  // Fetch traces on query / range change
+  // Fetch traces on query change — no date filter; history is unbounded.
   useEffect(() => {
     const requestSeq = ++tracesRequestSeq.current;
     setLoadingTraces(true);
     setPage(0);
     setErr(null);
     api
-      .traces(50, 0, "all", "all", query, traceWindowDays)
+      .traces(50, 0, "all", "all", query)
       .then((res) => {
         if (requestSeq !== tracesRequestSeq.current) return;
         setTraces(res.items);
@@ -124,15 +137,17 @@ export default function Sessions() {
         setErr(String(e));
         setLoadingTraces(false);
       });
-  }, [query, range]);
+  }, [query]);
 
-  // Fetch session summaries for cost/token stats in sidebar cards
+  // Fetch session summaries for cost/token stats in sidebar cards.
+  // Use a very large window so the History list is independent of the
+  // global date selector.
   useEffect(() => {
     api
-      .sessions(range)
+      .sessions(SESSIONS_SINCE_ALL)
       .then(setSummaries)
       .catch(() => null);
-  }, [range]);
+  }, []);
 
   const loadMore = () => {
     if (loadingTraces || !hasMore) return;
@@ -140,7 +155,7 @@ export default function Sessions() {
     setLoadingTraces(true);
     const nextOffset = (page + 1) * 50;
     api
-      .traces(50, nextOffset, "all", "all", query, traceWindowDays)
+      .traces(50, nextOffset, "all", "all", query)
       .then((res) => {
         if (requestSeq !== tracesRequestSeq.current) return;
         setTraces((prev) => (prev ? [...prev, ...res.items] : res.items));
@@ -250,7 +265,18 @@ export default function Sessions() {
                 <div className="p-4 text-xs text-red-500 font-mono">{err}</div>
               )}
 
-              {traces?.map((t) => {
+              {traces
+                ?.slice()
+                .sort((a, b) => {
+                  const sa = summaries?.find(
+                    (s) => s.session_id === (a.session_id || a.id)
+                  );
+                  const sb = summaries?.find(
+                    (s) => s.session_id === (b.session_id || b.id)
+                  );
+                  return latestActivityMs(b, sb) - latestActivityMs(a, sa);
+                })
+                .map((t) => {
                 const sid = t.session_id || t.id;
                 const isActive = id === sid;
                 const summary = summaries?.find((s) => s.session_id === sid);

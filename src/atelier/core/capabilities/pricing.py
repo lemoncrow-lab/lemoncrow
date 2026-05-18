@@ -111,11 +111,28 @@ _PLACEHOLDER_MODEL_IDS = frozenset({"", "_default", "<synthetic>"})
 
 _warned_unknown_models: set[str] = set()
 
-with_model_cost: dict[str, object]
-try:
-    from litellm import model_cost as with_model_cost
-except Exception:
-    with_model_cost = {}
+
+def _load_litellm_model_cost() -> dict[str, object]:
+    """Import LiteLLM's pricing catalog without surfacing optional AWS preload noise."""
+
+    previous_litellm_log = os.environ.get("LITELLM_LOG")
+    if previous_litellm_log is None:
+        os.environ["LITELLM_LOG"] = "ERROR"
+
+    try:
+        from litellm import model_cost
+    except Exception:
+        return {}
+    finally:
+        if previous_litellm_log is None:
+            os.environ.pop("LITELLM_LOG", None)
+        else:
+            os.environ["LITELLM_LOG"] = previous_litellm_log
+
+    return cast(dict[str, object], model_cost)
+
+
+with_model_cost = _load_litellm_model_cost()
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -457,9 +474,8 @@ def get_model_pricing(model_id: str) -> ModelPricing:
 
     # 3. Dot-version normalisation ("claude-sonnet-4.6" → "claude-sonnet-4-6")
     normalised = _normalize_model_id(model_id)
-    if normalised != model_id:
-        if hit := _lookup(normalised):
-            return hit
+    if normalised != model_id and (hit := _lookup(normalised)):
+        return hit
 
     # 4. Alias candidates on the normalised id (strips date / preview suffixes)
     for alias in _alias_candidates(normalised):
