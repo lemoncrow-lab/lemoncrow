@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Literal
 
 from atelier.core.capabilities.code_context.intel_store import ProviderHealth
 from atelier.core.capabilities.code_context.models import SymbolRecord
 from atelier.infra.code_intel.scip.indexer import ScipIndexer
-from atelier.infra.code_intel.scip.reader import LoadedScipArtifact, ScipArtifactError, ScipArtifactReader
+from atelier.infra.code_intel.scip.reader import (
+    LoadedScipArtifact,
+    ScipArtifactError,
+    ScipArtifactReader,
+)
 from atelier.infra.code_intel.scip.watcher import ScipArtifactWatcher
 
 
@@ -44,7 +49,7 @@ class ScipSymbolIntelProvider:
                 invalid_count += 1
         self._artifacts = loaded
         if loaded:
-            status = "ok" if invalid_count == 0 else "degraded"
+            status: Literal["ok", "degraded"] = "ok" if invalid_count == 0 else "degraded"
             reason = None if invalid_count == 0 else "some SCIP artifacts were rejected"
             self._health = ProviderHealth(status=status, reason=reason)
         elif invalid_count:

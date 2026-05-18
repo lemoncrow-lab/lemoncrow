@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -59,8 +60,8 @@ class SymbolIntelStore:
         *,
         cache: RetrievalCache,
         packer: BudgetPacker,
-        local_search: Any,
-        local_get_symbol: Any,
+        local_search: Callable[..., list[SymbolRecord]],
+        local_get_symbol: Callable[..., dict[str, Any]],
     ) -> None:
         self._cache = cache
         self._packer = packer

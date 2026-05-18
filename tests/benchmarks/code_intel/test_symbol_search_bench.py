@@ -119,10 +119,11 @@ def test_scip_vs_local_latency_ratio_min_100x(tmp_path: Path) -> None:
         db_path = local_repo_root / f"local_{local_counter['value']}.sqlite"
         local_counter["value"] += 1
         engine = CodeContextEngine(local_repo_root, db_path=db_path)
-        search_payload = engine.tool_search("OrderService", limit=5, budget_tokens=4000)
-        assert search_payload["items"]
-        symbol_payload = engine.tool_symbol(symbol_id=search_payload["items"][0]["symbol_id"], budget_tokens=4000)
-        assert symbol_payload["provenance"] == "local"
+        for query in ("OrderService", "helper", "checkout"):
+            search_payload = engine.tool_search(query, limit=5, budget_tokens=4000)
+            assert search_payload["items"]
+            symbol_payload = engine.tool_symbol(symbol_id=search_payload["items"][0]["symbol_id"], budget_tokens=4000)
+            assert symbol_payload["provenance"] == "local"
 
     scip_engine = CodeContextEngine(routed_repo_root, db_path=routed_repo_root / "scip.sqlite")
     scip_engine.index_repo()

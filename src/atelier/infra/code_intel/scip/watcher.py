@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 
 def _artifact_signature(artifact_paths: list[Path]) -> str:
