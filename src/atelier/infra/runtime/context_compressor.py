@@ -30,20 +30,20 @@ from atelier.infra.runtime.run_ledger import RunLedger
 # Task-type multipliers from route(op="decide") signals.
 # debug/refactor sessions need more preserved context; explain/docs need less.
 _TASK_TYPE_BUDGET_MULTIPLIER: dict[str, float] = {
-    "debug":    1.6,
+    "debug": 1.6,
     "refactor": 1.4,
-    "ops":      1.2,
-    "test":     1.2,
-    "feature":  1.0,
-    "review":   0.75,
-    "explain":  0.6,
-    "docs":     0.5,
+    "ops": 1.2,
+    "test": 1.2,
+    "feature": 1.0,
+    "review": 0.75,
+    "explain": 0.6,
+    "docs": 0.5,
 }
 
 _RISK_LEVEL_BUDGET_MULTIPLIER: dict[str, float] = {
-    "high":   1.3,
+    "high": 1.3,
     "medium": 1.0,
-    "low":    0.8,
+    "low": 0.8,
 }
 
 
@@ -110,9 +110,7 @@ class CompactState:
             lines.append("Recent raw turns:")
             for turn in self.recent_turns:
                 lines.append(f"  - {turn}")
-        lines.append(
-            f"Stats: tool_calls={self.tool_call_count} output_chars={self.total_tool_output_chars}"
-        )
+        lines.append(f"Stats: tool_calls={self.tool_call_count} output_chars={self.total_tool_output_chars}")
         return "\n".join(lines)
 
 
@@ -256,12 +254,12 @@ _COMPLEXITY_WINDOW = 40
 # Per-event value scores used by the dynamic budget and priority selection.
 # Higher score = more important to preserve verbatim.
 _EVENT_SCORES: dict[str, float] = {
-    "file_edit": 3.0,       # code change — essential
-    "file_revert": 2.5,     # revert — also important
-    "test_result": 2.0,     # test outcome
+    "file_edit": 3.0,  # code change - essential
+    "file_revert": 2.5,  # revert - also important
+    "test_result": 2.0,  # test outcome
     "command_result": 1.0,  # adjusted further by ok/fail below
-    "reasoning": 1.5,       # model reasoning — valuable
-    "agent_message": 1.5,   # model output — valuable
+    "reasoning": 1.5,  # model reasoning - valuable
+    "agent_message": 1.5,  # model output - valuable
     "tool_result": 0.8,
     "tool_call": 0.5,
     "note": 1.2,
@@ -272,7 +270,7 @@ _EVENT_SCORES: dict[str, float] = {
 
 
 def _score_event(event: dict[str, object]) -> float:
-    """Return a 0–4 value score for a single ledger event dict.
+    """Return a 0-4 value score for a single ledger event dict.
 
     Higher = more important to preserve during compaction.
     """
@@ -308,32 +306,32 @@ def _dynamic_turn_budget(
 
     The budget scales with session complexity so that:
     - Heavy edit / debugging sessions get more preserved context (up to 40 K).
-    - Read-only or quiet sessions use a tighter budget (~8–12 K).
+    - Read-only or quiet sessions use a tighter budget (~8-12 K).
 
     Factors
     -------
     edit_density:
         Fraction of the recent window that are ``file_edit``/``file_revert``
-        events.  High edit density → more history needed (model must know
+        events.  High edit density -> more history needed (model must know
         what it already changed).
     error_density:
         Fraction of ``command_result`` and ``test_result`` events that
-        failed.  High error density → debugging requires more context.
+        failed.  High error density -> debugging requires more context.
     avg_event_verbosity:
         Mean chars per event summary in the window.  Very verbose events
         contain richer content; the budget should scale up to preserve them.
 
     LLM signals (from session state via ``hints``):
-        task_type: scales by _TASK_TYPE_BUDGET_MULTIPLIER (debug=1.6 → docs=0.5).
+        task_type: scales by _TASK_TYPE_BUDGET_MULTIPLIER (debug=1.6 -> docs=0.5).
         risk_level: scales by _RISK_LEVEL_BUDGET_MULTIPLIER (high=1.3, low=0.8).
-        model_complexity: 0.0–1.0 → maps to 0.7×–1.5× multiplier.
+        model_complexity: 0.0-1.0 -> maps to 0.7x-1.5x multiplier.
 
     Formula
     -------
     budget = base(10K)
-           + edit_bonus   (0–18K  scaled by edit_density)
-           + error_bonus  (0–8K   scaled by error_density)
-           + verbose_bonus(0–4K   scaled by avg event verbosity)
+           + edit_bonus   (0-18K  scaled by edit_density)
+           + error_bonus  (0-8K   scaled by error_density)
+           + verbose_bonus(0-4K   scaled by avg event verbosity)
     Then scaled by LLM signals.
     Clamped to [_RECENT_TURNS_TOKEN_BUDGET_MIN, _RECENT_TURNS_TOKEN_BUDGET_MAX].
     """
@@ -343,18 +341,13 @@ def _dynamic_turn_budget(
     window = events[-_COMPLEXITY_WINDOW:]
 
     # Edit density
-    edit_count = sum(
-        1 for e in window
-        if str(e.get("kind", "")) in {"file_edit", "file_revert"}
-    )
+    edit_count = sum(1 for e in window if str(e.get("kind", "")) in {"file_edit", "file_revert"})
     edit_density = edit_count / len(window)
 
     # Error density
-    outcome_events = [
-        e for e in window
-        if str(e.get("kind", "")) in {"command_result", "test_result"}
-    ]
+    outcome_events = [e for e in window if str(e.get("kind", "")) in {"command_result", "test_result"}]
     if outcome_events:
+
         def _is_failure(ev: dict[str, object]) -> bool:
             raw = ev.get("payload")
             p: dict[str, object] = raw if isinstance(raw, dict) else {}
@@ -390,12 +383,9 @@ def _dynamic_turn_budget(
     risk_level = str(applied_hints.get("risk_level", "medium")).lower()
     risk_mult = _RISK_LEVEL_BUDGET_MULTIPLIER.get(risk_level, 1.0)
 
-    # model_complexity: 0.0–1.0 → maps to 0.7x – 1.5x budget multiplier
+    # model_complexity: 0.0-1.0 -> maps to 0.7x - 1.5x budget multiplier
     raw_complexity = applied_hints.get("model_complexity")
-    if raw_complexity is not None:
-        complexity_mult = 0.7 + float(raw_complexity) * 0.8
-    else:
-        complexity_mult = 1.0
+    complexity_mult = 0.7 + float(raw_complexity) * 0.8 if raw_complexity is not None else 1.0
 
     budget = int(budget * task_mult * risk_mult * complexity_mult)
     return max(_RECENT_TURNS_TOKEN_BUDGET_MIN, min(budget, _RECENT_TURNS_TOKEN_BUDGET_MAX))
@@ -406,20 +396,20 @@ def _recent_raw_turns(ledger: RunLedger, limit: int) -> list[str]:
 
     The selection is **complexity-adaptive**:
 
-    1. *Dynamic budget* — token budget scales with session complexity
+    1. *Dynamic budget* - token budget scales with session complexity
        (edit density, error rate, verbosity) and LLM-provided signals
        (task_type, risk_level, model_complexity from session state) so
        debugging/editing sessions preserve more history than quiet read-only
        sessions.
 
-    2. *Priority filtering* — when the budget is nearly exhausted, cheap
+    2. *Priority filtering* - when the budget is nearly exhausted, cheap
        bulky events (low-value Read/Bash outputs) are skipped so that
        high-value events (edits, failures, reasoning) are never displaced.
 
-    3. *Extended lookback* — the candidate window grows with the budget
+    3. *Extended lookback* - the candidate window grows with the budget
        so complex sessions can draw on a deeper history.
 
-    4. *Must-keep boosting* — events whose summary matches a keyword stored
+    4. *Must-keep boosting* - events whose summary matches a keyword stored
        by the model via ``compact(op="score")`` always pass through regardless
        of budget pressure (score boosted to 4.0).
     """
@@ -427,15 +417,14 @@ def _recent_raw_turns(ledger: RunLedger, limit: int) -> list[str]:
         return []
     raw_events = [_event_dict(event) for event in ledger.events]
 
-    # Load hints once — used for budget and must_keep boosting
+    # Load hints once - used for budget and must_keep boosting
     hints = _load_compression_hints()
     must_keep_lower = [kw.lower() for kw in (hints.get("must_keep") or [])]
 
     turn_like = [
         event
         for event in raw_events
-        if str(event.get("kind", ""))
-        in {"agent_message", "reasoning", "command_result", "test_result", "tool_result"}
+        if str(event.get("kind", "")) in {"agent_message", "reasoning", "command_result", "test_result", "tool_result"}
     ]
     # Extend lookback proportionally: complex sessions need a deeper window
     dyn_budget = _dynamic_turn_budget(raw_events, hints=hints)
@@ -469,7 +458,7 @@ def _recent_raw_turns(ledger: RunLedger, limit: int) -> list[str]:
 
         # Priority gate: when >70% of budget is used, skip low-value bulky events
         # (verbose read/command outputs that aren't failures).
-        # High-value events (score ≥ 2.0) always pass through.
+        # High-value events (score >= 2.0) always pass through.
         if score < 4.0 and chars_used > char_budget * 0.7 and score < 1.5 and line_chars > 300:
             continue
 
@@ -513,9 +502,7 @@ def _extract_next_steps(ledger: RunLedger) -> list[str]:
         return [ledger.next_required_validation]
     for event in reversed(ledger.events):
         data = _event_dict(event)
-        text = " ".join(
-            [str(data.get("summary", "")), json.dumps(data.get("payload", {}), default=str)]
-        )
+        text = " ".join([str(data.get("summary", "")), json.dumps(data.get("payload", {}), default=str)])
         lowered = text.lower()
         if "next" in lowered or "todo" in lowered:
             return [_truncate(text, 500)]

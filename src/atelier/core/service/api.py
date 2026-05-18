@@ -95,9 +95,7 @@ def _normalize_external_period(period: Any) -> str:
 def _pick_preferred_external_period(runs: list[dict[str, Any]], *, days: int) -> str | None:
     target_days = max(1, days)
     periods = {
-        _normalize_external_period(run.get("period"))
-        for run in runs
-        if _normalize_external_period(run.get("period"))
+        _normalize_external_period(run.get("period")) for run in runs if _normalize_external_period(run.get("period"))
     }
     if not periods:
         return None
@@ -112,9 +110,7 @@ def _pick_preferred_external_period(runs: list[dict[str, Any]], *, days: int) ->
     )
 
 
-def _select_external_run_for_days(
-    runs: list[dict[str, Any]], *, days: int
-) -> dict[str, Any] | None:
+def _select_external_run_for_days(runs: list[dict[str, Any]], *, days: int) -> dict[str, Any] | None:
     if not runs:
         return None
 
@@ -265,9 +261,7 @@ def _model_usage_cost(usage: dict[str, Any]) -> float:
     )
 
 
-def _normalize_trace_usage_entry(
-    raw_entry: Any, *, fallback_model: str = ""
-) -> dict[str, Any] | None:
+def _normalize_trace_usage_entry(raw_entry: Any, *, fallback_model: str = "") -> dict[str, Any] | None:
     if not isinstance(raw_entry, dict):
         return None
 
@@ -369,9 +363,7 @@ def _trace_model_usages(payload: dict[str, Any]) -> list[dict[str, Any]]:
             bucket[field] += value
 
     usages = list(aggregated.values())
-    usages.sort(
-        key=lambda usage: (_model_usage_cost(usage), _usage_total_tokens(usage)), reverse=True
-    )
+    usages.sort(key=lambda usage: (_model_usage_cost(usage), _usage_total_tokens(usage)), reverse=True)
     return usages
 
 
@@ -392,11 +384,7 @@ def _trace_session_model(
         return ""
 
     usages = model_usages if model_usages is not None else _trace_model_usages(payload)
-    usage_models = {
-        str(usage.get("model") or "").strip()
-        for usage in usages
-        if str(usage.get("model") or "").strip()
-    }
+    usage_models = {str(usage.get("model") or "").strip() for usage in usages if str(usage.get("model") or "").strip()}
     if len(usage_models) == 1:
         return next(iter(usage_models))
     if usage_models:
@@ -443,15 +431,9 @@ def _trace_cost_breakdown_from_payload(payload: dict[str, Any]) -> dict[str, flo
         if entry.get("kind") == "tool":
             continue
         model_id = str(entry.get("model") or "_default")
-        input_token_cost_usd += _llm_usage_cost(
-            model_id, input_tokens=int(entry.get("input_tokens") or 0)
-        )
-        output_token_cost_usd += _llm_usage_cost(
-            model_id, output_tokens=int(entry.get("output_tokens") or 0)
-        )
-        cache_read_cost_usd += _llm_usage_cost(
-            model_id, cache_read_tokens=int(entry.get("cached_input_tokens") or 0)
-        )
+        input_token_cost_usd += _llm_usage_cost(model_id, input_tokens=int(entry.get("input_tokens") or 0))
+        output_token_cost_usd += _llm_usage_cost(model_id, output_tokens=int(entry.get("output_tokens") or 0))
+        cache_read_cost_usd += _llm_usage_cost(model_id, cache_read_tokens=int(entry.get("cached_input_tokens") or 0))
         cache_write_cost_usd += _llm_usage_cost(
             model_id,
             cache_write_tokens=int(entry.get("cache_creation_input_tokens") or 0),
@@ -492,9 +474,7 @@ def _trace_models_used_from_payload(
     return {started_model: 1} if started_model else {}
 
 
-def _analytics_event_cost(
-    model_id: str | None, event_type: str, input_tokens: int, output_tokens: int
-) -> float:
+def _analytics_event_cost(model_id: str | None, event_type: str, input_tokens: int, output_tokens: int) -> float:
     if event_type == "prompt":
         return _llm_usage_cost(model_id, input_tokens=input_tokens)
     if event_type == "cached_prompt":
@@ -548,12 +528,8 @@ def _build_analytics_summary(rows: list[dict[str, Any]], *, days: int | None) ->
         for row in rows
         if row.get("event_type") in {"result", "thinking", "tool_call"}
     )
-    user_input_tokens = sum(
-        int(row.get("input_tokens") or 0) for row in rows if row.get("event_type") == "user_string"
-    )
-    tool_calls = sum(
-        int(row.get("call_count") or 1) for row in rows if row.get("event_type") == "tool_call"
-    )
+    user_input_tokens = sum(int(row.get("input_tokens") or 0) for row in rows if row.get("event_type") == "user_string")
+    tool_calls = sum(int(row.get("call_count") or 1) for row in rows if row.get("event_type") == "tool_call")
     unique_tools = len(
         {
             str(row.get("tool_name") or "")
@@ -562,28 +538,16 @@ def _build_analytics_summary(rows: list[dict[str, Any]], *, days: int | None) ->
         }
     )
     cached_prompt_tokens = sum(
-        int(row.get("input_tokens") or 0)
-        for row in rows
-        if row.get("event_type") == "cached_prompt"
+        int(row.get("input_tokens") or 0) for row in rows if row.get("event_type") == "cached_prompt"
     )
-    model_response_tokens = sum(
-        int(row.get("output_tokens") or 0) for row in rows if row.get("event_type") == "result"
-    )
+    model_response_tokens = sum(int(row.get("output_tokens") or 0) for row in rows if row.get("event_type") == "result")
     model_thinking_tokens = sum(
         int(row.get("output_tokens") or 0) for row in rows if row.get("event_type") == "thinking"
     )
-    tool_input_tokens = sum(
-        int(row.get("input_tokens") or 0) for row in rows if row.get("event_type") == "tool_call"
-    )
-    tool_output_tokens = sum(
-        int(row.get("output_tokens") or 0) for row in rows if row.get("event_type") == "tool_call"
-    )
+    tool_input_tokens = sum(int(row.get("input_tokens") or 0) for row in rows if row.get("event_type") == "tool_call")
+    tool_output_tokens = sum(int(row.get("output_tokens") or 0) for row in rows if row.get("event_type") == "tool_call")
     total_cost = round(
-        sum(
-            float(row.get("cost") or 0.0)
-            for row in rows
-            if row.get("event_type") in _BILLABLE_ANALYTICS_EVENTS
-        ),
+        sum(float(row.get("cost") or 0.0) for row in rows if row.get("event_type") in _BILLABLE_ANALYTICS_EVENTS),
         6,
     )
     effective_days = max(1, days or 1)
@@ -777,9 +741,7 @@ def _group_analytics_rows(events: list[dict[str, Any]], *, limit: int) -> list[d
         row["output_tokens"] += int(event.get("output_tokens") or 0)
         row["call_count"] += int(event.get("call_count") or 0)
         row["cost"] = round(float(row.get("cost") or 0.0) + float(event.get("cost") or 0.0), 8)
-        row["first_seen"] = min(
-            str(row.get("first_seen") or ""), str(event.get("first_seen") or "")
-        )
+        row["first_seen"] = min(str(row.get("first_seen") or ""), str(event.get("first_seen") or ""))
         row["last_seen"] = max(str(row.get("last_seen") or ""), str(event.get("last_seen") or ""))
         session_ids[key].add(str(event["trace_id"]))
 
@@ -803,9 +765,7 @@ def _query_analytics_rows(
     start_day = None
     if days is not None:
         window_days = max(1, int(days))
-        start_day = (
-            datetime.now().astimezone().date() - timedelta(days=window_days - 1)
-        ).isoformat()
+        start_day = (datetime.now().astimezone().date() - timedelta(days=window_days - 1)).isoformat()
 
     params: list[Any] = []
 
@@ -904,9 +864,7 @@ def _latest_savings_benchmark(root: Path) -> dict[str, Any] | None:
             if isinstance(payload, dict):
                 compact = {
                     "sessions_benchmarked": payload.get("sessions_benchmarked", 0),
-                    "avg_native_freed_tokens_measured": payload.get(
-                        "avg_native_freed_tokens_measured", 0
-                    ),
+                    "avg_native_freed_tokens_measured": payload.get("avg_native_freed_tokens_measured", 0),
                     "avg_atelier_freed_tokens_est": payload.get("avg_atelier_freed_tokens_est", 0),
                     "avg_delta_tokens": payload.get("avg_delta_tokens", 0),
                     "atelier_vs_native_delta_pct": payload.get("atelier_vs_native_delta_pct", 0.0),
@@ -930,9 +888,7 @@ def _latest_savings_benchmark(root: Path) -> dict[str, Any] | None:
                     "total_downtiered_turns": payload.get("total_downtiered_turns", 0),
                     "downtiered_pct": payload.get("downtiered_pct", 0.0),
                     "total_cost_saved_usd": payload.get("total_cost_saved_usd", 0.0),
-                    "avg_cost_saved_usd_per_session": payload.get(
-                        "avg_cost_saved_usd_per_session", 0.0
-                    ),
+                    "avg_cost_saved_usd_per_session": payload.get("avg_cost_saved_usd_per_session", 0.0),
                     "by_tier": payload.get("by_tier", {}),
                     "generated_at": payload.get("generated_at", ""),
                     "note": payload.get("note", ""),
@@ -1013,9 +969,7 @@ def _tracked_saved_tokens(store: ContextStore, trace: Trace) -> tuple[int, int]:
         tracked_turns += int(row.tool_calls or 0)
         lever_keys = [str(key or "") for key in row.lever_savings]
         non_marker_keys = [key for key in lever_keys if not key.startswith("tool:")]
-        if non_marker_keys and all(
-            key.startswith("compact_tool_output:") for key in non_marker_keys
-        ):
+        if non_marker_keys and all(key.startswith("compact_tool_output:") for key in non_marker_keys):
             continue
         actual_tokens = (
             int(row.input_tokens or 0)
@@ -1063,9 +1017,7 @@ def _window_metrics(store: ContextStore, traces: list[Trace]) -> dict[str, Any]:
         "trace_count": count,
         "avg_tokens": round(sum(int(item["tokens"]) for item in entries) / count),
         "avg_cost_usd": round(sum(float(item["cost_usd"]) for item in entries) / count, 6),
-        "avg_cache_leverage": round(
-            sum(float(item["cache_leverage"]) for item in entries) / count, 4
-        ),
+        "avg_cache_leverage": round(sum(float(item["cache_leverage"]) for item in entries) / count, 4),
         "avg_saved_tokens": round(sum(int(item["saved_tokens"]) for item in entries) / count),
         "tracked_turns": sum(int(item["tracked_turns"]) for item in entries),
         "from": entries[0]["created_at"],
@@ -1129,9 +1081,7 @@ def _build_impact_validation(
                 "cache_leverage_pct": 0.0,
                 "saved_tokens_pct": 0.0,
             },
-            "notes": [
-                "Need at least two traces in the selected window to compare before vs after behavior."
-            ],
+            "notes": ["Need at least two traces in the selected window to compare before vs after behavior."],
         }
 
     midpoint = max(1, len(traces) // 2)
@@ -1140,12 +1090,8 @@ def _build_impact_validation(
 
     tokens_delta_pct = _pct_change(float(before["avg_tokens"]), float(after["avg_tokens"]))
     cost_delta_pct = _pct_change(float(before["avg_cost_usd"]), float(after["avg_cost_usd"]))
-    cache_delta_pct = _pct_change(
-        float(before["avg_cache_leverage"]), float(after["avg_cache_leverage"])
-    )
-    saved_tokens_delta_pct = _pct_change(
-        float(before["avg_saved_tokens"]), float(after["avg_saved_tokens"])
-    )
+    cache_delta_pct = _pct_change(float(before["avg_cache_leverage"]), float(after["avg_cache_leverage"]))
+    saved_tokens_delta_pct = _pct_change(float(before["avg_saved_tokens"]), float(after["avg_saved_tokens"]))
 
     notes: list[str] = []
     if after["avg_tokens"] < before["avg_tokens"]:
@@ -1340,9 +1286,7 @@ def _build_reread_telemetry(root: Path, *, window_days: int) -> dict[str, Any]:
         kind_row["cost_saved_usd"] = round(float(kind_row["cost_saved_usd"]), 6)
 
     top_paths = []
-    for path_row in sorted(
-        by_path.values(), key=lambda row: int(row["tokens_saved"]), reverse=True
-    )[:5]:
+    for path_row in sorted(by_path.values(), key=lambda row: int(row["tokens_saved"]), reverse=True)[:5]:
         top_paths.append(
             {
                 "path": path_row["path"],
@@ -1441,9 +1385,7 @@ def _live_event_datetime(event: dict[str, Any]) -> datetime | None:
         return None
 
 
-def _recent_live_model_recommendations(
-    live_events: list[dict[str, Any]], *, window_days: int
-) -> list[dict[str, Any]]:
+def _recent_live_model_recommendations(live_events: list[dict[str, Any]], *, window_days: int) -> list[dict[str, Any]]:
     cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
     rows: list[dict[str, Any]] = []
     for event in live_events:
@@ -1466,18 +1408,14 @@ def _recent_live_model_recommendations(
                 "cost_saved_usd": round(_coerce_float(event.get("cost_saved_usd") or 0.0), 6),
                 "vs_model": event.get("vs_model") or "",
                 "estimated_input_tokens": _coerce_int(event.get("estimated_input_tokens") or 0),
-                "reasons": [
-                    str(reason) for reason in event.get("reasons", []) if isinstance(reason, str)
-                ],
+                "reasons": [str(reason) for reason in event.get("reasons", []) if isinstance(reason, str)],
             }
         )
     rows.sort(key=lambda row: str(row["at"]), reverse=True)
     return rows[:10]
 
 
-def _build_actual_routing_savings(
-    live_events: list[dict[str, Any]], *, window_days: int
-) -> dict[str, Any]:
+def _build_actual_routing_savings(live_events: list[dict[str, Any]], *, window_days: int) -> dict[str, Any]:
     cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
     calls_downtiered = 0
     total_cost_saved = 0.0
@@ -1534,9 +1472,7 @@ def _build_actual_routing_savings(
                 "model": model,
                 "cost_saved_usd": round(cost_saved_usd, 6),
                 "vs_model": str(event.get("vs_model") or ""),
-                "reasons": [
-                    str(reason) for reason in event.get("reasons", []) if isinstance(reason, str)
-                ],
+                "reasons": [str(reason) for reason in event.get("reasons", []) if isinstance(reason, str)],
             }
         )
 
@@ -1575,9 +1511,7 @@ def _build_actual_routing_savings(
     }
 
 
-def _build_compact_session_history(
-    live_events: list[dict[str, Any]], *, window_days: int
-) -> list[dict[str, Any]]:
+def _build_compact_session_history(live_events: list[dict[str, Any]], *, window_days: int) -> list[dict[str, Any]]:
     cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
     rows: list[dict[str, Any]] = []
     for event in live_events:
@@ -1664,17 +1598,18 @@ def _build_model_routing_simulation(
         "simulated_cost_usd": round(total_simulated_cost, 6),
         "total_tokens_rerouted": rerouted_tokens,
         "heuristic": "Conservative routine-trace filter: success only, no errors, <=120K total tokens, <=4 tool calls, <=2 files touched.",
-        "candidates": sorted(
-            candidates, key=lambda row: float(row["estimated_cost_saved_usd"]), reverse=True
-        )[:8],
-        "live_recommendations": _recent_live_model_recommendations(
-            live_events or [], window_days=window_days
-        ),
+        "candidates": sorted(candidates, key=lambda row: float(row["estimated_cost_saved_usd"]), reverse=True)[:8],
+        "live_recommendations": _recent_live_model_recommendations(live_events or [], window_days=window_days),
         "actual_savings": _build_actual_routing_savings(live_events or [], window_days=window_days),
     }
 
 
-def _savings_summary_payload(root: Path, *, window_days: int) -> dict[str, Any]:
+def _savings_summary_payload(
+    root: Path,
+    *,
+    window_days: int,
+    store: ContextStore | None = None,
+) -> dict[str, Any]:
     from atelier.infra.runtime.cost_tracker import CostTracker, load_cost_history
 
     history = load_cost_history(root)
@@ -1708,9 +1643,7 @@ def _savings_summary_payload(root: Path, *, window_days: int) -> dict[str, Any]:
             naive = actual + cache_read_tokens
             total_naive += naive
             total_actual += actual
-            per_lever[_normalize_lever(str(call.get("operation", "unknown")))] += max(
-                0, naive - actual
-            )
+            per_lever[_normalize_lever(str(call.get("operation", "unknown")))] += max(0, naive - actual)
             at_raw = str(call.get("at", ""))
             try:
                 at_date = datetime.fromisoformat(at_raw.replace("Z", "+00:00")).date()
@@ -1722,8 +1655,10 @@ def _savings_summary_payload(root: Path, *, window_days: int) -> dict[str, Any]:
                 by_day_seed[day_key]["naive"] = int(by_day_seed[day_key]["naive"]) + naive
                 by_day_seed[day_key]["actual"] = int(by_day_seed[day_key]["actual"]) + actual
 
+    live_events_window: list[dict[str, Any]] = []
     for event in _iter_live_savings_events(root):
-        tokens_saved = int(event.get("tokens_saved", 0) or 0)
+        live_tokens_saved = int(event.get("live_tokens_saved", 0) or 0)
+        tokens_saved = live_tokens_saved or int(event.get("tokens_saved", 0) or 0)
         cost_saved_usd = float(event.get("cost_saved_usd", 0.0) or 0.0)
         if tokens_saved <= 0 and cost_saved_usd <= 0:
             continue
@@ -1735,6 +1670,7 @@ def _savings_summary_payload(root: Path, *, window_days: int) -> dict[str, Any]:
             at_date = today
         if at_date < start_day:
             continue
+        live_events_window.append(event)
         lever = _normalize_lever(str(event.get("lever") or event.get("tool_name") or "plugin_live"))
         tool_name = str(event.get("tool_name") or lever)
         per_lever.setdefault(lever, 0)
@@ -1764,26 +1700,459 @@ def _savings_summary_payload(root: Path, *, window_days: int) -> dict[str, Any]:
         source["cost_saved_usd"] += cost_saved_usd
         source["time_saved_ms"] += int(event.get("time_saved_ms", 0) or 0)
 
-    reduction_pct = (
-        round((1.0 - (total_actual / total_naive)) * 100.0, 1) if total_naive > 0 else 0.0
-    )
+    reduction_pct = round((1.0 - (total_actual / total_naive)) * 100.0, 1) if total_naive > 0 else 0.0
     sorted_levers = dict(sorted(per_lever.items(), key=lambda kv: kv[1], reverse=True))
     cost_summary = CostTracker(root).total_savings()
     saved_usd = round(float(cost_summary["saved_usd"]) + live_cost_saved, 6)
     would_have_cost = round(float(cost_summary["would_have_cost_usd"]) + live_cost_saved, 6)
     actually_cost = float(cost_summary["actually_cost_usd"])
     saved_pct = round(100.0 * saved_usd / would_have_cost, 2) if would_have_cost > 0 else 0.0
-    top_sources = sorted(
-        source_totals.values(), key=lambda row: float(row["cost_saved_usd"]), reverse=True
-    )
+    top_sources = sorted(source_totals.values(), key=lambda row: float(row["cost_saved_usd"]), reverse=True)
     for src in top_sources:
         src["cost_saved_usd"] = round(float(src["cost_saved_usd"]), 6)
     cost_only_sources = [
         dict(source)
         for source in top_sources
-        if int(source.get("tokens_saved", 0) or 0) <= 0
-        and float(source.get("cost_saved_usd", 0.0) or 0.0) > 0
+        if int(source.get("tokens_saved", 0) or 0) <= 0 and float(source.get("cost_saved_usd", 0.0) or 0.0) > 0
     ]
+
+    if store is None:
+        return {
+            "window_days": window_days,
+            "total_naive_tokens": total_naive,
+            "total_actual_tokens": total_actual,
+            "reduction_pct": reduction_pct,
+            "per_lever": sorted_levers,
+            "by_day": list(by_day_seed.values()),
+            "saved_usd": saved_usd,
+            "saved_pct": saved_pct,
+            "would_have_cost_usd": would_have_cost,
+            "actually_cost_usd": round(actually_cost, 6),
+            "total_calls": cost_summary["total_calls"],
+            "live_calls_saved": live_calls_saved,
+            "live_time_saved_ms": live_time_saved_ms,
+            "live_saved_usd": round(live_cost_saved, 6),
+            "top_sources": top_sources[:10],
+            "cost_only_sources": cost_only_sources[:10],
+            "latest_benchmark": _latest_savings_benchmark(root),
+            "tracked_tool_calls": 0,
+            "cost_basis": "cost_history",
+            "tool_aggregates": [],
+            "session_proof": [],
+            "coverage_gaps": [],
+            "verification": {},
+        }
+
+    def _parse_dt(value: Any) -> datetime:
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=UTC)
+        if isinstance(value, str):
+            with contextlib.suppress(ValueError):
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.now(UTC)
+
+    def _load_run_ledger(session_id: str) -> dict[str, Any] | None:
+        run_path = root / "runs" / f"{session_id}.json"
+        if not run_path.exists():
+            return None
+        with contextlib.suppress(Exception):
+            payload = json.loads(run_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                return payload
+        return None
+
+    def _nearest_ledger_tool_name(ledger: dict[str, Any] | None, turn_index: int) -> str | None:
+        if not ledger:
+            return None
+        candidates: list[tuple[int, int, str]] = []
+        for idx, event in enumerate(ledger.get("events") or []):
+            if not isinstance(event, dict):
+                continue
+            if str(event.get("kind") or "") != "tool_result":
+                continue
+            payload = event.get("payload") or {}
+            if not isinstance(payload, dict):
+                continue
+            tool_name = str(payload.get("tool") or "").strip()
+            if tool_name:
+                candidates.append((abs(idx - turn_index), -idx, tool_name))
+        if not candidates:
+            return None
+        return min(candidates)[2]
+
+    live_by_session_tool: dict[tuple[str, str], dict[str, Any]] = {}
+    live_agent_by_session: dict[str, str] = {}
+    for event in live_events_window:
+        session_id = str(event.get("session_id") or "").strip()
+        tool_name = str(event.get("tool_name") or "").strip()
+        if session_id and isinstance(event.get("agent"), str):
+            live_agent_by_session[session_id] = str(event["agent"])
+        if not session_id or not tool_name:
+            continue
+        bucket = live_by_session_tool.setdefault(
+            (session_id, tool_name),
+            {
+                "calls_saved": 0,
+                "time_saved_ms": 0,
+                "cost_saved_usd": 0.0,
+                "model": "",
+            },
+        )
+        bucket["calls_saved"] += int(event.get("calls_saved", 0) or 0)
+        bucket["time_saved_ms"] += int(event.get("time_saved_ms", 0) or 0)
+        bucket["cost_saved_usd"] += float(event.get("cost_saved_usd", 0.0) or 0.0)
+        if isinstance(event.get("model"), str) and event.get("model"):
+            bucket["model"] = str(event["model"])
+
+    traces = store.list_traces(limit=5000)
+    recent_traces = [trace for trace in traces if _trace_created_at(trace).date() >= start_day]
+    trace_by_session = {_trace_run_key(trace): trace for trace in recent_traces}
+
+    from atelier.core.capabilities.pricing import get_model_pricing
+
+    proof_rows: list[dict[str, Any]] = []
+    with sqlite3.connect(store.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT session_id, turn_index, model, input_tokens, cache_read_tokens,
+                   cache_write_tokens, output_tokens, naive_input_tokens,
+                   lever_savings_json, tool_calls, created_at
+            FROM context_budget
+            WHERE date(datetime(created_at)) >= ?
+            ORDER BY created_at ASC, turn_index ASC
+            """,
+            (start_day.isoformat(),),
+        ).fetchall()
+
+    for row in rows:
+        session_id = str(row["session_id"] or "")
+        lever_savings = json.loads(str(row["lever_savings_json"] or "{}"))
+        if not isinstance(lever_savings, dict):
+            lever_savings = {}
+        non_marker_keys = [
+            str(key) for key, value in lever_savings.items() if not str(key).startswith("tool:") and int(value or 0) > 0
+        ]
+        compact_keys = [key for key in non_marker_keys if key.startswith("compact_tool_output:")]
+        compact_only = bool(non_marker_keys) and len(compact_keys) == len(non_marker_keys)
+        lever_key = compact_keys[0] if compact_keys else (non_marker_keys[0] if non_marker_keys else "unattributed")
+        lever = (
+            _normalize_lever(lever_key.split(":", 1)[1])
+            if lever_key.startswith("compact_tool_output:")
+            else _normalize_lever(lever_key)
+        )
+        if lever == "unknown" and not non_marker_keys:
+            lever = "unattributed"
+
+        actual_tokens = (
+            int(row["input_tokens"] or 0)
+            + int(row["cache_read_tokens"] or 0)
+            + int(row["cache_write_tokens"] or 0)
+            + int(row["output_tokens"] or 0)
+        )
+        naive_tokens = int(row["naive_input_tokens"] or 0)
+        saved_tokens = max(0, naive_tokens - actual_tokens)
+        model = str(row["model"] or "_default")
+
+        ledger = _load_run_ledger(session_id)
+        matched_tool_name = _nearest_ledger_tool_name(ledger, int(row["turn_index"] or 0))
+        if not matched_tool_name and len([key for (sid, key) in live_by_session_tool if sid == session_id]) == 1:
+            matched_tool_name = next(key for (sid, key) in live_by_session_tool if sid == session_id)
+        if not matched_tool_name:
+            matched_tool_name = "unattributed"
+
+        live_bucket = live_by_session_tool.get((session_id, matched_tool_name), {})
+        pricing_model = str(live_bucket.get("model") or model or "claude-sonnet-4")
+        if pricing_model in {"", "_default", "test-model"}:
+            pricing_model = "claude-sonnet-4"
+        pricing = get_model_pricing(pricing_model)
+        actual_cost_usd = round(pricing.cost_usd(output_tokens=actual_tokens), 6)
+        baseline_cost_usd = (
+            actual_cost_usd
+            if saved_tokens <= 0
+            else round(actual_cost_usd + pricing.cost_usd(input_tokens=naive_tokens), 6)
+        )
+        saved_cost_usd = round(max(0.0, baseline_cost_usd - actual_cost_usd), 6)
+        trace = trace_by_session.get(session_id)
+        agent = ""
+        task = ""
+        if ledger:
+            agent = str(ledger.get("agent") or "")
+            task = str(ledger.get("task") or "")
+        if trace is not None:
+            agent = agent or str(trace.agent or trace.host or "")
+            task = task or str(trace.task or "")
+        agent = agent or live_agent_by_session.get(session_id, "")
+
+        proof_rows.append(
+            {
+                "session_id": session_id,
+                "turn_index": int(row["turn_index"] or 0),
+                "tool_name": matched_tool_name,
+                "lever": lever if lever != "unknown" else "unattributed",
+                "actual_tokens": actual_tokens,
+                "naive_tokens": naive_tokens,
+                "saved_tokens": saved_tokens,
+                "actual_cost_usd": actual_cost_usd,
+                "baseline_cost_usd": baseline_cost_usd,
+                "saved_cost_usd": saved_cost_usd,
+                "tool_calls": int(row["tool_calls"] or 0),
+                "created_at": _parse_dt(row["created_at"]).isoformat(),
+                "compact_only": compact_only,
+                "agent": agent,
+                "task": task,
+                "ledger_backed": ledger is not None,
+                "trace_linked": trace is not None,
+                "live_calls_saved": int(live_bucket.get("calls_saved", 0) or 0),
+                "live_time_saved_ms": int(live_bucket.get("time_saved_ms", 0) or 0),
+                "live_saved_usd": round(float(live_bucket.get("cost_saved_usd", 0.0) or 0.0), 6),
+            }
+        )
+
+    coverage_gaps: list[dict[str, Any]] = []
+    proof_sessions = {row["session_id"] for row in proof_rows}
+    live_sessions = {str(event.get("session_id") or "") for event in live_events_window}
+    for trace in recent_traces:
+        session_id = _trace_run_key(trace)
+        host = _host_family(trace.host or trace.agent)
+        if host != "copilot":
+            continue
+        if session_id in proof_sessions or session_id in live_sessions:
+            continue
+        coverage_gaps.append(
+            {
+                "session_id": session_id,
+                "trace_id": trace.id,
+                "agent": trace.agent,
+                "task": trace.task,
+                "status": trace.status,
+                "trace_confidence": trace.trace_confidence,
+                "created_at": _trace_created_at(trace).isoformat(),
+                "reason": (
+                    "Copilot trace/import exists, but no live MCP savings telemetry was captured for this run; "
+                    "proof is limited to the imported trace/ledger surface."
+                ),
+                "missing_surfaces": list(trace.missing_surfaces or []),
+            }
+        )
+
+    if proof_rows:
+        eligible_rows = [row for row in proof_rows if not row["compact_only"]]
+        total_naive = sum(int(row["naive_tokens"]) for row in eligible_rows)
+        total_actual = sum(int(row["actual_tokens"]) for row in eligible_rows)
+        reduction_pct = round((1.0 - (total_actual / total_naive)) * 100.0, 1) if total_naive > 0 else 0.0
+        per_lever_totals: defaultdict[str, int] = defaultdict(int)
+        for row in eligible_rows:
+            per_lever_totals[str(row["lever"])] += int(row["saved_tokens"])
+        sorted_levers = dict(sorted(per_lever_totals.items(), key=lambda kv: kv[1], reverse=True))
+        saved_usd = round(sum(float(row["saved_cost_usd"]) for row in eligible_rows), 6)
+        would_have_cost = round(sum(float(row["baseline_cost_usd"]) for row in eligible_rows), 6)
+        actually_cost = round(sum(float(row["actual_cost_usd"]) for row in eligible_rows), 6)
+        saved_pct = round(100.0 * saved_usd / would_have_cost, 2) if would_have_cost > 0 else 0.0
+        tracked_tool_calls = sum(int(row["tool_calls"]) for row in eligible_rows)
+        live_calls_saved = sum(int(row["live_calls_saved"]) for row in proof_rows)
+        live_time_saved_ms = sum(int(row["live_time_saved_ms"]) for row in proof_rows)
+        live_cost_saved = round(sum(float(row["live_saved_usd"]) for row in proof_rows), 6)
+
+        aggregate_map: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in proof_rows:
+            key = (str(row["tool_name"]), str(row["lever"]))
+            bucket = aggregate_map.setdefault(
+                key,
+                {
+                    "tool_name": row["tool_name"],
+                    "lever": row["lever"],
+                    "turns": 0,
+                    "session_ids": set(),
+                    "actual_tokens": 0,
+                    "naive_tokens": 0,
+                    "saved_tokens": 0,
+                    "actual_cost_usd": 0.0,
+                    "baseline_cost_usd": 0.0,
+                    "saved_cost_usd": 0.0,
+                    "live_calls_saved": 0,
+                    "live_time_saved_ms": 0,
+                    "live_saved_usd": 0.0,
+                },
+            )
+            bucket["turns"] += 1
+            bucket["session_ids"].add(str(row["session_id"]))
+            bucket["actual_tokens"] += int(row["actual_tokens"])
+            bucket["naive_tokens"] += int(row["naive_tokens"])
+            bucket["saved_tokens"] += int(row["saved_tokens"])
+            bucket["actual_cost_usd"] += float(row["actual_cost_usd"])
+            bucket["baseline_cost_usd"] += float(row["baseline_cost_usd"])
+            bucket["saved_cost_usd"] += float(row["saved_cost_usd"])
+            bucket["live_calls_saved"] += int(row["live_calls_saved"])
+            bucket["live_time_saved_ms"] += int(row["live_time_saved_ms"])
+            bucket["live_saved_usd"] += float(row["live_saved_usd"])
+
+        tool_aggregates = [
+            {
+                "tool_name": bucket["tool_name"],
+                "lever": bucket["lever"],
+                "turns": bucket["turns"],
+                "session_count": len(bucket["session_ids"]),
+                "actual_tokens": bucket["actual_tokens"],
+                "naive_tokens": bucket["naive_tokens"],
+                "saved_tokens": bucket["saved_tokens"],
+                "actual_cost_usd": round(bucket["actual_cost_usd"], 6),
+                "baseline_cost_usd": round(bucket["baseline_cost_usd"], 6),
+                "saved_cost_usd": round(bucket["saved_cost_usd"], 6),
+                "live_calls_saved": bucket["live_calls_saved"],
+                "live_time_saved_ms": bucket["live_time_saved_ms"],
+                "live_saved_usd": round(bucket["live_saved_usd"], 6),
+            }
+            for bucket in aggregate_map.values()
+        ]
+        tool_aggregates.sort(key=lambda row: (-row["saved_tokens"], row["tool_name"]))
+
+        session_map: dict[str, dict[str, Any]] = {}
+        for row in proof_rows:
+            session = session_map.setdefault(
+                str(row["session_id"]),
+                {
+                    "session_id": row["session_id"],
+                    "agent": row["agent"],
+                    "task": row["task"],
+                    "saved_tokens": 0,
+                    "saved_cost_usd": 0.0,
+                    "items": [],
+                },
+            )
+            if not session["agent"] and row["agent"]:
+                session["agent"] = row["agent"]
+            if not session["task"] and row["task"]:
+                session["task"] = row["task"]
+            session["saved_tokens"] += int(row["saved_tokens"])
+            session["saved_cost_usd"] = round(float(session["saved_cost_usd"]) + float(row["saved_cost_usd"]), 6)
+            session["items"].append(
+                {
+                    "session_id": row["session_id"],
+                    "turn_index": row["turn_index"],
+                    "tool_name": row["tool_name"],
+                    "lever": row["lever"],
+                    "actual_tokens": row["actual_tokens"],
+                    "naive_tokens": row["naive_tokens"],
+                    "saved_tokens": row["saved_tokens"],
+                    "actual_cost_usd": row["actual_cost_usd"],
+                    "baseline_cost_usd": row["baseline_cost_usd"],
+                    "saved_cost_usd": row["saved_cost_usd"],
+                    "created_at": row["created_at"],
+                }
+            )
+        session_proof = sorted(session_map.values(), key=lambda row: (-row["saved_tokens"], row["session_id"]))
+        for row in session_proof:
+            row["items"].sort(key=lambda item: (-int(item["saved_tokens"]), int(item["turn_index"])))
+
+        dominant_run = session_proof[0] if session_proof else None
+        dominant_item = (
+            max(proof_rows, key=lambda row: (int(row["saved_tokens"]), row["created_at"])) if proof_rows else None
+        )
+        total_saved_proof_tokens = sum(int(row["saved_tokens"]) for row in proof_rows) or 1
+        dominant_run_share = (
+            round((int(dominant_run["saved_tokens"]) / total_saved_proof_tokens) * 100.0, 1) if dominant_run else 0.0
+        )
+        dominant_item_share = (
+            round((int(dominant_item["saved_tokens"]) / total_saved_proof_tokens) * 100.0, 1) if dominant_item else 0.0
+        )
+        compact_output_row_count = sum(1 for row in proof_rows if row["compact_only"])
+        compact_output_saved_tokens = sum(int(row["saved_tokens"]) for row in proof_rows if row["compact_only"])
+        if compact_output_row_count > 0:
+            headline_explanation = (
+                "This headline excludes compact-tool-output rows such as search_read naive-vs-compacted comparisons. "
+                "Those rows remain in the proof tables below as tool-output compression evidence, "
+                "but they do not count toward top-line token or cost savings. "
+                "The headline is still a proof-oriented estimate, not audited provider billing."
+            )
+            warning = (
+                f"{compact_output_row_count} compact-tool-output proof row(s) were excluded from the headline totals. "
+                "One proof row dominates the estimated saved-token total. Inspect the leading session/item rows below before trusting the aggregate."
+            )
+        else:
+            headline_explanation = (
+                "These top-line totals come from headline-eligible context-budget proof rows and exclude live-estimate-only overlays. "
+                "They are proof-oriented estimates, not audited provider billing."
+            )
+            warning = "One proof row dominates the estimated saved-token total. Inspect the leading session/item rows below before trusting the aggregate."
+
+        top_sources = [
+            {
+                "lever": row["lever"],
+                "tool_name": row["tool_name"],
+                "calls_saved": row["live_calls_saved"],
+                "tokens_saved": row["saved_tokens"],
+                "cost_saved_usd": row["saved_cost_usd"],
+                "time_saved_ms": row["live_time_saved_ms"],
+            }
+            for row in tool_aggregates[:10]
+        ]
+
+        return {
+            "window_days": window_days,
+            "total_naive_tokens": total_naive,
+            "total_actual_tokens": total_actual,
+            "reduction_pct": reduction_pct,
+            "per_lever": sorted_levers,
+            "by_day": list(by_day_seed.values()),
+            "saved_usd": saved_usd,
+            "saved_pct": saved_pct,
+            "would_have_cost_usd": would_have_cost,
+            "actually_cost_usd": actually_cost,
+            "total_calls": cost_summary["total_calls"],
+            "live_calls_saved": live_calls_saved,
+            "live_time_saved_ms": live_time_saved_ms,
+            "live_saved_usd": live_cost_saved,
+            "top_sources": top_sources,
+            "cost_only_sources": [],
+            "latest_benchmark": _latest_savings_benchmark(root),
+            "tracked_tool_calls": tracked_tool_calls,
+            "cost_basis": "context_budget",
+            "tool_aggregates": tool_aggregates,
+            "session_proof": session_proof,
+            "coverage_gaps": coverage_gaps,
+            "verification": {
+                "data_root": str(root),
+                "headline_kind": "tracked_proof_reduction",
+                "headline_explanation": headline_explanation,
+                "tracked_row_count": len(proof_rows),
+                "tracked_run_count": len({row["session_id"] for row in proof_rows}),
+                "trace_linked_run_count": len({row["session_id"] for row in proof_rows if row["trace_linked"]}),
+                "ledger_backed_run_count": len({row["session_id"] for row in proof_rows if row["ledger_backed"]}),
+                "live_event_count": len(live_events_window),
+                "coverage_gap_count": len(coverage_gaps),
+                "compact_output_row_count": compact_output_row_count,
+                "compact_output_saved_tokens": compact_output_saved_tokens,
+                "dominant_run": (
+                    {
+                        "session_id": dominant_run["session_id"],
+                        "agent": dominant_run["agent"],
+                        "task": dominant_run["task"],
+                        "saved_tokens": dominant_run["saved_tokens"],
+                        "saved_cost_usd": dominant_run["saved_cost_usd"],
+                    }
+                    if dominant_run
+                    else None
+                ),
+                "dominant_item": (
+                    {
+                        "session_id": dominant_item["session_id"],
+                        "turn_index": dominant_item["turn_index"],
+                        "tool_name": dominant_item["tool_name"],
+                        "lever": dominant_item["lever"],
+                        "actual_tokens": dominant_item["actual_tokens"],
+                        "naive_tokens": dominant_item["naive_tokens"],
+                        "saved_tokens": dominant_item["saved_tokens"],
+                        "created_at": dominant_item["created_at"],
+                    }
+                    if dominant_item
+                    else None
+                ),
+                "dominant_run_share_pct": dominant_run_share,
+                "dominant_item_share_pct": dominant_item_share,
+                "warning": warning,
+            },
+        }
 
     return {
         "window_days": window_days,
@@ -1803,6 +2172,12 @@ def _savings_summary_payload(root: Path, *, window_days: int) -> dict[str, Any]:
         "top_sources": top_sources[:10],
         "cost_only_sources": cost_only_sources[:10],
         "latest_benchmark": _latest_savings_benchmark(root),
+        "tracked_tool_calls": 0,
+        "cost_basis": "cost_history",
+        "tool_aggregates": [],
+        "session_proof": [],
+        "coverage_gaps": coverage_gaps,
+        "verification": {},
     }
 
 
@@ -1904,9 +2279,7 @@ def _optimization_lever_tokens(
     return total
 
 
-def _optimization_lever_cost(
-    live_events: list[dict[str, Any]], *, lever: str, window_days: int
-) -> float:
+def _optimization_lever_cost(live_events: list[dict[str, Any]], *, lever: str, window_days: int) -> float:
     cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
     total = 0.0
     for event in live_events:
@@ -1947,9 +2320,7 @@ def _implemented_optimization_catalog(
         for key, value in (savings_payload.get("per_lever") or {}).items()
         if isinstance(key, str)
     }
-    top_sources = [
-        item for item in (savings_payload.get("top_sources") or []) if isinstance(item, dict)
-    ]
+    top_sources = [item for item in (savings_payload.get("top_sources") or []) if isinstance(item, dict)]
 
     catalog = [
         {
@@ -2013,9 +2384,7 @@ def _implemented_optimization_catalog(
             "category": "context_lifecycle",
             "automation": "Advisory - compact tool fires on utilisation >= 80%",
             "status": "active",
-            "observed_tokens_saved": _optimization_lever_tokens(
-                per_lever, exact=("session_compaction",)
-            ),
+            "observed_tokens_saved": _optimization_lever_tokens(per_lever, exact=("session_compaction",)),
             "observed_cost_saved_usd": _optimization_lever_cost(
                 live_events, lever="session_compaction", window_days=window_days
             ),
@@ -2040,9 +2409,7 @@ def _implemented_optimization_catalog(
             "category": "memory",
             "automation": "Automatic when memory recall paths are used",
             "status": "active",
-            "observed_tokens_saved": _optimization_lever_tokens(
-                per_lever, exact=("scoped_recall",)
-            ),
+            "observed_tokens_saved": _optimization_lever_tokens(per_lever, exact=("scoped_recall",)),
             "applies_to": supported_hosts,
             "notes": "Pulls narrower memory slices instead of replaying broad historical context.",
             "examples": _optimization_lever_examples(top_sources, exact=("scoped_recall",)),
@@ -2053,9 +2420,7 @@ def _implemented_optimization_catalog(
             "category": "context_reuse",
             "automation": "Automatic when matching reasoning blocks are selected",
             "status": "active",
-            "observed_tokens_saved": _optimization_lever_tokens(
-                per_lever, exact=("reasonblock_inject",)
-            ),
+            "observed_tokens_saved": _optimization_lever_tokens(per_lever, exact=("reasonblock_inject",)),
             "applies_to": supported_hosts,
             "notes": "Reuses prior solved procedures instead of re-deriving them from scratch.",
             "examples": _optimization_lever_examples(top_sources, exact=("reasonblock_inject",)),
@@ -2066,9 +2431,7 @@ def _implemented_optimization_catalog(
             "category": "context_pruning",
             "automation": "Automatic when structured truncation paths are used",
             "status": "active",
-            "observed_tokens_saved": _optimization_lever_tokens(
-                per_lever, exact=("ast_truncation",)
-            ),
+            "observed_tokens_saved": _optimization_lever_tokens(per_lever, exact=("ast_truncation",)),
             "applies_to": supported_hosts,
             "notes": "Keeps syntax-relevant structure while trimming low-value surrounding text.",
             "examples": _optimization_lever_examples(top_sources, exact=("ast_truncation",)),
@@ -2105,9 +2468,9 @@ def _implemented_optimization_catalog(
     for item in catalog:
         observed_tokens = item.get("observed_tokens_saved")
         observed_cost = _coerce_float(item.get("observed_cost_saved_usd") or 0.0)
-        if (
-            (isinstance(observed_tokens, int) and observed_tokens > 0) or observed_cost > 0
-        ) and item["status"] == "active":
+        if ((isinstance(observed_tokens, int) and observed_tokens > 0) or observed_cost > 0) and item[
+            "status"
+        ] == "active":
             item["status"] = "active_observed"
     return catalog
 
@@ -2167,9 +2530,7 @@ def _optimization_implementation_gaps() -> list[dict[str, Any]]:
     ]
 
 
-def _optimizations_summary_payload(
-    root: Path, store: ContextStore, *, window_days: int
-) -> dict[str, Any]:
+def _optimizations_summary_payload(root: Path, store: ContextStore, *, window_days: int) -> dict[str, Any]:
     from atelier.core.capabilities.optimization import (
         load_current_policy,
         load_history,
@@ -2195,9 +2556,7 @@ def _optimizations_summary_payload(
     from atelier.core.foundation.paths import resolve_workspace_root
 
     project_root_candidate = resolve_workspace_root(root)
-    if not (
-        (project_root_candidate / "src").exists() or (project_root_candidate / "AGENTS.md").exists()
-    ):
+    if not ((project_root_candidate / "src").exists() or (project_root_candidate / "AGENTS.md").exists()):
         project_root_candidate = Path.cwd()
     from atelier.core.capabilities.optimization_audit import (
         build_context_audit,
@@ -2209,13 +2568,9 @@ def _optimizations_summary_payload(
         blocks_dir=getattr(store, "blocks_dir", None),
         rubrics_dir=getattr(store, "rubrics_dir", None),
     )
-    quality_score = build_session_quality_summary(
-        traces, window_days=window_days, context_audit=context_audit
-    )
+    quality_score = build_session_quality_summary(traces, window_days=window_days, context_audit=context_audit)
     runtime_coverage = _optimization_runtime_coverage()
-    implemented_levers = _implemented_optimization_catalog(
-        savings, live_events, window_days=window_days
-    )
+    implemented_levers = _implemented_optimization_catalog(savings, live_events, window_days=window_days)
     auto_optimizations = _build_auto_optimizations(savings, live_events, window_days=window_days)
     impact_validation = _build_impact_validation(store, recent_traces, window_days=window_days)
     reread_telemetry = _build_reread_telemetry(root, window_days=window_days)
@@ -2225,9 +2580,7 @@ def _optimizations_summary_payload(
     compact_session_history = _build_compact_session_history(live_events, window_days=window_days)
 
     # Fetch latest codeburn:optimize report
-    external_optimizations = store.list_external_analytics_runs(
-        tool="codeburn:optimize", days=window_days, limit=1
-    )
+    external_optimizations = store.list_external_analytics_runs(tool="codeburn:optimize", days=window_days, limit=1)
     latest_external = external_optimizations[0] if external_optimizations else None
 
     automatic_hosts = sum(1 for item in runtime_coverage if item["automatic_at_start"])
@@ -2236,10 +2589,7 @@ def _optimizations_summary_payload(
         1
         for item in implemented_levers
         if (
-            (
-                isinstance(item.get("observed_tokens_saved"), int)
-                and item["observed_tokens_saved"] > 0
-            )
+            (isinstance(item.get("observed_tokens_saved"), int) and item["observed_tokens_saved"] > 0)
             or _coerce_float(item.get("observed_cost_saved_usd") or 0.0) > 0
         )
     )
@@ -2302,7 +2652,7 @@ def _optimizations_summary_payload(
 # --------------------------------------------------------------------------- #
 
 
-def create_app(store_root: str | Path | None = None) -> Any:
+def create_app(store_root: str | Path | None = None, store: ContextStore | None = None) -> Any:
     """Construct the FastAPI instance."""
     from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Security
     from fastapi.middleware.cors import CORSMiddleware
@@ -2323,9 +2673,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
             )
         if not cfg.api_key:
             logger.warning("API key not configured; rejecting request")
-            raise HTTPException(
-                status_code=401, detail="Authentication required but no key configured"
-            )
+            raise HTTPException(status_code=401, detail="Authentication required but no key configured")
         if auth.credentials != cfg.api_key:
             raise HTTPException(status_code=403, detail="Invalid API key")
         return "authenticated"
@@ -2348,15 +2696,16 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
     # Late load store
     store_path = Path(store_root or cfg.atelier_root)
-    store = ContextStore(store_path)
+    runtime_store = store or ContextStore(store_path)
+    store = runtime_store
     _store_init_lock = threading.Lock()
 
     def get_store() -> ContextStore:
-        if not store._initialized:
+        if not runtime_store._initialized:
             with _store_init_lock:
-                if not store._initialized:  # double-checked locking
-                    store.init()
-        return store
+                if not runtime_store._initialized:  # double-checked locking
+                    runtime_store.init()
+        return runtime_store
 
     # ------------------------------------------------------------------ #
     # Metadata & Health                                                   #
@@ -2364,6 +2713,10 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
     @app.get("/health", tags=["system"])
     def health_check() -> dict[str, str]:
+        return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
+
+    @app.get("/ready", tags=["system"])
+    def ready_check() -> dict[str, str]:
         return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
 
     @app.get("/config", tags=["system"], dependencies=[Depends(verify_api_key)])
@@ -2402,9 +2755,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 total_raw_tokens = (inp or 0) + (out or 0) + (cr or 0) + (th or 0)
 
             conn.row_factory = sqlite3.Row
-            for trace_row in conn.execute(
-                "SELECT payload FROM traces WHERE created_at >= ?", (since.isoformat(),)
-            ):
+            for trace_row in conn.execute("SELECT payload FROM traces WHERE created_at >= ?", (since.isoformat(),)):
                 try:
                     payload = json.loads(trace_row["payload"] or "{}")
                 except (TypeError, json.JSONDecodeError):
@@ -2644,17 +2995,11 @@ def create_app(store_root: str | Path | None = None) -> Any:
             else:
                 _files_normalized.append(redact(str(_item)))
         normalized["files_touched"] = _files_normalized
-        normalized["commands_run"] = redact_list(
-            [str(item) for item in normalized.get("commands_run") or []]
-        )
-        normalized["errors_seen"] = redact_list(
-            [str(item) for item in normalized.get("errors_seen") or []]
-        )
+        normalized["commands_run"] = redact_list([str(item) for item in normalized.get("commands_run") or []])
+        normalized["errors_seen"] = redact_list([str(item) for item in normalized.get("errors_seen") or []])
         normalized["diff_summary"] = redact(str(normalized.get("diff_summary") or ""))
         normalized["output_summary"] = redact(str(normalized.get("output_summary") or ""))
-        normalized["tools_called"] = _normalize_trace_tool_calls(
-            list(normalized.get("tools_called") or [])
-        )
+        normalized["tools_called"] = _normalize_trace_tool_calls(list(normalized.get("tools_called") or []))
         normalized["validation_results"] = _normalize_trace_validation_results(
             list(normalized.get("validation_results") or [])
         )
@@ -2663,9 +3008,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
     @app.post("/v1/traces", tags=["traces"], dependencies=[Depends(verify_api_key)])
     def record_trace(payload: dict[str, Any]) -> dict[str, Any]:
         if "id" not in payload:
-            payload["id"] = Trace.make_id(
-                payload.get("task", "untitled"), payload.get("agent", "agent")
-            )
+            payload["id"] = Trace.make_id(payload.get("task", "untitled"), payload.get("agent", "agent"))
         normalized_payload, event_recorded = _normalize_trace_payload(payload)
         trace = Trace.model_validate(normalized_payload)
         get_store().record_trace(trace)
@@ -2787,9 +3130,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
             try:
                 since_dt = datetime.fromisoformat(since_str).replace(tzinfo=UTC)
             except ValueError as exc:
-                raise HTTPException(
-                    status_code=400, detail=f"invalid since: {since_str!r}"
-                ) from exc
+                raise HTTPException(status_code=400, detail=f"invalid since: {since_str!r}") from exc
         passages = mem.search_passages(
             agent_id,
             str(query),
@@ -2911,9 +3252,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
         days: int | None = Query(None),
     ) -> dict[str, Any]:
         rows = _query_analytics_rows(store.db_path, grouped=grouped, days=days, limit=limit)
-        filtered = _filter_analytics_rows(
-            rows, agent=agent, model=model, category=category, search=search
-        )
+        filtered = _filter_analytics_rows(rows, agent=agent, model=model, category=category, search=search)
         return _build_analytics_summary(filtered, days=days)
 
     @app.get("/analytics/dashboard", tags=["analytics"], dependencies=[Depends(verify_api_key)])
@@ -2927,9 +3266,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
         top sessions, and tool-type distributions in one call.
         """
         db_path = store.db_path
-        start_day = (
-            datetime.now().astimezone().date() - timedelta(days=max(1, days) - 1)
-        ).isoformat()
+        start_day = (datetime.now().astimezone().date() - timedelta(days=max(1, days) - 1)).isoformat()
         host_filter = "AND COALESCE(host, agent) = ?" if host else ""
         sql = f"""
             SELECT
@@ -2946,7 +3283,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 payload,
                 created_at,
                 date(datetime(created_at, 'localtime')) AS day,
-                strftime('%Y-%m-%d %H:00', datetime(created_at, 'localtime')) AS hour_bucket
+                strftime('%Y-%m-%d %H:00', datetime(created_at)) AS hour_bucket
             FROM traces
             WHERE date(datetime(created_at, 'localtime')) >= ?
             {host_filter}
@@ -3280,12 +3617,9 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
         return {
             "summary": {
-                "total_cost": round(
-                    sum(float(session["cost"]) for session in dashboard_sessions), 6
-                ),
+                "total_cost": round(sum(float(session["cost"]) for session in dashboard_sessions), 6),
                 "projected_monthly_cost": round(
-                    sum(float(session["cost"]) for session in dashboard_sessions)
-                    * (30 / max(days, 1)),
+                    sum(float(session["cost"]) for session in dashboard_sessions) * (30 / max(days, 1)),
                     6,
                 ),
                 "total_sessions": len(dashboard_sessions),
@@ -3774,9 +4108,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
     # Raw artifacts                                                       #
     # ------------------------------------------------------------------ #
 
-    @app.get(
-        "/raw-artifacts/{artifact_id}", tags=["artifacts"], dependencies=[Depends(verify_api_key)]
-    )
+    @app.get("/raw-artifacts/{artifact_id}", tags=["artifacts"], dependencies=[Depends(verify_api_key)])
     def get_raw_artifact(artifact_id: str) -> dict[str, Any]:
         """Return metadata for a stored raw artifact."""
         store_inst = get_store()
@@ -3901,17 +4233,11 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 for art_id in trace.raw_artifact_ids:
                     artifact = store_inst.get_raw_artifact(art_id)
                     if artifact:
-                        scope = (
-                            "subagent"
-                            if "subagents/" in str(artifact.relative_path).replace("\\", "/")
-                            else "main"
-                        )
+                        scope = "subagent" if "subagents/" in str(artifact.relative_path).replace("\\", "/") else "main"
                         if artifact.source_path:
                             source_file_key = (artifact.source_path, artifact.id)
                             if source_file_key not in seen_source_files:
-                                source_files.append(
-                                    {"path": artifact.source_path, "artifact_id": artifact.id}
-                                )
+                                source_files.append({"path": artifact.source_path, "artifact_id": artifact.id})
                                 seen_source_files.add(source_file_key)
                         try:
                             raw_content = store_inst.read_raw_artifact_content(artifact)
@@ -3962,9 +4288,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                                     "relative_path": artifact.relative_path,
                                     "source_path": artifact.source_path,
                                     "scope": scope,
-                                    "label": "main"
-                                    if scope == "main"
-                                    else Path(artifact.relative_path).stem,
+                                    "label": "main" if scope == "main" else Path(artifact.relative_path).stem,
                                 }
                             )
                             logger.error(
@@ -4034,9 +4358,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 "cache_creation_input_tokens": trace.cache_creation_input_tokens,
                 "user_prompt_tokens": trace.user_prompt_tokens,
                 "model": trace.model,
-                "note": "Imported from session logs."
-                if trace.raw_artifact_ids
-                else "Live run trace.",
+                "note": "Imported from session logs." if trace.raw_artifact_ids else "Live run trace.",
                 "trace": trace.model_dump(mode="json"),
             }
 
@@ -4124,9 +4446,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                                 for line in content[3:end].split("\n"):
                                     if line.startswith("description:"):
                                         desc = line.split(":", 1)[1].strip()
-                        skills.append(
-                            {"name": skill_dir.name, "description": desc, "content": content}
-                        )
+                        skills.append({"name": skill_dir.name, "description": desc, "content": content})
         return skills
 
     @app.get("/skills/{name}", tags=["ops"], dependencies=[Depends(verify_api_key)])
@@ -4134,9 +4454,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
         from atelier.core.environment import skill_visible
 
         if not skill_visible(name):
-            raise HTTPException(
-                status_code=404, detail=f"Skill not available outside dev mode: {name}"
-            )
+            raise HTTPException(status_code=404, detail=f"Skill not available outside dev mode: {name}")
         root = Path(__file__).parent.parent.parent.parent.parent
         md = root / "integrations" / "skills" / name / "SKILL.md"
         if not md.exists():
@@ -4186,13 +4504,11 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
     @app.get("/v1/savings/summary", tags=["metrics"], dependencies=[Depends(verify_api_key)])
     def savings_summary_v1(window_days: int = Query(14)) -> dict[str, Any]:
-        return _savings_summary_payload(Path(cfg.atelier_root), window_days=window_days)
+        return _savings_summary_payload(store_path, window_days=window_days, store=get_store())
 
     @app.get("/v1/optimizations/summary", tags=["metrics"], dependencies=[Depends(verify_api_key)])
     def optimizations_summary(window_days: int = Query(14)) -> dict[str, Any]:
-        return _optimizations_summary_payload(
-            Path(cfg.atelier_root), get_store(), window_days=window_days
-        )
+        return _optimizations_summary_payload(Path(cfg.atelier_root), get_store(), window_days=window_days)
 
     @app.get("/calls", tags=["compat"], dependencies=[Depends(verify_api_key)])
     def compat_calls(limit: int = Query(200)) -> list[dict[str, Any]]:
@@ -4353,11 +4669,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
             artifact = store_inst.get_raw_artifact(art_id)
             if artifact is None:
                 continue
-            scope = (
-                "subagent"
-                if "subagents/" in str(artifact.relative_path).replace("\\", "/")
-                else "main"
-            )
+            scope = "subagent" if "subagents/" in str(artifact.relative_path).replace("\\", "/") else "main"
             if artifact.source_path:
                 source_file_key = (artifact.source_path, artifact.id)
                 if source_file_key not in seen_source_files:
@@ -4531,28 +4843,18 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
             model_id = str(turn.get("model") or "").strip()
             countable_model_id = (
-                model_id
-                if model_id and model_id.lower() not in {"<synthetic>", "_default", "unknown"}
-                else ""
+                model_id if model_id and model_id.lower() not in {"<synthetic>", "_default", "unknown"} else ""
             )
             if countable_model_id:
                 if reconstructed_started_model is None:
                     reconstructed_started_model = countable_model_id
-                reconstructed_models_used[countable_model_id] = (
-                    reconstructed_models_used.get(countable_model_id, 0) + 1
-                )
+                reconstructed_models_used[countable_model_id] = reconstructed_models_used.get(countable_model_id, 0) + 1
 
             turn_input_cost = _llm_usage_cost(model_id or "_default", input_tokens=turn_input)
             turn_output_cost = _llm_usage_cost(model_id or "_default", output_tokens=turn_output)
-            turn_cache_read_cost = _llm_usage_cost(
-                model_id or "_default", cache_read_tokens=turn_cache_read
-            )
-            turn_cache_write_cost = _llm_usage_cost(
-                model_id or "_default", cache_write_tokens=turn_cache_write
-            )
-            turn_total_cost = (
-                turn_input_cost + turn_output_cost + turn_cache_read_cost + turn_cache_write_cost
-            )
+            turn_cache_read_cost = _llm_usage_cost(model_id or "_default", cache_read_tokens=turn_cache_read)
+            turn_cache_write_cost = _llm_usage_cost(model_id or "_default", cache_write_tokens=turn_cache_write)
+            turn_total_cost = turn_input_cost + turn_output_cost + turn_cache_read_cost + turn_cache_write_cost
             turn["cost"] = round(turn_total_cost, 8)
 
             reconstructed_input_tokens += turn_input
@@ -4571,9 +4873,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
                     or (
                         "assistant"
                         if turn.get("kind") == "agent_message"
-                        else "shell"
-                        if turn.get("kind") == "shell_command"
-                        else turn.get("kind") or "session"
+                        else "shell" if turn.get("kind") == "shell_command" else turn.get("kind") or "session"
                     )
                 )
                 bucket = tool_costs.setdefault(tool_name, {"calls": 0.0, "cost_usd": 0.0})
@@ -4595,12 +4895,8 @@ def create_app(store_root: str | Path | None = None) -> Any:
             cache_write_cost = 0.0
             for entry in usage_entries:
                 model_id = str(entry.get("model") or fallback_model or "_default")
-                input_cost += _llm_usage_cost(
-                    model_id, input_tokens=int(entry.get("input_tokens") or 0)
-                )
-                output_cost += _llm_usage_cost(
-                    model_id, output_tokens=int(entry.get("output_tokens") or 0)
-                )
+                input_cost += _llm_usage_cost(model_id, input_tokens=int(entry.get("input_tokens") or 0))
+                output_cost += _llm_usage_cost(model_id, output_tokens=int(entry.get("output_tokens") or 0))
                 cache_read_cost += _llm_usage_cost(
                     model_id, cache_read_tokens=int(entry.get("cached_input_tokens") or 0)
                 )
@@ -4633,9 +4929,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
         trace_output_tokens = int(trace_payload.get("output_tokens") or 0)
         trace_cache_read_tokens = int(trace_payload.get("cached_input_tokens") or 0)
         trace_cache_write_tokens = int(trace_payload.get("cache_creation_input_tokens") or 0)
-        trace_total_turns = len(
-            [entry for entry in trace_usage_entries if entry.get("kind") != "tool"]
-        )
+        trace_total_turns = len([entry for entry in trace_usage_entries if entry.get("kind") != "tool"])
         if trace_total_turns <= 0 and (
             trace_input_tokens > 0
             or trace_output_tokens > 0
@@ -4657,21 +4951,11 @@ def create_app(store_root: str | Path | None = None) -> Any:
             or trace_cache_read_tokens > 0
             or trace_cache_write_tokens > 0
         ):
-            pricing_model = (
-                trace_started_model or reconstructed_started_model or trace.model or "_default"
-            )
-            trace_input_token_cost_usd = _llm_usage_cost(
-                pricing_model, input_tokens=trace_input_tokens
-            )
-            trace_output_token_cost_usd = _llm_usage_cost(
-                pricing_model, output_tokens=trace_output_tokens
-            )
-            trace_cache_read_cost_usd = _llm_usage_cost(
-                pricing_model, cache_read_tokens=trace_cache_read_tokens
-            )
-            trace_cache_write_cost_usd = _llm_usage_cost(
-                pricing_model, cache_write_tokens=trace_cache_write_tokens
-            )
+            pricing_model = trace_started_model or reconstructed_started_model or trace.model or "_default"
+            trace_input_token_cost_usd = _llm_usage_cost(pricing_model, input_tokens=trace_input_tokens)
+            trace_output_token_cost_usd = _llm_usage_cost(pricing_model, output_tokens=trace_output_tokens)
+            trace_cache_read_cost_usd = _llm_usage_cost(pricing_model, cache_read_tokens=trace_cache_read_tokens)
+            trace_cache_write_cost_usd = _llm_usage_cost(pricing_model, cache_write_tokens=trace_cache_write_tokens)
             trace_total_cost_usd = round(
                 trace_input_token_cost_usd
                 + trace_output_token_cost_usd
@@ -4680,16 +4964,12 @@ def create_app(store_root: str | Path | None = None) -> Any:
                 8,
             )
 
-        authoritative_started_model = (
-            str(raw_usage_summary.get("started_model") or "").strip() or None
-        )
+        authoritative_started_model = str(raw_usage_summary.get("started_model") or "").strip() or None
         authoritative_models_used = dict(raw_usage_summary.get("models_used") or {})
         authoritative_input_tokens = int(raw_usage_summary.get("input_tokens") or 0)
         authoritative_output_tokens = int(raw_usage_summary.get("output_tokens") or 0)
         authoritative_cache_read_tokens = int(raw_usage_summary.get("cached_input_tokens") or 0)
-        authoritative_cache_write_tokens = int(
-            raw_usage_summary.get("cache_creation_input_tokens") or 0
-        )
+        authoritative_cache_write_tokens = int(raw_usage_summary.get("cache_creation_input_tokens") or 0)
         authoritative_total_turns = int(raw_usage_summary.get("total_turns") or 0)
         has_authoritative_usage = (
             authoritative_total_turns > 0
@@ -4708,10 +4988,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
         )
 
         started_model = (
-            authoritative_started_model
-            or reconstructed_started_model
-            or trace_started_model
-            or (trace.model or None)
+            authoritative_started_model or reconstructed_started_model or trace_started_model or (trace.model or None)
         )
         models_used = authoritative_models_used or reconstructed_models_used or trace_models_used
         if not models_used and started_model:
@@ -4740,38 +5017,28 @@ def create_app(store_root: str | Path | None = None) -> Any:
         total_turns = (
             authoritative_total_turns
             if authoritative_total_turns > 0
-            else trace_total_turns
-            if trace_total_turns > 0
-            else reconstructed_total_turns
+            else trace_total_turns if trace_total_turns > 0 else reconstructed_total_turns
         )
 
         input_token_cost_usd = (
             float(authoritative_cost_breakdown["input_token_cost_usd"])
             if has_authoritative_usage
-            else _prefer_positive_float(
-                trace_input_token_cost_usd, reconstructed_input_token_cost_usd
-            )
+            else _prefer_positive_float(trace_input_token_cost_usd, reconstructed_input_token_cost_usd)
         )
         output_token_cost_usd = (
             float(authoritative_cost_breakdown["output_token_cost_usd"])
             if has_authoritative_usage
-            else _prefer_positive_float(
-                trace_output_token_cost_usd, reconstructed_output_token_cost_usd
-            )
+            else _prefer_positive_float(trace_output_token_cost_usd, reconstructed_output_token_cost_usd)
         )
         cache_read_cost_usd = (
             float(authoritative_cost_breakdown["cache_read_cost_usd"])
             if has_authoritative_usage
-            else _prefer_positive_float(
-                trace_cache_read_cost_usd, reconstructed_cache_read_cost_usd
-            )
+            else _prefer_positive_float(trace_cache_read_cost_usd, reconstructed_cache_read_cost_usd)
         )
         cache_write_cost_usd = (
             float(authoritative_cost_breakdown["cache_write_cost_usd"])
             if has_authoritative_usage
-            else _prefer_positive_float(
-                trace_cache_write_cost_usd, reconstructed_cache_write_cost_usd
-            )
+            else _prefer_positive_float(trace_cache_write_cost_usd, reconstructed_cache_write_cost_usd)
         )
         total_cost_usd = (
             round(float(authoritative_cost_breakdown["total_cost_usd"]), 6)
@@ -4805,16 +5072,18 @@ def create_app(store_root: str | Path | None = None) -> Any:
             for tool in trace.tools_called
         ]
         top_tools_by_cost = sorted(
-            trace_tool_costs
-            if trace_tool_costs
-            else [
-                {
-                    "tool": name,
-                    "calls": int(values["calls"]),
-                    "cost_usd": round(values["cost_usd"], 6),
-                }
-                for name, values in tool_costs.items()
-            ],
+            (
+                trace_tool_costs
+                if trace_tool_costs
+                else [
+                    {
+                        "tool": name,
+                        "calls": int(values["calls"]),
+                        "cost_usd": round(values["cost_usd"], 6),
+                    }
+                    for name, values in tool_costs.items()
+                ]
+            ),
             key=lambda item: cast(float, item["cost_usd"]),
             reverse=True,
         )[:5]
@@ -4867,46 +5136,29 @@ def create_app(store_root: str | Path | None = None) -> Any:
     def _build_session_payload(report: Any, trace: Trace | None = None) -> dict[str, Any]:
         active_trace = trace or _load_trace_for_session(report.session_id)
         estimated_payload = (
-            _build_imported_session_payload(report.session_id, active_trace)
-            if active_trace is not None
-            else None
+            _build_imported_session_payload(report.session_id, active_trace) if active_trace is not None else None
         )
 
-        models_used = dict(report.models_used) or dict(
-            (estimated_payload or {}).get("models_used", {})
-        )
+        models_used = dict(report.models_used) or dict((estimated_payload or {}).get("models_used", {}))
         started_model = report.started_model or (estimated_payload or {}).get("started_model")
 
         input_tokens = int(report.input_tokens or (estimated_payload or {}).get("input_tokens", 0))
-        output_tokens = int(
-            report.output_tokens or (estimated_payload or {}).get("output_tokens", 0)
-        )
-        cache_read_tokens = int(
-            report.cache_read_tokens or (estimated_payload or {}).get("cache_read_tokens", 0)
-        )
-        cache_write_tokens = int(
-            report.cache_write_tokens or (estimated_payload or {}).get("cache_write_tokens", 0)
-        )
-        duration_seconds = float(
-            report.duration_seconds or (estimated_payload or {}).get("duration_seconds", 0.0)
-        )
+        output_tokens = int(report.output_tokens or (estimated_payload or {}).get("output_tokens", 0))
+        cache_read_tokens = int(report.cache_read_tokens or (estimated_payload or {}).get("cache_read_tokens", 0))
+        cache_write_tokens = int(report.cache_write_tokens or (estimated_payload or {}).get("cache_write_tokens", 0))
+        duration_seconds = float(report.duration_seconds or (estimated_payload or {}).get("duration_seconds", 0.0))
         active_duration_seconds = float(
-            report.active_duration_seconds
-            or (estimated_payload or {}).get("active_duration_seconds", 0.0)
+            report.active_duration_seconds or (estimated_payload or {}).get("active_duration_seconds", 0.0)
         )
         total_cost_usd = float(report.total_cost_usd)
         input_token_cost_usd = float(report.input_token_cost_usd)
         output_token_cost_usd = float(report.output_token_cost_usd)
         cache_read_cost_usd = float(report.cache_read_cost_usd)
         cache_write_cost_usd = float(report.cache_write_cost_usd)
-        top_tools_by_cost = [
-            {"tool": t, "calls": c, "cost_usd": v} for t, c, v in report.top_tools_by_cost
-        ]
+        top_tools_by_cost = [{"tool": t, "calls": c, "cost_usd": v} for t, c, v in report.top_tools_by_cost]
 
         cost_status = (
-            "recorded"
-            if (total_cost_usd > 0 or report.total_turns > 0 or bool(report.models_used))
-            else "unavailable"
+            "recorded" if (total_cost_usd > 0 or report.total_turns > 0 or bool(report.models_used)) else "unavailable"
         )
 
         if estimated_payload is not None:
@@ -4925,9 +5177,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
             if not models_used:
                 models_used = dict(estimated_payload.get("models_used", {}))
             estimated_active = float(estimated_payload.get("active_duration_seconds", 0.0))
-            if estimated_active > 0 and (
-                active_duration_seconds <= 0 or active_duration_seconds >= duration_seconds
-            ):
+            if estimated_active > 0 and (active_duration_seconds <= 0 or active_duration_seconds >= duration_seconds):
                 active_duration_seconds = estimated_active
 
         if not started_model and models_used:
@@ -4944,8 +5194,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
             "skills": report.skills,
             "telemetry": report.telemetry,
             "raw_artifact_ids": report.raw_artifact_ids,
-            "total_turns": report.total_turns
-            or int((estimated_payload or {}).get("total_turns", 0)),
+            "total_turns": report.total_turns or int((estimated_payload or {}).get("total_turns", 0)),
             "total_cost_usd": total_cost_usd,
             "total_atelier_savings_usd": report.total_atelier_savings_usd,
             "label": None,
@@ -4955,8 +5204,7 @@ def create_app(store_root: str | Path | None = None) -> Any:
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "cached_input_tokens": cache_read_tokens,
-            "tool_call_count": report.tool_call_count
-            or int((estimated_payload or {}).get("tool_call_count", 0)),
+            "tool_call_count": report.tool_call_count or int((estimated_payload or {}).get("tool_call_count", 0)),
             "input_token_cost_usd": input_token_cost_usd,
             "cache_write_cost_usd": cache_write_cost_usd,
             "cache_read_cost_usd": cache_read_cost_usd,
@@ -5208,13 +5456,9 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
         return {
             "route_decisions": len(route_scores),
-            "route_avg_score": round(sum(route_scores) / len(route_scores), 4)
-            if route_scores
-            else 0.0,
+            "route_avg_score": round(sum(route_scores) / len(route_scores), 4) if route_scores else 0.0,
             "compact_events": len(compact_scores),
-            "compact_avg_score": round(sum(compact_scores) / len(compact_scores), 4)
-            if compact_scores
-            else 0.0,
+            "compact_avg_score": round(sum(compact_scores) / len(compact_scores), 4) if compact_scores else 0.0,
             "sessions_with_high_extra_reads": list(set(high_extra_reads)),
         }
 
@@ -5277,15 +5521,16 @@ def create_app(store_root: str | Path | None = None) -> Any:
 
         try:
             markdown_content = md_path.read_text(encoding="utf-8")
-            json_data: dict[str, Any] = (
-                json.loads(json_path.read_text()) if json_path.exists() else {}
-            )
+            json_data: dict[str, Any] = json.loads(json_path.read_text()) if json_path.exists() else {}
         except (OSError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=500, detail="Failed to read report files") from exc
 
         return {"week": week, "markdown": markdown_content, "json": json_data}
 
     return app
+
+
+app = create_app()
 
 
 def main(

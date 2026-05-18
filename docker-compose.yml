@@ -1,6 +1,6 @@
 services:
   service:
-    container_name: atelier-service
+    container_name: ${ATELIER_SERVICE_CONTAINER:-atelier-service}
     build:
       context: .
       dockerfile: Dockerfile.api
@@ -16,7 +16,7 @@ services:
         "--reload",
       ]
     ports:
-      - "8787:8787"
+      - "${ATELIER_SERVICE_PORT:-8787}:8787"
     environment:
       - ATELIER_SERVICE_HOST=0.0.0.0
       - ATELIER_SERVICE_PORT=8787
@@ -43,15 +43,15 @@ services:
   #   restart: unless-stopped
 
   frontend:
-    container_name: atelier-frontend-dev
+    container_name: ${ATELIER_FRONTEND_CONTAINER:-atelier-frontend-dev}
     image: oven/bun:1
     working_dir: /app
     command: ["sh", "-c", "bun install && bun run dev"]
     ports:
-      - "3125:3125"
+      - "${ATELIER_FRONTEND_PORT:-3125}:3125"
     environment:
       - CHOKIDAR_USEPOLLING=true
-      - VITE_API_URL=http://atelier-service:8787
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:8787}
     volumes:
       - ./frontend:/app
       - /app/node_modules

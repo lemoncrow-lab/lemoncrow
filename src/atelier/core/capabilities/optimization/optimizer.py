@@ -25,9 +25,7 @@ from atelier.core.capabilities.optimization.policy import (
 from atelier.core.capabilities.session_optimizer import trace_cost_usd
 from atelier.core.foundation.models import Trace
 
-INSUFFICIENT_HISTORY_MESSAGE = (
-    "Need more session history before recommending — try again after 50+ sessions."
-)
+INSUFFICIENT_HISTORY_MESSAGE = "Need more session history before recommending — try again after 50+ sessions."
 
 _TIER_COST_FACTOR: dict[ModelTier, float] = {
     "cheap": 0.35,
@@ -185,17 +183,11 @@ def _candidate_for_policy(
         compaction_penalty += 0.045
 
     task_count = max(1, len(traces))
-    estimated_quality = max(
-        0.0, baseline_quality - (total_quality_penalty / task_count) - compaction_penalty
-    )
-    routing_breakdown = {
-        tier: round(count / task_count, 4) for tier, count in sorted(routing_counts.items())
-    }
+    estimated_quality = max(0.0, baseline_quality - (total_quality_penalty / task_count) - compaction_penalty)
+    routing_breakdown = {tier: round(count / task_count, 4) for tier, count in sorted(routing_counts.items())}
     compaction_breakdown = {
         item.id: round(
-            baseline_weekly_cost_usd * _COMPACTION_SAVINGS[item.id]
-            if enabled.get(item.id, False)
-            else 0.0,
+            baseline_weekly_cost_usd * _COMPACTION_SAVINGS[item.id] if enabled.get(item.id, False) else 0.0,
             6,
         )
         for item in ALL_COMPACTION_TYPES
@@ -298,15 +290,11 @@ def optimize_from_traces(
     ]
     replayable = [trace for trace in filtered if trace.status in {"success", "partial", "failed"}]
     complexities = [score_trace_complexity(trace).label for trace in replayable]
-    bucket_counts: dict[str, int] = {
-        str(key): value for key, value in Counter(complexities).items()
-    }
+    bucket_counts: dict[str, int] = {str(key): value for key, value in Counter(complexities).items()}
     baseline_total = sum(_trace_cost(trace) for trace in replayable)
     weekly_scale = 7.0 / max(1, days)
     baseline_weekly = round(baseline_total * weekly_scale, 6)
-    baseline_quality = (
-        sum(_status_quality(trace) for trace in replayable) / len(replayable) if replayable else 0.0
-    )
+    baseline_quality = sum(_status_quality(trace) for trace in replayable) / len(replayable) if replayable else 0.0
     current = _current_candidate(
         policy=current_policy,
         baseline_weekly_cost_usd=baseline_weekly,
@@ -332,9 +320,7 @@ def optimize_from_traces(
         return OptimizationResult(
             current_policy=current_policy,
             recommended_policy=current_policy,
-            candidates=sorted(
-                candidates, key=lambda item: (-item.estimated_quality, item.weekly_cost_usd)
-            ),
+            candidates=sorted(candidates, key=lambda item: (-item.estimated_quality, item.weekly_cost_usd)),
             current_candidate_id="current",
             recommended_candidate_id=None,
             confidence=confidence,
@@ -369,9 +355,7 @@ def optimize_from_traces(
     return OptimizationResult(
         current_policy=current_policy,
         recommended_policy=recommended_policy,
-        candidates=sorted(
-            candidates, key=lambda item: (-item.estimated_quality, item.weekly_cost_usd)
-        ),
+        candidates=sorted(candidates, key=lambda item: (-item.estimated_quality, item.weekly_cost_usd)),
         current_candidate_id="current",
         recommended_candidate_id=recommended_candidate.id if recommended_candidate.id != "current" else None,
         confidence=confidence,

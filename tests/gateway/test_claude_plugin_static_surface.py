@@ -20,6 +20,7 @@ def test_plugin_mcp_server_is_loaded_at_session_start() -> None:
     assert server["alwaysLoad"] is True
     assert server["command"] == "atelier-mcp"
     assert server["args"] == ["--host", "claude"]
+    assert server["env"]["CLAUDE_PLUGIN_ROOT"] == "${CLAUDE_PLUGIN_ROOT}"
 
 
 def test_main_agent_dev_variant_bans_native_file_tools() -> None:

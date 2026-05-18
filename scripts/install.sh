@@ -17,6 +17,7 @@
 #   ATELIER_DRY_RUN    If set to 1, print planned actions and exit
 #   ATELIER_NO_STACK   If set to 1, skip starting the visualization stack (service + frontend)
 #   ATELIER_LOCAL      If set to 1, install from the current checkout in editable mode
+#   ATELIER_STRICT     If set to 1, treat selected post-install degradations as errors
 #
 # Notes:
 #   Codex host install manages its Atelier AGENTS block with explicit START/END
@@ -57,7 +58,10 @@ ATELIER_SERVICECTL_INTERVAL_SECONDS="${ATELIER_SERVICECTL_INTERVAL_SECONDS:-60}"
 ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS="${ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS:-21600}"
 ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_NO_STACK="${ATELIER_NO_STACK:-0}"
+ATELIER_NO_IMPORT="${ATELIER_NO_IMPORT:-0}"
 ATELIER_LOCAL="${ATELIER_LOCAL:-0}"
+ATELIER_STRICT="${ATELIER_STRICT:-0}"
+STACK_STARTED=0
 PASSTHROUGH=()
 WARNINGS=()
 ERRORS=()
@@ -71,6 +75,7 @@ while [[ $# -gt 0 ]]; do
         --dry-run) ATELIER_DRY_RUN=1; PASSTHROUGH+=("$1") ;;
         --no-hosts) ATELIER_NO_HOSTS=1; PASSTHROUGH+=("$1") ;;
         --no-stack) ATELIER_NO_STACK=1; PASSTHROUGH+=("$1") ;;
+        --strict) ATELIER_STRICT=1; PASSTHROUGH+=("$1") ;;
         *) PASSTHROUGH+=("$1") ;;
     esac
     shift
@@ -86,6 +91,15 @@ error() {
     printf "%b[atelier-install] ERROR:%b %s\n" "$C_RED" "$C_RESET" "$*" >&2
 }
 fail() { error "$*"; exit 1; }
+degrade() {
+    if [[ "$ATELIER_STRICT" == "1" ]]; then
+        ERRORS+=("$*")
+        FINAL_EXIT_CODE=1
+        printf "%b[atelier-install] ERROR:%b %s\n" "$C_RED" "$C_RESET" "$*" >&2
+    else
+        warn "$*"
+    fi
+}
 
 collect_issues_from_output() {
     local output="$1"
@@ -229,6 +243,19 @@ install_console_scripts() {
     UV_TOOL_BIN_DIR="$ATELIER_BIN_DIR" \
         UV_TOOL_DIR="$ATELIER_TOOL_DIR" \
         uv "${install_args[@]}"
+
+    local mcp_path="$ATELIER_BIN_DIR/atelier-mcp"
+    local wrapped_path="$ATELIER_BIN_DIR/atelier-mcp.real"
+    if [[ -f "$mcp_path" || -L "$mcp_path" ]]; then
+        rm -f "$wrapped_path"
+        mv "$mcp_path" "$wrapped_path"
+        cat >"$mcp_path" <<EOF
+#!/usr/bin/env bash
+export ATELIER_DEV_MODE="\${ATELIER_DEV_MODE:-1}"
+exec "$wrapped_path" "\$@"
+EOF
+        chmod +x "$mcp_path"
+    fi
 }
 
 persist_install_record() {
@@ -254,6 +281,11 @@ main() {
     need_cmd git
     need_cmd bash
     install_uv_if_needed
+
+    local stack_expected=0
+    if [[ "$ATELIER_NO_SERVICECTL" != "1" && "$ATELIER_NO_STACK" != "1" ]] && command -v systemctl >/dev/null 2>&1; then
+        stack_expected=1
+    fi
 
     if [[ "$ATELIER_LOCAL" == "1" ]]; then
         info "Local mode: using current directory as an editable install source"
@@ -324,13 +356,15 @@ main() {
         fi
         # Persist host detection results for the Docker service
         if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
-            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write 2>/dev/null || true
+            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write 2>/dev/null \
+                || degrade "Failed to persist host detection status"
         fi
     else
         info "Skipping host integrations because ATELIER_NO_HOSTS=1"
         # Still persist current detection state even when skipping install
         if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
-            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write 2>/dev/null || true
+            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write 2>/dev/null \
+                || degrade "Failed to persist host detection status"
         fi
     fi
 
@@ -365,7 +399,7 @@ main() {
                     else
                         "$ATELIER_BIN_DIR/atelier" stack start \
                             && STACK_STARTED=1 \
-                            || warn "Visualization stack did not start (Docker daemon may not be running)"
+                            || degrade "Visualization stack did not start (Docker daemon may not be running)"
                     fi
                 fi
             fi
@@ -374,7 +408,7 @@ main() {
         info "Skipping background services because ATELIER_NO_SERVICECTL=1"
     fi
 
-    if [[ "$STACK_STARTED" == "1" || ( "$ATELIER_NO_SERVICECTL" != "1" && $(command -v systemctl) && "$ATELIER_NO_STACK" != "1" ) ]]; then
+    if [[ "$STACK_STARTED" == "1" || "$stack_expected" == "1" ]]; then
         echo "  Visualization stack is running:"
         echo "    frontend: http://localhost:3125"
         echo "    service:  http://localhost:8787"
@@ -389,19 +423,19 @@ main() {
     echo "    atelier stack logs          - View stack logs"
     echo "    atelier-status              - Show one-line status of the active reasoning run"
 
-    if [[ "$ATELIER_DRY_RUN" != "1" ]]; then
+    if [[ "$ATELIER_DRY_RUN" != "1" ]] && [[ "$ATELIER_NO_IMPORT" != "1" ]]; then
         echo ""
         info "Importing agent sessions (all available history)..."
         "$ATELIER_BIN_DIR/atelier" import \
             && info "Session import complete." \
-            || warn "Session import failed or no sessions found (non-fatal)."
+            || degrade "Session import failed or no sessions found."
 
         echo ""
         info "Collecting and storing external reports (today, week, month)..."
         for period in today week month; do
             "$ATELIER_BIN_DIR/atelier" external-report --tool all --period "$period" --persist \
                 && info "external reports collected for $period." \
-                || warn "external reports failed for $period (non-fatal)."
+                || degrade "external reports failed for $period."
         done
     fi
 

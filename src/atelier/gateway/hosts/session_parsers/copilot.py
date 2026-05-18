@@ -490,6 +490,15 @@ class CopilotImporter:
                 self.store.delete_trace(artifact.id)
                 continue
 
+            source_path = str(getattr(artifact, "source_path", "") or "").strip()
+            source_exists = bool(source_path) and Path(source_path).exists()
+
+            # Already joined in a previous import run — skip expensive re-materialization
+            # only while the source transcript still exists on disk.
+            if self.store.trace_exists(artifact.id) and source_exists:
+                imported_ids.append(artifact.id)
+                continue
+
             sid = self._materialize_transcript_trace(
                 session_id=session_id,
                 redacted_events=redacted_events,
@@ -514,7 +523,7 @@ class CopilotImporter:
         validation_results: list[ValidationResult] = []
         reasoning_snippets: list[str] = []
         task = initial_task or "untitled copilot session"
-        
+
         compaction_count = 0
         shutdown_entries: list[Any] = []
         compaction_entries: list[Any] = []
@@ -918,6 +927,9 @@ class CopilotImporter:
             file_mtime = _utcnow()
         redacted_events: str | None = None
         if not force and existing and existing.source_file_mtime and file_mtime <= existing.source_file_mtime:
+            # File unchanged — skip join entirely if the trace is already linked.
+            if self.store.trace_exists(artifact_id):
+                return artifact_id
             try:
                 redacted_events = self.store.read_raw_artifact_content(existing)
             except OSError:

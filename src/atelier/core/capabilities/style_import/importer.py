@@ -298,7 +298,9 @@ def _response_dict(response: str | dict[str, Any]) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {"procedural": False}
 
 
-def _embed_existing_blocks(blocks: list[ReasonBlock], embedder: Embedder | None) -> list[tuple[ReasonBlock, list[float]]]:
+def _embed_existing_blocks(
+    blocks: list[ReasonBlock], embedder: Embedder | None
+) -> list[tuple[ReasonBlock, list[float]]]:
     embedder_local = embedder or NullEmbedder()
     out: list[tuple[ReasonBlock, list[float]]] = []
     for block in blocks:

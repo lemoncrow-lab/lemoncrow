@@ -31,8 +31,6 @@ skills/                Slash commands produced via /atelier:<name>
 hooks/hooks.json       PostToolUse/PreToolUse hooks (all enabled=false by default)
 scripts/statusline.sh  Multi-line Claude status chrome; separates `atelier:code` from `atelier`
 .mcp.json              MCP server wiring via ${CLAUDE_PLUGIN_ROOT}
-servers/
-  atelier-mcp-wrapper.js  Node wrapper resolving atelier-mcp binary
 settings.json          defaultAgent hint
 ```
 

@@ -19,7 +19,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from .fuzzy_match import apply_fuzzy_replace
+from .fuzzy_match import (
+    FuzzyAmbiguousMatchError,
+    _find_exact_normalized_candidates,
+    apply_fuzzy_replace,
+)
 
 # --------------------------------------------------------------------------- #
 # Public models (plain dicts to avoid Pydantic version coupling in callers)  #
@@ -193,9 +197,12 @@ def apply_batch_edit(
                 new_string = edit["new_string"]
                 try:
                     new_content, ls, le = _apply_replace(content, old_string, new_string)
-                except ValueError:
+                except ValueError as err:
                     if not bool(edit.get("fuzzy", False)):
                         raise
+                    exact_candidates = _find_exact_normalized_candidates(content, old_string)
+                    if len(exact_candidates) > 1:
+                        raise FuzzyAmbiguousMatchError(exact_candidates) from err
                     new_content, ls, le = apply_fuzzy_replace(content, old_string, new_string)
             elif op == "insert_after":
                 anchor = edit["anchor"]

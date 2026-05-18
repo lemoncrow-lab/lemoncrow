@@ -53,9 +53,7 @@ _MOCK_TASKS: list[dict[str, Any]] = [
         "instance_id": "mock__add-1",
         "repo": "mock/calc",
         "base_commit": "deadbeef",
-        "problem_statement": (
-            "Function `add(a, b)` returns `a - b` instead of `a + b`. Fix it in calc.py."
-        ),
+        "problem_statement": ("Function `add(a, b)` returns `a - b` instead of `a + b`. Fix it in calc.py."),
         "hints_text": "tests in tests/test_calc.py",
         # gold patch present so eval can use it; agent never sees this field.
         "patch": "--- a/calc.py\n+++ b/calc.py\n@@ -1 +1 @@\n-def add(a,b): return a-b\n+def add(a,b): return a+b\n",
@@ -97,9 +95,7 @@ def _load_jsonl(path: Path, limit: int, ids: list[str] | None) -> list[dict[str,
     return rows[:limit]
 
 
-def _load_huggingface(
-    name: str, split: str, limit: int, ids: list[str] | None
-) -> list[dict[str, Any]]:
+def _load_huggingface(name: str, split: str, limit: int, ids: list[str] | None) -> list[dict[str, Any]]:
     try:
         from datasets import load_dataset
     except ImportError:
@@ -171,9 +167,9 @@ def gold_patch_lookup(cfg: BenchConfig) -> dict[str, str]:
     if cfg.custom_tasks_path:
         rows = _load_jsonl(Path(cfg.custom_tasks_path), cfg.task_limit, cfg.task_ids)
     elif cfg.dataset_name in {"swe_bench_lite", "swe_bench_verified"}:
-        rows = _load_huggingface(
-            cfg.dataset_name, cfg.split, cfg.task_limit, cfg.task_ids
-        ) or _load_mock(cfg.task_limit, cfg.task_ids)
+        rows = _load_huggingface(cfg.dataset_name, cfg.split, cfg.task_limit, cfg.task_ids) or _load_mock(
+            cfg.task_limit, cfg.task_ids
+        )
     else:
         rows = _load_mock(cfg.task_limit, cfg.task_ids)
     for r in rows:

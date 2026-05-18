@@ -1,4 +1,4 @@
-"""Compact savings benchmark — real export replay.
+"""Compact savings benchmark - real export replay.
 
 Reads real Claude Code session exports (exports/claude/*.jsonl) and measures
 how much *additional* context Atelier compaction would free on top of native
@@ -8,7 +8,7 @@ Key design principle
 --------------------
 **Both Atelier and native Claude Code compact.** Native ``/compact`` is real
 and already saves a large portion of context. This benchmark measures the
-*delta* — the additional savings Atelier achieves beyond what the native
+*delta* - the additional savings Atelier achieves beyond what the native
 compactor already does. Savings are never inflated by assuming native does
 nothing.
 
@@ -16,18 +16,18 @@ Algorithm
 ---------
 1. For every session JSONL, reconstruct the per-turn effective context window
    (``input_tokens + cache_creation_input_tokens + cache_read_input_tokens``).
-2. Detect *compaction events* where context drops by ≥ 40 % between consecutive
-   assistant turns — these are the points where native ``/compact`` actually fired
-   (confirmed from the observed export data where context drops from ~160 K → ~43 K).
+2. Detect *compaction events* where context drops by >= 40 % between consecutive
+   assistant turns - these are the points where native ``/compact`` actually fired
+   (confirmed from the observed export data where context drops from ~160 K -> ~43 K).
 3. For each detected compaction event:
 
-   * ``tokens_before``          — measured context just before the drop.
-   * ``native_tokens_after``    — measured context just after (actual data).
-   * ``native_freed``           — ``tokens_before - native_tokens_after`` (measured).
-   * ``atelier_tokens_after``   — *estimated* output of Atelier compressor:
-       ~3 000 tokens (structured summary block) + avg-output-size × 10 recent turns.
-   * ``atelier_freed``          — ``tokens_before - atelier_tokens_after`` (estimated).
-   * ``delta``                  — ``atelier_freed - native_freed``.
+   * ``tokens_before``          - measured context just before the drop.
+   * ``native_tokens_after``    - measured context just after (actual data).
+   * ``native_freed``           - ``tokens_before - native_tokens_after`` (measured).
+   * ``atelier_tokens_after``   - *estimated* output of Atelier compressor:
+       ~3 000 tokens (structured summary block) + avg-output-size x 10 recent turns.
+   * ``atelier_freed``          - ``tokens_before - atelier_tokens_after`` (estimated).
+   * ``delta``                  - ``atelier_freed - native_freed``.
        Positive = Atelier frees more. Negative = native was already sufficient.
 
 4. ``native_freed`` is always measured from real data.
@@ -67,18 +67,18 @@ _MODEL_INPUT_PRICE: dict[str, float] = {
 _DEFAULT_INPUT_PRICE = 3.0  # sonnet-4.6 as safe default
 
 # Compaction parameters
-_COMPACTION_DROP_THRESHOLD = 0.40  # ≥40% context drop → candidate compaction event
+_COMPACTION_DROP_THRESHOLD = 0.40  # >=40% context drop -> candidate compaction event
 # Minimum tokens kept by native /compact after the drop.
 # Real /compact always keeps some history (typically 20-35% of context).
 # Drops to <5 000 tokens are context resets (new sub-agent, new session),
-# not real compaction — they are excluded because native freeing 100% is
+# not real compaction - they are excluded because native freeing 100% is
 # not a fair comparison point for Atelier's structured summary.
 _MIN_NATIVE_AFTER = 5_000
-_ATELIER_SUMMARY_TOKENS = 3_000   # fixed overhead for Atelier's structured block
-# Dynamic budget bounds — mirror context_compressor._dynamic_turn_budget()
+_ATELIER_SUMMARY_TOKENS = 3_000  # fixed overhead for Atelier's structured block
+# Dynamic budget bounds - mirror context_compressor._dynamic_turn_budget()
 _ATELIER_BUDGET_MIN = 10_000
 _ATELIER_BUDGET_MAX = 40_000
-_MIN_CONTEXT_FOR_BENCH = 80_000   # sessions below this peak are skipped
+_MIN_CONTEXT_FOR_BENCH = 80_000  # sessions below this peak are skipped
 
 # Tool name sets used for complexity scoring (mirrors compressor scoring)
 _EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "TodoWrite"})
@@ -104,7 +104,7 @@ def _tokens_to_usd(tokens: int, price_per_m: float) -> float:
 @dataclass
 class _Turn:
     index: int
-    effective_context: int   # tokens visible to the model this turn
+    effective_context: int  # tokens visible to the model this turn
     output_tokens: int
     tool_names: list[str] = field(default_factory=list)
 
@@ -151,7 +151,7 @@ def _parse_session(path: Path) -> tuple[list[_Turn], str]:
 
                 fingerprint = (inp, cache_create, cache_read, out)
                 if fingerprint == last_fingerprint:
-                    # Consecutive duplicate — skip
+                    # Consecutive duplicate - skip
                     continue
                 last_fingerprint = fingerprint
 
@@ -188,16 +188,16 @@ def _parse_session(path: Path) -> tuple[list[_Turn], str]:
 
 @dataclass
 class _CompactionEvent:
-    turn_before: int              # turn index before drop
-    turn_after: int               # turn index after drop
+    turn_before: int  # turn index before drop
+    turn_after: int  # turn index after drop
     tokens_before: int
     native_tokens_after: int
     model_id: str
     # Dynamic complexity signals computed from the recent window
-    edit_density: float           # fraction of recent turns that used Edit/Write tools
-    error_density: float          # fraction of recent turns that had ≥1 failed Bash/test
-    avg_output_tokens: float      # average output tokens per turn in recent window
-    dynamic_budget: int           # estimated token budget used by Atelier compressor
+    edit_density: float  # fraction of recent turns that used Edit/Write tools
+    error_density: float  # fraction of recent turns that had >=1 failed Bash/test
+    avg_output_tokens: float  # average output tokens per turn in recent window
+    dynamic_budget: int  # estimated token budget used by Atelier compressor
 
     @property
     def native_freed(self) -> int:
@@ -238,27 +238,24 @@ def _compute_dynamic_budget(recent: list[_Turn]) -> int:
     Since we only have tool names and output tokens (not full event payloads),
     we approximate:
     - edit_density  : fraction of recent turns that used Edit/Write tools
-    - error_density : not directly observable from exports → use 0 (conservative)
+    - error_density : not directly observable from exports -> use 0 (conservative)
     - avg_output    : average output tokens per turn (verbosity proxy)
     """
     if not recent:
         return _ATELIER_BUDGET_MIN
 
-    edit_count = sum(
-        1 for t in recent
-        if any(n in _EDIT_TOOLS for n in t.tool_names)
-    )
+    edit_count = sum(1 for t in recent if any(n in _EDIT_TOOLS for n in t.tool_names))
     edit_density = edit_count / len(recent)
 
     avg_output = statistics.mean(t.output_tokens for t in recent) if recent else 500.0
 
-    # Verbosity: map avg output tokens → avg summary chars (~4 chars/token)
+    # Verbosity: map avg output tokens -> avg summary chars (~4 chars/token)
     avg_chars = avg_output * 4
     verbose_bonus = int(min(avg_chars / 400, 1.0) * 4_000)
 
     base = 10_000
     edit_bonus = int(edit_density * 18_000)
-    # error_density is not observable from exports — treat as 0 (conservative)
+    # error_density is not observable from exports - treat as 0 (conservative)
     budget = base + edit_bonus + verbose_bonus
     return max(_ATELIER_BUDGET_MIN, min(budget, _ATELIER_BUDGET_MAX))
 
@@ -271,7 +268,7 @@ def _find_compaction_events(
 
     A real compaction is a context drop where native **kept** a meaningful amount
     of history (``native_tokens_after >= _MIN_NATIVE_AFTER``).  Drops to near-zero
-    are context resets (new sub-agent / new conversation start) and are excluded —
+    are context resets (new sub-agent / new conversation start) and are excluded -
     native freeing 100% is not comparable to Atelier's structured summary.
     """
     events: list[_CompactionEvent] = []
@@ -294,13 +291,10 @@ def _find_compaction_events(
         recent = turns[max(0, i - _WINDOW) : i]
         avg_out = statistics.mean(t.output_tokens for t in recent) if recent else 500.0
 
-        edit_count = sum(
-            1 for t in recent
-            if any(n in _EDIT_TOOLS for n in t.tool_names)
-        )
+        edit_count = sum(1 for t in recent if any(n in _EDIT_TOOLS for n in t.tool_names))
         edit_density = edit_count / len(recent) if recent else 0.0
 
-        # error_density not observable from exports — use 0 (conservative)
+        # error_density not observable from exports - use 0 (conservative)
         error_density = 0.0
 
         dyn_budget = _compute_dynamic_budget(recent)
@@ -338,7 +332,7 @@ class SessionCompactResult:
     delta_tokens: int
     cost_saved_usd: float
 
-    avg_dynamic_budget: float = 0.0   # mean dynamic budget across compaction events
+    avg_dynamic_budget: float = 0.0  # mean dynamic budget across compaction events
     avg_edit_density: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
@@ -390,11 +384,8 @@ def run_compact_bench(
     dict
         Benchmark results suitable for writing to ``compact_latest.json``.
     """
-    # Resolve corpus path — accept both the claude/ sub-dir and its parent
-    if (corpus_dir / "claude").is_dir():
-        search_dir = corpus_dir / "claude"
-    else:
-        search_dir = corpus_dir
+    # Resolve corpus path - accept both the claude/ sub-dir and its parent
+    search_dir = corpus_dir / "claude" if (corpus_dir / "claude").is_dir() else corpus_dir
 
     # Collect JSONL files
     candidates = sorted(search_dir.glob("*.jsonl"), key=lambda p: -p.stat().st_size)
@@ -449,7 +440,7 @@ def run_compact_bench(
     if n == 0:
         return {
             "benchmark": "savings-compact",
-            "note": "delta vs native /compact — both sides compact, this measures the difference",
+            "note": "delta vs native /compact - both sides compact, this measures the difference",
             "sessions_benchmarked": 0,
             "sessions_skipped": sessions_skipped,
             "avg_compaction_events_per_session": 0,
@@ -471,7 +462,7 @@ def run_compact_bench(
     return {
         "benchmark": "savings-compact",
         "note": (
-            "delta vs native /compact — native freed tokens are measured from real "
+            "delta vs native /compact - native freed tokens are measured from real "
             "session exports; Atelier freed tokens are estimated from the compressor model. "
             "cost_saved_usd reflects only the additional delta, not native savings."
         ),
@@ -483,9 +474,7 @@ def run_compact_bench(
         # estimated from Atelier compressor model
         "avg_atelier_freed_tokens_est": round(total_atelier / n),
         "avg_delta_tokens": round(total_delta / n),
-        "atelier_vs_native_delta_pct": round(
-            (total_atelier - total_native) / max(total_native, 1) * 100, 2
-        ),
+        "atelier_vs_native_delta_pct": round((total_atelier - total_native) / max(total_native, 1) * 100, 2),
         # USD value of the additional delta tokens only
         "total_cost_saved_usd": round(total_cost, 6),
         "avg_cost_saved_usd_per_session": round(total_cost / n, 6),

@@ -54,10 +54,7 @@ def _clamp(value: float) -> float:
 
 def _task_type_weight(text: str) -> float:
     lowered = text.lower()
-    if any(
-        word in lowered
-        for word in ("migration", "migrate", "schema", "security", "auth", "permission")
-    ):
+    if any(word in lowered for word in ("migration", "migrate", "schema", "security", "auth", "permission")):
         return 0.95
     if any(word in lowered for word in ("refactor", "rewrite", "architecture", "redesign")):
         return 0.70

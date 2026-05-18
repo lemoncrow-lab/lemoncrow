@@ -6,7 +6,6 @@ import {
   Button,
   Card,
   EmptyState,
-  SectionHeader,
 } from "../components/WorkbenchUI";
 
 export default function Reports() {

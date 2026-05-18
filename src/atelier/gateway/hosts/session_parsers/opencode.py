@@ -190,11 +190,7 @@ class OpenCodeImporter:
                     if cmd:
                         commands_run.append(cmd[:200])
                     # OpenCode tool inputs use camelCase filePath
-                    fp = (
-                        state_inp.get("filePath")
-                        or state_inp.get("file_path")
-                        or state_inp.get("path")
-                    )
+                    fp = state_inp.get("filePath") or state_inp.get("file_path") or state_inp.get("path")
                     # Only record actual files (not bare directories)
                     if fp and "." in str(fp).rsplit("/", 1)[-1]:
                         fpath_str = str(fp)

@@ -155,18 +155,17 @@ def _turn(
 
 def _normalize_turn_tokens(tokens: dict[str, Any] | None) -> dict[str, int]:
     payload = tokens if isinstance(tokens, dict) else {}
-    return {
+    normalized = {
         "in": int(payload.get("in", 0) or 0),
         "out": int(payload.get("out", 0) or 0),
         "thinking": int(payload.get("thinking", 0) or 0),
         "cache_read": int(payload.get("cache_read", 0) or 0),
         "cache_write": int(payload.get("cache_write", 0) or 0),
     }
+    return {key: value for key, value in normalized.items() if key in payload or value > 0}
 
 
-def _apply_tokens_once(
-    turns: list[dict[str, Any]], tokens: dict[str, Any] | None
-) -> list[dict[str, Any]]:
+def _apply_tokens_once(turns: list[dict[str, Any]], tokens: dict[str, Any] | None) -> list[dict[str, Any]]:
     normalized = _normalize_turn_tokens(tokens)
     if not turns or not any(normalized.values()):
         return turns
@@ -271,9 +270,7 @@ def _merge_usage_summaries(target: dict[str, Any], source: dict[str, Any]) -> di
     ):
         target[key] += int(source.get(key, 0) or 0)
     for model_id, count in dict(source.get("models_used") or {}).items():
-        target["models_used"][model_id] = int(target["models_used"].get(model_id, 0)) + int(
-            count or 0
-        )
+        target["models_used"][model_id] = int(target["models_used"].get(model_id, 0)) + int(count or 0)
     target["usage_entries"].extend(list(source.get("usage_entries") or []))
     return target
 
@@ -289,10 +286,7 @@ def _extract_codex_usage(usage: Any) -> tuple[int, int, int, int, int]:
             return 0
 
     input_tokens = _int(
-        usage.get("input_tokens")
-        or usage.get("inputTokens")
-        or usage.get("prompt_tokens")
-        or usage.get("promptTokens")
+        usage.get("input_tokens") or usage.get("inputTokens") or usage.get("prompt_tokens") or usage.get("promptTokens")
     )
     output_tokens = _int(
         usage.get("output_tokens")
@@ -399,9 +393,7 @@ def _text_from_value(value: Any) -> str:
     return str(value).strip()
 
 
-def _extract_first_text(
-    payload: dict[str, Any], keys: tuple[str, ...], *, limit: int | None = None
-) -> str:
+def _extract_first_text(payload: dict[str, Any], keys: tuple[str, ...], *, limit: int | None = None) -> str:
     for key in keys:
         if key not in payload:
             continue
@@ -421,9 +413,7 @@ def _guess_mime_type(path: str | None) -> str | None:
 def _extract_patch_paths(patch_text: str) -> list[str]:
     paths: list[str] = []
     for line in patch_text.splitlines():
-        match = re.match(
-            r"^\*\*\*\s+(?:Update|Add|Delete|Move)\s+File:\s+(.+)$", line, re.IGNORECASE
-        )
+        match = re.match(r"^\*\*\*\s+(?:Update|Add|Delete|Move)\s+File:\s+(.+)$", line, re.IGNORECASE)
         if match:
             paths.append(match.group(1).strip())
     return paths
@@ -487,8 +477,7 @@ def _make_attachment(
 ) -> dict[str, Any]:
     attachment: dict[str, Any] = {
         "type": attachment_type,
-        "display_name": display_name
-        or (Path(path).name if path else attachment_type.replace("_", " ")),
+        "display_name": display_name or (Path(path).name if path else attachment_type.replace("_", " ")),
         "title": title or attachment_type.replace("_", " "),
     }
     if path:
@@ -592,9 +581,7 @@ def _summarize_claude_usage(content: str) -> dict[str, Any]:
         record = merged[msg_id]
         record["model"] = str(msg.get("model") or record["model"] or "").strip()
         record["input_tokens"] = max(record["input_tokens"], int(usage.get("input_tokens", 0) or 0))
-        record["output_tokens"] = max(
-            record["output_tokens"], int(usage.get("output_tokens", 0) or 0)
-        )
+        record["output_tokens"] = max(record["output_tokens"], int(usage.get("output_tokens", 0) or 0))
         record["cached_input_tokens"] = max(
             record["cached_input_tokens"],
             int(usage.get("cache_read_input_tokens", 0) or 0),
@@ -650,9 +637,7 @@ def _summarize_codex_usage(content: str) -> dict[str, Any]:
         total_usage = info.get("total_token_usage") or {}
         model = current_model or str(payload.get("model") or "").strip()
         model_key = model or "_default"
-        total_in, total_out, total_think, cached_total, cache_write_total = _extract_codex_usage(
-            total_usage
-        )
+        total_in, total_out, total_think, cached_total, cache_write_total = _extract_codex_usage(total_usage)
         if model_key not in legacy_totals:
             legacy_totals[model_key] = {
                 "model": model,
@@ -669,9 +654,7 @@ def _summarize_codex_usage(content: str) -> dict[str, Any]:
         bucket["output_tokens"] = max(int(bucket["output_tokens"]), total_out)
         bucket["thinking_tokens"] = max(int(bucket["thinking_tokens"]), total_think)
         bucket["cached_input_tokens"] = max(int(bucket["cached_input_tokens"]), cached_total)
-        bucket["cache_creation_input_tokens"] = max(
-            int(bucket["cache_creation_input_tokens"]), cache_write_total
-        )
+        bucket["cache_creation_input_tokens"] = max(int(bucket["cache_creation_input_tokens"]), cache_write_total)
     if not saw_flat_usage:
         for model_key in legacy_order:
             bucket = legacy_totals[model_key]
@@ -765,9 +748,7 @@ def _summarize_copilot_usage(content: str) -> dict[str, Any]:
                     continue
                 if shutdown_summary["started_model"] is None:
                     shutdown_summary["started_model"] = model_id
-                shutdown_summary["models_used"][model_id] = (
-                    int(shutdown_summary["models_used"].get(model_id, 0)) + 1
-                )
+                shutdown_summary["models_used"][model_id] = int(shutdown_summary["models_used"].get(model_id, 0)) + 1
         return shutdown_summary
     return fallback_summary
 
@@ -801,12 +782,8 @@ def _summarize_gemini_usage(content: str) -> dict[str, Any]:
         record["model"] = str(ev.get("model") or record["model"] or "").strip()
         record["input_tokens"] = max(record["input_tokens"], int(tokens.get("input", 0) or 0))
         record["output_tokens"] = max(record["output_tokens"], int(tokens.get("output", 0) or 0))
-        record["thinking_tokens"] = max(
-            record["thinking_tokens"], int(tokens.get("thoughts", 0) or 0)
-        )
-        record["cached_input_tokens"] = max(
-            record["cached_input_tokens"], int(tokens.get("cached", 0) or 0)
-        )
+        record["thinking_tokens"] = max(record["thinking_tokens"], int(tokens.get("thoughts", 0) or 0))
+        record["cached_input_tokens"] = max(record["cached_input_tokens"], int(tokens.get("cached", 0) or 0))
     for mid in order:
         _record_usage_turn(summary, **merged[mid])
     return summary
@@ -868,9 +845,7 @@ def _extract_text_from_claude_content(content: Any) -> str:
             if isinstance(block, dict) and block.get("type") == "text":
                 t = block.get("text", "").strip()
                 if t and not any(t.startswith(p) for p in _SYSTEM_PREFIXES_CLAUDE):
-                    xml_match = re.search(
-                        r"<(task|prompt|request|question)[^>]*>(.*?)</\1>", t, re.I | re.S
-                    )
+                    xml_match = re.search(r"<(task|prompt|request|question)[^>]*>(.*?)</\1>", t, re.I | re.S)
                     parts.append(xml_match.group(2).strip() if xml_match else t)
         return "\n\n".join(parts)
     return ""
@@ -911,9 +886,7 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
             ]
             combined = "\n\n".join(text for text in texts if text).strip()
             if combined:
-                turns.append(
-                    _turn("user_message", combined[:80], combined, at=at, tokens=tokens, raw=event)
-                )
+                turns.append(_turn("user_message", combined[:80], combined, at=at, tokens=tokens, raw=event))
             continue
 
         if role != "assistant":
@@ -927,41 +900,28 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
             if block_type == "text":
                 text = str(block.get("text") or "").strip()
                 if text:
-                    assistant_turns.append(
-                        _turn("agent_message", text[:80], text, at=at, tokens=tokens, raw=event)
-                    )
+                    assistant_turns.append(_turn("agent_message", text[:80], text, at=at, tokens=tokens, raw=event))
             elif block_type in {"reasoning", "thinking"}:
                 text = str(block.get("text") or "").strip()
                 if text:
-                    assistant_turns.append(
-                        _turn("thinking", text[:80], text, at=at, tokens=tokens, raw=event)
-                    )
+                    assistant_turns.append(_turn("thinking", text[:80], text, at=at, tokens=tokens, raw=event))
             elif block_type in {"toolCall", "tool_use"}:
                 name = str(block.get("name") or "unknown")
                 _raw_args = block.get("arguments")
                 arguments: dict[str, Any] = _raw_args if isinstance(_raw_args, dict) else {}
                 command = str(arguments.get("command") or "").strip()
                 path = str(
-                    arguments.get("file_path")
-                    or arguments.get("path")
-                    or arguments.get("target_file")
-                    or ""
+                    arguments.get("file_path") or arguments.get("path") or arguments.get("target_file") or ""
                 ).strip()
                 lowered = name.lower()
                 if command and (
                     "bash" in lowered
-                    or lowered
-                    in {"exec", "execute", "run_shell_command", "execute_command", "run_command"}
+                    or lowered in {"exec", "execute", "run_shell_command", "execute_command", "run_command"}
                 ):
                     assistant_turns.append(
-                        _turn(
-                            "shell_command", command[:100], command, at=at, tokens=tokens, raw=event
-                        )
+                        _turn("shell_command", command[:100], command, at=at, tokens=tokens, raw=event)
                     )
-                elif path and (
-                    "edit" in lowered
-                    or lowered in {"write", "create", "replace", "patch", "apply_patch"}
-                ):
+                elif path and ("edit" in lowered or lowered in {"write", "create", "replace", "patch", "apply_patch"}):
                     _raw_diff = arguments.get("diff") or arguments.get("patch")
                     if isinstance(_raw_diff, dict):
                         _raw_diff = _raw_diff.get("unified_diff") or None
@@ -975,10 +935,7 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
                             _raw_diff += f"+{line}\n"
                     _diff = str(_raw_diff).strip() if _raw_diff else None
                     content_text = _diff or str(
-                        arguments.get("content")
-                        or arguments.get("new_string")
-                        or arguments.get("text")
-                        or ""
+                        arguments.get("content") or arguments.get("new_string") or arguments.get("text") or ""
                     )
                     assistant_turns.append(
                         _turn(
@@ -1050,9 +1007,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                 messages[msg_id] = [_turn("user_message", text[:80], text, at=at, raw=ev)]
             if isinstance(content_blocks, list):
                 image_blocks = [
-                    block
-                    for block in content_blocks
-                    if isinstance(block, dict) and block.get("type") == "image"
+                    block for block in content_blocks if isinstance(block, dict) and block.get("type") == "image"
                 ]
                 if image_blocks:
                     image_turns = messages.setdefault(msg_id, [])
@@ -1088,6 +1043,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
             tokens = {
                 "in": usage.get("input_tokens", 0),
                 "out": usage.get("output_tokens", 0),
+                "thinking": 0,
                 "cache_read": usage.get("cache_read_input_tokens", 0),
                 "cache_write": usage.get("cache_creation_input_tokens", 0),
             }
@@ -1100,9 +1056,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                 if bt == "text":
                     t = block.get("text", "").strip()
                     if t:
-                        blocks.append(
-                            _turn("agent_message", t[:80], t, at=at, tokens=tokens, raw=ev)
-                        )
+                        blocks.append(_turn("agent_message", t[:80], t, at=at, tokens=tokens, raw=ev))
                 elif bt in ("thinking", "reasoning", "redacted"):
                     t = block.get("thinking") or block.get("text") or ""
                     if t:
@@ -1143,9 +1097,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                                 tool_name=name,
                                 arguments=inp,
                                 subagent_status="started",
-                                subagent_name=str(
-                                    inp.get("subagent_type") or inp.get("agent") or name
-                                ),
+                                subagent_name=str(inp.get("subagent_type") or inp.get("agent") or name),
                                 subagent_description=description or None,
                             )
                         )
@@ -1153,9 +1105,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                     kind = (
                         "file_edit"
                         if name in ("Edit", "Write", "MultiEdit")
-                        else "shell_command"
-                        if name == "Bash"
-                        else "tool_call"
+                        else "shell_command" if name == "Bash" else "tool_call"
                     )
 
                     # High-fidelity extraction: use plain string for code/diffs
@@ -1163,9 +1113,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                     file_path_str: str | None = None
                     diff_str: str | None = None
                     if kind == "file_edit":
-                        file_path_str = (
-                            str(inp.get("file_path") or inp.get("path") or "").strip() or None
-                        )
+                        file_path_str = str(inp.get("file_path") or inp.get("path") or "").strip() or None
                         raw_diff = inp.get("diff") or inp.get("patch")
                         # For Edit/MultiEdit: synthesise a mini unified diff from old/new strings
                         if not raw_diff and inp.get("old_string") is not None:
@@ -1178,9 +1126,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                                 raw_diff += f"+{line}\n"
                         diff_str = str(raw_diff).strip() if raw_diff else None
                         content_text = diff_str or str(
-                            inp.get("content")
-                            or inp.get("text")
-                            or json.dumps(inp, indent=2, ensure_ascii=False)
+                            inp.get("content") or inp.get("text") or json.dumps(inp, indent=2, ensure_ascii=False)
                         )
                     elif kind == "shell_command":
                         content_text = str(inp.get("command") or "")
@@ -1190,9 +1136,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                     summary = (
                         f"{name}({file_path_str or ''})"
                         if kind == "file_edit"
-                        else content_text[:100]
-                        if kind == "shell_command"
-                        else f"{name}(...)"
+                        else content_text[:100] if kind == "shell_command" else f"{name}(...)"
                     )
                     blocks.append(
                         _turn(
@@ -1235,9 +1179,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
             file_info = None
             raw_content = attachment.get("content")
             if isinstance(raw_content, dict):
-                file_info = (
-                    raw_content.get("file") if isinstance(raw_content.get("file"), dict) else None
-                )
+                file_info = raw_content.get("file") if isinstance(raw_content.get("file"), dict) else None
             path = (
                 str(
                     (file_info or {}).get("filePath")
@@ -1254,9 +1196,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
             elif file_info and isinstance(file_info.get("content"), str):
                 text_content = str(file_info.get("content") or "")
             elif attachment_type == "diagnostics":
-                text_content = json.dumps(
-                    attachment.get("files") or attachment, indent=2, ensure_ascii=False
-                )
+                text_content = json.dumps(attachment.get("files") or attachment, indent=2, ensure_ascii=False)
 
             todos = _extract_todos(attachment.get("content") or attachment)
             if todos:
@@ -1294,9 +1234,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                             path=path,
                             content=text_content or None,
                             line_count=int(
-                                (file_info or {}).get("totalLines")
-                                or (file_info or {}).get("numLines")
-                                or 0
+                                (file_info or {}).get("totalLines") or (file_info or {}).get("numLines") or 0
                             )
                             or None,
                             title=attachment_type.replace("_", " "),
@@ -1412,8 +1350,7 @@ def _parse_codex_format_a(content: str) -> list[dict[str, Any]]:
             msg = "".join(
                 str(block.get("text") or "")
                 for block in blocks
-                if isinstance(block, dict)
-                and block.get("type") in {"input_text", "output_text", "text"}
+                if isinstance(block, dict) and block.get("type") in {"input_text", "output_text", "text"}
             ).strip()
             if msg and not _is_codex_system_message(msg):
                 last_turn = _turn(
@@ -1443,10 +1380,7 @@ def _parse_codex_format_a(content: str) -> list[dict[str, Any]]:
             "file_create",
         ):
             _fpath = (
-                str(
-                    payload.get("path") or payload.get("file_path") or payload.get("filename") or ""
-                ).strip()
-                or None
+                str(payload.get("path") or payload.get("file_path") or payload.get("filename") or "").strip() or None
             )
             _raw_diff = payload.get("diff") or payload.get("patch")
             if not _raw_diff and payload.get("old_string") is not None:
@@ -1459,9 +1393,7 @@ def _parse_codex_format_a(content: str) -> list[dict[str, Any]]:
                     _raw_diff += f"+{_line}\n"
             _diff = str(_raw_diff).strip() if _raw_diff else None
             content_text = _diff or str(
-                payload.get("content")
-                or payload.get("text")
-                or json.dumps(payload, indent=2, ensure_ascii=False)
+                payload.get("content") or payload.get("text") or json.dumps(payload, indent=2, ensure_ascii=False)
             )
             if content_text:
                 last_turn = _turn(
@@ -1523,8 +1455,7 @@ def _parse_codex_format_a(content: str) -> list[dict[str, Any]]:
                 last_turn = _turn(
                     "file_edit",
                     f"{name}({_fpath or ''})",
-                    patch_text
-                    or json.dumps(args or {"raw": args_raw}, indent=2, ensure_ascii=False),
+                    patch_text or json.dumps(args or {"raw": args_raw}, indent=2, ensure_ascii=False),
                     at=at,
                     raw=ev,
                     path=_fpath,
@@ -1570,9 +1501,7 @@ def _parse_codex_format_b(content: str) -> list[dict[str, Any]]:
                 "cache_read": cached_t,
                 "cache_write": cache_write_t,
             }
-            msg = "".join(
-                str(b.get("text", "")) for b in ev.get("content", []) if isinstance(b, dict)
-            )
+            msg = "".join(str(b.get("text", "")) for b in ev.get("content", []) if isinstance(b, dict))
             if msg and not _is_codex_system_message(msg):
                 turns.append(
                     _turn(
@@ -1622,9 +1551,7 @@ def _parse_codex_format_b(content: str) -> list[dict[str, Any]]:
             kind = (
                 "file_edit"
                 if name in ("apply_patch", "write_file", "edit_file")
-                else "shell_command"
-                if name == "exec_command"
-                else "tool_call"
+                else "shell_command" if name == "exec_command" else "tool_call"
             )
 
             if kind == "file_edit":
@@ -1640,9 +1567,7 @@ def _parse_codex_format_b(content: str) -> list[dict[str, Any]]:
                         _raw_diff += f"+{line}\n"
                 _diff = str(_raw_diff).strip() if _raw_diff else None
                 content_text = _diff or str(
-                    args.get("content")
-                    or args.get("text")
-                    or json.dumps(args, indent=2, ensure_ascii=False)
+                    args.get("content") or args.get("text") or json.dumps(args, indent=2, ensure_ascii=False)
                 )
                 summary = f"{name}({_fpath or ''})"
             elif kind == "shell_command":
@@ -1654,9 +1579,7 @@ def _parse_codex_format_b(content: str) -> list[dict[str, Any]]:
                 _fpath = None
                 _diff = None
                 content_text = (
-                    json.dumps(args, indent=2, ensure_ascii=False)
-                    if isinstance(args, dict)
-                    else str(args_raw)
+                    json.dumps(args, indent=2, ensure_ascii=False) if isinstance(args, dict) else str(args_raw)
                 )
                 summary = f"{name}(...)"
 
@@ -1700,7 +1623,13 @@ def _parse_gemini(content: str) -> list[dict[str, Any]]:
                 "kind": "unknown",
                 "content": "",
                 "at": at,
-                "tokens": {"in": 0, "out": 0, "thinking": 0},
+                "tokens": {
+                    "in": 0,
+                    "out": 0,
+                    "thinking": 0,
+                    "cache_read": 0,
+                    "cache_write": 0,
+                },
                 "raw": ev,
                 "structured_turns": [],
             }
@@ -1708,9 +1637,8 @@ def _parse_gemini(content: str) -> list[dict[str, Any]]:
         t_raw = ev.get("tokens") or {}
         merged[mid]["tokens"]["in"] = max(merged[mid]["tokens"]["in"], t_raw.get("input", 0))
         merged[mid]["tokens"]["out"] = max(merged[mid]["tokens"]["out"], t_raw.get("output", 0))
-        merged[mid]["tokens"]["thinking"] = max(
-            merged[mid]["tokens"]["thinking"], t_raw.get("thoughts", 0)
-        )
+        merged[mid]["tokens"]["thinking"] = max(merged[mid]["tokens"]["thinking"], t_raw.get("thoughts", 0))
+        merged[mid]["tokens"]["cache_read"] = max(merged[mid]["tokens"].get("cache_read", 0), t_raw.get("cached", 0))
 
         if et == "user":
             merged[mid]["kind"] = "user_message"
@@ -1723,11 +1651,7 @@ def _parse_gemini(content: str) -> list[dict[str, Any]]:
             if thoughts:
                 merged[mid]["thinking_content"] = thoughts
             c = ev.get("content")
-            txt = (
-                c
-                if isinstance(c, str)
-                else "".join(p.get("text", "") for p in (c or []) if isinstance(p, dict))
-            )
+            txt = c if isinstance(c, str) else "".join(p.get("text", "") for p in (c or []) if isinstance(p, dict))
             if txt:
                 merged[mid]["content"] = txt
             tcalls = ev.get("toolCalls") or []
@@ -1772,21 +1696,13 @@ def _parse_gemini(content: str) -> list[dict[str, Any]]:
                                 tool_name=name,
                                 arguments=args,
                                 subagent_status="started",
-                                subagent_name=str(
-                                    args.get("subagent_type") or args.get("agent") or name
-                                ),
+                                subagent_name=str(args.get("subagent_type") or args.get("agent") or name),
                             )
                         )
                         continue
                     if name in _FILE_TOOL_NAMES:
                         _fpath = (
-                            str(
-                                args.get("path")
-                                or args.get("file_path")
-                                or args.get("filename")
-                                or ""
-                            ).strip()
-                            or None
+                            str(args.get("path") or args.get("file_path") or args.get("filename") or "").strip() or None
                         )
                         _raw_diff = args.get("patch") or args.get("diff")
                         if not _raw_diff and args.get("old_string") is not None:
@@ -1799,13 +1715,9 @@ def _parse_gemini(content: str) -> list[dict[str, Any]]:
                                 _raw_diff += f"+{_line}\n"
                         _diff = str(_raw_diff).strip() if _raw_diff else None
                         _fcontent = _diff or str(
-                            args.get("content")
-                            or args.get("text")
-                            or json.dumps(args, ensure_ascii=False)
+                            args.get("content") or args.get("text") or json.dumps(args, ensure_ascii=False)
                         )
-                        merged[mid].setdefault("file_edits", []).append(
-                            (name, _fpath, _diff, _fcontent)
-                        )
+                        merged[mid].setdefault("file_edits", []).append((name, _fpath, _diff, _fcontent))
                     else:
                         merged[mid]["structured_turns"].append(
                             _turn(
@@ -1906,9 +1818,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                 if not isinstance(attachment, dict):
                     continue
                 attachment_type = str(attachment.get("type") or "file")
-                path = (
-                    str(attachment.get("path") or attachment.get("filePath") or "").strip() or None
-                )
+                path = str(attachment.get("path") or attachment.get("filePath") or "").strip() or None
                 text_content = str(attachment.get("text") or "").strip() or None
                 turns.append(
                     _turn(
@@ -1921,13 +1831,9 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                             _make_attachment(
                                 attachment_type=attachment_type,
                                 path=path,
-                                display_name=str(attachment.get("displayName") or "").strip()
-                                or None,
+                                display_name=str(attachment.get("displayName") or "").strip() or None,
                                 content=text_content,
-                                title=str(
-                                    attachment.get("displayName")
-                                    or attachment_type.replace("_", " ")
-                                ),
+                                title=str(attachment.get("displayName") or attachment_type.replace("_", " ")),
                                 metadata=attachment,
                             )
                         ],
@@ -1940,13 +1846,9 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
             # reasoning text (skip encrypted opaque content)
             reasoning = str(data.get("reasoningText") or "")
             if reasoning:
-                assistant_turns.append(
-                    _turn("thinking", reasoning[:80], reasoning, at=at, tokens=toks, raw=ev)
-                )
+                assistant_turns.append(_turn("thinking", reasoning[:80], reasoning, at=at, tokens=toks, raw=ev))
             if msg:
-                assistant_turns.append(
-                    _turn("agent_message", msg[:80], msg, at=at, tokens=toks, raw=ev)
-                )
+                assistant_turns.append(_turn("agent_message", msg[:80], msg, at=at, tokens=toks, raw=ev))
             for req in data.get("toolRequests") or []:
                 name = req.get("name", "unknown")
                 args_raw = req.get("arguments") or {}
@@ -1979,9 +1881,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                             tool_name=name,
                             arguments=args or args_raw,
                             subagent_status="started",
-                            subagent_name=str(
-                                args.get("subagent_type") or args.get("agent") or name
-                            ),
+                            subagent_name=str(args.get("subagent_type") or args.get("agent") or name),
                         )
                     )
                     continue
@@ -1995,10 +1895,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                 )
                 if is_file_tool:
                     _fpath = (
-                        str(
-                            args.get("path") or args.get("file_path") or args.get("filename") or ""
-                        ).strip()
-                        or None
+                        str(args.get("path") or args.get("file_path") or args.get("filename") or "").strip() or None
                     )
                     _raw_diff = args.get("diff") or args.get("patch")
                     if not _raw_diff and isinstance(args_raw, str):
@@ -2018,9 +1915,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                             _raw_diff += f"+{_line}\n"
                     _diff = str(_raw_diff).strip() if _raw_diff else None
                     c_text = _diff or str(
-                        args.get("content")
-                        or args.get("text")
-                        or json.dumps(args, ensure_ascii=False)
+                        args.get("content") or args.get("text") or json.dumps(args, ensure_ascii=False)
                     )
                     assistant_turns.append(
                         _turn(
@@ -2037,11 +1932,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                         )
                     )
                 else:
-                    c_text = (
-                        json.dumps(args, ensure_ascii=False)
-                        if isinstance(args, dict) and args
-                        else str(args_raw)
-                    )
+                    c_text = json.dumps(args, ensure_ascii=False) if isinstance(args, dict) and args else str(args_raw)
                     assistant_turns.append(
                         _turn(
                             "tool_call",
@@ -2067,9 +1958,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                     raw=ev,
                     subagent_status=status,
                     subagent_id=str(ev.get("agentId") or data.get("toolCallId") or ""),
-                    subagent_name=str(
-                        data.get("agentDisplayName") or data.get("agentName") or "subagent"
-                    ),
+                    subagent_name=str(data.get("agentDisplayName") or data.get("agentName") or "subagent"),
                     subagent_description=description or None,
                 )
             )
@@ -2141,8 +2030,7 @@ def _parse_opencode(content: str) -> list[dict[str, Any]]:
                             _make_attachment(
                                 attachment_type="file",
                                 path=str(diff.get("file") or "").strip() or None,
-                                content=str(diff.get("after") or diff.get("before") or "").strip()
-                                or None,
+                                content=str(diff.get("after") or diff.get("before") or "").strip() or None,
                                 title=f"Attached context {i + 1}",
                                 metadata={"patch": diff.get("patch")},
                             )
@@ -2167,9 +2055,7 @@ def _parse_opencode(content: str) -> list[dict[str, Any]]:
             elif pt == "tool":
                 tool = data.get("tool", "unknown")
                 inp = (data.get("state") or {}).get("input") or {}
-                todos = _extract_todos(inp) or _extract_todos(
-                    (data.get("state") or {}).get("output")
-                )
+                todos = _extract_todos(inp) or _extract_todos((data.get("state") or {}).get("output"))
                 if todos:
                     turns.append(
                         _turn(
@@ -2187,9 +2073,7 @@ def _parse_opencode(content: str) -> list[dict[str, Any]]:
                 kind = (
                     "shell_command"
                     if tool == "bash"
-                    else "file_edit"
-                    if tool in ("edit", "write", "replace")
-                    else "tool_call"
+                    else "file_edit" if tool in ("edit", "write", "replace") else "tool_call"
                 )
 
                 if kind == "file_edit":
@@ -2204,9 +2088,7 @@ def _parse_opencode(content: str) -> list[dict[str, Any]]:
                         for line in new.splitlines():
                             _raw_diff += f"+{line}\n"
                     _diff = str(_raw_diff).strip() if _raw_diff else None
-                    content_text = _diff or str(
-                        inp.get("content") or json.dumps(inp, indent=2, ensure_ascii=False)
-                    )
+                    content_text = _diff or str(inp.get("content") or json.dumps(inp, indent=2, ensure_ascii=False))
                     summary = f"{tool}({_fpath or ''})"
                 elif kind == "shell_command":
                     _fpath = None

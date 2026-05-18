@@ -6,7 +6,8 @@ ATELIER_CMD ?= uv run atelier
 FORCE_ARG := $(if $(f),--force,)
 EXTERNAL_PERIODS ?= today week month
 
-.PHONY: help install uninstall status start restart build-host-skills \
+.PHONY: help install uninstall status start restart build-host-skills sync-agent-context \
+	check-agent-context docs-check worktree-env runtime-evidence \
 	test test-fast test-cov security-test lint format-check format typecheck verify pre-commit \
 	benchmark bench-savings bench-savings-honest proof-cost-quality demo import clean
 
@@ -47,6 +48,21 @@ restart: ## Restart the service and frontend with Docker Compose
 build-host-skills: ## Generate Codex/Gemini skill bundles from integrations/skills (set ATELIER_DEV_MODE=1 to include dev-only skills)
 	@bash scripts/build_host_skills.sh --host all $$( [ "$${ATELIER_DEV_MODE:-0}" = "1" ] && echo --include-dev )
 
+sync-agent-context: ## Regenerate host instruction surfaces from docs/agent-os
+	uv run python scripts/sync_agent_context.py
+
+check-agent-context: ## Verify generated host instruction surfaces are up to date
+	uv run python scripts/sync_agent_context.py --check
+
+docs-check: check-agent-context ## Run docs and repo-governance checks
+	uv run pytest tests/gateway/test_docs.py tests/gateway/test_generated_agent_contexts.py -q
+
+worktree-env: ## Write a per-worktree .env file for local stack bootstraps
+	uv run python scripts/worktree_env.py --env-file .env.worktree --json
+
+runtime-evidence: ## Capture runtime evidence from a local Atelier stack
+	uv run python scripts/runtime_evidence.py
+
 test: ## Run all tests
 	uv run pytest -q
 
@@ -62,6 +78,9 @@ security-test: ## Run security-focused test cases
 lint: ## Run ruff lint checks
 	uv run ruff check $(PY_PATHS)
 
+format-check: ## Check Python formatting without rewriting files
+	uv run black --check src tests
+
 format: ## Format all code: Python (ruff+black) and frontend (prettier if available)
 	uv run ruff check --fix $(PY_PATHS)
 	uv run black $(PY_PATHS)
@@ -74,12 +93,12 @@ format: ## Format all code: Python (ruff+black) and frontend (prettier if availa
 typecheck: ## Run mypy strict type-checking
 	uv run mypy --strict $(PY_PATHS)
 
-verify: lint format-check typecheck test ## Verify code, runtime smoke tests, and agent integrations
+verify: lint format-check typecheck docs-check test ## Verify code, docs, runtime smoke tests, and agent integrations
 	bash scripts/verify_atelier_service.sh
 	bash scripts/verify_atelier_postgres.sh
 	bash scripts/verify_agent_clis.sh
 
-pre-commit: format lint typecheck test ## Format, lint, typecheck, and test
+pre-commit: format lint typecheck docs-check test ## Format, lint, typecheck, docs, and test
 
 # --------------------------------------------------------------------------- #
 # Benchmarks and demos                                                        #

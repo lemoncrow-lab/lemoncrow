@@ -2,6 +2,24 @@
 
 This docs index is intentionally split into a small live surface for day-to-day use and a separate `docs-archive/` tree for historical or maintainer-only material.
 
+## Agent OS and Engineering Map
+
+Start here if you want the repository rules, source-of-truth map, and reusable
+execution scaffolding that agents should follow.
+
+| Doc | What it covers |
+| --- | --- |
+| [agent-os/README.md](agent-os/README.md) | Shared agent rules, workflow, validation, and host overrides |
+| [architecture/README.md](architecture/README.md) | Live repository architecture map |
+| [design/index.md](design/index.md) | Core beliefs behind the repo shape |
+| [frontend/README.md](frontend/README.md) | Frontend-specific guidance and validation |
+| [reliability/README.md](reliability/README.md) | Reusable validation and evidence loops |
+| [security/README.md](security/README.md) | Durable security rules for agent work |
+| [quality/scorecard.md](quality/scorecard.md) | Current repo quality gaps and targets |
+| [plans/README.md](plans/README.md) | Durable execution plans and tech debt |
+| [decisions/README.md](decisions/README.md) | Architectural decision records |
+| [references/README.md](references/README.md) | High-signal source files and contracts |
+
 ## Product & Strategy
 
 Start here if you want to understand what Atelier is for, where it's going, and how to execute on it.
@@ -34,11 +52,13 @@ Use these when wiring Atelier into an editor or agent CLI:
 | Doc                                                          | Host                                    |
 | ------------------------------------------------------------ | --------------------------------------- |
 | [hosts/all-agent-clis.md](hosts/all-agent-clis.md)           | Overview of supported host integrations |
+| [hosts/host-capability-matrix.md](hosts/host-capability-matrix.md) | Cross-host capability contract     |
 | [hosts/claude-code-install.md](hosts/claude-code-install.md) | Claude Code                             |
 | [hosts/copilot-install.md](hosts/copilot-install.md)         | Copilot                                 |
 | [hosts/codex-install.md](hosts/codex-install.md)             | Codex CLI                               |
 | [hosts/opencode-install.md](hosts/opencode-install.md)       | opencode                                |
 | [hosts/gemini-cli-install.md](hosts/gemini-cli-install.md)   | Gemini CLI                              |
+| [integrations/host-matrix.md](integrations/host-matrix.md)   | Install-path and enforcement matrix     |
 
 ## SDK And API
 

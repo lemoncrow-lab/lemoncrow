@@ -129,12 +129,7 @@ def _compact_score(
     extra_read_rate: float,
     must_keep_violations: int,
 ) -> float:
-    score = (
-        1.0
-        - 2.0 * max(0.0, error_drift)
-        - 0.5 * extra_read_rate
-        - 1.0 * (1 if must_keep_violations > 0 else 0)
-    )
+    score = 1.0 - 2.0 * max(0.0, error_drift) - 0.5 * extra_read_rate - 1.0 * (1 if must_keep_violations > 0 else 0)
     return max(0.0, min(1.0, score))
 
 
@@ -219,9 +214,7 @@ def advance(
         is_env_error=is_env_error,
         is_read_tool=is_read_tool,
     )
-    _advance_compacts(
-        session_id, is_error=is_error, is_read_tool=is_read_tool, errors_total=errors_total
-    )
+    _advance_compacts(session_id, is_error=is_error, is_read_tool=is_read_tool, errors_total=errors_total)
     _flush(session_id, writer=writer)
 
 
@@ -365,9 +358,7 @@ class FileStateWriter(_StateWriter):
     def write(self, updates: dict[str, Any]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            existing: dict[str, Any] = (
-                json.loads(self._path.read_text("utf-8")) if self._path.exists() else {}
-            )
+            existing: dict[str, Any] = json.loads(self._path.read_text("utf-8")) if self._path.exists() else {}
         except Exception:
             existing = {}
         existing.update(updates)

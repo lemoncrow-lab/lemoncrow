@@ -42,10 +42,10 @@ _COT_PATTERNS = [
     ),
     (
         re.compile(
-            r"\b(?:chain of thought|chain-of-thought|internal reasoning|private thoughts):",
+            r"\b(?:chain of thought|chain-of-thought|internal reasoning|private thoughts):[^\n\r]*",
             re.IGNORECASE,
         ),
-        "<redacted-marker>",
+        "<redacted-hidden-reasoning><redacted-marker>",
     ),
 ]
 

@@ -5,7 +5,6 @@ import {
   Card,
   EmptyState,
   MetricCard,
-  SectionHeader,
 } from "../components/WorkbenchUI";
 import { useTimeRange } from "../lib/TimeRangeContext";
 

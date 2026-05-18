@@ -10,9 +10,7 @@ from typing import Any, Literal, cast
 import yaml
 
 ModelTier = Literal["cheap", "medium", "expensive"]
-PresetName = Literal[
-    "conservative", "balanced", "economy", "custom", "recommended", "maximum_saving"
-]
+PresetName = Literal["conservative", "balanced", "economy", "custom", "recommended", "maximum_saving"]
 ConfidenceLevel = Literal["low", "medium", "high"]
 
 DEFAULT_ESCALATE_ON: tuple[str, ...] = (
@@ -253,13 +251,9 @@ def policy_from_config(data: dict[str, Any]) -> Policy:
         escalate_on=_string_list(routing_map.get("escalate_on"), base.routing.escalate_on),
     )
     compaction = CompactionPolicy(
-        prompt_cache_reorder=_bool(
-            compaction_map.get("prompt_cache_reorder"), base.compaction.prompt_cache_reorder
-        ),
+        prompt_cache_reorder=_bool(compaction_map.get("prompt_cache_reorder"), base.compaction.prompt_cache_reorder),
         dedup=_bool(compaction_map.get("dedup"), base.compaction.dedup),
-        retrieval_filter=_bool(
-            compaction_map.get("retrieval_filter"), base.compaction.retrieval_filter
-        ),
+        retrieval_filter=_bool(compaction_map.get("retrieval_filter"), base.compaction.retrieval_filter),
         lossy_summary=_bool(compaction_map.get("lossy_summary"), base.compaction.lossy_summary),
         trigger_at_context_fraction=_float(
             compaction_map.get("trigger_at_context_fraction"),
@@ -340,7 +334,5 @@ def forget_shadow_consent(root: Path) -> bool:
     optimization_map = dict(optimization)
     del optimization_map["shadow_consent_at"]
     config["optimization"] = optimization_map
-    optimization_config_path(root).write_text(
-        yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
-    )
+    optimization_config_path(root).write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return True

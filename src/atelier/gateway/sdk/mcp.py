@@ -34,6 +34,7 @@ class _LoopbackTransport(MCPToolTransport):
         tools = {
             "context": mcp_server.tool_get_context,
             "rescue": mcp_server.tool_rescue_failure,
+            "trace": mcp_server.tool_record_trace,
             "record": mcp_server.tool_record_trace,
             "verify": mcp_server.tool_run_rubric_gate,
             "route": mcp_server.tool_route,
@@ -240,7 +241,7 @@ class MCPClient(LocalClient):
         validation_results: list[ValidationResult] | None = None,
     ) -> TraceRecordResult:
         payload = self._transport.call_tool(
-            "record",
+            "trace",
             {
                 "agent": agent,
                 "domain": domain,

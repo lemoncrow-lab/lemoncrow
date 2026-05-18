@@ -10,7 +10,10 @@ def test_mcp_server_defaults_to_service_and_project_knowledge() -> None:
 
     assert 'os.environ.setdefault("ATELIER_SERVICE_URL", "http://127.0.0.1:8787")' in content
     assert 'os.environ.setdefault("ATELIER_WORKSPACE_ROOT", os.getcwd())' in content
-    assert 'os.environ.setdefault("ATELIER_KNOWLEDGE_ROOT", os.path.join(os.environ["ATELIER_WORKSPACE_ROOT"], ".knowledge"))' in content
+    assert (
+        'os.environ.setdefault("ATELIER_KNOWLEDGE_ROOT", os.path.join(os.environ["ATELIER_WORKSPACE_ROOT"], ".knowledge"))'
+        in content
+    )
 
 
 def test_codex_installer_defaults_to_service_backed_mcp_and_project_knowledge() -> None:

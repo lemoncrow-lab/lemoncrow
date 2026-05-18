@@ -451,8 +451,7 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
     # models used
     models_str = (
         ", ".join(
-            f"{m} ({c} turn{'s' if c != 1 else ''})"
-            for m, c in sorted(report.models_used.items(), key=lambda x: -x[1])
+            f"{m} ({c} turn{'s' if c != 1 else ''})" for m, c in sorted(report.models_used.items(), key=lambda x: -x[1])
         )
         or "none"
     )
@@ -477,9 +476,7 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
 
     lines.append(cost_row("Input tokens:", report.input_tokens, report.input_token_cost_usd))
     if report.cache_write_tokens or report.cache_write_cost_usd:
-        lines.append(
-            cost_row("Cache writes:", report.cache_write_tokens, report.cache_write_cost_usd)
-        )
+        lines.append(cost_row("Cache writes:", report.cache_write_tokens, report.cache_write_cost_usd))
     lines.append(cost_row("Cache reads:", report.cache_read_tokens, report.cache_read_cost_usd))
     lines.append(cost_row("Output tokens:", report.output_tokens, report.output_token_cost_usd))
     lines.append("  " + "─" * 37)
@@ -507,10 +504,7 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
         lines.append("  Compaction: none this session")
 
     lines.append("  " + "─" * 37)
-    lines.append(
-        f"  {'Total saved this session:':<32}"
-        f"{_fmt_cost(report.total_atelier_savings_usd).rjust(cost_w)}"
-    )
+    lines.append(f"  {'Total saved this session:':<32}" f"{_fmt_cost(report.total_atelier_savings_usd).rjust(cost_w)}")
     lines.append("")
 
     # top tools
@@ -519,8 +513,7 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
         lines.append(f"Top {n} costliest tool{'s' if n != 1 else ''} this session")
         for tool_name, count, cost in report.top_tools_by_cost:
             lines.append(
-                f"  {tool_name:<16}{count:>5} call{'s' if count != 1 else ''}"
-                f"   {_fmt_cost(cost).rjust(cost_w)}"
+                f"  {tool_name:<16}{count:>5} call{'s' if count != 1 else ''}" f"   {_fmt_cost(cost).rjust(cost_w)}"
             )
 
     return "\n".join(lines)

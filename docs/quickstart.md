@@ -131,10 +131,10 @@ Then open:
 
 The installer already tries to wire supported hosts automatically. If you want to inspect or customize that setup, continue with:
 
-- [docs/hosts/all-agent-clis.md](docs/hosts/all-agent-clis.md)
-- [docs/hosts/claude-code-install.md](docs/hosts/claude-code-install.md)
-- [docs/hosts/copilot-install.md](docs/hosts/copilot-install.md)
-- [docs/hosts/codex-install.md](docs/hosts/codex-install.md)
+- [hosts/all-agent-clis.md](hosts/all-agent-clis.md)
+- [hosts/claude-code-install.md](hosts/claude-code-install.md)
+- [hosts/copilot-install.md](hosts/copilot-install.md)
+- [hosts/codex-install.md](hosts/codex-install.md)
 
 ## Source Checkout Instead?
 

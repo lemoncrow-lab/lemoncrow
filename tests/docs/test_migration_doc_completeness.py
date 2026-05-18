@@ -45,4 +45,7 @@ def test_changelog_links_to_migration_docs() -> None:
     changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
 
     assert "docs/migrations/v2-to-v3.md" in changelog or "docs-archive/migrations/v2-to-v3.md" in changelog
-    assert "docs/migrations/v2-to-v3-deprecation-matrix.md" in changelog or "docs-archive/migrations/v2-to-v3-deprecation-matrix.md" in changelog
+    assert (
+        "docs/migrations/v2-to-v3-deprecation-matrix.md" in changelog
+        or "docs-archive/migrations/v2-to-v3-deprecation-matrix.md" in changelog
+    )

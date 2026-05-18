@@ -1,4 +1,4 @@
-"""Routing REPLAY benchmark — haiku via Claude Code CLI (no API key required).
+"""Routing REPLAY benchmark - haiku via Claude Code CLI (no API key required).
 
 Runs inside Claude Code using the CLI's own credentials. For each turn the
 router would downgrade (actual=sonnet, recommended=haiku), we:
@@ -8,29 +8,29 @@ router would downgrade (actual=sonnet, recommended=haiku), we:
      asking haiku to declare what tool it would call next.
   3. Parse haiku's JSON response and compare to what sonnet actually did.
 
-No ANTHROPIC_API_KEY required — Claude Code's existing auth is used.
+No ANTHROPIC_API_KEY required - Claude Code's existing auth is used.
 
 What is measured (true counterfactual decisions)
 -------------------------------------------------
-  tool_match       — haiku chose the same tool as sonnet
-  input_similarity — for matched tools, Jaccard similarity of inputs
-  output_token_ratio — haiku_output_tokens / sonnet_output_tokens
+  tool_match       - haiku chose the same tool as sonnet
+  input_similarity - for matched tools, Jaccard similarity of inputs
+  output_token_ratio - haiku_output_tokens / sonnet_output_tokens
                        (<0.5 = haiku was much terser)
 
 Quality labels per turn
 -----------------------
-  match        — same tool, similar input (similarity ≥ 0.7)
-  partial      — same tool, different input (0.3–0.7)
-  diverge      — same tool, very different input (< 0.3)
-  tool_mismatch — haiku chose a different tool
-  parse_error  — haiku responded but JSON could not be parsed
+  match        - same tool, similar input (similarity >= 0.7)
+  partial      - same tool, different input (0.3-0.7)
+  diverge      - same tool, very different input (< 0.3)
+  tool_mismatch - haiku chose a different tool
+  parse_error  - haiku responded but JSON could not be parsed
 
 Limitations
 -----------
 - Context is formatted as text (not structured tool_use), so haiku may
   respond slightly differently than in a live session.
 - The Atelier plugin system prompt is included in every call, adding
-  ~35K tokens of cache overhead. Cost is ~$0.01–0.03 per turn.
+  ~35K tokens of cache overhead. Cost is ~$0.01-0.03 per turn.
 - Haiku's decision is isolated (single turn), not a full session replay.
   A wrong turn N decision compounding into N+1 is not captured.
 """
@@ -107,19 +107,14 @@ def _fmt_content(content: Any) -> list[str]:
         elif btype == "tool_use":
             name = b.get("name", "")
             inp = b.get("input") or {}
-            summary = ", ".join(
-                f"{k}={str(v)[:50]}" for k, v in list(inp.items())[:3]
-            )
+            summary = ", ".join(f"{k}={str(v)[:50]}" for k, v in list(inp.items())[:3])
             lines.append(f"[Called {name}({summary})]")
         elif btype == "tool_result":
             rc = b.get("content", "")
             if isinstance(rc, list):
-                rc = " ".join(
-                    str(x.get("text", "")) if isinstance(x, dict) else str(x)
-                    for x in rc
-                )
+                rc = " ".join(str(x.get("text", "")) if isinstance(x, dict) else str(x) for x in rc)
             lines.append(f"[ToolResult]: {str(rc)[:_MAX_TOOL_RESULT_CHARS]}")
-        # Skip thinking blocks — not useful for text context
+        # Skip thinking blocks - not useful for text context
     return lines
 
 
@@ -175,7 +170,7 @@ def _call_haiku(
     """Call haiku via claude CLI and return (tool_name, raw_json, input_tokens, output_tokens).
 
     The prompt asks haiku to declare its NEXT tool call in JSON. We do NOT
-    execute the tool — this is a decision benchmark, not an execution benchmark.
+    execute the tool - this is a decision benchmark, not an execution benchmark.
     """
     prompt = (
         "You are a Claude Code agent in the middle of a coding session. "
@@ -184,7 +179,7 @@ def _call_haiku(
         f"Available tools: {_AVAILABLE_TOOLS}\n\n"
         "Conversation context (most recent turns):\n"
         f"{context_text}\n\n"
-        'Reply with ONLY a valid JSON object (no markdown fences): '
+        "Reply with ONLY a valid JSON object (no markdown fences): "
         '{"tool": "<tool_name>", "input": {<params>}}'
     )
 
@@ -192,9 +187,12 @@ def _call_haiku(
         result = subprocess.run(
             [
                 "claude",
-                "--model", haiku_model,
-                "-p", prompt,
-                "--output-format", "json",
+                "--model",
+                haiku_model,
+                "-p",
+                prompt,
+                "--output-format",
+                "json",
                 "--no-session-persistence",
             ],
             capture_output=True,
@@ -430,16 +428,12 @@ def _run_session(
         if delay > 0:
             time.sleep(delay)
 
-        raw_resp, stderr, h_inp_tok, h_out_tok = _call_haiku(ctx, haiku_model)
+        raw_resp, _stderr, h_inp_tok, h_out_tok = _call_haiku(ctx, haiku_model)
         h_tool, h_input = _parse_tool_response(raw_resp)
         parse_err = not h_tool
 
-        tool_match = (
-            h_tool.lower() == tool_name.lower() and not parse_err
-        )
-        sim = (
-            _input_similarity(tool_name, tool_input, h_input) if tool_match else 0.0
-        )
+        tool_match = h_tool.lower() == tool_name.lower() and not parse_err
+        sim = _input_similarity(tool_name, tool_input, h_input) if tool_match else 0.0
         ratio = (h_out_tok / out) if out > 0 and h_out_tok > 0 else 0.0
 
         tr = TurnReplayResult(
@@ -504,7 +498,7 @@ def run_routing_replay_bench(
 ) -> dict[str, Any]:
     """Run the routing replay benchmark using the claude CLI.
 
-    No API key required — uses Claude Code's existing credentials.
+    No API key required - uses Claude Code's existing credentials.
 
     Parameters
     ----------
@@ -523,10 +517,7 @@ def run_routing_replay_bench(
     verbose:
         Print each turn result as it completes.
     """
-    if (corpus_dir / "claude").is_dir():
-        search_dir = corpus_dir / "claude"
-    else:
-        search_dir = corpus_dir
+    search_dir = corpus_dir / "claude" if (corpus_dir / "claude").is_dir() else corpus_dir
 
     candidates = sorted(search_dir.glob("*.jsonl"), key=lambda p: -p.stat().st_size)
 
@@ -552,7 +543,9 @@ def run_routing_replay_bench(
         if verbose:
             print(f"Session: {path.stem[:40]}...")
         result = _run_session(
-            path, router, haiku_model,
+            path,
+            router,
+            haiku_model,
             max_turns=max_turns_per_session,
             context_lines=context_lines,
             delay=rate_limit_delay,
@@ -566,7 +559,7 @@ def run_routing_replay_bench(
     _empty = {
         "benchmark": "replay-routing",
         "methodology": (
-            "True counterfactual via claude CLI — no API key required. "
+            "True counterfactual via claude CLI - no API key required. "
             "Context formatted as text (thinking blocks omitted). "
             "Haiku declares its next tool call; we compare to sonnet's actual choice. "
             "tool_match = same tool name. input_similarity = Jaccard on key inputs. "
@@ -607,7 +600,7 @@ def run_routing_replay_bench(
     return {
         "benchmark": "replay-routing",
         "methodology": (
-            "True counterfactual via claude CLI — no API key required. "
+            "True counterfactual via claude CLI - no API key required. "
             "Context formatted as text (thinking blocks omitted). "
             "Haiku declares its next tool call; we compare to sonnet's actual choice. "
             "tool_match = same tool name. input_similarity = Jaccard on key inputs "

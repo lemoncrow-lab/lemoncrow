@@ -951,16 +951,7 @@ def test_pricing_yaml_overrides(tmp_path: Path) -> None:
     old_root = os.environ.get("ATELIER_ROOT")
     os.environ["ATELIER_ROOT"] = str(tmp_path)
     try:
-        overrides = {
-            "overrides": {
-                "yaml-model": {
-                    "input": 1.23,
-                    "output": 4.56,
-                    "cache_read": 0.1,
-                    "thinking": 9.99
-                }
-            }
-        }
+        overrides = {"overrides": {"yaml-model": {"input": 1.23, "output": 4.56, "cache_read": 0.1, "thinking": 9.99}}}
         (tmp_path / "pricing.yaml").write_text(yaml.dump(overrides))
         _load_pricing_table.cache_clear()
 

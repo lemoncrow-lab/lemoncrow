@@ -65,8 +65,6 @@ def test_build_watchdogs_disables_zero_weight_watchdogs() -> None:
 
 
 def test_build_watchdogs_adjusts_thresholds_from_weights() -> None:
-    watchdogs = {
-        w.name: w for w in build_watchdogs({"repeated_tool_call": 0.22, "context_bloat": 0.05})
-    }
+    watchdogs = {w.name: w for w in build_watchdogs({"repeated_tool_call": 0.22, "context_bloat": 0.05})}
     assert watchdogs["repeated_tool_call"].repeat_threshold == 2
     assert watchdogs["context_bloat"].threshold_chars == 75_000

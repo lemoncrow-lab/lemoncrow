@@ -432,9 +432,7 @@ def _write_reports_index(cwd_reports: Path) -> None:
     week_dir = cwd_reports / "2026-W20"
     week_dir.mkdir(parents=True, exist_ok=True)
     (week_dir / "benchmark.md").write_text("# Benchmark report 2026-W20\n\nContent here.")
-    (week_dir / "benchmark.json").write_text(
-        json.dumps({"week": "2026-W20", "metric_snapshot": {}})
-    )
+    (week_dir / "benchmark.json").write_text(json.dumps({"week": "2026-W20", "metric_snapshot": {}}))
 
 
 # ---------------------------------------------------------------------------
@@ -490,9 +488,7 @@ class TestListSessions:
         assert "started_model" in item
         assert "cost_status" in item
 
-    def test_returns_200_with_no_sessions(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_returns_200_with_no_sessions(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
         monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)

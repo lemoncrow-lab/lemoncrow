@@ -25,9 +25,7 @@ def _write_fixture_repo(root: Path) -> None:
         encoding="utf-8",
     )
     (root / "tests" / "test_checkout.py").write_text(
-        "from src.checkout import checkout\n\n"
-        "def test_checkout() -> None:\n"
-        "    assert checkout([1, 2]) == 3\n",
+        "from src.checkout import checkout\n\n" "def test_checkout() -> None:\n" "    assert checkout([1, 2]) == 3\n",
         encoding="utf-8",
     )
 
@@ -58,10 +56,7 @@ def test_code_context_outline_context_pack_and_impact(tmp_path: Path) -> None:
 
     outline = engine.file_outline(file_path="src/orders.py")
     assert "src/orders.py" in outline["files"]
-    assert any(
-        item["qualified_name"] == "OrderService.calculate_total"
-        for item in outline["files"]["src/orders.py"]
-    )
+    assert any(item["qualified_name"] == "OrderService.calculate_total" for item in outline["files"]["src/orders.py"])
 
     pack = engine.context_pack(
         task="change OrderService calculate_total",

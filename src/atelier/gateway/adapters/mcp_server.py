@@ -30,6 +30,7 @@ from atelier.core.environment import (
     dev_tool_disabled_message,
     is_dev_mode,
     mcp_tool_description,
+    mcp_tool_mode,
     mcp_tool_visible_to_llm,
 )
 from atelier.core.foundation.memory_models import ArchivalPassage, MemoryBlock
@@ -53,7 +54,7 @@ COMPACT_ADVISORY_THRESHOLD = 60.0
 AUTO_COMPACT_THRESHOLD = 80.0
 HANDOVER_THRESHOLD = 95.0
 AUTO_COMPACT_MIN_TURNS = 15
-# Bypass the min-turns gate when utilisation already exceeds this level —
+# Bypass the min-turns gate when utilisation already exceeds this level -
 # a few very large turns can fill the window just as fast as many small ones.
 AUTO_COMPACT_HIGH_UTIL_OVERRIDE = 90.0
 
@@ -83,6 +84,10 @@ def _tool_visible_to_llm(tool_name: str, spec: dict[str, Any]) -> bool:
     return mcp_tool_visible_to_llm(tool_name, is_dev=bool(spec.get("is_dev")))
 
 
+def _tool_mode(spec: dict[str, Any]) -> str:
+    return mcp_tool_mode(str(spec.get("name", "") or ""), is_dev=bool(spec.get("is_dev")))
+
+
 def mcp_tool(
     name: str | None = None, description: str | None = None, is_dev: bool = False
 ) -> Callable[[Callable[..., Any]], Callable[[dict[str, Any]], Any]]:
@@ -98,9 +103,7 @@ def mcp_tool(
         sig = inspect.signature(func)
         fields = {}
         for param_name, param in sig.parameters.items():
-            annotation = (
-                param.annotation if param.annotation is not inspect.Parameter.empty else Any
-            )
+            annotation = param.annotation if param.annotation is not inspect.Parameter.empty else Any
             default = param.default if param.default is not inspect.Parameter.empty else ...
             fields[param_name] = (
                 annotation,
@@ -148,17 +151,24 @@ _current_ledger: RunLedger | None = None
 _realtime_ctx: RealtimeContextManager | None = None
 _product_session_id: str | None = None
 _product_session_started_at: float | None = None
+_last_plan_hash_by_session: dict[str, str] = {}
+_last_plan_by_session: dict[str, dict[str, Any]] = {}
+_last_blocked_plan_hash_by_session: dict[str, str] = {}
+
+
+def _service_backed_state() -> bool:
+    return True
 
 
 def _detect_agent() -> str:
     """Derive the agent label from the runtime environment.
 
     Checks, in order:
-    1. ATELIER_AGENT env var (explicit override — any host can set this)
-    2. CLAUDE_SESSION_ID → "claude"
-    3. GEMINI_SESSION_ID or GEMINI_CLI_VERSION → "gemini"
-    4. CODEX_SESSION_ID → "codex"
-    5. OPENCODE_SESSION_ID → "opencode"
+    1. ATELIER_AGENT env var (explicit override - any host can set this)
+    2. CLAUDE_SESSION_ID -> "claude"
+    3. GEMINI_SESSION_ID or GEMINI_CLI_VERSION -> "gemini"
+    4. CODEX_SESSION_ID -> "codex"
+    5. OPENCODE_SESSION_ID -> "opencode"
     6. Falls back to "claude" (the MCP wrapper is shipped with the Claude plugin)
     """
     explicit = os.environ.get("ATELIER_AGENT", "").strip()
@@ -166,11 +176,7 @@ def _detect_agent() -> str:
         return explicit
     if os.environ.get("CLAUDE_SESSION_ID") or os.environ.get("CLAUDE_CODE"):
         return "claude"
-    if (
-        os.environ.get("GEMINI_SESSION_ID")
-        or os.environ.get("GEMINI_CLI_VERSION")
-        or os.environ.get("GEMINI_CLI")
-    ):
+    if os.environ.get("GEMINI_SESSION_ID") or os.environ.get("GEMINI_CLI_VERSION") or os.environ.get("GEMINI_CLI"):
         return "gemini"
     if os.environ.get("CODEX_SESSION_ID") or os.environ.get("CODEX_CLI"):
         return "codex"
@@ -299,7 +305,6 @@ def _make_outcome_writer(led: RunLedger) -> Any:
 # --------------------------------------------------------------------------- #
 
 
-
 def _detect_default_branch(repo: Path) -> str | None:
     """Detect the remote default branch (main/master) for *repo*."""
     import subprocess
@@ -373,7 +378,7 @@ def _check_auto_update() -> None:
             _log.debug("repo from file path: %s", repo)
 
         if not (repo / ".git").exists():
-            _log.debug("not a git checkout — skipping auto-update")
+            _log.debug("not a git checkout - skipping auto-update")
             return  # Not a git checkout, nothing to auto-update
 
         # Fetch latest remote info
@@ -422,8 +427,8 @@ def _check_auto_update() -> None:
             _log.info("already up-to-date")
             return
 
-        # Newer (or different) version detected — pull and reinstall
-        _log.info("version changed — pulling %s/%s ...", default_branch, default_branch)
+        # Newer (or different) version detected - pull and reinstall
+        _log.info("version changed - pulling %s/%s ...", default_branch, default_branch)
         subprocess.run(
             ["git", "pull", "--ff-only", "origin", default_branch],
             cwd=str(repo),
@@ -479,6 +484,7 @@ def _run_worker_tick_safe(root: Path) -> None:
 
 
 _runtime_cache: ContextRuntime | None = None
+_context_budget_recorder: Any = None
 
 
 def _runtime() -> ContextRuntime:
@@ -487,6 +493,20 @@ def _runtime() -> ContextRuntime:
         _runtime_cache = ContextRuntime(_atelier_root())
     return _runtime_cache
 
+
+def _reset_runtime_cache_for_testing() -> None:
+    global _current_ledger, _realtime_ctx, _product_session_id, _product_session_started_at
+    global _runtime_cache, _remote_client, _context_budget_recorder
+    _current_ledger = None
+    _realtime_ctx = None
+    _product_session_id = None
+    _product_session_started_at = None
+    _runtime_cache = None
+    _remote_client = None
+    _context_budget_recorder = None
+    _last_plan_hash_by_session.clear()
+    _last_plan_by_session.clear()
+    _last_blocked_plan_hash_by_session.clear()
 
 
 def _live_savings_events_path() -> Path:
@@ -500,6 +520,98 @@ def _append_live_savings_event(event: dict[str, Any]) -> None:
         handle.write(json.dumps(event, sort_keys=True) + "\n")
 
 
+def _smart_state_path() -> Path:
+    return _atelier_root() / "smart_state.json"
+
+
+def _read_smart_state() -> dict[str, Any]:
+    path = _smart_state_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_smart_state(state: dict[str, Any]) -> None:
+    try:
+        path = _smart_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except Exception:
+        logger.warning("Suppressed exception while writing smart_state", exc_info=True)
+
+
+def _coerce_saved_tokens(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float):
+        return int(max(0.0, value))
+    if isinstance(value, dict):
+        return sum(
+            int(max(0.0, float(item_value)))
+            for item_value in value.values()
+            if isinstance(item_value, (int, float)) and not isinstance(item_value, bool)
+        )
+    return 0
+
+
+def _extract_compact_output_tokens_saved(result: dict[str, Any]) -> int:
+    return _coerce_saved_tokens(result.get("tokens_saved_vs_naive"))
+
+
+def _extract_tokens_saved(result: dict[str, Any]) -> int:
+    direct = _coerce_saved_tokens(result.get("tokens_saved"))
+    if direct > 0:
+        return direct
+    return _extract_compact_output_tokens_saved(result)
+
+
+def _record_smart_state_savings(tokens_saved: int, calls_avoided: int) -> None:
+    if tokens_saved <= 0 and calls_avoided <= 0:
+        return
+    state = _read_smart_state()
+    savings = state.get("savings")
+    if not isinstance(savings, dict):
+        savings = {"calls_avoided": 0, "tokens_saved": 0}
+    savings["calls_avoided"] = int(savings.get("calls_avoided", 0) or 0) + max(0, calls_avoided)
+    savings["tokens_saved"] = int(savings.get("tokens_saved", 0) or 0) + max(0, tokens_saved)
+    state["savings"] = savings
+    _write_smart_state(state)
+
+
+class _NoOpContextBudgetRecorder:
+    """No-op recorder for service-backed MCP state."""
+
+    def record(self, **kwargs: Any) -> None:
+        pass
+
+    def record_compact_tool_output(self, **kwargs: Any) -> None:
+        pass
+
+    def aggregate_run(self, session_id: str) -> Any:
+        return {}
+
+
+def _get_context_budget_recorder() -> Any:
+    global _context_budget_recorder
+    if _service_backed_state():
+        return _NoOpContextBudgetRecorder()
+    if _context_budget_recorder is None:
+        try:
+            from atelier.core.capabilities.telemetry.context_budget import ContextBudgetRecorder
+            from atelier.infra.storage.factory import create_store
+
+            store = create_store(_atelier_root())
+            store.init()
+            _context_budget_recorder = ContextBudgetRecorder(store)
+        except Exception:
+            _context_budget_recorder = _NoOpContextBudgetRecorder()
+    return _context_budget_recorder
 
 
 _REDACTION_PLACEHOLDER_RE = re.compile(r"<redacted[^>]*>")
@@ -510,6 +622,8 @@ def _core_runtime() -> Any:
 
 
 def _redact_memory_input(text: str, field_name: str) -> str:
+    if _REDACTION_PLACEHOLDER_RE.search(text):
+        return text
     redacted = redact(text)
     if not text:
         return redacted
@@ -624,9 +738,7 @@ def tool_route(
     op: Literal["decide", "verify"],
     user_goal: str = "",
     repo_root: str = ".",
-    task_type: Literal[
-        "debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"
-    ] = "feature",
+    task_type: Literal["debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"] = "feature",
     risk_level: Literal["low", "medium", "high"] = "medium",
     changed_files: list[str] | None = None,
     domain: str | None = None,
@@ -811,7 +923,7 @@ def tool_rescue_failure(
     return payload
 
 
-@mcp_tool(name="record")
+@mcp_tool(name="trace")
 def tool_record_trace(
     agent: str,
     domain: str,
@@ -820,9 +932,13 @@ def tool_record_trace(
     errors_seen: list[str] | None = None,
     diff_summary: str = "",
     output_summary: str = "",
+    tools_called: list[Any] | None = None,
     validation_results: list[Any] | None = None,
     run_id: str | None = None,
     session_id: str | None = None,
+    host: str | None = None,
+    trace_confidence: str | None = None,
+    capture_sources: list[str] | None = None,
     missing_surfaces: list[str] | None = None,
     event_type: str | None = None,
     event_payload: dict[str, Any] | None = None,
@@ -832,10 +948,14 @@ def tool_record_trace(
     """Record an observable trace from an agent run."""
     from atelier.core.foundation.redaction import redact, redact_list
 
+    if tools_called is None:
+        tools_called = []
     if validation_results is None:
         validation_results = []
     if errors_seen is None:
         errors_seen = []
+    if capture_sources is None:
+        capture_sources = []
     if missing_surfaces is None:
         missing_surfaces = []
     if event_payload is None:
@@ -891,6 +1011,32 @@ def tool_record_trace(
             normalized.append({"name": text, "passed": passed, "detail": ""})
         return normalized
 
+    def _normalize_tool_calls(items: list[Any]) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for item in items:
+            if isinstance(item, str):
+                normalized.append({"name": redact(item), "args_hash": "", "count": 1})
+                continue
+            if isinstance(item, dict):
+                raw_count = item.get("count") or 1
+                with contextlib.suppress(TypeError, ValueError):
+                    raw_count = int(raw_count)
+                if not isinstance(raw_count, int):
+                    raw_count = 1
+                tool_call: dict[str, Any] = {
+                    "name": redact(str(item.get("name") or item.get("tool") or "unknown")),
+                    "args_hash": redact(str(item.get("args_hash") or "")),
+                    "count": raw_count,
+                }
+                if "args" in item:
+                    tool_call["args"] = _redact_json_strings(item["args"])
+                if isinstance(item.get("result_summary"), str):
+                    tool_call["result_summary"] = redact(item["result_summary"])
+                normalized.append(tool_call)
+                continue
+            normalized.append({"name": redact(str(item)), "args_hash": "", "count": 1})
+        return normalized
+
     # Derive host label from agent string and environment
     def _derive_host(a: str) -> str:
         al = a.lower()
@@ -908,7 +1054,17 @@ def tool_record_trace(
         # Default to the agent name if no known host environment is detected
         return "atelier" if al.startswith("atelier:") else al
 
-    payload = {
+    normalized_capture_sources = [redact(str(source)) for source in capture_sources]
+    normalized_trace_confidence = redact(str(trace_confidence)) if trace_confidence else None
+    normalized_missing_surfaces = redact_list([str(value) for value in missing_surfaces])
+    if normalized_trace_confidence == "full_live" and not any(
+        source in {"hooks", "live_hooks", "plugin_hooks"} for source in normalized_capture_sources
+    ):
+        normalized_trace_confidence = "mcp_live"
+        if "hooks" not in normalized_missing_surfaces:
+            normalized_missing_surfaces.append("hooks")
+
+    payload: dict[str, Any] = {
         "agent": agent,
         "domain": domain,
         "task": redact(task),
@@ -917,9 +1073,12 @@ def tool_record_trace(
         "diff_summary": redact(diff_summary),
         "output_summary": redact(output_summary),
         "session_id": session_id or run_id or led.session_id,
-        "host": _derive_host(agent),
-        "missing_surfaces": missing_surfaces,
+        "host": redact(host) if host else _derive_host(agent),
+        "trace_confidence": normalized_trace_confidence,
+        "capture_sources": normalized_capture_sources,
+        "missing_surfaces": normalized_missing_surfaces,
     }
+    payload["tools_called"] = _normalize_tool_calls(tools_called)
     payload["validation_results"] = _normalize_validation_results(validation_results)
 
     raw_artifacts: list[str] = []
@@ -975,7 +1134,7 @@ def tool_record_trace(
     trace = Trace.model_validate(payload)
     rt.store.record_trace(trace)
 
-    # Write learnings to archival memory (not ReasonBlocks — those are curated).
+    # Write learnings to archival memory (not ReasonBlocks - those are curated).
     # Each learning is a short sentence the agent synthesises; stored deduped so
     # repeated identical insights across sessions don't accumulate noise.
     if learnings:
@@ -1059,9 +1218,7 @@ def _compress_context(session_id: str | None = None) -> Any:
     if session_id:
         led.session_id = session_id
     rtc = _get_realtime_context()
-    state = ContextCompressor().compress(
-        led, preserve_last_n_turns=10, workspace_root=_workspace_root()
-    )
+    state = ContextCompressor().compress(led, preserve_last_n_turns=10, workspace_root=_workspace_root())
     compaction_savings = _session_compaction_savings_payload(
         led,
         state,
@@ -1119,9 +1276,7 @@ def _memory_upsert_block(
     clean_description = _redact_memory_input(description, "description")
     store = _memory_store()
     existing = store.get_block(agent_id, label)
-    version = (
-        expected_version if expected_version is not None else (existing.version if existing else 1)
-    )
+    version = expected_version if expected_version is not None else (existing.version if existing else 1)
     seed = existing or MemoryBlock(agent_id=agent_id, label=label, value=clean_value)
     block = MemoryBlock(
         id=seed.id,
@@ -1157,9 +1312,7 @@ def _memory_upsert_block(
         )
     elif decision.op == "DELETE" and target is not None:
         store.tombstone_block(target.id, deprecated_by_block_id=block.id, reason=decision.reason)
-        stored = store.upsert_block(
-            block, actor=actor or f"agent:{agent_id}", reason=decision.reason
-        )
+        stored = store.upsert_block(block, actor=actor or f"agent:{agent_id}", reason=decision.reason)
     else:
         stored = store.upsert_block(block, actor=actor or f"agent:{agent_id}")
     return {
@@ -1466,8 +1619,7 @@ def _ledger_turn_count(led: RunLedger) -> int:
     turn_events = [
         event
         for event in led.events
-        if event.kind
-        in {"agent_message", "reasoning", "test_result", "command_result", "tool_result"}
+        if event.kind in {"agent_message", "reasoning", "test_result", "command_result", "tool_result"}
     ]
     if turn_events:
         return len(turn_events)
@@ -1499,17 +1651,12 @@ def _context_lifecycle_decision(led: RunLedger) -> dict[str, Any]:
     turn_count = _ledger_turn_count(led)
     boundary = _task_boundary_detected(led)
     should_handover = utilisation_pct >= HANDOVER_THRESHOLD
-    # Bypass the min-turns gate when utilisation is already very high — a small
+    # Bypass the min-turns gate when utilisation is already very high - a small
     # number of dense turns (huge tool outputs, large file reads) can fill the
     # window just as fast as many small ones.
-    turns_gate_passed = (
-        turn_count > AUTO_COMPACT_MIN_TURNS or utilisation_pct >= AUTO_COMPACT_HIGH_UTIL_OVERRIDE
-    )
+    turns_gate_passed = turn_count > AUTO_COMPACT_MIN_TURNS or utilisation_pct >= AUTO_COMPACT_HIGH_UTIL_OVERRIDE
     should_auto_compact = (
-        not should_handover
-        and utilisation_pct >= AUTO_COMPACT_THRESHOLD
-        and turns_gate_passed
-        and boundary
+        not should_handover and utilisation_pct >= AUTO_COMPACT_THRESHOLD and turns_gate_passed and boundary
     )
     should_advise = utilisation_pct >= COMPACT_ADVISORY_THRESHOLD
 
@@ -1577,9 +1724,7 @@ def _compact_advise(session_id: str | None = None) -> dict[str, Any]:
         utilisation_pct = float(lifecycle["utilisation_pct"])
         should_compact = bool(lifecycle["should_compact"])
         should_handover = bool(lifecycle["should_handover"])
-        state = ContextCompressor().compress(
-            led, preserve_last_n_turns=10, workspace_root=_workspace_root()
-        )
+        state = ContextCompressor().compress(led, preserve_last_n_turns=10, workspace_root=_workspace_root())
         compaction_savings = _session_compaction_savings_payload(
             led,
             state,
@@ -1735,7 +1880,7 @@ def _memory_summary(session_id: str) -> dict[str, Any]:
         cap = ContextCompressionCapability()
         result = cap.compress_with_sleeptime(led)
 
-        summary_lines = [f"## Sleeptime Summary — run `{led.session_id}`", ""]
+        summary_lines = [f"## Sleeptime Summary - run `{led.session_id}`", ""]
         summary_lines.append(f"- Tokens before: {result.chars_before // 4}")
         summary_lines.append(f"- Tokens after:  {result.chars_after // 4}")
         summary_lines.append(f"- Reduction:     {result.reduction_pct}%")
@@ -1791,9 +1936,7 @@ def tool_code(
     if op == "index":
         return cast(
             dict[str, Any],
-            engine.index_repo(include_globs=include_globs, exclude_globs=exclude_globs).model_dump(
-                mode="json"
-            ),
+            engine.index_repo(include_globs=include_globs, exclude_globs=exclude_globs).model_dump(mode="json"),
         )
 
     if op == "search":
@@ -1965,7 +2108,7 @@ def _compact_score(
     Parameters
     ----------
     complexity:
-        Float 0.0–1.0. 0 = trivial/read-only, 1.0 = deep debugging or
+        Float 0.0-1.0. 0 = trivial/read-only, 1.0 = deep debugging or
         large refactor with many interdependencies.
     must_keep:
         Keywords or short phrases the model needs preserved verbatim.
@@ -1974,9 +2117,7 @@ def _compact_score(
     return {
         "complexity": complexity,
         "must_keep_count": len(must_keep),
-        "message": (
-            f"Complexity {complexity:.2f} recorded with {len(must_keep)} must-keep hints."
-        ),
+        "message": (f"Complexity {complexity:.2f} recorded with {len(must_keep)} must-keep hints."),
     }
 
 
@@ -1994,10 +2135,10 @@ def tool_compact(
     """Compact op-dispatch: output, session, advise, or score.
 
     ops:
-      output  — compress a single tool output string
-      session — compress the full run ledger into a compact state block
-      advise  — check context utilisation and advise whether to compact
-      score   — record model-assessed complexity + must-keep keywords
+      output  - compress a single tool output string
+      session - compress the full run ledger into a compact state block
+      advise  - check context utilisation and advise whether to compact
+      score   - record model-assessed complexity + must-keep keywords
     """
     if op == "score":
         return _compact_score(complexity=complexity, must_keep=must_keep or [])
@@ -2023,7 +2164,7 @@ _REMOTE_TOOLS = frozenset(
         "context",
         "memory",
         "rescue",
-        "record",
+        "trace",
         "verify",
     }
 )
@@ -2068,25 +2209,212 @@ def _get_remote_client() -> Any:
 
 
 def _dispatch_remote(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    if _remote_client is None and not os.environ.get("ATELIER_SERVICE_URL"):
+        if name == "context":
+            result = _runtime().get_context(
+                task=str(args.get("task") or ""),
+                domain=cast(str | None, args.get("domain")),
+                files=cast(list[str] | None, args.get("files")),
+                tools=cast(list[str] | None, args.get("tools")),
+                errors=cast(list[str] | None, args.get("errors")),
+                max_blocks=int(args.get("max_blocks") or 5),
+                token_budget=cast(int | None, args.get("token_budget")),
+                dedup=bool(args.get("dedup", True)),
+                include_telemetry=bool(args.get("include_telemetry", False)),
+                agent_id=cast(str | None, args.get("agent_id")),
+                recall=bool(args.get("recall", True)),
+            )
+            return result if isinstance(result, dict) else {"context": result}
+        if name == "rescue":
+            rescue_result = _runtime().rescue_failure(
+                task=str(args.get("task") or ""),
+                error=str(args.get("error") or ""),
+                files=cast(list[str] | None, args.get("files")),
+                recent_actions=cast(list[str] | None, args.get("recent_actions")),
+                domain=cast(str | None, args.get("domain")),
+            )
+            return rescue_result.model_dump()
+        spec = TOOLS.get(name)
+        if spec is None:
+            raise ValueError(f"unknown remote tool: {name}")
+        handler = cast(Callable[[dict[str, Any]], dict[str, Any]], spec["handler"])
+        return handler(args)
     client = _get_remote_client()
-    import typing
 
     if name == "context":
-        return typing.cast(dict[str, Any], client.get_context(args))
+        return cast(dict[str, Any], client.get_context(args))
     if name == "memory":
-        return typing.cast(dict[str, Any], client.memory(args))
+        return cast(dict[str, Any], client.memory(args))
     if name == "rescue":
-        return typing.cast(dict[str, Any], client.rescue_failure(args))
-    if name == "record":
-        return typing.cast(dict[str, Any], client.record_trace(args))
+        return cast(dict[str, Any], client.rescue_failure(args))
+    if name in {"trace", "record"}:
+        return cast(dict[str, Any], client.record_trace(args))
     if name == "verify":
-        return typing.cast(dict[str, Any], client.run_rubric_gate(args))
+        return cast(dict[str, Any], client.run_rubric_gate(args))
     raise ValueError(f"tool not supported in remote mode: {name}")
 
 
 # --------------------------------------------------------------------------- #
 # MCP Protocol Handling                                                       #
 # --------------------------------------------------------------------------- #
+
+
+def _lever_for_tool(tool_name: str) -> str:
+    lowered = tool_name.strip().lower().replace("-", "_").replace(" ", "_")
+    if lowered in {"read", "search"} or lowered.endswith("_read") or lowered.endswith("_search"):
+        return "search_read"
+    if lowered == "edit" or lowered.endswith("_edit"):
+        return "batch_edit"
+    if lowered == "sql" or lowered.endswith("_sql"):
+        return "sql_batch"
+    if lowered == "compact" or lowered.endswith("_compact"):
+        return "compact_lifecycle"
+    if lowered == "memory" or lowered.endswith("_memory"):
+        return "scoped_recall"
+    if lowered == "context" or lowered.endswith("_context"):
+        return "reasonblock_inject"
+    return lowered or "unknown"
+
+
+def _live_savings_cost_usd(model: str, savings: dict[str, Any]) -> float:
+    from atelier.core.capabilities.pricing import get_model_pricing
+
+    pricing = get_model_pricing(model)
+    return pricing.cost_usd(
+        input_tokens=int(savings.get("input_tokens_saved", 0) or 0),
+        output_tokens=int(savings.get("output_tokens_saved", 0) or 0),
+        cache_read_tokens=int(savings.get("cache_read_tokens_saved", 0) or 0),
+    )
+
+
+def _classify_read_savings(
+    tool_name: str,
+    args: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    tokens_saved: int,
+    default_lever: str,
+) -> tuple[str, dict[str, Any]]:
+    lowered = tool_name.strip().lower().replace("-", "_").replace(" ", "_")
+    if lowered not in {"read", "smart_read"}:
+        return default_lever, {}
+
+    mode = str(result.get("mode") or "").strip().lower()
+    if mode == "outline" and tokens_saved > 0:
+        classified = "structure_map"
+    elif mode == "range" and tokens_saved > 0:
+        classified = "delta_read"
+    else:
+        classified = default_lever
+
+    path = result.get("path") or args.get("file_path") or args.get("path")
+    metadata: dict[str, Any] = {"read_mode": mode or "full"}
+    if isinstance(path, str) and path:
+        metadata["path"] = path
+    range_spec = result.get("range") or args.get("range")
+    if isinstance(range_spec, str) and range_spec:
+        metadata["range"] = range_spec
+    if "cache_hit" in result:
+        metadata["cache_hit"] = bool(result.get("cache_hit"))
+    return classified, metadata
+
+
+def _record_context_budget_for_tool(
+    tool_name: str,
+    args: dict[str, Any],
+    led: RunLedger,
+    result: dict[str, Any],
+) -> None:
+    try:
+        recorder = _get_context_budget_recorder()
+        from atelier.core.capabilities.plugin_runtime import compute_live_savings, equivalent_calls
+
+        model = str(getattr(led, "model", "") or os.environ.get("ATELIER_MODEL") or "_default")
+        equivalent = equivalent_calls(tool_name, args if isinstance(args, dict) else {})
+        live_savings = compute_live_savings(equivalent, model=model)
+        live_tokens_saved = (
+            int(live_savings.get("input_tokens_saved", 0) or 0)
+            + int(live_savings.get("output_tokens_saved", 0) or 0)
+            + int(live_savings.get("cache_read_tokens_saved", 0) or 0)
+            + int(live_savings.get("cache_write_tokens_saved", 0) or 0)
+        )
+        compact_tool_tokens_saved = _extract_compact_output_tokens_saved(result)
+        tool_tokens_saved = _extract_tokens_saved(result)
+        tokens_saved = tool_tokens_saved if tool_tokens_saved > 0 else live_tokens_saved
+        calls_avoided = int(live_savings.get("calls_saved", 0) or 0)
+        base_lever = _lever_for_tool(tool_name)
+        lever, savings_metadata = _classify_read_savings(
+            tool_name,
+            args if isinstance(args, dict) else {},
+            result,
+            tokens_saved=tokens_saved,
+            default_lever=base_lever,
+        )
+
+        raw_lever_savings = result.get("tokens_saved")
+        lever_savings = raw_lever_savings.copy() if isinstance(raw_lever_savings, dict) else {}
+        if compact_tool_tokens_saved > 0 and not lever_savings:
+            lever_savings[f"compact_tool_output:{lever}"] = compact_tool_tokens_saved
+        elif tokens_saved > 0:
+            if tool_name and tool_name != lever and tool_name not in lever_savings and lever == base_lever:
+                lever_savings[tool_name] = tokens_saved
+            lever_savings[lever] = max(int(lever_savings.get(lever, 0) or 0), tokens_saved)
+        if tool_name:
+            lever_savings.setdefault(f"tool:{tool_name}", 0)
+
+        _record_smart_state_savings(tokens_saved=tokens_saved, calls_avoided=calls_avoided)
+        if calls_avoided > 0 or tokens_saved > 0:
+            event = {
+                "at": datetime.now(UTC).isoformat(),
+                "session_id": led.session_id,
+                "agent": led.agent or _detect_agent(),
+                "tool_name": tool_name,
+                "lever": lever,
+                "equivalent_baseline_calls": equivalent,
+                "calls_saved": calls_avoided,
+                "time_saved_ms": int(live_savings.get("time_saved_ms", 0) or 0),
+                "input_tokens_saved": int(live_savings.get("input_tokens_saved", 0) or 0),
+                "output_tokens_saved": int(live_savings.get("output_tokens_saved", 0) or 0),
+                "cache_read_tokens_saved": int(live_savings.get("cache_read_tokens_saved", 0) or 0),
+                "cache_write_tokens_saved": int(live_savings.get("cache_write_tokens_saved", 0) or 0),
+                "live_tokens_saved": live_tokens_saved,
+                "tool_tokens_saved": tool_tokens_saved,
+                "tokens_saved": tokens_saved,
+                "cost_saved_usd": _live_savings_cost_usd(model, live_savings),
+                "model": model,
+            }
+            if savings_metadata:
+                event.update(savings_metadata)
+            _append_live_savings_event(event)
+
+        actual_output_tokens = int(result.get("total_tokens", 0) or 0)
+        if actual_output_tokens <= 0:
+            actual_output_tokens = max(0, len(json.dumps(result, ensure_ascii=False, default=str)) // 4)
+
+        if compact_tool_tokens_saved > 0 and not isinstance(raw_lever_savings, dict):
+            recorder.record_compact_tool_output(
+                session_id=led.session_id,
+                turn_index=max(0, len(led.events) - 1),
+                model=model,
+                method=lever,
+                tokens_in=actual_output_tokens + compact_tool_tokens_saved,
+                tokens_out=actual_output_tokens,
+            )
+        else:
+            recorder.record(
+                session_id=led.session_id,
+                turn_index=max(0, len(led.events) - 1),
+                model=model,
+                input_tokens=0,
+                cache_read_tokens=0,
+                cache_write_tokens=0,
+                output_tokens=actual_output_tokens,
+                naive_input_tokens=actual_output_tokens + tokens_saved,
+                lever_savings=lever_savings,
+                tool_calls=1,
+            )
+    except Exception:
+        logger.warning("Suppressed exception while recording context budget", exc_info=True)
 
 
 _TASK_TEXT_KEYS = ("task", "user_goal", "query", "prompt", "content", "description", "error")
@@ -2139,11 +2467,7 @@ def _session_compaction_savings_payload(
 
     tokens_after_estimate = _estimate_compacted_state_tokens(state)
     tokens_freed = max(0, int(tokens_before) - tokens_after_estimate)
-    model = (
-        _latest_cache_affinity_model(led)
-        or str(getattr(led, "model", "") or "").strip()
-        or "claude-opus-4-7"
-    )
+    model = _latest_cache_affinity_model(led) or str(getattr(led, "model", "") or "").strip() or "claude-opus-4-7"
     cost_saved_usd = round(get_model_pricing(model).cost_usd(input_tokens=tokens_freed), 6)
     utilisation = (
         round(float(utilisation_pct), 1)
@@ -2168,9 +2492,7 @@ def _session_compaction_savings_payload(
     }
 
 
-def _emit_model_recommendation(
-    tool_name: str, args: dict[str, Any], led: RunLedger
-) -> dict[str, Any]:
+def _emit_model_recommendation(tool_name: str, args: dict[str, Any], led: RunLedger) -> dict[str, Any]:
     from atelier.core.capabilities.model_routing import ModelRouter
     from atelier.core.capabilities.pricing import get_model_pricing
 
@@ -2276,6 +2598,8 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
 
     if method == "tools/call":
         name = params.get("name") or ""
+        if name == "run":
+            name = "shell"
         args = params.get("arguments") or {}
         spec = TOOLS.get(name)
         if spec is None:
@@ -2290,6 +2614,12 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
                 _emit_model_recommendation(name, args if isinstance(args, dict) else {}, led)
                 handler: Callable[[dict[str, Any]], dict[str, Any]] = spec["handler"]
                 result = handler(args)
+                _record_context_budget_for_tool(
+                    name,
+                    args if isinstance(args, dict) else {},
+                    led,
+                    result if isinstance(result, dict) else {"result": result},
+                )
 
                 with contextlib.suppress(Exception):
                     from atelier.infra.runtime import outcome_capture
@@ -2305,9 +2635,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
             return _ok(
                 rid,
                 {
-                    "content": [
-                        {"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}
-                    ],
+                    "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}],
                     "structuredContent": result,
                 },
             )
@@ -2374,9 +2702,7 @@ def main() -> None:
     # Phase 1: Absorb wrapper logic into atelier-mcp (zero-config)
     os.environ.setdefault("ATELIER_SERVICE_URL", "http://127.0.0.1:8787")
     os.environ.setdefault("ATELIER_WORKSPACE_ROOT", os.getcwd())
-    os.environ.setdefault(
-        "ATELIER_KNOWLEDGE_ROOT", os.path.join(os.environ["ATELIER_WORKSPACE_ROOT"], ".knowledge")
-    )
+    os.environ.setdefault("ATELIER_KNOWLEDGE_ROOT", os.path.join(os.environ["ATELIER_WORKSPACE_ROOT"], ".knowledge"))
 
     argv = sys.argv[1:]
     if "--version" in argv or "-V" in argv:

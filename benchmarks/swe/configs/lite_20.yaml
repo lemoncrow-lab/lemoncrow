@@ -1,0 +1,15 @@
+dataset_name: swe_bench_lite
+split: dev
+task_limit: 20
+agent_host: mock
+model: mock-1
+modes:
+  - vanilla
+  - atelier_forced_workflow
+  - atelier_full_runtime
+attempts_per_task: 1
+max_turns: 20
+max_cost_usd: 2.0
+timeout_seconds: 600
+output_dir: benchmarks/swe/outputs/lite_20
+seed: 7

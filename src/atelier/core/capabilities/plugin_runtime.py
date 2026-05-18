@@ -140,9 +140,7 @@ def _fingerprint(seed: str | None = None) -> str:
 def normalize_auth_credentials(raw: dict[str, Any], *, anonymous: bool = False) -> dict[str, Any]:
     user_id = str(raw.get("userId") or raw.get("user_id") or raw.get("sub") or "")
     email = str(raw.get("email") or raw.get("user_email") or "")
-    refresh_token = str(
-        raw.get("refreshToken") or raw.get("refresh_token") or raw.get("token") or ""
-    )
+    refresh_token = str(raw.get("refreshToken") or raw.get("refresh_token") or raw.get("token") or "")
     access_token = str(raw.get("accessToken") or raw.get("access_token") or "")
     if not user_id:
         user_id = f"user-{_fingerprint(refresh_token or access_token or email or 'local')}"
@@ -193,9 +191,7 @@ def parse_login_token(token: str) -> dict[str, Any]:
 
 
 def write_auth_state(root: str | Path, auth: dict[str, Any]) -> dict[str, Any]:
-    normalized = normalize_auth_credentials(
-        auth, anonymous=bool(auth.get("isAnonymous") or auth.get("is_anonymous"))
-    )
+    normalized = normalize_auth_credentials(auth, anonymous=bool(auth.get("isAnonymous") or auth.get("is_anonymous")))
     _write_json(auth_state_path(root), normalized, mode=0o600)
     return normalized
 
@@ -246,12 +242,8 @@ def auth_status(root: str | Path) -> dict[str, Any]:
     auth = _read_json(auth_state_path(root), None)
     if not isinstance(auth, dict):
         return {"authenticated": False, "isAnonymous": False, "root": str(Path(root))}
-    normalized = normalize_auth_credentials(
-        auth, anonymous=bool(auth.get("isAnonymous") or auth.get("is_anonymous"))
-    )
-    subscription = normalized.get("subscriptionStatus") or _read_json(
-        subscription_state_path(root), {}
-    )
+    normalized = normalize_auth_credentials(auth, anonymous=bool(auth.get("isAnonymous") or auth.get("is_anonymous")))
+    subscription = normalized.get("subscriptionStatus") or _read_json(subscription_state_path(root), {})
     return {
         "authenticated": bool(normalized.get("authenticated")),
         "isAnonymous": bool(normalized.get("isAnonymous")),
@@ -291,10 +283,7 @@ def share_referral(root: str | Path, *, app_url: str | None = None) -> dict[str,
     status = auth_status(root)
     if not status.get("authenticated"):
         return {"is_error": True, "message": "Log in or start a local trial before sharing."}
-    code = str(
-        status.get("referralCode")
-        or f"ATELIER-{_fingerprint(str(status.get('userId')))[:6].upper()}"
-    )
+    code = str(status.get("referralCode") or f"ATELIER-{_fingerprint(str(status.get('userId')))[:6].upper()}")
     base = (app_url or os.environ.get("ATELIER_APP_URL") or "https://atelier.local").rstrip("/")
     text = f"Use code {code} for Atelier: {base}?ref={code}"
     return {"code": code, "url": f"{base}?ref={code}", "text": text}
@@ -401,9 +390,7 @@ def apply_text_file_edits(initial: str, edits: list[dict[str, str]]) -> dict[str
     return {"final": content, "writes": 1 if applied_count else 0, "applied_count": applied_count}
 
 
-def fuzzy_acceptance_policy(
-    *, best_score: float, second_best_score: float, snippet_line_count: int
-) -> dict[str, Any]:
+def fuzzy_acceptance_policy(*, best_score: float, second_best_score: float, snippet_line_count: int) -> dict[str, Any]:
     if best_score < FUZZY_ACCEPT_THRESHOLD:
         return {"accepted": False, "reason": "public accepted fuzzy threshold is 0.95"}
     if second_best_score and (best_score - second_best_score) < FUZZY_AMBIGUITY_MARGIN:
@@ -411,9 +398,7 @@ def fuzzy_acceptance_policy(
     return {"accepted": True, "reason": f"accepted {snippet_line_count} line snippet"}
 
 
-def apply_notebook_source_edit(
-    cell: dict[str, Any], old_string: str, new_string: str
-) -> dict[str, Any]:
+def apply_notebook_source_edit(cell: dict[str, Any], old_string: str, new_string: str) -> dict[str, Any]:
     source = cell.get("source", "")
     if old_string not in source:
         return {"is_error": True, "message": "old_string not found in cell"}
@@ -546,9 +531,7 @@ def status_line_choose_message(
     return {"message_family": expanded[turn_count % len(expanded)], "rotation_skipped": False}
 
 
-def session_start_install_status_line(
-    plugin_root: str, settings: dict[str, Any] | None = None
-) -> dict[str, Any]:
+def session_start_install_status_line(plugin_root: str, settings: dict[str, Any] | None = None) -> dict[str, Any]:
     updated = dict(settings or {})
     updated["statusLine"] = {
         "type": "command",
@@ -557,9 +540,7 @@ def session_start_install_status_line(
     return {"settings": updated}
 
 
-def apply_status_line_setting(
-    host_settings: dict[str, Any], plugin_root: str, enabled: bool
-) -> dict[str, Any]:
+def apply_status_line_setting(host_settings: dict[str, Any], plugin_root: str, enabled: bool) -> dict[str, Any]:
     updated = dict(host_settings or {})
     if enabled:
         installed = session_start_install_status_line(plugin_root, updated).get("settings")
@@ -720,9 +701,7 @@ def edit_nudge(
         if delta <= window_ms:
             recent.append(edit)
     one = edits[0]
-    recent.append(
-        {"at": now_ms, "file": one.get("file_path") or one.get("path") or one.get("file")}
-    )
+    recent.append({"at": now_ms, "file": one.get("file_path") or one.get("path") or one.get("file")})
     result = {
         "state_path": str(Path(tempfile.gettempdir()) / "atelier-edit-state.json"),
         "state_after": {"edits": recent},
@@ -739,9 +718,7 @@ def edit_nudge(
 
 def session_start(settings: dict[str, Any], plugin_root: str) -> dict[str, Any]:
     return {
-        "settings_write_contains": session_start_install_status_line(plugin_root, settings)[
-            "settings"
-        ],
+        "settings_write_contains": session_start_install_status_line(plugin_root, settings)["settings"],
         "stdout": "",
     }
 
@@ -761,9 +738,7 @@ def session_start_bootstrap(
     updated_host = apply_status_line_setting(updated_host, plugin_root, settings["statusLine"])
     actions.append("status_line_installed" if settings["statusLine"] else "status_line_removed")
     updated_host = apply_spinner_setting(updated_host, settings["spinnerVerbs"])
-    actions.append(
-        "spinner_verbs_installed" if settings["spinnerVerbs"] else "spinner_verbs_removed"
-    )
+    actions.append("spinner_verbs_installed" if settings["spinnerVerbs"] else "spinner_verbs_removed")
     updated_host = apply_attribution_setting(updated_host, settings["attribution"])
     actions.append("attribution_installed" if settings["attribution"] else "attribution_removed")
     mcp_result = rewrite_mcp_always_load(mcp_json, settings["alwaysLoadTools"])
@@ -773,9 +748,7 @@ def session_start_bootstrap(
     update = update_notification(current_version, _read_json(update_flag_path(root), None))
     if payload:
         update_session_stats(root, {"hook_event_name": "SessionStart", **payload})
-    stdout = _merge_session_start_stdout(
-        update.get("stdout"), _session_optimizer_start_notice(root, host="claude")
-    )
+    stdout = _merge_session_start_stdout(update.get("stdout"), _session_optimizer_start_notice(root, host="claude"))
     return {
         "settings": settings,
         "host_settings": updated_host,
@@ -882,9 +855,7 @@ def codex_update_notification(root: str | Path, *, current_version: str) -> dict
     result = update_notification(current_version, _read_json(update_flag_path(root), None))
     if result.get("delete_flag"):
         update_flag_path(root).unlink(missing_ok=True)
-    stdout = _merge_session_start_stdout(
-        result.get("stdout"), _session_optimizer_start_notice(root, host="codex")
-    )
+    stdout = _merge_session_start_stdout(result.get("stdout"), _session_optimizer_start_notice(root, host="codex"))
     return {**result, "stdout": stdout, "optimizer": {"host": "codex"}}
 
 
@@ -896,9 +867,7 @@ def _is_atelier_tool(tool_name: str) -> bool:
     return "atelier" in lowered and any(lowered.endswith(suffix) for suffix in suffixes)
 
 
-def build_codex_post_tool_use_savings_output(
-    root: str | Path, payload: dict[str, Any]
-) -> dict[str, Any]:
+def build_codex_post_tool_use_savings_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("hook_event_name") != "PostToolUse":
         return {"no_output": True}
     tool_name = str(payload.get("tool_name") or "")
@@ -995,13 +964,9 @@ def compute_live_savings(equivalent_call_count: float, model: str | None = None)
     return {
         "calls_saved": calls_saved,
         "time_saved_ms": calls_saved * LIVE_TIME_SAVED_PER_CALL_MS,
-        "input_tokens_saved": int(
-            calls_saved * LIVE_INPUT_TOKENS_PER_CALL * LIVE_CONTEXT_MULTIPLIER
-        ),
+        "input_tokens_saved": int(calls_saved * LIVE_INPUT_TOKENS_PER_CALL * LIVE_CONTEXT_MULTIPLIER),
         "output_tokens_saved": calls_saved * LIVE_OUTPUT_TOKENS_PER_CALL,
-        "cache_read_tokens_saved": int(
-            calls_saved * LIVE_CACHE_READ_TOKENS_PER_CALL * LIVE_CONTEXT_MULTIPLIER
-        ),
+        "cache_read_tokens_saved": int(calls_saved * LIVE_CACHE_READ_TOKENS_PER_CALL * LIVE_CONTEXT_MULTIPLIER),
         "cache_write_tokens_saved": 0,
         "model": model,
     }
@@ -1025,11 +990,7 @@ def detect_read_batch(turns: list[dict[str, Any]]) -> dict[str, Any]:
 
 def detect_edit_batch(turns: list[dict[str, Any]]) -> dict[str, Any]:
     for turn in turns:
-        edits = [
-            tool
-            for tool in turn.get("tool_uses", [])
-            if tool.get("name") in {"Edit", "Write", "MultiEdit"}
-        ]
+        edits = [tool for tool in turn.get("tool_uses", []) if tool.get("name") in {"Edit", "Write", "MultiEdit"}]
         if len(edits) >= 2:
             return {"workflows": 1, "calls_saved": len(edits) - 1}
     return {"workflows": 0, "calls_saved": 0}
@@ -1042,9 +1003,7 @@ def detect_grep_read(turns: list[dict[str, Any]], max_gap_turns: int = 3) -> dic
             continue
         reads: list[dict[str, Any]] = []
         for later in turns[idx + 1 : idx + max_gap_turns + 1]:
-            reads.extend(
-                [tool for tool in later.get("tool_uses", []) if tool.get("name") == "Read"]
-            )
+            reads.extend([tool for tool in later.get("tool_uses", []) if tool.get("name") == "Read"])
         if reads:
             return {"workflows": 1, "calls_saved": len(greps) + len(reads) - 1}
     return {"workflows": 0, "calls_saved": 0}
@@ -1052,22 +1011,12 @@ def detect_grep_read(turns: list[dict[str, Any]], max_gap_turns: int = 3) -> dic
 
 def detect_failed_edit(turns: list[dict[str, Any]], max_gap_turns: int = 5) -> dict[str, Any]:
     for idx, turn in enumerate(turns):
-        failed = [
-            tool
-            for tool in turn.get("tool_uses", [])
-            if tool.get("name") == "Edit" and tool.get("is_error")
-        ]
+        failed = [tool for tool in turn.get("tool_uses", []) if tool.get("name") == "Edit" and tool.get("is_error")]
         if not failed:
             continue
         chain = list(failed)
         for later in turns[idx + 1 : idx + max_gap_turns + 1]:
-            chain.extend(
-                [
-                    tool
-                    for tool in later.get("tool_uses", [])
-                    if tool.get("name") in {"Read", "Edit"}
-                ]
-            )
+            chain.extend([tool for tool in later.get("tool_uses", []) if tool.get("name") in {"Read", "Edit"}])
         if len(chain) >= 2:
             return {"workflows": 1, "calls_saved": len(chain) - 1}
     return {"workflows": 0, "calls_saved": 0}
@@ -1115,12 +1064,7 @@ def _session_event_path(root: str | Path, session_id: str) -> Path:
 
 def _now_ms(payload: dict[str, Any] | None = None) -> int:
     payload = payload or {}
-    raw = (
-        payload.get("now_ms")
-        or payload.get("timestamp_ms")
-        or payload.get("now")
-        or payload.get("timestamp")
-    )
+    raw = payload.get("now_ms") or payload.get("timestamp_ms") or payload.get("now") or payload.get("timestamp")
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
         return int(raw)
     if isinstance(raw, str) and raw.strip():
@@ -1169,11 +1113,7 @@ def _extract_usage(payload: dict[str, Any]) -> dict[str, int]:
         else None
     )
     candidates.append(context_usage)
-    message_usage = (
-        (payload.get("message") or {}).get("usage")
-        if isinstance(payload.get("message"), dict)
-        else None
-    )
+    message_usage = (payload.get("message") or {}).get("usage") if isinstance(payload.get("message"), dict) else None
     candidates.append(message_usage)
     for candidate in candidates:
         if not isinstance(candidate, dict):
@@ -1204,9 +1144,7 @@ def _usage_from_transcript(path: Path) -> list[dict[str, int]]:
             continue
         for candidate in (
             payload.get("usage"),
-            (payload.get("message") or {}).get("usage")
-            if isinstance(payload.get("message"), dict)
-            else None,
+            (payload.get("message") or {}).get("usage") if isinstance(payload.get("message"), dict) else None,
         ):
             if isinstance(candidate, dict):
                 rows.append(_usage_numbers(candidate))
@@ -1276,15 +1214,9 @@ def update_session_stats(root: str | Path, payload: dict[str, Any]) -> dict[str,
         if tool_is_edit(tool_name):
             state["edit_tool_calls"] = int(state.get("edit_tool_calls", 0) or 0) + 1
             state.setdefault("first_edit_at_ms", _now_ms(payload))
-        state["equivalent_baseline_calls"] = (
-            float(state.get("equivalent_baseline_calls", 0.0)) + equiv
-        )
-        state["savings"]["calls_saved"] = (
-            int(state["savings"].get("calls_saved", 0)) + savings["calls_saved"]
-        )
-        state["savings"]["time_saved_ms"] = (
-            int(state["savings"].get("time_saved_ms", 0)) + savings["time_saved_ms"]
-        )
+        state["equivalent_baseline_calls"] = float(state.get("equivalent_baseline_calls", 0.0)) + equiv
+        state["savings"]["calls_saved"] = int(state["savings"].get("calls_saved", 0)) + savings["calls_saved"]
+        state["savings"]["time_saved_ms"] = int(state["savings"].get("time_saved_ms", 0)) + savings["time_saved_ms"]
         state["savings"]["tokens_saved"] = (
             int(state["savings"].get("tokens_saved", 0))
             + savings["input_tokens_saved"]
@@ -1298,9 +1230,7 @@ def update_session_stats(root: str | Path, payload: dict[str, Any]) -> dict[str,
         state["compaction_started_at_ms"] = _now_ms(payload)
     elif event == "PostCompact":
         state["compactions"] = int(state.get("compactions", 0)) + 1
-        started_at = int(
-            state.pop("compaction_started_at_ms", _now_ms(payload)) or _now_ms(payload)
-        )
+        started_at = int(state.pop("compaction_started_at_ms", _now_ms(payload)) or _now_ms(payload))
         state["compaction_duration_ms"] = int(state.get("compaction_duration_ms", 0) or 0) + max(
             0, _now_ms(payload) - started_at
         )
@@ -1418,16 +1348,9 @@ def _session_quality_snapshot(stats: dict[str, Any]) -> dict[str, Any]:
 
 
 def _loop_notice_text(report: dict[str, Any]) -> str:
-    rescue_scores = (
-        report.get("rescue_scores") if isinstance(report.get("rescue_scores"), dict) else {}
-    )
+    rescue_scores = report.get("rescue_scores") if isinstance(report.get("rescue_scores"), dict) else {}
     if rescue_scores:
-        ordered = [
-            name
-            for name, _score in sorted(
-                rescue_scores.items(), key=lambda item: item[1], reverse=True
-            )
-        ]
+        ordered = [name for name, _score in sorted(rescue_scores.items(), key=lambda item: item[1], reverse=True)]
     else:
         ordered = [str(item) for item in (report.get("rescue_strategies") or [])]
     cleaned = [item.replace("_", " ") for item in ordered if item][:2]
@@ -1510,9 +1433,7 @@ def _active_run_loop_report(root: str | Path) -> dict[str, Any] | None:
     from atelier.infra.runtime.run_ledger import RunLedger
 
     ledger = RunLedger.load(ledger_path)
-    normalized = RunLedger(
-        session_id=ledger.session_id, agent=ledger.agent, task=ledger.task, domain=ledger.domain
-    )
+    normalized = RunLedger(session_id=ledger.session_id, agent=ledger.agent, task=ledger.task, domain=ledger.domain)
     normalized.events = cast(Any, [_normalized_loop_event(event) for event in ledger.events])
     if not normalized.events:
         return None
@@ -1520,9 +1441,7 @@ def _active_run_loop_report(root: str | Path) -> dict[str, Any] | None:
     return report.to_dict()
 
 
-def _maybe_emit_quality_notice(
-    stats: dict[str, Any], *, now_ms: int
-) -> tuple[dict[str, Any], dict[str, Any]]:
+def _maybe_emit_quality_notice(stats: dict[str, Any], *, now_ms: int) -> tuple[dict[str, Any], dict[str, Any]]:
     from atelier.core.capabilities.session_optimizer import mark_session_optimizer_notice
 
     snapshot = _session_quality_snapshot(stats)
@@ -1591,9 +1510,7 @@ def _maybe_emit_loop_notice(
     }
 
 
-def build_session_progress_optimization_output(
-    root: str | Path, payload: dict[str, Any]
-) -> dict[str, Any]:
+def build_session_progress_optimization_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
     """Return one-shot hook nudges for no-edit drift, quality drop, and live loop risk."""
     event = str(payload.get("hook_event_name") or payload.get("event") or "")
     if event not in {"PostToolUse", "PostToolUseFailure"}:
@@ -1730,9 +1647,7 @@ def aggregate_session_stats(root: str | Path, session_id: str | None = None) -> 
     files = (
         [session_stats_path(root, session_id)]
         if session_id
-        else sorted(stats_dir.glob("*.json"))
-        if stats_dir.exists()
-        else []
+        else sorted(stats_dir.glob("*.json")) if stats_dir.exists() else []
     )
     aggregate: dict[str, Any] = {
         "session_count": 0,
@@ -1760,9 +1675,7 @@ def aggregate_session_stats(root: str | Path, session_id: str | None = None) -> 
             continue
         aggregate["session_count"] += 1
         aggregate["total_tool_calls"] += int(data.get("total_tool_calls", 0) or 0)
-        aggregate["equivalent_baseline_calls"] += float(
-            data.get("equivalent_baseline_calls", 0.0) or 0.0
-        )
+        aggregate["equivalent_baseline_calls"] += float(data.get("equivalent_baseline_calls", 0.0) or 0.0)
         for key in aggregate["savings"]:
             aggregate["savings"][key] += int((data.get("savings") or {}).get(key, 0) or 0)
         for key in aggregate["usage"]:
@@ -1860,18 +1773,14 @@ def build_savings_report(
     if not isinstance(baseline, dict):
         baseline = {}
     vanilla_sessions = int(baseline.get("vanillaSessions") or baseline.get("vanilla_sessions") or 0)
-    vanilla_cost = float(
-        baseline.get("totalVanillaCostInUsd") or baseline.get("total_vanilla_cost_usd") or 0.0
-    )
+    vanilla_cost = float(baseline.get("totalVanillaCostInUsd") or baseline.get("total_vanilla_cost_usd") or 0.0)
     baseline_gate = baseline_is_available(vanilla_sessions, vanilla_cost)
     lifetime = _read_json(lifetime_savings_path(root_path), {})
     if not isinstance(lifetime, dict):
         lifetime = {}
     lifetime.setdefault("calls_saved", calls_avoided)
     lifetime.setdefault("tokens_saved", tokens_saved)
-    lifetime.setdefault(
-        "estimated_saved_usd", max(estimated_saved_usd, float(cost.get("saved_usd", 0.0) or 0.0))
-    )
+    lifetime.setdefault("estimated_saved_usd", max(estimated_saved_usd, float(cost.get("saved_usd", 0.0) or 0.0)))
     auth = auth_status(root_path)
     subscription = _read_json(subscription_state_path(root_path), auth.get("subscription") or {})
     if not isinstance(subscription, dict):

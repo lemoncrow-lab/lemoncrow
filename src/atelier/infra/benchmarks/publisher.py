@@ -350,18 +350,10 @@ def _update_index(output_dir: Path, report: PublishReport) -> None:
         "week": report.week_label,
         "week_start": report.week_start,
         "generated_at": report.generated_at,
-        "routing_sessions": report.routing_savings.sessions_benchmarked
-        if report.routing_savings
-        else None,
-        "total_routing_savings_usd": report.routing_savings.total_cost_saved_usd
-        if report.routing_savings
-        else None,
-        "routing_quality_score": report.routing_quality.avg_quality_score
-        if report.routing_quality
-        else None,
-        "compact_retention_score": report.compact_quality.avg_retention_score
-        if report.compact_quality
-        else None,
+        "routing_sessions": report.routing_savings.sessions_benchmarked if report.routing_savings else None,
+        "total_routing_savings_usd": report.routing_savings.total_cost_saved_usd if report.routing_savings else None,
+        "routing_quality_score": report.routing_quality.avg_quality_score if report.routing_quality else None,
+        "compact_retention_score": report.compact_quality.avg_retention_score if report.compact_quality else None,
     }
 
     # Replace if week already present

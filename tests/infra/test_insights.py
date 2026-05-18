@@ -61,8 +61,13 @@ def _make_report(
         started_at=started_at or _SINCE,
         ended_at=_NOW,
         duration_seconds=duration,
+        active_duration_seconds=duration,
         vendor=vendor,
+        agent_settings={},
+        skills=[],
+        telemetry={},
         models_used={"claude-haiku-4-5": 50},
+        started_model="claude-haiku-4-5",
         total_turns=20,
         tool_call_count=50,
         input_token_cost_usd=total_cost * 0.6,
@@ -79,13 +84,12 @@ def _make_report(
         compact_events=compact_events,
         compact_savings_estimate_usd=0.0,
         total_atelier_savings_usd=routing_savings,
+        raw_artifact_ids=[],
         top_tools_by_cost=top_tools,
     )
 
 
-def _make_read_heavy_report(
-    session_id: str, total_cost: float = 2.0, vendor: str = "Anthropic"
-) -> SessionReport:
+def _make_read_heavy_report(session_id: str, total_cost: float = 2.0, vendor: str = "Anthropic") -> SessionReport:
     """Report where >30% of cost is in read-class tools."""
     return _make_report(
         session_id=session_id,
@@ -312,10 +316,7 @@ def test_rule_sync_value_no_machine_id() -> None:
 
 def test_rule_error_pattern_fires() -> None:
     """Rule fires when >10% of sessions have errors and >5 affected sessions."""
-    snaps: list[dict[str, Any]] = [
-        {"session_id": f"s{i}", "errors_seen": 2 if i < 7 else 0}
-        for i in range(10)
-    ]
+    snaps: list[dict[str, Any]] = [{"session_id": f"s{i}", "errors_seen": 2 if i < 7 else 0} for i in range(10)]
     reports = [
         _make_report(
             session_id=f"s{i}",
@@ -331,10 +332,7 @@ def test_rule_error_pattern_fires() -> None:
 
 def test_rule_error_pattern_below_threshold() -> None:
     """Rule does not fire when fewer than 5 sessions have errors."""
-    snaps: list[dict[str, Any]] = [
-        {"session_id": f"s{i}", "errors_seen": 1 if i < 3 else 0}
-        for i in range(50)
-    ]
+    snaps: list[dict[str, Any]] = [{"session_id": f"s{i}", "errors_seen": 1 if i < 3 else 0} for i in range(50)]
     reports = [_make_report(session_id=f"s{i}") for i in range(50)]
     assert _rule_error_pattern(snaps, reports) is None
 
@@ -343,8 +341,7 @@ def test_detect_opportunities_max_five() -> None:
     """At most 5 opportunities are returned."""
     # Patch rules to produce lots of results by injecting manually.
     opps = [
-        Opportunity(kind=f"k{i}", message="msg", estimated_savings_usd=float(i), sessions_affected=1)
-        for i in range(10)
+        Opportunity(kind=f"k{i}", message="msg", estimated_savings_usd=float(i), sessions_affected=1) for i in range(10)
     ]
     # _detect_opportunities only returns <=5; simulate by calling sort/slice logic.
     sorted_opps = sorted(opps, key=lambda o: o.estimated_savings_usd, reverse=True)[:5]
@@ -674,9 +671,7 @@ def test_render_json_top_sessions_structure(tmp_path: Path) -> None:
 
 def test_render_json_opportunities_structure() -> None:
     """opportunities list in JSON has correct keys."""
-    opps = [
-        Opportunity(kind="cross_vendor_route", message="msg", estimated_savings_usd=1.5, sessions_affected=3)
-    ]
+    opps = [Opportunity(kind="cross_vendor_route", message="msg", estimated_savings_usd=1.5, sessions_affected=3)]
     window = _make_window(opportunities=opps)
     data = json.loads(render_json(window))
     assert len(data["opportunities"]) == 1

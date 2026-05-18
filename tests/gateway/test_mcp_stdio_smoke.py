@@ -10,28 +10,57 @@ def test_mcp_stdio_smoke() -> None:
     """
     # Build the JSON-RPC batch
     messages = [
-        {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"verify-script","version":"1"},"capabilities":{}}},
-        {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}},
-        {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"context","arguments":{"task":"Update Shopify product metafields","domain":"beseam.shopify.publish","tools":["shopify.update_metafield"]}}},
-        {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"rescue","arguments":{"task":"fix test","error":"AssertionError: expected 200 got 500","attempt":1,"context":"pytest run"}}},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "clientInfo": {"name": "verify-script", "version": "1"},
+                "capabilities": {},
+            },
+        },
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "context",
+                "arguments": {
+                    "task": "Update Shopify product metafields",
+                    "domain": "beseam.shopify.publish",
+                    "tools": ["shopify.update_metafield"],
+                },
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "rescue",
+                "arguments": {
+                    "task": "fix test",
+                    "error": "AssertionError: expected 200 got 500",
+                    "attempt": 1,
+                    "context": "pytest run",
+                },
+            },
+        },
     ]
-    
+
     input_str = "\n".join(json.dumps(m) for m in messages) + "\n"
-    
+
     # Run atelier-mcp via uv run to ensure dependencies
     # Set ATELIER_DEV_MODE=1 to ensure all tools (like context, edit) are visible
     env = os.environ.copy()
     env["ATELIER_DEV_MODE"] = "1"
-    
+
     result = subprocess.run(
-        ["uv", "run", "atelier-mcp"],
-        input=input_str,
-        text=True,
-        capture_output=True,
-        check=True,
-        env=env
+        ["uv", "run", "atelier-mcp"], input=input_str, text=True, capture_output=True, check=True, env=env
     )
-    
+
     responses = {}
     for line in result.stdout.splitlines():
         line = line.strip()

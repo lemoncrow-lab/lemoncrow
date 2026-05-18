@@ -12,6 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 SKILLS_SRC="${ATELIER_REPO}/integrations/skills"
+ALWAYS_EXCLUDED_SKILLS=("trace")
 
 HOST=""
 DEST=""
@@ -76,6 +77,17 @@ is_dev_only_skill() {
     return 1
 }
 
+is_always_excluded_skill() {
+    local name="$1"
+    local skill
+    for skill in "${ALWAYS_EXCLUDED_SKILLS[@]}"; do
+        if [[ "$skill" == "$name" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 default_dest_for_host() {
     case "$1" in
         codex) printf "%s" "${ATELIER_REPO}/integrations/codex/plugin/skills" ;;
@@ -105,6 +117,9 @@ render_host_bundle() {
 
         local skill_name
         skill_name="$(basename "$skill_dir")"
+        if is_always_excluded_skill "$skill_name"; then
+            continue
+        fi
         if [[ "$INCLUDE_DEV" != "1" ]] && is_dev_only_skill "$skill_name"; then
             continue
         fi

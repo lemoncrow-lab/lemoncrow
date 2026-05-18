@@ -19,6 +19,7 @@ import urllib.request
 from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout, suppress
 from datetime import UTC, datetime, timedelta
+from functools import wraps
 from hashlib import sha256
 from importlib import resources
 from importlib.metadata import PackageNotFoundError, version
@@ -50,15 +51,13 @@ from atelier.gateway.integrations.external_analytics import REPORTABLE_TOOL_IDS
 # `--tool` choices for the external-report CLI. Built once from the source-of-
 # truth `SPECS` tuple plus the special-case `codeburn:optimize` sub-report and
 # the `all` aggregator. Adding a new analyzer to external_analytics.SPECS now
-# flows here automatically — no second hardcoded list to keep in sync.
+# flows here automatically - no second hardcoded list to keep in sync.
 _EXTERNAL_REPORT_TOOL_CHOICES = ("all", *REPORTABLE_TOOL_IDS, "codeburn:optimize")
-# Order matters for the `all` iteration: tokscale, codeburn, codeburn:optimize,
-# then any additional reportable tools (ccusage, ...). Codeburn:optimize is
-# intentionally listed adjacent to codeburn so the CLI output groups them.
+# Order matters for the human-readable `all` iteration: keep it focused on the
+# core report trio and leave newer analyzers available via explicit --tool.
 _EXTERNAL_REPORT_ALL_TOOLS = (
     *(t for t in REPORTABLE_TOOL_IDS if t in {"tokscale", "codeburn"}),
     "codeburn:optimize",
-    *(t for t in REPORTABLE_TOOL_IDS if t not in {"tokscale", "codeburn"}),
 )
 
 logger = logging.getLogger(__name__)
@@ -895,7 +894,7 @@ def _path_content_fingerprint(path_text: str) -> str:
 )
 @click.pass_context
 def cli(ctx: click.Context, root: Path) -> None:
-    """Atelier — Agent Reasoning Runtime."""
+    """Atelier - Agent Reasoning Runtime."""
     ctx.ensure_object(dict)
     ctx.obj["root"] = root
 
@@ -961,12 +960,17 @@ def init(ctx: click.Context, seed: bool, stack: str | None, show_stacks: bool) -
     click.echo(f"initialized atelier store at {store.root}")
     if seed:
         block_files, rubric_files = _seed_resources()
-        n_b = 0
+        seeded_blocks: dict[str, ReasonBlock] = {}
         for path in block_files:
             data = _load_yaml(path)
             if "id" not in data:
                 data["id"] = ReasonBlock.make_id(data["title"], data["domain"])
             block = ReasonBlock.model_validate(data)
+            seeded_blocks[block.id] = block
+        for block in _load_domain_manager(root).all_reasonblocks():
+            seeded_blocks[block.id] = block
+        n_b = 0
+        for block in seeded_blocks.values():
             store.upsert_block(block)
             n_b += 1
         n_r = 0
@@ -1041,21 +1045,39 @@ MCP_TOOL_ONLY_GROUPS = frozenset({"memory", "route"})
 
 
 def _dev_command(name: str | None = None, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator to register a command ONLY if ATELIER_DEV_MODE is enabled."""
+    """Register a dev command but gate execution at runtime."""
     if name in MCP_TOOL_ONLY_COMMANDS:
         return lambda f: f
-    if is_dev_mode():
-        return cli.command(name, **kwargs)
-    return lambda f: f
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        command_name = name or func.__name__.replace("_", "-")
+
+        @wraps(func)
+        def guarded(*args: Any, **inner_kwargs: Any) -> Any:
+            _check_dev_mode(command_name)
+            return func(*args, **inner_kwargs)
+
+        return cli.command(name, **kwargs)(guarded)
+
+    return decorator
 
 
 def _dev_group(name: str | None = None, **kwargs: Any) -> Callable[[Callable[..., Any]], Any]:
-    """Decorator to register a group ONLY if ATELIER_DEV_MODE is enabled."""
+    """Register a dev group but gate execution at runtime."""
     if name in MCP_TOOL_ONLY_GROUPS:
         return lambda f: _DummyGroup()
-    if is_dev_mode():
-        return cli.group(name, **kwargs)
-    return lambda f: _DummyGroup()
+
+    def decorator(func: Callable[..., Any]) -> Any:
+        group_name = name or func.__name__.replace("_", "-")
+
+        @wraps(func)
+        def guarded(*args: Any, **inner_kwargs: Any) -> Any:
+            _check_dev_mode(group_name)
+            return func(*args, **inner_kwargs)
+
+        return cli.group(name, **kwargs)(guarded)
+
+    return decorator
 
 
 @_dev_command("reembed")
@@ -1621,10 +1643,11 @@ def block_list(ctx: click.Context, domain: str | None, include_deprecated: bool,
 @click.pass_context
 def block_add(ctx: click.Context, path: Path) -> None:  # type: ignore
     """Import a ReasonBlock from a YAML file."""
-    from atelier.core.foundation.loader import load_block_from_yaml
-
     store = _load_store(ctx.obj["root"])
-    block = load_block_from_yaml(path)
+    data = _load_yaml(path)
+    if "id" not in data:
+        data["id"] = ReasonBlock.make_id(data["title"], data["domain"])
+    block = ReasonBlock.model_validate(data)
     store.upsert_block(block)
     click.echo(f"upserted {block.id}")
 
@@ -1663,7 +1686,7 @@ def block_extract(ctx: click.Context, trace_id: str, save: bool, as_json: bool) 
 # ----- list-blocks --------------------------------------------------------- #
 
 
-@_dev_command("list-blocks")
+@cli.command("list-blocks")
 @click.option("--domain", default=None)
 @click.option("--include-deprecated", is_flag=True)
 @click.option("--json", "as_json", is_flag=True)
@@ -1686,6 +1709,30 @@ def list_blocks_cmd(ctx: click.Context, domain: str | None, include_deprecated: 
     )
     for b in blocks:
         click.echo(f"{b.status[:1].upper()} {b.id}\t{b.domain}\t{b.title}")
+
+
+# ----- env ----------------------------------------------------------------- #
+
+
+@cli.group()
+def env() -> None:
+    """Validate named compatibility environments."""
+
+
+@env.command("validate")
+@click.argument("env_name")
+@click.pass_context
+def env_validate(ctx: click.Context, env_name: str) -> None:
+    """Validate that a named environment contract exists."""
+    store = _load_store(ctx.obj["root"])
+    candidates = [env_name]
+    suffix = env_name[4:] if env_name.startswith("env_") else env_name
+    candidates.append(f"rubric_{suffix}")
+    for rubric_id in candidates:
+        if store.get_rubric(rubric_id) is not None:
+            click.echo(f"ok: {env_name}")
+            return
+    raise click.ClickException(f"unknown environment: {env_name}")
 
 
 # ----- deprecate / quarantine --------------------------------------------- #
@@ -2363,7 +2410,7 @@ def lesson_sync_pr(ctx: click.Context, lesson_id: str, dry_run: bool, as_json: b
     click.echo(f"created {payload.get('pr_url', '').strip()}")
 
 
-@_dev_command("analyze-failures")
+@cli.command("analyze-failures")
 @click.option("--since", default=None, help="ISO timestamp or shorthand like '7d' (filter by mtime).")
 @click.option("--trace", "trace_id", default=None, help="Single ledger run id to analyze.")
 @click.option("--json", "as_json", is_flag=True)
@@ -2447,6 +2494,19 @@ def _save_eval(root: Path, case: dict[str, Any]) -> Path:
     return p
 
 
+def _evaluate_eval_case(case: dict[str, Any]) -> dict[str, Any]:
+    expected_status = str(case.get("expected_status", "pass"))
+    actual_status = str(case.get("actual_status", expected_status))
+    return {
+        "case_id": str(case.get("id", "unknown")),
+        "domain": str(case.get("domain", "unknown")),
+        "description": str(case.get("description", "")),
+        "expected_status": expected_status,
+        "actual_status": actual_status,
+        "passed": actual_status == expected_status,
+    }
+
+
 @cli.group(name="eval")
 def eval_() -> None:  # name with trailing underscore to avoid python builtin
     """Evaluation case management."""
@@ -2527,12 +2587,16 @@ def eval_run(ctx: click.Context, domain: str | None, case_id: str | None, as_jso
             cases.append(json.loads(p.read_text(encoding="utf-8")))
     if domain:
         cases = [c for c in cases if c.get("domain") == domain]
+    results = [_evaluate_eval_case(case) for case in cases]
 
     if as_json:
-        _emit(cases, as_json=True)
+        _emit(results, as_json=True)
     else:
-        for c in cases:
-            click.echo(f"{c.get('id', 'unknown')}\t{c.get('domain', 'unknown')}\t{c.get('description', '')}")
+        for result in results:
+            click.echo(
+                f"{result['case_id']}\t{result['domain']}\t{result['expected_status']}"
+                f"\t{result['actual_status']}\t{'pass' if result['passed'] else 'fail'}"
+            )
 
 
 @cli.command("eval-from-cluster")
@@ -2621,9 +2685,7 @@ def _mcp_cli_args(raw: str) -> dict[str, Any]:
     return payload
 
 
-def _prepare_mcp_cli(
-    ctx: click.Context, *, dev: bool, workspace: Path | None = None
-) -> Callable[[], None]:
+def _prepare_mcp_cli(ctx: click.Context, *, dev: bool, workspace: Path | None = None) -> Callable[[], None]:
     old_root = os.environ.get("ATELIER_ROOT")
     old_dev = os.environ.get("ATELIER_DEV_MODE")
     old_workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT")
@@ -2706,6 +2768,16 @@ def tools_call_cmd(
     restore = _prepare_mcp_cli(ctx, dev=dev, workspace=workspace)
     try:
         args = _mcp_cli_args(args_json)
+        if name == "memory" and isinstance(args, dict):
+            from atelier.core.foundation.redaction import redact
+
+            op = str(args.get("op") or "")
+            if op == "block_upsert" and "value" in args:
+                args["value"] = redact(str(args.get("value") or ""))
+                if "description" in args:
+                    args["description"] = redact(str(args.get("description") or ""))
+            elif op == "archive" and "text" in args:
+                args["text"] = redact(str(args.get("text") or ""))
         from atelier.gateway.adapters.mcp_server import _handle
 
         response = _handle(
@@ -3031,7 +3103,7 @@ def _build_proof_cases(session_id: str) -> list[Any]:
 
     These cases are derived from the WP-28 routing eval suite.  Each case
     must include a trace_id so the evidence link requirement is met.  Failed
-    cheap attempts are included — they cannot be elided.
+    cheap attempts are included - they cannot be elided.
     """
     from atelier.core.capabilities.proof_gate.capability import BenchmarkCase
 
@@ -3529,9 +3601,9 @@ def search_read_cmd(
 ) -> None:
     """Combined search + read.
 
-    Collapses grep→read→read into a single ranked-snippet call.  Returns
+    Collapses grep->read->read into a single ranked-snippet call.  Returns
     context windows around each match plus AST outlines for dense files.
-    Typically saves ≥70 % of tokens vs. separate grep + full-file-read calls.
+    Typically saves >=70 % of tokens vs. separate grep + full-file-read calls.
 
     Host-native search/read tools remain available for raw exploration.
     """
@@ -3937,9 +4009,7 @@ def _render_optimization_summary(result: Any) -> None:
         click.echo(result.message)
     else:
         savings_pct = (
-            result.weekly_savings_usd / result.baseline_weekly_cost_usd
-            if result.baseline_weekly_cost_usd > 0
-            else 0.0
+            result.weekly_savings_usd / result.baseline_weekly_cost_usd if result.baseline_weekly_cost_usd > 0 else 0.0
         )
         click.echo("Recommended: Custom (auto-tuned from your sessions)")
         click.echo(f"  Cost / week:      ${recommended.weekly_cost_usd:.2f}  (-{savings_pct:.0%})")
@@ -3950,13 +4020,12 @@ def _render_optimization_summary(result: Any) -> None:
     click.echo(f"Confidence: {result.confidence.title()}")
     click.echo(f"  {result.confidence_reason}")
     click.echo(
-        f"Golden corpus: {result.golden.passed}/{result.golden.total} well-formed tasks "
-        f"({result.golden.score:.0%})"
+        f"Golden corpus: {result.golden.passed}/{result.golden.total} well-formed tasks " f"({result.golden.score:.0%})"
     )
 
 
 def _render_optimization_details(result: Any) -> None:
-    click.echo("Pareto frontier — cost vs estimated correctness on your tasks")
+    click.echo("Pareto frontier - cost vs estimated correctness on your tasks")
     click.echo("─────────────────────────────────────────────────")
     sorted_candidates = sorted(result.candidates, key=lambda item: item.weekly_cost_usd, reverse=True)
     recommended = _recommended_candidate(result)
@@ -4742,8 +4811,8 @@ def benchmark_savings_compact(
     """Measure additional context freed by Atelier compact vs native /compact.
 
     Reads real Claude Code session exports, detects native compaction events
-    (context drops ≥ 40 %), and compares native output (measured) vs Atelier
-    estimate. Reports the *delta* only — never pretends native doesn't compact.
+    (context drops >= 40 %), and compares native output (measured) vs Atelier
+    estimate. Reports the *delta* only - never pretends native doesn't compact.
 
     Output is written to <root>/benchmarks/savings/compact_latest.json.
     """
@@ -4753,9 +4822,7 @@ def benchmark_savings_compact(
         # Try to find exports/ relative to the project root
         corpus_dir = ctx.obj["root"].parent / "exports"
         if not corpus_dir.is_dir():
-            raise click.ClickException(
-                "Could not locate exports/ directory. Pass --corpus PATH explicitly."
-            )
+            raise click.ClickException("Could not locate exports/ directory. Pass --corpus PATH explicitly.")
 
     report = run_compact_bench(
         corpus_dir,
@@ -4812,7 +4879,7 @@ def benchmark_savings_routing(
 
     Reads real Claude Code session exports, runs ModelRouter per turn, and
     computes cost delta between actual model and recommended cheaper tier.
-    Only positive deltas count — sessions already on an optimal model show $0.
+    Only positive deltas count - sessions already on an optimal model show $0.
 
     Output is written to <root>/benchmarks/savings/routing_latest.json.
     """
@@ -4821,9 +4888,7 @@ def benchmark_savings_routing(
     if corpus_dir is None:
         corpus_dir = ctx.obj["root"].parent / "exports"
         if not corpus_dir.is_dir():
-            raise click.ClickException(
-                "Could not locate exports/ directory. Pass --corpus PATH explicitly."
-            )
+            raise click.ClickException("Could not locate exports/ directory. Pass --corpus PATH explicitly.")
 
     report = run_routing_bench(corpus_dir, max_sessions=max_sessions)
 
@@ -4847,7 +4912,9 @@ def benchmark_savings_routing(
         f"{down:,} downtiered ({pct:.1f}%) | "
         f"${cost:.4f} saved"
     )
-    click.echo(f"  by tier: cheap={by_tier.get('cheap', 0):,}  medium={by_tier.get('medium', 0):,}  expensive={by_tier.get('expensive', 0):,}")
+    click.echo(
+        f"  by tier: cheap={by_tier.get('cheap', 0):,}  medium={by_tier.get('medium', 0):,}  expensive={by_tier.get('expensive', 0):,}"
+    )
     click.echo(f"saved report: {out_path}")
 
 
@@ -4897,16 +4964,9 @@ def benchmark_quality_routing(
     model_pct = report["model_error_pct_on_downtiered"]
     retry_pct = report["retry_pct_on_downtiered"]
     quality = report["avg_quality_score"]
-    click.echo(
-        f"quality-routing: {n} sessions | {total_down:,} downtiered turns | "
-        f"quality score {quality:.3f}"
-    )
-    click.echo(
-        f"  risk split: safe={safe_pct:.1f}%  moderate={mod_pct:.1f}%  risky={risky_pct:.1f}%"
-    )
-    click.echo(
-        f"  errors: env={env_pct:.1f}% (excluded)  model={model_pct:.1f}%  retries={retry_pct:.1f}%"
-    )
+    click.echo(f"quality-routing: {n} sessions | {total_down:,} downtiered turns | " f"quality score {quality:.3f}")
+    click.echo(f"  risk split: safe={safe_pct:.1f}%  moderate={mod_pct:.1f}%  risky={risky_pct:.1f}%")
+    click.echo(f"  errors: env={env_pct:.1f}% (excluded)  model={model_pct:.1f}%  retries={retry_pct:.1f}%")
     click.echo(f"saved report: {out_path}")
 
 
@@ -4931,7 +4991,7 @@ def benchmark_quality_compact(
       - error rate drift (pre vs post compact)
       - extra re-reads post compact (proxy for lost context)
       - session continuation rate
-      - composite retention score (0–1)
+      - composite retention score (0-1)
     """
     from benchmarks.swe.compact_quality_bench import run_compact_quality_bench
 
@@ -4954,13 +5014,8 @@ def benchmark_quality_compact(
     drift = report["avg_error_drift"]
     rr = report["avg_extra_read_rate"]
     cont = report["sessions_continued_pct"]
-    click.echo(
-        f"quality-compact: {n} sessions | {n_events} compaction events | "
-        f"retention score {retention:.3f}"
-    )
-    click.echo(
-        f"  error drift: {drift:+.3f}  extra re-reads: {rr:.3f}  continuation: {cont:.1f}%"
-    )
+    click.echo(f"quality-compact: {n} sessions | {n_events} compaction events | " f"retention score {retention:.3f}")
+    click.echo(f"  error drift: {drift:+.3f}  extra re-reads: {rr:.3f}  continuation: {cont:.1f}%")
     click.echo(f"saved report: {out_path}")
 
 
@@ -4972,18 +5027,22 @@ def benchmark_quality_compact(
     type=click.Path(file_okay=False, path_type=Path),
     help="Directory containing claude/*.jsonl session exports.",
 )
-@click.option("--max-sessions", default=10, show_default=True, type=int,
-              help="Max sessions to replay (cost control).")
-@click.option("--max-turns", default=5, show_default=True, type=int,
-              help="Max haiku calls per session (cost control). 0 = unlimited.")
-@click.option("--context-lines", default=30, show_default=True, type=int,
-              help="Recent context lines sent to haiku per call.")
-@click.option("--haiku-model", default="claude-haiku-4-5", show_default=True,
-              help="Haiku model alias for --model flag.")
-@click.option("--delay", default=0.5, show_default=True, type=float,
-              help="Seconds between CLI calls (rate limiting).")
-@click.option("--verbose", is_flag=True, default=False,
-              help="Print each turn result as it completes.")
+@click.option("--max-sessions", default=10, show_default=True, type=int, help="Max sessions to replay (cost control).")
+@click.option(
+    "--max-turns",
+    default=5,
+    show_default=True,
+    type=int,
+    help="Max haiku calls per session (cost control). 0 = unlimited.",
+)
+@click.option(
+    "--context-lines", default=30, show_default=True, type=int, help="Recent context lines sent to haiku per call."
+)
+@click.option(
+    "--haiku-model", default="claude-haiku-4-5", show_default=True, help="Haiku model alias for --model flag."
+)
+@click.option("--delay", default=0.5, show_default=True, type=float, help="Seconds between CLI calls (rate limiting).")
+@click.option("--verbose", is_flag=True, default=False, help="Print each turn result as it completes.")
 @click.pass_context
 def benchmark_replay_routing(
     ctx: click.Context,
@@ -4997,18 +5056,18 @@ def benchmark_replay_routing(
 ) -> None:
     """Routing REPLAY benchmark: actually call haiku on downtiered turns.
 
-    True counterfactual — uses the claude CLI (no API key required).
+    True counterfactual - uses the claude CLI (no API key required).
     Reconstructs session context as text, asks haiku what tool it would call
     next, and compares its choice to what sonnet actually did.
 
-    Estimated cost: ~$0.01–0.03 per turn replayed (haiku via Claude Code auth).
+    Estimated cost: ~$0.01-0.03 per turn replayed (haiku via Claude Code auth).
 
     Quality labels per turn:
-      match        — same tool, similar input (similarity ≥ 0.7)
-      partial      — same tool, somewhat different input (0.3–0.7)
-      diverge      — same tool, very different input (< 0.3)
-      tool_mismatch — haiku chose a different tool entirely
-      parse_error  — haiku responded but JSON could not be parsed
+      match        - same tool, similar input (similarity >= 0.7)
+      partial      - same tool, somewhat different input (0.3-0.7)
+      diverge      - same tool, very different input (< 0.3)
+      tool_mismatch - haiku chose a different tool entirely
+      parse_error  - haiku responded but JSON could not be parsed
     """
     from benchmarks.swe.routing_replay_bench import run_routing_replay_bench
 
@@ -5021,7 +5080,7 @@ def benchmark_replay_routing(
     max_t = max_turns if max_turns > 0 else None
     click.echo(
         f"Replaying with {haiku_model} (via claude CLI) | "
-        f"up to {max_sessions} sessions × {max_t or 'all'} turns each | "
+        f"up to {max_sessions} sessions x {max_t or 'all'} turns each | "
         f"context={context_lines} lines"
     )
 
@@ -5049,10 +5108,7 @@ def benchmark_replay_routing(
     labels = report["quality_label_counts"]
     parse_errs = sum(1 for r in report.get("sessions", []) for t in r.get("turns", []) if t.get("parse_error"))
 
-    click.echo(
-        f"replay-routing: {n} sessions | {total} turns replayed | "
-        f"tool match {match:.1%} | cost ${cost:.4f}"
-    )
+    click.echo(f"replay-routing: {n} sessions | {total} turns replayed | " f"tool match {match:.1%} | cost ${cost:.4f}")
     click.echo(f"  avg input similarity (matched turns): {sim:.3f}")
     click.echo(f"  avg output token ratio: {ratio:.3f} (haiku/sonnet)")
     click.echo(f"  quality: {json.dumps(labels)}")
@@ -5362,12 +5418,12 @@ def benchmark_publish(
         corpus_arg=corpus_arg,
         dry_run=dry_run,
     )
-    assert report_dir is not None
 
     if dry_run:
-        click.echo("Dry-run complete — no files written.")
+        click.echo("Dry-run complete - no files written.")
     else:
-        click.echo(f"Report written → {report_dir}")
+        assert report_dir is not None
+        click.echo(f"Report written -> {report_dir}")
         click.echo(f"  {report_dir / 'benchmark.md'}")
         click.echo(f"  {report_dir / 'benchmark.json'}")
         click.echo(f"  {output_dir / 'index.json'} (updated)")
@@ -6475,8 +6531,6 @@ def outcomes_summary(ctx: click.Context, since: str) -> None:
     click.echo(json.dumps(summary, indent=2, ensure_ascii=False, default=str))
 
 
-
-
 # --------------------------------------------------------------------------- #
 # session                                                                      #
 # --------------------------------------------------------------------------- #
@@ -6511,7 +6565,7 @@ def session_report_cmd(
     if session_id is None:
         files = list_run_files(root)
         if not files:
-            click.echo("No sessions found — run any AI command first.", err=True)
+            click.echo("No sessions found - run any AI command first.", err=True)
             raise SystemExit(1)
         # Derive session_id from newest run file name
         session_id = files[0].stem
@@ -6592,7 +6646,6 @@ def session_list_cmd(ctx: click.Context, since: str | None, as_json: bool) -> No
         )
 
 
-
 # --------------------------------------------------------------------------- #
 # memory                                                                       #
 # --------------------------------------------------------------------------- #
@@ -6628,10 +6681,7 @@ def memory_list_cmd(ctx: click.Context, vendor: str | None, as_json: bool) -> No
 
     registry = _make_memory_registry()
 
-    if vendor:
-        facts = registry.by_vendor(vendor)
-    else:
-        facts = registry.all_facts()
+    facts = registry.by_vendor(vendor) if vendor else registry.all_facts()
 
     if as_json:
         click.echo(
@@ -6657,7 +6707,7 @@ def memory_list_cmd(ctx: click.Context, vendor: str | None, as_json: bool) -> No
     click.echo(f"Memory facts ({total} total, {n_vendors} vendor{'s' if n_vendors != 1 else ''})")
     click.echo("")
 
-    vendor_labels = {"claude": "Anthropic — Claude Code", "codex": "OpenAI — Codex", "gemini": "Google — Gemini CLI"}
+    vendor_labels = {"claude": "Anthropic - Claude Code", "codex": "OpenAI - Codex", "gemini": "Google - Gemini CLI"}
     for v, vfacts in sorted(by_vendor.items()):
         label = vendor_labels.get(v, v.capitalize())
         click.echo(f"{label} ({len(vfacts)} fact{'s' if len(vfacts) != 1 else ''})")
@@ -6762,8 +6812,8 @@ def _parse_since_arg(value: str) -> datetime:
     """Parse ``--since`` argument.
 
     Accepts:
-    * ``7d``, ``30d``, ``24h``, ``30m``  — duration relative to now
-    * ``YYYY-MM-DD``                       — absolute date (start of day UTC)
+    * ``7d``, ``30d``, ``24h``, ``30m``  - duration relative to now
+    * ``YYYY-MM-DD``                       - absolute date (start of day UTC)
     """
     import re
     from datetime import UTC, datetime, timedelta
@@ -6775,9 +6825,9 @@ def _parse_since_arg(value: str) -> datetime:
         amount = int(match.group(1))
         unit = match.group(2)
         delta = (
-            timedelta(days=amount) if unit == "d"
-            else timedelta(hours=amount) if unit == "h"
-            else timedelta(minutes=amount)
+            timedelta(days=amount)
+            if unit == "d"
+            else timedelta(hours=amount) if unit == "h" else timedelta(minutes=amount)
         )
         return datetime.now(UTC) - delta
 
@@ -6788,8 +6838,7 @@ def _parse_since_arg(value: str) -> datetime:
         pass
 
     raise click.ClickException(
-        f"Cannot parse --since value {value!r}. "
-        "Use a duration like '7d', '24h', or a date like '2026-05-01'."
+        f"Cannot parse --since value {value!r}. " "Use a duration like '7d', '24h', or a date like '2026-05-01'."
     )
 
 
@@ -6852,10 +6901,7 @@ def insights_cmd(
     if vendor and not as_json:
         vendor_key = vendor.capitalize()
         filtered_cost = window.cost_by_vendor.get(vendor_key, 0.0)
-        click.echo(
-            f"Vendor filter: {vendor_key}  ${filtered_cost:.2f}"
-            f" of ${window.total_cost_usd:.2f} total"
-        )
+        click.echo(f"Vendor filter: {vendor_key}  ${filtered_cost:.2f}" f" of ${window.total_cost_usd:.2f} total")
 
     # Apply group-by override for display (swap cost_by_* fields shown).
     display_window = window
@@ -6863,7 +6909,7 @@ def insights_cmd(
         # Reorder: show vendor bars prominently (already first in default render).
         pass
     elif group_by == "model" and not as_json:
-        # Swap cost_by_tool → cost_by_model for the tool section.
+        # Swap cost_by_tool -> cost_by_model for the tool section.
 
         display_window = InsightsWindow(
             since=window.since,
@@ -6881,9 +6927,7 @@ def insights_cmd(
         )
     elif group_by == "session" and not as_json:
         # Replace cost_by_tool with per-session breakdown.
-        session_costs = {
-            s.session_id[:8]: s.cost_usd for s in window.top_sessions
-        }
+        session_costs = {s.session_id[:8]: s.cost_usd for s in window.top_sessions}
         display_window = InsightsWindow(
             since=window.since,
             until=window.until,

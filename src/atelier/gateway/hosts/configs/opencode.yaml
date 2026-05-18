@@ -1,135 +1,195 @@
 host_id: opencode
 name: OpenCode
 version: 1.0.0
-description: Integration with OpenCode framework for open-source code reasoning and analysis
+description: Integration with OpenCode framework for open-source code reasoning and
+  analysis
 platforms:
-  - macos
-  - linux
-  - windows
-
+- macos
+- linux
+- windows
 detection:
   command: opencode --version
   config_path: ~/.opencode/config.jsonc
   env_var: OPENCODE_API_URL
-
 recommended_packs:
-  - atelier-pack-opencode-core
-  - atelier-pack-open-source-analysis
-  - atelier-pack-community-standards
-
+- atelier-pack-opencode-core
+- atelier-pack-open-source-analysis
+- atelier-pack-community-standards
 mcp:
   servers:
-    - name: atelier
-      command: atelier-mcp
-      args: ["--host", "opencode"]
-      env:
-        ATELIER_ROOT: "~/.atelier"
-
+  - name: atelier
+    command: atelier-mcp
+    args:
+    - --host
+    - opencode
+    env:
+      ATELIER_ROOT: ~/.atelier
 installation:
-  macos: |
-    # Install OpenCode
+  macos: '# Install OpenCode
+
     brew install opencode
 
+
     # Install Atelier
+
     brew install atelier
 
+
     # Setup OpenCode integration
+
     atelier host setup opencode
 
+
     # Configure OpenCode MCP
+
     atelier host configure opencode --mcp-enable
 
+
     # Initialize OpenCode with Atelier
+
     opencode init --with-atelier
 
+
     # Verify installation
+
     atelier host info opencode
 
-  linux: |
-    # Install OpenCode
+    '
+  linux: '# Install OpenCode
+
     cargo install opencode
+
     # or: sudo apt-get install opencode (if available)
 
+
     # Install Atelier
-    sudo apt-get install atelier  # or your distro's package manager
+
+    sudo apt-get install atelier  # or your distro''s package manager
+
 
     # Setup OpenCode integration
+
     atelier host setup opencode
 
+
     # Configure OpenCode MCP
+
     atelier host configure opencode --mcp-enable
 
+
     # Initialize OpenCode with Atelier
+
     opencode init --with-atelier
 
+
     # Verify installation
+
     atelier host info opencode
 
-  windows: |
-    # Install OpenCode
+    '
+  windows: '# Install OpenCode
+
     choco install opencode
+
     # or download from GitHub releases
 
+
     # Install Atelier
+
     choco install atelier
 
+
     # Setup OpenCode integration
+
     atelier host setup opencode
 
+
     # Configure OpenCode MCP
+
     atelier host configure opencode --mcp-enable
 
+
     # Initialize OpenCode with Atelier
+
     opencode init --with-atelier
 
+
     # Verify installation
+
     atelier host info opencode
 
+    '
 prompt_templates:
-  - name: session-optimization
-    template: |
-      Atelier budget optimizer is active for OpenCode.
-      Before changing files, name the deliverable and summarize the smallest viable plan.
-      Keep context narrow: use only the current goal, relevant files, failing command/output, and known constraints.
-      Restate working context in under 10 bullets before editing or after compaction.
-      If more than 10 minutes pass without an edit, name the expected deliverable or check with the user.
-      If the same approach fails twice, call rescue or change approach; do not retry a third time.
+- name: session-optimization
+  template: 'Atelier budget optimizer is active for OpenCode.
 
-  - name: pack-context
-    template: |
-      Atelier pack: {pack.name}
-      Domain: {pack.domain}
+    Before changing files, name the deliverable and summarize the smallest viable
+    plan.
 
-      Structured reasoning patterns ({pack.reasonblocks_count}):
-      {pack.reasonblocks}
+    Keep context narrow: use only the current goal, relevant files, failing command/output,
+    and known constraints.
 
-      Community quality standards ({pack.rubrics_count}):
-      {pack.rubrics}
+    Restate working context in under 10 bullets before editing or after compaction.
 
-      These patterns align with open-source best practices.
+    If more than 10 minutes pass without an edit, name the expected deliverable or
+    check with the user.
 
-  - name: open-source-analysis
-    template: |
-      Analyze open-source code using pack '{pack.name}':
+    If the same approach fails twice, call rescue or change approach; do not retry
+    a third time.'
+- name: pack-context
+  template: 'Atelier pack: {pack.name}
 
-      Community-driven patterns:
-      - {pack.community_patterns}
+    Domain: {pack.domain}
 
-      Compliance checks:
-      - {pack.compliance_rubrics}
 
-      License considerations:
-      - {pack.license_checks}
+    Structured reasoning patterns ({pack.reasonblocks_count}):
 
-  - name: contribution-guidance
-    template: |
-      Guide for contributing using pack '{pack.name}':
+    {pack.reasonblocks}
 
-      Expected patterns for contributions:
-      {pack.contribution_patterns}
 
-      Community standards to follow:
-      {pack.community_standards}
+    Community quality standards ({pack.rubrics_count}):
 
-      Verification before submission:
-      {pack.pre_submission_checks}
+    {pack.rubrics}
+
+
+    These patterns align with open-source best practices.
+
+    '
+- name: open-source-analysis
+  template: 'Analyze open-source code using pack ''{pack.name}'':
+
+
+    Community-driven patterns:
+
+    - {pack.community_patterns}
+
+
+    Compliance checks:
+
+    - {pack.compliance_rubrics}
+
+
+    License considerations:
+
+    - {pack.license_checks}
+
+    '
+- name: contribution-guidance
+  template: 'Guide for contributing using pack ''{pack.name}'':
+
+
+    Expected patterns for contributions:
+
+    {pack.contribution_patterns}
+
+
+    Community standards to follow:
+
+    {pack.community_standards}
+
+
+    Verification before submission:
+
+    {pack.pre_submission_checks}
+
+    '

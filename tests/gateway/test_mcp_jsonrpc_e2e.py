@@ -171,9 +171,7 @@ def test_tools_list_matches_registered_surface(mcp_env: Path) -> None:
     assert set(TOOLS) == EXPECTED_TOOLS
 
 
-def test_tools_list_only_product_tools_without_dev_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_tools_list_only_product_tools_without_dev_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".atelier"
     _seed_store(root)
     monkeypatch.setenv("ATELIER_ROOT", str(root))

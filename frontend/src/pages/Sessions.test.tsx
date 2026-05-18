@@ -119,7 +119,7 @@ describe("Sessions page", () => {
     expect(screen.getAllByText("$0.420").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("requests traces for the active time window", async () => {
+  it("requests unbounded traces and long-window summaries", async () => {
     const fetchSpy = mockFetch({
       "/api/traces": jsonResponse(sampleTraces),
       "/api/v1/sessions": jsonResponse(sampleSessions),
@@ -130,7 +130,14 @@ describe("Sessions page", () => {
       fetchSpy.mock.calls.some(
         ([input]) =>
           String(input).includes("/api/traces?") &&
-          String(input).includes("days=7")
+          !String(input).includes("days=")
+      )
+    ).toBe(true);
+    expect(
+      fetchSpy.mock.calls.some(
+        ([input]) =>
+          String(input).includes("/api/v1/sessions?") &&
+          String(input).includes("since=36500d")
       )
     ).toBe(true);
   });

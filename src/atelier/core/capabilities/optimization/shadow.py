@@ -71,9 +71,7 @@ def build_shadow_state(
     maximum_allowed = baseline_daily * 0.25
     requested_cap = default_daily_cap if max_daily_spend_usd is None else max_daily_spend_usd
     if requested_cap > maximum_allowed and maximum_allowed > 0:
-        raise ValueError(
-            "shadow daily spend cap cannot exceed 25% of the trailing 7-day daily baseline"
-        )
+        raise ValueError("shadow daily spend cap cannot exceed 25% of the trailing 7-day daily baseline")
     daily_cap = max(0.0, requested_cap)
     estimated_weekly = min(baseline_weekly_cost_usd * 0.10, daily_cap * max(1, days))
     return ShadowRunState(

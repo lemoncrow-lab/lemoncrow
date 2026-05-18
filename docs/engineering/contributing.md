@@ -12,11 +12,17 @@
 cd atelier
 uv sync --all-extras
 atelier init
+git config core.hooksPath .githooks
 ```
+
+The repository-managed pre-push hook runs `make install` before the rest of the push checks.
 
 ## Development Commands
 
 ```bash
+make sync-agent-context  # Regenerate host instruction artifacts from docs/agent-os
+make check-agent-context # Verify generated host instruction artifacts are current
+make docs-check          # Run docs and repo-governance checks
 make verify        # Full gate: ruff + black --check + mypy strict + pytest
 make pre-commit    # Format, lint, typecheck, tests (run before committing)
 make lint          # ruff check (no fix)
@@ -84,8 +90,23 @@ Do not run these inside the atelier directory — they are separate test suites.
 1. Run `make pre-commit` and fix all errors before opening PR
 2. Include test coverage for all new behavior
 3. Update `AGENT_README.md` for any directories you touch
-4. Create an ADR (`docs/internal/engineering/decisions/NNN-description.md`) for significant design decisions
-5. Never commit directly — human review required per project rules
+4. Create an ADR (`docs/decisions/NNN-description.md`) for significant design decisions
+5. Never commit directly - human review required per project rules
+
+## Repo-native execution memory
+
+- Durable multi-step work belongs in `docs/plans/active/` or `docs/plans/completed/`.
+- Durable architectural or workflow decisions belong in `docs/decisions/`.
+- Recurring cleanup belongs in `docs/plans/tech-debt.md` and should be reflected in the quality scorecard when relevant.
+
+## Host instruction generation
+
+Do not hand-edit the generated host entrypoints unless you are also updating the
+Agent OS source docs. The source of truth is `docs/agent-os/` and the generator:
+
+```bash
+uv run python scripts/sync_agent_context.py
+```
 
 ## Project Architecture Notes
 

@@ -30,9 +30,7 @@ class MemoryRegistry:
     """
 
     def __init__(self, adapters: list[MemoryAdapter] | None = None) -> None:
-        self._adapters: list[MemoryAdapter] = (
-            adapters if adapters is not None else _default_adapters()
-        )
+        self._adapters: list[MemoryAdapter] = adapters if adapters is not None else _default_adapters()
         self._cache: list[MemoryFact] | None = None
 
     def _load(self) -> list[MemoryFact]:

@@ -132,7 +132,7 @@ auth = read_json("auth.json")
 subscription = read_json("subscription.json")
 free_plan = read_json("free_plan.json")
 
-if auth and auth.get("authenticated") is False and os.environ.get("ATELIER_HIDE_MISSING_LOGIN") != "1":
+if ((not auth) or auth.get("authenticated") is False) and os.environ.get("ATELIER_HIDE_MISSING_LOGIN") != "1":
   status_text = "login"
 elif update.get("toVersion") and update.get("toVersion") != update.get("fromVersion"):
   status_text = f"update {update.get('toVersion')}"
@@ -197,11 +197,11 @@ else
   ROUTING_SEG=""
 fi
 
-printf '%s%s%s %s %s%s ctx %s%% cache %s%s %s %s ↓ %s%s%s(%s%s%s)%s %s %dm%02ds\n' \
+printf '%s%s%s %s %s%s ctx %s%% cache %s%s %s %s ↓ %s%s%s saved %s%s%s ctx %s %s %s %dm%02ds\n' \
   "$C_BRAND" "$PLUGIN_LABEL" "$C_RESET" \
   "$PIPE" "$MODEL" "$STATUS_SEG" "$PCT_INT" \
   "$CACHE_F" "$CACHE_NEW_SEG" \
   "$PIPE" "$COST_FMT" \
-  "$C_GREEN" "$SAVED_USD" "$C_RESET" "$C_GREEN" "${SAVED_CTX}${SAVED_CALLS_SEG}" "$C_RESET" \
+  "$C_GREEN" "$SAVED_USD" "$C_RESET" "$C_GREEN" "$SAVED_USD" "$C_RESET" "${SAVED_CTX}${SAVED_CALLS_SEG}" \
   "$ROUTING_SEG" \
   "$PIPE" "$MINS" "$SECS"

@@ -140,9 +140,7 @@ def make_session_line(
     return line
 
 
-def make_user_message(
-    text: str, *, timestamp: str | None = None, message_id: str | None = None
-) -> dict[str, Any]:
+def make_user_message(text: str, *, timestamp: str | None = None, message_id: str | None = None) -> dict[str, Any]:
     line: dict[str, Any] = {
         "type": "message",
         "message": {"role": "user", "content": [{"type": "text", "text": text}]},
@@ -418,9 +416,7 @@ def persist_imported_run_snapshot(
                 "thinking_tokens": int(entry.thinking_tokens or 0),
                 "cost_usd": round(cost_usd, 8),
                 "at": (
-                    entry.created_at.isoformat()
-                    if isinstance(entry.created_at, datetime)
-                    else ended_at.isoformat()
+                    entry.created_at.isoformat() if isinstance(entry.created_at, datetime) else ended_at.isoformat()
                 ),
                 "source_id": entry.source_id,
             }
@@ -463,9 +459,7 @@ def _tool_args_hash(args: dict[str, Any] | None) -> str:
 
 def _is_command_tool(name: str) -> bool:
     lowered = name.strip().lower()
-    return (
-        lowered in _COMMAND_TOOL_NAMES or lowered.endswith("shell") or lowered.endswith("command")
-    )
+    return lowered in _COMMAND_TOOL_NAMES or lowered.endswith("shell") or lowered.endswith("command")
 
 
 def _is_file_tool(name: str) -> bool:
@@ -560,7 +554,8 @@ def _build_trace_from_normalized_content(
                     matches = re.findall(r"(\w+):\s*(.+)", txt)
                     for k, v in matches:
                         agent_settings[k] = v.strip()
-            continue
+            if role == "system":
+                continue
 
         message = event.get("message") or event.get("data") or {}
         role = str(message.get("role") or "")
@@ -619,16 +614,12 @@ def _build_trace_from_normalized_content(
             usage_entries.append(usage_entry)
 
         tool_blocks = [
-            block
-            for block in content
-            if isinstance(block, dict) and block.get("type") in {"toolCall", "tool_use"}
+            block for block in content if isinstance(block, dict) and block.get("type") in {"toolCall", "tool_use"}
         ]
         reasoning.extend(
             str(block.get("text") or "").strip()
             for block in content
-            if isinstance(block, dict)
-            and block.get("type") in {"reasoning", "thinking"}
-            and block.get("text")
+            if isinstance(block, dict) and block.get("type") in {"reasoning", "thinking"} and block.get("text")
         )
 
         if tool_blocks:
@@ -737,9 +728,7 @@ def import_paths_with_progress(
         try:
             size = path.stat().st_size
             if size > size_limit:
-                print(
-                    f"[atelier] {source}: skipping massive session {path.name} ({size / 1e6:.1f}MB)"
-                )
+                print(f"[atelier] {source}: skipping massive session {path.name} ({size / 1e6:.1f}MB)")
                 continue
             if i % 10 == 0 and i > 0:
                 print(f"[atelier] {source}: importing {i}/{total}...")

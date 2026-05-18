@@ -1,0 +1,35 @@
+id: canonical-identifier-over-display-name
+title: Canonical Identifier Over Display Name
+domain: state.change
+task_types:
+  - integration_change
+  - data_write
+  - rollback
+triggers:
+  - slug
+  - handle
+  - title
+  - url
+tool_patterns:
+  - api.write
+  - db.write
+situation: >
+  Human-readable labels such as titles, URLs, paths, and display names can
+  drift. Mutations and rollbacks should target a stable canonical identifier.
+dead_ends:
+  - resolve target from url slug alone
+  - use display name as stable identity
+procedure:
+  - Resolve the target through its canonical stable identifier.
+  - Record that identifier before the write.
+  - Use the same identifier for the mutation and the readback.
+verification:
+  - A canonical identifier was recorded before the write.
+  - The same identifier was used for readback.
+failure_signals:
+  - wrong target updated
+  - ambiguous match set
+required_rubrics:
+  - rubric_state_change_safety
+when_not_to_apply: >
+  Pure read-only exploration where no state mutation or rollback will happen.

@@ -464,7 +464,7 @@ class SqliteMemoryStore:
             tokens_pre_summary=int(row["tokens_pre_summary"]),
             tokens_post_summary=int(row["tokens_post_summary"]),
             compaction_strategy=cast(Any, row["compaction_strategy"]),
-            workspace_path=((row.get("workspace_path") and str(row["workspace_path"])) or None),
+            workspace_path=(str(row["workspace_path"]) if row["workspace_path"] else None),
             created_at=datetime.fromisoformat(str(row["created_at"])),
         )
 

@@ -35,6 +35,26 @@
       "command": "atelier",
       "args": ["runs", "record", "--task", "${input:atelierTask}", "--status", "partial", "--json"],
       "problemMatcher": []
+    },
+    {
+      "label": "Atelier: Worktree Bootstrap",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "uv run python scripts/worktree_env.py --env-file .env.worktree --json && echo 'Use: docker compose --env-file .env.worktree up --build -d'"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Atelier: Runtime Evidence",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "uv run python scripts/runtime_evidence.py --base-url \"${input:atelierBaseUrl}\""
+      ],
+      "problemMatcher": []
     }
   ],
   "inputs": [
@@ -52,6 +72,12 @@
       "id": "atelierStep2",
       "type": "promptString",
       "description": "Plan step 2"
+    },
+    {
+      "id": "atelierBaseUrl",
+      "type": "promptString",
+      "description": "Atelier service base URL",
+      "default": "http://127.0.0.1:8787"
     }
   ]
 }

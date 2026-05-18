@@ -286,8 +286,7 @@ def test_build_report_routing_savings(tmp_path: Path) -> None:
 def test_build_report_compact_savings(tmp_path: Path) -> None:
     jl = tmp_path / "live_savings_events.jsonl"
     jl.write_text(
-        json.dumps({"session_id": "abc123", "lever": "session_compaction", "cost_saved_usd": 0.30})
-        + "\n",
+        json.dumps({"session_id": "abc123", "lever": "session_compaction", "cost_saved_usd": 0.30}) + "\n",
         encoding="utf-8",
     )
     snap = _make_snapshot()
@@ -301,8 +300,7 @@ def test_build_report_compact_savings(tmp_path: Path) -> None:
 def test_build_report_total_savings_combined(tmp_path: Path) -> None:
     jl = tmp_path / "live_savings_events.jsonl"
     jl.write_text(
-        json.dumps({"session_id": "abc123", "lever": "session_compaction", "cost_saved_usd": 0.20})
-        + "\n",
+        json.dumps({"session_id": "abc123", "lever": "session_compaction", "cost_saved_usd": 0.20}) + "\n",
         encoding="utf-8",
     )
     events = [_model_rec_event(cost_saved_usd=0.10)]

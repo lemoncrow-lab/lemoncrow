@@ -1,4 +1,4 @@
-"""Compact QUALITY benchmark — real export replay.
+"""Compact QUALITY benchmark - real export replay.
 
 Answers the question: after Atelier's compactor fires, does the session
 continue healthily or does it regress (more errors, more re-reads)?
@@ -24,8 +24,8 @@ Metrics per compaction event
   pre_read_rate     Read+search calls / turns in last 8 turns before
   post_read_rate    same for first 8 turns after
   extra_read_rate   max(0, post_read_rate - pre_read_rate)
-  retention_score   1.0 - clamp(error_drift×2 + extra_read_rate×0.5, 0, 1)
-  session_continued bool — any real assistant turns after compact
+  retention_score   1.0 - clamp(error_drift x 2 + extra_read_rate x 0.5, 0, 1)
+  session_continued bool - any real assistant turns after compact
 
 Overall quality score = mean(retention_score) across all compaction events.
 
@@ -49,10 +49,10 @@ from typing import Any
 # Constants
 # ---------------------------------------------------------------------------
 
-_COMPACT_DROP_THRESHOLD = 0.40   # ≥40% drop in effective context
-_MIN_CONTEXT_AFTER = 5_000       # below this = sub-agent reset, not compact
-_PRE_POST_WINDOW = 15            # turns to look at before/after compact
-_READ_WINDOW = 8                 # turns to count re-reads in
+_COMPACT_DROP_THRESHOLD = 0.40  # >=40% drop in effective context
+_MIN_CONTEXT_AFTER = 5_000  # below this = sub-agent reset, not compact
+_PRE_POST_WINDOW = 15  # turns to look at before/after compact
+_READ_WINDOW = 8  # turns to count re-reads in
 _READ_TOOLS = frozenset({"read", "grep", "glob", "websearch", "webfetch", "search"})
 
 _ERROR_PATTERNS = re.compile(
@@ -69,10 +69,11 @@ _ERROR_PATTERNS = re.compile(
 
 @dataclass
 class _Turn:
-    """One real (non-synthetic) assistant → user round trip."""
+    """One real (non-synthetic) assistant -> user round trip."""
+
     turn_idx: int
-    total_context: int    # inp + cache_create + cache_read (for compaction detection)
-    fresh_tokens: int     # inp + cache_create (for cost)
+    total_context: int  # inp + cache_create + cache_read (for compaction detection)
+    fresh_tokens: int  # inp + cache_create (for cost)
     output_tokens: int
     tool_names: list[str]
     # Outcome from the following user event
@@ -83,10 +84,7 @@ class _Turn:
 
 def _is_error_content(content: Any) -> bool:
     if isinstance(content, list):
-        text = " ".join(
-            str(b.get("text", "")) if isinstance(b, dict) else str(b)
-            for b in content
-        )
+        text = " ".join(str(b.get("text", "")) if isinstance(b, dict) else str(b) for b in content)
     else:
         text = str(content or "")
     return bool(_ERROR_PATTERNS.search(text))
@@ -190,18 +188,18 @@ def _parse_turns(path: Path) -> list[_Turn]:
 
 @dataclass
 class CompactionQuality:
-    event_idx: int       # index in turns list
+    event_idx: int  # index in turns list
     context_before: int
     context_after: int
     freed_pct: float
 
     # Error rate window
-    pre_error_rate: float   # failed / total in last _PRE_POST_WINDOW turns
+    pre_error_rate: float  # failed / total in last _PRE_POST_WINDOW turns
     post_error_rate: float
-    error_drift: float      # post - pre
+    error_drift: float  # post - pre
 
     # Re-read window
-    pre_read_rate: float    # read tools / turns in last _READ_WINDOW turns
+    pre_read_rate: float  # read tools / turns in last _READ_WINDOW turns
     post_read_rate: float
     extra_read_rate: float  # max(0, post - pre)
 
@@ -210,7 +208,7 @@ class CompactionQuality:
     turns_after_compact: int
 
     # Composite
-    retention_score: float  # 0.0–1.0
+    retention_score: float  # 0.0-1.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -239,10 +237,7 @@ def _read_rate(turns: list[_Turn]) -> float:
     """Fraction of turns that had at least one read-only tool call."""
     if not turns:
         return 0.0
-    read_turns = sum(
-        1 for t in turns
-        if any(name.lower() in _READ_TOOLS for name in t.tool_names)
-    )
+    read_turns = sum(1 for t in turns if any(name.lower() in _READ_TOOLS for name in t.tool_names))
     return read_turns / len(turns)
 
 
@@ -277,12 +272,12 @@ def _analyze_compactions(turns: list[_Turn]) -> list[CompactionQuality]:
         # Pre window
         pre_start = max(0, i - _PRE_POST_WINDOW)
         pre_turns = turns[pre_start:i]
-        pre_read = turns[max(0, i - _READ_WINDOW):i]
+        pre_read = turns[max(0, i - _READ_WINDOW) : i]
 
         # Post window
         post_end = min(len(turns), i + _PRE_POST_WINDOW)
         post_turns = turns[i:post_end]
-        post_read = turns[i:min(len(turns), i + _READ_WINDOW)]
+        post_read = turns[i : min(len(turns), i + _READ_WINDOW)]
 
         pre_err = _error_rate(pre_turns)
         post_err = _error_rate(post_turns)
@@ -292,9 +287,7 @@ def _analyze_compactions(turns: list[_Turn]) -> list[CompactionQuality]:
         post_rr = _read_rate(post_read)
         extra_rr = max(0.0, post_rr - pre_rr)
 
-        continues = any(
-            t.total_context > 0 for t in turns[i + 1:]
-        )
+        continues = any(t.total_context > 0 for t in turns[i + 1 :])
 
         results.append(
             CompactionQuality(
@@ -357,10 +350,7 @@ def run_compact_quality_bench(
     max_sessions: int | None = None,
 ) -> dict[str, Any]:
     """Run compact quality benchmark over *corpus_dir*."""
-    if (corpus_dir / "claude").is_dir():
-        search_dir = corpus_dir / "claude"
-    else:
-        search_dir = corpus_dir
+    search_dir = corpus_dir / "claude" if (corpus_dir / "claude").is_dir() else corpus_dir
 
     candidates = sorted(search_dir.glob("*.jsonl"), key=lambda p: -p.stat().st_size)
 
@@ -404,7 +394,7 @@ def run_compact_quality_bench(
         return {
             "benchmark": "quality-compact",
             "note": (
-                "retention_score = 1 - clamp(error_drift×2 + extra_read_rate×0.5, 0, 1). "
+                "retention_score = 1 - clamp(error_drift x 2 + extra_read_rate x 0.5, 0, 1). "
                 "error_drift = post_error_rate - pre_error_rate (negative=good). "
                 "extra_read_rate = extra Read/search calls post-compact vs pre-compact baseline "
                 "(proxy for context re-acquisition after loss)."
@@ -430,11 +420,11 @@ def run_compact_quality_bench(
     return {
         "benchmark": "quality-compact",
         "note": (
-            "retention_score = 1 - clamp(error_drift×2 + extra_read_rate×0.5, 0, 1). "
+            "retention_score = 1 - clamp(error_drift x 2 + extra_read_rate x 0.5, 0, 1). "
             "error_drift = post_error_rate - pre_error_rate (negative=good, compact helped). "
             "extra_read_rate = extra Read/search calls post-compact vs pre-compact baseline "
             "(proxy for context re-acquisition after loss). "
-            "All signals measured from real export data — no LLM replay."
+            "All signals measured from real export data - no LLM replay."
         ),
         "sessions_benchmarked": n_sess,
         "sessions_skipped": sessions_skipped,

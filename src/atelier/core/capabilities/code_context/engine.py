@@ -129,9 +129,7 @@ class CodeContextEngine:
     def __init__(self, repo_root: str | Path = ".", *, db_path: str | Path | None = None) -> None:
         self.repo_root = Path(repo_root).resolve()
         self.repo_id = _repo_id(self.repo_root)
-        self.db_path = (
-            Path(db_path).resolve() if db_path is not None else _default_db_path(self.repo_root)
-        )
+        self.db_path = Path(db_path).resolve() if db_path is not None else _default_db_path(self.repo_root)
 
     def index_repo(
         self,
@@ -293,9 +291,7 @@ class CodeContextEngine:
             raise LookupError("symbol not found")
         symbol = _row_to_symbol(row)
         path = self.repo_root / symbol.file_path
-        source = path.read_bytes()[symbol.start_byte : symbol.end_byte].decode(
-            "utf-8", errors="replace"
-        )
+        source = path.read_bytes()[symbol.start_byte : symbol.end_byte].decode("utf-8", errors="replace")
         emit_product_local("code_symbol_retrieved", repo_id=self.repo_id, kind=symbol.kind)
         return {**symbol.model_dump(mode="json"), "source": source}
 
@@ -341,9 +337,7 @@ class CodeContextEngine:
             )
         return {"repo_id": self.repo_id, "files": grouped, "symbol_count": len(rows)}
 
-    def repo_map(
-        self, *, seed_files: list[str] | None = None, budget_tokens: int = 2000
-    ) -> dict[str, Any]:
+    def repo_map(self, *, seed_files: list[str] | None = None, budget_tokens: int = 2000) -> dict[str, Any]:
         """Build an Aider-style PageRank repo map with a token budget."""
         normalized = [self._normalize_file_arg(seed) for seed in seed_files or []]
         result = build_repo_map(self.repo_root, seed_files=normalized, budget_tokens=budget_tokens)
@@ -362,9 +356,7 @@ class CodeContextEngine:
         if auto_index:
             self._ensure_indexed()
         normalized_seeds = [self._normalize_file_arg(seed) for seed in seed_files or []]
-        repo_map_payload = self.repo_map(
-            seed_files=normalized_seeds, budget_tokens=max(200, budget_tokens // 4)
-        )
+        repo_map_payload = self.repo_map(seed_files=normalized_seeds, budget_tokens=max(200, budget_tokens // 4))
         symbol_hits = self.search_symbols(task, limit=max_symbols, auto_index=False)
         seed_symbols = self._symbols_for_files(normalized_seeds, limit=max_symbols)
         selected = self._dedupe_symbols([*seed_symbols, *symbol_hits])[:max_symbols]
@@ -469,9 +461,7 @@ class CodeContextEngine:
             frontier = next_frontier
             if not frontier:
                 break
-        affected_tests = sorted(
-            item for item in seen if "/test" in item or Path(item).name.startswith("test_")
-        )
+        affected_tests = sorted(item for item in seen if "/test" in item or Path(item).name.startswith("test_"))
         total = len(direct) + len(transitive)
         risk: Literal["low", "medium", "high", "critical"]
         if total == 0:
@@ -510,8 +500,7 @@ class CodeContextEngine:
         return conn
 
     def _init_schema(self, conn: sqlite3.Connection) -> None:
-        conn.executescript(
-            """
+        conn.executescript("""
             PRAGMA journal_mode=WAL;
             CREATE TABLE IF NOT EXISTS files (
                 repo_id TEXT NOT NULL,
@@ -557,8 +546,7 @@ class CodeContextEngine:
             CREATE INDEX IF NOT EXISTS idx_symbols_repo_file ON symbols(repo_id, file_path);
             CREATE INDEX IF NOT EXISTS idx_symbols_repo_name ON symbols(repo_id, symbol_name);
             CREATE INDEX IF NOT EXISTS idx_imports_target ON imports(repo_id, target_file);
-            """
-        )
+            """)
 
     def _insert_symbol(
         self,
@@ -606,9 +594,7 @@ class CodeContextEngine:
     def _ensure_indexed(self) -> None:
         with self._connect() as conn:
             self._init_schema(conn)
-            row = conn.execute(
-                "SELECT COUNT(*) AS n FROM files WHERE repo_id = ?", (self.repo_id,)
-            ).fetchone()
+            row = conn.execute("SELECT COUNT(*) AS n FROM files WHERE repo_id = ?", (self.repo_id,)).fetchone()
             count = int(row["n"]) if row is not None else 0
         if count == 0:
             self.index_repo()
@@ -660,11 +646,7 @@ class CodeContextEngine:
             col = int(getattr(node, "col_offset", 0))
             end_col = int(getattr(node, "end_col_offset", 0))
             start_byte = offsets[max(0, start_line - 1)] + col
-            end_byte = (
-                offsets[max(0, end_line - 1)] + end_col
-                if end_col
-                else offsets[min(end_line, len(offsets) - 1)]
-            )
+            end_byte = offsets[max(0, end_line - 1)] + end_col if end_col else offsets[min(end_line, len(offsets) - 1)]
             qualified = f"{parent}.{name}" if parent else name
             doc = (
                 ast.get_docstring(node)
@@ -699,19 +681,13 @@ class CodeContextEngine:
                     for target in node.targets:
                         if isinstance(target, ast.Name):
                             add_node(node, target.id, "variable", None)
-                elif (
-                    parent is None
-                    and isinstance(node, ast.AnnAssign)
-                    and isinstance(node.target, ast.Name)
-                ):
+                elif parent is None and isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                     add_node(node, node.target.id, "variable", None)
 
         walk_body(tree.body)
         return sorted(symbols, key=lambda item: (item.start_line, item.qualified_name))
 
-    def _extract_tag_symbols(
-        self, path: Path, source: str, language: str
-    ) -> list[_ExtractedSymbol]:
+    def _extract_tag_symbols(self, path: Path, source: str, language: str) -> list[_ExtractedSymbol]:
         del language
         try:
             tags = [tag for tag in extract_tags(path) if tag.kind == "definition"]
@@ -723,13 +699,9 @@ class CodeContextEngine:
         symbols: list[_ExtractedSymbol] = []
         for index, tag in enumerate(sorted_tags):
             start_line = max(1, tag.line)
-            next_line = (
-                sorted_tags[index + 1].line - 1 if index + 1 < len(sorted_tags) else start_line
-            )
+            next_line = sorted_tags[index + 1].line - 1 if index + 1 < len(sorted_tags) else start_line
             end_line = max(start_line, min(next_line, len(lines)))
-            start_byte = (
-                offsets[start_line - 1] if start_line - 1 < len(offsets) else tag.byte_range[0]
-            )
+            start_byte = offsets[start_line - 1] if start_line - 1 < len(offsets) else tag.byte_range[0]
             end_byte = offsets[end_line] if end_line < len(offsets) else tag.byte_range[1]
             signature = lines[start_line - 1].strip() if start_line <= len(lines) else tag.name
             symbols.append(
@@ -746,9 +718,7 @@ class CodeContextEngine:
             )
         return symbols
 
-    def _extract_imports(
-        self, path: Path, rel: str, language: str, source: str
-    ) -> list[tuple[str, str | None]]:
+    def _extract_imports(self, path: Path, rel: str, language: str, source: str) -> list[tuple[str, str | None]]:
         imports: list[tuple[str, str | None]] = []
         if language == "python":
             imports.extend(self._python_imports(path, source))
@@ -774,9 +744,7 @@ class CodeContextEngine:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    imports.append(
-                        (alias.name, self._resolve_python_module(path.parent, alias.name))
-                    )
+                    imports.append((alias.name, self._resolve_python_module(path.parent, alias.name)))
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imports.append((node.module, self._resolve_python_module(path.parent, node.module)))
         return imports
@@ -787,9 +755,7 @@ class CodeContextEngine:
             raw = next(group for group in match.groups() if group)
             target = None
             if raw.startswith("."):
-                target = self._resolve_relative_module(
-                    path.parent, raw, [".ts", ".tsx", ".js", ".jsx"]
-                )
+                target = self._resolve_relative_module(path.parent, raw, [".ts", ".tsx", ".js", ".jsx"])
             imports.append((raw, target))
         return imports
 
@@ -953,23 +919,17 @@ class CodeContextEngine:
                 )
         return matches
 
-    def _python_text_search(
-        self, query: str, search_path: Path, *, limit: int, ignore_case: bool
-    ) -> list[TextMatch]:
+    def _python_text_search(self, query: str, search_path: Path, *, limit: int, ignore_case: bool) -> list[TextMatch]:
         query_cmp = query.lower() if ignore_case else query
         paths = [search_path] if search_path.is_file() else iter_source_files(search_path)
         matches: list[TextMatch] = []
         for path in paths:
             rel = _safe_relpath(self.repo_root, path)
-            for line_no, line in enumerate(
-                path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
-            ):
+            for line_no, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
                 hay = line.lower() if ignore_case else line
                 column = hay.find(query_cmp)
                 if column >= 0:
-                    matches.append(
-                        TextMatch(file_path=rel, line=line_no, column=column + 1, text=line)
-                    )
+                    matches.append(TextMatch(file_path=rel, line=line_no, column=column + 1, text=line))
                     if len(matches) >= limit:
                         return matches
         return matches

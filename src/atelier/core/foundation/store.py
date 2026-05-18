@@ -846,6 +846,12 @@ class ContextStore:
         with contextlib.suppress(OSError):
             trace_json_path.unlink()
 
+    def trace_exists(self, trace_id: str) -> bool:
+        """Lightweight existence check — no deserialization."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT 1 FROM traces WHERE id = ?", (trace_id,)).fetchone()
+        return row is not None
+
     def get_trace(self, trace_id: str) -> Trace | None:
         with self._connect() as conn:
             row = conn.execute("SELECT payload FROM traces WHERE id = ?", (trace_id,)).fetchone()

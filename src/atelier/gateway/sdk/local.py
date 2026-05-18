@@ -42,6 +42,19 @@ from atelier.infra.runtime.cost_tracker import CostTracker
 from atelier.infra.storage.factory import make_memory_store
 
 
+def _evaluate_eval_payload(item: dict[str, Any]) -> EvalRecord:
+    expected_status = str(item.get("expected_status", "pass"))
+    actual_status = str(item.get("actual_status", expected_status))
+    return EvalRecord(
+        case_id=str(item.get("id", "unknown")),
+        domain=str(item.get("domain", "unknown")),
+        description=str(item.get("description", "")),
+        expected_status=expected_status,
+        actual_status=actual_status,
+        passed=actual_status == expected_status,
+    )
+
+
 class LocalClient(AtelierClient):
     def __init__(self, *, root: str | Path | None = None) -> None:
         if root is None:
@@ -320,21 +333,10 @@ class LocalClient(AtelierClient):
         domain: str | None = None,
         limit: int = 50,
     ) -> EvalRunResult:
-        """List eval cases (plan-check based evals are deprecated)."""
+        """Evaluate local eval cases using their declared expected outcome."""
         items = self._list_evals(domain=domain)
         if case_id is not None:
             items = [item for item in items if item.get("id") == case_id]
         items = items[:limit]
-        results: list[EvalRecord] = []
-        for item in items:
-            results.append(
-                EvalRecord(
-                    case_id=str(item.get("id", "unknown")),
-                    domain=str(item.get("domain", "unknown")),
-                    description=str(item.get("description", "")),
-                    expected_status=str(item.get("expected_status", "pass")),
-                    actual_status="deprecated",
-                    passed=False,
-                )
-            )
+        results = [_evaluate_eval_payload(item) for item in items]
         return EvalRunResult(results=results)

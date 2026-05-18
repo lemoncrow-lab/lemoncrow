@@ -106,11 +106,10 @@ def operation_key(domain: str | None, task: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-@dataclass
-class CallRecord:
-    """One LLM call inside a run."""
 @dataclass(frozen=True)
 class CallRecord:
+    """One LLM call inside a run."""
+
     operation: str
     model: str
     input_tokens: int

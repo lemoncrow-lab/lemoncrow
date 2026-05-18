@@ -117,9 +117,15 @@ class AtelierRuntimeCore:
             from atelier.infra.embeddings.factory import make_embedder
             from atelier.infra.storage.factory import make_memory_store
 
-            capability = ArchivalRecallCapability(make_memory_store(self.root), make_embedder(), redactor=redact)
+            memory_store = make_memory_store(self.root)
+            capability = ArchivalRecallCapability(memory_store, make_embedder(), redactor=redact)
             passages, _ = capability.recall(agent_id=agent_id, query=task, top_k=3)
             scoped_passages = filter_scoped_passages(passages, requested_agent_id=agent_id)[:3]
+            if not scoped_passages:
+                scoped_passages = filter_scoped_passages(
+                    memory_store.list_passages(agent_id, limit=3),
+                    requested_agent_id=agent_id,
+                )[:3]
             memory_context = render_memory_for_agent(scoped_passages)
             recalled_passages = summarize_recalled_passages(scoped_passages, query=task)
 

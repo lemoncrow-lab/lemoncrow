@@ -116,11 +116,7 @@ def _read_tool_cost_fraction(report: SessionReport) -> float:
     """Fraction of tool cost that goes to read-class tools (0.0-1.0)."""
     if report.total_cost_usd <= 0:
         return 0.0
-    read_cost = sum(
-        cost
-        for tool_name, _count, cost in report.top_tools_by_cost
-        if tool_name.lower() in _READ_TOOLS
-    )
+    read_cost = sum(cost for tool_name, _count, cost in report.top_tools_by_cost if tool_name.lower() in _READ_TOOLS)
     return read_cost / report.total_cost_usd
 
 
@@ -192,17 +188,12 @@ def _rule_compact_aggression(
     sessions_affected = sum(
         1
         for data in outcomes_by_session.values()
-        if any(
-            float(e.get("extra_read_rate") or 0.0) > 0.15
-            for e in (data.get("compact_outcomes") or [])
-        )
+        if any(float(e.get("extra_read_rate") or 0.0) > 0.15 for e in (data.get("compact_outcomes") or []))
     )
 
     return Opportunity(
         kind="compact_aggression",
-        message=(
-            f"avg compact extra_read_rate {avg_rate:.0%} — consider tuning down compact aggression"
-        ),
+        message=(f"avg compact extra_read_rate {avg_rate:.0%} — consider tuning down compact aggression"),
         estimated_savings_usd=0.0,
         sessions_affected=sessions_affected,
     )
@@ -243,10 +234,7 @@ def _rule_error_pattern(
     tool_errors: dict[str, int] = defaultdict(int)
     for report in reports:
         for snap in snaps:
-            if (
-                snap.get("session_id") == report.session_id
-                and int(snap.get("errors_seen") or 0) > 0
-            ):
+            if snap.get("session_id") == report.session_id and int(snap.get("errors_seen") or 0) > 0:
                 for tool_name, _count, _cost in report.top_tools_by_cost[:1]:
                     tool_errors[tool_name] += 1
 
@@ -262,8 +250,7 @@ def _rule_error_pattern(
     return Opportunity(
         kind="error_pattern",
         message=(
-            f"{top_tool} has high error rate across {affected} sessions"
-            " — consider stronger routing for that tool"
+            f"{top_tool} has high error rate across {affected} sessions" " — consider stronger routing for that tool"
         ),
         estimated_savings_usd=0.0,
         sessions_affected=affected,
@@ -378,9 +365,7 @@ def build_insights(
             agg_by_tool[tool_name] += cost
 
     # Top sessions by cost (up to 5).
-    sorted_pairs = sorted(
-        zip(reports, snap_by_index, strict=True), key=lambda rs: rs[0].total_cost_usd, reverse=True
-    )
+    sorted_pairs = sorted(zip(reports, snap_by_index, strict=True), key=lambda rs: rs[0].total_cost_usd, reverse=True)
     top_sessions = [
         SessionSummary(
             session_id=r.session_id or str(s.get("run_id") or "")[:8],
@@ -404,19 +389,14 @@ def build_insights(
     high_extra_read_sessions = [
         sid
         for sid, data in outcomes_by_session.items()
-        if any(
-            float(e.get("extra_read_rate") or 0.0) > 0.20
-            for e in (data.get("compact_outcomes") or [])
-        )
+        if any(float(e.get("extra_read_rate") or 0.0) > 0.20 for e in (data.get("compact_outcomes") or []))
     ]
 
     outcomes_summary = OutcomesSummary(
         route_decisions=len(all_route),
         route_avg_score=round(sum(route_scores) / len(route_scores), 4) if route_scores else 0.0,
         compact_events=len(all_compact),
-        compact_avg_score=round(sum(compact_scores) / len(compact_scores), 4)
-        if compact_scores
-        else 0.0,
+        compact_avg_score=round(sum(compact_scores) / len(compact_scores), 4) if compact_scores else 0.0,
         sessions_with_high_extra_reads=high_extra_read_sessions,
     )
 
@@ -479,23 +459,13 @@ def render_text(window: InsightsWindow, *, no_color: bool = False) -> str:
     lines.append(f"Weekly insights · {since_str} to {until_str}")
     lines.append("─" * 49)
 
-    avg_min = (
-        (window.total_duration_seconds / window.session_count / 60) if window.session_count else 0.0
-    )
+    avg_min = (window.total_duration_seconds / window.session_count / 60) if window.session_count else 0.0
     total_h, total_rem = divmod(int(window.total_duration_seconds), 3600)
     total_m = total_rem // 60
-    savings_pct = (
-        (window.total_atelier_savings_usd / window.total_cost_usd * 100)
-        if window.total_cost_usd > 0
-        else 0.0
-    )
+    savings_pct = (window.total_atelier_savings_usd / window.total_cost_usd * 100) if window.total_cost_usd > 0 else 0.0
     lines.append(
         f"Sessions:         {window.session_count}"
-        + (
-            f" (avg {int(avg_min)} min, total {total_h}h {total_m}m)"
-            if window.session_count
-            else ""
-        )
+        + (f" (avg {int(avg_min)} min, total {total_h}h {total_m}m)" if window.session_count else "")
     )
     lines.append(f"AI spend:         ${window.total_cost_usd:.2f}")
     lines.append(

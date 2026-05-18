@@ -14,7 +14,6 @@ import {
 import {
   Chip,
   MetricCard,
-  PageHero,
   SectionHeader,
   Slider,
   SnippetCard,

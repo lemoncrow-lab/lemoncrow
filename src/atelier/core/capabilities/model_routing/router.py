@@ -32,31 +32,47 @@ _EXPENSIVE_TOOLS = {"agent", "task", "spawn", "delegate", "architect"}
 
 # Session-phase classification — used by _score_session_phase.
 # Exploration tools: reading, searching, inspecting the codebase.
-_EXPLORATION_TOOLS = frozenset({
-    "grep", "glob", "search", "smart_search", "context", "memory",
-    "webfetch", "websearch", "toolsearch", "ls", "list", "read", "smart_read",
-})
+_EXPLORATION_TOOLS = frozenset(
+    {
+        "grep",
+        "glob",
+        "search",
+        "smart_search",
+        "context",
+        "memory",
+        "webfetch",
+        "websearch",
+        "toolsearch",
+        "ls",
+        "list",
+        "read",
+        "smart_read",
+    }
+)
 # Execution tools: mutating the workspace or delegating sub-work.
-_EXECUTION_TOOLS = frozenset({
-    "edit", "smart_edit", "write", "multiedit", "notebookedit",
-    "bash", "shell", "agent", "task", "todowrite", "apply_patch",
-})
+_EXECUTION_TOOLS = frozenset(
+    {
+        "edit",
+        "smart_edit",
+        "write",
+        "multiedit",
+        "notebookedit",
+        "bash",
+        "shell",
+        "agent",
+        "task",
+        "todowrite",
+        "apply_patch",
+    }
+)
 
-_CHEAP_VERBS_RE = re.compile(
-    r"\b(explain|show|list|summari[sz]e|read|find|search|inspect)\b", re.IGNORECASE
-)
-_MEDIUM_VERBS_RE = re.compile(
-    r"\b(implement|fix|add|update|change|refactor|test|verify)\b", re.IGNORECASE
-)
+_CHEAP_VERBS_RE = re.compile(r"\b(explain|show|list|summari[sz]e|read|find|search|inspect)\b", re.IGNORECASE)
+_MEDIUM_VERBS_RE = re.compile(r"\b(implement|fix|add|update|change|refactor|test|verify)\b", re.IGNORECASE)
 _EXPENSIVE_VERBS_RE = re.compile(
     r"\b(design|architect|plan|strategy|migrate|rewrite|end[- ]to[- ]end)\b", re.IGNORECASE
 )
-_SMALL_OUTPUT_RE = re.compile(
-    r"\b(<\s*500|under\s+500|brief|short|concise|one[- ]line)\b", re.IGNORECASE
-)
-_OPEN_OUTPUT_RE = re.compile(
-    r"\b(open[- ]ended|comprehensive|full|deep|thorough|all files|entire)\b", re.IGNORECASE
-)
+_SMALL_OUTPUT_RE = re.compile(r"\b(<\s*500|under\s+500|brief|short|concise|one[- ]line)\b", re.IGNORECASE)
+_OPEN_OUTPUT_RE = re.compile(r"\b(open[- ]ended|comprehensive|full|deep|thorough|all files|entire)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -138,9 +154,7 @@ class ModelRouter:
                 tier = affinity_tier
                 reasons.append("cache_affinity: follow previous cache-writing model")
             else:
-                reasons.append(
-                    f"cache_affinity ignored: scored {tier}, affinity suggests {affinity_tier}"
-                )
+                reasons.append(f"cache_affinity ignored: scored {tier}, affinity suggests {affinity_tier}")
 
         return ModelRecommendation(
             tier=tier,

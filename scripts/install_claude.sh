@@ -89,7 +89,6 @@ else
     done
 fi
 run "cp -r '${SOURCE_PLUGIN_DIR}/hooks' '$STAGING_DIR/'"
-run "cp -r '${SOURCE_PLUGIN_DIR}/servers' '$STAGING_DIR/'"
 run "cp '${SOURCE_PLUGIN_DIR}/.mcp.json' '$STAGING_DIR/'"
 PLUGIN_DIR="$STAGING_DIR"
 INSTALL_SOURCE_DIR="$STAGING_DIR"
@@ -232,13 +231,6 @@ if [ -f "${PLUGIN_MCP_JSON}" ]; then
     fi
 else
     struct_fail ".mcp.json missing: ${PLUGIN_MCP_JSON}"
-fi
-
-WRAPPER="${SOURCE_PLUGIN_DIR}/servers/atelier-mcp-wrapper.js"
-if [ -f "${WRAPPER}" ]; then
-    struct_pass "MCP wrapper exists: servers/atelier-mcp-wrapper.js"
-else
-    struct_fail "MCP wrapper missing: ${WRAPPER}"
 fi
 
 if [ "$STRUCT_FAIL" -ne 0 ]; then

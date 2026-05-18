@@ -1,4 +1,4 @@
-"""Routing savings benchmark — real export replay.
+"""Routing savings benchmark - real export replay.
 
 Reads real Claude Code session exports (exports/claude/*.jsonl) and measures
 how much cost Atelier model routing would have saved by recommending a cheaper
@@ -7,7 +7,7 @@ model tier instead of the session's actual model.
 Key design principle
 --------------------
 Savings are computed as ``actual_model_cost - recommended_tier_cost``.
-If the session already used a cheap model (haiku), routing cannot save more —
+If the session already used a cheap model (haiku), routing cannot save more -
 ``delta = 0`` for those calls. Savings are never inflated.
 
 Algorithm
@@ -18,9 +18,9 @@ Algorithm
    b. Run ``ModelRouter().score(tool_name, "", session_state)`` to get the
       recommended tier.
    c. Compute:
-      * ``baseline_cost``    — tokens × actual session model price.
-      * ``recommended_cost`` — tokens × recommended model price.
-      * ``delta``            — ``baseline_cost - recommended_cost``.
+      * ``baseline_cost``    - tokens x actual session model price.
+      * ``recommended_cost`` - tokens x recommended model price.
+      * ``delta``            - ``baseline_cost - recommended_cost``.
       Positive = Atelier would have recommended a cheaper model.
       Zero or negative = actual model was already optimal or cheaper.
 3. Aggregate per-session and globally.
@@ -97,9 +97,8 @@ def _tokens_to_usd(tokens: int, price_per_m: float) -> float:
 
 def _turn_cost(input_tokens: int, output_tokens: int, tier: ModelTier) -> float:
     """Total USD cost for a turn (fresh input + output, not cache reads)."""
-    return (
-        _tokens_to_usd(input_tokens, _TIER_INPUT_PRICE_PER_M[tier])
-        + _tokens_to_usd(output_tokens, _TIER_OUTPUT_PRICE_PER_M[tier])
+    return _tokens_to_usd(input_tokens, _TIER_INPUT_PRICE_PER_M[tier]) + _tokens_to_usd(
+        output_tokens, _TIER_OUTPUT_PRICE_PER_M[tier]
     )
 
 
@@ -141,7 +140,7 @@ class SessionRoutingResult:
     total_baseline_cost_usd: float
     total_recommended_cost_usd: float
     cost_saved_usd: float
-    by_tier: dict[str, int] = field(default_factory=dict)  # recommended tier → count
+    by_tier: dict[str, int] = field(default_factory=dict)  # recommended tier -> count
 
     def to_dict(self) -> dict[str, Any]:
         downtiered_pct = (
@@ -236,7 +235,7 @@ def _parse_session_routing(path: Path) -> tuple[list[dict[str, Any]], str]:
                         "index": len(turns),
                         # Use only fresh input tokens (not cache reads) for cost.
                         # Cache reads are already priced at a steep discount and
-                        # are accounted for separately in billing — using the full
+                        # are accounted for separately in billing - using the full
                         # effective context would inflate savings estimates.
                         "input_tokens": inp + cache_create,
                         "output_tokens": out,
@@ -278,10 +277,7 @@ def run_routing_bench(
         Benchmark results suitable for writing to ``routing_latest.json``.
     """
     # Resolve corpus path
-    if (corpus_dir / "claude").is_dir():
-        search_dir = corpus_dir / "claude"
-    else:
-        search_dir = corpus_dir
+    search_dir = corpus_dir / "claude" if (corpus_dir / "claude").is_dir() else corpus_dir
 
     candidates = sorted(search_dir.glob("*.jsonl"), key=lambda p: -p.stat().st_size)
 
@@ -326,13 +322,10 @@ def run_routing_bench(
                 continue
 
             # Build session-phase signals from the preceding turns' tool calls.
-            recent_tool_calls = [
-                t["tool_names"][0] if t["tool_names"] else ""
-                for t in real_turns[max(0, i - 10):i]
-            ]
+            recent_tool_calls = [t["tool_names"][0] if t["tool_names"] else "" for t in real_turns[max(0, i - 10) : i]]
             rec = router.score(
                 tool_name,
-                "",  # no task text in replays — conservative estimate
+                "",  # no task text in replays - conservative estimate
                 {
                     "prior_errors": prior_errors,
                     "turn_number": i,
@@ -387,7 +380,7 @@ def run_routing_bench(
     if n == 0:
         return {
             "benchmark": "savings-routing",
-            "note": "delta vs actual session model — only turns where Atelier recommends cheaper tier",
+            "note": "delta vs actual session model - only turns where Atelier recommends cheaper tier",
             "sessions_benchmarked": 0,
             "sessions_skipped": sessions_skipped,
             "total_turns_analyzed": 0,
@@ -416,7 +409,7 @@ def run_routing_bench(
         "benchmark": "savings-routing",
         "note": (
             "savings = (actual_model_cost - recommended_model_cost) per turn. "
-            "Only positive deltas are counted — never inflated by assuming model was worse."
+            "Only positive deltas are counted - never inflated by assuming model was worse."
         ),
         "sessions_benchmarked": n,
         "sessions_skipped": sessions_skipped,

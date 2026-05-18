@@ -98,8 +98,7 @@ def mode_specs() -> dict[Mode, ModeSpec]:
             enable_savings_ledger=True,
             enable_smart_tools=True,
             description=(
-                "Forced workflow + run ledger + monitors + context compressor + "
-                "smart tools + savings ledger."
+                "Forced workflow + run ledger + monitors + context compressor + " "smart tools + savings ledger."
             ),
         ),
         Mode.ATELIER_WARM_REASONBLOCKS: ModeSpec(
@@ -114,8 +113,7 @@ def mode_specs() -> dict[Mode, ModeSpec]:
             enable_smart_tools=True,
             requires_warm_blocks=True,
             description=(
-                "Full runtime preloaded with calibration-derived ReasonBlocks "
-                "(no task-specific gold patches)."
+                "Full runtime preloaded with calibration-derived ReasonBlocks " "(no task-specific gold patches)."
             ),
         ),
     }

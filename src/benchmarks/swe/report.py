@@ -58,16 +58,12 @@ def render_markdown(by_mode: dict[str, dict[str, Any]], meta: dict[str, Any]) ->
     out.append("")
     out.append("## Notes")
     out.append("- Resolve % comes from the configured evaluator (mock if `swebench` is absent).")
-    out.append(
-        "- Costs use the same per-1M token rates as `atelier benchmark` (see `cost_tracker.py`)."
-    )
+    out.append("- Costs use the same per-1M token rates as `atelier benchmark` (see `cost_tracker.py`).")
     out.append("- ReasonBlock hits / monitor events are zero by construction in `vanilla` mode.")
     return "\n".join(out) + "\n"
 
 
-def write_report(
-    metrics_path: Path, report_md: Path, report_json: Path, meta: dict[str, Any]
-) -> None:
+def write_report(metrics_path: Path, report_md: Path, report_json: Path, meta: dict[str, Any]) -> None:
     rows: list[RunMetrics] = read_metrics(metrics_path)
     by_mode = aggregate(rows)
     md = render_markdown(by_mode, meta)

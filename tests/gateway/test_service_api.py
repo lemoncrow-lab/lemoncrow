@@ -85,9 +85,7 @@ def test_overview_accessible_no_auth(app_no_auth: TestClient) -> None:
     assert "total_blocks" in data
 
 
-def test_mcp_status_matches_non_dev_tool_visibility(
-    store: SQLiteStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_mcp_status_matches_non_dev_tool_visibility(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
     monkeypatch.delenv("ATELIER_DEV_MODE", raising=False)
     app = create_app(store_root=store.root)
@@ -302,9 +300,7 @@ def test_external_analytics_endpoints_return_summary_and_detail(
     assert external_resp.status_code == 200
     external_data = external_resp.json()
     assert external_data["totals"]["runs_total"] == 2
-    assert (
-        external_data["latest_by_tool"]["codeburn"]["summary"]["highlights"][0]["key"] == "cost_usd"
-    )
+    assert external_data["latest_by_tool"]["codeburn"]["summary"]["highlights"][0]["key"] == "cost_usd"
 
     dashboard_resp = app_no_auth.get("/analytics/dashboard")
     assert dashboard_resp.status_code == 200
@@ -406,9 +402,7 @@ def test_dashboard_external_uses_period_matched_codeburn_snapshot(
     assert dashboard_resp.status_code == 200
 
     dashboard = dashboard_resp.json()
-    codeburn_snapshot = next(
-        item for item in dashboard["external"]["latest"] if item["tool"] == "codeburn"
-    )
+    codeburn_snapshot = next(item for item in dashboard["external"]["latest"] if item["tool"] == "codeburn")
     assert codeburn_snapshot["period"] == "today"
     assert dashboard["external"]["by_provider"] == [
         {
@@ -718,9 +712,7 @@ def test_dashboard_returns_hourly_usage_buckets(
     assert hourly[expected_hour]["sessions"] == 1
 
 
-def test_analytics_summary_uses_backend_pricing(
-    app_no_auth: TestClient, store: SQLiteStore
-) -> None:
+def test_analytics_summary_uses_backend_pricing(app_no_auth: TestClient, store: SQLiteStore) -> None:
     from atelier.core.capabilities.pricing import usage_cost_usd
     from atelier.core.foundation.models import ToolCall, Trace
 
@@ -745,9 +737,7 @@ def test_analytics_summary_uses_backend_pricing(
     assert resp.status_code == 200
     summary = resp.json()
 
-    assert summary["total_cost"] == usage_cost_usd(
-        "claude-sonnet-4-5", input_tokens=120, output_tokens=40
-    )
+    assert summary["total_cost"] == usage_cost_usd("claude-sonnet-4-5", input_tokens=120, output_tokens=40)
     assert summary["tool_calls"] == 2
     assert summary["unique_tools"] == 1
 

@@ -108,9 +108,7 @@ def test_initialize_returns_server_info() -> None:
 
 
 def test_notifications_initialized_returns_none() -> None:
-    resp = _handle(
-        {"jsonrpc": "2.0", "id": None, "method": "notifications/initialized", "params": {}}
-    )
+    resp = _handle({"jsonrpc": "2.0", "id": None, "method": "notifications/initialized", "params": {}})
     assert resp is None
 
 
@@ -137,9 +135,7 @@ def test_tools_list_only_product_tools_without_dev_mode(
     assert all("passive" not in tool["description"] for tool in tools if tool["name"] in STABLE_LLM_TOOLS)
 
 
-def test_cli_tools_list_respects_stable_and_dev_modes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cli_tools_list_respects_stable_and_dev_modes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ATELIER_DEV_MODE", raising=False)
     runner = CliRunner()
 
@@ -265,9 +261,7 @@ def test_run_rubric_gate_pass(store_root: Path) -> None:
 
 def test_compact_output_op_passthrough(store_root: Path) -> None:
     _ = store_root
-    payload = _result(
-        _call("compact", {"op": "output", "content": "short output", "content_type": "bash"})
-    )
+    payload = _result(_call("compact", {"op": "output", "content": "short output", "content_type": "bash"}))
     assert payload["compacted"] == "short output"
     assert payload["method"] == "passthrough"
 
@@ -348,14 +342,10 @@ def test_model_recommendation_emitted_before_tool_dispatch(store_root: Path) -> 
     assert recommendations[-1].payload["cost_saved_usd"] >= 0
 
 
-def test_compact_session_op_emits_session_compaction_savings(
-    monkeypatch: pytest.MonkeyPatch, store_root: Path
-) -> None:
+def test_compact_session_op_emits_session_compaction_savings(monkeypatch: pytest.MonkeyPatch, store_root: Path) -> None:
     _ = store_root
     events: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
-    )
+    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
     led = mcp_server._get_ledger()
     led.token_count = 48_000
     for idx in range(4):
@@ -377,9 +367,7 @@ def test_compact_advise_emits_session_compaction_savings_when_auto_compacting(
 ) -> None:
     _ = store_root
     events: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
-    )
+    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
     led = mcp_server._get_ledger()
     led.token_count = 160_000
     for idx in range(16):
@@ -416,9 +404,7 @@ def test_smart_read_and_search_surfaces(store_root: Path, tmp_path: Path) -> Non
     assert search_payload["_meta"]["fileMatchCount"] == 1
 
 
-def test_smart_edit_surface_applies_patch(
-    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_smart_edit_surface_applies_patch(store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _ = store_root
     monkeypatch.chdir(tmp_path)
     target = Path("edit.txt")
@@ -460,16 +446,12 @@ def test_repo_map_surface(store_root: Path, tmp_path: Path) -> None:
 def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
-    (tmp_path / "b.py").write_text(
-        "from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8"
-    )
+    (tmp_path / "b.py").write_text("from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8")
 
     indexed = _result(_call("code", {"op": "index", "repo_root": str(tmp_path)}))
     assert indexed["symbols_indexed"] >= 2
 
-    searched = _result(
-        _call("code", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"})
-    )
+    searched = _result(_call("code", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
     assert searched["items"]
 
     symbol = _result(
@@ -485,9 +467,7 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     )
     assert "def alpha" in symbol["source"]
 
-    outline = _result(
-        _call("code", {"op": "outline", "repo_root": str(tmp_path), "file_path": "a.py"})
-    )
+    outline = _result(_call("code", {"op": "outline", "repo_root": str(tmp_path), "file_path": "a.py"}))
     assert "a.py" in outline["files"]
 
     context = _result(
@@ -504,7 +484,5 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     )
     assert context["token_count"] <= context["budget_tokens"]
 
-    impact = _result(
-        _call("code", {"op": "impact", "repo_root": str(tmp_path), "file_path": "a.py"})
-    )
+    impact = _result(_call("code", {"op": "impact", "repo_root": str(tmp_path), "file_path": "a.py"}))
     assert "b.py" in impact["direct_importers"]

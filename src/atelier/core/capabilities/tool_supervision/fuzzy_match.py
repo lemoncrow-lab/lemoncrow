@@ -102,6 +102,40 @@ def _make_dmp(content_len: int) -> _DMP:
     return dmp
 
 
+def _find_exact_normalized_candidates(content: str, old_string: str) -> list[FuzzyCandidate]:
+    lines = content.splitlines(keepends=True)
+    offsets: list[int] = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+
+    norm_old = normalize_for_fuzzy(old_string)
+    n_old_lines = max(1, len(old_string.splitlines()))
+    candidates: list[FuzzyCandidate] = []
+    for start_line_idx in range(len(lines)):
+        consumed = 0
+        end_line_idx = start_line_idx
+        while consumed < n_old_lines and end_line_idx < len(lines):
+            if lines[end_line_idx].strip():
+                consumed += 1
+            end_line_idx += 1
+        if consumed < n_old_lines:
+            continue
+        window = "".join(lines[start_line_idx:end_line_idx])
+        if normalize_for_fuzzy(window) != norm_old:
+            continue
+        candidates.append(
+            FuzzyCandidate(
+                start_line=start_line_idx + 1,
+                end_line=end_line_idx,
+                start_offset=offsets[start_line_idx],
+                end_offset=offsets[end_line_idx],
+                distance=0,
+                ratio=1.0,
+            )
+        )
+    return candidates
+
+
 def apply_fuzzy_replace(content: str, old_string: str, new_string: str) -> tuple[str, int, int]:
     """Fuzzy-replace old_string with new_string inside content.
 
@@ -111,26 +145,30 @@ def apply_fuzzy_replace(content: str, old_string: str, new_string: str) -> tuple
 
     Returns (new_content, 1-based line_start, 1-based line_end).
     """
-    dmp = _make_dmp(len(content))
-
-    match_char = dmp.match_main(content, old_string, 0)
-    if match_char == -1:
-        raise ValueError("old_string not found in file")
-
-    # Build per-line character offsets
     lines = content.splitlines(keepends=True)
     offsets: list[int] = [0]
     for line in lines:
         offsets.append(offsets[-1] + len(line))
 
+    exact_candidates = _find_exact_normalized_candidates(content, old_string)
+    if len(exact_candidates) == 1:
+        candidate = exact_candidates[0]
+        new_content = content[: candidate.start_offset] + new_string + content[candidate.end_offset :]
+        return new_content, candidate.start_line, candidate.end_line
+
+    dmp = _make_dmp(len(content))
+    match_char = dmp.match_main(content, old_string, 0)
+    if match_char == -1:
+        raise ValueError("old_string not found in file")
+
     # Which line contains match_char?
     start_line_idx = max(0, bisect_right(offsets, match_char) - 1)
+    n_old_lines = max(1, len(old_string.splitlines()))
 
     # Replace the same number of logical lines as old_string spans.
     # When the content has extra blank lines (e.g. blank-line drift),
     # skip over them so the replacement boundary stays anchored to the
     # last non-blank line that holds old_string content.
-    n_old_lines = max(1, len(old_string.splitlines()))
     consumed = 0
     end_line_idx = start_line_idx
     while consumed < n_old_lines and end_line_idx < len(lines):
@@ -191,6 +229,7 @@ def find_fuzzy_candidates(
 __all__ = [
     "FuzzyAmbiguousMatchError",
     "FuzzyCandidate",
+    "_find_exact_normalized_candidates",
     "apply_fuzzy_replace",
     "bounded_levenshtein",
     "find_fuzzy_candidates",

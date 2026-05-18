@@ -1,125 +1,178 @@
 host_id: copilot
 name: Copilot
 version: 1.0.0
-description: Integration with GitHub Copilot in VS Code for intelligent code completion and analysis
+description: Integration with GitHub Copilot in VS Code for intelligent code completion
+  and analysis
 platforms:
-  - macos
-  - linux
-  - windows
-
+- macos
+- linux
+- windows
 detection:
   command: code --version
   config_path: ~/.vscode/settings.json
   env_var: GITHUB_TOKEN
-
 recommended_packs:
-  - atelier-pack-vscode-extensions
-  - atelier-pack-javascript-typescript
-  - atelier-pack-python-development
-
+- atelier-pack-vscode-extensions
+- atelier-pack-javascript-typescript
+- atelier-pack-python-development
 mcp:
   servers:
-    - name: atelier
-      command: atelier-mcp
-      args: ["--host", "copilot"]
-      env:
-        ATELIER_ROOT: "~/.atelier"
-
+  - name: atelier
+    command: atelier-mcp
+    args:
+    - --host
+    - copilot
+    env:
+      ATELIER_ROOT: ~/.atelier
 installation:
-  macos: |
-    # Install VS Code (if not already installed)
+  macos: '# Install VS Code (if not already installed)
+
     brew install --cask visual-studio-code
 
+
     # Install Atelier
+
     brew install atelier
 
+
     # Setup Copilot integration
+
     atelier host setup copilot
 
+
     # Install Copilot extension if needed
+
     code --install-extension GitHub.Copilot
 
+
     # Enable MCP in VS Code settings
+
     atelier host configure copilot --enable-mcp
 
+
     # Verify installation
+
     atelier host info copilot
 
-  linux: |
-    # Install VS Code (snap or package manager)
+    '
+  linux: '# Install VS Code (snap or package manager)
+
     sudo snap install code --classic
+
     # or: sudo apt-get install code
 
+
     # Install Atelier
-    sudo apt-get install atelier  # or your distro's package manager
+
+    sudo apt-get install atelier  # or your distro''s package manager
+
 
     # Setup Copilot integration
+
     atelier host setup copilot
 
+
     # Install Copilot extension if needed
+
     code --install-extension GitHub.Copilot
 
+
     # Enable MCP in VS Code settings
+
     atelier host configure copilot --enable-mcp
 
+
     # Verify installation
+
     atelier host info copilot
 
-  windows: |
-    # Install VS Code
+    '
+  windows: '# Install VS Code
+
     choco install vscode
 
+
     # Install Atelier
+
     choco install atelier
 
+
     # Setup Copilot integration
+
     atelier host setup copilot
 
+
     # Install Copilot extension if needed
+
     code --install-extension GitHub.Copilot
 
+
     # Enable MCP in VS Code settings
+
     atelier host configure copilot --enable-mcp
 
+
     # Verify installation
+
     atelier host info copilot
 
+    '
 prompt_templates:
-  - name: session-optimization
-    template: |
-      Atelier budget optimizer is active for Copilot.
-      Before changing files, name the deliverable and summarize the smallest viable plan.
-      Keep context narrow: use only the current goal, relevant files, failing command/output, and known constraints.
-      Restate working context in under 10 bullets before editing or after compaction.
-      If more than 10 minutes pass without an edit, name the expected deliverable or check with the user.
-      If the same approach fails twice, call rescue or change approach; do not retry a third time.
+- name: session-optimization
+  template: 'Atelier budget optimizer is active for Copilot.
 
-  - name: pack-context
-    template: |
-      Atelier pack loaded: {pack.name}
-      Language/Domain: {pack.domain}
+    Before changing files, name the deliverable and summarize the smallest viable
+    plan.
 
-      Reasoning patterns available: {pack.reasonblocks_count}
-      Quality gates available: {pack.rubrics_count}
+    Keep context narrow: use only the current goal, relevant files, failing command/output,
+    and known constraints.
 
-      Use these patterns for better code reasoning and quality assurance.
+    Restate working context in under 10 bullets before editing or after compaction.
 
-  - name: code-completion
-    template: |
-      Complete this code using pack '{pack.name}':
+    If more than 10 minutes pass without an edit, name the expected deliverable or
+    check with the user.
 
-      Available patterns from pack:
-      {pack.reasonblocks_preview}
+    If the same approach fails twice, call rescue or change approach; do not retry
+    a third time.'
+- name: pack-context
+  template: 'Atelier pack loaded: {pack.name}
 
-      Apply these quality checks after completion:
-      {pack.rubrics_preview}
+    Language/Domain: {pack.domain}
 
-  - name: refactoring-guidance
-    template: |
-      Before refactoring, consider patterns from pack '{pack.name}':
 
-      Relevant patterns:
-      - {pack.patterns_for_refactoring}
+    Reasoning patterns available: {pack.reasonblocks_count}
 
-      Validation checks to apply:
-      - {pack.validation_rubrics}
+    Quality gates available: {pack.rubrics_count}
+
+
+    Use these patterns for better code reasoning and quality assurance.
+
+    '
+- name: code-completion
+  template: 'Complete this code using pack ''{pack.name}'':
+
+
+    Available patterns from pack:
+
+    {pack.reasonblocks_preview}
+
+
+    Apply these quality checks after completion:
+
+    {pack.rubrics_preview}
+
+    '
+- name: refactoring-guidance
+  template: 'Before refactoring, consider patterns from pack ''{pack.name}'':
+
+
+    Relevant patterns:
+
+    - {pack.patterns_for_refactoring}
+
+
+    Validation checks to apply:
+
+    - {pack.validation_rubrics}
+
+    '

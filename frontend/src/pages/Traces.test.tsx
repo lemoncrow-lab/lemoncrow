@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
-import Traces from "./Traces";
+import Sessions from "./Sessions";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -16,7 +16,7 @@ describe("Traces page", () => {
     vi.restoreAllMocks();
   });
 
-  it("searches all sessions in place and shows surrounding match snippets", async () => {
+  it("searches all sessions in place and updates the visible session cards", async () => {
     const user = userEvent.setup();
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
@@ -71,7 +71,7 @@ describe("Traces page", () => {
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
         <Routes>
-          <Route path="/sessions" element={<Traces />} />
+          <Route path="/sessions" element={<Sessions />} />
         </Routes>
       </MemoryRouter>
     );
@@ -80,20 +80,8 @@ describe("Traces page", () => {
       expect(screen.getByText("Baseline session")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: /^copilot$/i }));
-
-    await waitFor(() => {
-      expect(
-        fetchMock.mock.calls.some(([url]) =>
-          String(url).includes("host=copilot")
-        )
-      ).toBe(true);
-    });
-
     await user.type(
-      screen.getByPlaceholderText(
-        /Search tasks, reasoning, tools, commands, files, validations, and summaries/i
-      ),
+      screen.getByPlaceholderText(/Search sessions, tasks, models/i),
       "timeout"
     );
 
@@ -105,12 +93,16 @@ describe("Traces page", () => {
       ).toBe(true);
     });
 
-    expect(await screen.findByText("Search shell timeout")).toBeInTheDocument();
-    expect(screen.getByText(/run-timeout/i)).toBeInTheDocument();
-    expect(screen.getByText(/Commands:/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText((_, element) =>
+        element?.textContent === "Search shell timeout"
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Baseline session")).not.toBeInTheDocument();
+    expect(screen.getByText(/Select History/i)).toBeInTheDocument();
   });
 
-  it("hides stale or unrelated highlighted snippets for the current search", async () => {
+  it("does not leak unrelated snippets into the current search results", async () => {
     const user = userEvent.setup();
     vi.spyOn(globalThis, "fetch").mockImplementation(
       (input: RequestInfo | URL) => {
@@ -166,7 +158,7 @@ describe("Traces page", () => {
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
         <Routes>
-          <Route path="/sessions" element={<Traces />} />
+          <Route path="/sessions" element={<Sessions />} />
         </Routes>
       </MemoryRouter>
     );
@@ -176,16 +168,25 @@ describe("Traces page", () => {
     });
 
     await user.type(
-      screen.getByPlaceholderText(
-        /Search tasks, reasoning, tools, commands, files, validations, and summaries/i
-      ),
+      screen.getByPlaceholderText(/Search sessions, tasks, models/i),
       "sidecar"
     );
 
     expect(
-      await screen.findByText("Investigate sidecar session")
+      await screen.findByText(
+        (_, element) => element?.textContent === "Investigate sidecar session"
+      )
     ).toBeInTheDocument();
-    expect(screen.getByText(/inspect/i)).toBeInTheDocument();
-    expect(screen.queryByText(/shopify/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Base session")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText((_, element) =>
+        element?.textContent?.includes("shopify") ?? false
+      )
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText((_, element) =>
+        element?.textContent?.includes("inspect") ?? false
+      )
+    ).not.toBeInTheDocument();
   });
 });

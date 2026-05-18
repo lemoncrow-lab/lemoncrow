@@ -1,102 +1,143 @@
 host_id: claude
 name: Claude Code Plugin
 version: 1.0.0
-description: Integration with Anthropic Claude Code plugin for enhanced code reasoning and analysis
+description: Integration with Anthropic Claude Code plugin for enhanced code reasoning
+  and analysis
 platforms:
-  - macos
-  - linux
-  - windows
-
+- macos
+- linux
+- windows
 detection:
   command: claude --version
   config_path: ~/.claude/config.json
   env_var: CLAUDE_API_KEY
-
 recommended_packs:
-  - atelier-pack-coding-general
-  - atelier-pack-ai-referral
-  - atelier-pack-audit-service
-
+- atelier-pack-coding-general
+- atelier-pack-ai-referral
+- atelier-pack-audit-service
 mcp:
   servers:
-    - name: atelier
-      command: atelier-mcp
-      args: ["--host", "claude"]
-      env:
-        ATELIER_ROOT: "~/.atelier"
-
+  - name: atelier
+    command: atelier-mcp
+    args:
+    - --host
+    - claude
+    env:
+      ATELIER_ROOT: ~/.atelier
 installation:
-  macos: |
-    # Install Atelier
+  macos: '# Install Atelier
+
     brew install atelier
 
-    # Setup Claude integration
-    atelier host setup claude
-
-    # Verify installation
-    atelier host info claude
-
-    # Add to Claude's MCP config
-    echo 'Claude desktop config updated automatically'
-
-  linux: |
-    # Install Atelier
-    sudo apt-get install atelier  # or your distro's package manager
 
     # Setup Claude integration
+
     atelier host setup claude
 
+
     # Verify installation
+
     atelier host info claude
 
-    # Add to Claude's MCP config
-    echo 'Claude desktop config updated automatically'
 
-  windows: |
-    # Install Atelier via choco or manual installation
+    # Add to Claude''s MCP config
+
+    echo ''Claude desktop config updated automatically''
+
+    '
+  linux: '# Install Atelier
+
+    sudo apt-get install atelier  # or your distro''s package manager
+
+
+    # Setup Claude integration
+
+    atelier host setup claude
+
+
+    # Verify installation
+
+    atelier host info claude
+
+
+    # Add to Claude''s MCP config
+
+    echo ''Claude desktop config updated automatically''
+
+    '
+  windows: '# Install Atelier via choco or manual installation
+
     choco install atelier
 
+
     # Setup Claude integration
+
     atelier host setup claude
 
+
     # Verify installation
+
     atelier host info claude
 
-    # Add to Claude's MCP config
+
+    # Add to Claude''s MCP config
+
     echo "Claude desktop config updated automatically"
 
+    '
 prompt_templates:
-  - name: session-optimization
-    template: |
-      Atelier budget optimizer is active for Claude.
-      Before changing files, name the deliverable and summarize the smallest viable plan.
-      Keep context narrow: use only the current goal, relevant files, failing command/output, and known constraints.
-      Restate working context in under 10 bullets before editing or after compaction.
-      If more than 10 minutes pass without an edit, name the expected deliverable or check with the user.
-      If the same approach fails twice, call rescue or change approach; do not retry a third time.
+- name: session-optimization
+  template: 'Atelier budget optimizer is active for Claude.
 
-  - name: pack-context
-    template: |
-      You have access to Atelier pack: {pack.name}
+    Before changing files, name the deliverable and summarize the smallest viable
+    plan.
 
-      Available ReasonBlocks ({pack.reasonblocks_count}):
-      {pack.reasonblocks}
+    Keep context narrow: use only the current goal, relevant files, failing command/output,
+    and known constraints.
 
-      Available Rubrics ({pack.rubrics_count}):
-      {pack.rubrics}
+    Restate working context in under 10 bullets before editing or after compaction.
 
-      This pack provides structured reasoning patterns and quality gates for: {pack.domain}
+    If more than 10 minutes pass without an edit, name the expected deliverable or
+    check with the user.
 
-  - name: task-recommendation
-    template: |
-      Based on the task, I recommend using pack '{pack.recommended_pack}' which specializes in {pack.domain}.
-      The pack includes {pack.reasonblocks_count} reasoning patterns and {pack.rubrics_count} quality checks.
+    If the same approach fails twice, call rescue or change approach; do not retry
+    a third time.'
+- name: pack-context
+  template: 'You have access to Atelier pack: {pack.name}
 
-  - name: error-recovery
-    template: |
-      When encountering errors, consult the ReasonBlock '{block.name}' from pack '{pack.name}'.
 
-      Situation: {block.situation}
-      Triggers: {block.triggers}
-      Procedure: {block.procedure}
-      Verification steps: {block.verification}
+    Available ReasonBlocks ({pack.reasonblocks_count}):
+
+    {pack.reasonblocks}
+
+
+    Available Rubrics ({pack.rubrics_count}):
+
+    {pack.rubrics}
+
+
+    This pack provides structured reasoning patterns and quality gates for: {pack.domain}
+
+    '
+- name: task-recommendation
+  template: 'Based on the task, I recommend using pack ''{pack.recommended_pack}''
+    which specializes in {pack.domain}.
+
+    The pack includes {pack.reasonblocks_count} reasoning patterns and {pack.rubrics_count}
+    quality checks.
+
+    '
+- name: error-recovery
+  template: 'When encountering errors, consult the ReasonBlock ''{block.name}'' from
+    pack ''{pack.name}''.
+
+
+    Situation: {block.situation}
+
+    Triggers: {block.triggers}
+
+    Procedure: {block.procedure}
+
+    Verification steps: {block.verification}
+
+    '

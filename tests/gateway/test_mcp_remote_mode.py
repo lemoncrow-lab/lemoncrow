@@ -148,9 +148,7 @@ def test_initialize_request_returns_server_info(service_mode: None) -> None:
     assert resp["result"]["serverInfo"]["name"] == "atelier-context"
 
 
-def test_tools_list_returns_all_tools(
-    service_mode: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_tools_list_returns_all_tools(service_mode: None, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATELIER_DEV_MODE", "1")
     req = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
     resp = _handle(req)

@@ -92,6 +92,33 @@ function SidebarList({
   items: Array<string | { path: string; artifact_id?: string }>;
   color?: string;
 }) {
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for non-secure contexts (e.g. http on LAN)
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopiedPath(text);
+      setTimeout(
+        () => setCopiedPath((cur) => (cur === text ? null : cur)),
+        1200
+      );
+    } catch {
+      /* swallow — clipboard may be disabled */
+    }
+  };
+
   return (
     <section className="space-y-3">
       <h3 className="text-[9px] font-black uppercase tracking-widest text-neutral-500">
@@ -106,6 +133,11 @@ function SidebarList({
           const rawUrl = artId
             ? `/api/raw-artifacts/${artId}/content`
             : `/api/v1/files/content?path=${encodeURIComponent(p)}`;
+          // Absolute filesystem path → let Chrome try to open it directly.
+          // (Browsers may block file:// from http(s) origins; the user can
+          // still drop the URL into the address bar from the copy button.)
+          const fileUrl = isPath ? `file://${p}` : null;
+          const justCopied = copiedPath === p;
 
           return (
             <div
@@ -115,14 +147,39 @@ function SidebarList({
                 color
               )}
             >
-              <span
-                className="truncate flex-1 hover:text-neutral-300 cursor-default"
-                title={p}
-              >
-                {p}
-              </span>
-              {canOpenRaw && (
-                <div className="flex items-center gap-2 ml-2 opacity-0 group-hover/item:opacity-100 transition-opacity flex-shrink-0 bg-[#0a0a0a] px-1">
+              {fileUrl ? (
+                <a
+                  href={fileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate flex-1 hover:text-neutral-200 hover:underline decoration-dotted underline-offset-2"
+                  title={`Open ${p}`}
+                >
+                  {p}
+                </a>
+              ) : (
+                <span
+                  className="truncate flex-1 hover:text-neutral-300 cursor-default"
+                  title={p}
+                >
+                  {p}
+                </span>
+              )}
+              <div className="flex items-center gap-2 ml-2 opacity-0 group-hover/item:opacity-100 transition-opacity flex-shrink-0 bg-[#0a0a0a] px-1">
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(p)}
+                  className={cx(
+                    "text-[8px] uppercase font-black flex items-center gap-1",
+                    justCopied
+                      ? "text-emerald-500"
+                      : "text-neutral-400 hover:text-sky-400"
+                  )}
+                  title={`Copy path: ${p}`}
+                >
+                  {justCopied ? "Copied" : "Copy"}
+                </button>
+                {canOpenRaw && (
                   <a
                     href={rawUrl}
                     target="_blank"
@@ -132,8 +189,8 @@ function SidebarList({
                   >
                     Raw <span className="text-[9px]">⎋</span>
                   </a>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           );
         })}

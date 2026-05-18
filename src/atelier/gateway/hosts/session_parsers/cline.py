@@ -122,8 +122,14 @@ def _extract_file_edits_from_history(history: list[dict[str, Any]]) -> dict[str,
     """
     file_edits: dict[str, FileEditRecord] = {}
     _FILE_EDIT_TOOLS = {
-        "edit", "write", "create", "replace", "apply_patch",
-        "write_file", "edit_file", "multiedit",
+        "edit",
+        "write",
+        "create",
+        "replace",
+        "apply_patch",
+        "write_file",
+        "edit_file",
+        "multiedit",
     }
     for msg in history:
         if msg.get("role") != "assistant":
@@ -135,9 +141,7 @@ def _extract_file_edits_from_history(history: list[dict[str, Any]]) -> dict[str,
             if name not in _FILE_EDIT_TOOLS:
                 continue
             inp = block.get("input") or {}
-            fpath = str(
-                inp.get("file_path") or inp.get("path") or inp.get("target_file") or ""
-            ).strip()
+            fpath = str(inp.get("file_path") or inp.get("path") or inp.get("target_file") or "").strip()
             if not fpath:
                 continue
             raw_diff = inp.get("diff") or inp.get("patch")

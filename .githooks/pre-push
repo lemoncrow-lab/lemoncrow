@@ -14,16 +14,26 @@ REMOTE_BRANCH=$(echo "$REMOTE_INFO" | sed 's/.*\///')
 
 echo "📍 Checking Pushing $CURRENT_BRANCH to $REMOTE_BRANCH"
 
+# Ensure the local editable install and generated wrappers are up to date.
+# Skip session import + external reports — those are slow, code-independent, and
+# covered by tests; only host integrations need to be verified at push time.
+echo "🛠️ Running make install (host integrations only)..."
+if ! ATELIER_NO_IMPORT=1 ATELIER_STRICT=1 make install; then
+    echo -e "\033[1;31m❌ make install failed. Push blocked.\033[0m"
+    echo "   Fix the install error locally or use 'git push --no-verify' if you intentionally need to bypass the hook."
+    exit 1
+fi
+
 # 0. Check for unauthorized .md files (atelier-specific exclusions)
 echo "📄 Checking for unauthorized .md files..."
-# Atelier allows: docs/, docs-archive/, .knowledge/, templates/, .ruler/, .agent/, skills/, integrations/, AGENTS*, QUICK_REFERENCE*, *_README.md, SECURITY.md, SKILL.md, LICENSE.md, CHANGELOG.md, CONTRIBUTING.md, GEMINI.md
-md_files=$(git ls-files "*.md" | grep -v "^docs/" | grep -v "^docs-archive/" | grep -v "^.knowledge/" | grep -v "^templates/" | grep -v "^.ruler/" | grep -v "^.agent/" | grep -v "^skills/" | grep -v "^integrations/" | grep -v "^.github/" | grep -v "AGENTS" | grep -v "QUICK_REFERENCE" | grep -v "README\.md$" | grep -v "SECURITY\.md$" | grep -v "SKILL\.md$" | grep -v "_README\.md$" | grep -v "LICENSE\.md$" | grep -v "CHANGELOG\.md$" | grep -v "CONTRIBUTING\.md$" | grep -v "GEMINI\.md$" || true)
+# Atelier allows: docs/, docs-archive/, reports/, .knowledge/, templates/, .ruler/, .agent/, skills/, integrations/, .github/, tests/fixtures/memory/, AGENTS*, QUICK_REFERENCE*, *_README.md, SECURITY.md, SKILL.md, LICENSE.md, CHANGELOG.md, CONTRIBUTING.md, GEMINI.md
+md_files=$(git ls-files "*.md" | grep -v "^docs/" | grep -v "^docs-archive/" | grep -v "^reports/" | grep -v "^.knowledge/" | grep -v "^templates/" | grep -v "^.ruler/" | grep -v "^.agent/" | grep -v "^skills/" | grep -v "^integrations/" | grep -v "^.github/" | grep -v "^tests/fixtures/memory/" | grep -v "AGENTS" | grep -v "QUICK_REFERENCE" | grep -v "README\.md$" | grep -v "SECURITY\.md$" | grep -v "SKILL\.md$" | grep -v "_README\.md$" | grep -v "LICENSE\.md$" | grep -v "CHANGELOG\.md$" | grep -v "CONTRIBUTING\.md$" | grep -v "GEMINI\.md$" || true)
 
 if [ -n "$md_files" ]; then
     echo -e "\033[1;31m❌ Error: Unauthorized .md files found in repository:\033[0m"
     echo "$md_files"
     echo ""
-    echo "Allowed: docs/, docs-archive/, .knowledge/, templates/, .ruler/, .agent/, skills/, integrations/, AGENTS*, QUICK_REFERENCE*, README.md, SECURITY.md, SKILL.md, CHANGELOG.md, CONTRIBUTING.md, GEMINI.md"
+    echo "Allowed: docs/, docs-archive/, reports/, .knowledge/, templates/, .ruler/, .agent/, skills/, integrations/, .github/, tests/fixtures/memory/, AGENTS*, QUICK_REFERENCE*, README.md, SECURITY.md, SKILL.md, CHANGELOG.md, CONTRIBUTING.md, GEMINI.md"
     exit 1
 fi
 

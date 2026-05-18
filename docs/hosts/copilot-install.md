@@ -59,12 +59,19 @@ task picker or, if developer mode is enabled for the MCP server, ask:
 Use Atelier context for this task and record a trace summary when it is done.
 ```
 
+Additional workspace helpers:
+
+- `Atelier: Worktree Bootstrap` writes `.env.worktree` with stable per-worktree ports and container names.
+- `Atelier: Runtime Evidence` captures `health`, `analytics/summary`, and `v1/traces` into `reports/runtime-evidence/latest.json`.
+
 ## Expected Behavior
 
 - Copilot Chat can invoke Atelier MCP tools through the local Atelier MCP wrapper
 - `copilot-instructions.md` provides Atelier context to every Copilot session
 - `atelier` chat mode is available from the chat mode selector
 - `Atelier: Copilot Preflight` runs the shell-based preflight before you continue in Copilot Chat
+- `Atelier: Worktree Bootstrap` makes local stacks easier to boot from multiple worktrees
+- `Atelier: Runtime Evidence` provides a repeatable validation artifact for service behavior
 - Active context/retrieval/verify tools require `ATELIER_DEV_MODE=1`; otherwise some tools may be visible but return passive `noop`
 
 ## Why Tasks Still Use Shell

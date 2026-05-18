@@ -35,6 +35,7 @@ GEMINI_ROOT = FIXTURES / "gemini"
 # base.py — _fact_id                                                          #
 # --------------------------------------------------------------------------- #
 
+
 def test_fact_id_stable() -> None:
     assert _fact_id("claude", "hello world") == _fact_id("claude", "hello world")
 
@@ -54,6 +55,7 @@ def test_fact_id_different_vendor_different_id() -> None:
 # --------------------------------------------------------------------------- #
 # Claude adapter — parse rules                                                 #
 # --------------------------------------------------------------------------- #
+
 
 def test_claude_parse_bullet_dash(tmp_path: Path) -> None:
     md = "- First fact\n- Second fact\n"
@@ -153,6 +155,7 @@ def test_claude_adapter_code_block_in_fixture() -> None:
 # Codex adapter — parse rules                                                  #
 # --------------------------------------------------------------------------- #
 
+
 def test_is_standalone_declaration_true() -> None:
     assert _is_standalone_declaration("Use strict mypy mode.")
     assert _is_standalone_declaration("All functions must have return type annotations.")
@@ -216,6 +219,7 @@ def test_codex_adapter_missing_dir_not_available(tmp_path: Path) -> None:
 # Gemini adapter — parse rules                                                 #
 # --------------------------------------------------------------------------- #
 
+
 def test_gemini_parse_bullets(tmp_path: Path) -> None:
     md = "- Global fact one\n- Global fact two\n"
     facts = _parse_gemini_facts(md, tmp_path / "GEMINI.md", "gemini-md-global")
@@ -277,6 +281,7 @@ def test_find_repo_root_no_git(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # MemoryRegistry                                                               #
 # --------------------------------------------------------------------------- #
+
 
 def _make_registry() -> MemoryRegistry:
     claude = ClaudeAdapter(root=CLAUDE_ROOT)
@@ -370,6 +375,7 @@ def test_registry_invalidate_clears_cache() -> None:
 # --------------------------------------------------------------------------- #
 # Performance smoke test (< 100ms for 1000 facts)                             #
 # --------------------------------------------------------------------------- #
+
 
 def test_list_facts_performance(tmp_path: Path) -> None:
     import time

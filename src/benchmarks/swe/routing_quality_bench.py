@@ -1,4 +1,4 @@
-"""Routing QUALITY benchmark — real export replay.
+"""Routing QUALITY benchmark - real export replay.
 
 Answers the question: when Atelier recommends downtiering a turn to haiku,
 is that recommendation actually safe?
@@ -6,7 +6,7 @@ is that recommendation actually safe?
 ⚠️  Measurement limitations
 ----------------------------
 We never actually ran haiku on these sessions. All signals are PROXIES
-for how likely downtiering would have hurt — not a direct counterfactual.
+for how likely downtiering would have hurt - not a direct counterfactual.
 The benchmark explicitly separates what it can and cannot measure:
 
   MEASURED directly:
@@ -25,11 +25,11 @@ Error attribution
 -----------------
 A critical distinction: not all errors in downtiered turns are model-caused.
 
-  env_error  — file not found, permission denied, path errors, exit-code from
+  env_error  - file not found, permission denied, path errors, exit-code from
                bad path. These fail with ANY model tier and should NOT penalise
                the routing recommendation.
 
-  model_error — wrong old_string in Edit (model selected wrong content),
+  model_error - wrong old_string in Edit (model selected wrong content),
                 logical/reasoning error in output, retry of same tool after
                 non-env failure. These ARE model-capability-dependent.
 
@@ -38,31 +38,31 @@ Only model_errors count toward the risk score.
 Bash risk stratification
 ------------------------
 Bash covers a wide range of complexity:
-  bash(ls/cat/grep/find/head/tail/wc) → retrieval, risk 0.0
-  bash(python/pytest/npm/yarn/cargo)  → test runner, risk 0.5
-  bash(git commit/push/sed/awk/tee)   → write-adjacent, risk 0.6
-  bash(unknown or long command)       → default, risk 0.4
+  bash(ls/cat/grep/find/head/tail/wc) -> retrieval, risk 0.0
+  bash(python/pytest/npm/yarn/cargo)  -> test runner, risk 0.5
+  bash(git commit/push/sed/awk/tee)   -> write-adjacent, risk 0.6
+  bash(unknown or long command)       -> default, risk 0.4
 
 Retry signal
 ------------
 If the turn IMMEDIATELY AFTER a failed downtiered turn calls the same tool
-again, that's a genuine quality regression — the model had to retry because
+again, that's a genuine quality regression - the model had to retry because
 its first attempt was wrong. This has higher signal than immediate_error alone.
 
 Risk formula (revised)
 ----------------------
-  risk = 0.35 × tool_risk
-       + 0.20 × output_complexity
-       + 0.25 × model_error          (env errors excluded)
-       + 0.20 × retry_signal         (same tool next turn after failure)
+  risk = 0.35 x tool_risk
+       + 0.20 x output_complexity
+       + 0.25 x model_error          (env errors excluded)
+       + 0.20 x retry_signal         (same tool next turn after failure)
 
 Classification
 --------------
-  safe     risk < 0.25   → clearly fine to downtier
-  moderate 0.25–0.55     → uncertain; haiku probably OK
-  risky    ≥ 0.55        → haiku likely would have struggled
+  safe     risk < 0.25   -> clearly fine to downtier
+  moderate 0.25-0.55     -> uncertain; haiku probably OK
+   risky    >= 0.55       -> haiku likely would have struggled
 
-Quality score = (safe × 1.0 + moderate × 0.6 + risky × 0.0) / total_downtiered
+Quality score = (safe x 1.0 + moderate x 0.6 + risky x 0.0) / total_downtiered
 """
 
 from __future__ import annotations
@@ -77,23 +77,23 @@ from typing import Any
 from atelier.core.capabilities.model_routing.router import ModelRouter, ModelTier
 
 # ---------------------------------------------------------------------------
-# Tool risk — base scores
+# Tool risk - base scores
 # ---------------------------------------------------------------------------
 
 _TOOL_RISK_BASE: dict[str, float] = {
-    # Write/edit — precision critical; wrong old_string = hard failure
+    # Write/edit - precision critical; wrong old_string = hard failure
     "edit": 1.0,
     "write": 1.0,
     "multiedit": 1.0,
     "notebookedit": 1.0,
     "todowrite": 0.6,
-    # Sub-agent / orchestration — needs full reasoning
+    # Sub-agent / orchestration - needs full reasoning
     "agent": 0.9,
     "skill": 0.7,
-    # Bash — stratified below by command content
-    "bash": 0.4,   # default; refined by _bash_risk()
+    # Bash - stratified below by command content
+    "bash": 0.4,  # default; refined by _bash_risk()
     "shell": 0.4,
-    # Pure retrieval — haiku handles these fine
+    # Pure retrieval - haiku handles these fine
     "read": 0.0,
     "grep": 0.0,
     "glob": 0.0,
@@ -120,7 +120,7 @@ _BASH_WRITE = re.compile(
     re.IGNORECASE,
 )
 
-# Environment error patterns — these fail with ANY model, not model-caused
+# Environment error patterns - these fail with ANY model, not model-caused
 _ENV_ERROR_PATTERNS = re.compile(
     r"\b(no\s+such\s+file|file\s+does\s+not\s+exist|permission\s+denied|"
     r"not\s+a\s+directory|is\s+a\s+directory|cannot\s+open|"
@@ -130,7 +130,7 @@ _ENV_ERROR_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-# Model-caused error patterns — these are capability-dependent
+# Model-caused error patterns - these are capability-dependent
 _MODEL_ERROR_PATTERNS = re.compile(
     r"\b(old_string|string\s+not\s+found|no\s+match|"
     r"syntaxerror|typeerror|nameerror|attributeerror|"
@@ -148,7 +148,7 @@ def _bash_risk(command_text: str) -> float:
     # Pure retrieval commands
     if _BASH_RETRIEVAL.match(command_text):
         return 0.0
-    # Test runners — significant reasoning in interpreting failures
+    # Test runners - significant reasoning in interpreting failures
     if _BASH_TEST_RUNNER.search(command_text):
         return 0.5
     # Write-adjacent operations
@@ -180,10 +180,7 @@ def _output_complexity(output_tokens: int) -> float:
 def _classify_error(content: Any) -> str:
     """Classify error content as 'env', 'model', or 'none'."""
     if isinstance(content, list):
-        text = " ".join(
-            str(b.get("text", "")) if isinstance(b, dict) else str(b)
-            for b in content
-        )
+        text = " ".join(str(b.get("text", "")) if isinstance(b, dict) else str(b) for b in content)
     else:
         text = str(content or "")
     if not text:
@@ -193,7 +190,7 @@ def _classify_error(content: Any) -> str:
     if _MODEL_ERROR_PATTERNS.search(text):
         return "model"
     # Fallback: if is_error is set but no pattern matched, classify as model
-    # (conservative — unknown errors count as potentially model-caused)
+    # (conservative - unknown errors count as potentially model-caused)
     return "model"
 
 
@@ -206,7 +203,7 @@ def _classify_risk(
 ) -> tuple[str, float]:
     """Classify a downtiered turn as safe / moderate / risky.
 
-    Returns (label, risk_score 0.0–1.0).
+    Returns (label, risk_score 0.0-1.0).
     """
     tr = _tool_risk(tool_name, tool_input)
     oc = _output_complexity(output_tokens)
@@ -267,9 +264,7 @@ class _Event:
     synthetic: bool = False
     tool_uses: list[dict[str, Any]] = field(default_factory=list)  # [{id, name, input}]
     # user fields
-    tool_results: list[dict[str, Any]] = field(
-        default_factory=list
-    )  # [{id, is_error, content, error_class}]
+    tool_results: list[dict[str, Any]] = field(default_factory=list)  # [{id, is_error, content, error_class}]
 
 
 def _parse_events(path: Path) -> list[_Event]:
@@ -337,12 +332,9 @@ def _parse_events(path: Path) -> list[_Event]:
                                 err_class = "none"
                                 if is_err:
                                     err_class = _classify_error(result_content)
-                                elif result_content:
-                                    # Content-based error detection even without is_error flag
-                                    if _MODEL_ERROR_PATTERNS.search(
-                                        str(result_content)[:500]
-                                    ):
-                                        err_class = "model"
+                                elif result_content and _MODEL_ERROR_PATTERNS.search(str(result_content)[:500]):
+                                    # Content-based error detection even without is_error flag.
+                                    err_class = "model"
                                 tool_results.append(
                                     {
                                         "id": str(b.get("tool_use_id", "")),
@@ -374,9 +366,9 @@ class _TurnQuality:
     output_tokens: int
     actual_tier: ModelTier
     recommended_tier: ModelTier
-    had_env_error: bool      # environment failure — not model-caused
-    had_model_error: bool    # capability-dependent failure
-    had_retry: bool          # same tool called again next turn (genuine regression)
+    had_env_error: bool  # environment failure - not model-caused
+    had_model_error: bool  # capability-dependent failure
+    had_retry: bool  # same tool called again next turn (genuine regression)
     risk_label: str
     risk_score: float
 
@@ -390,7 +382,7 @@ def _analyze_session(path: Path, router: ModelRouter) -> list[_TurnQuality]:
     events = _parse_events(path)
     results: list[_TurnQuality] = []
 
-    # Build tool_use_id → error_class map
+    # Build tool_use_id -> error_class map
     error_class_by_id: dict[str, str] = {}
     for ev in events:
         if ev.ev_type == "user":
@@ -403,14 +395,14 @@ def _analyze_session(path: Path, router: ModelRouter) -> list[_TurnQuality]:
     # Build assistant event list with their index in events[] so we can
     # look up the next real assistant event for the retry signal.
     asst_events: list[tuple[int, _Event]] = [
-        (i, ev) for i, ev in enumerate(events)
-        if ev.ev_type == "assistant" and not ev.synthetic
-        and (ev.input_tokens > 0 or ev.output_tokens > 0)
+        (i, ev)
+        for i, ev in enumerate(events)
+        if ev.ev_type == "assistant" and not ev.synthetic and (ev.input_tokens > 0 or ev.output_tokens > 0)
     ]
 
     prior_errors = 0
 
-    for asst_seq, (ev_idx, ev) in enumerate(asst_events):
+    for asst_seq, (_ev_idx, ev) in enumerate(asst_events):
         actual_tier = _model_tier(ev.model)
         tool_name = ev.tool_uses[0]["name"] if ev.tool_uses else ""
         tool_input = ev.tool_uses[0]["input"] if ev.tool_uses else {}
@@ -431,14 +423,8 @@ def _analyze_session(path: Path, router: ModelRouter) -> list[_TurnQuality]:
         )
 
         # Check error classes for this turn's tool uses
-        had_env = any(
-            error_class_by_id.get(tu["id"], "none") == "env"
-            for tu in ev.tool_uses
-        )
-        had_model = any(
-            error_class_by_id.get(tu["id"], "none") == "model"
-            for tu in ev.tool_uses
-        )
+        had_env = any(error_class_by_id.get(tu["id"], "none") == "env" for tu in ev.tool_uses)
+        had_model = any(error_class_by_id.get(tu["id"], "none") == "model" for tu in ev.tool_uses)
 
         # Retry signal: does the NEXT real assistant event call the same tool
         # AND did this turn have a model error?
@@ -454,9 +440,7 @@ def _analyze_session(path: Path, router: ModelRouter) -> list[_TurnQuality]:
 
         # Only analyse downtiered turns
         if _TIER_RANK[rec.tier] < _TIER_RANK[actual_tier]:
-            label, risk = _classify_risk(
-                tool_name, tool_input, ev.output_tokens, had_model, had_retry
-            )
+            label, risk = _classify_risk(tool_name, tool_input, ev.output_tokens, had_model, had_retry)
             results.append(
                 _TurnQuality(
                     turn_index=asst_seq,
@@ -488,9 +472,9 @@ class SessionQualityResult:
     safe_turns: int
     moderate_turns: int
     risky_turns: int
-    env_errors: int       # excluded from risk — not model-caused
-    model_errors: int     # counted in risk — capability-dependent
-    retry_signals: int    # strongest quality-degradation signal
+    env_errors: int  # excluded from risk - not model-caused
+    model_errors: int  # counted in risk - capability-dependent
+    retry_signals: int  # strongest quality-degradation signal
     quality_score: float
 
     def to_dict(self) -> dict[str, Any]:
@@ -522,10 +506,7 @@ def run_routing_quality_bench(
     *,
     max_sessions: int | None = None,
 ) -> dict[str, Any]:
-    if (corpus_dir / "claude").is_dir():
-        search_dir = corpus_dir / "claude"
-    else:
-        search_dir = corpus_dir
+    search_dir = corpus_dir / "claude" if (corpus_dir / "claude").is_dir() else corpus_dir
 
     candidates = sorted(search_dir.glob("*.jsonl"), key=lambda p: -p.stat().st_size)
 
@@ -556,8 +537,7 @@ def run_routing_quality_bench(
         quality = sum(t.quality_contribution for t in tqs) / len(tqs)
 
         dom_model = next(
-            (ev.model for ev in _parse_events(path)
-             if ev.ev_type == "assistant" and not ev.synthetic and ev.model),
+            (ev.model for ev in _parse_events(path) if ev.ev_type == "assistant" and not ev.synthetic and ev.model),
             "claude-sonnet-4-6",
         )
 
@@ -580,8 +560,8 @@ def run_routing_quality_bench(
         return {
             "benchmark": "quality-routing",
             "methodology_note": (
-                "Proxies only — haiku was never run. risk = 0.35×tool_risk "
-                "+ 0.20×output_complexity + 0.25×model_error + 0.20×retry_signal. "
+                "Proxies only - haiku was never run. risk = 0.35 x tool_risk "
+                "+ 0.20 x output_complexity + 0.25 x model_error + 0.20 x retry_signal. "
                 "env_errors excluded (file-not-found etc fail with any model). "
                 "model_errors = wrong edit string / logical failure / schema error. "
                 "retry_signal = same tool called again after model_error."
@@ -615,10 +595,10 @@ def run_routing_quality_bench(
     return {
         "benchmark": "quality-routing",
         "methodology_note": (
-            "Proxies only — haiku was never run. "
-            "risk = 0.35×tool_risk + 0.20×output_complexity "
-            "+ 0.25×model_error + 0.20×retry_signal. "
-            "env_errors (file-not-found, permission-denied etc) excluded — "
+            "Proxies only - haiku was never run. "
+            "risk = 0.35 x tool_risk + 0.20 x output_complexity "
+            "+ 0.25 x model_error + 0.20 x retry_signal. "
+            "env_errors (file-not-found, permission-denied etc) excluded - "
             "these fail with any model tier. "
             "model_errors = wrong edit string / logical failure / schema error. "
             "retry_signal = same tool called immediately after a model_error (strongest signal). "
