@@ -102,3 +102,37 @@ def test_tool_code_search_respects_budget_after_wrapper_metadata(tmp_path: Path)
     payload = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "func", "budget_tokens": 260})
 
     assert payload["total_tokens"] <= 260
+
+
+def test_tool_code_search_accepts_hardened_params(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "orders.py").write_text(
+        "class OrderService:\n"
+        "    def calculate_total(self, items: list[int]) -> int:\n"
+        "        return sum(items)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_orders.py").write_text(
+        "from src.orders import OrderService\n",
+        encoding="utf-8",
+    )
+
+    payload = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "OrderService",
+            "snippet": "head",
+            "snippet_lines": 2,
+            "file_glob": "src/*.py",
+            "scope": "repo",
+            "budget_tokens": 4000,
+        }
+    )
+
+    assert payload["provenance"] == "local"
+    assert payload["provenance_breakdown"] == {"local": len(payload["items"])}
+    assert payload["items"][0]["file_path"] == "src/orders.py"
+    assert payload["items"][0]["snippet"] == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"

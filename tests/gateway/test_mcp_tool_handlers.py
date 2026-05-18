@@ -561,6 +561,44 @@ def test_code_context_mcp_routes_scip_and_invalidates_cache(store_root: Path, tm
     assert fresh["items"][0]["symbol_id"] == "scip-alpha-v2"
 
 
+def test_code_context_search_surface_supports_snippet_scope_and_glob(store_root: Path, tmp_path: Path) -> None:
+    _ = store_root
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "src" / "orders.py").write_text(
+        "class OrderService:\n"
+        "    def calculate_total(self, items: list[int]) -> int:\n"
+        "        return sum(items)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tests" / "test_orders.py").write_text(
+        "from src.orders import OrderService\n",
+        encoding="utf-8",
+    )
+
+    payload = _result(
+        _call(
+            "code",
+            {
+                "op": "search",
+                "repo_root": str(tmp_path),
+                "query": "OrderService",
+                "snippet": "head",
+                "snippet_lines": 2,
+                "file_glob": "src/*.py",
+                "scope": "repo",
+                "budget_tokens": 4000,
+            },
+        )
+    )
+
+    assert payload["cache_hit"] is False
+    assert payload["provenance"] == "local"
+    assert payload["provenance_breakdown"] == {"local": 1}
+    assert payload["items"][0]["file_path"] == "src/orders.py"
+    assert payload["items"][0]["snippet"] == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
+
+
 def test_code_context_mcp_falls_back_when_scip_artifact_is_invalid(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
