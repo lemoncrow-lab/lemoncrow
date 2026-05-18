@@ -3,7 +3,7 @@
 > Status: **Active** — created 2026-05-18, revised 2026-05-18 (grounded).
 > Owner: unassigned.
 > ADR: [`../../decisions/001-symbol-first-mcp.md`](../../../decisions/001-symbol-first-mcp.md).
-> Tasks: see `TaskList` (numbered M0–M13).
+> Tasks: see `TaskList` (numbered M0–M18).
 
 > ⚠️ **Read [`grounding.md`](grounding.md) before any milestone file.** This
 > plan extends the existing MCP tools registered in
@@ -30,39 +30,64 @@ Each row below is an **op on an existing MCP tool**, not a new tool
 registration. See `grounding.md` for the full landing map.
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│ MCP surface — existing tools, extended with new ops                  │
-│                                                                      │
-│   code(op="search", …)       ← name-first symbol lookup (exists)    │
-│   code(op="usages", …)       ← M3, NEW op                           │
-│   code(op="callers"|"callees", …)  ← M8, NEW ops                    │
-│   code(op="pattern", …)      ← M5, NEW op (ast-grep)                │
-│   code(op="recall", …)       ← M7, NEW op (or under memory; choose) │
-│   edit(edits=[{kind:"symbol",…}])  ← M4, NEW rich-edit descriptor   │
-│   read(...)                  ← already outline-first; no M change   │
-│   search(...)                ← stays as text/regex complement       │
-│   memory(op="recall_symbol", …)    ← M7 alternative; choose on claim│
-└────────────────────────┬─────────────────────────────────────────────┘
-                         │
-┌────────────────────────▼─────────────────────────────────────────────┐
-│ SymbolIntelStore (composite + cache + budget enforcer)               │
-│  - Routes by query shape: name → SCIP, pattern → ast-grep,           │
-│    semantic NL → embeddings, fallback → CodeContextEngine            │
-│  - Content-addressed retrieval cache (same query → 0 tokens)         │
-│  - Token-budget aware: always returns smallest sufficient payload    │
-│  - Always-on side effects: memory tagging, trace recording           │
-└──┬─────────────────┬──────────────────┬──────────────────┬───────────┘
-   │                 │                  │                  │
-   ▼                 ▼                  ▼                  ▼
-┌────────┐   ┌──────────────┐   ┌────────────────┐   ┌─────────────────┐
-│ SCIP   │   │ ast-grep     │   │ Embedding rank │   │ LocalAdapter    │
-│ reader │   │ (structural) │   │ (vector + RRF) │   │ (CodeContext +  │
-│ ★ core │   │ ★ core       │   │ over SCIP syms │   │  tree-sitter)   │
-└────────┘   └──────────────┘   └────────────────┘   └─────────────────┘
-   │
-   ▼
-.scip files — precomputed once, queried in microseconds
-(scip-python · scip-typescript · scip-go · scip-rust · scip-java · …)
+┌──────────────────────────────────────────────────────────────────────────┐
+│ MCP surface — existing tools, extended with new ops                      │
+│                                                                          │
+│   code(op="search", …)             ← name-first symbol lookup (exists)  │
+│   code(op="usages", …)             ← M3, NEW op                         │
+│   code(op="callers"|"callees", …)  ← M8, NEW ops                        │
+│   code(op="pattern", …)            ← M5, NEW op (ast-grep)              │
+│   code(op="recall", …)             ← M7, NEW op (or under memory)       │
+│   code(op="blame", …)              ← M15, NEW op (who/when/churn)       │
+│   code(op="search" scope="deleted" since="Nd" touched_by=X)             │
+│                                    ← M14, temporal + graveyard filters   │
+│   edit(edits=[{kind:"symbol",…}])  ← M4, NEW rich-edit descriptor       │
+│   read(...)                        ← already outline-first; no M change  │
+│   search(...)                      ← stays as text/regex complement      │
+│   memory(op="recall_symbol", …)    ← M7 alternative; choose on claim    │
+└────────────────────────────┬─────────────────────────────────────────────┘
+                             │
+┌────────────────────────────▼─────────────────────────────────────────────┐
+│ SymbolIntelStore (routing + cache + budget + query-shape detection)      │
+│  - name query   → SCIP (microseconds, precomputed)                       │
+│  - pattern      → ast-grep (structural, cross-language)                  │
+│  - NL query     → embeddings (semantic, hybrid RRF)                      │
+│  - text search  → Zoekt (>500k LOC) or ripgrep (small repos)            │
+│  - deleted/hist → Git History Index (pygit2)                             │
+│  - fallback     → LocalAdapter (CodeContextEngine + tree-sitter)         │
+│  Content-addressed cache · token-budget packer · trace always on         │
+└──┬──────────┬───────────┬──────────┬────────────┬────────────────────────┘
+   │          │           │          │            │
+   ▼          ▼           ▼          ▼            ▼
+┌──────┐ ┌────────┐ ┌──────────┐ ┌──────┐ ┌─────────────────────────────┐
+│ SCIP │ │ast-grep│ │Embeddings│ │Zoekt │ │ Git History (M14, M15)      │
+│  M1  │ │   M5   │ │   M6     │ │ M16  │ │  walker.py  (pygit2)        │
+│★core │ │★core   │ │(vec+RRF) │ │scale │ │  graveyard.py  (SQLite)     │
+└──────┘ └────────┘ └──────────┘ └──────┘ │  blame.py   (churn score)  │
+   │                                       └────────────┬────────────────┘
+   ▼                                                    │
+.scip files                                ┌────────────▼────────────────┐
+precomputed once,                          │ Symbol Graveyard DB         │
+queried in µs                              │ deleted · renamed · blame   │
+(scip-python ·                             │ churn · temporal filters    │
+ scip-typescript ·                         └─────────────────────────────┘
+ scip-go · scip-rust ·
+ scip-java · …)
+
+   Cross-language edges (M17, partial):
+┌───────────────────────────────────────┐
+│  ctypes/cffi  Python→C                │
+│  subprocess   TypeScript/Go→Python    │
+│  dynamic_import  Python→Python        │
+│  confidence-scored · soft edges ok   │
+└───────────────────────────────────────┘
+
+   Optional backend (decided in M18 evaluation):
+┌──────────────────────────────────────┐
+│  SrcCliAdapter  (if org runs SG)     │
+│  or Sourcegraph embedded backend     │
+│  replaces Zoekt if memory-feasible   │
+└──────────────────────────────────────┘
 ```
 
 ## Why this stack
@@ -75,6 +100,10 @@ registration. See `grounding.md` for the full landing map.
 | **Local SQLite cache** | Same query twice = zero LLM tokens, zero subprocess cost. Content-addressed so renames don't bust the cache. |
 | **Token-budget enforcer** | Caller declares `budget_tokens=N`; store packs the most informative payload that fits. Outline first, expand on demand. This single feature is worth more than any individual index. |
 | **No Serena** | LSP-per-session is the wrong abstraction. We adopt the *artifacts* (SCIP) the LSP ecosystem produces, not the live protocol. |
+| **Git history index** (M14) | SCIP only indexes HEAD. Deleted and renamed symbols are invisible to every other tool. A pygit2-backed graveyard makes them first-class query targets with zero token overhead. |
+| **Blame + churn score** (M15) | "Who last touched this, and how often does it change?" collapses from 4 tool calls + regex parsing to one. Churn score distinguishes stable APIs from hotspots before the agent touches them. |
+| **Zoekt at scale** (M16) | Ripgrep reads files on every query — fast for small repos, breaks at >1M LOC. Zoekt (Google's own engine, maintained by Sourcegraph) precomputes a trigram index; queries stay ~5ms regardless of repo size. |
+| **Cross-language edges** (M17) | ctypes/cffi, subprocess bridges, and dynamic imports create invisible reference gaps between language indexes. Confidence-scored edges surface the most common 60% of cross-language calls without requiring runtime analysis. |
 
 ## What we already have (reuse, don't rebuild)
 
@@ -85,7 +114,7 @@ registration. See `grounding.md` for the full landing map.
 | `semantic_file_memory` | Change-impact analysis, dependency graph |
 | `infra/tree_sitter/tags.py` | LocalAdapter when SCIP indexer absent for a language |
 | `infra/embeddings/` | Function-level vectorisation (M6) |
-| `infra/memory_bridges/` pattern | Mirror for `infra/code_intel_bridges/` (M0) |
+| `infra/memory_bridges/` pattern | Prior art only; M0 lands directly in `core/capabilities/code_context/` with no `infra/code_intel_bridges/` directory |
 | Memory blocks + recall | Symbol↔memory fusion (M7) |
 | Trace recording | Every store call writes a trace; feeds the scorecard |
 
@@ -111,6 +140,11 @@ starting; do not read milestones you are not assigned to.**
 | M11 | [`M11-bootstrap.md`](M11-bootstrap.md) | First-context job pipeline; pinned memory blocks |
 | M12 | [`M12-token-budget.md`](M12-token-budget.md) | Audit defaults across `code`/`read`/`edit`/`search` for outline-first; sharpen M0 cache + budget |
 | M13 | [`M13-docs.md`](M13-docs.md) | agent-os playbooks + scorecard metrics |
+| M14 | [`M14-git-history.md`](M14-git-history.md) | Git history index (pygit2); deleted/renamed symbol graveyard; `scope="deleted"`, `since=`, `touched_by=` filters |
+| M15 | [`M15-blame-temporal.md`](M15-blame-temporal.md) | `code op="blame"` — last author, age, churn score; temporal filters on live SCIP search |
+| M16 | [`M16-zoekt-scale.md`](M16-zoekt-scale.md) | Zoekt backend for repos >500k LOC; auto-routing in SymbolIntelStore; blocked on M18 |
+| M17 | [`M17-cross-lang.md`](M17-cross-lang.md) | Cross-language edges: ctypes/cffi (Python→C), subprocess (TS/Go→Python), dynamic imports; confidence-scored |
+| M18 | [`M18-bvi-checkpoint.md`](M18-bvi-checkpoint.md) | Build-vs-integrate evaluation: Sourcegraph `src` CLI, self-hosted CE, scip-mcp; must run before M16 |
 
 ## Dependency graph
 
@@ -128,10 +162,19 @@ M0 (store + cache + budget)
  ├─► M10 (multi-repo)          ← independent
  ├─► M11 (bootstrap)           ← runs all of the above on first context
  ├─► M12 (token budget)        ← woven into M0; sharpened after M2/M5
- └─► M13 (docs)                ← last, depends on M2/M4/M5
+ ├─► M13 (docs)                ← last, depends on M2/M4/M5
+ ├─► M14 (git history)         ← needs M0; uses M1 only for symbol-id resolution
+ │    └─► M15 (blame/temporal) ← needs M14 + M1 (SCIP byte ranges)
+ ├─► M17 (cross-lang edges)    ← needs M1 per-language indexes + M5 (ast-grep)
+ └─► M18 (bvi checkpoint)      ← 2-day eval; must run before M16
+      └─► M16 (zoekt scale)    ← only if M18 validates building it
 ```
 
-Recommended build order: **M0 → M1 → M2 → M5 → M12 → M4 → M3 → M6 → M7 → M8 → M11 → M9 → M10 → M13**.
+Note: M1 also introduces `SymbolIntelStore` / `SymbolIntelProvider` (the routing layer and backend interface) because it's the first milestone with a second backend. M6/M10/M14/M16/M17 all register providers against the store that M1 builds. See `grounding.md` and the M1 milestone file for the interface definition.
+
+Recommended build order: **M0 → M1 → M2 → M5 → M12 → M4 → M3 → M6 → M7 → M8 → M14 → M15 → M18 → M16 → M17 → M11 → M9 → M10 → M13**.
+
+M14/M15 deliberately slot in before M11 so the symbol graveyard and blame index are warm by the time the first-context bootstrap job runs. M18 runs before M16 so we don't build Zoekt integration if Sourcegraph `src` CLI or a production scip-mcp already covers it.
 
 ## Cost-reduction principles (apply to every milestone)
 
@@ -172,8 +215,14 @@ Before any milestone is marked `completed`:
 - Live language servers as the primary path. Optional fallback only.
 - Replacing `mcp__atelier__search` — text/regex search stays for the cases
   where symbol lookup isn't the right tool.
-- Zoekt/Sourcegraph backend — ripgrep + SCIP covers repos up to ~5M LOC.
-  Revisit if we ever index a public mirror of a megarepo.
 - CodeQL/Semgrep — ast-grep covers ~80% of the value at ~10% of the
   complexity. Revisit if we add a security-review agent.
 - IDE plugins. We are an MCP server.
+- Full cross-language coverage. M17 ships ctypes/cffi + subprocess + dynamic
+  import edges (~60% of real-world cross-lang refs); JNI, Rust FFI, and
+  runtime-traced edges are out of scope — they require runtime analysis, not
+  static.
+- Build-graph awareness (Bazel/Buck deps as first-class index edges).
+  Requires per-build-system adapters; revisit if a user repo demands it.
+- Megarepos >50M LOC. Zoekt (M16) covers up to ~50M LOC. Beyond that needs
+  Google-internal-style sharded infra.

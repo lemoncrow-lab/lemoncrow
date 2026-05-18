@@ -40,7 +40,45 @@ src/atelier/infra/code_intel/scip/
   adapter.py           SymbolIntelProvider implementation
   binaries.py          Resolves which scip-<lang> binary to use per file
   proto/               Vendored .proto + generated Python (do NOT edit by hand)
+
+src/atelier/core/capabilities/code_context/
+  intel_store.py       NEW — SymbolIntelStore (routing layer) + SymbolIntelProvider (interface)
 ```
+
+### `SymbolIntelStore` and `SymbolIntelProvider` (NEW in this milestone)
+
+M0 introduced cache + budget primitives but no routing layer — there was only
+one backend. M1 is the first milestone where two backends coexist (local
+`CodeContextEngine` path and the new SCIP adapter), so the routing layer lands
+here and becomes the chokepoint that M6, M10, M14, M16, and M17 plug into.
+
+```python
+# src/atelier/core/capabilities/code_context/intel_store.py
+from typing import Protocol
+
+class SymbolIntelProvider(Protocol):
+    """Backend interface implemented by SCIP (M1), embeddings (M6),
+    graveyard (M14), zoekt (M16), cross-lang (M17)."""
+    name: str                                # "scip" | "graveyard" | "zoekt" | ...
+    def health(self) -> ProviderHealth: ...  # ok/degraded/unhealthy
+    def find_symbol(self, query: str, **kwargs) -> list[SymbolHit]: ...
+    # additional methods added by later milestones via Protocol extension
+
+class SymbolIntelStore:
+    """Routes queries to the best available provider.
+    Composes with M0's RetrievalCache + BudgetPacker before returning."""
+    def __init__(self, engine: CodeContextEngine,
+                 cache: RetrievalCache, packer: BudgetPacker): ...
+    def register(self, provider: SymbolIntelProvider) -> None: ...
+    def find_symbol(self, query, *, budget_tokens, **kwargs): ...
+    # Routing rule for M1: SCIP if healthy, else fall back to engine.LocalAdapter
+```
+
+Later milestones extend `SymbolIntelProvider` with their own methods (e.g.,
+M14 adds `find_deleted`, M15 adds `annotate`, M16 adds text search). M10
+adds multi-repo composition over the same store. The store is constructed
+once per `CodeContextEngine` and held in engine session state — `tool_code`
+calls go through `engine` → `store` → `provider`, never directly to a provider.
 
 ## Indexer (`indexer.py`)
 

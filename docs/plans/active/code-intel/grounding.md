@@ -47,6 +47,11 @@ The engine (`CodeContextEngine`) already has every method we need for M2–M4
 (`search_symbols`, `get_symbol`, `file_outline`, `context_pack`, `impact`,
 `changed_symbols`, and an internal reindex path).
 
+M0 adds the shared retrieval cache and budget packer under
+`core/capabilities/code_context/`, then routes `tool_code` through engine-level
+tool wrappers that stamp `cache_hit`, `tokens_saved`, and `provenance` on every
+existing `code` op response.
+
 **What's missing on the `code` tool:**
 - `op="usages"` (M3) — wraps engine `search_symbols` + LSP/SCIP references
 - `op="callers"` / `op="callees"` (M8) — call graph
@@ -137,7 +142,7 @@ when we still planned a Serena bridge). Code intel lives inside the existing
 
 | Milestone | MCP surface change | Internal change |
 |---|---|---|
-| M0 | None | New `code_context/cache.py` + `budget.py`; refactor `tool_code` ops to route through them |
+| M0 | None | New `code_context/cache.py` + `budget.py`; refactor `tool_code` ops to route through engine wrappers using them |
 | M1 | None — SCIP is internal | New `infra/code_intel/scip/` module; `CodeContextEngine.search_symbols/get_symbol/...` queries SCIP when index present |
 | M2 | None — `code op="search"` already exists; this milestone *hardens* defaults (snippet, ranking, provenance field) | Snippet rendering in engine response; provenance tagging |
 | M3 | `code` gains `op="usages"` | Engine method `find_references(symbol_id_or_query)` |
@@ -151,6 +156,19 @@ when we still planned a Serena bridge). Code intel lives inside the existing
 | M11 | None — uses `jobs.py` worker | First-context job pipeline |
 | M12 | Audits defaults across `code`, `read`, `edit`, `search` for outline-first | Sharpens M0's cache + budget; new `code op="cache_status"` |
 | M13 | Documentation only | None |
+| M14 | New optional fields on `code op="search"`: `scope="deleted"`, `since=`, `touched_by=` | New `infra/code_intel/git_history/` module (walker, renames, graveyard, adapter); new `symbol_graveyard` table in the engine SQLite DB |
+| M15 | `code` gains `op="blame"` | New `git_history/blame.py` (BlameAnnotator); new `symbol_blame_cache` table in the engine SQLite DB; wires `since`/`touched_by` filters from M14 to live SCIP results |
+| M16 | None — backend swap inside `SymbolIntelStore`; response gains `backend` field on `mcp__atelier__search` | New `infra/code_intel/zoekt/` module (server, client, indexer, adapter, binary); auto-routes when `total_loc > 500k`; blocked by M18 |
+| M17 | New `cross_lang_refs` field on `code op="symbol"` and `code op="usages"` responses | New `infra/code_intel/cross_lang/` module (edges, resolvers for ctypes/cffi/subprocess/dynamic_import); new `cross_lang_edges` table in the engine SQLite DB |
+| M18 | None — evaluation only | No code; produces a decision memo appended to `M18-bvi-checkpoint.md` |
+
+> **Implicit infrastructure not owned by M0.** M1, M6, M10, M14, M16, and M17 all
+> refer to `SymbolIntelStore` (the routing layer) and `SymbolIntelProvider` (the
+> backend interface). These are introduced **inside M1** when the SCIP adapter
+> becomes the second backend that needs to coexist with the local engine path.
+> M0 lands the cache + budget primitives only; the routing layer is M1's
+> responsibility. Any milestone that references `SymbolIntelStore` before M1
+> ships should be flagged in code review.
 
 ## How an implementing agent reads this plan
 

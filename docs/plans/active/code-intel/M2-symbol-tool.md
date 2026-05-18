@@ -28,7 +28,7 @@ language: str | None = None,                 # existing
 snippet: Literal["none","head","full"] = "head",
 snippet_lines: int = 8,
 file_glob: str | None = None,                # passes through to engine
-scope: Literal["repo","external","all"] = "repo",   # plumbing for M9; default "repo"
+scope: Literal["repo","external","deleted"] = "repo",   # "external" wired by M9; "deleted" by M14; default "repo"
 budget_tokens: int = 2000,
 ```
 

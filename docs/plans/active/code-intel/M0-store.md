@@ -76,13 +76,14 @@ Response shape gains two fields universally:
 
 ## Validation
 
-Tests under `tests/core/capabilities/code_context/`:
+Tests land in the existing gateway/core suites:
 
-- `test_retrieval_cache_hit_returns_cached_payload` — same args twice → second call returns `cache_hit=True` and identical payload.
-- `test_retrieval_cache_invalidated_on_index_bump` — `index_repo` resets cache version.
-- `test_budget_packer_drops_optional_keys_first` — fixture hit list of 10 → budget 200 tokens → top-3 keep essential keys.
-- `test_tool_code_search_returns_cache_hit_field` — MCP call surface includes `cache_hit` and `tokens_saved`.
-- `test_provenance_local_default` — without M1, every result has `provenance="local"` or `provenance="cached"`.
+- `tests/core/test_code_context.py::test_retrieval_cache_hit_returns_cached_payload` — same args twice → second call returns `cache_hit=True` with the same packed search items.
+- `tests/core/test_code_context.py::test_retrieval_cache_invalidated_on_index_bump` — `index_repo` increments `index_version`, forcing the next lookup to miss.
+- `tests/core/test_code_context.py::test_budget_packer_drops_optional_keys_first` — fixture hit list of 10 → budget 200 tokens → top-3 keep essential keys.
+- `tests/gateway/test_p0_mcp_surfaces.py::test_tool_code_search_returns_cache_hit_field` — MCP call surface includes `cache_hit`, `tokens_saved`, and `provenance`.
+- `tests/core/test_code_context.py::test_provenance_local_default` — without M1, every result has `provenance="local"` or `provenance="cached"`.
+- `tests/gateway/test_savings_api.py::test_record_context_budget_attaches_cache_metadata_for_code_tool` — telemetry events include `cache_hit`/`provenance` alongside `tokens_saved`.
 
 ## Exit criteria
 

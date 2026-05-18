@@ -22,7 +22,9 @@ this; we just need to enable it and route correctly.
   ```
 - External indexes land at `.atelier/cache/scip/<repo_id>/external-<lang>.scip`.
 - SymbolHits gain `origin: "internal" | "external"` field.
-- `scope="external"` or `scope="all"` includes them; default `"repo"` does not.
+- `scope="external"` includes them; default `"repo"` does not. There is no
+  `"all"` scope — callers wanting a union issue separate calls (the
+  retrieval cache makes the second one free).
 - `edit(op="symbol")` rejects edits on `origin="external"` symbols with a clear error.
 
 ## To flesh out on claim
