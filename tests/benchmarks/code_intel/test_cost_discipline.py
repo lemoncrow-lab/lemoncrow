@@ -16,6 +16,8 @@ def test_cost_discipline_bench_is_json_serializable(tmp_path: Path) -> None:
 
     assert reloaded["aggregate_baseline_tokens"] > reloaded["aggregate_current_tokens"]
     assert reloaded["cache_status_total_tokens"] > 0
+    assert reloaded["historical_baseline_tokens"] > reloaded["historical_current_tokens"]
+    assert reloaded["blame_baseline_tokens"] > reloaded["blame_current_tokens"]
 
 
 def test_shipped_phase2_flows_stay_within_30pct_of_baseline(tmp_path: Path) -> None:
@@ -23,4 +25,6 @@ def test_shipped_phase2_flows_stay_within_30pct_of_baseline(tmp_path: Path) -> N
 
     assert result.search_current_tokens < result.search_baseline_tokens
     assert result.pattern_current_tokens < result.pattern_baseline_tokens
+    assert result.historical_current_tokens < result.historical_baseline_tokens
+    assert result.blame_current_tokens < result.blame_baseline_tokens
     assert result.aggregate_current_tokens <= result.aggregate_baseline_tokens * 0.3
