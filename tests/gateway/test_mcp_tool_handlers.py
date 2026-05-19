@@ -26,7 +26,7 @@ from atelier.core.environment import (
 )
 from atelier.gateway.adapters import mcp_server
 from atelier.gateway.adapters.cli import cli
-from atelier.gateway.adapters.mcp_server import TOOLS, _handle
+from atelier.gateway.adapters.mcp_server import TOOLS, _handle, tool_code
 
 EXPECTED_TOOLS = {
     "context",
@@ -604,6 +604,45 @@ def test_code_context_search_surface_supports_snippet_scope_and_glob(store_root:
     assert payload["provenance_breakdown"] == {"local": len(payload["items"])}
     assert payload["items"][0]["file_path"] == "src/orders.py"
     assert payload["items"][0]["snippet"] == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
+
+
+def test_tool_code_search_dispatches_mode_without_gateway_ranking_logic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_engine = MagicMock()
+    fake_engine.tool_search.return_value = {
+        "items": [{"symbol_name": "issue_access_token", "provenance": "local"}],
+        "cache_hit": False,
+        "provenance": "local",
+        "tokens_saved": 10,
+        "total_tokens": 80,
+        "mode": "semantic",
+    }
+    monkeypatch.setattr("atelier.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
+
+    payload = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "create login token for authenticated user",
+            "mode": "semantic",
+            "budget_tokens": 220,
+        }
+    )
+
+    assert payload["mode"] == "semantic"
+    fake_engine.tool_search.assert_called_once_with(
+        "create login token for authenticated user",
+        limit=20,
+        mode="semantic",
+        kind=None,
+        language=None,
+        snippet="none",
+        snippet_lines=8,
+        file_glob=None,
+        scope="repo",
+        budget_tokens=220,
+    )
 
 
 def test_code_context_usages_surface_groups_references(store_root: Path, tmp_path: Path) -> None:

@@ -143,6 +143,59 @@ def test_tool_code_search_accepts_hardened_params(tmp_path: Path) -> None:
     assert payload["items"][0]["snippet"] == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
 
 
+def test_tool_code_search_accepts_semantic_modes_additively(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "auth.py").write_text(
+        "def issue_access_token(user_id: str) -> str:\n"
+        "    \"\"\"Create a login session token for an authenticated user.\"\"\"\n"
+        "    session_token = f'session:{user_id}'\n"
+        "    return session_token\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "audit.py").write_text(
+        "def create_login_history_for_authenticated_user(user_id: str) -> dict[str, str]:\n"
+        "    \"\"\"Record login history entries for audit review.\"\"\"\n"
+        "    return {'user_id': user_id}\n",
+        encoding="utf-8",
+    )
+
+    semantic = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "create login token for authenticated user",
+            "mode": "semantic",
+            "budget_tokens": 4000,
+        }
+    )
+    hybrid_auto = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "create login token for authenticated user",
+            "mode": "auto",
+            "budget_tokens": 4000,
+        }
+    )
+    exact_auto = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "issue_access_token",
+            "mode": "auto",
+            "budget_tokens": 4000,
+        }
+    )
+
+    assert semantic["mode"] == "semantic"
+    assert semantic["items"][0]["symbol_name"] == "issue_access_token"
+    assert hybrid_auto["mode"] == "hybrid"
+    assert hybrid_auto["items"][0]["symbol_name"] == "issue_access_token"
+    assert exact_auto["mode"] == "lexical"
+    assert exact_auto["items"][0]["symbol_name"] == "issue_access_token"
+
+
 def test_tool_code_pattern_requires_pattern(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="pattern is required for code pattern"):
         tool_code({"op": "pattern", "repo_root": str(tmp_path), "dry_run": True})
