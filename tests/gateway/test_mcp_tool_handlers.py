@@ -13,6 +13,8 @@ import pytest
 from click.testing import CliRunner
 
 from atelier.core.capabilities.code_context import CodeContextEngine
+from atelier.core.service.bootstrap_context import build_bootstrap_plan, persist_bootstrap_plan
+from atelier.core.service.jobs import JOB_BOOTSTRAP_CONTEXT
 from atelier.infra.code_intel.astgrep import (
     AstGrepToolUnavailable,
     PatternMatch,
@@ -169,6 +171,29 @@ def _write_gateway_scip_fixture(
     return artifact_path
 
 
+def _write_bootstrap_fixture_repo(root: Path) -> None:
+    (root / "src").mkdir(parents=True, exist_ok=True)
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    (root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "src" / "app.py").write_text(
+        "from src.worker import run_worker\n\n"
+        "def main() -> str:\n"
+        "    return run_worker()\n",
+        encoding="utf-8",
+    )
+    (root / "src" / "worker.py").write_text(
+        "def run_worker() -> str:\n"
+        "    return 'ready'\n",
+        encoding="utf-8",
+    )
+    (root / "scripts" / "cli.py").write_text(
+        "from src.app import main\n\n"
+        "def cli() -> str:\n"
+        "    return main()\n",
+        encoding="utf-8",
+    )
+
+
 @pytest.fixture()
 def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / ".atelier"
@@ -300,6 +325,84 @@ def test_get_context_can_include_folded_state(store_root: Path) -> None:
     payload = _result(resp)
     assert isinstance(payload.get("context"), str)
     assert "run_ledger" in payload
+
+
+def test_context_enqueues_single_bootstrap_job_for_cold_repo(
+    store_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
+    _write_bootstrap_fixture_repo(workspace_root)
+    mcp_server._reset_runtime_cache_for_testing()
+    monkeypatch.setattr(mcp_server, "_run_worker_tick_safe", lambda root: None)
+
+    first = _result(_call("context", {"task": "Map the repo entry points"}))
+    second = _result(_call("context", {"task": "Map the repo entry points"}))
+
+    store = mcp_server.create_store(store_root)
+    store.init()
+    jobs = [job for job in store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20) if job["status"] in {"pending", "running"}]
+
+    assert len(jobs) == 1
+    assert first["bootstrap"]["queued"] is True
+    assert second["bootstrap"]["queued"] is False
+
+
+def test_context_worker_tick_persists_bootstrap_blocks_without_blocking_initial_response(
+    store_root: Path,
+) -> None:
+    workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
+    _write_bootstrap_fixture_repo(workspace_root)
+    mcp_server._reset_runtime_cache_for_testing()
+
+    payload = _result(_call("context", {"task": "Warm the repository context"}))
+
+    assert "Repository bootstrap" not in payload["context"]
+    mcp_server._run_worker_tick_safe(store_root)
+
+    plan = build_bootstrap_plan(workspace_root)
+    blocks = mcp_server.make_memory_store(store_root).list_pinned_blocks(plan.agent_id)
+
+    assert len([block for block in blocks if block.label.startswith(f"bootstrap/{plan.repo_id}/")]) == 4
+
+
+def test_context_reuses_bootstrap_blocks_instead_of_enqueuing_duplicate_work(
+    store_root: Path,
+) -> None:
+    workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
+    _write_bootstrap_fixture_repo(workspace_root)
+    mcp_server._reset_runtime_cache_for_testing()
+
+    _result(_call("context", {"task": "Warm the repository context"}))
+    mcp_server._run_worker_tick_safe(store_root)
+    mcp_server._reset_runtime_cache_for_testing()
+    payload = _result(_call("context", {"task": "Warm the repository context"}))
+
+    store = mcp_server.create_store(store_root)
+    store.init()
+    jobs = store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20)
+
+    assert len(jobs) == 1
+    assert payload["bootstrap"]["status"] == "warm"
+    assert "Repository bootstrap" in payload["context"]
+
+
+def test_context_injects_preseeded_bootstrap_blocks_without_recomputing(
+    store_root: Path,
+) -> None:
+    workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
+    _write_bootstrap_fixture_repo(workspace_root)
+    memory_store = mcp_server.make_memory_store(store_root)
+    persist_bootstrap_plan(workspace_root, memory_store)
+    mcp_server._reset_runtime_cache_for_testing()
+
+    payload = _result(_call("context", {"task": "Use the warmed bootstrap state"}))
+
+    store = mcp_server.create_store(store_root)
+    store.init()
+    assert store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20) == []
+    assert payload["bootstrap"]["status"] == "warm"
+    assert "architecture-sketch" in payload["context"]
 
 
 def test_rescue_failure_returns_procedure(store_root: Path) -> None:
