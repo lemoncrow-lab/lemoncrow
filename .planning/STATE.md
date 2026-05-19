@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 04 planning complete
-last_updated: "2026-05-19T13:20:00+02:00"
-last_activity: 2026-05-19 -- Phase 04 planned as four execution waves and marked execution-ready
+status: in_progress
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-05-19T11:48:19.359Z"
+last_activity: 2026-05-19 -- Completed 04-01 with explicit pygit2 bootstrap and git-history graveyard substrate
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 14
-  completed_plans: 10
-  percent: 43
+  completed_plans: 11
+  percent: 79
 ---
 
 # Project State
@@ -25,18 +25,18 @@ See: .planning/PROJECT.md (updated 2026-05-19)
 
 ## Current Position
 
-Phase: 04 (historical-code-intelligence) — PLANNED
-Plan: 04-01, 04-02, 04-03, 04-04 ready for execution
-Status: Phase 03 complete; Phase 04 planning is complete and execution-ready
-Last activity: 2026-05-19 -- Phase 04 planned as four execution waves and marked execution-ready
+Phase: 04 (historical-code-intelligence) — IN PROGRESS
+Plan: 04-01 complete; 04-02 next
+Status: Phase 04 execution started; Wave 1 bootstrap and graveyard substrate are complete
+Last activity: 2026-05-19 -- Completed 04-01 with explicit pygit2 bootstrap and git-history graveyard substrate
 
-Progress: [██████████] 100%
+Progress: [████████░░] 79%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 7
+- Total plans completed: 11
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -63,6 +63,7 @@ Progress: [██████████] 100%
 | Phase 03 P01 | 28min | 3 tasks | 10 files |
 | Phase 03 P02 | 16min | 3 tasks | 8 files |
 | Phase 03 P03 | 11min | 3 tasks | 15 files |
+| Phase 04 P01 | 5min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,8 @@ Recent decisions affecting current work:
 - [Phase 03]: Extend the routed provider contract with typed caller/callee neighbors instead of adding a live fallback path.
 - [Phase 03]: Keep traversal, cycle handling, and snapshot shaping in call_graph.py so engine.py and mcp_server.py stay thin.
 - [Phase 03]: Ship snapshot as opt-in metadata while keeping depth=1 and snapshot=False as the cheap default.
+- [Phase 04]: Pin pygit2 exactly at 1.19.2 and gate git-history code behind require_pygit2(). — Keeps bootstrap explicit and forbids hidden GitPython or subprocess fallback.
+- [Phase 04]: Parse deleted and renamed blobs through extract_tags_from_text() rather than live file reads. — Deleted-history ingestion must work for blobs that no longer exist in the working tree.
 
 ### Pending Todos
 
@@ -115,6 +118,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-19T09:49:33.064Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-05-19T11:46:51.329Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None

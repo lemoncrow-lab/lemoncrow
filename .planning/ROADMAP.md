@@ -113,7 +113,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — Pin and bootstrap `pygit2`, then build the isolated git-history graveyard substrate with real infra tests only
+- [x] 04-01-PLAN.md — Pin and bootstrap `pygit2`, then build the isolated git-history graveyard substrate with real infra tests only
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -191,7 +191,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Retrieval Core & Routed Symbol Search | 3/3 | Complete   | 2026-05-18 |
 | 2. Structural Discovery & Symbol-Safe Change Flows | 4/4 | Complete | 2026-05-19 |
 | 3. Semantic Recall & Relationship Navigation | 3/3 | Complete   | 2026-05-19 |
-| 4. Historical Code Intelligence | 0/4 | Not started | - |
+| 4. Historical Code Intelligence | 1/4 | In Progress|  |
 | 5. Scale Decision & Extended Retrieval Reach | 0/3 | Not started | - |
 | 6. Bootstrap, Dependency Scope & Multi-Repo Workspaces | 0/3 | Not started | - |
 | 7. Maintainer Playbooks & Scorecards | 0/1 | Not started | - |
