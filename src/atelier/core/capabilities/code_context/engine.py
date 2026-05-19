@@ -82,6 +82,7 @@ _SEARCH_ESSENTIAL_KEYS = [
     "start_line",
     "end_line",
     "language",
+    "origin",
     "provenance",
 ]
 _SEARCH_OPTIONAL_KEYS = ["snippet", "doc_summary", "score", "repo_id", "content_hash", "parent_symbol", "start_byte", "end_byte"]
@@ -108,6 +109,7 @@ _SYMBOL_ESSENTIAL_KEYS = [
     "start_line",
     "end_line",
     "language",
+    "origin",
     "provenance",
 ]
 _SYMBOL_OPTIONAL_KEYS = [
@@ -1150,28 +1152,36 @@ class CodeContextEngine:
             )
         resolved_mode = resolve_search_mode(query, mode)
         if resolved_mode == "lexical":
-            hits = self.intel_store.search_symbols(query, limit=limit, kind=kind, language=language)
+            hits = self.intel_store.search_symbols(query, limit=limit, kind=kind, language=language, scope=scope)
         else:
             candidate_limit = semantic_candidate_limit(limit)
-            lexical_hits = self.intel_store.search_symbols(
-                query,
-                limit=candidate_limit,
-                kind=kind,
-                language=language,
-            )
-            semantic_hits = self._search_symbols_semantic_local(
-                query,
-                limit=candidate_limit,
-                kind=kind,
-                language=language,
-            )
-            hits = (
-                semantic_hits[:limit]
-                if resolved_mode == "semantic"
-                else self._semantic_ranker.reciprocal_rank_fuse(lexical_hits, semantic_hits, limit=limit)
-            )
-        if scope != "repo":
-            return []
+            if scope == "external":
+                hits = self.intel_store.search_symbols(
+                    query,
+                    limit=candidate_limit,
+                    kind=kind,
+                    language=language,
+                    scope="external",
+                )
+            else:
+                lexical_hits = self.intel_store.search_symbols(
+                    query,
+                    limit=candidate_limit,
+                    kind=kind,
+                    language=language,
+                    scope="repo",
+                )
+                semantic_hits = self._search_symbols_semantic_local(
+                    query,
+                    limit=candidate_limit,
+                    kind=kind,
+                    language=language,
+                )
+                hits = (
+                    semantic_hits[:limit]
+                    if resolved_mode == "semantic"
+                    else self._semantic_ranker.reciprocal_rank_fuse(lexical_hits, semantic_hits, limit=limit)
+                )
         if file_glob:
             hits = [hit for hit in hits if Path(hit.file_path).match(file_glob)]
         return [

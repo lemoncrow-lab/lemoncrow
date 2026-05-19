@@ -47,6 +47,14 @@ def resolve_symbol_edit(edit: dict[str, Any], *, repo_root: str | Path | None = 
     root = Path(repo_root or Path.cwd()).resolve()
     engine = CodeContextEngine(root)
     symbol = _resolve_symbol_payload(edit, engine=engine)
+    if str(symbol.get("origin") or "internal") == "external":
+        raise SymbolEditError(
+            "external_symbol_edit_not_allowed",
+            "external dependency symbols are read-only; edit the first-party wrapper or local source instead",
+            symbol_id=str(symbol["symbol_id"]),
+            file_path=str(symbol["file_path"]),
+            origin="external",
+        )
     repo_file_path = str(symbol["file_path"])
     abs_path = root / repo_file_path
     current_bytes = abs_path.read_bytes()

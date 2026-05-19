@@ -41,6 +41,7 @@ class SymbolIntelProvider(Protocol):
         limit: int = 20,
         kind: str | None = None,
         language: str | None = None,
+        scope: Literal["repo", "external"] = "repo",
     ) -> list[SymbolRecord]: ...
 
     def get_symbol(
@@ -126,16 +127,19 @@ class SymbolIntelStore:
         limit: int = 20,
         kind: str | None = None,
         language: str | None = None,
+        scope: Literal["repo", "external"] = "repo",
     ) -> list[SymbolRecord]:
         for provider in self._providers:
             if not self._provider_is_healthy(provider):
                 continue
             try:
-                hits = provider.search_symbols(query, limit=limit, kind=kind, language=language)
+                hits = provider.search_symbols(query, limit=limit, kind=kind, language=language, scope=scope)
             except Exception:
                 continue
             if hits:
                 return hits[:limit]
+        if scope == "external":
+            return []
         return self._local_search(query, limit=limit, kind=kind, language=language)
 
     def get_symbol(
