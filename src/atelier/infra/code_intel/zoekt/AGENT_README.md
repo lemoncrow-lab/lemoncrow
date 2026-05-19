@@ -25,7 +25,8 @@ This package is the Phase 5 local-only seam for large-repo `search` workloads.
 
 ## Current bootstrap expectation
 
-Phase 5 does not assume a Go toolchain on the developer machine. This seam
-therefore accepts an already-pinned binary path and exposes the local search
-HTTP lifecycle needed by the search stack. Routing and benchmark work build on
-top of this seam in later task steps.
+Phase 5 does not assume a Go toolchain on the developer machine. The default
+managed path provisions a pinned local shim into `.atelier/bin/zoekt-webserver`
+and records its checksum in `.atelier/bin/MANIFEST.json`; env override is still
+supported when a matching SHA-256 value is supplied. Routing and benchmark work
+build on top of this seam in later task steps.

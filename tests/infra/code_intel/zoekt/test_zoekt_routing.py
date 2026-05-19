@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ from atelier.infra.code_intel.zoekt.server import get_zoekt_server
 
 
 @pytest.fixture(autouse=True)
-def _reset_supervisors() -> None:
+def _reset_supervisors() -> Iterator[None]:
     reset_zoekt_supervisors()
     yield
     reset_zoekt_supervisors()
@@ -71,6 +72,27 @@ def test_zoekt_health_resolves_pinned_binary_and_serves_local_health(
     assert health.ok is True
     assert health.backend == "zoekt"
     assert health.binary_path == str(binary_path)
+
+
+def test_zoekt_managed_bootstrap_provisions_manifest_when_env_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = tmp_path / "repo"
+    _write_fixture_repo(repo_root)
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(repo_root))
+    monkeypatch.delenv("ATELIER_ZOEKT_BIN", raising=False)
+    monkeypatch.delenv("ATELIER_ZOEKT_BIN_SHA256", raising=False)
+
+    resolution = discover_zoekt_binary(repo_root)
+
+    assert resolution.available is True
+    assert resolution.source == "managed"
+    assert resolution.path is not None
+    assert resolution.path.exists()
+    manifest = repo_root / ".atelier" / "bin" / "MANIFEST.json"
+    assert manifest.exists()
+    payload = manifest.read_text(encoding="utf-8")
+    assert "zoekt-webserver" in payload
 
 
 def test_zoekt_lifecycle_reuses_one_server_per_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -143,10 +165,29 @@ def test_zoekt_search_falls_back_when_backend_is_unhealthy(
     _write_large_repo(repo_root)
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(repo_root))
     monkeypatch.setenv("ATELIER_ZOEKT_LOC_THRESHOLD", "20")
+    monkeypatch.setenv("ATELIER_ZOEKT_BIN", str(tmp_path / "missing-zoekt-webserver"))
+    monkeypatch.setenv("ATELIER_ZOEKT_BIN_SHA256", "deadbeef")
 
     payload = smart_search(query="needle token", path=str(repo_root), max_files=5, budget_tokens=4000)
 
     assert payload["backend"] == "ripgrep"
+    assert payload["matches"]
+
+
+def test_zoekt_search_routes_large_repos_with_managed_bootstrap_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = tmp_path / "repo"
+    _write_large_repo(repo_root)
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(repo_root))
+    monkeypatch.setenv("ATELIER_ZOEKT_LOC_THRESHOLD", "20")
+    monkeypatch.delenv("ATELIER_ZOEKT_BIN", raising=False)
+    monkeypatch.delenv("ATELIER_ZOEKT_BIN_SHA256", raising=False)
+
+    payload = smart_search(query="needle token", path=str(repo_root), max_files=5, budget_tokens=4000)
+
+    assert payload["backend"] == "zoekt"
+    assert isinstance(payload["index_age_seconds"], int)
     assert payload["matches"]
 
 

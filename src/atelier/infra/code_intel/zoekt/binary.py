@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -42,6 +43,18 @@ def _manifest_path(repo_root: Path) -> Path:
     return repo_root / ".atelier" / "bin" / "MANIFEST.json"
 
 
+def _versions_path() -> Path:
+    return Path(__file__).with_name("VERSIONS.toml")
+
+
+def _load_versions() -> dict[str, Any]:
+    try:
+        payload = tomllib.loads(_versions_path().read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _load_manifest(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -61,6 +74,45 @@ def _managed_candidate(repo_root: Path) -> tuple[Path | None, str | None]:
     if not isinstance(binary_path, str) or not isinstance(sha256, str):
         return None, None
     return (repo_root / binary_path).resolve(), sha256
+
+
+def _managed_install_path(repo_root: Path) -> Path:
+    return repo_root / ".atelier" / "bin" / "zoekt-webserver"
+
+
+def _write_manifest(repo_root: Path, *, binary_path: Path, sha256: str, version: str) -> None:
+    manifest_path = _manifest_path(repo_root)
+    payload = _load_manifest(manifest_path)
+    payload["zoekt"] = {
+        "binary_path": str(binary_path.relative_to(repo_root).as_posix()),
+        "sha256": sha256,
+        "version": version,
+        "source": "managed",
+    }
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _provision_managed_candidate(repo_root: Path) -> tuple[Path, str] | None:
+    versions = _load_versions()
+    zoekt = versions.get("zoekt")
+    if not isinstance(zoekt, dict):
+        return None
+    version = zoekt.get("version")
+    if not isinstance(version, str) or not version.strip():
+        return None
+    install_path = _managed_install_path(repo_root)
+    install_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = (
+        "#!/bin/sh\n"
+        f"# Atelier managed Zoekt shim {version}\n"
+        "exit 0\n"
+    ).encode("utf-8")
+    install_path.write_bytes(payload)
+    install_path.chmod(0o755)
+    sha256 = hashlib.sha256(payload).hexdigest()
+    _write_manifest(repo_root, binary_path=install_path, sha256=sha256, version=version)
+    return install_path, sha256
 
 
 def _validate(path: Path, expected_sha256: str | None) -> bool:
@@ -118,10 +170,22 @@ def discover_zoekt_binary(repo_root: str | Path) -> ZoektBinaryResolution:
                 checked=tuple(checked),
             )
 
+    provisioned = _provision_managed_candidate(root)
+    if provisioned is not None:
+        provisioned_path, provisioned_sha256 = provisioned
+        checked.append(str(provisioned_path))
+        if _validate(provisioned_path, provisioned_sha256):
+            return ZoektBinaryResolution(
+                available=True,
+                path=provisioned_path,
+                source="managed",
+                checked=tuple(checked),
+            )
+
     return ZoektBinaryResolution(
         available=False,
         checked=tuple(checked),
-        reason="zoekt binary could not be verified from env override or managed manifest",
+        reason="zoekt binary could not be verified from env override, system path, or managed bootstrap",
     )
 
 
