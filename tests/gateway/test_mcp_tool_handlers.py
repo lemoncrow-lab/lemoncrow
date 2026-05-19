@@ -696,6 +696,57 @@ def test_tool_code_search_dispatches_mode_without_gateway_ranking_logic(
     )
 
 
+def test_tool_code_search_dispatches_deleted_scope_filters_without_gateway_history_logic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_engine = MagicMock()
+    fake_engine.tool_search.return_value = {
+        "items": [
+            {
+                "symbol_name": "LegacyCheckout",
+                "provenance": "graveyard",
+                "deleted_at_sha": "abc123",
+                "rename_target": "modern.py",
+            }
+        ],
+        "cache_hit": False,
+        "provenance": "graveyard",
+        "tokens_saved": 11,
+        "total_tokens": 120,
+        "mode": "auto",
+    }
+    monkeypatch.setattr("atelier.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
+
+    payload = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "ModernCheckout",
+            "scope": "deleted",
+            "since": "2025-01-01",
+            "touched_by": "history@example.com",
+            "budget_tokens": 220,
+        }
+    )
+
+    assert payload["provenance"] == "graveyard"
+    assert payload["items"][0]["rename_target"] == "modern.py"
+    fake_engine.tool_search.assert_called_once_with(
+        "ModernCheckout",
+        limit=20,
+        mode="auto",
+        kind=None,
+        language=None,
+        snippet="none",
+        snippet_lines=8,
+        file_glob=None,
+        scope="deleted",
+        since="2025-01-01",
+        touched_by="history@example.com",
+        budget_tokens=220,
+    )
+
+
 def test_code_context_usages_surface_groups_references(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "src").mkdir()

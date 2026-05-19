@@ -387,6 +387,74 @@ def test_tool_code_cache_diagnostics_dispatch_to_engine(tmp_path: Path, monkeypa
     fake_engine.tool_cache_invalidate.assert_called_once_with(cache_tool="search", budget_tokens=220)
 
 
+def test_tool_code_deleted_search_stays_on_additive_code_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_engine = MagicMock()
+    fake_engine.tool_search.return_value = {
+        "items": [
+            {
+                "symbol_name": "LegacyCheckout",
+                "qualified_name": "LegacyCheckout",
+                "file_path": "legacy.py",
+                "kind": "historical",
+                "signature": "LegacyCheckout",
+                "start_line": 1,
+                "end_line": 1,
+                "language": "python",
+                "provenance": "graveyard",
+                "deleted_at": "2025-01-01T00:00:00Z",
+                "deleted_at_sha": "abc123",
+                "rename_target": "modern.py",
+                "rename_note": "matched current public identity",
+            }
+        ],
+        "cache_hit": False,
+        "provenance": "graveyard",
+        "provenance_breakdown": {"graveyard": 1},
+        "tokens_saved": 10,
+        "total_tokens": 140,
+        "mode": "auto",
+    }
+    monkeypatch.setattr("atelier.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
+
+    payload = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "ModernCheckout",
+            "scope": "deleted",
+            "since": "2025-01-01",
+            "touched_by": "history@example.com",
+            "budget_tokens": 220,
+        }
+    )
+
+    assert sorted(payload.keys()) == [
+        "cache_hit",
+        "items",
+        "mode",
+        "provenance",
+        "provenance_breakdown",
+        "tokens_saved",
+        "total_tokens",
+    ]
+    assert payload["items"][0]["deleted_at_sha"] == "abc123"
+    assert payload["items"][0]["rename_target"] == "modern.py"
+    fake_engine.tool_search.assert_called_once_with(
+        "ModernCheckout",
+        limit=20,
+        mode="auto",
+        kind=None,
+        language=None,
+        snippet="none",
+        snippet_lines=8,
+        file_glob=None,
+        scope="deleted",
+        since="2025-01-01",
+        touched_by="history@example.com",
+        budget_tokens=220,
+    )
+
+
 def test_tool_code_cache_diagnostics_hide_payloads_and_keep_other_ops_cached(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
