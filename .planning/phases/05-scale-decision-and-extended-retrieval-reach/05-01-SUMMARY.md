@@ -25,24 +25,25 @@ key-files:
   modified:
     - docs/plans/active/code-intel/M18-bvi-checkpoint.md
 key-decisions:
-  - "Recommend `option-a`: Zoekt standalone for `search` workloads only, with `code op=\"search\"` staying on existing local/SCIP/semantic paths unless symbol-shape parity is proven later."
+  - "Ratified `option-a`: Zoekt standalone for `search` workloads only, with `code op=\"search\"` staying on existing local/SCIP/semantic paths unless symbol-shape parity is proven later."
   - "Require lifecycle ownership in a session-scoped search backend supervisor outside per-call `CodeContextEngine` rebuilds."
+  - "`05-02` is unblocked and may proceed as written because the ratified backend choice preserved the search-first integration surface."
 patterns-established:
   - "Decision-gate docs reuse the same executable rubric data that benchmark tests assert."
-requirements-completed: []
+requirements-completed: [ENBL-03]
 duration: inline
 completed: 2026-05-19
 ---
 
 # Phase 5 Plan 01: M18 build-vs-integrate checkpoint Summary
 
-**Executable M18 rubric data now selects a search-only Zoekt path, fills the checkpoint memo, and leaves Phase 5 paused for maintainer ratification.**
+**Executable M18 rubric data now records a ratified search-only Zoekt path, closes the M18 gate, and unblocks `05-02` as written.**
 
 ## Performance
 
 - **Duration:** inline
-- **Completed:** 2026-05-19T16:04:23Z
-- **Tasks:** 2/3 complete
+- **Completed:** 2026-05-19T19:24:44Z
+- **Tasks:** 3/3 complete
 - **Files modified:** 4 tracked plan files, plus 1 compatibility shim
 
 ## Accomplishments
@@ -50,6 +51,7 @@ completed: 2026-05-19
 - Added a deterministic M18 rubric runner that scores all four build-vs-integrate candidates against the 9-point checkpoint matrix and emits repo-specific routing answers.
 - Filled `docs/plans/active/code-intel/M18-bvi-checkpoint.md` from executable rubric data, including the explicit `search_scope`, `result_shape`, `lifecycle_owner`, and `05-02` proceed-as-written gate result.
 - Recorded M18 trace evidence `20260519T160423-gsd-executor-ccf4ef8b` tied to the completed memo and harness outputs.
+- Recorded the maintainer checkpoint ratification as `option-a`, closing Task 3 and formally unblocking `05-02` with no replan required.
 
 ## Task Commits
 
@@ -60,7 +62,7 @@ completed: 2026-05-19
    - `cb53100` test(05-01): add failing M18 memo rendering tests
    - `9aebc57` feat(05-01): complete M18 checkpoint memo
 3. **Task 3: Ratify the M18 backend choice before any M16 implementation starts**
-   - Pending maintainer decision checkpoint
+   - `b1814e9` docs(05-01): ratify M18 checkpoint option-a
 
 ## Validation
 
@@ -76,8 +78,9 @@ completed: 2026-05-19
 
 ## Decisions Made
 
-- Recommended `option-a` because only Zoekt standalone cleared the full rubric while preserving the repo's search-first integration surface.
+- Ratified `option-a` because only Zoekt standalone cleared the full rubric while preserving the repo's search-first integration surface.
 - Locked the repo-specific answers to `search_scope=search`, `result_shape=text`, and a session-scoped lifecycle owner outside ephemeral `CodeContextEngine` instances.
+- Confirmed `05-02` may proceed as written; `05-03` remains untouched by this closeout.
 
 ## Deviations from Plan
 
@@ -100,16 +103,16 @@ completed: 2026-05-19
 
 - `/tmp` is full in this environment, so every pytest command needed `TMPDIR` redirected into the provided session-state directory.
 
-## Checkpoint Status
+## Checkpoint Resolution
 
-- **Current task:** Task 3 — Ratify the M18 backend choice before any M16 implementation starts
-- **Status:** awaiting maintainer decision
-- **Recommended option:** `option-a`
-- **Gate rule:** only `option-a` unblocks `05-02` as written; any other option requires replanning before backend implementation
+- **Task 3:** completed
+- **Selected option:** `option-a`
+- **Meaning:** Proceed with Zoekt standalone for `search` workloads only
+- **Gate result:** `05-02` is unblocked and may proceed as written
 
 ## Next Phase Readiness
 
-- `05-02` is technically ready only if the maintainer ratifies `option-a`.
+- `05-02` is now ready to start as written.
 - No M16 backend implementation work started in this plan.
 
 ## Known Stubs
@@ -125,4 +128,4 @@ None.
 PASSED
 
 - FOUND: `.planning/phases/05-scale-decision-and-extended-retrieval-reach/05-01-SUMMARY.md`
-- FOUND commits: `83263cc`, `90d064e`, `cb53100`, `9aebc57`
+- FOUND commits: `83263cc`, `90d064e`, `cb53100`, `9aebc57`, `b1814e9`

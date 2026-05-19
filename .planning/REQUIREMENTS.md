@@ -36,7 +36,7 @@
 
 - [ ] **ENBL-01**: Agent gets first-context bootstrap and prefetch behavior that warms the most relevant code-intel state before the first retrieval-heavy task.
 - [ ] **ENBL-02**: Maintainers have code-intel documentation, validation guidance, and scorecard metrics that explain when to use `code`, `read`, `search`, and symbol edits.
-- [ ] **ENBL-03**: Maintainers have a documented build-vs-integrate decision record before large-repo backend work proceeds.
+- [x] **ENBL-03**: Maintainers have a documented build-vs-integrate decision record before large-repo backend work proceeds.
 
 ## v2 Requirements
 
@@ -78,7 +78,7 @@ Roadmap mapping for all v1 requirements.
 | SCAL-02 | Phase 5 | Pending |
 | ENBL-01 | Phase 6 | Pending |
 | ENBL-02 | Phase 7 | Pending |
-| ENBL-03 | Phase 5 | Pending |
+| ENBL-03 | Phase 5 | Complete |
 
 **Coverage:**
 - v1 requirements: 18 total
@@ -87,4 +87,4 @@ Roadmap mapping for all v1 requirements.
 
 ---
 *Requirements defined: 2026-05-18*
-*Last updated: 2026-05-19 after Phase 4 completion*
+*Last updated: 2026-05-19 after Phase 5 Plan 01 completion*

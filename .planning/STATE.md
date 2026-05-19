@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: checkpoint
-stopped_at: Phase 05 Plan 01 Task 3 decision checkpoint awaiting maintainer ratification
-last_updated: "2026-05-19T16:05:28.320Z"
-last_activity: 2026-05-19 -- 05-01 completed Tasks 1-2, recorded M18 trace evidence, and is awaiting backend-choice ratification at Task 3
+status: in_progress
+stopped_at: Phase 05 Plan 02 ready to execute after 05-01 option-a ratification
+last_updated: "2026-05-19T19:26:03.298Z"
+last_activity: 2026-05-19 -- 05-01 completed with ratified option-a; 05-02 is unblocked as written
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 17
-  completed_plans: 14
-  percent: 57
+  completed_plans: 15
+  percent: 88
 ---
 
 # Project State
@@ -25,18 +25,18 @@ See: .planning/PROJECT.md (updated 2026-05-19)
 
 ## Current Position
 
-Phase: 05 (scale-decision-and-extended-retrieval-reach) — CHECKPOINT
-Plan: 05-01 awaiting Task 3 maintainer decision; 05-02 and 05-03 remain blocked behind the M18 gate
-Status: Tasks 1-2 of 05-01 are complete, with a search-only Zoekt recommendation pending ratification at the blocking decision checkpoint
-Last activity: 2026-05-19 -- 05-01 completed Tasks 1-2, recorded M18 trace evidence, and is awaiting backend-choice ratification at Task 3
+Phase: 05 (scale-decision-and-extended-retrieval-reach) — IN PROGRESS
+Plan: 05-01 complete; 05-02 may proceed as written and 05-03 remains pending
+Status: Maintainer ratified `option-a`, so the M18 gate is closed and the search-only Zoekt path is the accepted Phase 5 backend direction
+Last activity: 2026-05-19 -- 05-01 completed with ratified option-a; 05-02 is unblocked as written
 
-Progress: [██████████] 100%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 14
+- Total plans completed: 15
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -67,6 +67,7 @@ Progress: [██████████] 100%
 | Phase 04 P02 | 10min | 3 tasks | 9 files |
 | Phase 04 P03 | 2 min | 2 tasks | 6 files |
 | Phase 04 P04 | inline | 3 tasks | 10 files |
+| Phase 05 P01 | inline | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Run the M18 checkpoint before any M16 backend work and record whether the selected backend serves `search`, `code`, or both.
 - [Phase 05]: Keep M16 on the existing `search` stack first; do not replace `SymbolIntelStore` or widen `engine.py` / `mcp_server.py`.
 - [Phase 05]: Limit M17 to literal-only static cross-language edges surfaced additively on `code op="symbol"` and `code op="usages"`.
+- [Phase 05]: Ratified option-a: Zoekt standalone serves search workloads only. — This preserves the search-first integration surface and unblocks 05-02 as written.
+- [Phase 05]: Keep lifecycle ownership in a session-scoped search backend supervisor. — The scale backend must remain outside per-call CodeContextEngine rebuilds.
 
 ### Pending Todos
 
@@ -116,8 +119,7 @@ None yet.
 ### Blockers/Concerns
 
 - Brownfield repository: existing worktree edits already touch `code_context` and MCP files, so execution plans must avoid overwriting unrelated changes.
-- Phase 5 must complete the checkpoint plan before any M16 implementation work starts.
-- Phase 05 Plan 01 is paused at Task 3 until a maintainer selects one checkpoint option (`option-a`, `option-b`, `option-c`, or `option-d`).
+- Phase 05-01 closed with `option-a`; keep 05-02 on the search-only Zoekt track and do not widen the integration surface during implementation.
 - `05-02` and `05-03` were accepted with warning-level breadth notes; split them if file scope expands during execution.
 - Phase 1 plans were accepted with warning-level checker findings around plan breadth and pattern-map alignment; re-surface them during execution if file scope expands further.
 - Phase 2 plans were accepted with warning-level checker findings about file breadth across `mcp_server.py`, `engine.py`, and related brownfield hotspots; re-surface them during execution if scope expands further.
@@ -133,6 +135,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-19T16:05:28.311Z
-Stopped at: Phase 05 Plan 01 Task 3 decision checkpoint awaiting maintainer ratification
-Resume file: .planning/phases/05-scale-decision-and-extended-retrieval-reach/05-01-SUMMARY.md
+Last session: 2026-05-19T19:26:03.298Z
+Stopped at: Phase 05 Plan 02 ready to execute after 05-01 option-a ratification
+Resume file: .planning/phases/05-scale-decision-and-extended-retrieval-reach/05-02-PLAN.md

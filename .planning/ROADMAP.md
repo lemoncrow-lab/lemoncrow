@@ -142,7 +142,7 @@ Plans:
 
 Plans:
 
-- [ ] 05-01: Build-vs-integrate checkpoint and decision memo before scale backend work (M18)
+- [x] 05-01: Build-vs-integrate checkpoint and decision memo before scale backend work (M18)
 - [ ] 05-02: Validated large-repo backend routing for search workloads (M16)
 - [ ] 05-03: Partial cross-language edge resolution with confidence scoring (M17)
 
@@ -192,6 +192,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Structural Discovery & Symbol-Safe Change Flows | 4/4 | Complete | 2026-05-19 |
 | 3. Semantic Recall & Relationship Navigation | 3/3 | Complete   | 2026-05-19 |
 | 4. Historical Code Intelligence | 4/4 | Complete | 2026-05-19 |
-| 5. Scale Decision & Extended Retrieval Reach | 0/3 | Not started | - |
+| 5. Scale Decision & Extended Retrieval Reach | 1/3 | In Progress|  |
 | 6. Bootstrap, Dependency Scope & Multi-Repo Workspaces | 0/3 | Not started | - |
 | 7. Maintainer Playbooks & Scorecards | 0/1 | Not started | - |
