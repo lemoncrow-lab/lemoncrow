@@ -5,16 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from atelier.infra.code_intel.zoekt.adapter import get_zoekt_supervisor, reset_zoekt_supervisors
 from atelier.infra.code_intel.zoekt.binary import discover_zoekt_binary
 from atelier.infra.code_intel.zoekt.client import ZoektClient
+from atelier.infra.code_intel.zoekt.server import get_zoekt_server, reset_zoekt_servers
 
 
 @pytest.fixture(autouse=True)
 def _reset_supervisors() -> None:
-    reset_zoekt_supervisors()
+    reset_zoekt_servers()
     yield
-    reset_zoekt_supervisors()
+    reset_zoekt_servers()
 
 
 def _write_fixture_repo(repo_root: Path) -> None:
@@ -56,8 +56,8 @@ def test_zoekt_health_resolves_pinned_binary_and_serves_local_health(
     assert resolution.available is True
     assert resolution.path == binary_path
 
-    supervisor = get_zoekt_supervisor(repo_root)
-    health = supervisor.health()
+    server = get_zoekt_server(repo_root, binary_path=binary_path)
+    health = server.health()
 
     assert health.ok is True
     assert health.backend == "zoekt"
@@ -70,14 +70,14 @@ def test_zoekt_lifecycle_reuses_one_server_per_workspace(tmp_path: Path, monkeyp
     binary_path, sha256 = _write_fake_binary(tmp_path)
     _configure_binary(monkeypatch, binary_path, sha256, repo_root)
 
-    first = get_zoekt_supervisor(repo_root)
-    second = get_zoekt_supervisor(repo_root)
+    first = get_zoekt_server(repo_root, binary_path=binary_path)
+    second = get_zoekt_server(repo_root, binary_path=binary_path)
 
     first.ensure_started()
     second.ensure_started()
 
     assert first is second
-    assert first.server.start_count == 1
+    assert first.start_count == 1
 
 
 def test_zoekt_byte_range_client_preserves_offsets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -86,8 +86,8 @@ def test_zoekt_byte_range_client_preserves_offsets(tmp_path: Path, monkeypatch: 
     binary_path, sha256 = _write_fake_binary(tmp_path)
     _configure_binary(monkeypatch, binary_path, sha256, repo_root)
 
-    supervisor = get_zoekt_supervisor(repo_root)
-    client = ZoektClient(supervisor.ensure_started())
+    server = get_zoekt_server(repo_root, binary_path=binary_path)
+    client = ZoektClient(server.ensure_started())
 
     matches = client.search("needle token")
 
