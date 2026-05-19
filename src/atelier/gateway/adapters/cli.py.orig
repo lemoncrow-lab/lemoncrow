@@ -2391,79 +2391,6 @@ def lesson_decide(
     click.echo(f"{verb} {lesson_id}")
 
 
-@lesson.group("active")
-def lesson_active_group() -> None:
-    """Inspect and manage active typed lessons."""
-
-
-@lesson_active_group.command("list")
-@click.option("--include-inactive", is_flag=True, default=False)
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def lesson_active_list(ctx: click.Context, include_inactive: bool, as_json: bool) -> None:
-    from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
-
-    lessons = TypedLessonStore(ctx.obj["root"], create=False).list_lessons()
-    if not include_inactive:
-        lessons = [lesson for lesson in lessons if lesson.enabled]
-    if as_json:
-        _emit([lesson.model_dump(mode="json") for lesson in lessons], as_json=True)
-        return
-    if not lessons:
-        click.echo("(no active lessons)")
-        return
-    for lesson in lessons:
-        last_applied = lesson.last_applied_at.isoformat() if lesson.last_applied_at else "-"
-        click.echo(
-            f"{lesson.id}\t{lesson.kind}\t{lesson.scope}\t{lesson.effective_confidence_at():.2f}\t"
-            f"{'enabled' if lesson.enabled else 'disabled'}\t{last_applied}"
-        )
-
-
-@lesson_active_group.command("show")
-@click.argument("lesson_id")
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def lesson_active_show(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
-    from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
-
-    lesson = TypedLessonStore(ctx.obj["root"], create=False).get_lesson(lesson_id)
-    if lesson is None:
-        raise click.ClickException(f"typed lesson not found: {lesson_id}")
-    if as_json:
-        _emit(lesson.model_dump(mode="json"), as_json=True)
-        return
-    click.echo(json.dumps(lesson.model_dump(mode="json"), indent=2, ensure_ascii=False, default=str))
-
-
-@lesson_active_group.command("disable")
-@click.argument("lesson_id")
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def lesson_active_disable(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
-    from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
-
-    lesson = TypedLessonStore(ctx.obj["root"]).set_enabled(lesson_id, False)
-    if as_json:
-        _emit(lesson.model_dump(mode="json"), as_json=True)
-        return
-    click.echo(f"disabled {lesson_id}")
-
-
-@lesson_active_group.command("enable")
-@click.argument("lesson_id")
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def lesson_active_enable(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
-    from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
-
-    lesson = TypedLessonStore(ctx.obj["root"]).set_enabled(lesson_id, True)
-    if as_json:
-        _emit(lesson.model_dump(mode="json"), as_json=True)
-        return
-    click.echo(f"enabled {lesson_id}")
-
-
 @lesson.command("sync-pr")
 @click.argument("lesson_id")
 @click.option("--dry-run", is_flag=True)
@@ -2887,105 +2814,6 @@ def route_group() -> None:
     """Quality-aware routing helpers."""
 
 
-@cli.group("route")
-def route_public_group() -> None:
-    """Cross-vendor routing helpers."""
-
-
-@route_public_group.command("configure")
-@click.option("--vendor", "vendors", multiple=True, type=click.Choice(["anthropic", "openai", "google"]))
-@click.option("--risk-class", type=click.Choice(["low", "medium", "high"]), default="low", show_default=True)
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def route_configure_public_cmd(
-    ctx: click.Context,
-    vendors: tuple[str, ...],
-    risk_class: str,
-    as_json: bool,
-) -> None:
-    from atelier.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
-    from atelier.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
-
-    try:
-        payload = CrossVendorRouteAdvisor(ctx.obj["root"]).configure(
-            enabled_vendors=list(vendors) or None,
-            risk_class=risk_class,
-        )
-    except RouteConfigError as exc:
-        raise click.ClickException(str(exc)) from exc
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"Saved {payload['path']}")
-    click.echo("Enabled vendors: " + ", ".join(payload["enabled_vendors"]))
-
-
-@route_public_group.command("plan")
-@click.option("--tool", "tool_name", required=True, help="Tool or turn type to evaluate.")
-@click.option("--task", "task_text", required=True, help="Task summary for routing.")
-@click.option("--actual-vendor", default=None, help="Current host vendor for edit-pin decisions.")
-@click.option("--expected-input-tokens", default=1000, show_default=True, type=int)
-@click.option("--expected-output-tokens", default=200, show_default=True, type=int)
-@click.option("--turn-number", default=0, show_default=True, type=int)
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def route_plan_cmd(
-    ctx: click.Context,
-    tool_name: str,
-    task_text: str,
-    actual_vendor: str | None,
-    expected_input_tokens: int,
-    expected_output_tokens: int,
-    turn_number: int,
-    as_json: bool,
-) -> None:
-    from atelier.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
-    from atelier.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
-
-    try:
-        payload = CrossVendorRouteAdvisor(ctx.obj["root"]).recommend(
-            tool_name=tool_name,
-            task_text=task_text,
-            actual_vendor=actual_vendor,
-            session_state={
-                "expected_input_tokens": expected_input_tokens,
-                "expected_output_tokens": expected_output_tokens,
-                "turn_number": turn_number,
-            },
-        )
-    except RouteConfigError as exc:
-        raise click.ClickException(str(exc)) from exc
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"Recommendation: {payload['model']}")
-    click.echo(f"  vendor: {payload['vendor']}")
-    click.echo(f"  predicted cost: ${payload['predicted_cost_usd']:.6f}")
-    if payload.get("fallback"):
-        click.echo(f"  fallback: {payload['fallback']}")
-
-
-@route_public_group.command("status")
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def route_status_cmd(ctx: click.Context, as_json: bool) -> None:
-    from atelier.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
-    from atelier.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
-
-    try:
-        payload = CrossVendorRouteAdvisor(ctx.obj["root"]).status()
-    except RouteConfigError as exc:
-        raise click.ClickException(str(exc)) from exc
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo("Enabled vendors: " + ", ".join(payload["enabled_vendors"]))
-    click.echo(f"Recommendations logged: {payload['recommendation_count']}")
-    click.echo(f"Estimated savings: ${payload['estimated_savings_usd']:.6f}")
-    click.echo(f"Active lessons: {payload['active_lesson_count']}")
-    click.echo(f"Lesson-driven recommendations: {payload['lesson_application_count']}")
-    click.echo(f"Cost-cap triggers: {payload['cost_cap_trigger_count']}")
-
 @route_group.command("decide")
 @click.option("--goal", "user_goal", required=True, help="User goal/task summary.")
 @click.option("--repo-root", default=".", show_default=True)
@@ -3371,26 +3199,6 @@ def memory_group() -> None:
     """Session memory operations."""
 
 
-def _workspace_manager_or_none(root: Path) -> Any | None:
-    from atelier.core.capabilities.team import TeamWorkspaceManager
-
-    manager = TeamWorkspaceManager(root)
-    return manager if manager.exists() else None
-
-
-def _workspace_memory_metadata(root: Path, metadata: dict[str, Any]) -> tuple[dict[str, Any], Any | None, Any | None]:
-    manager = _workspace_manager_or_none(root)
-    if manager is None:
-        return metadata, None, None
-    workspace = manager.load_workspace()
-    member = manager.require_member(None, workspace=workspace)
-    merged = dict(metadata)
-    merged.setdefault("scope", "private")
-    merged.setdefault("workspace_id", workspace.id)
-    merged.setdefault("owner_user_id", member.user_id)
-    return merged, manager, member
-
-
 @memory_group.command("upsert")
 @click.option("--agent-id", required=True)
 @click.option("--label", required=True)
@@ -3427,11 +3235,6 @@ def memory_upsert(
         raise click.ClickException(f"invalid --metadata-json: {exc}") from exc
     if not isinstance(metadata_raw, dict):
         raise click.ClickException("--metadata-json must decode to an object")
-    metadata_raw, _, member = _workspace_memory_metadata(ctx.obj["root"], metadata_raw)
-    if member is not None and metadata_raw.get("scope") == "shared":
-        from atelier.core.capabilities.team import ensure_shared_memory_write
-
-        ensure_shared_memory_write(member)
 
     store = make_memory_store(ctx.obj["root"])
     clean_value = _redact_memory_input(_read_memory_value(value), "value")
@@ -3471,19 +3274,10 @@ def memory_get(ctx: click.Context, agent_id: str | None, label: str, as_json: bo
     """Fetch one editable memory block."""
     from atelier.infra.storage.factory import make_memory_store
 
-    store = make_memory_store(ctx.obj["root"])
-    block = store.get_block(agent_id, label)
+    block = make_memory_store(ctx.obj["root"]).get_block(agent_id, label)
     if block is None:
         _emit(None, as_json=as_json)
         return
-    manager = _workspace_manager_or_none(ctx.obj["root"])
-    if manager is not None:
-        from atelier.core.capabilities.team import visible_memory_blocks
-
-        visible = visible_memory_blocks([block], manager=manager)
-        if not visible:
-            raise click.ClickException(f"memory block is not visible to current workspace user: {label}")
-        block = visible[0]
     payload = block.model_dump(mode="json")
     if as_json:
         _emit(payload, as_json=True)
@@ -3494,20 +3288,14 @@ def memory_get(ctx: click.Context, agent_id: str | None, label: str, as_json: bo
 
 @memory_group.command("list")
 @click.option("--agent-id", default=None)
-@click.option("--shared", "shared_only", is_flag=True, help="Show only workspace-shared blocks.")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def memory_list(ctx: click.Context, agent_id: str | None, shared_only: bool, as_json: bool) -> None:  # type: ignore
+def memory_list(ctx: click.Context, agent_id: str | None, as_json: bool) -> None:  # type: ignore
     """List all memory blocks for an agent."""
     from atelier.infra.storage.factory import make_memory_store
 
     store = make_memory_store(ctx.obj["root"])
     blocks = store.list_blocks(agent_id)
-    manager = _workspace_manager_or_none(ctx.obj["root"])
-    if manager is not None:
-        from atelier.core.capabilities.team import visible_memory_blocks
-
-        blocks = visible_memory_blocks(blocks, manager=manager, shared_only=shared_only)
     if as_json:
         _emit([b.model_dump(mode="json") for b in blocks], as_json=True)
         return
@@ -6969,51 +6757,6 @@ def memory_show_cmd(fact_id: str, as_json: bool) -> None:
     click.echo(fact.content)
 
 
-@memory_group_cli.command("share")
-@click.option("--agent-id", required=True, help="Editable memory agent id, e.g. atelier:code.")
-@click.option("--label", required=True, help="Editable memory block label.")
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON.")
-@click.pass_context
-def memory_share_cmd(ctx: click.Context, agent_id: str, label: str, as_json: bool) -> None:
-    """Promote one editable memory block into workspace-shared memory."""
-    from atelier.core.capabilities.team import (
-        TeamAuditEvent,
-        TeamWorkspaceManager,
-        ensure_shared_memory_write,
-    )
-    from atelier.infra.storage.factory import make_memory_store
-
-    root = ctx.obj["root"]
-    manager = TeamWorkspaceManager(root)
-    workspace = manager.load_workspace()
-    member = manager.require_member(None, workspace=workspace)
-    ensure_shared_memory_write(member)
-
-    store = make_memory_store(root)
-    block = store.get_block(agent_id, label)
-    if block is None:
-        raise click.ClickException(f"memory block not found: {agent_id}:{label}")
-    metadata = dict(block.metadata or {})
-    metadata["scope"] = "shared"
-    metadata.setdefault("workspace_id", workspace.id)
-    metadata.setdefault("owner_user_id", member.user_id)
-    metadata["shared_by_user_id"] = member.user_id
-    updated = block.model_copy(update={"metadata": metadata})
-    stored = store.upsert_block(updated, actor=f"team:{member.user_id}", reason="workspace share")
-    manager.append_audit_event(
-        TeamAuditEvent(
-            action="memory.share",
-            actor_user_id=member.user_id,
-            details={"agent_id": agent_id, "label": label, "block_id": stored.id},
-        )
-    )
-    payload = {"id": stored.id, "label": stored.label, "scope": stored.metadata.get("scope"), "workspace_id": workspace.id}
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"shared {agent_id}:{label} into workspace {workspace.name}")
-
-
 @memory_group_cli.command("find")
 @click.argument("query")
 @click.option("--limit", default=20, show_default=True, help="Max results.")
@@ -7058,227 +6801,6 @@ def memory_paths_cmd(as_json: bool) -> None:
         click.echo(f"{vendor}:")
         for p in paths:
             click.echo(f"  {p}")
-
-
-# --------------------------------------------------------------------------- #
-# team                                                                         #
-# --------------------------------------------------------------------------- #
-
-
-@cli.group("team")
-def team_group() -> None:
-    """Manage local team workspace state."""
-
-
-@team_group.command("init")
-@click.option("--name", required=True, help="Workspace display name.")
-@click.option("--admin-email", default="admin@local", show_default=True)
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_init_cmd(ctx: click.Context, name: str, admin_email: str, as_json: bool) -> None:
-    from atelier.core.capabilities.team import TeamWorkspaceManager
-
-    workspace = TeamWorkspaceManager(ctx.obj["root"]).init_workspace(name=name, admin_email=admin_email)
-    payload = workspace.model_dump(mode="json")
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"initialized workspace {workspace.name} ({workspace.id})")
-
-
-@team_group.command("invite")
-@click.argument("emails", nargs=-1)
-@click.option("--role", type=click.Choice(["member", "viewer", "admin"]), default="member", show_default=True)
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_invite_cmd(ctx: click.Context, emails: tuple[str, ...], role: str, as_json: bool) -> None:
-    from atelier.core.capabilities.team import TeamWorkspaceManager
-
-    if not emails:
-        raise click.ClickException("provide at least one email")
-    invites = TeamWorkspaceManager(ctx.obj["root"]).invite_members(list(emails), role=role)  # type: ignore[arg-type]
-    payload = [invite.model_dump(mode="json") for invite in invites]
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    for invite in invites:
-        click.echo(f"{invite.email}\t{invite.role}\t{invite.code}")
-
-
-@team_group.command("join")
-@click.argument("invite_code")
-@click.option("--user-id", default=None, help="Override the invite email as the local user id.")
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_join_cmd(ctx: click.Context, invite_code: str, user_id: str | None, as_json: bool) -> None:
-    from atelier.core.capabilities.team import TeamWorkspaceManager
-
-    member = TeamWorkspaceManager(ctx.obj["root"]).join_workspace(invite_code, user_id=user_id)
-    payload = member.model_dump(mode="json")
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"joined workspace as {member.user_id} ({member.role})")
-
-
-@team_group.command("role")
-@click.argument("user_id")
-@click.argument("role", type=click.Choice(["admin", "member", "viewer"]))
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_role_cmd(ctx: click.Context, user_id: str, role: str, as_json: bool) -> None:
-    from atelier.core.capabilities.team import TeamWorkspaceManager
-
-    member = TeamWorkspaceManager(ctx.obj["root"]).set_role(user_id, role)  # type: ignore[arg-type]
-    payload = member.model_dump(mode="json")
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"{member.user_id}\t{member.role}")
-
-
-@team_group.command("usage")
-@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_usage_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
-    from atelier.core.capabilities.team import TeamWorkspaceManager, summarize_workspace_usage
-
-    manager = TeamWorkspaceManager(ctx.obj["root"])
-    manager.require_admin()
-    payload = summarize_workspace_usage(ctx.obj["root"], manager=manager, since=_parse_since_arg(since))
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"workspace: {payload['workspace_id']}")
-    click.echo(f"sessions: {payload['session_count']}")
-    click.echo(f"total cost usd: {payload['total_cost_usd']:.6f}")
-    for row in payload["users"]:
-        click.echo(f"{row['user_id']}\t{row['role']}\t{row['session_count']}\t{row['total_cost_usd']:.6f}")
-
-
-@team_group.command("audit")
-@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_audit_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
-    from atelier.core.capabilities.team import TeamWorkspaceManager
-
-    manager = TeamWorkspaceManager(ctx.obj["root"])
-    manager.require_admin()
-    events = manager.list_audit_events(since=_parse_since_arg(since))
-    payload = [event.model_dump(mode="json") for event in events]
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    if not events:
-        click.echo("(no team audit events)")
-        return
-    for event in events:
-        click.echo(f"{event.at.isoformat()}\t{event.action}\t{event.actor_user_id}")
-
-
-# --------------------------------------------------------------------------- #
-# governance                                                                   #
-# --------------------------------------------------------------------------- #
-
-
-@cli.group("governance")
-def governance_group() -> None:
-    """Inspect and apply workspace governance policy."""
-
-
-@governance_group.command("show")
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def governance_show_cmd(ctx: click.Context, as_json: bool) -> None:
-    from atelier.core.capabilities.governance import load_policy
-
-    policy = load_policy(ctx.obj["root"])
-    payload = policy.model_dump(mode="json")
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(yaml.safe_dump(payload, sort_keys=True).rstrip())
-
-
-@governance_group.command("apply")
-@click.option("--file", "file_path", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def governance_apply_cmd(ctx: click.Context, file_path: Path, as_json: bool) -> None:
-    from atelier.core.capabilities.governance import GovernancePolicy, save_policy
-    from atelier.core.capabilities.team import TeamAuditEvent, TeamWorkspaceManager
-
-    manager = TeamWorkspaceManager(ctx.obj["root"])
-    member = manager.require_admin()
-    loaded = yaml.safe_load(file_path.read_text(encoding="utf-8")) or {}
-    policy = GovernancePolicy.model_validate(loaded)
-    saved = save_policy(ctx.obj["root"], policy)
-    manager.append_audit_event(
-        TeamAuditEvent(
-            action="governance.apply",
-            actor_user_id=member.user_id,
-            details={"source": str(file_path)},
-        )
-    )
-    payload = saved.model_dump(mode="json")
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"applied governance policy from {file_path}")
-
-
-# --------------------------------------------------------------------------- #
-# audit export                                                                 #
-# --------------------------------------------------------------------------- #
-
-
-@cli.group("audit")
-def audit_group() -> None:
-    """Export and verify workspace audit bundles."""
-
-
-@audit_group.command("export")
-@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
-@click.option("--out", "out_dir", required=True, type=click.Path(path_type=Path))
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def audit_export_cmd(ctx: click.Context, since: str, out_dir: Path, as_json: bool) -> None:
-    from atelier.core.capabilities.audit_export import export_audit_bundle
-    from atelier.core.capabilities.team import TeamAuditEvent, TeamWorkspaceManager
-
-    manager = TeamWorkspaceManager(ctx.obj["root"])
-    member = manager.require_admin()
-    payload = export_audit_bundle(ctx.obj["root"], out_dir=out_dir, since=_parse_since_arg(since))
-    manager.append_audit_event(
-        TeamAuditEvent(
-            action="audit.export",
-            actor_user_id=member.user_id,
-            details={"bundle_dir": payload["bundle_dir"]},
-        )
-    )
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(payload["bundle_dir"])
-
-
-@audit_group.command("verify")
-@click.argument("bundle_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def audit_verify_cmd(ctx: click.Context, bundle_dir: Path, as_json: bool) -> None:
-    from atelier.core.capabilities.audit_export import verify_audit_bundle
-
-    payload = verify_audit_bundle(ctx.obj["root"], bundle_dir=bundle_dir)
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    if payload["valid"]:
-        click.echo(f"verified {bundle_dir}")
-        return
-    raise click.ClickException(f"bundle verification failed: {', '.join(payload['tampered_files']) or 'signature mismatch'}")
 
 
 # --------------------------------------------------------------------------- #
