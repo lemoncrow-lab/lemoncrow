@@ -91,13 +91,13 @@ def detect_language(path: Path) -> str | None:
     }.get(path.suffix)
 
 
-def extract_tags(file_path: str | Path, language: str | None = None) -> list[Tag]:
-    """Extract definition/reference tags from a supported source file."""
+def extract_tags_from_text(text: str, file_path: str | Path, language: str | None = None) -> list[Tag]:
+    """Extract definition/reference tags from source text without reading from disk."""
+
     path = Path(file_path)
     resolved_language = language or detect_language(path)
     if resolved_language is None:
         return []
-    text = path.read_text(encoding="utf-8", errors="replace")
     if resolved_language == "python":
         try:
             return _python_tags(path, text)
@@ -106,4 +106,12 @@ def extract_tags(file_path: str | Path, language: str | None = None) -> list[Tag
     return _regex_tags(path, text, resolved_language)
 
 
-__all__ = ["Tag", "detect_language", "extract_tags"]
+def extract_tags(file_path: str | Path, language: str | None = None) -> list[Tag]:
+    """Extract definition/reference tags from a supported source file."""
+
+    path = Path(file_path)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return extract_tags_from_text(text, path, language=language)
+
+
+__all__ = ["Tag", "detect_language", "extract_tags", "extract_tags_from_text"]

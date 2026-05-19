@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
@@ -66,8 +65,44 @@ def _create_history_fixture(tmp_path: Path) -> tuple[Path, str, str]:
     return repo_root, rename_sha, delete_sha
 
 
+def _create_delete_fixture(tmp_path: Path) -> tuple[Path, str]:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _git(["init"], repo_root)
+    _git(["config", "user.name", "Fixture Tester"], repo_root)
+    _git(["config", "user.email", "fixture@example.com"], repo_root)
+    (repo_root / "legacy.py").write_text(
+        "class LegacyCheckout:\n"
+        "    def process(self) -> int:\n"
+        "        return 1\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo_root, "add legacy symbol")
+    (repo_root / "legacy.py").unlink()
+    delete_sha = _commit_all(repo_root, "delete legacy symbol")
+    return repo_root, delete_sha
+
+
+def _create_rename_fixture(tmp_path: Path) -> tuple[Path, str]:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _git(["init"], repo_root)
+    _git(["config", "user.name", "Fixture Tester"], repo_root)
+    _git(["config", "user.email", "fixture@example.com"], repo_root)
+    (repo_root / "legacy.py").write_text(
+        "class LegacyCheckout:\n"
+        "    def process(self) -> int:\n"
+        "        return 1\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo_root, "add legacy symbol")
+    _git(["mv", "legacy.py", "renamed.py"], repo_root)
+    rename_sha = _commit_all(repo_root, "rename legacy symbol")
+    return repo_root, rename_sha
+
+
 def test_walk_history_records_deleted_symbol_metadata(tmp_path: Path) -> None:
-    repo_root, _rename_sha, delete_sha = _create_history_fixture(tmp_path)
+    repo_root, delete_sha = _create_delete_fixture(tmp_path)
     graveyard_module = importlib.import_module("atelier.infra.code_intel.git_history.graveyard")
     walker_module = importlib.import_module("atelier.infra.code_intel.git_history.walker")
     graveyard = graveyard_module.SymbolGraveyard(sqlite3.connect(":memory:"))
@@ -84,7 +119,7 @@ def test_walk_history_records_deleted_symbol_metadata(tmp_path: Path) -> None:
 
 
 def test_walk_history_records_rename_target_instead_of_bare_deletion(tmp_path: Path) -> None:
-    repo_root, rename_sha, _delete_sha = _create_history_fixture(tmp_path)
+    repo_root, rename_sha = _create_rename_fixture(tmp_path)
     graveyard_module = importlib.import_module("atelier.infra.code_intel.git_history.graveyard")
     walker_module = importlib.import_module("atelier.infra.code_intel.git_history.walker")
     graveyard = graveyard_module.SymbolGraveyard(sqlite3.connect(":memory:"))
@@ -117,4 +152,4 @@ def test_walk_history_is_idempotent_for_repeated_ingestion(tmp_path: Path) -> No
     entries = graveyard.find_deleted("LegacyCheckout", since_ts=None, language="python")
 
     assert len(entries) == 2
-    assert sorted(entry.rename_target for entry in entries) == [None, "renamed.py"]
+    assert {entry.rename_target for entry in entries} == {None, "renamed.py"}
