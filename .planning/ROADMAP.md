@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Semantic Recall & Relationship Navigation** - Layer semantic retrieval, symbol-linked memory, and caller/callee graph traversal. (completed 2026-05-19)
 - [x] **Phase 4: Historical Code Intelligence** - Make deleted symbols, renames, blame, and churn first-class code-intel queries. (completed 2026-05-19)
 - [x] **Phase 5: Scale Decision & Extended Retrieval Reach** - Gate large-repo backend work, then ship validated scale routing and cross-language edges. (completed 2026-05-19)
-- [x] **Phase 6: Bootstrap, Dependency Scope & Multi-Repo Workspaces** - Warm code-intel state on first context and expand routing across external deps and repo boundaries. (completed 2026-05-19)
+- [ ] **Phase 6: Bootstrap, Dependency Scope & Multi-Repo Workspaces** - Warm code-intel state on first context and expand routing across external deps and repo boundaries. (implementation complete; approval pending)
 - [ ] **Phase 7: Maintainer Playbooks & Scorecards** - Document symbol-first usage and publish the scorecard/validation guidance that preserves the token wins.
 
 ## Phase Details
@@ -200,5 +200,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Semantic Recall & Relationship Navigation | 3/3 | Complete   | 2026-05-19 |
 | 4. Historical Code Intelligence | 4/4 | Complete | 2026-05-19 |
 | 5. Scale Decision & Extended Retrieval Reach | 3/3 | Complete   | 2026-05-19 |
-| 6. Bootstrap, Dependency Scope & Multi-Repo Workspaces | 3/3 | Complete   | 2026-05-19 |
+| 6. Bootstrap, Dependency Scope & Multi-Repo Workspaces | 3/3 | Approval pending | - |
 | 7. Maintainer Playbooks & Scorecards | 0/1 | Not started | - |

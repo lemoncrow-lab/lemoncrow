@@ -130,7 +130,7 @@ should be treated as the reference for implementation planning.
 - Phase 4 complete — historical search, blame, churn, and temporal filters are now recorded on the existing `code` surface.
 - Phase 5 complete — explicit scale-backend decision, managed Zoekt `search` routing, and additive literal-only cross-language edges are recorded with trace evidence.
 - Phase 6 complete pending human/UAT sign-off — first-context bootstrap warming, external dependency scope routing, and multi-repo workspace routing are now recorded on the existing `context`, `code`, and `edit` surfaces.
-- Next up: Phase 7 — Maintainer Playbooks & Scorecards.
+- Next up after Phase 6 approval: Phase 7 — Maintainer Playbooks & Scorecards.
 
 ## Evolution
 
