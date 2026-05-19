@@ -22,13 +22,13 @@ from atelier.core.capabilities.code_context.budget import (
     PROTECTED_TOP_RANK,
     BudgetPacker,
 )
+from atelier.core.capabilities.code_context.cache import RetrievalCache
 from atelier.core.capabilities.code_context.call_graph import (
     CallGraphDirection,
     CallGraphNode,
     build_call_graph_payload,
     traverse_call_graph,
 )
-from atelier.core.capabilities.code_context.cache import RetrievalCache
 from atelier.core.capabilities.code_context.embedding import (
     SearchMode,
     SemanticSearchRanker,

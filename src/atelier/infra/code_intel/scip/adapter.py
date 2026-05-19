@@ -6,8 +6,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from atelier.core.capabilities.code_context.intel_store import ProviderHealth
 from atelier.core.capabilities.code_context.call_graph import CallGraphNode
+from atelier.core.capabilities.code_context.intel_store import ProviderHealth
 from atelier.core.capabilities.code_context.models import SymbolRecord, UsageReference
 from atelier.infra.code_intel.scip.indexer import ScipIndexer
 from atelier.infra.code_intel.scip.reader import (
