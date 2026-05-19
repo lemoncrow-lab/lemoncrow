@@ -73,7 +73,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-03-PLAN.md — Add `kind="symbol"` edits through a new core seam behind the existing `edit` tool and complete the edit-side M12 follow-through checks (M4)
+- [x] 02-03-PLAN.md — Add `kind="symbol"` edits through a new core seam behind the existing `edit` tool and complete the edit-side M12 follow-through checks (M4)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
