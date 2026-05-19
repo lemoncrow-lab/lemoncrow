@@ -10,7 +10,7 @@ from atelier.core.capabilities.code_context.workspace_router import WorkspaceCod
 
 def _write_workspace_config(workspace_root: Path) -> Path:
     sibling_repo = workspace_root.parent / "billing"
-    sibling_repo.mkdir(parents=True)
+    sibling_repo.mkdir(parents=True, exist_ok=True)
     (workspace_root / ".atelier").mkdir(parents=True)
     (workspace_root / ".atelier" / "workspace.toml").write_text(
         "\n".join(
