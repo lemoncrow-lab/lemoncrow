@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Retrieval Core & Routed Symbol Search** - Establish shared cache/budget primitives, routed symbol backends, and hardened symbol lookup on existing `code` ops. (completed 2026-05-18)
 - [x] **Phase 2: Structural Discovery & Symbol-Safe Change Flows** - Add structural pattern search, freeze low-token defaults, and ship symbol edits plus usages. (completed 2026-05-19)
 - [x] **Phase 3: Semantic Recall & Relationship Navigation** - Layer semantic retrieval, symbol-linked memory, and caller/callee graph traversal. (completed 2026-05-19)
-- [x] **Phase 4: Historical Code Intelligence** - Make deleted symbols, renames, blame, and churn first-class code-intel queries. (completed 2026-05-19)
+- [ ] **Phase 4: Historical Code Intelligence** - Make deleted symbols, renames, blame, and churn first-class code-intel queries. (automated verification complete; human approval pending)
 - [ ] **Phase 5: Scale Decision & Extended Retrieval Reach** - Gate large-repo backend work, then ship validated scale routing and cross-language edges.
 - [ ] **Phase 6: Bootstrap, Dependency Scope & Multi-Repo Workspaces** - Warm code-intel state on first context and expand routing across external deps and repo boundaries.
 - [ ] **Phase 7: Maintainer Playbooks & Scorecards** - Document symbol-first usage and publish the scorecard/validation guidance that preserves the token wins.
@@ -191,7 +191,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Retrieval Core & Routed Symbol Search | 3/3 | Complete   | 2026-05-18 |
 | 2. Structural Discovery & Symbol-Safe Change Flows | 4/4 | Complete | 2026-05-19 |
 | 3. Semantic Recall & Relationship Navigation | 3/3 | Complete   | 2026-05-19 |
-| 4. Historical Code Intelligence | 4/4 | Complete   | 2026-05-19 |
+| 4. Historical Code Intelligence | 4/4 | Human review pending | - |
 | 5. Scale Decision & Extended Retrieval Reach | 0/3 | Not started | - |
 | 6. Bootstrap, Dependency Scope & Multi-Repo Workspaces | 0/3 | Not started | - |
 | 7. Maintainer Playbooks & Scorecards | 0/1 | Not started | - |

@@ -2,5 +2,5 @@
 
 ## 04-04 Execution
 
-- **Pre-existing typecheck debt:** `make typecheck` still fails outside Wave 4 scope in `src/atelier/infra/code_intel/git_history/{__init__,renames,walker}.py` and longstanding union-typing call sites in `src/atelier/core/capabilities/code_context/engine.py`, `src/atelier/core/capabilities/archival_recall/symbol_recall.py`, `src/atelier/core/capabilities/tool_supervision/symbol_edit.py`, and `src/benchmarks/code_intel/recall_symbol_bench.py`.
-- **Pre-existing test debt:** `make test` reported multiple unrelated failures across the wider repository before completion; Wave 4 targeted suites passed, but the full suite remains blocked by existing red tests outside the files owned by `04-04-PLAN.md`.
+- **Resolved typecheck debt:** `make typecheck` now passes after `8fa8629`, so the earlier Phase 4 strict-mypy blocker is closed.
+- **Pre-existing test debt:** Broad repo tests still fail outside Phase 4; the first reproduced failure remains `tests/benchmarks/code_intel/test_call_graph_bench.py`, which is earlier-phase call-graph debt rather than a Phase 4 blocker.

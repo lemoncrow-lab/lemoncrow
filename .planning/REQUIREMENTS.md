@@ -27,8 +27,8 @@
 
 ### History & Scale
 
-- [x] **HIST-01**: Agent can search deleted or renamed symbols and filter historical results by time window or author.
-- [x] **HIST-02**: Agent can inspect blame and churn metadata for a symbol to judge ownership and stability before editing.
+- [ ] **HIST-01**: Agent can search deleted or renamed symbols and filter historical results by time window or author.
+- [ ] **HIST-02**: Agent can inspect blame and churn metadata for a symbol to judge ownership and stability before editing.
 - [ ] **SCAL-01**: Agent can route large-repo search workloads through a validated scale backend once the build-vs-integrate checkpoint clears it.
 - [ ] **SCAL-02**: Agent can surface supported cross-language reference edges with confidence scoring for the planned Python/C, subprocess, and dynamic-import cases.
 
@@ -72,8 +72,8 @@ Roadmap mapping for all v1 requirements.
 | DISC-03 | Phase 3 | Complete |
 | DISC-04 | Phase 3 | Complete |
 | DISC-05 | Phase 6 | Pending |
-| HIST-01 | Phase 4 | Complete |
-| HIST-02 | Phase 4 | Complete |
+| HIST-01 | Phase 4 | Human review pending |
+| HIST-02 | Phase 4 | Human review pending |
 | SCAL-01 | Phase 5 | Pending |
 | SCAL-02 | Phase 5 | Pending |
 | ENBL-01 | Phase 6 | Pending |
@@ -87,4 +87,4 @@ Roadmap mapping for all v1 requirements.
 
 ---
 *Requirements defined: 2026-05-18*
-*Last updated: 2026-05-19 after Phase 3 completion*
+*Last updated: 2026-05-19 after Phase 4 automated verification*

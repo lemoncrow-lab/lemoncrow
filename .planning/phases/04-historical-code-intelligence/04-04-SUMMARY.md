@@ -73,11 +73,12 @@ completed: 2026-05-19
 3. **Task 3: Add blame benchmark and cost-discipline evidence, then close M15 trace ownership**
    - `c63939c` feat(04-04): add M15 benchmark and cost evidence
 
-Additional validation fix:
+Additional validation fixes:
 
 - `695d66f` fix(04-04): restore lint compliance for wave4 artifacts
+- `8fa8629` fix(phase-04): restore historical typing
 
-**Plan metadata:** pending final docs commit
+**Plan metadata:** updated after verification rerun and Phase 4 type-gate fix
 
 ## Validation
 
@@ -85,7 +86,8 @@ Additional validation fix:
 - ✅ `uv run pytest tests/gateway/test_mcp_tool_handlers.py tests/gateway/test_p0_mcp_surfaces.py -q`
 - ✅ `uv run pytest tests/benchmarks/code_intel/test_blame_bench.py tests/benchmarks/code_intel/test_cost_discipline.py -q`
 - ✅ `uv run pytest tests/core/test_code_context.py tests/gateway/test_mcp_tool_handlers.py tests/gateway/test_p0_mcp_surfaces.py tests/benchmarks/code_intel/test_blame_bench.py tests/benchmarks/code_intel/test_cost_discipline.py -k "blame or churn or temporal or index_stale" -q`
-- ⚠️ `make lint` passed after `695d66f`, but repo-wide `make typecheck` and `make test` still fail on pre-existing issues outside `04-04-PLAN.md`; details are tracked in `.planning/phases/04-historical-code-intelligence/deferred-items.md`.
+- ✅ `make typecheck`
+- ⚠️ Broad repo tests still fail on earlier-phase call-graph debt outside `04-04-PLAN.md`; details are tracked in `.planning/phases/04-historical-code-intelligence/deferred-items.md`.
 
 ## Decisions Made
 
@@ -112,8 +114,7 @@ Additional validation fix:
 
 ## Deferred Issues
 
-- Repo-wide `make typecheck` remains blocked by pre-existing typing debt in historical git helpers and long-standing union-typing call sites outside this wave's owned behavior.
-- Repo-wide `make test` still reports unrelated failures outside the Wave 4 target files; see `.planning/phases/04-historical-code-intelligence/deferred-items.md`.
+- Broad repo tests still report unrelated failures outside the Wave 4 target files; see `.planning/phases/04-historical-code-intelligence/deferred-items.md`.
 
 ## Known Stubs
 

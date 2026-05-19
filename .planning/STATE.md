@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 04-04-PLAN.md
-last_updated: "2026-05-19T12:39:23Z"
-last_activity: 2026-05-19 -- Completed 04-04 with additive blame MCP wiring, live temporal repo filtering, and M15 benchmark/trace closeout
+status: verifying
+stopped_at: Awaiting Phase 04 human approval
+last_updated: "2026-05-19T13:35:00Z"
+last_activity: 2026-05-19 -- Phase 04 automated verification cleared; human/UAT approval is now the only remaining gate
 progress:
   total_phases: 7
-  completed_phases: 4
+  completed_phases: 3
   total_plans: 14
   completed_plans: 14
-  percent: 100
+  percent: 43
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** Agents can find and change code through budget-aware, precomputed intelligence with near-zero token overhead by default.
-**Current focus:** Phase 05 — scale-decision-and-extended-retrieval-reach
+**Current focus:** Phase 04 — historical-code-intelligence
 
 ## Current Position
 
-Phase: 05 (scale-decision-and-extended-retrieval-reach) — READY
-Plan: 04-04 complete; 05-01 next
-Status: Phase 04 complete; historical code intelligence is closed and Phase 5 checkpoint planning is next
-Last activity: 2026-05-19 -- Completed 04-04 with additive blame MCP wiring, live temporal repo filtering, and M15 benchmark/trace closeout
+Phase: 04 (historical-code-intelligence) — HUMAN REVIEW PENDING
+Plan: 04-01 through 04-04 complete; awaiting Phase 04 human/UAT approval
+Status: Phase 04 automated verification is complete; only manual/UAT gates remain
+Last activity: 2026-05-19 -- Phase 04 automated verification cleared; human/UAT approval is now the only remaining gate
 
 Progress: [██████████] 100%
 
@@ -116,7 +116,7 @@ None yet.
 - Phase 5 must complete the checkpoint plan before any M16 implementation work starts.
 - Phase 1 plans were accepted with warning-level checker findings around plan breadth and pattern-map alignment; re-surface them during execution if file scope expands further.
 - Phase 2 plans were accepted with warning-level checker findings about file breadth across `mcp_server.py`, `engine.py`, and related brownfield hotspots; re-surface them during execution if scope expands further.
-- Repo-wide `make typecheck` and `make test` still have pre-existing failures outside 04-04 scope; see `.planning/phases/04-historical-code-intelligence/deferred-items.md`.
+- Broad repo tests still have earlier-phase failures outside Phase 04 scope; see `.planning/phases/04-historical-code-intelligence/deferred-items.md`.
 
 ## Deferred Items
 
@@ -124,11 +124,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Validation | Pre-existing typecheck debt in git-history helpers and union-typing call sites outside Wave 4 files | Deferred | 2026-05-19 |
-| Validation | Pre-existing unrelated red tests still block `make test` despite Wave 4 targeted suites passing | Deferred | 2026-05-19 |
+| Validation | Broad repo tests still have unrelated earlier-phase red cases despite Phase 04 targeted suites passing | Deferred | 2026-05-19 |
 
 ## Session Continuity
 
-Last session: 2026-05-19T12:39:23Z
-Stopped at: Completed 04-04-PLAN.md
+Last session: 2026-05-19T13:35:00Z
+Stopped at: Awaiting Phase 04 human approval
 Resume file: None
