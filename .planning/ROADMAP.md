@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Structural Discovery & Symbol-Safe Change Flows** - Add structural pattern search, freeze low-token defaults, and ship symbol edits plus usages. (completed 2026-05-19)
 - [x] **Phase 3: Semantic Recall & Relationship Navigation** - Layer semantic retrieval, symbol-linked memory, and caller/callee graph traversal. (completed 2026-05-19)
 - [x] **Phase 4: Historical Code Intelligence** - Make deleted symbols, renames, blame, and churn first-class code-intel queries. (completed 2026-05-19)
-- [ ] **Phase 5: Scale Decision & Extended Retrieval Reach** - Gate large-repo backend work, then ship validated scale routing and cross-language edges.
+- [x] **Phase 5: Scale Decision & Extended Retrieval Reach** - Gate large-repo backend work, then ship validated scale routing and cross-language edges. (completed 2026-05-19)
 - [ ] **Phase 6: Bootstrap, Dependency Scope & Multi-Repo Workspaces** - Warm code-intel state on first context and expand routing across external deps and repo boundaries.
 - [ ] **Phase 7: Maintainer Playbooks & Scorecards** - Document symbol-first usage and publish the scorecard/validation guidance that preserves the token wins.
 
@@ -143,7 +143,7 @@ Plans:
 Plans:
 
 - [x] 05-01: Build-vs-integrate checkpoint and decision memo before scale backend work (M18)
-- [ ] 05-02: Validated large-repo backend routing for search workloads (M16)
+- [x] 05-02: Validated large-repo backend routing for search workloads (M16)
 - [x] 05-03: Partial cross-language edge resolution with confidence scoring (M17)
 
 ### Phase 6: Bootstrap, Dependency Scope & Multi-Repo Workspaces
@@ -192,6 +192,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Structural Discovery & Symbol-Safe Change Flows | 4/4 | Complete | 2026-05-19 |
 | 3. Semantic Recall & Relationship Navigation | 3/3 | Complete   | 2026-05-19 |
 | 4. Historical Code Intelligence | 4/4 | Complete | 2026-05-19 |
-| 5. Scale Decision & Extended Retrieval Reach | 2/3 | In Progress|  |
+| 5. Scale Decision & Extended Retrieval Reach | 3/3 | Complete   | 2026-05-19 |
 | 6. Bootstrap, Dependency Scope & Multi-Repo Workspaces | 0/3 | Not started | - |
 | 7. Maintainer Playbooks & Scorecards | 0/1 | Not started | - |
