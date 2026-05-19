@@ -128,7 +128,9 @@ should be treated as the reference for implementation planning.
   caller/callee traversal are now recorded on the existing `code` / `memory`
   surfaces.
 - Phase 4 complete — historical search, blame, churn, and temporal filters are now recorded on the existing `code` surface.
-- Next up: Phase 6 — Bootstrap, Dependency Scope & Multi-Repo Workspaces.
+- Phase 5 complete — explicit scale-backend decision, managed Zoekt `search` routing, and additive literal-only cross-language edges are recorded with trace evidence.
+- Phase 6 complete pending human/UAT sign-off — first-context bootstrap warming, external dependency scope routing, and multi-repo workspace routing are now recorded on the existing `context`, `code`, and `edit` surfaces.
+- Next up: Phase 7 — Maintainer Playbooks & Scorecards.
 
 ## Evolution
 
@@ -148,4 +150,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-19 after Phase 5 approval*
+*Last updated: 2026-05-19 after Phase 6 verification*

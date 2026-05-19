@@ -115,9 +115,9 @@ source: phase-planning
 
 ## Validation Sign-Off
 
-- [ ] Wave 1 M11 bootstrap implementation completed with targeted tests and benchmark smoke
-- [ ] Wave 2 M9 external-scope implementation completed with targeted tests and benchmark smoke
-- [ ] Wave 3 M10 workspace routing completed with targeted tests and benchmark smoke
+- [x] Wave 1 M11 bootstrap implementation completed with targeted tests and benchmark smoke
+- [x] Wave 2 M9 external-scope implementation completed with targeted tests and benchmark smoke
+- [x] Wave 3 M10 workspace routing completed with targeted tests and benchmark smoke
 - [ ] Manual warm-context, origin-tagging, and repo-disambiguation checks recorded
 
-**Approval:** pending implementation
+**Approval:** pending human/UAT sign-off after `06-VERIFICATION.md`
