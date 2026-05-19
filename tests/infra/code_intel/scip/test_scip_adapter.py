@@ -26,9 +26,15 @@ def _write_fixture_repo(root: Path) -> None:
 
 
 def _write_scip_fixture(
-    engine: CodeContextEngine, *, symbol_id: str = "scip-order-service", include_references: bool = False
+    engine: CodeContextEngine,
+    *,
+    symbol_id: str = "scip-order-service",
+    include_references: bool = False,
+    include_call_graph: bool = False,
+    call_graph: dict[str, object] | None = None,
 ) -> Path:
     source = (engine.repo_root / "src" / "orders.py").read_text(encoding="utf-8")
+    checkout_source = (engine.repo_root / "src" / "checkout.py").read_text(encoding="utf-8")
     artifact_dir = engine.repo_root / ".atelier" / "cache" / "scip" / engine.repo_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifact_path = artifact_dir / "python.scip"
@@ -54,7 +60,30 @@ def _write_scip_fixture(
                 "source": source,
                 "provenance": "scip",
             }
-        ],
+        ]
+        + (
+            [
+                {
+                    "symbol_id": "scip-checkout",
+                    "repo_id": engine.repo_id,
+                    "file_path": "src/checkout.py",
+                    "language": "python",
+                    "symbol_name": "checkout",
+                    "qualified_name": "checkout",
+                    "kind": "function",
+                    "signature": "def checkout(items: list[int]) -> int:",
+                    "start_byte": 33,
+                    "end_byte": len(checkout_source.encode("utf-8")),
+                    "start_line": 3,
+                    "end_line": 4,
+                    "content_hash": hashlib.sha256(checkout_source.encode("utf-8")).hexdigest(),
+                    "source": checkout_source,
+                    "provenance": "scip",
+                }
+            ]
+            if include_call_graph or call_graph is not None
+            else []
+        ),
     }
     if include_references:
         payload["references"] = {
@@ -70,6 +99,39 @@ def _write_scip_fixture(
                 }
             ]
         }
+    if include_call_graph:
+        payload["call_graph"] = {
+            "callers": {
+                symbol_id: [
+                    {
+                        "symbol_id": "scip-checkout",
+                        "symbol_name": "checkout",
+                        "qualified_name": "checkout",
+                        "file_path": "src/checkout.py",
+                        "kind": "function",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "provenance": "scip",
+                    }
+                ]
+            },
+            "callees": {
+                "scip-checkout": [
+                    {
+                        "symbol_id": symbol_id,
+                        "symbol_name": "OrderService",
+                        "qualified_name": "OrderService",
+                        "file_path": "src/orders.py",
+                        "kind": "class",
+                        "start_line": 1,
+                        "end_line": 3,
+                        "provenance": "scip",
+                    }
+                ]
+            },
+        }
+    if call_graph is not None:
+        payload["call_graph"] = call_graph
     artifact_path.write_text(
         json.dumps(payload, sort_keys=True),
         encoding="utf-8",
@@ -225,6 +287,68 @@ def test_scip_provider_falls_back_to_treesitter_when_reference_data_is_missing(t
     assert payload["target"]["provenance"] == "scip"
     assert payload["provenance"] == "treesitter"
     assert payload["provenance_breakdown"] == {"treesitter": 1}
+
+
+def test_scip_provider_routes_call_graph_payloads(tmp_path: Path) -> None:
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+    engine.index_repo()
+    _write_scip_fixture(engine, include_call_graph=True)
+
+    callers = engine.intel_store.find_callers(symbol_id="scip-order-service")
+    callees = engine.intel_store.find_callees(symbol_id="scip-checkout")
+
+    assert callers is not None
+    assert callees is not None
+    assert callers[0].symbol_id == "scip-checkout"
+    assert callers[0].file_path == "src/checkout.py"
+    assert callees[0].symbol_id == "scip-order-service"
+    assert callees[0].provenance == "scip"
+
+
+def test_scip_provider_preserves_missing_call_graph_data(tmp_path: Path) -> None:
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+    engine.index_repo()
+    _write_scip_fixture(engine, include_call_graph=False)
+
+    callers = engine.intel_store.find_callers(symbol_id="scip-order-service")
+    callees = engine.intel_store.find_callees(symbol_id="scip-order-service")
+
+    assert callers is None
+    assert callees is None
+
+
+def test_scip_provider_rejects_malformed_or_path_escaping_call_graph_payloads(tmp_path: Path) -> None:
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+    engine.index_repo()
+    _write_scip_fixture(
+        engine,
+        call_graph={
+            "callers": {
+                "scip-order-service": [
+                    {
+                        "symbol_id": "escape",
+                        "symbol_name": "escape",
+                        "qualified_name": "escape",
+                        "file_path": "../secrets.py",
+                        "kind": "function",
+                        "start_line": 1,
+                        "end_line": 1,
+                        "provenance": "scip",
+                    }
+                ]
+            },
+            "callees": [],
+        },
+    )
+
+    hits = engine.search_symbols("OrderService", limit=5)
+
+    assert hits
+    assert hits[0].symbol_name == "OrderService"
+    assert hits[0].provenance == "local"
 
 
 def test_scip_provider_falls_back_when_artifact_is_invalid(tmp_path: Path) -> None:
