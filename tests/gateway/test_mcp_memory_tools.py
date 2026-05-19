@@ -6,7 +6,10 @@ from typing import Any, cast
 
 import pytest
 
+from atelier.core.capabilities.code_context import CodeContextEngine
 from atelier.core.capabilities.memory_arbitration import ArbitrationDecision
+from atelier.core.foundation.models import Trace
+from atelier.core.foundation.store import ContextStore
 from atelier.gateway.adapters import mcp_server
 from atelier.gateway.adapters.mcp_server import TOOLS, _handle
 from atelier.infra.storage.memory_store import MemorySidecarUnavailable
@@ -32,6 +35,33 @@ def _payload(response: dict[str, Any]) -> Any:
 
 def _memory_args(op: str, **kwargs: Any) -> dict[str, Any]:
     return {"op": op, **kwargs}
+
+
+def _write_symbol_recall_fixture(workspace: Path) -> str:
+    (workspace / "src").mkdir(parents=True, exist_ok=True)
+    (workspace / "tests").mkdir(parents=True, exist_ok=True)
+    (workspace / "docs" / "decisions").mkdir(parents=True, exist_ok=True)
+    (workspace / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (workspace / "src" / "auth.py").write_text(
+        "class AuthService:\n"
+        "    def verify_session(self, token: str) -> bool:\n"
+        "        return token.startswith('session:')\n",
+        encoding="utf-8",
+    )
+    (workspace / "tests" / "test_auth.py").write_text(
+        "from src.auth import AuthService\n\n"
+        "def test_verify_session_accepts_session_tokens() -> None:\n"
+        "    assert AuthService().verify_session('session:ok') is True\n",
+        encoding="utf-8",
+    )
+    (workspace / "docs" / "decisions" / "001-session-auth.md").write_text(
+        "# Session auth\n\nAuthService.verify_session is the session token validation seam.\n",
+        encoding="utf-8",
+    )
+    engine = CodeContextEngine(workspace)
+    engine.index_repo()
+    symbol_id = engine.search_symbols("AuthService.verify_session", limit=1)[0].symbol_id
+    return symbol_id
 
 
 @pytest.fixture()
@@ -191,3 +221,106 @@ def test_memory_upsert_rejects_likely_secret_leakage(mcp_root: Path) -> None:
     )
     assert "error" in response
     assert "likely secret leakage" in response["error"]["message"]
+
+
+def test_memory_recall_symbol_returns_fused_bundle_on_existing_surface(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_root: Path,
+) -> None:
+    _ = mcp_root
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+    symbol_id = _write_symbol_recall_fixture(tmp_path)
+    _payload(
+        _call(
+            "memory",
+            _memory_args(
+                "block_upsert",
+                agent_id="shared",
+                label="edits/auth-verify-session",
+                value="Remember the stale-session regression.",
+                metadata={"symbol_id": symbol_id},
+            ),
+        )
+    )
+    _payload(
+        _call(
+            "memory",
+            _memory_args(
+                "archive",
+                agent_id="shared",
+                text="AuthService.verify_session rejected stale sessions in incident review.",
+                source="user",
+                tags=[f"symbol:{symbol_id}", "incident"],
+            ),
+        )
+    )
+
+    payload = _payload(
+        _call(
+            "memory",
+            _memory_args("recall_symbol", agent_id="shared", query="AuthService.verify_session"),
+        )
+    )
+
+    assert payload["included"] == ["definition", "memory"]
+    assert payload["definition"]["qualified_name"] == "AuthService.verify_session"
+    assert [item["item_type"] for item in payload["memory"]] == ["block", "passage"]
+    assert "traces" not in payload
+    assert "tests" not in payload
+
+
+def test_memory_recall_symbol_explicit_includes_widen_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_root: Path,
+) -> None:
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+    symbol_id = _write_symbol_recall_fixture(tmp_path)
+    ContextStore(mcp_root).record_trace(
+        Trace(
+            id=Trace.make_id("recall trace", "gsd-executor"),
+            agent="gsd-executor",
+            domain="code-intel",
+            task="Validate AuthService.verify_session recall",
+            status="success",
+            files_touched=["src/auth.py"],
+            output_summary="Touched AuthService.verify_session during token validation.",
+        )
+    )
+    _payload(
+        _call(
+            "memory",
+            _memory_args(
+                "archive",
+                agent_id="shared",
+                text="AuthService.verify_session rejected stale sessions in incident review.",
+                source="user",
+                tags=[f"symbol:{symbol_id}", "incident"],
+            ),
+        )
+    )
+
+    payload = _payload(
+        _call(
+            "memory",
+            _memory_args(
+                "recall_symbol",
+                agent_id="shared",
+                query="AuthService.verify_session",
+                include=["traces", "decisions", "tests"],
+                budget_tokens=1200,
+            ),
+        )
+    )
+
+    assert payload["included"] == ["definition", "memory", "traces", "decisions", "tests"]
+    assert payload["traces"][0]["task"] == "Validate AuthService.verify_session recall"
+    assert payload["decisions"][0]["path"] == "docs/decisions/001-session-auth.md"
+    assert payload["tests"][0]["file_path"] == "tests/test_auth.py"
+
+
+def test_memory_recall_symbol_does_not_register_new_top_level_or_code_recall_tools() -> None:
+    assert "recall_symbol" not in TOOLS
+    assert "recall_symbol" in json.dumps(TOOLS["memory"]["inputSchema"])
+    assert "recall" not in json.dumps(TOOLS["code"]["inputSchema"])
