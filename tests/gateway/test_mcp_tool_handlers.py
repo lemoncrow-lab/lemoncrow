@@ -78,42 +78,93 @@ def _mock_client(return_values: dict[str, dict[str, Any]]) -> MagicMock:
     return client
 
 
-def _write_gateway_scip_fixture(repo_root: Path, *, symbol_id: str) -> Path:
+def _write_gateway_scip_fixture(
+    repo_root: Path,
+    *,
+    symbol_id: str,
+    include_call_graph: bool = False,
+) -> Path:
     engine = CodeContextEngine(repo_root)
     source = (repo_root / "a.py").read_text(encoding="utf-8")
+    caller_source = (repo_root / "b.py").read_text(encoding="utf-8") if (repo_root / "b.py").exists() else ""
     artifact_dir = repo_root / ".atelier" / "cache" / "scip" / engine.repo_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifact_path = artifact_dir / "python.scip"
-    artifact_path.write_text(
-        json.dumps(
+    payload: dict[str, Any] = {
+        "version": 1,
+        "repo_id": engine.repo_id,
+        "language": "python",
+        "symbols": [
             {
-                "version": 1,
+                "symbol_id": symbol_id,
                 "repo_id": engine.repo_id,
+                "file_path": "a.py",
                 "language": "python",
-                "symbols": [
+                "symbol_name": "alpha",
+                "qualified_name": "alpha",
+                "kind": "function",
+                "signature": "def alpha():",
+                "start_byte": 0,
+                "end_byte": len(source.encode("utf-8")),
+                "start_line": 1,
+                "end_line": 2,
+                "content_hash": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+                "source": source,
+                "provenance": "scip",
+            }
+        ],
+    }
+    if include_call_graph:
+        payload["symbols"].append(
+            {
+                "symbol_id": "scip-beta",
+                "repo_id": engine.repo_id,
+                "file_path": "b.py",
+                "language": "python",
+                "symbol_name": "beta",
+                "qualified_name": "beta",
+                "kind": "function",
+                "signature": "def beta():",
+                "start_byte": 0,
+                "end_byte": len(caller_source.encode("utf-8")),
+                "start_line": 3,
+                "end_line": 4,
+                "content_hash": hashlib.sha256(caller_source.encode("utf-8")).hexdigest(),
+                "source": caller_source,
+                "provenance": "scip",
+            }
+        )
+        payload["call_graph"] = {
+            "callers": {
+                symbol_id: [
                     {
-                        "symbol_id": symbol_id,
-                        "repo_id": engine.repo_id,
-                        "file_path": "a.py",
-                        "language": "python",
-                        "symbol_name": "alpha",
-                        "qualified_name": "alpha",
+                        "symbol_id": "scip-beta",
+                        "symbol_name": "beta",
+                        "qualified_name": "beta",
+                        "file_path": "b.py",
                         "kind": "function",
-                        "signature": "def alpha():",
-                        "start_byte": 0,
-                        "end_byte": len(source.encode("utf-8")),
-                        "start_line": 1,
-                        "end_line": 2,
-                        "content_hash": hashlib.sha256(source.encode("utf-8")).hexdigest(),
-                        "source": source,
+                        "start_line": 3,
+                        "end_line": 4,
                         "provenance": "scip",
                     }
-                ],
+                ]
             },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
+            "callees": {
+                "scip-beta": [
+                    {
+                        "symbol_id": symbol_id,
+                        "symbol_name": "alpha",
+                        "qualified_name": "alpha",
+                        "file_path": "a.py",
+                        "kind": "function",
+                        "start_line": 1,
+                        "end_line": 2,
+                        "provenance": "scip",
+                    }
+                ]
+            },
+        }
+    artifact_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
     return artifact_path
 
 
@@ -669,6 +720,25 @@ def test_code_context_usages_surface_groups_references(store_root: Path, tmp_pat
     assert payload["target"]["qualified_name"] == "OrderService"
     assert "src/checkout.py" in payload["references"]
     assert payload["references"]["src/checkout.py"][0]["provenance"] == "treesitter"
+
+
+def test_code_context_call_graph_surface_is_additive(store_root: Path, tmp_path: Path) -> None:
+    _ = store_root
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8")
+    _write_gateway_scip_fixture(tmp_path, symbol_id="scip-alpha", include_call_graph=True)
+
+    callers = _result(_call("code", {"op": "callers", "repo_root": str(tmp_path), "query": "alpha"}))
+    callees = _result(
+        _call("code", {"op": "callees", "repo_root": str(tmp_path), "query": "beta", "snapshot": True})
+    )
+
+    assert callers["cache_hit"] is False
+    assert callers["provenance"] == "scip"
+    assert callers["data_status"] == "available"
+    assert callers["related"][0]["qualified_name"] == "beta"
+    assert callees["snapshot"]["direction"] == "callees"
+    assert callees["edges"][0]["callee_symbol_id"] == "scip-alpha"
 
 
 def test_code_context_mcp_falls_back_when_scip_artifact_is_invalid(store_root: Path, tmp_path: Path) -> None:

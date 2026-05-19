@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 from atelier.core.capabilities.code_context import CodeContextEngine
@@ -52,6 +54,175 @@ def _write_semantic_fixture_repo(root: Path) -> None:
         "    return {'user_id': user_id}\n",
         encoding="utf-8",
     )
+
+
+def _write_call_graph_fixture_repo(root: Path) -> None:
+    (root / "src").mkdir(parents=True, exist_ok=True)
+    (root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "src" / "app.py").write_text(
+        "from src.alpha import alpha\n\n"
+        "def handle() -> int:\n"
+        "    return alpha()\n",
+        encoding="utf-8",
+    )
+    (root / "src" / "alpha.py").write_text(
+        "from src.beta import beta\n\n"
+        "def alpha() -> int:\n"
+        "    return beta()\n",
+        encoding="utf-8",
+    )
+    (root / "src" / "beta.py").write_text(
+        "from src.gamma import gamma\n\n"
+        "def beta() -> int:\n"
+        "    return gamma()\n",
+        encoding="utf-8",
+    )
+    (root / "src" / "gamma.py").write_text(
+        "from src.alpha import alpha\n\n"
+        "def gamma() -> int:\n"
+        "    return alpha()\n",
+        encoding="utf-8",
+    )
+
+
+def _write_call_graph_scip_fixture(engine: CodeContextEngine, *, include_call_graph: bool = True) -> None:
+    artifact_dir = engine.repo_root / ".atelier" / "cache" / "scip" / engine.repo_id
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": 1,
+        "repo_id": engine.repo_id,
+        "language": "python",
+        "symbols": [],
+    }
+    symbol_specs = [
+        ("scip-handle", "src/app.py", "handle", "handle"),
+        ("scip-alpha", "src/alpha.py", "alpha", "alpha"),
+        ("scip-beta", "src/beta.py", "beta", "beta"),
+        ("scip-gamma", "src/gamma.py", "gamma", "gamma"),
+    ]
+    for symbol_id, file_path, symbol_name, qualified_name in symbol_specs:
+        source = (engine.repo_root / file_path).read_text(encoding="utf-8")
+        payload["symbols"].append(
+            {
+                "symbol_id": symbol_id,
+                "repo_id": engine.repo_id,
+                "file_path": file_path,
+                "language": "python",
+                "symbol_name": symbol_name,
+                "qualified_name": qualified_name,
+                "kind": "function",
+                "signature": f"def {symbol_name}() -> int:",
+                "start_byte": source.index(f"def {symbol_name}"),
+                "end_byte": len(source.encode("utf-8")),
+                "start_line": 3,
+                "end_line": 4,
+                "content_hash": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+                "source": source,
+                "provenance": "scip",
+            }
+        )
+    if include_call_graph:
+        payload["call_graph"] = {
+            "callers": {
+                "scip-alpha": [
+                    {
+                        "symbol_id": "scip-handle",
+                        "symbol_name": "handle",
+                        "qualified_name": "handle",
+                        "file_path": "src/app.py",
+                        "kind": "function",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "provenance": "scip",
+                    },
+                    {
+                        "symbol_id": "scip-gamma",
+                        "symbol_name": "gamma",
+                        "qualified_name": "gamma",
+                        "file_path": "src/gamma.py",
+                        "kind": "function",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "provenance": "scip",
+                    },
+                ],
+                "scip-beta": [
+                    {
+                        "symbol_id": "scip-alpha",
+                        "symbol_name": "alpha",
+                        "qualified_name": "alpha",
+                        "file_path": "src/alpha.py",
+                        "kind": "function",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "provenance": "scip",
+                    }
+                ],
+                "scip-gamma": [
+                    {
+                        "symbol_id": "scip-beta",
+                        "symbol_name": "beta",
+                        "qualified_name": "beta",
+                        "file_path": "src/beta.py",
+                        "kind": "function",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "provenance": "scip",
+                    }
+                ],
+            },
+            "callees": {
+                "scip-handle": [
+                    {
+                        "symbol_id": "scip-alpha",
+                        "symbol_name": "alpha",
+                        "qualified_name": "alpha",
+                        "file_path": "src/alpha.py",
+                        "kind": "function",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "provenance": "scip",
+                    }
+                ],
+                "scip-alpha": [
+                    {
+                        "symbol_id": "scip-beta",
+                        "symbol_name": "beta",
+                        "qualified_name": "beta",
+                        "file_path": "src/beta.py",
+                        "kind": "function",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "provenance": "scip",
+                    }
+                ],
+                "scip-beta": [
+                    {
+                        "symbol_id": "scip-gamma",
+                        "symbol_name": "gamma",
+                        "qualified_name": "gamma",
+                        "file_path": "src/gamma.py",
+                        "kind": "function",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "provenance": "scip",
+                    }
+                ],
+                "scip-gamma": [
+                    {
+                        "symbol_id": "scip-alpha",
+                        "symbol_name": "alpha",
+                        "qualified_name": "alpha",
+                        "file_path": "src/alpha.py",
+                        "kind": "function",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "provenance": "scip",
+                    }
+                ],
+            },
+        }
+    (artifact_dir / "python.scip").write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
 
 
 def test_code_context_indexes_searches_and_retrieves_exact_symbol(tmp_path: Path) -> None:
@@ -242,6 +413,56 @@ def test_tool_usages_returns_disambiguation_payload_for_ambiguous_name(tmp_path:
     assert payload["error"] == "disambiguation_required"
     assert len(payload["matches"]) == 2
     assert payload["cache_hit"] is False
+
+
+def test_tool_callers_and_callees_traverse_depth_and_handle_cycles(tmp_path: Path) -> None:
+    _write_call_graph_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+    engine.index_repo()
+    _write_call_graph_scip_fixture(engine)
+
+    callers = engine.tool_callers(query="beta", depth=2, budget_tokens=4000)
+    callees = engine.tool_callees(query="handle", depth=2, budget_tokens=4000)
+
+    assert callers["target"]["qualified_name"] == "beta"
+    assert callers["depth"] == 2
+    assert callers["data_status"] == "available"
+    assert {item["qualified_name"] for item in callers["related"]} == {"alpha", "gamma", "handle"}
+    assert callers["edge_count"] == 3
+    assert callers["provenance"] == "scip"
+    assert callees["target"]["qualified_name"] == "handle"
+    assert {item["qualified_name"] for item in callees["related"]} == {"alpha", "beta"}
+    assert all(edge["depth"] in {1, 2} for edge in callees["edges"])
+
+
+def test_tool_callers_returns_structured_unavailable_when_call_graph_data_is_missing(tmp_path: Path) -> None:
+    _write_call_graph_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+    engine.index_repo()
+    _write_call_graph_scip_fixture(engine, include_call_graph=False)
+
+    payload = engine.tool_callers(query="alpha", budget_tokens=4000)
+
+    assert payload["target"]["qualified_name"] == "alpha"
+    assert payload["data_status"] == "unavailable"
+    assert payload["related"] == []
+    assert payload["edges"] == []
+    assert payload["provenance"] == "scip"
+
+
+def test_tool_callees_snapshot_is_opt_in_and_returns_metadata(tmp_path: Path) -> None:
+    _write_call_graph_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+    engine.index_repo()
+    _write_call_graph_scip_fixture(engine)
+
+    default_payload = engine.tool_callees(query="handle", budget_tokens=4000)
+    snapshot_payload = engine.tool_callees(query="handle", snapshot=True, budget_tokens=4000)
+
+    assert default_payload["snapshot"] is None
+    assert snapshot_payload["snapshot"]["direction"] == "callees"
+    assert snapshot_payload["snapshot"]["target_symbol_id"] == "scip-handle"
+    assert snapshot_payload["snapshot"]["edge_count"] == snapshot_payload["edge_count"]
 
 
 def test_tool_search_snippet_none_omits_snippets_and_keeps_exact_match_first(tmp_path: Path) -> None:

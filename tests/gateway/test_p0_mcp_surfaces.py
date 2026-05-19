@@ -225,6 +225,67 @@ def test_tool_code_usages_returns_grouped_references(tmp_path: Path) -> None:
     assert payload["references"]["src/checkout.py"][0]["provenance"] == "treesitter"
 
 
+def test_tool_code_call_graph_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_engine = MagicMock()
+    fake_engine.tool_callers.return_value = {
+        "target": {"qualified_name": "beta"},
+        "related": [{"qualified_name": "alpha", "provenance": "scip"}],
+        "edges": [{"caller_symbol_id": "scip-alpha", "callee_symbol_id": "scip-beta", "depth": 1}],
+        "data_status": "available",
+        "snapshot": None,
+        "cache_hit": False,
+        "provenance": "scip",
+        "tokens_saved": 10,
+        "total_tokens": 100,
+    }
+    fake_engine.tool_callees.return_value = {
+        "target": {"qualified_name": "handle"},
+        "related": [{"qualified_name": "alpha", "provenance": "scip"}],
+        "edges": [{"caller_symbol_id": "scip-handle", "callee_symbol_id": "scip-alpha", "depth": 1}],
+        "data_status": "available",
+        "snapshot": {"snapshot_id": "snap"},
+        "cache_hit": False,
+        "provenance": "scip",
+        "tokens_saved": 10,
+        "total_tokens": 100,
+    }
+    monkeypatch.setattr("atelier.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
+
+    callers = tool_code({"op": "callers", "repo_root": str(tmp_path), "query": "beta", "budget_tokens": 220})
+    callees = tool_code(
+        {"op": "callees", "repo_root": str(tmp_path), "query": "handle", "snapshot": True, "budget_tokens": 220}
+    )
+
+    assert callers["data_status"] == "available"
+    assert callees["snapshot"]["snapshot_id"] == "snap"
+    fake_engine.tool_callers.assert_called_once_with(
+        query="beta",
+        symbol_id=None,
+        qualified_name=None,
+        symbol_name=None,
+        file_path=None,
+        kind=None,
+        language=None,
+        depth=1,
+        limit=20,
+        snapshot=False,
+        budget_tokens=220,
+    )
+    fake_engine.tool_callees.assert_called_once_with(
+        query="handle",
+        symbol_id=None,
+        qualified_name=None,
+        symbol_name=None,
+        file_path=None,
+        kind=None,
+        language=None,
+        depth=1,
+        limit=20,
+        snapshot=True,
+        budget_tokens=220,
+    )
+
+
 def test_tool_code_pattern_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_engine = MagicMock()
     fake_engine.tool_pattern.return_value = {
