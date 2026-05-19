@@ -95,7 +95,7 @@ Plans:
 Plans:
 
 - [x] 03-01: Function-level embeddings and hybrid ranking inside symbol search (M6)
-- [ ] 03-02: Symbol-linked recall bundle on existing memory/code surfaces (M7)
+- [x] 03-02: Symbol-linked recall bundle on existing memory/code surfaces (M7)
 - [ ] 03-03: Caller and callee traversal from the SCIP call graph (M8)
 
 ### Phase 4: Historical Code Intelligence
@@ -178,7 +178,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Retrieval Core & Routed Symbol Search | 3/3 | Complete   | 2026-05-18 |
 | 2. Structural Discovery & Symbol-Safe Change Flows | 4/4 | Complete | 2026-05-19 |
-| 3. Semantic Recall & Relationship Navigation | 1/3 | In Progress|  |
+| 3. Semantic Recall & Relationship Navigation | 2/3 | In Progress|  |
 | 4. Historical Code Intelligence | 0/2 | Not started | - |
 | 5. Scale Decision & Extended Retrieval Reach | 0/3 | Not started | - |
 | 6. Bootstrap, Dependency Scope & Multi-Repo Workspaces | 0/3 | Not started | - |

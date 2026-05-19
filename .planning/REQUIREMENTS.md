@@ -22,7 +22,7 @@
 - [x] **DISC-01**: Agent can apply symbol-scoped edits through the existing `edit` tool using a rich `kind="symbol"` descriptor.
 - [x] **DISC-02**: Agent can run structural code search through `code op="pattern"` with tree-sitter-aware matching instead of regex-only search.
 - [x] **DISC-03**: Agent can fall back to semantic symbol search over function-level embeddings when name-first retrieval is insufficient.
-- [ ] **DISC-04**: Agent can recall symbol-linked memory through the existing memory/code surfaces to recover prior context with low token overhead.
+- [x] **DISC-04**: Agent can recall symbol-linked memory through the existing memory/code surfaces to recover prior context with low token overhead.
 - [ ] **DISC-05**: Agent can distinguish external dependency symbols from workspace symbols in code search results.
 
 ### History & Scale
@@ -70,7 +70,7 @@ Roadmap mapping for all v1 requirements.
 | DISC-01 | Phase 2 | Complete |
 | DISC-02 | Phase 2 | Complete |
 | DISC-03 | Phase 3 | Complete |
-| DISC-04 | Phase 3 | Pending |
+| DISC-04 | Phase 3 | Complete |
 | DISC-05 | Phase 6 | Pending |
 | HIST-01 | Phase 4 | Pending |
 | HIST-02 | Phase 4 | Pending |
