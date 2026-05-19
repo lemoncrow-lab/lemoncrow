@@ -292,6 +292,27 @@ def smart_search(
             include_outline=include_outline,
         )
         payload = search_read_to_dict(chunk_result)
+    backend = str(payload.get("backend") or "ripgrep")
+    matches = [match for match in payload.get("matches", []) if isinstance(match, dict)]
+    if backend == "zoekt":
+        if mode == "full":
+            full_matches: list[dict[str, Any]] = []
+            for match in matches[:max_files]:
+                raw_path = str(match.get("path", ""))
+                try:
+                    content = Path(raw_path).read_text(encoding="utf-8", errors="replace")[:max_chars_per_file]
+                except OSError:
+                    content = ""
+                full_matches.append({**match, "content": content, "snippets": []})
+            matches = full_matches
+        payload["matches"] = matches[:max_files]
+        payload["mode"] = mode
+        payload["ranking"] = {"lexical": {}, "semantic": {}, "graph": {}}
+        payload["cache_hit"] = cache_hit or bool(payload.get("cache_hit", False))
+        if os.environ.get("ATELIER_CACHE_DISABLED") != "1":
+            cache[cache_key] = payload
+            _save_cache(repo_root, cache)
+        return payload
     paths = [str(match.get("path", "")) for match in payload.get("matches", []) if isinstance(match, dict)]
     rel_paths = [
         str(Path(item).resolve().relative_to(repo_root)) if Path(item).resolve().is_relative_to(repo_root) else item
