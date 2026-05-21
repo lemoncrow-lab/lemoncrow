@@ -59,7 +59,43 @@ def test_mcp_route_recommend_returns_cross_vendor_payload(mcp_env: Path) -> None
 
     assert payload["configured"] is True
     assert payload["vendor"] == "google"
-    assert payload["model"] == "gemini-flash"
+    assert payload["model"] == "gemini-2.0-flash"
     assert payload["alternatives"]
     assert "actual_model" in payload
     assert "recommendation_followed" in payload
+
+
+def test_mcp_route_recommend_works_with_host_clis_without_vendor_api_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / ".atelier"
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_MODEL", "gpt-5.4")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda command: f"/usr/bin/{command}" if command in {"claude", "codex", "gemini"} else None,
+    )
+    save_route_config(root, RouteConfig(enabled_vendors=["anthropic", "openai", "google"]))
+
+    import atelier.gateway.adapters.mcp_server as m
+
+    m._current_ledger = None
+
+    resp = _call(
+        "route",
+        {
+            "op": "recommend",
+            "tool_name": "read",
+            "task_text": "find the failing test",
+            "session_state": {"expected_input_tokens": 1200, "expected_output_tokens": 200, "turn_number": 1},
+        },
+    )
+    payload = _result(resp)
+
+    assert payload["configured"] is True
+    assert payload["vendor"] == "google"
+    assert payload["model"] == "gemini-2.0-flash"

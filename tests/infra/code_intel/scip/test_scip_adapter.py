@@ -172,8 +172,9 @@ class _HealthyScipProvider:
         limit: int = 20,
         kind: str | None = None,
         language: str | None = None,
+        scope: str = "repo",
     ) -> list[SymbolRecord]:
-        del query, limit, kind, language
+        del query, limit, kind, language, scope
         return [
             SymbolRecord(
                 symbol_id="scip-order-service",
@@ -227,7 +228,9 @@ class _UnhealthyScipProvider(_HealthyScipProvider):
         limit: int = 20,
         kind: str | None = None,
         language: str | None = None,
+        scope: str = "repo",
     ) -> list[SymbolRecord]:
+        del query, limit, kind, language, scope
         raise AssertionError("unhealthy provider should not be used")
 
 

@@ -8,7 +8,7 @@ This guide assumes you want to use the installed product, not work from a source
 curl -fsSL https://raw.githubusercontent.com/pankaj4u4m/atelier/main/scripts/install.sh | bash
 ```
 
-That installs the `atelier` and `atelier-mcp` commands as user-level console scripts, initializes `~/.atelier`, registers background services with your OS (systemd/launchd), and attempts to start the optional visualization stack when Docker is available.
+That installs the `atelier` and `atelier-mcp` commands as user-level console scripts, initializes `~/.atelier`, registers background services with your OS (systemd/launchd), and attempts to start the optional visualization stack when npm is available.
 
 ## Step 2 — Verify the Installed Runtime
 
@@ -23,7 +23,7 @@ Expected outcome:
 - `atelier` resolves on `PATH`
 - `atelier-mcp` resolves on `PATH`
 - `background` reports a running background controller
-- the visualization stack is reported as running (if Docker is available)
+- the visualization stack is reported as running (if npm is available)
 
 ## Step 3 — Inspect the Installed Command Surface
 

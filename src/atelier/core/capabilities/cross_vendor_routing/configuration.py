@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
@@ -18,6 +19,11 @@ _VENDOR_ENV_VARS: dict[str, tuple[str, ...]] = {
     "anthropic": ("ANTHROPIC_API_KEY",),
     "openai": ("OPENAI_API_KEY",),
     "google": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+}
+_VENDOR_HOST_COMMANDS: dict[str, tuple[str, ...]] = {
+    "anthropic": ("claude",),
+    "openai": ("codex",),
+    "google": ("gemini", "atelier-gemini"),
 }
 
 EditMode = Literal["pin-actual-vendor", "allow-cross-vendor"]
@@ -71,7 +77,9 @@ def detect_configured_vendors(env: Mapping[str, str] | None = None) -> tuple[str
     source = env if env is not None else os.environ
     enabled: list[str] = []
     for vendor in SUPPORTED_ROUTE_VENDORS:
-        if any(str(source.get(key, "")).strip() for key in _VENDOR_ENV_VARS[vendor]):
+        has_env = any(str(source.get(key, "")).strip() for key in _VENDOR_ENV_VARS[vendor])
+        has_host_surface = any(shutil.which(command) is not None for command in _VENDOR_HOST_COMMANDS[vendor])
+        if has_env or has_host_surface:
             enabled.append(vendor)
     return tuple(enabled)
 

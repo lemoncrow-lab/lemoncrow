@@ -58,24 +58,31 @@ MINS=$(( DUR_MS_INT / 60000 ))
 SECS=$(( (DUR_MS_INT % 60000) / 1000 ))
 
 fmt_tok() {
+  # Humanize token counts: 999 → 999, 2_164_000 → 2.1M, 695_000 → 695k.
+  # The 1M threshold avoids the "2164k" eyesore.
   local n=$1
-  if [ "$n" -ge 1000 ] 2>/dev/null; then
+  if [ "$n" -ge 1000000 ] 2>/dev/null; then
+    # one decimal place: integer division on (n*10/1_000_000) then split
+    local scaled=$(( n * 10 / 1000000 ))
+    printf '%d.%dM' $(( scaled / 10 )) $(( scaled % 10 ))
+  elif [ "$n" -ge 1000 ] 2>/dev/null; then
     printf '%dk' $(( n / 1000 ))
   else
     printf '%d' "$n"
   fi
-}
+  }
 
-IN_F=$(fmt_tok "${IN_TOK:-0}")
-OUT_F=$(fmt_tok "${OUT_TOK:-0}")
 CACHE_F=$(fmt_tok "${CACHE_R:-0}")
 CACHE_WF=$(fmt_tok "${CACHE_W:-0}")
 
-ATELIER_STATUS_ROOT="${ATELIER_ROOT:-${ATELIER_STORE_ROOT:-}}"
+ATELIER_STATUS_ROOT="${ATELIER_ROOT:-${ATELIER_STORE_ROOT:-${HOME}/.atelier}}"
 export ATELIER_STATUS_ROOT
 export ATELIER_STATUS_USD_PER_1K="${ATELIER_USD_PER_1K_TOKENS:-0.003}"
 export ATELIER_STATUS_SESSION_ID="${SESSION_ID:-}"
-SAVED_LINE=$(python3 2>/dev/null <<'PYEOF'
+export ATELIER_STATUS_MODEL="${MODEL:-}"
+ATELIER_PY="$(bash "$(dirname "${BASH_SOURCE[0]}")/_atelier_python.sh" 2>/dev/null)"
+ATELIER_PY="${ATELIER_PY:-python3}"
+SAVED_LINE=$("${ATELIER_PY}" 2>/dev/null <<'PYEOF'
 import json
 import os
 from pathlib import Path
@@ -125,12 +132,22 @@ if session_id:
     routing_saved_usd = max(routing_saved_usd, float(live.get("routing_saved_usd", 0.0) or 0.0))
 
 if saved_usd <= 0 and ctx_saved > 0:
-  saved_usd = (ctx_saved / 1000.0) * usd_per_1k
+  # Fallback when no live event exists for this session yet.
+  # Use LiteLLM + pricing.yaml (the same path live events use) instead of the
+  # flat ATELIER_USD_PER_1K_TOKENS rate, so output/cache-read asymmetry is
+  # honored. Atelier savings are context-not-loaded, so price as input tokens.
+  try:
+    from atelier.core.capabilities.pricing import get_model_pricing
+    model_id = os.environ.get("ATELIER_STATUS_MODEL") or os.environ.get("ATELIER_MODEL") or "_default"
+    saved_usd = float(get_model_pricing(model_id).tokens_to_usd(ctx_saved, "input"))
+  except Exception:
+    saved_usd = (ctx_saved / 1000.0) * usd_per_1k
+  if saved_usd <= 0:
+    saved_usd = (ctx_saved / 1000.0) * usd_per_1k
 
 update = read_json("update.json")
 auth = read_json("auth.json")
 subscription = read_json("subscription.json")
-free_plan = read_json("free_plan.json")
 
 if ((not auth) or auth.get("authenticated") is False) and os.environ.get("ATELIER_HIDE_MISSING_LOGIN") != "1":
   status_text = "login"
@@ -138,15 +155,14 @@ elif update.get("toVersion") and update.get("toVersion") != update.get("fromVers
   status_text = f"update {update.get('toVersion')}"
 elif subscription.get("warning"):
   status_text = str(subscription.get("message") or "subscription")[:40]
-elif free_plan.get("limit"):
-  limit = max(1, int(free_plan.get("limit") or 1))
-  remaining = int(free_plan.get("remaining") or 0)
-  used_pct = int(round(100 * max(0, limit - remaining) / limit))
-  if used_pct >= 90:
-    status_text = f"plan {used_pct}%"
 
 def k(n: int) -> str:
-  return f"{n//1000}k" if n >= 1000 else str(n)
+  # Mirror the bash fmt_tok: <1k literal, <1M as Nk, >=1M as N.NM.
+  if n >= 1_000_000:
+    return f"{n / 1_000_000:.1f}M"
+  if n >= 1000:
+    return f"{n // 1000}k"
+  return str(n)
 
 print(f"${saved_usd:.3f}|{k(ctx_saved)}|{smart_calls}|{status_text}|${routing_saved_usd:.3f}")
 PYEOF
@@ -179,12 +195,12 @@ else
   CACHE_NEW_SEG=""
 fi
 
-if [ "${SAVED_CALLS:-0}" -gt 0 ] 2>/dev/null; then
-  SAVED_CALLS_SEG=" / ${SAVED_CALLS}c"
-else
-  SAVED_CALLS_SEG=""
-fi
-
+# Calls-saved counter intentionally not shown in the statusline.
+# Until the calibration store from tests/benchmarks/ feeds equivalent_calls,
+# the per-tool "calls saved" number is a guessed multiplier and showing it
+# next to a real dollar figure misleads. Tokens-saved (chars-of-context not
+# loaded) is measurable today.
+SAVED_CALLS_SEG=""
 if [ -n "${STATUS_TEXT:-}" ]; then
   STATUS_SEG=" ${SEP} ${STATUS_TEXT}"
 else
@@ -197,11 +213,11 @@ else
   ROUTING_SEG=""
 fi
 
-printf '%s%s%s %s %s%s ctx %s%% cache %s%s %s %s ↓ %s%s%s saved %s%s%s ctx %s %s %s %dm%02ds\n' \
+printf '%s%s%s %s %s%s ctx %s%% cache %s%s %s %s ↓ %s%s(%s)%s%s %s %dm%02ds\n' \
   "$C_BRAND" "$PLUGIN_LABEL" "$C_RESET" \
   "$PIPE" "$MODEL" "$STATUS_SEG" "$PCT_INT" \
   "$CACHE_F" "$CACHE_NEW_SEG" \
   "$PIPE" "$COST_FMT" \
-  "$C_GREEN" "$SAVED_USD" "$C_RESET" "$C_GREEN" "$SAVED_USD" "$C_RESET" "${SAVED_CTX}${SAVED_CALLS_SEG}" \
+  "$C_GREEN" "$SAVED_USD" "$SAVED_CTX" "$C_RESET" \
   "$ROUTING_SEG" \
   "$PIPE" "$MINS" "$SECS"

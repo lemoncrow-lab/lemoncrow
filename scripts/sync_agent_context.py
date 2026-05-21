@@ -42,6 +42,8 @@ HOST_DISPLAY = {
 
 SESSION_TEMPLATE = (
     "Atelier budget optimizer is active for {host}.\n"
+    "Use Atelier MCP tools first for file I/O, search, edits, and shell work.\n"
+    "Use native host tools only when Atelier returns `noop`, is hidden, or is unavailable.\n"
     "Before changing files, name the deliverable and summarize the smallest viable plan.\n"
     "Keep context narrow: use only the current goal, relevant files, failing command/output, and known constraints.\n"
     "Restate working context in under 10 bullets before editing or after compaction.\n"
@@ -93,7 +95,37 @@ def validation_line(output_path: Path) -> str:
     return f"See [Validation matrix]({matrix}) for the minimum checks by change surface."
 
 
+def tool_substitution_table() -> str:
+    """Inline substitution table — baked into every host file so agents can't miss it."""
+    return "\n".join([
+        "## Tool substitution — mandatory",
+        "",
+        "| Use this | Instead of | Why |",
+        "|---|---|---|",
+        "| `mcp__atelier__read` | `Read` / `Bash(cat ...)` | outline-first, 80-95% fewer tokens on large files |",
+        "| `mcp__atelier__search` | `Grep` / `Glob` / `Bash(grep/rg ...)` | ranked, budget-capped, ~280k tokens saved vs naive scan |",
+        "| `mcp__atelier__edit` | `Edit` / `Write` | atomic multi-file, snapshot/rollback, diff recorded |",
+        "| `mcp__atelier__shell` | `Bash(...)` | ANSI-stripped, line-truncated, token-compact |",
+        "| `mcp__atelier__code op=search` | `Bash(grep -rn symbol ...)` | SCIP-indexed, zero subprocess cost |",
+        "",
+        "**Bash is only for git commands and process management.** "
+        "Do NOT use `Bash(cat file)`, `Bash(grep ...)`, or `Bash(find ...)` "
+        "— use the atelier equivalents above.",
+    ])
+
+
+def implement_line(output_path: Path) -> str:
+    tool_sub_link = relpath(output_path, ROOT / "docs/agent-os/tool-substitution.md")
+    return (
+        "2. **Implement**: Use Atelier MCP tools for file I/O, search, edits, and shell work "
+        f"(see [Tool substitution]({tool_sub_link})). Use native host tools only when Atelier "
+        "returns `noop`, is hidden, or is unavailable. Use `route` or `rescue` when the same "
+        "approach fails twice."
+    )
+
+
 def render_project_entrypoint(output_path: Path, *, title: str, host: str | None = None) -> str:
+    tool_sub_link = relpath(output_path, ROOT / "docs/agent-os/tool-substitution.md")
     lines = [
         generated_notice(output_path),
         "",
@@ -105,9 +137,13 @@ def render_project_entrypoint(output_path: Path, *, title: str, host: str | None
         "",
         "## Operating loop",
         "",
-        "1. **Context** - read the relevant source of truth first and use `context` when the Atelier MCP surface is available.",
-        "2. **Implement** - make the change, update directly related docs, and use `route` or `rescue` when needed.",
-        "3. **Record** - record the outcome with `record` or the host alias that exposes the same capability.",
+        "1. **Context** — call `mcp__atelier__context` with `task`, `files`, `domain` before touching any file.",
+        "2. **Implement** — use Atelier tools for ALL file I/O and shell ops "
+        f"(see [Tool substitution]({tool_sub_link})). Use `route` to get model recommendations "
+        "before expensive steps. Use `rescue` on repeated failures.",
+        "3. **Record** — call `mcp__atelier__trace` at completion.",
+        "",
+        tool_substitution_table(),
         "",
         "## Project-specific invariants",
         "",
@@ -134,8 +170,13 @@ def render_copilot_body(output_path: Path) -> str:
                 "",
                 "Use the Atelier 3-step process for every task:",
                 "1. **Context**: call `context` with the task, domain, and tools.",
-                "2. **Implement**: execute the task and use `route` or `rescue` when needed.",
+                f"2. **Implement**: use Atelier MCP tools for file I/O, search, edits, and shell work "
+                f"(see [Tool substitution]({relpath(output_path, ROOT / 'docs/agent-os/tool-substitution.md')})). "
+                "Use native Copilot or VS Code tools only when Atelier returns `noop`, is hidden, or is unavailable. "
+                "Use `route` or `rescue` when needed.",
                 "3. **Record**: call `record` when the work is done.",
+                "",
+                tool_substitution_table(),
                 "",
                 "Treat this file as a thin entrypoint. The live source of truth is:",
                 "",
@@ -201,7 +242,8 @@ def render_chatmode(output_path: Path) -> str:
                 "",
                 "1. **Context** - call MCP tool `context` with task, domain, files, and tools.",
                 "2. **Plan** - keep the plan small and concrete.",
-                "3. **Execute** - make the change.",
+                "3. **Execute** - use Atelier MCP tools for file I/O, search, edits, and shell work. "
+                "Use native Copilot or VS Code tools only when Atelier returns `noop`, is hidden, or is unavailable.",
                 "4. **Recover** - call `rescue` after two failed attempts.",
                 "5. **Record** - call `record` with the observable result.",
                 "",
@@ -238,7 +280,9 @@ def render_claude_code_agent(output_path: Path) -> str:
                 "## Operating loop",
                 "",
                 "1. **Context**: Call `context` with `task`, `files`, `domain`, and `errors`.",
-                "2. **Implement**: Execute the task. Use native file tools or Atelier augmentations as appropriate.",
+                f"2. **Implement**: Use Atelier MCP tools for file I/O, search, edits, and shell work "
+                f"(see [Tool substitution]({relpath(output_path, ROOT / 'docs/agent-os/tool-substitution.md')})). "
+                "Use Claude-native tools only when Atelier returns `noop`, is hidden, or is unavailable.",
                 '3. **Record**: Call `record` at completion with `agent: "atelier:code"`.',
                 "",
                 budget_section(),
@@ -258,7 +302,7 @@ def render_claude_review_agent(output_path: Path) -> str:
                 "---",
                 "name: review",
                 "description: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files.",
-                'tools: ["Read", "Grep", "Glob", "mcp__atelier__context", "mcp__atelier__verify", "mcp__atelier__trace", "mcp__atelier__memory"]',
+                'tools: ["Read", "Grep", "Glob", "mcp__atelier__context", "mcp__atelier__read", "mcp__atelier__search", "mcp__atelier__verify", "mcp__atelier__trace", "mcp__atelier__memory"]',
                 "color: yellow",
                 "---",
                 "",
@@ -274,7 +318,7 @@ def render_claude_review_agent(output_path: Path) -> str:
                 "",
                 "## Operating loop",
                 "",
-                "1. **Read** the files in scope. Never trust summaries — verify the code directly.",
+                "1. **Read** the files in scope, preferring `mcp__atelier__read` and `mcp__atelier__search` before native Read/Grep/Glob. Never trust summaries — verify the code directly.",
                 "2. **Apply the verification ladder**: existence → substantive → wired → data flow.",
                 f"3. **Report findings** following [{rubric_path}]({rubric_path}): every finding must have a severity (Blocker|Warning), `file:line`, and a concrete fix.",
                 '4. **Verify** — call `verify(rubric_id="rubric_code_review", checks={{...}})` before concluding.',
@@ -302,7 +346,7 @@ def render_claude_explore_agent(output_path: Path) -> str:
                 "---",
                 "name: explore",
                 "description: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits.",
-                'tools: ["Read", "Grep", "Glob", "mcp__atelier__context", "mcp__atelier__search", "mcp__atelier__memory"]',
+                'tools: ["Read", "Grep", "Glob", "mcp__atelier__context", "mcp__atelier__search", "mcp__atelier__read", "mcp__atelier__memory"]',
                 "color: blue",
                 "---",
                 "",
@@ -319,7 +363,7 @@ def render_claude_explore_agent(output_path: Path) -> str:
                 "## Operating loop",
                 "",
                 "1. **Context**: Call `context` with `task`, `files`, and `domain` to surface relevant ReasonBlocks.",
-                "2. **Search**: Use `search`, Grep, Glob, or Read to locate the target.",
+                "2. **Search**: Prefer `mcp__atelier__search` and `mcp__atelier__read`; use Grep, Glob, or Read only as fallback.",
                 "3. **Report**: Return findings immediately. Do not wait for tools to become available.",
                 "",
                 "## Hard rules",
@@ -397,11 +441,13 @@ def render_host_surface(output_path: Path, *, title: str, host: str) -> str:
         "",
         doc_links(output_path),
         "",
-        "## Operating loop",
+                "## Operating loop",
+                "",
+                "1. **Context**: Call `context` with task, domain, files, tools, and errors when the host supports it.",
+                implement_line(output_path),
+                "3. **Record**: Call `record` when the task is done.",
         "",
-        "1. **Context**: Call `context` with task, domain, files, tools, and errors when the host supports it.",
-        "2. **Implement**: Execute the task. Use `route` or `rescue` when the same approach fails twice.",
-        "3. **Record**: Call `record` when the task is done.",
+        tool_substitution_table(),
         "",
         budget_section(),
         "",

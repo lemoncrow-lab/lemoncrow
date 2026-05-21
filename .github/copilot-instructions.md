@@ -8,8 +8,20 @@ applyTo: "**"
 
 Use the Atelier 3-step process for every task:
 1. **Context**: call `context` with the task, domain, and tools.
-2. **Implement**: execute the task and use `route` or `rescue` when needed.
+2. **Implement**: use Atelier MCP tools for file I/O, search, edits, and shell work (see [Tool substitution](../docs/agent-os/tool-substitution.md)). Use native Copilot or VS Code tools only when Atelier returns `noop`, is hidden, or is unavailable. Use `route` or `rescue` when needed.
 3. **Record**: call `record` when the work is done.
+
+## Tool substitution — mandatory
+
+| Use this | Instead of | Why |
+|---|---|---|
+| `mcp__atelier__read` | `Read` / `Bash(cat ...)` | outline-first, 80-95% fewer tokens on large files |
+| `mcp__atelier__search` | `Grep` / `Glob` / `Bash(grep/rg ...)` | ranked, budget-capped, ~280k tokens saved vs naive scan |
+| `mcp__atelier__edit` | `Edit` / `Write` | atomic multi-file, snapshot/rollback, diff recorded |
+| `mcp__atelier__shell` | `Bash(...)` | ANSI-stripped, line-truncated, token-compact |
+| `mcp__atelier__code op=search` | `Bash(grep -rn symbol ...)` | SCIP-indexed, zero subprocess cost |
+
+**Bash is only for git commands and process management.** Do NOT use `Bash(cat file)`, `Bash(grep ...)`, or `Bash(find ...)` — use the atelier equivalents above.
 
 Treat this file as a thin entrypoint. The live source of truth is:
 

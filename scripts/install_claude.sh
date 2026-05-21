@@ -6,12 +6,11 @@
 #   2. Installs/updates atelier@atelier.
 #   3. Global mode: registers MCP with Claude's user scope.
 #   4. Workspace mode (--workspace DIR): writes project-local .mcp.json and settings.
-#
 # Options:
-#   --dry-run      Print what would happen, touch nothing
-#   --print-only   Print config snippets for manual install, touch nothing
+#   --dry-run        Print what would happen, touch nothing
+#   --print-only     Print config snippets for manual install, touch nothing
 #   --workspace DIR  Install project-local artifacts into DIR instead of global user config
-#   --strict       Exit nonzero if 'claude' CLI not on PATH
+#   --strict         Exit nonzero if 'claude' CLI not on PATH
 
 set -euo pipefail
 
@@ -66,6 +65,7 @@ CLAUDE_LOCAL_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.local.json"
 info()  { echo "[atelier:claude] $*"; }
 warn()  { echo "[atelier:claude] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
+
 
 # ---- resolve install profile ------------------------------------------------
 atelier_resolve_install_profile "atelier:claude"
@@ -436,11 +436,6 @@ PYEOF
     rm -f "${PERM_SCRIPT}"
 fi
 
-if $DRY_RUN; then
-    info "Dry run complete; skipped post-install verification because no files were written."
-    exit 0
-fi
-
 # ---- statusLine setting in ~/.claude/settings.json -------------------------
 STATUSLINE_SCRIPT="${ATELIER_REPO}/integrations/claude/plugin/scripts/statusline.sh"
 if $DRY_RUN; then
@@ -461,6 +456,11 @@ print("[atelier:claude] default agent set → atelier-code")
 PYEOF2
 else
     warn "statusline.sh not found at ${STATUSLINE_SCRIPT} — skipping statusLine"
+fi
+
+if $DRY_RUN; then
+    info "Dry run complete; skipped post-install verification because no files were written."
+    exit 0
 fi
 
 info "Done. Start Claude Code in your workspace. Skills and agents are available."

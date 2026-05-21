@@ -63,15 +63,6 @@ def test_statusline_shows_missing_login_before_update(tmp_path: Path) -> None:
     assert "update 1.1.0" not in output
 
 
-def test_statusline_shows_free_plan_warning(tmp_path: Path) -> None:
-    (tmp_path / "auth.json").write_text(json.dumps({"authenticated": True}), encoding="utf-8")
-    (tmp_path / "free_plan.json").write_text(json.dumps({"remaining": 1, "limit": 10}), encoding="utf-8")
-
-    output = _run_statusline(tmp_path, _payload())
-
-    assert "plan 90%" in output
-
-
 def test_statusline_reads_session_savings(tmp_path: Path) -> None:
     stats_dir = tmp_path / "session_stats"
     stats_dir.mkdir()
@@ -82,8 +73,11 @@ def test_statusline_reads_session_savings(tmp_path: Path) -> None:
 
     output = _run_statusline(tmp_path, _payload())
 
-    assert "saved $0.036" in output
-    assert "ctx 12k / 4c" in output
+    # Format: "$0.036(12k)" — saved USD with token count in parens.
+    assert "$0.036(12k)" in output
+    assert "calls saved" not in output
+    assert "I:" not in output
+    assert "O:" not in output
 
 
 def test_statusline_ignores_lifetime_savings_files(tmp_path: Path) -> None:
@@ -115,5 +109,5 @@ def test_statusline_ignores_lifetime_savings_files(tmp_path: Path) -> None:
 
     output = _run_statusline(tmp_path, _payload())
 
-    assert "saved $0.006" in output
-    assert "ctx 2k / 2c" in output
+    assert "$0.006(2k)" in output
+    assert "calls saved" not in output

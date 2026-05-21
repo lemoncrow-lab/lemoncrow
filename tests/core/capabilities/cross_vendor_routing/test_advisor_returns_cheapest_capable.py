@@ -21,5 +21,5 @@ def test_advisor_returns_cheapest_capable(tmp_path) -> None:
     )
 
     assert recommendation.vendor == "google"
-    assert recommendation.model == "gemini-flash"
+    assert recommendation.model == "gemini-2.0-flash"
     assert recommendation.alternatives[0].estimated_cost_usd <= recommendation.alternatives[1].estimated_cost_usd

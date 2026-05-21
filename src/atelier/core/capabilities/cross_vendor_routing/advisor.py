@@ -37,7 +37,9 @@ class CrossVendorRouteAdvisor:
         configured = list(detect_configured_vendors(self._env))
         selected = enabled_vendors or configured
         if not selected:
-            raise RouteConfigError("no configured vendors detected; set vendor API keys before running route configure")
+            raise RouteConfigError(
+                "no routable vendors detected; install a supported host CLI or set vendor API keys before running route configure"
+            )
         config = RouteConfig(enabled_vendors=selected, risk_class=risk_class)
         path = save_route_config(self._root, config)
         return {

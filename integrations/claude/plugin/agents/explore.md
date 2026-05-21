@@ -1,7 +1,7 @@
 ---
 name: explore
 description: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits.
-tools: ["Read", "Grep", "Glob", "mcp__atelier__context", "mcp__atelier__search", "mcp__atelier__memory"]
+tools: ["Read", "Grep", "Glob", "mcp__atelier__context", "mcp__atelier__search", "mcp__atelier__read", "mcp__atelier__memory"]
 color: blue
 ---
 
@@ -25,7 +25,7 @@ Use this file as a thin entrypoint and follow the live docs tree:
 ## Operating loop
 
 1. **Context**: Call `context` with `task`, `files`, and `domain` to surface relevant ReasonBlocks.
-2. **Search**: Use `search`, Grep, Glob, or Read to locate the target.
+2. **Search**: Prefer `mcp__atelier__search` and `mcp__atelier__read`; use Grep, Glob, or Read only as fallback.
 3. **Report**: Return findings immediately. Do not wait for tools to become available.
 
 ## Hard rules

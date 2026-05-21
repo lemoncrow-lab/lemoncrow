@@ -1,6 +1,9 @@
 {
   "atelier": {
     "command": "atelier-mcp",
-    "args": ["--host", "codex"]
+    "args": ["--host", "codex"],
+    "env": {
+      "ATELIER_DEV_MODE": "1"
+    }
   }
 }

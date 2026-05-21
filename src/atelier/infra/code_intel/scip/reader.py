@@ -210,6 +210,7 @@ class ScipArtifactReader:
                 raise ScipArtifactError(f"malformed symbol entry in SCIP artifact: {path}")
             raw_payload = dict(raw)
             source = str(raw_payload.pop("source", "") or "")
+            raw_payload.setdefault("documentation", raw.get("documentation"))
             raw_payload.setdefault("provenance", "scip")
             raw_payload.setdefault("origin", origin)
             raw_payload.setdefault("repo_id", str(payload.get("repo_id") or ""))

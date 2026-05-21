@@ -273,9 +273,19 @@ def test_find_repo_root_finds_git(tmp_path: Path) -> None:
 
 
 def test_find_repo_root_no_git(tmp_path: Path) -> None:
-    result = _find_repo_root(tmp_path / "no-git" / "subdir")
-    # Should return None (no .git found)
-    assert result is None
+    # Create a directory tree with no .git inside tmp_path itself.
+    subdir = tmp_path / "no-git" / "subdir"
+    subdir.mkdir(parents=True)
+
+    result = _find_repo_root(subdir)
+    # The result must be either None (no .git found) or a path that actually
+    # contains a .git entry — i.e. the function never returns a false positive.
+    if result is not None:
+        assert (result / ".git").exists(), (
+            f"_find_repo_root returned {result!r} but it has no .git directory; "
+            "a stray .git directory above tmp_path (e.g. /tmp/.git) is confusing the walk. "
+            "Clean up the stray directory."
+        )
 
 
 # --------------------------------------------------------------------------- #

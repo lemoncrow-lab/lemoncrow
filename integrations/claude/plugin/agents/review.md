@@ -1,7 +1,7 @@
 ---
 name: review
 description: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files.
-tools: ["Read", "Grep", "Glob", "mcp__atelier__context", "mcp__atelier__verify", "mcp__atelier__trace", "mcp__atelier__memory"]
+tools: ["Read", "Grep", "Glob", "mcp__atelier__context", "mcp__atelier__read", "mcp__atelier__search", "mcp__atelier__verify", "mcp__atelier__trace", "mcp__atelier__memory"]
 color: yellow
 ---
 
@@ -24,7 +24,7 @@ Use this file as a thin entrypoint and follow the live docs tree:
 
 ## Operating loop
 
-1. **Read** the files in scope. Never trust summaries — verify the code directly.
+1. **Read** the files in scope, preferring `mcp__atelier__read` and `mcp__atelier__search` before native Read/Grep/Glob. Never trust summaries — verify the code directly.
 2. **Apply the verification ladder**: existence → substantive → wired → data flow.
 3. **Report findings** following [../../../../docs/agent-os/review-rubric.md](../../../../docs/agent-os/review-rubric.md): every finding must have a severity (Blocker|Warning), `file:line`, and a concrete fix.
 4. **Verify** — call `verify(rubric_id="rubric_code_review", checks={{...}})` before concluding.

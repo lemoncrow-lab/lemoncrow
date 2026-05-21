@@ -33,13 +33,18 @@ uninstall: ## Remove all Atelier agent-host integrations, hooks, and bin wrapper
 status: ## Show Atelier installation status
 	@bash scripts/status.sh
 
-start: ## Start the service and frontend with Docker Compose
-	docker compose up --build -d
-	docker compose logs -f
-restart: ## Restart the service and frontend with Docker Compose
-	docker compose down
-	docker compose up --build -d
-	docker compose logs -f
+start: ## Start the service and frontend natively
+	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
+	$(ATELIER_CMD) --root "$${ATELIER_STACK_ROOT:-$(ATELIER_STORE)}" stack start
+	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
+	$(ATELIER_CMD) --root "$${ATELIER_STACK_ROOT:-$(ATELIER_STORE)}" stack logs -f
+restart: ## Restart the service and frontend natively
+	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
+	$(ATELIER_CMD) --root "$${ATELIER_STACK_ROOT:-$(ATELIER_STORE)}" stack stop --force || true
+	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
+	$(ATELIER_CMD) --root "$${ATELIER_STACK_ROOT:-$(ATELIER_STORE)}" stack start
+	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
+	$(ATELIER_CMD) --root "$${ATELIER_STACK_ROOT:-$(ATELIER_STORE)}" stack logs -f
 
 # --------------------------------------------------------------------------- #
 # Development                                                                 #
@@ -107,10 +112,14 @@ pre-commit: format lint typecheck docs-check test ## Format, lint, typecheck, do
 benchmark: ## Run the full benchmark suite
 	LOCAL=1 atelier benchmark full --json
 
-bench-savings: ## Run the context-savings benchmark
-	LOCAL=1 uv run python -m benchmarks.swe.savings_bench --json
+# `bench-savings` (V2) was removed — it was deprecated for measurement and
+	# its percentage claims were not honored. Use `bench-ab` for real A/B numbers
+	# or `bench-savings-honest` for the V3 synthetic replay.
 
-bench-savings-honest: ## Run the V3 honest replay context-savings benchmark
+	bench-ab: ## Real A/B benchmarks: run Atelier tool + native equivalent on the same input, persist deltas to ~/.atelier/savings_calibration.jsonl
+	LOCAL=1 uv run pytest tests/benchmarks/ -v -m ab
+
+	bench-savings-honest: ## V3 honest replay (synthetic corpus, 50 prompts)
 	rm -rf /tmp/atelier-v3-savings-replay
 	ATELIER_ROOT=/tmp/atelier-v3-savings-replay LOCAL=1 uv run python -m benchmarks.swe.savings_replay --csv docs/benchmarks/v3-honest-savings-results.csv
 

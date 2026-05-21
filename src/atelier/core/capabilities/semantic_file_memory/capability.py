@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,38 @@ from .indexer import FileIndex
 from .models import FileOutline, SemanticSummary
 from .python_ast import analyze_python, stub_function_bodies
 from .python_ast import outline as python_outline
+
+_logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _tiktoken_encoder() -> Any:
+    """Return a tiktoken encoder, or None if tiktoken is unavailable.
+
+    cl100k_base is the encoder OpenAI ships for GPT-4/3.5; it is the closest
+    publicly-available proxy for Anthropic's tokenizer (Anthropic does not
+    publish theirs). Empirically ~3.3-3.8 chars/token on code, vs the previous
+    chars/4 heuristic which undercounted tokens by ~15-20%.
+    """
+    try:
+        import tiktoken
+
+        return tiktoken.get_encoding("cl100k_base")
+    except Exception as exc:
+        _logger.warning("tiktoken unavailable, falling back to chars/4 heuristic: %s", exc)
+        return None
+
+
+def _count_tokens(text: str) -> int:
+    """Token count via tiktoken cl100k_base, with chars/4 fallback."""
+    if not text:
+        return 0
+    enc = _tiktoken_encoder()
+    if enc is None:
+        return len(text) // 4
+    return len(enc.encode(text, disallowed_special=()))
+
+
 from .search import SymbolIndex
 from .typescript_ast import analyze_typescript
 from .typescript_ast import outline as typescript_outline
@@ -54,8 +88,38 @@ class SemanticFileMemoryCapability:
             ".tsx": "typescript",
             ".js": "javascript",
             ".jsx": "javascript",
+            ".mjs": "javascript",
+            ".cjs": "javascript",
             ".sql": "sql",
             ".md": "markdown",
+            ".markdown": "markdown",
+            # Languages handled by the generic outline fallback (regex-based).
+            # Per-language tree-sitter outlines are queued in
+            # docs/plans/active/savings-honest-ab/README.md.
+            ".go": "go",
+            ".rs": "rust",
+            ".java": "java",
+            ".kt": "kotlin",
+            ".kts": "kotlin",
+            ".scala": "scala",
+            ".rb": "ruby",
+            ".cs": "csharp",
+            ".cpp": "cpp",
+            ".cc": "cpp",
+            ".cxx": "cpp",
+            ".hpp": "cpp",
+            ".hh": "cpp",
+            ".c": "c",
+            ".h": "c",
+            ".swift": "swift",
+            ".php": "php",
+            ".sh": "shell",
+            ".bash": "shell",
+            ".zsh": "shell",
+            ".yaml": "yaml",
+            ".yml": "yaml",
+            ".toml": "toml",
+            ".json": "json",
         }.get(suffix, "text")
 
     # ------------------------------------------------------------------
@@ -66,7 +130,11 @@ class SemanticFileMemoryCapability:
     def _effective_loc(source: str, language: str) -> int:
         """Count effective LOC (exclude blank + comment-only lines)."""
         if language == "python":
-            return sum(1 for line in source.splitlines() if line.strip() and not line.lstrip().startswith("#"))
+            return sum(
+                1
+                for line in source.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            )
 
         if language in {"typescript", "javascript"}:
             count = 0
@@ -121,17 +189,110 @@ class SemanticFileMemoryCapability:
 
     @staticmethod
     def _token_savings(full_text: str, returned_text: str) -> int:
-        full_tokens = max(1, len(full_text) // 4)
-        returned_tokens = max(1, len(returned_text) // 4)
+        full_tokens = max(1, _count_tokens(full_text))
+        returned_tokens = max(1, _count_tokens(returned_text))
         return max(0, full_tokens - returned_tokens)
 
-    def _outline_for(self, path: Path, source: str, language: str, *, effective_loc: int) -> FileOutline:
+    def _outline_for(
+        self, path: Path, source: str, language: str, *, effective_loc: int
+    ) -> FileOutline:
         if language == "python":
             base = python_outline(str(path), source)
         else:
             lang = "javascript" if language == "javascript" else "typescript"
             base = typescript_outline(str(path), source, lang=lang)
         return base.model_copy(update={"loc": effective_loc})
+
+    # Generic outline fallback for languages without a dedicated AST builder.
+    # Strategy: keep lines that look structural — column-0 declarations,
+    # signature-shaped keywords, Markdown headings, import/use/package lines.
+    # Imperfect, but vastly smaller than the full source for typical files.
+    _GENERIC_LEADING_KEYWORDS: frozenset[str] = frozenset(
+        {
+            # declarations
+            "def",
+            "class",
+            "func",
+            "function",
+            "fn",
+            "struct",
+            "enum",
+            "trait",
+            "impl",
+            "type",
+            "interface",
+            "record",
+            "object",
+            "protocol",
+            "extension",
+            "mod",
+            "module",
+            "package",
+            "namespace",
+            "actor",
+            # imports / linkage
+            "import",
+            "from",
+            "use",
+            "using",
+            "require",
+            "include",
+            "export",
+            "extern",
+            # visibility-leading (the body keyword follows)
+            "pub",
+            "public",
+            "private",
+            "protected",
+            "internal",
+            "open",
+            "sealed",
+            "abstract",
+            "final",
+            "static",
+            "async",
+            # value-decls (Rust/Go/TS const)
+            "const",
+            "let",
+            "var",
+            # SQL DDL
+            "create",
+            "alter",
+            "drop",
+        }
+    )
+
+    @classmethod
+    def _generic_outline_text(cls, source: str, language: str) -> str:
+        """Extract a structural skeleton from any language. Returns plain text."""
+        if language == "markdown":
+            # For Markdown: keep heading lines + the first non-blank line under each.
+            kept: list[str] = []
+            prev_was_heading = False
+            for raw in source.splitlines():
+                stripped = raw.strip()
+                if stripped.startswith("#"):
+                    kept.append(raw.rstrip())
+                    prev_was_heading = True
+                elif prev_was_heading and stripped:
+                    kept.append(raw.rstrip())
+                    prev_was_heading = False
+            return "\n".join(kept)
+
+        kept_lines: list[str] = []
+        for raw in source.splitlines():
+            stripped = raw.lstrip()
+            if not stripped:
+                continue
+            # Column-0 declarations (most languages)
+            if raw == stripped:
+                kept_lines.append(raw.rstrip())
+                continue
+            # Indented but signature-looking
+            first_token = stripped.split(None, 1)[0].rstrip(":(<{").lower()
+            if first_token in cls._GENERIC_LEADING_KEYWORDS:
+                kept_lines.append(raw.rstrip())
+        return "\n".join(kept_lines)
 
     def smart_read(
         self,
@@ -175,7 +336,12 @@ class SemanticFileMemoryCapability:
             )
             return result
 
-        if not expand and effective_loc > outline_threshold and language in {"python", "typescript", "javascript"}:
+        # Per-language AST outline (python / typescript / javascript)
+        if (
+            not expand
+            and effective_loc > outline_threshold
+            and language in {"python", "typescript", "javascript"}
+        ):
             outline = self._outline_for(
                 file_path,
                 source,
@@ -191,6 +357,45 @@ class SemanticFileMemoryCapability:
                 }
             )
             return result
+
+        # Tree-sitter outline for languages with a per-grammar config.
+        # Same 25% guard as generic: if the structural extraction doesn't
+        # save at least a quarter, fall through to the next stage rather than
+        # ship a fake savings event.
+        if not expand and effective_loc > outline_threshold:
+            from .treesitter_ast import SUPPORTED_LANGUAGES
+            from .treesitter_ast import outline_text as ts_outline_text
+
+            if language in SUPPORTED_LANGUAGES:
+                ts_text = ts_outline_text(language, source)
+                if ts_text and len(ts_text) <= int(len(source) * 0.75):
+                    result.update(
+                        {
+                            "mode": "outline",
+                            "outline": {
+                                "kind": "treesitter",
+                                "language": language,
+                                "text": ts_text,
+                            },
+                            "tokens_saved": self._token_savings(source, ts_text),
+                        }
+                    )
+                    return result
+
+        # Generic regex-based outline fallback for languages without a
+        # tree-sitter config or where the tree-sitter outline didn't earn the
+        # 25% bar. Same 25% safety guard so we never ship fake savings.
+        if not expand and effective_loc > outline_threshold and language != "text":
+            outline_text = self._generic_outline_text(source, language)
+            if outline_text and len(outline_text) <= int(len(source) * 0.75):
+                result.update(
+                    {
+                        "mode": "outline",
+                        "outline": {"kind": "generic", "language": language, "text": outline_text},
+                        "tokens_saved": self._token_savings(source, outline_text),
+                    }
+                )
+                return result
 
         result.update(
             {
@@ -235,7 +440,9 @@ class SemanticFileMemoryCapability:
         git_last_author_date = ""
 
         if language == "python":
-            sym_infos, imp_infos, ast_summary, module_docstring, complexity_score = analyze_python(source)
+            sym_infos, imp_infos, ast_summary, module_docstring, complexity_score = analyze_python(
+                source
+            )
             symbols = [s.name for s in sym_infos]
             exports = [s.name for s in sym_infos if s.is_export and not s.is_private]
             symbol_details = [
@@ -272,7 +479,8 @@ class SemanticFileMemoryCapability:
             symbols = [s.name for s in sym_infos_ts]
             exports = [s.name for s in sym_infos_ts if s.is_export]
             symbol_details = [
-                {"name": s.name, "kind": s.kind, "lineno": s.lineno, "signature": s.signature} for s in sym_infos_ts
+                {"name": s.name, "kind": s.kind, "lineno": s.lineno, "signature": s.signature}
+                for s in sym_infos_ts
             ]
             imports_modules = sorted({i.module for i in imp_infos_ts})
             summary_str = "\n".join(lines[:max_lines])
@@ -393,7 +601,9 @@ class SemanticFileMemoryCapability:
         for _ in range(4):
             tests_dir = root / "tests"
             if tests_dir.is_dir():
-                matches = list(tests_dir.rglob(f"test_{stem}.py")) + list(tests_dir.rglob(f"*{stem}*test*.py"))
+                matches = list(tests_dir.rglob(f"test_{stem}.py")) + list(
+                    tests_dir.rglob(f"*{stem}*test*.py")
+                )
                 return [str(p) for p in matches[:5]]
             root = root.parent
         return []

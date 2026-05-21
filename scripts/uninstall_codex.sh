@@ -34,7 +34,7 @@ done
 if $WORKSPACE_SET; then
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
     CODEX_HOME="${WORKSPACE}/.codex"
-    MARKETPLACE_JSON="${WORKSPACE}/.agents/plugins/marketplace.json"
+    MARKETPLACE_JSON="${HOME}/.agents/plugins/marketplace.json"
     AGENTS_FILE="${WORKSPACE}/AGENTS.md"
     TASKS_DIR="${WORKSPACE}/.codex/tasks"
 else
@@ -51,6 +51,29 @@ STAGING_DIRS=("${HOME}/.atelier/codex-plugin-stable" "${HOME}/.atelier/codex-plu
 
 info()  { echo "[atelier:uninstall:codex] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
+
+codex_cmd() {
+    if $WORKSPACE_SET; then
+        CODEX_HOME="$CODEX_HOME" codex "$@"
+    else
+        codex "$@"
+    fi
+}
+
+if command -v codex >/dev/null 2>&1; then
+    if $DRY_RUN; then
+        if $WORKSPACE_SET; then
+            echo "  [dry-run] CODEX_HOME='$CODEX_HOME' codex mcp remove atelier"
+            echo "  [dry-run] CODEX_HOME='$CODEX_HOME' codex plugin remove atelier --marketplace atelier"
+        else
+            echo "  [dry-run] codex mcp remove atelier"
+            echo "  [dry-run] codex plugin remove atelier --marketplace atelier"
+        fi
+    else
+        codex_cmd mcp remove atelier >/dev/null 2>&1 || true
+        codex_cmd plugin remove atelier --marketplace atelier >/dev/null 2>&1 || true
+    fi
+fi
 
 if [ -f "$MARKETPLACE_JSON" ]; then
     run "python3 -c '

@@ -9,7 +9,7 @@ platforms:
 - windows
 detection:
   command: codex --version
-  config_path: ~/.codex/config.jsonc
+  config_path: ~/.codex/config.toml
   env_var: CODEX_API_KEY
 recommended_packs:
 - atelier-pack-codex-skills
@@ -88,6 +88,10 @@ installation:
 prompt_templates:
 - name: session-optimization
   template: 'Atelier budget optimizer is active for Codex.
+
+    Use Atelier MCP tools first for file I/O, search, edits, and shell work.
+
+    Use native host tools only when Atelier returns `noop`, is hidden, or is unavailable.
 
     Before changing files, name the deliverable and summarize the smallest viable
     plan.

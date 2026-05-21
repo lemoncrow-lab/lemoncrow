@@ -15,9 +15,21 @@ This file is a thin entrypoint. The live source of truth lives in the linked doc
 
 ## Operating loop
 
-1. **Context** - read the relevant source of truth first and use `context` when the Atelier MCP surface is available.
-2. **Implement** - make the change, update directly related docs, and use `route` or `rescue` when needed.
-3. **Record** - record the outcome with `record` or the host alias that exposes the same capability.
+1. **Context** — call `mcp__atelier__context` with `task`, `files`, `domain` before touching any file.
+2. **Implement** — use Atelier tools for ALL file I/O and shell ops (see [Tool substitution](docs/agent-os/tool-substitution.md)). Use `route` to get model recommendations before expensive steps. Use `rescue` on repeated failures.
+3. **Record** — call `mcp__atelier__trace` at completion.
+
+## Tool substitution — mandatory
+
+| Use this | Instead of | Why |
+|---|---|---|
+| `mcp__atelier__read` | `Read` / `Bash(cat ...)` | outline-first, 80-95% fewer tokens on large files |
+| `mcp__atelier__search` | `Grep` / `Glob` / `Bash(grep/rg ...)` | ranked, budget-capped, ~280k tokens saved vs naive scan |
+| `mcp__atelier__edit` | `Edit` / `Write` | atomic multi-file, snapshot/rollback, diff recorded |
+| `mcp__atelier__shell` | `Bash(...)` | ANSI-stripped, line-truncated, token-compact |
+| `mcp__atelier__code op=search` | `Bash(grep -rn symbol ...)` | SCIP-indexed, zero subprocess cost |
+
+**Bash is only for git commands and process management.** Do NOT use `Bash(cat file)`, `Bash(grep ...)`, or `Bash(find ...)` — use the atelier equivalents above.
 
 ## Project-specific invariants
 

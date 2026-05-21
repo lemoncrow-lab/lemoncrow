@@ -332,6 +332,11 @@ def test_real_installer_runs_in_target_directory(tmp_path: Path) -> None:
         "ATELIER_BIN_DIR": str(bin_dir),
         "ATELIER_TOOL_DIR": str(tmp_path / "uv-tools"),
         "ATELIER_NO_HOSTS": "1",
+        # Prevent install.sh from overwriting the real systemd/launchd unit
+        # files and ~/.atelier/install_dir with paths pointing to this test's
+        # tmp directories.
+        "ATELIER_NO_SERVICECTL": "1",
+        "ATELIER_INSTALL_RECORD": str(tmp_path / "install_dir"),
     }
     result = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts" / "install.sh")],

@@ -21,5 +21,7 @@ def test_advisor_respects_phase_pin(tmp_path) -> None:
         actual_vendor="anthropic",
     )
 
+    # pin-actual-vendor must keep the recommendation on anthropic regardless of
+    # which model within that vendor the cost scorer picks.
     assert recommendation.vendor == "anthropic"
-    assert recommendation.model in {"claude-sonnet-4-6", "claude-opus-4-1"}
+    assert recommendation.model in {"claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-5"}

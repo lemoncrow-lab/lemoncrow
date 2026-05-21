@@ -543,11 +543,11 @@ def _usage_summary_from_turns(turns: list[dict[str, Any]]) -> dict[str, Any]:
             _record_usage_turn(
                 summary,
                 model=model_id,
-                input_tokens=tokens["in"],
-                output_tokens=tokens["out"],
-                thinking_tokens=tokens["thinking"],
-                cached_input_tokens=tokens["cache_read"],
-                cache_creation_input_tokens=tokens["cache_write"],
+                input_tokens=tokens.get("in", 0),
+                output_tokens=tokens.get("out", 0),
+                thinking_tokens=tokens.get("thinking", 0),
+                cached_input_tokens=tokens.get("cache_read", 0),
+                cache_creation_input_tokens=tokens.get("cache_write", 0),
             )
     return summary
 

@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -76,6 +77,10 @@ SYSTEMD_USER_DIR = Path.home() / ".config" / "systemd" / "user"
 LAUNCHD_USER_DIR = Path.home() / "Library" / "LaunchAgents"
 CONTROLLER_LABEL = "com.atelier.controller"
 STACK_LABEL = "com.atelier.stack"
+DEFAULT_STACK_SERVICE_HOST = "0.0.0.0"
+DEFAULT_STACK_SERVICE_PORT = 8787
+DEFAULT_STACK_FRONTEND_HOST = "0.0.0.0"
+DEFAULT_STACK_FRONTEND_PORT = 3125
 
 
 def _is_macos() -> bool:
@@ -352,42 +357,170 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def _stack_compose_file() -> Path:
-    return _project_root() / "docker-compose.yml"
+def _stack_dir(root: Path) -> Path:
+    return Path(root) / "stack"
 
 
-def _configured_stack_services(requested: list[str]) -> list[str]:
-    compose_file = _stack_compose_file()
-    with contextlib.suppress(OSError, yaml.YAMLError):
-        payload = yaml.safe_load(compose_file.read_text(encoding="utf-8")) or {}
-        services = payload.get("services")
-        if isinstance(services, dict):
-            available = {str(name) for name in services}
-            return [name for name in requested if name in available]
-    return requested
+def _stack_pid_path(root: Path) -> Path:
+    return _stack_dir(root) / "stack.pid"
 
 
-def _run_stack_compose(args: list[str]) -> None:
-    compose_file = _stack_compose_file()
-    if not compose_file.exists():
-        raise click.ClickException(f"visualization stack compose file not found: {compose_file}")
+def _stack_service_pid_path(root: Path) -> Path:
+    return _stack_dir(root) / "service.pid"
+
+
+def _stack_frontend_pid_path(root: Path) -> Path:
+    return _stack_dir(root) / "frontend.pid"
+
+
+def _stack_log_path(root: Path) -> Path:
+    return _stack_dir(root) / "stack.log"
+
+
+def _stack_state_path(root: Path) -> Path:
+    return _stack_dir(root) / "state.json"
+
+
+def _read_pidfile(path: Path) -> int | None:
+    if not path.exists():
+        return None
     try:
-        subprocess.run(
-            [
-                "docker",
-                "compose",
-                "--project-directory",
-                str(compose_file.parent),
-                "-f",
-                str(compose_file),
-                *args,
-            ],
-            check=True,
-        )
-    except FileNotFoundError as exc:
-        raise click.ClickException("docker compose is required to manage the visualization stack") from exc
-    except subprocess.CalledProcessError as exc:
-        raise click.ClickException(f"docker compose exited with code {exc.returncode}") from exc
+        return int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _clear_pidfile(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+
+
+def _read_stack_state(root: Path) -> dict[str, Any]:
+    path = _stack_state_path(root)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_stack_state(root: Path, payload: dict[str, Any]) -> None:
+    state_path = _stack_state_path(root)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _stack_frontend_dir() -> Path:
+    return _project_root() / "frontend"
+
+
+def _stack_install_command(frontend_dir: Path) -> list[str]:
+    return ["npm", "ci"] if (frontend_dir / "package-lock.json").exists() else ["npm", "install"]
+
+
+def _ensure_stack_frontend_dependencies(frontend_dir: Path) -> None:
+    if not frontend_dir.exists():
+        raise click.ClickException(f"frontend directory not found: {frontend_dir}")
+    if not shutil.which("npm"):
+        raise click.ClickException("npm is required to run the optional Atelier frontend stack")
+    node_modules = frontend_dir / "node_modules"
+    vite_bin = node_modules / ".bin" / "vite"
+    if node_modules.exists() and vite_bin.exists():
+        return
+    subprocess.run(_stack_install_command(frontend_dir), cwd=frontend_dir, check=True)
+
+
+def _stack_status_payload(root: Path) -> dict[str, Any]:
+    state = _read_stack_state(root)
+    runner_pid = _read_pidfile(_stack_pid_path(root))
+    service_pid = _read_pidfile(_stack_service_pid_path(root))
+    frontend_pid = _read_pidfile(_stack_frontend_pid_path(root))
+    runner_running = bool(runner_pid is not None and _pid_is_running(runner_pid))
+    service_running = bool(service_pid is not None and _pid_is_running(service_pid))
+    frontend_running = bool(frontend_pid is not None and _pid_is_running(frontend_pid))
+    return {
+        "running": runner_running and service_running and frontend_running,
+        "runner_pid": runner_pid,
+        "service_pid": service_pid,
+        "frontend_pid": frontend_pid,
+        "runner_running": runner_running,
+        "service_running": service_running,
+        "frontend_running": frontend_running,
+        "pid_file": str(_stack_pid_path(root)),
+        "service_pid_file": str(_stack_service_pid_path(root)),
+        "frontend_pid_file": str(_stack_frontend_pid_path(root)),
+        "log_file": str(_stack_log_path(root)),
+        "state_file": str(_stack_state_path(root)),
+        "started_at": state.get("started_at"),
+        "service_url": state.get("service_url", f"http://localhost:{DEFAULT_STACK_SERVICE_PORT}"),
+        "frontend_url": state.get("frontend_url", f"http://localhost:{DEFAULT_STACK_FRONTEND_PORT}"),
+        "last_exit_reason": state.get("last_exit_reason"),
+    }
+
+
+def _tail_text(path: Path, lines: int = 20) -> str:
+    if not path.exists():
+        return ""
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    return "\n".join(content[-lines:])
+
+
+def _clear_stack_pidfiles(root: Path) -> None:
+    _clear_pidfile(_stack_pid_path(root))
+    _clear_pidfile(_stack_service_pid_path(root))
+    _clear_pidfile(_stack_frontend_pid_path(root))
+
+
+def _signal_process_group(pid: int, sig: int) -> None:
+    try:
+        pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        return
+    except OSError:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(pid, sig)
+        return
+
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, sig)
+
+
+def _stop_stack_processes(root: Path, *, force: bool) -> dict[str, Any]:
+    runner_pid = _read_pidfile(_stack_pid_path(root))
+    service_pid = _read_pidfile(_stack_service_pid_path(root))
+    frontend_pid = _read_pidfile(_stack_frontend_pid_path(root))
+
+    for pid in (frontend_pid, service_pid, runner_pid):
+        if pid is not None and _pid_is_running(pid):
+            _signal_process_group(pid, signal.SIGTERM)
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        payload = _stack_status_payload(root)
+        if not payload["runner_running"] and not payload["service_running"] and not payload["frontend_running"]:
+            break
+        time.sleep(0.1)
+
+    if force:
+        for pid in (frontend_pid, service_pid, runner_pid):
+            if pid is not None and _pid_is_running(pid):
+                _signal_process_group(pid, signal.SIGKILL)
+
+    payload = _stack_status_payload(root)
+    if not payload["runner_running"]:
+        _clear_pidfile(_stack_pid_path(root))
+    if not payload["service_running"]:
+        _clear_pidfile(_stack_service_pid_path(root))
+    if not payload["frontend_running"]:
+        _clear_pidfile(_stack_frontend_pid_path(root))
+    return _stack_status_payload(root)
 
 
 def _servicectl_dir(root: Path) -> Path:
@@ -3713,59 +3846,256 @@ def stack_group() -> None:
 
 
 @stack_group.command("start")
-@click.option("--with-docs", is_flag=True, help="Also start the docs site on port 3200.")
-def stack_start(with_docs: bool) -> None:
-    """Start the optional visualization stack via Docker Compose."""
+@click.option("--with-docs", is_flag=True, help="Deprecated; docs are no longer managed by atelier stack.")
+@click.pass_context
+def stack_start(ctx: click.Context, with_docs: bool) -> None:
+    """Start the optional visualization stack with native processes."""
+    root = ctx.obj["root"]
     if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
         click.echo(
             f"Notice: {STACK_UNIT} is installed. "
             "Prefer using 'atelier systemd restart' or 'systemctl --user restart atelier-stack'."
         )
-
-    services = _configured_stack_services(["service", "frontend", "otel-collector"])
     if with_docs:
-        services = _configured_stack_services([*services, "docs"])
-    _run_stack_compose(["up", "--build", "-d", *services])
-    click.echo("frontend: http://localhost:3125")
-    click.echo("service: http://localhost:8787")
-    if with_docs and "docs" in services:
-        click.echo("docs: http://localhost:3200")
+        click.echo("Notice: docs are no longer part of the managed stack; starting service + frontend only.")
+
+    payload = _stack_status_payload(root)
+    if payload["running"]:
+        click.echo(f"frontend: {payload['frontend_url']}")
+        click.echo(f"service: {payload['service_url']}")
+        return
+
+    if payload["runner_running"] or payload["service_running"] or payload["frontend_running"]:
+        _stop_stack_processes(root, force=True)
+
+    stack_dir = _stack_dir(root)
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    project_root = _project_root()
+    command = [
+        sys.executable,
+        "-m",
+        "atelier.gateway.adapters.cli",
+        "--root",
+        str(root),
+        "stack",
+        "run",
+    ]
+    env = os.environ.copy()
+    env["ATELIER_ROOT"] = str(root)
+    with _stack_log_path(root).open("a", encoding="utf-8") as log_file:
+        proc = subprocess.Popen(
+            command,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            env=env,
+            cwd=project_root,
+            start_new_session=True,
+            close_fds=True,
+        )
+
+    _stack_pid_path(root).write_text(f"{proc.pid}\n", encoding="utf-8")
+    deadline = time.time() + 2
+    while time.time() < deadline and _pid_is_running(proc.pid):
+        time.sleep(0.1)
+
+    if not _pid_is_running(proc.pid):
+        tail = _tail_text(_stack_log_path(root))
+        detail = f"\n\n{tail}" if tail else ""
+        raise click.ClickException(f"native stack failed to start; inspect {_stack_log_path(root)}{detail}")
+
+    payload = _stack_status_payload(root)
+    click.echo(f"frontend: {payload['frontend_url']}")
+    click.echo(f"service: {payload['service_url']}")
 
 
 @stack_group.command("stop")
-def stack_stop() -> None:
+@click.option("--force", is_flag=True, help="Use SIGKILL if the stack does not stop cleanly.")
+@click.pass_context
+def stack_stop(ctx: click.Context, force: bool) -> None:
     """Stop the optional visualization stack."""
+    root = ctx.obj["root"]
     if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
         click.echo(
             f"Notice: {STACK_UNIT} is installed. "
             "Prefer using 'atelier systemd uninstall' or 'systemctl --user stop atelier-stack'."
         )
-    _run_stack_compose(["down"])
+    payload = _stop_stack_processes(root, force=force)
+    if payload["running"]:
+        raise click.ClickException("stack did not stop cleanly")
+    click.echo("stopped stack")
 
 
 @stack_group.command("status")
-def stack_status() -> None:
-    """Show visualization stack container status."""
+@click.pass_context
+def stack_status(ctx: click.Context) -> None:
+    """Show visualization stack process status."""
+    root = ctx.obj["root"]
     if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
         subprocess.run(["systemctl", "--user", "status", STACK_UNIT, "--no-pager"], check=False)
         click.echo("-" * 40)
-    _run_stack_compose(["ps"])
+    payload = _stack_status_payload(root)
+    click.echo(f"running: {str(payload['running']).lower()}")
+    click.echo(f"runner_pid: {payload['runner_pid']}")
+    click.echo(f"service_pid: {payload['service_pid']}")
+    click.echo(f"frontend_pid: {payload['frontend_pid']}")
+    click.echo(f"log_file: {payload['log_file']}")
+    click.echo(f"service: {payload['service_url']}")
+    click.echo(f"frontend: {payload['frontend_url']}")
+    if payload["last_exit_reason"]:
+        click.echo(f"last_exit_reason: {payload['last_exit_reason']}")
 
 
 @stack_group.command("logs")
 @click.option("-f", "follow", is_flag=True)
-@click.option("--with-docs", is_flag=True, help="Include docs container logs.")
-def stack_logs(follow: bool, with_docs: bool) -> None:
+@click.option("--with-docs", is_flag=True, help="Deprecated; docs are no longer managed by atelier stack.")
+@click.pass_context
+def stack_logs(ctx: click.Context, follow: bool, with_docs: bool) -> None:
     """Show visualization stack logs."""
+    root = ctx.obj["root"]
     if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
         click.echo(f"Notice: {STACK_UNIT} is installed. Prefer using 'atelier systemd logs stack'.")
-
-    args = ["logs"]
-    if follow:
-        args.append("-f")
     if with_docs:
-        args.append("docs")
-    _run_stack_compose(args)
+        click.echo("Notice: docs are no longer part of the managed stack.")
+    log_path = _stack_log_path(root)
+    if not log_path.exists():
+        click.echo("(no stack logs)")
+        return
+    if follow:
+        try:
+            subprocess.run(["tail", "-n", "80", "-f", str(log_path)], check=True)
+        except FileNotFoundError as exc:
+            raise click.ClickException("tail is required for --follow log streaming") from exc
+        except subprocess.CalledProcessError as exc:
+            raise click.ClickException(f"tail exited with code {exc.returncode}") from exc
+        return
+    content = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for line in content[-80:]:
+        click.echo(line)
+
+
+@stack_group.command("run", hidden=True)
+@click.option("--service-host", default=DEFAULT_STACK_SERVICE_HOST, show_default=True)
+@click.option("--service-port", default=DEFAULT_STACK_SERVICE_PORT, show_default=True, type=int)
+@click.option("--frontend-host", default=DEFAULT_STACK_FRONTEND_HOST, show_default=True)
+@click.option("--frontend-port", default=DEFAULT_STACK_FRONTEND_PORT, show_default=True, type=int)
+@click.pass_context
+def stack_run(
+    ctx: click.Context,
+    service_host: str,
+    service_port: int,
+    frontend_host: str,
+    frontend_port: int,
+) -> None:
+    """Internal long-running supervisor for the optional native stack."""
+    root = ctx.obj["root"]
+    frontend_dir = _stack_frontend_dir()
+    _ensure_stack_frontend_dependencies(frontend_dir)
+
+    _stack_dir(root).mkdir(parents=True, exist_ok=True)
+    _stack_pid_path(root).write_text(f"{os.getpid()}\n", encoding="utf-8")
+    _write_stack_state(
+        root,
+        {
+            "started_at": datetime.now(UTC).isoformat(),
+            "last_exit_reason": None,
+            "service_url": f"http://localhost:{service_port}",
+            "frontend_url": f"http://localhost:{frontend_port}",
+        },
+    )
+
+    service_env = os.environ.copy()
+    service_env.update(
+        {
+            "ATELIER_ROOT": str(root),
+            "ATELIER_SERVICE_HOST": service_host,
+            "ATELIER_SERVICE_PORT": str(service_port),
+            "ATELIER_REQUIRE_AUTH": "false",
+        }
+    )
+    frontend_env = os.environ.copy()
+    frontend_env["VITE_API_URL"] = f"http://localhost:{service_port}"
+
+    service_proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "atelier.gateway.adapters.cli",
+            "--root",
+            str(root),
+            "service",
+            "start",
+            "--host",
+            service_host,
+            "--port",
+            str(service_port),
+        ],
+        cwd=_project_root(),
+        env=service_env,
+        start_new_session=True,
+    )
+    frontend_proc = subprocess.Popen(
+        [
+            "npm",
+            "exec",
+            "vite",
+            "--",
+            "--host",
+            frontend_host,
+            "--port",
+            str(frontend_port),
+        ],
+        cwd=frontend_dir,
+        env=frontend_env,
+        start_new_session=True,
+    )
+    _stack_service_pid_path(root).write_text(f"{service_proc.pid}\n", encoding="utf-8")
+    _stack_frontend_pid_path(root).write_text(f"{frontend_proc.pid}\n", encoding="utf-8")
+
+    stopping = False
+
+    def _handle_stop(_signum: int, _frame: Any) -> None:
+        nonlocal stopping
+        stopping = True
+
+    previous_sigterm = signal.signal(signal.SIGTERM, _handle_stop)
+    previous_sigint = signal.signal(signal.SIGINT, _handle_stop)
+
+    exit_reason = "stopped"
+    exit_code = 0
+    try:
+        while True:
+            service_code = service_proc.poll()
+            frontend_code = frontend_proc.poll()
+            if stopping:
+                break
+            if service_code is not None:
+                exit_reason = f"service_exited:{service_code}"
+                exit_code = service_code or 1
+                break
+            if frontend_code is not None:
+                exit_reason = f"frontend_exited:{frontend_code}"
+                exit_code = frontend_code or 1
+                break
+            time.sleep(1)
+    finally:
+        for proc in (frontend_proc, service_proc):
+            if proc.poll() is None:
+                _signal_process_group(proc.pid, signal.SIGTERM)
+        deadline = time.time() + 5
+        while time.time() < deadline and any(proc.poll() is None for proc in (frontend_proc, service_proc)):
+            time.sleep(0.1)
+        for proc in (frontend_proc, service_proc):
+            if proc.poll() is None:
+                _signal_process_group(proc.pid, signal.SIGKILL)
+        signal.signal(signal.SIGTERM, previous_sigterm)
+        signal.signal(signal.SIGINT, previous_sigint)
+        _clear_stack_pidfiles(root)
+        state = _read_stack_state(root)
+        state["last_exit_reason"] = exit_reason
+        state["stopped_at"] = datetime.now(UTC).isoformat()
+        _write_stack_state(root, state)
+
+    raise SystemExit(exit_code)
 
 
 @cli.group("bash")
@@ -6081,8 +6411,6 @@ def background_group() -> None:
 @click.pass_context
 def background_install(ctx: click.Context, with_stack: bool) -> None:
     """Install Atelier services as background units."""
-    import shutil
-
     root = ctx.obj["root"]
     project_root = _project_root()
     atelier_bin = shutil.which("atelier") or str(Path(sys.argv[0]).resolve())
@@ -6119,11 +6447,12 @@ After={CONTROLLER_UNIT}
 [Service]
 Type=simple
 WorkingDirectory={project_root}
-ExecStart=docker compose up
-ExecStop=docker compose down
+ExecStart={atelier_bin} --root {root} stack run
+ExecStop={atelier_bin} --root {root} stack stop
 Restart=always
 Environment=ATELIER_ROOT={root}
 Environment=ATELIER_STACK_ROOT={root}
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=default.target
@@ -6182,9 +6511,11 @@ WantedBy=default.target
     <string>{STACK_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>docker</string>
-        <string>compose</string>
-        <string>up</string>
+        <string>{atelier_bin}</string>
+        <string>--root</string>
+        <string>{root}</string>
+        <string>stack</string>
+        <string>run</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -6192,12 +6523,18 @@ WantedBy=default.target
     <true/>
     <key>WorkingDirectory</key>
     <string>{project_root}</string>
+    <key>StandardOutPath</key>
+    <string>{_stack_log_path(root)}</string>
+    <key>StandardErrorPath</key>
+    <string>{_stack_log_path(root)}</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>ATELIER_ROOT</key>
         <string>{root}</string>
         <key>ATELIER_STACK_ROOT</key>
         <string>{root}</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
     </dict>
 </dict>
 </plist>
@@ -6300,10 +6637,7 @@ def background_logs(ctx: click.Context, service: str, follow: bool, lines: int) 
     elif _is_macos():
         click.echo("macOS logs are available via Console.app or 'log show'.")
         click.echo(f"Checking recently recorded stdout for {service}...")
-        # launchd doesn't have a built-in log viewer like journalctl.
-        # We'd usually rely on StandardOutPath/StandardErrorPath in the plist.
-        # For now, we point them to the same log files as servicectl.
-        log_path = _servicectl_log_path(ctx.obj["root"])
+        log_path = _servicectl_log_path(ctx.obj["root"]) if service == "controller" else _stack_log_path(ctx.obj["root"])
         if log_path.exists():
             cmd = ["tail", "-n", str(lines)]
             if follow:

@@ -48,13 +48,13 @@ atelier background install --with-stack
 
 ## `atelier stack start` Fails
 
-**Common causes:** Docker or Docker Compose is not installed, not running, or the ports are already in use.
+**Common causes:** npm dependencies are not installed, `npm` is missing from `PATH`, or ports are already in use.
 
-Check Docker first:
+Check the frontend toolchain first:
 
 ```bash
-docker --version
-docker compose version
+npm --version
+test -d frontend/node_modules || echo "frontend deps missing"
 ```
 
 If ports `3125` or `8787` are already busy, inspect what owns them first:
@@ -62,9 +62,6 @@ If ports `3125` or `8787` are already busy, inspect what owns them first:
 ```bash
 # Check if the managed background service is already running
 atelier background status
-
-# Check for manual docker processes
-docker ps
 
 # Check network ports
 ss -ltnp | grep -E ':3125|:8787'

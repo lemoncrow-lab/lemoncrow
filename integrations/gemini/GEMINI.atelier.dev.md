@@ -14,7 +14,7 @@ in this workspace.
 ## Operating loop (every coding task)
 
 1. **Context** — call `context` with task, domain, tools. Read the returned procedures and avoid dead-ends.
-2. **Implement** — execute task (optional: `rescue` on failure, `route` for decisions).
+2. **Implement** — use Atelier MCP tools first for file I/O, search, edits, and shell work. Use Gemini-native tools only when Atelier returns `noop`, is hidden, or is unavailable. Use `rescue` on failure and `route` for decisions when needed.
 3. **Record** — call `record` to record the outcome.
 
 ## Budget optimizer
@@ -47,8 +47,9 @@ atelier | run abc12345 | pdp | Wire SEO check | status=in_progress | ev=3 err=0 
 
 All tools are available via MCP server name `atelier`.
 
-`read` and `search` are Atelier augmentations for bounded, repeated context
-reads/searches. If an Atelier MCP tool returns `noop`, is hidden, or is
-unavailable, use Gemini-native file reads, shell `rg`, `grep`, or direct
+Use Atelier MCP tools as the default path for reads, search, edits, and shell
+work. `read` and `search` are Atelier augmentations for bounded, repeated
+context reads/searches. If an Atelier MCP tool returns `noop`, is hidden, or
+is unavailable, use Gemini-native file reads, shell `rg`, `grep`, or direct
 repository search. Always return findings instead of waiting for tool
 availability to improve.

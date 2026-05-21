@@ -20,10 +20,10 @@ dependencies = [
     "tiktoken>=0.9",
     "blake3>=0.4.1",
     "datasketch>=1.6",
-     "tree-sitter>=0.23",
-     "GitPython>=3.1.50",
-     "pygit2==1.19.2",
-     "prometheus-client>=0.21",
+    "tree-sitter>=0.23",
+    "GitPython>=3.1.50",
+    "pygit2==1.19.2",
+    "prometheus-client>=0.21",
     "tenacity>=9.0",
     "pybreaker>=1.2",
     "river>=0.22",
@@ -42,6 +42,7 @@ dependencies = [
     "sqlalchemy>=2.0.49",
     "ollama>=0.6.2",
     "diff-match-patch>=2.1",
+    "tree-sitter-language-pack>=1.8.1",
 ]
 
 [project.optional-dependencies]
@@ -65,6 +66,7 @@ vector = [
 parsers = [
     "tree-sitter-languages>=1.10; python_version < '3.13'",
 ]
+rename = ["rope>=0.23"]
 telemetry = [
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
@@ -114,7 +116,8 @@ addopts = "-ra --strict-markers"
 pythonpath = ["src", "."]
 markers = [
     "slow: marks tests as slow",
-]
+    "ab: real A/B benchmark (atelier tool vs native); writes to ~/.atelier/savings_calibration.jsonl; run with `make bench-ab`",
+    ]
 
 [tool.mypy]
 python_version = "3.11"

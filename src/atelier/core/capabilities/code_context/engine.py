@@ -627,6 +627,83 @@ class CodeContextEngine:
         self._cache_set("code.blame", cache_args, payload)
         return payload
 
+    def tool_hover(
+        self,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        symbol_name: str | None = None,
+        file_path: str | None = None,
+        line: int | None = None,
+        col: int | None = None,
+        budget_tokens: int = 2000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        """Surface type, docstring, and signature for a symbol — no subprocess needed.
+
+        Resolution priority: symbol_id → qualified_name → (file_path, line) → symbol_name.
+        Returns {symbol_id, symbol_name, qualified_name, kind, signature, docstring,
+                 documentation, file, line, col, source_snippet, provenance, cache_hit}.
+        """
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+
+        sym: dict[str, Any]
+
+        positional_lookup = (
+            file_path is not None
+            and line is not None
+            and not symbol_id
+            and not qualified_name
+            and not symbol_name
+        )
+        if positional_lookup:
+            normalized = self._normalize_file_arg(file_path)  # type: ignore[arg-type]
+            with self._connect() as conn:
+                self._init_schema(conn)
+                row = conn.execute(
+                    """
+                    SELECT *, NULL AS score FROM symbols
+                    WHERE repo_id = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
+                    ORDER BY start_line DESC
+                    LIMIT 1
+                    """,
+                    (self.repo_id, normalized, line, line),
+                ).fetchone()
+            if row is None:
+                raise LookupError("no symbol at that position")
+            symbol_rec = _row_to_symbol(row)
+            path = self.repo_root / symbol_rec.file_path
+            source = path.read_bytes()[symbol_rec.start_byte : symbol_rec.end_byte].decode("utf-8", errors="replace")
+            sym = {**symbol_rec.model_dump(mode="json"), "source": source}
+        else:
+            sym = self.get_symbol(
+                symbol_id=symbol_id,
+                qualified_name=qualified_name,
+                symbol_name=symbol_name,
+                file_path=file_path,
+                auto_index=False,
+            )
+
+        emit_product_local("code_hover_retrieved", repo_id=self.repo_id, kind=sym["kind"])
+        return {
+            "symbol_id": sym["symbol_id"],
+            "symbol_name": sym["symbol_name"],
+            "qualified_name": sym["qualified_name"],
+            "kind": sym["kind"],
+            "signature": sym["signature"],
+            "docstring": sym.get("doc_summary"),
+            "documentation": sym.get("documentation"),
+            "file": sym["file_path"],
+            "line": sym["start_line"],
+            "col": None,
+            "source_snippet": sym.get("source", "")[:500],
+            "provenance": sym.get("provenance", "local"),
+            "cache_hit": sym.get("cache_hit", False),
+            "tokens_saved": sym.get("tokens_saved", 0),
+        }
+
     def tool_symbol(
         self,
         *,

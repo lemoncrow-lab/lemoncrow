@@ -43,7 +43,7 @@ Use this chat mode as a thin entrypoint to the live repo rules:
 
 1. **Context** - call MCP tool `context` with task, domain, files, and tools.
 2. **Plan** - keep the plan small and concrete.
-3. **Execute** - make the change.
+3. **Execute** - use Atelier MCP tools for file I/O, search, edits, and shell work. Use native Copilot or VS Code tools only when Atelier returns `noop`, is hidden, or is unavailable.
 4. **Recover** - call `rescue` after two failed attempts.
 5. **Record** - call `record` with the observable result.
 

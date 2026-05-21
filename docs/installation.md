@@ -14,7 +14,7 @@ What the installer does:
 - clones or updates Atelier under `~/.local/share/atelier`
 - initializes `~/.atelier`
 - starts the detached `servicectl` loop
-- attempts to start the optional visualization stack when Docker is available
+- attempts to start the optional visualization stack when npm is available
 - installs host integrations when compatible CLIs are found on `PATH`
 
 The installer uses uv at install time to create a managed tool environment.
@@ -65,7 +65,7 @@ No HTTP server is required for normal usage.
 - `atelier-mcp` is the MCP server used by host integrations
 - `atelier background ...` manages background services and auto-updates
 
-If Docker is installed and `ATELIER_NO_STACK=1` was not set during install, the
+If npm is installed and `ATELIER_NO_STACK=1` was not set during install, the
 installer will also register the visualization stack as a background service for you.
 
 ### Background Services & Auto-Update
@@ -99,7 +99,7 @@ Manage the visualization UI as a background service:
 atelier background restart  # Restarts both controller and stack
 ```
 
-Or control containers manually:
+Or control the native stack manually:
 
 ```bash
 atelier stack start
@@ -275,7 +275,7 @@ When working from multiple git worktrees, bootstrap each worktree once with:
 make worktree-env
 ```
 
-If `.env.worktree` is present, `make start` and `make restart` automatically pass it to Docker Compose so each worktree gets its own ports, container names, and `.atelier-worktree` runtime root.
+If `.env.worktree` is present, `make start` and `make restart` automatically load it so each worktree gets its own ports and `.atelier-worktree` runtime root.
 
 ## Per-Agent Host Setup
 

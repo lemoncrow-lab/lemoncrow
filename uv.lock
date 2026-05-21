@@ -323,6 +323,7 @@ dependencies = [
     { name = "tenacity" },
     { name = "tiktoken" },
     { name = "tree-sitter" },
+    { name = "tree-sitter-language-pack" },
     { name = "types-pyyaml" },
     { name = "urllib3" },
     { name = "uvicorn", extra = ["standard"] },
@@ -358,6 +359,9 @@ parsers = [
 ]
 postgres = [
     { name = "psycopg", extra = ["binary"] },
+]
+rename = [
+    { name = "rope" },
 ]
 repo-map = [
     { name = "networkx" },
@@ -430,12 +434,14 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13.7" },
     { name = "river", specifier = ">=0.22" },
+    { name = "rope", marker = "extra == 'rename'", specifier = ">=0.23" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "sqlalchemy", specifier = ">=2.0.49" },
     { name = "tenacity", specifier = ">=9.0" },
     { name = "tiktoken", specifier = ">=0.9" },
     { name = "tree-sitter", specifier = ">=0.23" },
     { name = "tree-sitter", marker = "extra == 'repo-map'", specifier = ">=0.23" },
+    { name = "tree-sitter-language-pack", specifier = ">=1.8.1" },
     { name = "tree-sitter-languages", marker = "python_full_version < '3.13' and extra == 'parsers'", specifier = ">=1.10" },
     { name = "tree-sitter-languages", marker = "python_full_version < '3.13' and extra == 'repo-map'", specifier = ">=1.10" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20260408" },
@@ -444,7 +450,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.46.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.27" },
 ]
-provides-extras = ["mcp", "memory", "memory-server", "smart", "cloud", "repo-map", "api", "postgres", "vector", "parsers", "telemetry", "dev"]
+provides-extras = ["mcp", "memory", "memory-server", "smart", "cloud", "repo-map", "api", "postgres", "vector", "parsers", "rename", "telemetry", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -5308,6 +5314,23 @@ wheels = [
 ]
 
 [[package]]
+name = "pytoolconfig"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/18/dc/abf70d2c2bcac20e8c71a7cdf6d44e4ddba4edf65acb179248d554d743db/pytoolconfig-1.3.1.tar.gz", hash = "sha256:51e6bd1a6f108238ae6aab6a65e5eed5e75d456be1c2bf29b04e5c1e7d7adbae", size = 16655, upload-time = "2024-01-11T16:25:11.914Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/92/44/da239917f5711ca7105f7d7f9e2765716dd883b241529beafc0f28504725/pytoolconfig-1.3.1-py3-none-any.whl", hash = "sha256:5d8cea8ae1996938ec3eaf44567bbc5ef1bc900742190c439a44a704d6e1b62b", size = 17022, upload-time = "2024-01-11T16:25:10.589Z" },
+]
+
+[package.optional-dependencies]
+global = [
+    { name = "platformdirs" },
+]
+
+[[package]]
 name = "pytz"
 version = "2026.1.post1"
 source = { registry = "https://pypi.org/simple" }
@@ -5619,6 +5642,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/eb/aa/a79cb23b6eaab9dcec3d7398c4200c71218f4b3a8240baaec40af47e88fa/river-0.24.2-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:28db841a5393219c77bafc8813b9ef28b7d76e8706781855f1539d532fd66d61", size = 5008167, upload-time = "2026-04-15T08:28:35.538Z" },
     { url = "https://files.pythonhosted.org/packages/8f/e6/6c04a19d50b79b29d6bf58a23c0d9f3a7273081d3e1a170e87e454c76424/river-0.24.2-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:d05f36a5f92bc9ee9053584dc8a479ec70e71ae914bd57a3b9af5b8c2a23d58c", size = 5105925, upload-time = "2026-04-15T08:28:37.484Z" },
     { url = "https://files.pythonhosted.org/packages/25/c6/f570aed1b2e9e3f6a53a88ac6175261f7e41d2a2dd9c8af7577c20f4705c/river-0.24.2-cp314-cp314-win_amd64.whl", hash = "sha256:05d6c6feb12794cac7895d205f526010a8357318ff4e6382ec9b5a068d60b6b3", size = 2136421, upload-time = "2026-04-15T08:28:39.19Z" },
+]
+
+[[package]]
+name = "rope"
+version = "1.14.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytoolconfig", extra = ["global"] },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/74/3a/85e60d154f26ecdc1d47a63ac58bd9f32a5a9f3f771f6672197f02a00ade/rope-1.14.0.tar.gz", hash = "sha256:8803e3b667315044f6270b0c69a10c0679f9f322ed8efe6245a93ceb7658da69", size = 296801, upload-time = "2025-07-12T17:46:07.786Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/75/35/130469d1901da2b3a5a377539b4ffcd8a5c983f1c9e3ba5ffdd8d71ae314/rope-1.14.0-py3-none-any.whl", hash = "sha256:00a7ea8c0c376fc0b053b2f2f8ef3bfb8b50fecf1ebf3eb80e4f8bd7f1941918", size = 207143, upload-time = "2025-07-12T17:46:05.928Z" },
 ]
 
 [[package]]
@@ -6343,6 +6378,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/57/e2/d42d55bf56360987c32bc7b16adb06744e425670b823fb8a5786a1cea991/tree_sitter-0.25.2-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:7d2ee1acbacebe50ba0f85fff1bc05e65d877958f00880f49f9b2af38dce1af0", size = 631522, upload-time = "2025-09-25T17:37:55.833Z" },
     { url = "https://files.pythonhosted.org/packages/03/87/af9604ebe275a9345d88c3ace0cf2a1341aa3f8ef49dd9fc11662132df8a/tree_sitter-0.25.2-cp314-cp314-win_amd64.whl", hash = "sha256:4973b718fcadfb04e59e746abfbb0288694159c6aeecd2add59320c03368c721", size = 130864, upload-time = "2025-09-25T17:37:57.453Z" },
     { url = "https://files.pythonhosted.org/packages/a6/6e/e64621037357acb83d912276ffd30a859ef117f9c680f2e3cb955f47c680/tree_sitter-0.25.2-cp314-cp314-win_arm64.whl", hash = "sha256:b8d4429954a3beb3e844e2872610d2a4800ba4eb42bb1990c6a4b1949b18459f", size = 117470, upload-time = "2025-09-25T17:37:58.431Z" },
+]
+
+[[package]]
+name = "tree-sitter-language-pack"
+version = "1.8.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tree-sitter" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2c/f3/fc0eabffb192ce49abee47e0bb3fea70fecfeacc1b8159e6f069795d2294/tree_sitter_language_pack-1.8.1.tar.gz", hash = "sha256:800f8a92a2238e1b3abcc25cc86fd3a1b1d3392263c49266640c1b079a8e625e", size = 109775, upload-time = "2026-05-15T09:48:32.281Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9f/9c/a9faacacdec92026b88bceeb08646be7c32edf05796e6f19d00873cdc1e4/tree_sitter_language_pack-1.8.1-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:b0e3cd56dc359dbd623cc90df09494be4de1605628e53f92b981cd78a7de1a81", size = 2083265, upload-time = "2026-05-15T09:48:19.532Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/44/aded4a03575c8b010b03d574fadb5dc705a898a1d940670014634b1d819e/tree_sitter_language_pack-1.8.1-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:a5c378bf1b920fa2470a668a7bf20b2e99a9288641bf6a04c5cfb8051fe91ea1", size = 1943468, upload-time = "2026-05-15T09:48:21.788Z" },
+    { url = "https://files.pythonhosted.org/packages/37/e4/732e445d4341e86473c082a9debbca7c46de17ac935284c7060202b068ba/tree_sitter_language_pack-1.8.1-cp310-abi3-manylinux_2_34_aarch64.whl", hash = "sha256:fa15da867ca257353fa4a709fb6c10f2fcc4b8c0899f27b883872c2feeaac61e", size = 2085933, upload-time = "2026-05-15T09:48:24.02Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/20/6f0c5b2b40de5a38134a1810b718775b960170b841bd079bd85d8e5b6616/tree_sitter_language_pack-1.8.1-cp310-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:79c5a3ce9a912dfddd08147cc14c91f7baa152ca18d39591eb3db8471e42400d", size = 2197368, upload-time = "2026-05-15T09:48:25.957Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/35/c2a05ba39a65008a3c87dcf238ac3c164d349f504b1d8a03295dbdb5e6c7/tree_sitter_language_pack-1.8.1-cp310-abi3-win_amd64.whl", hash = "sha256:572a8c0b1528bd150366399f04deb9e8c8d30c5b5a3ee7dabca898c4eab22a9a", size = 1993818, upload-time = "2026-05-15T09:48:28.228Z" },
+    { url = "https://files.pythonhosted.org/packages/50/1b/6c59695ac025bded36d2a099c165cbb95c819b6cfa075229835cdb4211b7/tree_sitter_language_pack-1.8.1-cp310-abi3-win_arm64.whl", hash = "sha256:018d0a60eeb8de1aa79ac5ed1cba42643d93d4da140c77640ac1576b541e68b9", size = 1902157, upload-time = "2026-05-15T09:48:30.203Z" },
 ]
 
 [[package]]

@@ -82,7 +82,7 @@ class CrossVendorRouter:
     ) -> CrossVendorRecommendation:
         enabled = tuple(v for v in self._config.enabled_vendors if v in self._configured_vendors)
         if not enabled:
-            raise NoFeasibleRouteError("no enabled vendors are configured with API keys")
+            raise NoFeasibleRouteError("no enabled vendors are reachable through API keys or installed host CLIs")
         try:
             vendors = allowed_vendors(
                 self._config,

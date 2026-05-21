@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt.py"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/tool_redirect.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/tool_redirect.py"
           }
         ]
       },
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.py"
           }
         ]
       }
@@ -46,11 +46,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py"
           },
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/edit_batching_nudge.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/edit_batching_nudge.py"
           }
         ]
       },
@@ -59,7 +59,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use_bash.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use_bash.py"
           }
         ]
       },
@@ -67,7 +67,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py"
           }
         ]
       }
@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use_failure.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use_failure.py"
           }
         ]
       }
@@ -89,11 +89,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/compact.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/compact.py"
           },
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py"
           }
         ]
       }
@@ -104,11 +104,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/compact.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/compact.py"
           },
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py"
           }
         ]
       }
@@ -118,11 +118,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/stop.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/stop.py"
           },
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py"
           }
         ]
       }
@@ -132,7 +132,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py"
           }
         ]
       }

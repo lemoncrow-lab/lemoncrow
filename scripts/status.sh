@@ -5,7 +5,7 @@
 #   --workspace DIR  Workspace root to inspect (default: cwd)
 #   --json           Output in JSON format
 #   --write          Persist detection results to .atelier/hosts/status.json
-#                    for the Docker service to consume (via mounted volume)
+#                    for the local service/UI surfaces to consume
 
 set -euo pipefail
 
@@ -91,10 +91,20 @@ check_codex() {
         return
     fi
 
-    if [ -d "${WORKSPACE}/.codex/skills/atelier" ] || [ -d "${CODEX_HOME}/skills/atelier" ]; then
+    local effective_codex_home="${CODEX_HOME}"
+    if [ -f "${WORKSPACE}/.codex/config.toml" ]; then
+        effective_codex_home="${WORKSPACE}/.codex"
+    fi
+
+    if [ -f "${effective_codex_home}/config.toml" ] && \
+       grep -q '\[mcp_servers\.atelier\]' "${effective_codex_home}/config.toml" 2>/dev/null && \
+       grep -q '\[plugins\."atelier@atelier"\]' "${effective_codex_home}/config.toml" 2>/dev/null; then
         echo "installed"
+    elif [ -f "${effective_codex_home}/config.toml" ] && \
+         grep -q '\[mcp_servers\.atelier\]' "${effective_codex_home}/config.toml" 2>/dev/null; then
+        echo "MCP configured, plugin not installed"
     else
-        echo "CLI found but skills not installed"
+        echo "CLI found but MCP not configured"
     fi
 }
 
@@ -229,7 +239,7 @@ else
     echo "  $(get_latest_run)"
 fi
 
-# Persist detection results for the Docker service (--write flag)
+# Persist detection results for the local service/UI surfaces (--write flag)
 if [ "$WRITE" = true ]; then
     HOSTS_DIR="${HOME}/.atelier/hosts"
     mkdir -p "$HOSTS_DIR"

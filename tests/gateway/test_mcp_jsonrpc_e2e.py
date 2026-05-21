@@ -10,6 +10,7 @@ from typing import Any, cast
 import pytest
 from click.testing import CliRunner
 
+from atelier.core.capabilities.cross_vendor_routing.configuration import RouteConfig, save_route_config
 from atelier.core.environment import (
     DEV_LLM_TOOLS,
     NON_DEV_LLM_TOOLS,
@@ -187,6 +188,26 @@ def test_tools_list_only_product_tools_without_dev_mode(tmp_path: Path, monkeypa
     assert names == STABLE_LLM_TOOLS
     assert not (names & DEV_LLM_TOOLS)
     assert all("passive" not in tool["description"] for tool in tools if tool["name"] in STABLE_LLM_TOOLS)
+
+
+def test_non_remote_tool_calls_fallback_when_route_has_no_configured_vendor_keys(
+    mcp_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = mcp_env / "route-fallback.txt"
+    target.write_text("hello route fallback\n", encoding="utf-8")
+
+    root = Path(str(mcp_env / ".atelier"))
+    save_route_config(root, RouteConfig(enabled_vendors=["anthropic"]))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    response = _call("read", {"path": str(target), "max_lines": 5})
+    payload = _payload(response)
+
+    assert payload["path"] == str(target)
+    assert "hello route fallback" in json.dumps(payload)
 
 
 @pytest.mark.slow  # Spawns a real atelier-mcp subprocess for end-to-end stdio
@@ -525,7 +546,9 @@ def test_symbol_edit_descriptor_e2e(mcp_env: Path) -> None:
 
     assert payload["failed"] == []
     assert payload["applied"][0]["kind"] == "symbol"
-    assert "startswith('ok')" in target.read_text(encoding="utf-8")
+    # Post-edit hooks may run ruff format which normalises quotes; accept either.
+    final = target.read_text(encoding="utf-8")
+    assert "startswith('ok')" in final or 'startswith("ok")' in final
 
 
 def test_sql_actions_e2e(mcp_env: Path) -> None:

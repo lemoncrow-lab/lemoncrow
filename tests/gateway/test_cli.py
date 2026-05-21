@@ -271,19 +271,83 @@ def test_worker_runs_consolidation_job_on_sqlite(
     assert len(store.list_consolidation_candidates()) == 1
 
 
-def test_stack_start_uses_compose_helper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[list[str]] = []
+def test_stack_start_spawns_native_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    spawned: dict[str, object] = {}
 
-    monkeypatch.setattr(
-        "atelier.gateway.adapters.cli._run_stack_compose",
-        lambda args: calls.append(args),
-    )
+    class FakePopen:
+        def __init__(self, args, **kwargs):  # type: ignore[no-untyped-def]
+            spawned["args"] = args
+            spawned["kwargs"] = kwargs
+            self.pid = 2468
+
+    monkeypatch.setattr("atelier.gateway.adapters.cli.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("atelier.gateway.adapters.cli._pid_is_running", lambda pid: pid == 2468)
 
     res = _invoke(tmp_path / "a", "stack", "start", "--with-docs")
 
     assert res.exit_code == 0, res.output
-    assert calls == [["up", "--build", "-d", "service", "frontend"]]
+    args = spawned["args"]
+    assert isinstance(args, list)
+    assert args[-2:] == ["stack", "run"]
     assert "http://localhost:3125" in res.output
+    assert "docs are no longer part of the managed stack" in res.output
+
+
+def test_background_install_writes_native_stack_unit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "a"
+    unit_dir = tmp_path / "systemd-user"
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr("atelier.gateway.adapters.cli._is_linux", lambda: True)
+    monkeypatch.setattr("atelier.gateway.adapters.cli._is_macos", lambda: False)
+    monkeypatch.setattr("atelier.gateway.adapters.cli.SYSTEMD_USER_DIR", unit_dir)
+    monkeypatch.setattr("atelier.gateway.adapters.cli.shutil.which", lambda name: "/bin/systemctl" if name == "systemctl" else "/usr/bin/atelier")
+    monkeypatch.setattr(
+        "atelier.gateway.adapters.cli.subprocess.run",
+        lambda args, **kwargs: commands.append([str(item) for item in args]),
+    )
+
+    res = _invoke(root, "background", "install", "--with-stack")
+
+    assert res.exit_code == 0, res.output
+    stack_unit = (unit_dir / "atelier-stack.service").read_text(encoding="utf-8")
+    assert "docker compose" not in stack_unit
+    assert "stack run" in stack_unit
+    assert "stack stop" in stack_unit
+    assert any(cmd[:4] == ["systemctl", "--user", "enable", "--now"] for cmd in commands)
+
+
+def test_stop_stack_processes_kills_process_groups(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "a"
+    stack_dir = root / "stack"
+    stack_dir.mkdir(parents=True)
+    (stack_dir / "stack.pid").write_text("101\n", encoding="utf-8")
+    (stack_dir / "service.pid").write_text("202\n", encoding="utf-8")
+    (stack_dir / "frontend.pid").write_text("303\n", encoding="utf-8")
+
+    killed: set[int] = set()
+    killpg_calls: list[tuple[int, int]] = []
+
+    monkeypatch.setattr("atelier.gateway.adapters.cli.os.getpgid", lambda pid: pid)
+    monkeypatch.setattr(
+        "atelier.gateway.adapters.cli.os.killpg",
+        lambda pgid, sig: (killpg_calls.append((pgid, sig)), killed.add(pgid)),
+    )
+    monkeypatch.setattr("atelier.gateway.adapters.cli._pid_is_running", lambda pid: pid not in killed)
+
+    from atelier.gateway.adapters.cli import _stop_stack_processes
+
+    payload = _stop_stack_processes(root, force=False)
+
+    assert payload["running"] is False
+    assert killpg_calls == [
+        (303, 15),
+        (202, 15),
+        (101, 15),
+    ]
+    assert not (stack_dir / "stack.pid").exists()
+    assert not (stack_dir / "service.pid").exists()
+    assert not (stack_dir / "frontend.pid").exists()
 
 
 @pytest.mark.slow

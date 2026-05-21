@@ -34,9 +34,11 @@ atelier/
    bash scripts/install_codex.sh --workspace /path/to/workspace
    ```
 3. The installer copies the Codex plugin template into a local plugin source,
-   generates the shared skill bundle inside that source, writes a repo-pinned
-   MCP wrapper, and updates the personal or workspace marketplace entry that
-   points at `./.codex/plugins/atelier`.
+   generates the shared skill bundle inside that source, patches the bundled
+   `.mcp.json` entry to run `atelier-mcp --host codex` with
+   `ATELIER_DEV_MODE=1`, registers Atelier in Codex's native MCP registry via
+   `codex mcp add`, and updates the user marketplace entry that points at the
+   installed plugin source.
 
 For direct repo testing without the installer, build the generated skill bundle
 first, then add the repo marketplace from the Atelier root:
@@ -52,7 +54,7 @@ when `atelier-mcp` is already available on your `PATH`.
 ## Usage
 
 - `context` is the default coding-task loop and records task context through the
-  local Atelier service.
+  Codex-registered Atelier MCP server.
 - The `atelier-codex` preflight wrapper now runs `context`, then optional `verify`
   before handing off to Codex.
 

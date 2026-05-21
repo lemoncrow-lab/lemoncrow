@@ -16,7 +16,6 @@ from atelier.core.capabilities.plugin_runtime import (
     apply_session_start_files,
     build_savings_report,
     load_live_savings_summary,
-    rewrite_agent,
     session_start_bootstrap,
     status_line_choose_message,
     update_session_stats,
@@ -129,9 +128,15 @@ def test_session_telemetry_tracks_usage_compaction_and_subagents(tmp_path: Path)
             "now_ms": 1000,
         },
     )
-    update_session_stats(root, {"hook_event_name": "PreCompact", "session_id": "s1", "now_ms": 2000})
-    update_session_stats(root, {"hook_event_name": "PostCompact", "session_id": "s1", "now_ms": 2750})
-    update_session_stats(root, {"hook_event_name": "SubagentStop", "session_id": "s1", "now_ms": 3000})
+    update_session_stats(
+        root, {"hook_event_name": "PreCompact", "session_id": "s1", "now_ms": 2000}
+    )
+    update_session_stats(
+        root, {"hook_event_name": "PostCompact", "session_id": "s1", "now_ms": 2750}
+    )
+    update_session_stats(
+        root, {"hook_event_name": "SubagentStop", "session_id": "s1", "now_ms": 3000}
+    )
 
     stats = json.loads((root / "session_stats" / "s1.json").read_text(encoding="utf-8"))
     assert stats["usage"]["input_tokens"] == 16
@@ -143,12 +148,6 @@ def test_session_telemetry_tracks_usage_compaction_and_subagents(tmp_path: Path)
     assert stats["subagents_completed"] == 1
     assert stats["pending_subagents"] == 0
     assert (root / "session_events" / "s1.jsonl").exists()
-
-
-def test_rewrite_agent_normalizes_atelier_namespaced_explore() -> None:
-    assert rewrite_agent("atelier:explore") == {"updated_input": {"subagent_type": "explore"}}
-    assert rewrite_agent("atelier:explore", is_free_plan=True) == {"updated_input": {"subagent_type": "Explore"}}
-    assert rewrite_agent("other:explore") == {"no_output": True}
 
 
 def test_savings_report_merges_smart_state_and_session_stats(tmp_path: Path) -> None:
@@ -189,7 +188,9 @@ def test_session_start_bootstrap_applies_settings_auth_and_always_load(tmp_path:
         payload={"session_id": "s1"},
     )
 
-    assert result["host_settings"]["statusLine"]["command"].endswith("/plugin/scripts/statusline.sh")
+    assert result["host_settings"]["statusLine"]["command"].endswith(
+        "/plugin/scripts/statusline.sh"
+    )
     assert result["host_settings"]["atelier"]["spinnerVerbs"]
     assert result["host_settings"]["atelier"]["attribution"]["source"] == "Atelier"
     assert result["mcp_json"]["mcpServers"]["atelier"]["alwaysLoad"] is False
@@ -254,7 +255,9 @@ def test_apply_session_start_files_mutates_host_settings_and_plugin_mcp(tmp_path
     )
     write_plugin_setting(root, "alwaysLoadTools", True)
 
-    apply_session_start_files(root, plugin_root, config_dir=config_dir, payload={"session_id": "s2"})
+    apply_session_start_files(
+        root, plugin_root, config_dir=config_dir, payload={"session_id": "s2"}
+    )
 
     settings = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
     mcp_json = json.loads((plugin_root / ".mcp.json").read_text(encoding="utf-8"))
@@ -262,7 +265,7 @@ def test_apply_session_start_files_mutates_host_settings_and_plugin_mcp(tmp_path
     assert mcp_json["mcpServers"]["atelier"]["alwaysLoad"] is True
 
 
-def test_savings_report_includes_lifetime_baseline_and_free_plan(tmp_path: Path) -> None:
+def test_savings_report_includes_lifetime_baseline_and_ab_calibration(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     root.mkdir()
     (root / "lifetime_savings.json").write_text(json.dumps({"calls_saved": 8}), encoding="utf-8")
@@ -270,13 +273,69 @@ def test_savings_report_includes_lifetime_baseline_and_free_plan(tmp_path: Path)
         json.dumps({"vanillaSessions": 6, "totalVanillaCostInUsd": 12.0}),
         encoding="utf-8",
     )
-    (root / "free_plan.json").write_text(json.dumps({"remaining": 1.0, "limit": 10.0}), encoding="utf-8")
+    # A/B calibration. Three rows of
+    # measured Atelier-vs-native read deltas (ratios 0.10/0.12/0.20 → median 0.12).
+    (root / "savings_calibration.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "tool": "read",
+                        "language": "python",
+                        "ratio": 0.10,
+                        "token_ratio": 0.15,
+                        "chars_saved": 90_000,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "tool": "read",
+                        "language": "python",
+                        "ratio": 0.12,
+                        "token_ratio": 0.18,
+                        "chars_saved": 70_000,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "tool": "read",
+                        "language": "go",
+                        "ratio": 0.40,
+                        "token_ratio": 0.45,
+                        "chars_saved": 30_000,
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     report = build_savings_report(root)
 
     assert report["lifetime"]["calls_saved"] == 8
     assert report["baseline"]["available"] is True
-    assert report["free_plan"]["usage_pct"] == 90.0
+    ab = report["ab_calibration"]
+    assert ab["samples"] == 3
+    read = ab["by_tool"]["read"]
+    assert read["n"] == 3
+    assert read["median_ratio"] == 0.12  # 3-row median = middle value
+    assert read["median_token_ratio"] == 0.18
+    # Per-language breakdown so a dashboard can't show one inflated number that
+    # hides the generic-outline weakness on languages without an AST builder.
+    assert read["by_language"]["python"]["n"] == 2
+    assert read["by_language"]["python"]["median_token_saved_pct"] == 83.5
+    assert read["by_language"]["go"]["n"] == 1
+    assert read["by_language"]["go"]["median_token_saved_pct"] == 55.0
+
+
+def test_savings_report_omits_ab_calibration_when_no_runs(tmp_path: Path) -> None:
+    root = tmp_path / ".atelier"
+    root.mkdir()
+    report = build_savings_report(root)
+    # No calibration file → empty dict, not missing key, so dashboards can
+    # rely on the field's presence.
+    assert report["ab_calibration"] == {}
 
 
 def test_live_savings_summary_counts_cost_only_routing_events(tmp_path: Path) -> None:
@@ -379,21 +438,28 @@ def test_statusline_shows_routing_savings(tmp_path: Path) -> None:
     )
 
     assert "routing: $0.230" in result.stdout
-    assert "42k / 1c" in result.stdout
+    # Format: "$0.870(42k)" — saved USD with token count in parens.
+    # No calls-saved counter (hidden until calibration store feeds equivalent_calls).
+    assert "$0.870(42k)" in result.stdout
+    assert "calls saved" not in result.stdout
     assert "↓ $0.870" in result.stdout
 
 
 def test_status_line_priority_and_weighted_rotation() -> None:
-    assert status_line_choose_message(update_flag={"fromVersion": "1", "toVersion": "2"})["message_family"] == "update"
     assert (
-        status_line_choose_message(auth_present=False, update_flag={"fromVersion": "1", "toVersion": "2"})[
+        status_line_choose_message(update_flag={"fromVersion": "1", "toVersion": "2"})[
             "message_family"
         ]
+        == "update"
+    )
+    assert (
+        status_line_choose_message(
+            auth_present=False, update_flag={"fromVersion": "1", "toVersion": "2"}
+        )["message_family"]
         == "login"
     )
     assert status_line_choose_message(auth_present=False)["message_family"] == "login"
     assert status_line_choose_message(subscription_warning=True)["message_family"] == "subscription"
-    assert status_line_choose_message(free_plan_remaining=1, free_plan_limit=10)["message_family"] == "free_plan"
 
     rotated = status_line_choose_message(
         session_id="s1",
