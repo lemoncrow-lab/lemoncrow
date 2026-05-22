@@ -26,7 +26,7 @@ Atelier automatically applies CodeBurn-style budget guardrails:
 
 ## Status
 
-Run `atelier-status` in any terminal to see the current run state.
+Run `atelier status` in any terminal to see the runs dashboard.
 
 All tools are available via MCP server name `atelier`.
 

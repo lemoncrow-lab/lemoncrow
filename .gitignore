@@ -142,6 +142,7 @@ results/
 *.sql
 !src/**/*.sql
 *.sqlite3
+vector_cache.sqlite
 dump.rdb
 *.rdb
 

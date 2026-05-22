@@ -455,7 +455,7 @@ def render_host_surface(output_path: Path, *, title: str, host: str) -> str:
         "",
         "## Savings visibility",
         "",
-        "Run `atelier-status` or `atelier savings --json` to see current savings.",
+        "Run `atelier status` or `atelier savings --json` to see current savings.",
         f"{HOST_DISPLAY[host]} host-specific notes live in [docs/agent-os/host-overrides/{host}.md]({override}).",
     ]
     if host == "opencode":

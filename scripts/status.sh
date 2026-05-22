@@ -51,11 +51,11 @@ check_runtime() {
     fi
 }
 
-check_symlink() {
-    if [ -L "${HOME}/.local/bin/atelier-status" ] || [ -x "${HOME}/.local/bin/atelier-status" ]; then
-        echo "linked"
+check_cli() {
+    if command -v atelier >/dev/null 2>&1; then
+        echo "installed"
     else
-        echo "not linked"
+        echo "not installed"
     fi
 }
 
@@ -168,14 +168,14 @@ check_tokscale() {
 
 get_latest_run() {
     if [ -d "${HOME}/.atelier/runs" ]; then
-        bash "${ATELIER_REPO}/bin/atelier-status" --root "${HOME}/.atelier" 2>/dev/null || echo "(no runs yet)"
+        atelier status --line --root "${HOME}/.atelier" 2>/dev/null || echo "(no runs yet)"
     else
         echo "(no runs yet)"
     fi
 }
 
 RUNTIME_STATUS="$(check_runtime)"
-SYMLINK_STATUS="$(check_symlink)"
+CLI_STATUS="$(check_cli)"
 CLAUDE_STATUS="$(check_claude)"
 CODEX_STATUS="$(check_codex)"
 OPENCODE_STATUS="$(check_opencode)"
@@ -188,7 +188,7 @@ if [ "$WRITE" = true ]; then
     : # write-only mode: skip human-readable output, just persist below
 elif [ "$JSON" = true ]; then
     RUNTIME_STATUS="$RUNTIME_STATUS" \
-    SYMLINK_STATUS="$SYMLINK_STATUS" \
+    CLI_STATUS="$CLI_STATUS" \
     CLAUDE_STATUS="$CLAUDE_STATUS" \
     CODEX_STATUS="$CODEX_STATUS" \
     OPENCODE_STATUS="$OPENCODE_STATUS" \
@@ -202,7 +202,7 @@ import os
 
 print(json.dumps({
     "runtime": os.environ["RUNTIME_STATUS"],
-    "symlink": os.environ["SYMLINK_STATUS"],
+    "cli": os.environ["CLI_STATUS"],
     "claude": os.environ["CLAUDE_STATUS"],
     "codex": os.environ["CODEX_STATUS"],
     "opencode": os.environ["OPENCODE_STATUS"],
@@ -221,8 +221,8 @@ else
     echo "Runtime Store:"
     echo "  ${HOME}/.atelier/       $RUNTIME_STATUS"
     echo ""
-    echo "CLI Symlink:"
-    echo "  $SYMLINK_STATUS"
+    echo "CLI:"
+    echo "  $CLI_STATUS"
     echo ""
     echo "Agent CLI Installations:"
     echo "  Claude Code     $CLAUDE_STATUS"

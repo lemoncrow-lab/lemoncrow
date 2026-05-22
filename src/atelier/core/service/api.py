@@ -2255,11 +2255,9 @@ def _optimization_runtime_coverage() -> list[dict[str, Any]]:
             "automatic_mid_session": False,
             "advisory_only": False,
             "surfaces": [
-                "atelier-opencode wrapper",
                 "OpenCode agent instruction",
             ],
             "notes": (
-                "OpenCode can now launch through an Atelier wrapper that emits live start guidance before handing off to opencode. "
                 "Agent-profile-only sessions still rely on installed instructions."
             ),
         },

@@ -5110,25 +5110,451 @@ def logout_cmd(ctx: click.Context, no_trial: bool, as_json: bool) -> None:
     click.echo("logged out" + ("; anonymous trial active" if payload.get("anonymous") else ""))
 
 
-@cli.command("status")
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def status_cmd(ctx: click.Context, as_json: bool) -> None:
-    """Show local plugin/auth/subscription status."""
-    from atelier.core.capabilities.plugin_runtime import auth_status, load_plugin_settings
+# ── Status dashboard helpers (ported from bin/atelier-status) ───────────────
 
-    payload = auth_status(ctx.obj["root"])
-    payload["settings"] = load_plugin_settings(ctx.obj["root"])
-    if as_json:
-        _emit(payload, as_json=True)
+_STATUS_COLORS = {
+    "success": "\033[38;2;80;200;120m",
+    "complete": "\033[38;2;80;200;120m",
+    "failed": "\033[38;2;255;80;80m",
+    "error": "\033[38;2;255;80;80m",
+    "running": "\033[38;2;255;200;60m",
+    "partial": "\033[38;2;255;200;60m",
+}
+_RESET = "\033[0m"
+_DIM = "\033[2m"
+_BOLD = "\033[1m"
+_GREEN = "\033[38;2;80;200;120m"
+_RED = "\033[38;2;255;80;80m"
+_YELLOW = "\033[38;2;255;200;60m"
+_BRAND = "\033[1;38;2;255;96;65m"
+_BADGE = "\033[1;48;2;255;96;65;38;2;255;255;255m atelier:code \033[0m"
+_SEP = "\033[2;38;2;180;180;180m │\033[0m"
+_W = 72
+
+
+def _k(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1000:
+        return f"{n // 1000}k"
+    return str(n)
+
+
+def _usd(v: float) -> str:
+    if v >= 1:
+        return f"${v:.2f}"
+    if v > 0:
+        return f"${v:.4f}"
+    return "$0"
+
+
+def _age(ts: str) -> str:
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        s = max(0, int((datetime.now(UTC) - dt).total_seconds()))
+        if s < 60:
+            return f"{s}s ago"
+        if s < 3600:
+            return f"{s // 60}m ago"
+        if s < 86400:
+            return f"{s // 3600}h ago"
+        return f"{s // 86400}d ago"
+    except Exception:
+        return "?"
+
+
+def _dur(t0: str, t1: str) -> str:
+    try:
+        a = datetime.fromisoformat(t0.replace("Z", "+00:00"))
+        b = datetime.fromisoformat(t1.replace("Z", "+00:00"))
+        s = max(0, int((b - a).total_seconds()))
+        if s < 60:
+            return f"{s}s"
+        return f"{s // 60}m{s % 60:02d}s"
+    except Exception:
+        return ""
+
+
+def _status_color(s: str) -> str:
+    c = _STATUS_COLORS.get(s)
+    return f"{c}{s}{_RESET}" if c else f"{_DIM}{s}{_RESET}"
+
+
+def _status_icon(s: str) -> str:
+    if s in ("success", "complete"):
+        return f"{_GREEN}✓{_RESET}"
+    if s in ("failed", "error"):
+        return f"{_RED}✖{_RESET}"
+    if s in ("running", "partial"):
+        return f"{_YELLOW}⋯{_RESET}"
+    return f"{_DIM}?{_RESET}"
+
+
+def _box_line(content: str = "") -> None:
+    plain = re.sub(r"\033\[[^m]*m", "", content)
+    pad = max(0, _W - 2 - len(plain))
+    click.echo(f" {content}{' ' * pad} ")
+
+
+def _rule(label: str = "") -> None:
+    if label:
+        line = f" {_BOLD}{label}{_RESET} "
+        fill = _W - len(line) - 2
+        click.echo(f"{_DIM}─{_RESET}{line}{_DIM}{'─' * fill}{_RESET}")
+    else:
+        click.echo(f"{_DIM}{'─' * _W}{_RESET}")
+
+
+def _render_dashboard(root: Path, *, line_mode: bool, n_runs: int, session_id: str | None) -> None:
+    """Render the runs dashboard (same output as the old atelier-status binary)."""
+
+    # When NO_COLOR is set, suppress all ANSI by swapping module-level globals
+    # for the duration of this call.
+    if os.environ.get("NO_COLOR"):
+        saved = {
+            "_BRAND": _BRAND,
+            "_BADGE": _BADGE,
+            "_SEP": _SEP,
+            "_DIM": _DIM,
+            "_RESET": _RESET,
+            "_GREEN": _GREEN,
+            "_RED": _RED,
+            "_YELLOW": _YELLOW,
+            "_BOLD": _BOLD,
+        }
+        for k in saved:
+            globals()[k] = ""
+        try:
+            return _render_dashboard_impl(root, line_mode, n_runs, session_id)
+        finally:
+            for k, v in saved.items():
+                globals()[k] = v
+    else:
+        return _render_dashboard_impl(root, line_mode, n_runs, session_id)
+
+
+def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id: str | None) -> None:
+    runs_dir = root / "runs"
+
+    # Resolve ledger path
+    ledger_path: str | None = None
+    if session_id:
+        candidate = runs_dir / f"{session_id}.json"
+        if candidate.exists():
+            ledger_path = str(candidate)
+    elif runs_dir.is_dir():
+        files = sorted(runs_dir.glob("*.json"), key=os.path.getmtime, reverse=True)
+        if files:
+            ledger_path = str(files[0])
+    if not ledger_path:
+        ledger_path = "NONE"
+
+    # Load savings data
+    savings_map: dict[str, float] = {}
+    routing_map: dict[str, float] = {}
+    compaction_map: dict[str, float] = {}
+    routing_total = 0.0
+    compaction_total = 0.0
+    savings_path = root / "live_savings_events.jsonl"
+    if savings_path.exists():
+        for line in savings_path.read_text().splitlines():
+            try:
+                d = json.loads(line)
+                rid = d.get("session_id")
+                cost = float(d.get("cost_saved_usd", 0.0) or 0.0)
+                lever = str(d.get("lever") or d.get("tool_name") or "")
+                bucket = "routing" if "routing" in lever.lower() else "compaction" if "compact" in lever.lower() else "other"
+                if rid:
+                    savings_map[rid] = savings_map.get(rid, 0.0) + cost
+                    if bucket == "routing":
+                        routing_map[rid] = routing_map.get(rid, 0.0) + cost
+                        routing_total += cost
+                    elif bucket == "compaction":
+                        compaction_map[rid] = compaction_map.get(rid, 0.0) + cost
+                        compaction_total += cost
+            except Exception:
+                pass
+
+    # Load cost + token data from DB
+    cost_map: dict[str, float] = {}
+    tokens_map: dict[str, int] = {}
+    db_runs: list[dict] = []
+    total_runs_in_db = 0
+    db_path = root / "atelier.db"
+    if db_path.exists():
+        try:
+            import sqlite3
+
+            with sqlite3.connect(str(db_path)) as conn:
+                for row in conn.execute(
+                    "SELECT id, json_extract(payload, '$.input_tokens'), json_extract(payload, '$.output_tokens'), json_extract(payload, '$.cached_input_tokens'), json_extract(payload, '$.thinking_tokens'), host FROM traces"
+                ):
+                    rid, inp, out, cr, th, _h = row
+                    c = ((inp or 0) * 3 + (cr or 0) * 0.3 + (out or 0) * 15) / 1_000_000.0
+                    cost_map[rid] = c
+                    tokens_map[rid] = (inp or 0) + (out or 0) + (cr or 0) + (th or 0)
+
+                total_runs_in_db = conn.execute("SELECT COUNT(*) FROM traces").fetchone()[0]
+
+                for row in conn.execute(
+                    "SELECT session_id, SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens) FROM context_budget GROUP BY session_id"
+                ):
+                    rid, inp, out, cr = row
+                    cost = ((inp or 0) * 3 + (cr or 0) * 0.3 + (out or 0) * 15) / 1_000_000.0
+                    cost_map[rid] = cost
+                    tokens_map[rid] = (inp or 0) + (out or 0) + (cr or 0)
+
+                for row in conn.execute("SELECT payload FROM traces ORDER BY created_at DESC LIMIT 1000"):
+                    p = json.loads(row[0])
+                    db_runs.append(p)
+        except Exception:
+            pass
+
+    # Load flat ledger if exists
+    def _load_run(path: str) -> dict | None:
+        try:
+            return json.loads(Path(path).read_text())
+        except Exception:
+            return None
+
+    snap: dict | None = None
+    if ledger_path != "NONE":
+        snap = _load_run(ledger_path)
+
+    if not snap and session_id:
+        snap = next(
+            (r for r in db_runs if r.get("session_id") == session_id or r.get("id") == session_id),
+            None,
+        )
+
+    if not snap and db_runs and not session_id:
+        snap = db_runs[0]
+
+    # ── ONE-LINER MODE ──
+    if line_mode:
+        if not snap:
+            click.echo(f"atelier | run {Path(ledger_path).stem[:8] if ledger_path != 'NONE' else '?'} not found")
+            return
+
+        sid = snap.get("session_id") or snap.get("id") or "?"
+        domain = snap.get("domain") or "-"
+        task = (snap.get("task") or "").strip().splitlines()[0] if snap.get("task") else "-"
+        if len(task) > 50:
+            task = task[:47] + "..."
+        status = snap.get("status") or "?"
+        events = len(snap.get("events", []) or [])
+        errors = len(snap.get("errors_seen", []) or [])
+        blockers = len(snap.get("current_blockers", []) or [])
+        files_n = len(snap.get("files_touched", []) or [])
+        tools_n = int(snap.get("tool_call_count", 0) or snap.get("tool_count", 0) or len(snap.get("tools_called", [])))
+        agent = snap.get("agent") or "?"
+        age_str = _age(snap.get("updated_at") or snap.get("created_at") or "")
+        dur_str = _dur(snap.get("created_at", ""), snap.get("updated_at", ""))
+
+        cost_v = cost_map.get(sid, float(snap.get("cost", {}).get("total_cost_usd", 0.0)))
+        if cost_v == 0 and "input_tokens" in snap:
+            cost_v = (snap.get("input_tokens", 0) * 3 + snap.get("output_tokens", 0) * 15) / 1_000_000.0
+
+        saved_v = savings_map.get(sid, 0.0)
+        routing_v = routing_map.get(sid, 0.0)
+        compaction_v = compaction_map.get(sid, 0.0)
+
+        saved_seg = ""
+        if saved_v > 0:
+            breakdown = []
+            if compaction_v > 0:
+                breakdown.append(f"compact={_usd(compaction_v)}")
+            if routing_v > 0:
+                breakdown.append(f"routing={_usd(routing_v)}")
+            suffix = f" ({', '.join(breakdown)})" if breakdown else ""
+            saved_seg = f" {_SEP} {_GREEN}saved={_usd(saved_v)}{suffix}{_RESET}"
+
+        line = (
+            f"{_BADGE} {_BRAND}run {sid[:8]}{_RESET} {_SEP} {_DIM}{agent}{_RESET} {_SEP} "
+            f"{domain} {_SEP} {task} {_SEP} {_status_color(status)} "
+            f"{_SEP} ev={events} err={errors} blk={blockers}"
+            f" {_SEP} files={files_n} tools={tools_n}"
+            + (f" {_SEP} cost={_usd(cost_v)}" if cost_v > 0 else "")
+            + saved_seg
+            + (f" {_SEP} {dur_str}" if dur_str else "")
+            + f" {_SEP} {_DIM}{age_str}{_RESET}"
+        )
+        click.echo(line)
         return
-    click.echo(f"authenticated: {payload['authenticated']}")
-    click.echo(f"anonymous: {payload['isAnonymous']}")
-    if payload.get("email"):
-        click.echo(f"email: {payload['email']}")
-    if payload.get("subscription"):
-        click.echo(f"subscription: {payload['subscription']}")
-    click.echo(f"root: {payload['root']}")
+
+    # ── DASHBOARD MODE (default) ──
+    all_run_entries: list[dict] = []
+    seen_ids: set[str] = set()
+
+    if runs_dir.is_dir():
+        for rf in sorted(runs_dir.glob("*.json"), key=os.path.getmtime, reverse=True):
+            try:
+                d = json.loads(rf.read_text())
+                rid = d.get("session_id") or rf.stem
+                all_run_entries.append(d)
+                seen_ids.add(rid)
+            except Exception:
+                pass
+
+    for dr in db_runs:
+        rid = dr.get("session_id") or dr.get("id")
+        if rid not in seen_ids:
+            all_run_entries.append(dr)
+            seen_ids.add(rid)
+
+    total_runs = max(total_runs_in_db, len(seen_ids))
+    success_count = 0
+    failed_count = 0
+    total_tools = 0
+    total_files = 0
+    total_errors = 0
+
+    for d in all_run_entries:
+        s = d.get("status", "")
+        if s in ("success", "complete"):
+            success_count += 1
+        elif s in ("failed", "error"):
+            failed_count += 1
+        total_tools += int(d.get("tool_call_count", 0) or d.get("tool_count", 0) or len(d.get("tools_called", [])))
+        total_files += len(d.get("files_touched", []) or [])
+        total_errors += len(d.get("errors_seen", []) or [])
+
+    total_cost = sum(cost_map.values())
+    saved_usd = sum(savings_map.values())
+    total_tokens = sum(tokens_map.values())
+
+    _rule("SYSTEM OVERVIEW")
+    _box_line(f"{_BADGE}  {_DIM}{root}{_RESET}")
+
+    sr = f"{_GREEN}{success_count} ok{_RESET}" if success_count else f"{_DIM}0 ok{_RESET}"
+    fr = f"{_RED}{failed_count} failed{_RESET}" if failed_count else f"{_DIM}0 failed{_RESET}"
+    _box_line(
+        f"{_BOLD}{total_runs}{_RESET} runs  {sr}  {fr}  "
+        f"{_DIM}tools={_k(total_tools)}  files={total_files}  errs={total_errors}{_RESET}"
+    )
+    if total_cost > 0 or saved_usd > 0:
+        parts = []
+        if compaction_total > 0:
+            parts.append(f"compact {_usd(compaction_total)}")
+        if routing_total > 0:
+            parts.append(f"routing {_usd(routing_total)}")
+        breakdown_str = f"  {_DIM}({' · '.join(parts)}){_RESET}" if parts else ""
+        _box_line(
+            f"{_DIM}cost{_RESET} {_usd(total_cost)}  "
+            + (f"{_GREEN}saved{_RESET} {_usd(saved_usd)}{breakdown_str}" if saved_usd > 0 else "")
+            + (f"  {_DIM}tokens{_RESET} {_k(total_tokens)}" if total_tokens else "")
+        )
+
+    shown = min(n_runs, len(all_run_entries))
+    _rule(f"RECENT RUNS ({shown})")
+
+    for d in all_run_entries[:n_runs]:
+        sid = d.get("session_id") or d.get("id") or "?"
+        agent = (d.get("agent") or "?")[:8]
+        domain = (d.get("domain") or "-")[:12]
+        task = (d.get("task") or "").strip().replace("\n", " ")
+        if len(task) > 55:
+            task = task[:52] + "..."
+        if not task:
+            task = f"{_DIM}(no task){_RESET}"
+        status = d.get("status") or "?"
+        files_n = len(d.get("files_touched", []) or [])
+        tools_n = int(d.get("tool_call_count", 0) or d.get("tool_count", 0) or len(d.get("tools_called", [])))
+        errs_n = len(d.get("errors_seen", []) or [])
+        age_str = _age(d.get("updated_at") or d.get("created_at") or "")
+        dur_str = _dur(d.get("created_at", ""), d.get("updated_at", ""))
+
+        cost_v = cost_map.get(sid, float(d.get("cost", {}).get("total_cost_usd", 0.0)))
+        if cost_v == 0 and "input_tokens" in d:
+            cost_v = (d.get("input_tokens", 0) * 3 + d.get("output_tokens", 0) * 15) / 1_000_000.0
+
+        saved_v = savings_map.get(sid, 0.0)
+        routing_v = routing_map.get(sid, 0.0)
+        compaction_v = compaction_map.get(sid, 0.0)
+
+        dots = "." * max(1, (_W - len(re.sub(r"\033\[[^m]*m", "", task)) - 16))
+        _box_line(f" {_status_icon(status)}  {_BOLD}{task}{_RESET} {_DIM}{dots} {sid[:8]}{_RESET}")
+
+        metrics = []
+        if cost_v > 0:
+            metrics.append(f"cost={_usd(cost_v)}")
+        if saved_v > 0:
+            breakdown_parts = []
+            if compaction_v > 0:
+                breakdown_parts.append(f"c={_usd(compaction_v)}")
+            if routing_v > 0:
+                breakdown_parts.append(f"r={_usd(routing_v)}")
+            run_breakdown_str = f" {_DIM}({' '.join(breakdown_parts)}){_RESET}" if breakdown_parts else ""
+            metrics.append(f"{_GREEN}saved={_usd(saved_v)}{run_breakdown_str}")
+        if dur_str:
+            metrics.append(dur_str)
+        metrics_str = f" {_SEP} ".join(metrics)
+
+        meta_line = f"    {_DIM}{age_str}{_RESET} {_SEP} {agent} {_SEP} {domain}"
+        if metrics_str:
+            meta_line += f" {_SEP} {metrics_str}"
+        meta_line += f" {_SEP} {_DIM}f={files_n} t={tools_n}{_RESET}"
+        _box_line(meta_line)
+
+    _rule()
+    _box_line(f"{_DIM}store: {root}   runs dir: {runs_dir}{_RESET}")
+    _rule()
+
+
+@cli.command("status")
+@click.option("--json", "as_json", is_flag=True, help="Emit raw JSON of runs data.")
+@click.option("--line", "line_mode", is_flag=True, help="One-liner mode (good for status bars).")
+@click.option("-n", type=int, default=5, show_default=True, help="Number of recent runs to show.")
+@click.option("--session-id", default=None, help="Show detail for a specific run only.")
+@click.option("--auth", "auth_mode", is_flag=True, help="Show auth/subscription status instead of runs.")
+@click.pass_context
+def status_cmd(
+    ctx: click.Context,
+    as_json: bool,
+    line_mode: bool,
+    n: int,
+    session_id: str | None,
+    auth_mode: bool,
+) -> None:
+    """Show runs dashboard or auth status.
+
+    Default view: runs dashboard (overview of recent runs, totals, savings).
+
+    Use --auth to show the old auth/subscription status.
+    """
+    root: Path = ctx.obj["root"]
+
+    if auth_mode:
+        from atelier.core.capabilities.plugin_runtime import auth_status, load_plugin_settings
+
+        payload = auth_status(root)
+        payload["settings"] = load_plugin_settings(root)
+        if as_json:
+            _emit(payload, as_json=True)
+            return
+        click.echo(f"authenticated: {payload['authenticated']}")
+        click.echo(f"anonymous: {payload['isAnonymous']}")
+        if payload.get("email"):
+            click.echo(f"email: {payload['email']}")
+        if payload.get("subscription"):
+            click.echo(f"subscription: {payload['subscription']}")
+        click.echo(f"root: {payload['root']}")
+        return
+
+    if as_json:
+        runs_dir = root / "runs"
+        if session_id:
+            target = runs_dir / f"{session_id}.json"
+        else:
+            files = sorted(runs_dir.glob("*.json"), key=os.path.getmtime, reverse=True)
+            target = files[0] if files else None
+        if target and target.exists():
+            click.echo(target.read_text().strip())
+        else:
+            click.echo("{}")
+        return
+
+    _render_dashboard(root, line_mode=line_mode, n_runs=n, session_id=session_id)
 
 
 @cli.command("share")

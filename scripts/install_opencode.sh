@@ -51,14 +51,11 @@ if $WORKSPACE_SET; then
     INSTALL_SCOPE="workspace"
     OC_FILE="${WORKSPACE}/opencode.json"
     AGENT_DEST_DIR="${WORKSPACE}/.opencode/agents"
-    WRAPPER_DEST_DIR="${WORKSPACE}/bin"
 else
     INSTALL_SCOPE="global"
     OC_FILE="${OPENCODE_CONFIG_HOME}/opencode.json"
     AGENT_DEST_DIR="${OPENCODE_CONFIG_HOME}/agents"
-    WRAPPER_DEST_DIR="${HOME}/.local/bin"
 fi
-WRAPPER_PATH="${WRAPPER_DEST_DIR}/atelier-opencode"
 
 info()  { echo "[atelier:opencode] $*"; }
 warn()  { echo "[atelier:opencode] WARN: $*" >&2; }
@@ -111,7 +108,6 @@ if $PRINT_ONLY; then
     echo "Scope: ${INSTALL_SCOPE}"
     echo "Config target: ${OC_FILE}"
     echo "Agent target: ${AGENT_DEST_DIR}/atelier.md"
-    echo "Wrapper target: ${WRAPPER_DEST_DIR}/atelier-opencode"
     echo ""
     echo "Merge/create config:"
     echo "$NEW_ENTRY"
@@ -190,18 +186,6 @@ else
     warn "agent source missing: $AGENT_SRC"
 fi
 
-# ---- install opencode wrapper ----------------------------------------------
-WRAPPER_SRC="${ATELIER_REPO}/bin/atelier-opencode"
-if [ -f "$WRAPPER_SRC" ]; then
-    run "mkdir -p '$WRAPPER_DEST_DIR'"
-    run "cp '$WRAPPER_SRC' '$WRAPPER_PATH'"
-    run "chmod +x '$WRAPPER_PATH'"
-    info "atelier wrapper installed -> $WRAPPER_PATH"
-else
-    warn "wrapper source missing: $WRAPPER_SRC"
-fi
-
-
 if $DRY_RUN; then
     info "Dry run complete; skipped post-install verification because no files were written."
     exit 0
@@ -266,22 +250,16 @@ else
     vfail "opencode atelier agent missing: $AGENT_FILE"
 fi
 
-if [ -x "$WRAPPER_PATH" ]; then
-    vpass "opencode wrapper installed: $WRAPPER_PATH"
-else
-    vfail "opencode wrapper missing: $WRAPPER_PATH"
-fi
-
 if command -v atelier-mcp &>/dev/null; then
     vpass "atelier-mcp is available on PATH"
 else
     vfail "atelier-mcp NOT found on PATH"
 fi
 
-if [ -x "${ATELIER_REPO}/bin/atelier-status" ]; then
-    vpass "bin/atelier-status helper exists"
+if command -v atelier >/dev/null 2>&1 && atelier status --help >/dev/null 2>&1; then
+    vpass "atelier status command is available"
 else
-    vfail "bin/atelier-status missing or not executable"
+    vfail "atelier status command unavailable"
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
@@ -291,5 +269,4 @@ fi
 info "All post-install checks passed"
 
 info "Done. Restart opencode - Atelier agent and MCP are available."
-info "Tip: launch with 'atelier-opencode --task \"...\"' to print a session summary on exit."
-info "Tip: run 'atelier-status' in any shell to see current run state."
+info "Tip: run 'atelier status' in any shell to see the runs dashboard."

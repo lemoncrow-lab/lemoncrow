@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from atelier.core.capabilities.code_context.models import SymbolRecord
+from atelier.core.foundation.paths import default_store_root
 from atelier.infra.embeddings.local import LocalEmbedder
 from atelier.infra.embeddings.null_embedder import NullEmbedder
 from atelier.infra.storage.vector import (
@@ -83,10 +84,12 @@ class SemanticSearchRanker:
         self,
         repo_root: str | Path,
         *,
+        store_root: str | Path | None = None,
         embedder: LocalEmbedder | NullEmbedder | None = None,
         rrf_k: int = _DEFAULT_RRF_K,
     ) -> None:
         self.repo_root = Path(repo_root)
+        self.store_root = Path(store_root) if store_root is not None else default_store_root()
         self.embedder = embedder or LocalEmbedder()
         self.rrf_k = rrf_k
 
@@ -168,11 +171,11 @@ class SemanticSearchRanker:
     def _embed_text(self, text: str, *, cache_key: str) -> list[float]:
         if self.embedder.dim <= 0:
             return []
-        cached = get_cached_embedding(self.repo_root, cache_key=cache_key, embedder_name=self.embedder.name)
+        cached = get_cached_embedding(self.store_root, cache_key=cache_key, embedder_name=self.embedder.name)
         if cached is not None:
             return cached
         vector = [float(value) for value in self.embedder.embed([text])[0]]
-        put_cached_embedding(self.repo_root, cache_key=cache_key, embedder_name=self.embedder.name, vector=vector)
+        put_cached_embedding(self.store_root, cache_key=cache_key, embedder_name=self.embedder.name, vector=vector)
         return vector
 
 

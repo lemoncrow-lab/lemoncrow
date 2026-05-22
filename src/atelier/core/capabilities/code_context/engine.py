@@ -318,7 +318,7 @@ class CodeContextEngine:
         self.db_path = Path(db_path).resolve() if db_path is not None else _default_db_path(self.repo_root)
         self._cache = RetrievalCache(self.db_path)
         self._budget = BudgetPacker()
-        self._semantic_ranker = SemanticSearchRanker(self.repo_root)
+        self._semantic_ranker = SemanticSearchRanker(self.repo_root, store_root=default_store_root())
         self.intel_store = SymbolIntelStore(
             cache=self._cache,
             packer=self._budget,

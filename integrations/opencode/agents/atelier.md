@@ -53,5 +53,5 @@ Always return findings instead of waiting for tool availability to improve.
 
 ## Savings visibility
 
-Run `atelier-status` or `atelier savings --json` to see current savings.
+Run `atelier status` or `atelier savings --json` to see current savings.
 OpenCode host-specific notes live in [docs/agent-os/host-overrides/opencode.md](../../../docs/agent-os/host-overrides/opencode.md).

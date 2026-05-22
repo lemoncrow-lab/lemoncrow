@@ -367,13 +367,7 @@ main() {
         warn "npm not found — skipping codeburn and tokscale (install Node.js 20+ to enable)"
     fi
 
-    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-        echo "[dry-run] ln -sf $ATELIER_INSTALL_DIR/bin/atelier-status $ATELIER_BIN_DIR/atelier-status"
-    elif [[ -f "$ATELIER_INSTALL_DIR/bin/atelier-status" ]]; then
-        run ln -sf "$ATELIER_INSTALL_DIR/bin/atelier-status" "$ATELIER_BIN_DIR/atelier-status"
-    else
-        warn "atelier-status helper not found at $ATELIER_INSTALL_DIR/bin/atelier-status"
-    fi
+    # atelier-status was folded into `atelier status` — no separate binary needed
 
     if [[ ":$PATH:" != *":$ATELIER_BIN_DIR:"* ]]; then
         warn "$ATELIER_BIN_DIR is not currently on PATH"

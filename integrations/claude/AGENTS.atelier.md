@@ -48,5 +48,5 @@ Always return findings instead of waiting for tool availability to improve.
 
 ## Savings visibility
 
-Run `atelier-status` or `atelier savings --json` to see current savings.
+Run `atelier status` or `atelier savings --json` to see current savings.
 Claude host-specific notes live in [docs/agent-os/host-overrides/claude.md](../../docs/agent-os/host-overrides/claude.md).

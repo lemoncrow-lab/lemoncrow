@@ -49,15 +49,7 @@ def test_mcp_binary_on_path() -> None:
     assert "atelier-mcp" in content
 
 
-@pytest.mark.parametrize(
-    "wrapper_name",
-    ["atelier-status", "atelier-opencode"],
-)
-def test_host_preflight_wrappers_exist(wrapper_name: str) -> None:
-    wrapper = ATELIER_ROOT / "bin" / wrapper_name
-    assert wrapper.exists(), f"Missing: bin/{wrapper_name}"
-    assert is_executable(wrapper), f"Not executable: bin/{wrapper_name}"
-
+# atelier-status was folded into `atelier status` — its test moved to the CLI test suite.
 
 # ---------------------------------------------------------------------------
 # 3. Unified scripts
@@ -454,22 +446,6 @@ def test_copilot_tasks_include_preflight_wrapper() -> None:
     summary_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "Atelier: Session Summary")
     assert summary_task.get("command") == "atelier"
     assert summary_task.get("args") == ["session", "report", "--no-color"]
-
-
-def test_install_opencode_installs_wrapper() -> None:
-    content = (SCRIPTS / "install_opencode.sh").read_text()
-    assert 'WRAPPER_DEST_DIR="${WORKSPACE}/bin"' in content
-    assert 'WRAPPER_DEST_DIR="${HOME}/.local/bin"' in content
-    assert 'WRAPPER_PATH="${WRAPPER_DEST_DIR}/atelier-opencode"' in content
-    assert 'WRAPPER_SRC="${ATELIER_REPO}/bin/atelier-opencode"' in content
-    assert "session summary on exit" in content
-
-
-def test_uninstall_opencode_removes_wrapper() -> None:
-    content = (SCRIPTS / "uninstall_opencode.sh").read_text()
-    assert 'WRAPPER_FILE="${WORKSPACE}/bin/atelier-opencode"' in content
-    assert 'WRAPPER_FILE="${HOME}/.local/bin/atelier-opencode"' in content
-    assert 'Removed $WRAPPER_FILE' in content
 
 
 # ---------------------------------------------------------------------------

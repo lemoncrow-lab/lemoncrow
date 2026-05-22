@@ -28,7 +28,7 @@ Atelier automatically applies CodeBurn-style budget guardrails:
 
 ## Status check
 
-Run `atelier-status` in any terminal to see the current run state:
+Run `atelier status` in any terminal to see the runs dashboard:
 
 ```
 atelier | run abc12345 | pdp | Wire SEO check | status=in_progress | ev=3 err=0 blk=0
