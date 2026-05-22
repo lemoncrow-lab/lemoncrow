@@ -2258,9 +2258,7 @@ def _optimization_runtime_coverage() -> list[dict[str, Any]]:
             "surfaces": [
                 "OpenCode agent instruction",
             ],
-            "notes": (
-                "Agent-profile-only sessions still rely on installed instructions."
-            ),
+            "notes": ("Agent-profile-only sessions still rely on installed instructions."),
         },
     ]
 
@@ -2991,9 +2989,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         normalized["errors_seen"] = redact_list([str(item) for item in normalized.get("errors_seen") or []])
         normalized["diff_summary"] = redact(str(normalized.get("diff_summary") or ""))
         normalized["output_summary"] = redact(str(normalized.get("output_summary") or ""))
-        normalized["trace_confidence"] = _normalize_trace_confidence(
-            normalized.get("trace_confidence")
-        )
+        normalized["trace_confidence"] = _normalize_trace_confidence(normalized.get("trace_confidence"))
         normalized["tools_called"] = _normalize_trace_tool_calls(list(normalized.get("tools_called") or []))
         normalized["validation_results"] = _normalize_trace_validation_results(
             list(normalized.get("validation_results") or [])
@@ -3312,7 +3308,9 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         since_dt = datetime.fromisoformat(since_raw).replace(tzinfo=UTC) if since_raw else None
         result = export_audit_bundle(store_path, out_dir=Path(str(out_dir)), since=since_dt)
         manager.append_audit_event(
-            TeamAuditEvent(action="audit.export", actor_user_id=actor.user_id, details={"bundle_dir": result["bundle_dir"]})
+            TeamAuditEvent(
+                action="audit.export", actor_user_id=actor.user_id, details={"bundle_dir": result["bundle_dir"]}
+            )
         )
         return result
 

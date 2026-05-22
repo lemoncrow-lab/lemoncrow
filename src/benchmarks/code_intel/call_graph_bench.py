@@ -45,27 +45,19 @@ def _write_fixture_repo(root: Path) -> None:
     (root / "src").mkdir(parents=True, exist_ok=True)
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "src" / "app.py").write_text(
-        "from src.alpha import alpha\n\n"
-        "def handle() -> int:\n"
-        "    return alpha()\n",
+        "from src.alpha import alpha\n\n" "def handle() -> int:\n" "    return alpha()\n",
         encoding="utf-8",
     )
     (root / "src" / "alpha.py").write_text(
-        "from src.beta import beta\n\n"
-        "def alpha() -> int:\n"
-        "    return beta()\n",
+        "from src.beta import beta\n\n" "def alpha() -> int:\n" "    return beta()\n",
         encoding="utf-8",
     )
     (root / "src" / "beta.py").write_text(
-        "from src.gamma import gamma\n\n"
-        "def beta() -> int:\n"
-        "    return gamma()\n",
+        "from src.gamma import gamma\n\n" "def beta() -> int:\n" "    return gamma()\n",
         encoding="utf-8",
     )
     (root / "src" / "gamma.py").write_text(
-        "from src.alpha import alpha\n\n"
-        "def gamma() -> int:\n"
-        "    return alpha()\n",
+        "from src.alpha import alpha\n\n" "def gamma() -> int:\n" "    return alpha()\n",
         encoding="utf-8",
     )
 
@@ -105,6 +97,7 @@ def _write_scip_fixture(engine: CodeContextEngine) -> None:
         "version": 1,
         "repo_id": engine.repo_id,
         "language": "python",
+        "index_sha": "0000000000000000000000000000000000000000",
         "symbols": symbols,
         "call_graph": {
             "callers": {

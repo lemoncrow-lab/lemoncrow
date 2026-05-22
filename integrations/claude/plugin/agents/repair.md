@@ -2,7 +2,6 @@
 name: repair
 description: Repair specialist for repeated failures. Captures the failing signal, calls rescue, applies the fix, records a postmortem.
 tools: ["*"]
-disallowedTools: ["Read", "Edit", "Write", "Grep", "Glob", "NotebookEdit"]
 color: red
 ---
 

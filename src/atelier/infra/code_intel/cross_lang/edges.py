@@ -181,7 +181,9 @@ class CrossLangEdgeStore:
             ).fetchall()
         return [_row_to_edge(row) for row in rows]
 
-    def query_by_target_symbol(self, *, tgt_symbol_id: str | None = None, tgt_symbol_name: str | None = None) -> list[CrossLangEdge]:
+    def query_by_target_symbol(
+        self, *, tgt_symbol_id: str | None = None, tgt_symbol_name: str | None = None
+    ) -> list[CrossLangEdge]:
         if not tgt_symbol_id and not tgt_symbol_name:
             raise ValueError("tgt_symbol_id or tgt_symbol_name is required")
         clauses: list[str] = []
@@ -220,8 +222,7 @@ class CrossLangEdgeStore:
 
     @staticmethod
     def init_schema(conn: sqlite3.Connection) -> None:
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS cross_lang_edges (
                 id INTEGER PRIMARY KEY,
                 repo_id TEXT NOT NULL,
@@ -239,7 +240,8 @@ class CrossLangEdgeStore:
                 confidence REAL NOT NULL,
                 UNIQUE(repo_id, src_symbol_id, tgt_symbol_name, edge_kind)
             )
-            """
-        )
+            """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_cross_lang_src ON cross_lang_edges(src_symbol_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_cross_lang_tgt ON cross_lang_edges(tgt_symbol_id, tgt_symbol_name)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cross_lang_tgt ON cross_lang_edges(tgt_symbol_id, tgt_symbol_name)"
+        )

@@ -53,4 +53,3 @@ def visible_memory_blocks(
         for block in blocks
         if memory_block_is_visible(block, viewer=viewer, workspace_id=workspace.id, shared_only=shared_only)
     ]
-

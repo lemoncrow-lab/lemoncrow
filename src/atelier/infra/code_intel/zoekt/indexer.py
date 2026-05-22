@@ -92,4 +92,6 @@ class ZoektIndexer:
             return target.relative_to(self.repo_root).as_posix()
         except ValueError:
             return None
+
+
 __all__ = ["ZoektIndexSnapshot", "ZoektIndexer"]

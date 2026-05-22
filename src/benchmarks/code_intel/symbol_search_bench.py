@@ -88,18 +88,18 @@ def _write_semantic_fixture_repo(root: Path) -> None:
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "src" / "auth.py").write_text(
         "def issue_access_token(user_id: str) -> str:\n"
-        "    \"\"\"Create a login session token for an authenticated user.\"\"\"\n"
+        '    """Create a login session token for an authenticated user."""\n'
         "    session_token = f'session:{user_id}'\n"
         "    return session_token\n"
         "\n"
         "def refresh_access_token(user_id: str) -> str:\n"
-        "    \"\"\"Refresh a stale session token for a returning user.\"\"\"\n"
+        '    """Refresh a stale session token for a returning user."""\n'
         "    return f'refresh:{user_id}'\n",
         encoding="utf-8",
     )
     (root / "src" / "audit.py").write_text(
         "def create_login_history_for_authenticated_user(user_id: str) -> dict[str, str]:\n"
-        "    \"\"\"Record login history entries for audit review.\"\"\"\n"
+        '    """Record login history entries for audit review."""\n'
         "    return {'user_id': user_id}\n",
         encoding="utf-8",
     )
@@ -132,8 +132,12 @@ def run_symbol_search_bench(
     repo_root = bench_root / "fixture_repo"
     _write_fixture_repo(repo_root)
 
-    first = tool_code({"op": "search", "repo_root": str(repo_root), "query": query, "limit": 5, "budget_tokens": budget_tokens})
-    second = tool_code({"op": "search", "repo_root": str(repo_root), "query": query, "limit": 5, "budget_tokens": budget_tokens})
+    first = tool_code(
+        {"op": "search", "repo_root": str(repo_root), "query": query, "limit": 5, "budget_tokens": budget_tokens}
+    )
+    second = tool_code(
+        {"op": "search", "repo_root": str(repo_root), "query": query, "limit": 5, "budget_tokens": budget_tokens}
+    )
 
     return SymbolSearchBenchResult(
         query=query,

@@ -32,6 +32,7 @@ EXPECTED_TOOLS = {
     "memory",
     "read",
     "edit",
+    "grep",
     "sql",
     "search",
     "compact",
@@ -115,8 +116,7 @@ class _FakeRemoteClient:
             passages = [
                 item
                 for item in self._archives
-                if query in str(item["text"]).lower()
-                and (not tags or tags.issubset(set(item.get("tags", []))))
+                if query in str(item["text"]).lower() and (not tags or tags.issubset(set(item.get("tags", []))))
             ]
             return {"passages": passages[: int(args.get("top_k", 5) or 5)]}
         raise ValueError(f"memory op not supported in remote mode: {op}")
@@ -176,9 +176,7 @@ def test_tools_list_matches_registered_surface(mcp_env: Path) -> None:
     assert set(TOOLS) == EXPECTED_TOOLS
 
 
-def test_tools_list_only_product_tools_without_dev_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_tools_list_only_product_tools_without_dev_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".atelier"
     _seed_store(root)
     monkeypatch.setenv("ATELIER_ROOT", str(root))
@@ -193,9 +191,7 @@ def test_tools_list_only_product_tools_without_dev_mode(
     assert names == NON_DEV_LLM_TOOLS
     assert names == STABLE_LLM_TOOLS
     assert not (names & DEV_LLM_TOOLS)
-    assert all(
-        "passive" not in tool["description"] for tool in tools if tool["name"] in STABLE_LLM_TOOLS
-    )
+    assert all("passive" not in tool["description"] for tool in tools if tool["name"] in STABLE_LLM_TOOLS)
 
 
 def test_non_remote_tool_calls_fallback_when_route_has_no_configured_vendor_keys(
@@ -389,10 +385,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "top_k": 2,
         },
     )
-    assert (
-        transcript_recall["error"]["message"]
-        == "memory op not supported in remote mode: transcript_recall"
-    )
+    assert transcript_recall["error"]["message"] == "memory op not supported in remote mode: transcript_recall"
 
 
 def test_read_search_edit_and_compact_e2e(mcp_env: Path) -> None:
@@ -411,9 +404,7 @@ def test_read_search_edit_and_compact_e2e(mcp_env: Path) -> None:
     ranged_read = _payload(_call("read", {"file_path": str(target), "range": "2-2"}))
     assert "needle" in str(ranged_read["content"])
 
-    ranked_search = _payload(
-        _call("search", {"query": "needle", "file_path": str(mcp_env), "mode": "chunks"})
-    )
+    ranked_search = _payload(_call("search", {"query": "needle", "file_path": str(mcp_env), "mode": "chunks"}))
     assert ranked_search["matches"]
 
     repo_map = _payload(
@@ -536,9 +527,7 @@ def test_edit_atomic_rollback_e2e(mcp_env: Path) -> None:
 def test_symbol_edit_descriptor_e2e(mcp_env: Path) -> None:
     target = mcp_env / "service.py"
     target.write_text(
-        "class AuthService:\n"
-        "    def verify(self, token: str) -> bool:\n"
-        "        return token == 'ok'\n",
+        "class AuthService:\n" "    def verify(self, token: str) -> bool:\n" "        return token == 'ok'\n",
         encoding="utf-8",
     )
 
@@ -551,10 +540,7 @@ def test_symbol_edit_descriptor_e2e(mcp_env: Path) -> None:
                         "kind": "symbol",
                         "name": "AuthService.verify",
                         "mode": "replace",
-                        "new_body": (
-                            "def verify(self, token: str) -> bool:\n"
-                            "    return token.startswith('ok')"
-                        ),
+                        "new_body": ("def verify(self, token: str) -> bool:\n" "    return token.startswith('ok')"),
                     }
                 ]
             },
@@ -576,14 +562,10 @@ def test_sql_actions_e2e(mcp_env: Path) -> None:
     conn.commit()
     conn.close()
 
-    connect = _payload(
-        _call("sql", {"action": "connect", "connection_string": f"sqlite:///{db_path}"})
-    )
+    connect = _payload(_call("sql", {"action": "connect", "connection_string": f"sqlite:///{db_path}"}))
     assert connect["overview"]["table_count"] == 1
 
-    schema = _payload(
-        _call("sql", {"action": "schema", "connection_string": f"sqlite:///{db_path}"})
-    )
+    schema = _payload(_call("sql", {"action": "schema", "connection_string": f"sqlite:///{db_path}"}))
     assert schema["tables"] == ["items"]
 
     table = _payload(

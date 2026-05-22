@@ -11,7 +11,9 @@ import pytest
 from benchmarks.code_intel.zoekt_bench import run_zoekt_bench
 
 pytestmark = pytest.mark.slow
-skip_docker = pytest.mark.skipif(shutil.which("docker") is None, reason="docker is required for the real Zoekt benchmark")
+skip_docker = pytest.mark.skipif(
+    shutil.which("docker") is None, reason="docker is required for the real Zoekt benchmark"
+)
 
 
 @skip_docker

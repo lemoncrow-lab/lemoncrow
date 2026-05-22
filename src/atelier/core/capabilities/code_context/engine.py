@@ -85,7 +85,16 @@ _SEARCH_ESSENTIAL_KEYS = [
     "origin",
     "provenance",
 ]
-_SEARCH_OPTIONAL_KEYS = ["snippet", "doc_summary", "score", "repo_id", "content_hash", "parent_symbol", "start_byte", "end_byte"]
+_SEARCH_OPTIONAL_KEYS = [
+    "snippet",
+    "doc_summary",
+    "score",
+    "repo_id",
+    "content_hash",
+    "parent_symbol",
+    "start_byte",
+    "end_byte",
+]
 _DELETED_SEARCH_ESSENTIAL_KEYS = [
     *_SEARCH_ESSENTIAL_KEYS,
     "deleted_at",
@@ -146,7 +155,14 @@ _USAGES_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column
 _USAGES_OPTIONAL_KEYS = ["snippet", "caller", "edge_kind", "confidence"]
 _PATTERN_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column", "captures"]
 _PATTERN_OPTIONAL_KEYS = ["snippet"]
-_CACHE_STATUS_ESSENTIAL_KEYS = ["repo_id", "index_version", "entry_count", "entries_by_tool", "total_bytes", "max_bytes"]
+_CACHE_STATUS_ESSENTIAL_KEYS = [
+    "repo_id",
+    "index_version",
+    "entry_count",
+    "entries_by_tool",
+    "total_bytes",
+    "max_bytes",
+]
 _CACHE_INVALIDATE_ESSENTIAL_KEYS = ["repo_id", "index_version", "invalidated_entries", "entries_by_tool", "scope"]
 _CALL_GRAPH_ESSENTIAL_KEYS = ["target", "direction", "depth", "related", "edges", "data_status", "provenance"]
 _CALL_GRAPH_OPTIONAL_KEYS = ["related_count", "edge_count", "truncated", "message", "snapshot"]
@@ -578,7 +594,15 @@ class CodeContextEngine:
                     "provenance": "blame",
                 },
                 budget_tokens=budget_tokens,
-                essential_keys=["error", "hint", "symbol_name", "qualified_name", "file_path", "freshness", "provenance"],
+                essential_keys=[
+                    "error",
+                    "hint",
+                    "symbol_name",
+                    "qualified_name",
+                    "file_path",
+                    "freshness",
+                    "provenance",
+                ],
                 optional_keys_in_drop_order=["index_sha", "head_sha"],
             )
             self._cache_set("code.blame", cache_args, payload)
@@ -652,11 +676,7 @@ class CodeContextEngine:
         sym: dict[str, Any]
 
         positional_lookup = (
-            file_path is not None
-            and line is not None
-            and not symbol_id
-            and not qualified_name
-            and not symbol_name
+            file_path is not None and line is not None and not symbol_id and not qualified_name and not symbol_name
         )
         if positional_lookup:
             normalized = self._normalize_file_arg(file_path)  # type: ignore[arg-type]
@@ -754,7 +774,9 @@ class CodeContextEngine:
         refs: list[CrossLangReference] = []
         for edge in self._cross_lang_store().query_by_source_symbol(symbol_id):
             refs.append(self._symbol_cross_lang_ref(edge, direction="outgoing"))
-        for edge in self._cross_lang_store().query_by_target_symbol(tgt_symbol_id=symbol_id, tgt_symbol_name=symbol_name):
+        for edge in self._cross_lang_store().query_by_target_symbol(
+            tgt_symbol_id=symbol_id, tgt_symbol_name=symbol_name
+        ):
             refs.append(self._symbol_cross_lang_ref(edge, direction="incoming"))
         if not refs:
             return payload
@@ -1261,10 +1283,7 @@ class CodeContextEngine:
                 )
         if file_glob:
             hits = [hit for hit in hits if Path(hit.file_path).match(file_glob)]
-        return [
-            self._attach_snippet(symbol, snippet=snippet, snippet_lines=snippet_lines)
-            for symbol in hits[:limit]
-        ]
+        return [self._attach_snippet(symbol, snippet=snippet, snippet_lines=snippet_lines) for symbol in hits[:limit]]
 
     def _search_symbols_local(
         self,
@@ -1648,7 +1667,9 @@ class CodeContextEngine:
         if not symbol_id:
             return []
         refs: list[UsageReference] = []
-        for edge in self._cross_lang_store().query_by_target_symbol(tgt_symbol_id=symbol_id, tgt_symbol_name=symbol_name):
+        for edge in self._cross_lang_store().query_by_target_symbol(
+            tgt_symbol_id=symbol_id, tgt_symbol_name=symbol_name
+        ):
             refs.append(
                 UsageReference(
                     file_path=edge.src_file_path,
@@ -2292,7 +2313,7 @@ class CodeContextEngine:
         kind: str | None,
         language: str | None,
         file_glob: str | None,
-        ) -> dict[str, Any]:
+    ) -> dict[str, Any]:
         if symbol_id or qualified_name or (symbol_name and file_path):
             try:
                 return self.get_symbol(
@@ -2311,9 +2332,7 @@ class CodeContextEngine:
                 }
         target_query = query or qualified_name or symbol_name
         if not target_query:
-            raise ValueError(
-                f"query, symbol_id, qualified_name, or symbol_name is required for code {operation_name}"
-            )
+            raise ValueError(f"query, symbol_id, qualified_name, or symbol_name is required for code {operation_name}")
         candidates = self.search_symbols(
             target_query,
             limit=20,
@@ -2326,10 +2345,7 @@ class CodeContextEngine:
         exact = [
             candidate
             for candidate in candidates
-            if (
-                candidate.qualified_name == target_query
-                or candidate.symbol_name == target_query
-            )
+            if (candidate.qualified_name == target_query or candidate.symbol_name == target_query)
             and (file_path is None or candidate.file_path == file_path)
         ]
         matches = exact or candidates

@@ -32,7 +32,7 @@ _DEFAULT_TOOLS = [
     "delete_all_memories",
 ]
 
-_CLIENT: "OpenMemoryClient | None" = None
+_CLIENT: OpenMemoryClient | None = None
 
 
 def _utcnow_iso() -> str:
@@ -68,13 +68,21 @@ class OpenMemoryClient:
         timeout: int | None = None,
     ) -> None:
         self.base_url = (base_url or os.environ.get("ATELIER_OPENMEMORY_URL", "http://127.0.0.1:8765")).rstrip("/")
-        self.client_name = (client_name or os.environ.get("ATELIER_OPENMEMORY_CLIENT_NAME", "atelier")).strip() or "atelier"
+        self.client_name = (
+            client_name or os.environ.get("ATELIER_OPENMEMORY_CLIENT_NAME", "atelier")
+        ).strip() or "atelier"
         self.user_id = (user_id or _default_user_id()).strip() or "atelier"
-        self.timeout = max(1, int(timeout or os.environ.get("ATELIER_OPENMEMORY_TIMEOUT_SECONDS", _DEFAULT_TIMEOUT)))
-        self.protocol_version = os.environ.get(
-            "ATELIER_OPENMEMORY_MCP_PROTOCOL_VERSION",
-            _DEFAULT_PROTOCOL_VERSION,
-        ).strip() or _DEFAULT_PROTOCOL_VERSION
+        self.timeout = max(
+            1,
+            int(timeout or os.environ.get("ATELIER_OPENMEMORY_TIMEOUT_SECONDS", _DEFAULT_TIMEOUT) or _DEFAULT_TIMEOUT),
+        )
+        self.protocol_version = (
+            os.environ.get(
+                "ATELIER_OPENMEMORY_MCP_PROTOCOL_VERSION",
+                _DEFAULT_PROTOCOL_VERSION,
+            ).strip()
+            or _DEFAULT_PROTOCOL_VERSION
+        )
         self._initialized_endpoints: set[str] = set()
         self._request_id = 0
 

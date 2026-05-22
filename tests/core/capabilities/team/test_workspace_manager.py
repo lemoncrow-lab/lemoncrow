@@ -24,4 +24,3 @@ def test_workspace_init_invite_join_and_role_change(tmp_path: Path) -> None:
 
     updated = manager.set_role("member@example.com", "viewer", actor_user_id="admin@example.com")
     assert updated.role == "viewer"
-

@@ -55,7 +55,11 @@ class LoadedScipArtifact:
             haystacks = (symbol.symbol_name.lower(), symbol.qualified_name.lower())
             if all(query_lower not in hay for hay in haystacks):
                 continue
-            rank = 0 if symbol.symbol_name.lower() == query_lower else 1 if symbol.qualified_name.lower() == query_lower else 2
+            rank = (
+                0
+                if symbol.symbol_name.lower() == query_lower
+                else 1 if symbol.qualified_name.lower() == query_lower else 2
+            )
             ranked.append((rank, symbol.file_path, symbol))
         ranked.sort(key=lambda item: (item[0], item[1], item[2].start_line))
         return [item[2] for item in ranked[:limit]]

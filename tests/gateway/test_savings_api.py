@@ -214,9 +214,7 @@ def _write_run_ledger_snapshot_with_events(
     (runs_dir / f"{session_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_savings_summary_returns_per_lever_and_by_day(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_savings_summary_returns_per_lever_and_by_day(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     _write_cost_history(root / "cost_history.json")
 
@@ -238,9 +236,7 @@ def test_savings_summary_returns_per_lever_and_by_day(
     assert all("day" in row and "naive" in row and "actual" in row for row in data["by_day"])
 
 
-def test_savings_summary_includes_live_plugin_sources(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_savings_summary_includes_live_plugin_sources(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     _write_cost_history(root / "cost_history.json")
     _write_live_savings_events(root / "live_savings_events.jsonl")
@@ -742,9 +738,7 @@ def test_record_context_budget_avoids_double_counting_tool_delta(
 
     monkeypatch.setattr(mcp_server, "_get_context_budget_recorder", lambda: Recorder())
     monkeypatch.setattr(mcp_server, "_record_smart_state_savings", lambda **_: None)
-    monkeypatch.setattr(
-        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
-    )
+    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
     monkeypatch.setattr(plugin_runtime, "equivalent_calls", lambda *_args, **_kwargs: 3.0)
     monkeypatch.setattr(
         plugin_runtime,
@@ -759,9 +753,7 @@ def test_record_context_budget_avoids_double_counting_tool_delta(
         },
     )
 
-    led = SimpleNamespace(
-        session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}]
-    )
+    led = SimpleNamespace(session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}])
     mcp_server._record_context_budget_for_tool(
         "search_read",
         {},
@@ -817,9 +809,7 @@ def test_record_context_budget_persists_tool_marker_for_zero_saved_turn(
         },
     )
 
-    led = SimpleNamespace(
-        session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}]
-    )
+    led = SimpleNamespace(session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}])
     mcp_server._record_context_budget_for_tool(
         "trace",
         {},
@@ -872,9 +862,7 @@ def test_record_context_budget_classifies_smart_read_savings(
 
     monkeypatch.setattr(mcp_server, "_get_context_budget_recorder", lambda: Recorder())
     monkeypatch.setattr(mcp_server, "_record_smart_state_savings", lambda **_: None)
-    monkeypatch.setattr(
-        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
-    )
+    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
     monkeypatch.setattr(plugin_runtime, "equivalent_calls", lambda *_args, **_kwargs: 0.0)
     monkeypatch.setattr(
         plugin_runtime,
@@ -889,9 +877,7 @@ def test_record_context_budget_classifies_smart_read_savings(
         },
     )
 
-    led = SimpleNamespace(
-        session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}]
-    )
+    led = SimpleNamespace(session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}])
     args = {"path": "/tmp/sample.py", **extra_args}
     result = {
         "mode": mode,
@@ -962,15 +948,11 @@ def test_record_context_budget_attaches_cache_metadata_for_code_tool(
             recorder_rows.append(kwargs)
 
         def record_compact_tool_output(self, **kwargs: object) -> None:
-            raise AssertionError(
-                "compact recording should not be used for direct code-tool savings"
-            )
+            raise AssertionError("compact recording should not be used for direct code-tool savings")
 
     monkeypatch.setattr(mcp_server, "_get_context_budget_recorder", lambda: Recorder())
     monkeypatch.setattr(mcp_server, "_record_smart_state_savings", lambda **_: None)
-    monkeypatch.setattr(
-        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
-    )
+    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
     monkeypatch.setattr(plugin_runtime, "equivalent_calls", lambda *_args, **_kwargs: 0.0)
     monkeypatch.setattr(
         plugin_runtime,
@@ -985,9 +967,7 @@ def test_record_context_budget_attaches_cache_metadata_for_code_tool(
         },
     )
 
-    led = SimpleNamespace(
-        session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}]
-    )
+    led = SimpleNamespace(session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}])
     args = {"op": "search", "query": "OrderService"}
     result = {
         "cache_hit": True,
@@ -1053,15 +1033,11 @@ def test_record_context_budget_attaches_local_metadata_for_uncached_code_tool(
             recorder_rows.append(kwargs)
 
         def record_compact_tool_output(self, **kwargs: object) -> None:
-            raise AssertionError(
-                "compact recording should not be used for direct code-tool savings"
-            )
+            raise AssertionError("compact recording should not be used for direct code-tool savings")
 
     monkeypatch.setattr(mcp_server, "_get_context_budget_recorder", lambda: Recorder())
     monkeypatch.setattr(mcp_server, "_record_smart_state_savings", lambda **_: None)
-    monkeypatch.setattr(
-        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
-    )
+    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
     monkeypatch.setattr(plugin_runtime, "equivalent_calls", lambda *_args, **_kwargs: 0.0)
     monkeypatch.setattr(
         plugin_runtime,
@@ -1076,9 +1052,7 @@ def test_record_context_budget_attaches_local_metadata_for_uncached_code_tool(
         },
     )
 
-    led = SimpleNamespace(
-        session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}]
-    )
+    led = SimpleNamespace(session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}])
     args = {"op": "search", "query": "OrderService"}
     result = {
         "cache_hit": False,

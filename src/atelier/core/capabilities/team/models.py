@@ -68,4 +68,3 @@ class TeamWorkspace(BaseModel):
     members: list[TeamMember] = Field(default_factory=list)
     invites: list[TeamInvite] = Field(default_factory=list)
     machine_bindings: dict[str, str] = Field(default_factory=dict)
-

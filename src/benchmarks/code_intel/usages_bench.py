@@ -70,7 +70,9 @@ def run_usages_bench(work_dir: Path | None = None) -> UsagesBenchResult:
     _write_fixture_repo(repo_root)
 
     baseline_total_tokens = _measure_grep_read_baseline(repo_root)
-    usages_payload = tool_code({"op": "usages", "repo_root": str(repo_root), "query": "OrderService", "budget_tokens": 220})
+    usages_payload = tool_code(
+        {"op": "usages", "repo_root": str(repo_root), "query": "OrderService", "budget_tokens": 220}
+    )
     usages_total_tokens = int(usages_payload.get("total_tokens", 0) or 0)
     ratio = usages_total_tokens / baseline_total_tokens if baseline_total_tokens else 0.0
     return UsagesBenchResult(

@@ -12,7 +12,9 @@ from atelier.infra.code_intel.zoekt.binary import discover_zoekt_binary
 from atelier.infra.code_intel.zoekt.client import ZoektClient
 from atelier.infra.code_intel.zoekt.server import get_zoekt_server
 
-skip_docker = pytest.mark.skipif(shutil.which("docker") is None, reason="docker is required for the managed Zoekt runtime")
+skip_docker = pytest.mark.skipif(
+    shutil.which("docker") is None, reason="docker is required for the managed Zoekt runtime"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -37,8 +39,11 @@ def _write_fixture_repo(repo_root: Path) -> None:
 def _write_large_repo(repo_root: Path, *, files: int = 24, lines_per_file: int = 24) -> None:
     (repo_root / "src").mkdir(parents=True, exist_ok=True)
     for index in range(files):
-        payload = "".join(f"def item_{index}_{line}() -> str: return 'needle token {index}'\n" for line in range(lines_per_file))
+        payload = "".join(
+            f"def item_{index}_{line}() -> str: return 'needle token {index}'\n" for line in range(lines_per_file)
+        )
         (repo_root / "src" / f"module_{index}.py").write_text(payload, encoding="utf-8")
+
 
 @skip_docker
 def test_zoekt_health_resolves_managed_runtime_and_serves_health(
@@ -128,9 +133,7 @@ def test_zoekt_byte_range_client_preserves_offsets(tmp_path: Path, monkeypatch: 
 
 
 @skip_docker
-def test_zoekt_search_routes_large_repos_with_backend_metadata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_zoekt_search_routes_large_repos_with_backend_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_root = tmp_path / "repo"
     _write_large_repo(repo_root)
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(repo_root))
@@ -161,9 +164,7 @@ def test_zoekt_search_falls_back_for_small_repos(tmp_path: Path, monkeypatch: py
 
 
 @skip_docker
-def test_zoekt_search_falls_back_when_backend_is_unhealthy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_zoekt_search_falls_back_when_backend_is_unhealthy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_root = tmp_path / "repo"
     _write_large_repo(repo_root)
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(repo_root))
@@ -196,9 +197,7 @@ def test_zoekt_search_routes_large_repos_with_managed_bootstrap_by_default(
 
 
 @skip_docker
-def test_zoekt_search_keeps_backend_metadata_on_warm_repeat(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_zoekt_search_keeps_backend_metadata_on_warm_repeat(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_root = tmp_path / "repo"
     _write_large_repo(repo_root)
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(repo_root))

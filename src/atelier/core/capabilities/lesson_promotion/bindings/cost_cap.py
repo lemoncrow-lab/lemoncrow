@@ -46,7 +46,9 @@ def apply_cost_cap(
         return [warned, *ranked[1:]], [lesson.id], True, lesson.limit_usd_per_session, projected_total
 
     current_tier = _TIER_ORDER.get(ranked[0].tier, 99)
-    downgraded = next((candidate for candidate in ranked[1:] if _TIER_ORDER.get(candidate.tier, 99) < current_tier), None)
+    downgraded = next(
+        (candidate for candidate in ranked[1:] if _TIER_ORDER.get(candidate.tier, 99) < current_tier), None
+    )
     if downgraded is None:
         warned = replace(
             ranked[0],
@@ -56,7 +58,13 @@ def apply_cost_cap(
 
     selected = replace(
         downgraded,
-        reasons=tuple([*downgraded.reasons, f"lesson={lesson.id}: cost cap downgraded route at ${projected_total:.6f}"]),
+        reasons=tuple(
+            [*downgraded.reasons, f"lesson={lesson.id}: cost cap downgraded route at ${projected_total:.6f}"]
+        ),
     )
-    remaining = [candidate for candidate in ranked if candidate.model != downgraded.model or candidate.vendor != downgraded.vendor]
+    remaining = [
+        candidate
+        for candidate in ranked
+        if candidate.model != downgraded.model or candidate.vendor != downgraded.vendor
+    ]
     return [selected, *remaining], [lesson.id], True, lesson.limit_usd_per_session, projected_total

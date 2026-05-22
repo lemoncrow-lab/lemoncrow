@@ -7,6 +7,8 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from atelier.core.capabilities.code_context import CodeContextEngine
 from atelier.core.capabilities.code_context.budget import BudgetPacker
 from atelier.infra.code_intel.astgrep import PatternMatch, PatternSearchResult
@@ -43,18 +45,18 @@ def _write_semantic_fixture_repo(root: Path) -> None:
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "src" / "auth.py").write_text(
         "def issue_access_token(user_id: str) -> str:\n"
-        "    \"\"\"Create a login session token for an authenticated user.\"\"\"\n"
+        '    """Create a login session token for an authenticated user."""\n'
         "    session_token = f'session:{user_id}'\n"
         "    return session_token\n"
         "\n"
         "def revoke_access_token(token: str) -> None:\n"
-        "    \"\"\"Invalidate a session token after logout.\"\"\"\n"
+        '    """Invalidate a session token after logout."""\n'
         "    return None\n",
         encoding="utf-8",
     )
     (root / "src" / "audit.py").write_text(
         "def create_login_history_for_authenticated_user(user_id: str) -> dict[str, str]:\n"
-        "    \"\"\"Record login history entries for audit review.\"\"\"\n"
+        '    """Record login history entries for audit review."""\n'
         "    return {'user_id': user_id}\n",
         encoding="utf-8",
     )
@@ -64,27 +66,19 @@ def _write_call_graph_fixture_repo(root: Path) -> None:
     (root / "src").mkdir(parents=True, exist_ok=True)
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "src" / "app.py").write_text(
-        "from src.alpha import alpha\n\n"
-        "def handle() -> int:\n"
-        "    return alpha()\n",
+        "from src.alpha import alpha\n\n" "def handle() -> int:\n" "    return alpha()\n",
         encoding="utf-8",
     )
     (root / "src" / "alpha.py").write_text(
-        "from src.beta import beta\n\n"
-        "def alpha() -> int:\n"
-        "    return beta()\n",
+        "from src.beta import beta\n\n" "def alpha() -> int:\n" "    return beta()\n",
         encoding="utf-8",
     )
     (root / "src" / "beta.py").write_text(
-        "from src.gamma import gamma\n\n"
-        "def beta() -> int:\n"
-        "    return gamma()\n",
+        "from src.gamma import gamma\n\n" "def beta() -> int:\n" "    return gamma()\n",
         encoding="utf-8",
     )
     (root / "src" / "gamma.py").write_text(
-        "from src.alpha import alpha\n\n"
-        "def gamma() -> int:\n"
-        "    return alpha()\n",
+        "from src.alpha import alpha\n\n" "def gamma() -> int:\n" "    return alpha()\n",
         encoding="utf-8",
     )
 
@@ -96,6 +90,7 @@ def _write_call_graph_scip_fixture(engine: CodeContextEngine, *, include_call_gr
         "version": 1,
         "repo_id": engine.repo_id,
         "language": "python",
+        "index_sha": "0000000000000000000000000000000000000000",
         "symbols": [],
     }
     symbol_specs = [
@@ -236,19 +231,15 @@ def _write_cross_lang_fixture_repo(root: Path) -> None:
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "plugins" / "__init__.py").write_text("", encoding="utf-8")
     (root / "plugins" / "worker.py").write_text(
-        "def plugin_entry() -> str:\n"
-        "    return 'worker'\n",
+        "def plugin_entry() -> str:\n" "    return 'worker'\n",
         encoding="utf-8",
     )
     (root / "scripts" / "worker.py").write_text(
-        "def main() -> int:\n"
-        "    return 1\n",
+        "def main() -> int:\n" "    return 1\n",
         encoding="utf-8",
     )
     (root / "src" / "local_worker.py").write_text(
-        "from scripts.worker import main\n\n"
-        "def call_local() -> int:\n"
-        "    return main()\n",
+        "from scripts.worker import main\n\n" "def call_local() -> int:\n" "    return main()\n",
         encoding="utf-8",
     )
     (root / "src" / "bootstrap.py").write_text(
@@ -309,9 +300,7 @@ def _init_git_fixture_repo(repo_root: Path) -> None:
 def _write_deleted_history_fixture(repo_root: Path) -> str:
     _init_git_fixture_repo(repo_root)
     (repo_root / "legacy.py").write_text(
-        "class LegacyCheckout:\n"
-        "    def process(self) -> int:\n"
-        "        return 1\n",
+        "class LegacyCheckout:\n" "    def process(self) -> int:\n" "        return 1\n",
         encoding="utf-8",
     )
     _commit_all(repo_root, "add legacy symbol", author_date="2024-01-01T00:00:00+00:00")
@@ -327,17 +316,13 @@ def _write_deleted_history_fixture(repo_root: Path) -> str:
 def _write_rename_history_fixture(repo_root: Path) -> str:
     _init_git_fixture_repo(repo_root)
     (repo_root / "legacy.py").write_text(
-        "class LegacyCheckout:\n"
-        "    def process(self) -> int:\n"
-        "        return 1\n",
+        "class LegacyCheckout:\n" "    def process(self) -> int:\n" "        return 1\n",
         encoding="utf-8",
     )
     _commit_all(repo_root, "add legacy symbol", author_date="2024-01-01T00:00:00+00:00")
     _git(["mv", "legacy.py", "modern.py"], repo_root)
     (repo_root / "modern.py").write_text(
-        "class ModernCheckout:\n"
-        "    def process(self) -> int:\n"
-        "        return 2\n",
+        "class ModernCheckout:\n" "    def process(self) -> int:\n" "        return 2\n",
         encoding="utf-8",
     )
     return _commit_all(
@@ -353,9 +338,7 @@ def _write_blame_fixture(repo_root: Path) -> tuple[str, str]:
     now = datetime.now(tz=UTC)
     service_path = repo_root / "service.py"
     service_path.write_text(
-        "def risk_score() -> int:\n"
-        "    value = 1\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 1\n" "    return value\n",
         encoding="utf-8",
     )
     _commit_all(
@@ -366,9 +349,7 @@ def _write_blame_fixture(repo_root: Path) -> tuple[str, str]:
         author_date=(now - timedelta(days=240)).isoformat(),
     )
     service_path.write_text(
-        "def risk_score() -> int:\n"
-        "    value = 3\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 3\n" "    return value\n",
         encoding="utf-8",
     )
     indexed_sha = _commit_all(
@@ -379,9 +360,7 @@ def _write_blame_fixture(repo_root: Path) -> tuple[str, str]:
         author_date=(now - timedelta(days=30)).isoformat(),
     )
     service_path.write_text(
-        "def risk_score() -> int:\n"
-        "    value = 5\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 5\n" "    return value\n",
         encoding="utf-8",
     )
     head_sha = _commit_all(
@@ -439,8 +418,7 @@ def _write_scip_fixture_for_symbol(
 def _write_live_temporal_fixture(repo_root: Path) -> None:
     _init_git_fixture_repo(repo_root)
     (repo_root / "archived.py").write_text(
-        "def archived_worker() -> int:\n"
-        "    return 1\n",
+        "def archived_worker() -> int:\n" "    return 1\n",
         encoding="utf-8",
     )
     _commit_all(
@@ -451,8 +429,7 @@ def _write_live_temporal_fixture(repo_root: Path) -> None:
         author_date="2025-01-01T00:00:00+00:00",
     )
     (repo_root / "recent.py").write_text(
-        "def active_worker() -> int:\n"
-        "    return 2\n",
+        "def active_worker() -> int:\n" "    return 2\n",
         encoding="utf-8",
     )
     _commit_all(
@@ -593,7 +570,9 @@ def test_tool_search_deleted_scope_applies_temporal_and_touched_by_filters_and_w
         limit=5,
         budget_tokens=4000,
     )
-    unfiltered = engine.tool_search("LegacyCheckout", scope="deleted", touched_by="history@example.com", limit=5, budget_tokens=4000)
+    unfiltered = engine.tool_search(
+        "LegacyCheckout", scope="deleted", touched_by="history@example.com", limit=5, budget_tokens=4000
+    )
     additive = engine.tool_search(
         "LegacyCheckout",
         scope="deleted",
@@ -610,13 +589,17 @@ def test_tool_search_deleted_scope_applies_temporal_and_touched_by_filters_and_w
     assert additive["items"][0]["last_author"] == "history@example.com"
 
 
-def test_tool_search_deleted_scope_dispatches_via_git_history_adapter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tool_search_deleted_scope_dispatches_via_git_history_adapter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _write_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
 
     from atelier.infra.code_intel.git_history.adapter import DeletedHistorySearchAdapter
 
-    def fake_search(self: object, query: str, *, limit: int, since_ts: int | None, touched_by: str | None, language: str | None) -> list[dict[str, object]]:
+    def fake_search(
+        self: object, query: str, *, limit: int, since_ts: int | None, touched_by: str | None, language: str | None
+    ) -> list[dict[str, object]]:
         _ = (self, query, limit, since_ts, touched_by, language)
         return [
             {
@@ -1051,10 +1034,7 @@ def test_low_token_defaults_stay_lighter_for_search_and_pattern(
         encoding="utf-8",
     )
     (tmp_path / "src" / "http.py").write_text(
-        "\n".join(
-            f"def fetch_{index}(url: str) -> object:\n    return requests.get(url)\n"
-            for index in range(30)
-        ),
+        "\n".join(f"def fetch_{index}(url: str) -> object:\n    return requests.get(url)\n" for index in range(30)),
         encoding="utf-8",
     )
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")

@@ -147,7 +147,9 @@ class ZoektSupervisor:
                         byte_end=raw.byte_end,
                     )
                 )
-            outline = _file_outline(str(abs_path), content, lang) if include_outline and len(file_match.matches) > 5 else None
+            outline = (
+                _file_outline(str(abs_path), content, lang) if include_outline and len(file_match.matches) > 5 else None
+            )
             file_tokens = sum(_count_tokens(snippet.text) for snippet in snippets)
             if outline is not None:
                 file_tokens += _count_tokens(str(outline))
@@ -162,7 +164,10 @@ class ZoektSupervisor:
                 )
             )
         health = self.health()
-        naive_tokens = sum(_count_tokens(match.path) + _count_tokens("\n".join(snippet.text for snippet in match.snippets)) for match in file_matches)
+        naive_tokens = sum(
+            _count_tokens(match.path) + _count_tokens("\n".join(snippet.text for snippet in match.snippets))
+            for match in file_matches
+        )
         return SearchReadResult(
             matches=file_matches,
             total_tokens=total_tokens,

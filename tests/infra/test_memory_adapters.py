@@ -87,7 +87,7 @@ def test_openmemory_adapter_rest_fallback_when_mcp_returns_empty(monkeypatch: An
         def read(self) -> bytes:
             return self._payload
 
-        def __enter__(self) -> "_Resp":
+        def __enter__(self) -> _Resp:
             return self
 
         def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
@@ -114,6 +114,70 @@ def test_openmemory_adapter_rest_fallback_when_mcp_returns_empty(monkeypatch: An
     assert searched and searched[0]["id"] == "m2"
     listed = adapter.list_memories(user_id="pankaj", limit=5)
     assert listed and listed[0]["id"] == "m3"
+
+
+def test_openmemory_row_to_passage_accepts_metadata_fallback_shape() -> None:
+    row = {
+        "id": "mem-1",
+        "content": "[run][fact-001] database durability improves reliability",
+        "created_at": 1779450000,
+        "categories": ["run", "fact-001"],
+        "metadata_": {
+            "atelier_kind": "atelier_passage",
+            "atelier_agent_id": "agent-1",
+            "atelier_passage_id": "pas-1",
+            "atelier_dedup_hash": "hash-1",
+            "atelier_source": "user",
+            "atelier_source_ref": "run",
+        },
+    }
+    passage = OpenMemoryMemoryStore._row_to_passage(row, agent_id="agent-1")
+    assert passage is not None
+    assert passage.id == "pas-1"
+    assert passage.dedup_hash == "hash-1"
+    assert passage.text.startswith("[run][fact-001]")
+    assert "fact-001" in passage.tags
+
+
+def test_openmemory_search_memories_ranks_broad_rows_when_direct_search_empty(monkeypatch: Any) -> None:
+    adapter = OpenMemoryAdapter(client=_FakeEmptyOpenMemoryClient())
+
+    class _Resp:
+        def __init__(self, payload: str) -> None:
+            self._payload = payload.encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._payload
+
+        def __enter__(self) -> _Resp:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            _ = (exc_type, exc, tb)
+            return None
+
+    def _fake_urlopen(request: Any, timeout: int) -> _Resp:
+        _ = timeout
+        url = request.full_url
+        method = request.get_method()
+        if method == "GET" and "search_query=how+can+we+make+db+durability+better" in url:
+            return _Resp('{"items":[]}')
+        if method == "GET" and "search_query=" not in url:
+            return _Resp(
+                '{"items":['
+                '{"id":"x1","content":"database durability improves reliability under load scenario 9","metadata_":{"k":"v"}},'
+                '{"id":"x2","content":"queue dead letters processing details","metadata_":{"k":"v"}}'
+                "]}",
+            )
+        raise AssertionError(f"unexpected request: {method} {url}")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    rows = adapter.search_memories(
+        query="how can we make db durability better",
+        user_id="pankaj",
+        limit=1,
+    )
+    assert rows and rows[0]["id"] == "x1"
 
 
 def test_letta_adapter_extracts_results_shape_and_content_fields() -> None:

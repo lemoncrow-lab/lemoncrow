@@ -99,9 +99,7 @@ def load_route_config(root: Path | str | None = None, *, path: Path | str | None
     except ValidationError as exc:
         raise RouteConfigError(f"route config is invalid: {exc}") from exc
     if config.version != ROUTE_CONFIG_VERSION:
-        raise RouteConfigError(
-            f"unsupported route config version {config.version}; expected {ROUTE_CONFIG_VERSION}"
-        )
+        raise RouteConfigError(f"unsupported route config version {config.version}; expected {ROUTE_CONFIG_VERSION}")
     return config
 
 

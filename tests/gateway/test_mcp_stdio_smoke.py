@@ -61,7 +61,12 @@ def test_mcp_stdio_smoke() -> None:
     env["ATELIER_DEV_MODE"] = "1"
 
     result = subprocess.run(
-        ["uv", "run", "atelier-mcp"], input=input_str, text=True, capture_output=True, check=True, env=env,
+        ["uv", "run", "atelier-mcp"],
+        input=input_str,
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
         timeout=30,
     )
 

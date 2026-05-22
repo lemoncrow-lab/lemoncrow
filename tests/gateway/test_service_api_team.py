@@ -21,7 +21,7 @@ FastAPITestClient = pytest.importorskip(
 ).TestClient
 
 
-def _client_for(root: Path, monkeypatch: pytest.MonkeyPatch) -> "TestClient":
+def _client_for(root: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
     return cast("TestClient", FastAPITestClient(create_app(store_root=root)))
 
@@ -51,7 +51,9 @@ def test_team_api_workspace_invite_and_usage(tmp_path: Path, monkeypatch: pytest
     client = _client_for(root, monkeypatch)
     created = client.post("/v1/team/workspace", json={"name": "Acme", "admin_email": "admin@example.com"})
     assert created.status_code == 200
-    invited = client.post("/v1/team/invite", json={"emails": ["member@example.com"], "role": "member", "user_id": "admin@example.com"})
+    invited = client.post(
+        "/v1/team/invite", json={"emails": ["member@example.com"], "role": "member", "user_id": "admin@example.com"}
+    )
     assert invited.status_code == 200
     _write_done_session(root, "admin@example.com", cost=0.75)
 

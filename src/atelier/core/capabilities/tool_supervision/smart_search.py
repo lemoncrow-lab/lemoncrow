@@ -250,9 +250,9 @@ def smart_search(
 
     if mode == "map":
         result = build_repo_map(repo_root, seed_files=seeds, budget_tokens=budget_tokens)
-        payload = result.model_dump(mode="json")
-        payload["mode"] = "map"
-        return payload
+        map_result = result.model_dump(mode="json")
+        map_result["mode"] = "map"
+        return map_result
 
     cache_payload = {
         "query": query,
@@ -275,7 +275,7 @@ def smart_search(
     else:
         cache = {}
 
-    payload = _search_with_backend(
+    payload: dict[str, Any] | None = _search_with_backend(
         repo_root=repo_root,
         search_path=search_path,
         query=query,
@@ -342,15 +342,15 @@ def smart_search(
     matches = [match for match in payload.get("matches", []) if isinstance(match, dict)]
     matches.sort(key=lambda item: (-score(item), str(item.get("path", ""))))
     if mode == "full":
-        full_matches: list[dict[str, Any]] = []
+        fm: list[dict[str, Any]] = []
         for match in matches[:max_files]:
             raw_path = str(match.get("path", ""))
             try:
                 content = Path(raw_path).read_text(encoding="utf-8", errors="replace")[:max_chars_per_file]
             except OSError:
                 content = ""
-            full_matches.append({**match, "content": content, "snippets": []})
-        matches = full_matches
+            fm.append({**match, "content": content, "snippets": []})
+        matches = fm
     payload["matches"] = matches[:max_files]
     payload["mode"] = mode
     payload["ranking"] = {

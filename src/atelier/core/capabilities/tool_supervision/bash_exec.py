@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass
+from typing import Any
 
 _ANSI_ESCAPE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -31,6 +33,125 @@ class RunResult:
     truncated: bool
     lines_omitted: int
     command: str
+    policy_category: str = "generic"
+    policy_action: str = "allow"
+    policy_reason: str = ""
+    rewrite_target: str | None = None
+    rewrite_payload: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class CommandPolicyDecision:
+    category: str
+    action: str
+    reason: str = ""
+    rewrite_target: str | None = None
+    rewrite_payload: dict[str, Any] | None = None
+
+
+def _rewrite_cat(tokens: list[str]) -> CommandPolicyDecision:
+    if len(tokens) != 2:
+        return CommandPolicyDecision(category="file-read", action="allow")
+    return CommandPolicyDecision(
+        category="file-read",
+        action="rewrite",
+        reason="Use Atelier read for file content access",
+        rewrite_target="read",
+        rewrite_payload={"file_path": tokens[1]},
+    )
+
+
+def _rewrite_search(tokens: list[str], command_name: str) -> CommandPolicyDecision:
+    ignore_case = False
+    cleaned: list[str] = []
+    seen_double_dash = False
+    for tok in tokens[1:]:
+        if tok == "--":
+            seen_double_dash = True
+            continue
+        if tok.startswith("-") and not seen_double_dash:
+            if "i" in tok and tok != "-":
+                ignore_case = True
+            continue
+        cleaned.append(tok)
+
+    if not cleaned:
+        return CommandPolicyDecision(category="search", action="allow")
+
+    pattern = cleaned[0]
+    path = cleaned[1] if len(cleaned) > 1 else "."
+    return CommandPolicyDecision(
+        category="search",
+        action="rewrite",
+        reason=f"Use Atelier grep for {command_name} pattern search",
+        rewrite_target="grep",
+        rewrite_payload={
+            "file_path": path,
+            "content_regex": pattern,
+            "file_glob_patterns": ["**/*"],
+            "ignore_case": ignore_case,
+            "output_mode": "file_paths_with_content",
+        },
+    )
+
+
+def _is_rm_family(tokens: list[str]) -> bool:
+    if not tokens or tokens[0] != "rm":
+        return False
+    return any(tok.startswith("-") and "r" in tok and "f" in tok for tok in tokens[1:])
+
+
+def _is_git_reset_hard(tokens: list[str]) -> bool:
+    return len(tokens) >= 3 and tokens[0] == "git" and tokens[1] == "reset" and "--hard" in tokens[2:]
+
+
+def _is_git_clean_fd(tokens: list[str]) -> bool:
+    if len(tokens) < 2 or tokens[0] != "git" or tokens[1] != "clean":
+        return False
+    joined_flags = "".join(tok for tok in tokens[2:] if tok.startswith("-"))
+    return "f" in joined_flags and "d" in joined_flags
+
+
+def classify_command(command: str) -> CommandPolicyDecision:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return CommandPolicyDecision(category="generic", action="allow")
+    if not tokens:
+        return CommandPolicyDecision(category="generic", action="allow")
+
+    head = tokens[0].lower()
+    if head in {"bash", "sh"}:
+        return CommandPolicyDecision(
+            category="shell-interpreter",
+            action="block",
+            reason="Direct bash/sh execution is blocked; use Atelier tools instead",
+        )
+
+    if _is_rm_family(tokens):
+        return CommandPolicyDecision(
+            category="destructive",
+            action="block",
+            reason="Destructive rm -rf commands are blocked",
+        )
+    if _is_git_reset_hard(tokens):
+        return CommandPolicyDecision(
+            category="destructive",
+            action="block",
+            reason="git reset --hard is blocked",
+        )
+    if _is_git_clean_fd(tokens):
+        return CommandPolicyDecision(
+            category="destructive",
+            action="block",
+            reason="git clean -fd is blocked",
+        )
+
+    if head == "cat":
+        return _rewrite_cat(tokens)
+    if head in {"rg", "grep"}:
+        return _rewrite_search(tokens, head)
+    return CommandPolicyDecision(category="generic", action="allow")
 
 
 def run_command(
@@ -48,6 +169,23 @@ def run_command(
     - stderr always kept in full (usually short; errors live here).
     - Structured return: LLM checks exit_code first, reads output only if needed.
     """
+    policy = classify_command(command)
+    if policy.action == "block":
+        return RunResult(
+            stdout="",
+            stderr=policy.reason,
+            exit_code=-1,
+            duration_ms=0,
+            truncated=False,
+            lines_omitted=0,
+            command=command,
+            policy_category=policy.category,
+            policy_action=policy.action,
+            policy_reason=policy.reason,
+            rewrite_target=policy.rewrite_target,
+            rewrite_payload=policy.rewrite_payload,
+        )
+
     started = time.perf_counter()
     try:
         proc = subprocess.run(
@@ -84,7 +222,12 @@ def run_command(
         truncated=lines_omitted > 0,
         lines_omitted=lines_omitted,
         command=command,
+        policy_category=policy.category,
+        policy_action=policy.action,
+        policy_reason=policy.reason,
+        rewrite_target=policy.rewrite_target,
+        rewrite_payload=policy.rewrite_payload,
     )
 
 
-__all__ = ["RunResult", "run_command"]
+__all__ = ["CommandPolicyDecision", "RunResult", "classify_command", "run_command"]

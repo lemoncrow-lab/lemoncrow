@@ -76,13 +76,9 @@ def _measure_line_edit_baseline(repo_root: Path) -> tuple[int, str]:
             "edits": [
                 {
                     "file_path": "src/service.py#2-3",
-                    "old_string": (
-                        "    def verify(self, token: str) -> bool:\n"
-                        "        return token == 'ok'"
-                    ),
+                    "old_string": ("    def verify(self, token: str) -> bool:\n" "        return token == 'ok'"),
                     "new_string": (
-                        "    def verify(self, token: str) -> bool:\n"
-                        "        return token.startswith('ok')"
+                        "    def verify(self, token: str) -> bool:\n" "        return token.startswith('ok')"
                     ),
                 }
             ]
@@ -107,10 +103,7 @@ def _measure_symbol_edit_tokens(repo_root: Path) -> tuple[int, str]:
                     "kind": "symbol",
                     "name": "AuthService.verify",
                     "mode": "replace",
-                    "new_body": (
-                        "def verify(self, token: str) -> bool:\n"
-                        "    return token.startswith('ok')"
-                    ),
+                    "new_body": ("def verify(self, token: str) -> bool:\n" "    return token.startswith('ok')"),
                 }
             ]
         }

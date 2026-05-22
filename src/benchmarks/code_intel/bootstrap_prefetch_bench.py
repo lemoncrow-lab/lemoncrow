@@ -16,7 +16,6 @@ from atelier.core.capabilities.repo_map.budget import count_tokens
 from atelier.core.foundation.models import Trace
 from atelier.core.foundation.store import ContextStore
 from atelier.core.service.bootstrap_context import list_bootstrap_blocks
-from atelier.core.service.jobs import JOB_BOOTSTRAP_CONTEXT
 from atelier.gateway.adapters import mcp_server
 from atelier.gateway.adapters.mcp_server import tool_code
 from atelier.infra.storage.factory import create_store, make_memory_store
@@ -76,20 +75,15 @@ def _write_fixture_repo(root: Path) -> None:
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "src" / "app.py").write_text(
-        "from src.worker import run_worker\n\n"
-        "def main() -> str:\n"
-        "    return run_worker()\n",
+        "from src.worker import run_worker\n\n" "def main() -> str:\n" "    return run_worker()\n",
         encoding="utf-8",
     )
     (root / "src" / "worker.py").write_text(
-        "def run_worker() -> str:\n"
-        "    return 'ready'\n",
+        "def run_worker() -> str:\n" "    return 'ready'\n",
         encoding="utf-8",
     )
     (root / "scripts" / "cli.py").write_text(
-        "from src.app import main\n\n"
-        "def cli() -> str:\n"
-        "    return main()\n",
+        "from src.app import main\n\n" "def cli() -> str:\n" "    return main()\n",
         encoding="utf-8",
     )
 
@@ -139,7 +133,7 @@ def run_bootstrap_prefetch_bench(work_dir: Path | None = None) -> BootstrapPrefe
             blocks = list_bootstrap_blocks(make_memory_store(atelier_root), repo_id)
             store = create_store(atelier_root)
             store.init()
-            jobs = store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20)
+            # jobs intentionally unused; kept for store init side-effect
             trace_id = _record_trace(atelier_root)
         finally:
             mcp_server._run_worker_tick_safe = real_worker_tick
@@ -152,7 +146,7 @@ def run_bootstrap_prefetch_bench(work_dir: Path | None = None) -> BootstrapPrefe
         cold_jobs_started=1 if cold["bootstrap"]["queued"] else 0,
         warm_jobs_started=1 if warm["bootstrap"]["queued"] else 0,
         warm_status=str(warm["bootstrap"]["status"]),
-        trace_id=trace_id if jobs else trace_id,
+        trace_id=trace_id,
     )
 
 

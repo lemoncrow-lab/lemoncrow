@@ -1,4 +1,5 @@
 """Core benchmark runner: builtin baseline vs atelier MCP per host."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # ---------------------------------------------------------------------------
 # Config
@@ -147,7 +148,9 @@ def bench_read(
     hosts: tuple[str, ...],
 ) -> list[ToolResult]:
     results: list[ToolResult] = []
-    path = args["path"]
+    path = str(args.get("file_path") or args.get("path") or "")
+    if not path:
+        raise ValueError("read benchmark case requires file_path")
 
     # Builtin baseline
     b_text, b_t = _builtin_read(path)
@@ -171,9 +174,14 @@ def bench_read(
         if "error" in d and "result" not in d:
             results.append(
                 ToolResult(
-                    label=label, tool="read", variant=host,
-                    correct=False, chars_out=0, tokens_est=0,
-                    elapsed_ms=a_t * 1000, error=str(d.get("error", "")),
+                    label=label,
+                    tool="read",
+                    variant=host,
+                    correct=False,
+                    chars_out=0,
+                    tokens_est=0,
+                    elapsed_ms=a_t * 1000,
+                    error=str(d.get("error", "")),
                 )
             )
             continue
@@ -193,7 +201,9 @@ def bench_read(
         saving_pct = 100.0 * saving_chars / max(b_chars, 1)
         results.append(
             ToolResult(
-                label=label, tool="read", variant=host,
+                label=label,
+                tool="read",
+                variant=host,
                 correct=correct,
                 chars_out=a_chars,
                 tokens_est=a_chars // 4,
@@ -218,29 +228,40 @@ def bench_shell(
     hosts: tuple[str, ...],
 ) -> list[ToolResult]:
     results: list[ToolResult] = []
-    cmd = args["command"]
-    cwd = args.get("cwd")
+    bench_expect = cast(dict[str, Any], args.get("_expect") or {})
+    call_args = {k: v for k, v in args.items() if k != "_expect"}
+    cmd = call_args["command"]
+    cwd = call_args.get("cwd")
 
     b_out, b_t = _builtin_shell(cmd, cwd)
     b_lines = len(b_out.splitlines())
     b_chars = len(b_out)
     results.append(
         ToolResult(
-            label=label, tool="shell", variant="builtin",
-            correct=True, chars_out=b_chars, tokens_est=b_chars // 4,
+            label=label,
+            tool="shell",
+            variant="builtin",
+            correct=True,
+            chars_out=b_chars,
+            tokens_est=b_chars // 4,
             elapsed_ms=b_t * 1000,
         )
     )
 
     for host in hosts:
-        d, a_t = _mcp_call("shell", args, host)
+        d, a_t = _mcp_call("shell", call_args, host)
         sc = _structured(d)
         if "error" in d and "result" not in d:
             results.append(
                 ToolResult(
-                    label=label, tool="shell", variant=host,
-                    correct=False, chars_out=0, tokens_est=0,
-                    elapsed_ms=a_t * 1000, error=str(d.get("error", "")),
+                    label=label,
+                    tool="shell",
+                    variant=host,
+                    correct=False,
+                    chars_out=0,
+                    tokens_est=0,
+                    elapsed_ms=a_t * 1000,
+                    error=str(d.get("error", "")),
                 )
             )
             continue
@@ -249,20 +270,39 @@ def bench_shell(
         a_chars = len(a_out)
         a_lines = len(a_out.splitlines())
         first_token = b_out.strip().split("\n")[0].strip() if b_out.strip() else ""
-        correct = bool(first_token) and first_token in a_out
-        max_lines = int(args.get("max_lines", 200))
+        rewritten = bool(sc.get("rewritten", False))
+        rewrite_target = str(sc.get("rewrite_target") or "")
+        policy_action = str(sc.get("policy_action") or "")
+
+        if bench_expect:
+            expected_action = str(bench_expect.get("policy_action") or "")
+            expected_target = str(bench_expect.get("rewrite_target") or "")
+            action_ok = not expected_action or policy_action == expected_action
+            target_ok = not expected_target or rewrite_target == expected_target
+            correct = action_ok and target_ok
+        else:
+            correct = bool(first_token) and first_token in a_out
+
+        max_lines = int(call_args.get("max_lines", 200))
         truncated = b_lines > max_lines and a_lines <= max_lines
 
         results.append(
             ToolResult(
-                label=label, tool="shell", variant=host,
-                correct=correct, chars_out=a_chars, tokens_est=a_chars // 4,
+                label=label,
+                tool="shell",
+                variant=host,
+                correct=correct,
+                chars_out=a_chars,
+                tokens_est=a_chars // 4,
                 elapsed_ms=a_t * 1000,
                 extra={
                     "baseline_lines": b_lines,
                     "atelier_lines": a_lines,
                     "truncated": truncated,
                     "ansi_stripped": True,
+                    "rewritten": rewritten,
+                    "rewrite_target": rewrite_target,
+                    "policy_action": policy_action,
                 },
             )
         )
@@ -276,15 +316,19 @@ def bench_search(
 ) -> list[ToolResult]:
     results: list[ToolResult] = []
     pattern = args.get("content_regex") or args.get("query", "")
-    path = args.get("path", ".")
+    path = str(args.get("file_path") or args.get("path") or ".")
 
     b_out, b_t = _builtin_grep(pattern, path)
     b_lines = len(b_out.splitlines())
     b_chars = len(b_out)
     results.append(
         ToolResult(
-            label=label, tool="search", variant="builtin",
-            correct=b_lines > 0, chars_out=b_chars, tokens_est=b_chars // 4,
+            label=label,
+            tool="search",
+            variant="builtin",
+            correct=b_lines > 0,
+            chars_out=b_chars,
+            tokens_est=b_chars // 4,
             elapsed_ms=b_t * 1000,
             extra={"match_lines": b_lines},
         )
@@ -296,26 +340,42 @@ def bench_search(
         if "error" in d and "result" not in d:
             results.append(
                 ToolResult(
-                    label=label, tool="search", variant=host,
-                    correct=False, chars_out=0, tokens_est=0,
-                    elapsed_ms=a_t * 1000, error=str(d.get("error", "")),
+                    label=label,
+                    tool="search",
+                    variant=host,
+                    correct=False,
+                    chars_out=0,
+                    tokens_est=0,
+                    elapsed_ms=a_t * 1000,
+                    error=str(d.get("error", "")),
                 )
             )
             continue
 
-        meta = sc.get("_meta", {})
-        file_hits = int(meta.get("fileMatchCount") or 0)
-        content_blocks = sc.get("content", [])
-        result_blocks = max(len(content_blocks) - 1, 0)  # block[0] is header
-        a_chars = sum(len(b.get("text", "")) for b in content_blocks)
+        matches = [item for item in sc.get("matches", []) if isinstance(item, dict)]
+        if matches:
+            file_hits = len(matches)
+            result_blocks = len(matches)
+            a_chars = len(json.dumps(matches, ensure_ascii=False))
+        else:
+            # Backward-compat for older search payload shape.
+            meta = sc.get("_meta", {})
+            file_hits = int(meta.get("fileMatchCount") or 0)
+            content_blocks = [b for b in sc.get("content", []) if isinstance(b, dict)]
+            result_blocks = max(len(content_blocks) - 1, 0)  # block[0] is header
+            a_chars = sum(len(str(b.get("text", ""))) for b in content_blocks)
         correct = file_hits > 0 and b_lines > 0
 
         saving_chars = b_chars - a_chars
         saving_pct = 100.0 * saving_chars / max(b_chars, 1)
         results.append(
             ToolResult(
-                label=label, tool="search", variant=host,
-                correct=correct, chars_out=a_chars, tokens_est=a_chars // 4,
+                label=label,
+                tool="search",
+                variant=host,
+                correct=correct,
+                chars_out=a_chars,
+                tokens_est=a_chars // 4,
                 elapsed_ms=a_t * 1000,
                 extra={
                     "file_hits": file_hits,
@@ -337,7 +397,7 @@ def bench_search(
 def run_benchmark(
     tools: tuple[str, ...] = ("read", "shell", "search"),
     hosts: tuple[str, ...] = HOSTS,
-    cases_override: dict[str, list[tuple[str, dict]]] | None = None,
+    cases_override: dict[str, list[tuple[str, dict[str, Any]]]] | None = None,
 ) -> BenchReport:
     from .cases import ALL_CASES
 

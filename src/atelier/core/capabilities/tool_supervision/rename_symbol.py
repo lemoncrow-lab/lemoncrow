@@ -9,6 +9,7 @@ Backends (by language, in fallback order):
 The returned list of dicts is passed directly to apply_rich_edits, which handles
 atomic writes, rollback, and diff recording.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -18,14 +19,13 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-
 # -- backend detection --------------------------------------------------------
 
 _LANGUAGE_BACKENDS: dict[str, list[str]] = {
-    "python":     ["rope", "ast-grep", "naive"],
+    "python": ["rope", "ast-grep", "naive"],
     "typescript": ["ts-morph", "ast-grep", "naive"],
     "javascript": ["ts-morph", "ast-grep", "naive"],
-    "rust":       ["ast-grep", "naive"],
+    "rust": ["ast-grep", "naive"],
 }
 
 
@@ -33,7 +33,8 @@ def _best_backend(language: str) -> str:
     for backend in _LANGUAGE_BACKENDS.get(language, ["naive"]):
         if backend == "rope":
             try:
-                import rope  # type: ignore[import-untyped]  # noqa: F401,PLC0415
+                import rope  # noqa: F401
+
                 return "rope"
             except ImportError:
                 continue
@@ -50,6 +51,7 @@ def _best_backend(language: str) -> str:
 
 # -- naive rename -------------------------------------------------------------
 
+
 def _naive_rename(
     symbol: dict[str, Any],
     usages: list[dict[str, Any]],
@@ -63,11 +65,13 @@ def _naive_rename(
     """
     edits: list[dict[str, Any]] = []
     # Definition first
-    edits.append({
-        "file_path": symbol["file_path"],
-        "old_string": old_name,
-        "new_string": new_name,
-    })
+    edits.append(
+        {
+            "file_path": symbol["file_path"],
+            "old_string": old_name,
+            "new_string": new_name,
+        }
+    )
     seen: set[tuple[str, int]] = set()
     for usage in usages:
         fp = str(usage.get("file_path") or "")
@@ -79,15 +83,18 @@ def _naive_rename(
         if key in seen:
             continue
         seen.add(key)
-        edits.append({
-            "file_path": fp,
-            "old_string": old_name,
-            "new_string": new_name,
-        })
+        edits.append(
+            {
+                "file_path": fp,
+                "old_string": old_name,
+                "new_string": new_name,
+            }
+        )
     return edits
 
 
 # -- rope backend (Python only) -----------------------------------------------
+
 
 def _rope_rename(
     symbol: dict[str, Any],
@@ -95,9 +102,9 @@ def _rope_rename(
     repo_root: Path,
 ) -> list[dict[str, Any]]:
     """Scope-correct rename using rope. Returns overwrite-style edits."""
-    from rope.base.project import Project  # type: ignore[import-untyped]
-    from rope.base import libutils  # type: ignore[import-untyped]
-    from rope.refactor.rename import Rename  # type: ignore[import-untyped]
+    from rope.base import libutils
+    from rope.base.project import Project
+    from rope.refactor.rename import Rename
 
     project = Project(str(repo_root))
     try:
@@ -105,7 +112,7 @@ def _rope_rename(
         resource = libutils.path_to_resource(project, str(abs_path))
         # Convert byte offset -> character offset for files with multi-byte chars
         raw_bytes = abs_path.read_bytes()
-        char_offset = len(raw_bytes[:symbol["start_byte"]].decode("utf-8", errors="replace"))
+        char_offset = len(raw_bytes[: symbol["start_byte"]].decode("utf-8", errors="replace"))
         renamer = Rename(project, resource, char_offset)
         changes = renamer.get_changes(new_name)
         edits: list[dict[str, Any]] = []
@@ -113,11 +120,13 @@ def _rope_rename(
             # rope ChangeContents has .resource.path and .new_contents
             if hasattr(change, "new_contents"):
                 rel_path = str(Path(change.resource.path).relative_to(repo_root))
-                edits.append({
-                    "file_path": rel_path,
-                    "overwrite": True,
-                    "new_string": change.new_contents,
-                })
+                edits.append(
+                    {
+                        "file_path": rel_path,
+                        "overwrite": True,
+                        "new_string": change.new_contents,
+                    }
+                )
         return edits
     finally:
         project.close()
@@ -167,13 +176,17 @@ def _tsmorph_rename(
     try:
         proc = subprocess.run(
             ["node", script_path, str(repo_root), abs_file, str(symbol["start_byte"]), new_name],
-            capture_output=True, text=True, timeout=30, cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(repo_root),
         )
     finally:
         Path(script_path).unlink(missing_ok=True)
     if proc.returncode != 0:
         raise RuntimeError(f"ts-morph rename failed: {proc.stderr[:500]}")
     import json
+
     changed: dict[str, str] = json.loads(proc.stdout)
     edits: list[dict[str, Any]] = []
     for abs_path, content in changed.items():
@@ -187,6 +200,7 @@ def _tsmorph_rename(
 
 # -- ast-grep backend ---------------------------------------------------------
 
+
 def _astgrep_rename(
     symbol: dict[str, Any],
     usages: list[dict[str, Any]],
@@ -196,12 +210,12 @@ def _astgrep_rename(
     repo_root: Path,
 ) -> list[dict[str, Any]]:
     """ast-grep structural rewrite scoped to files that contain usages."""
-    from atelier.infra.code_intel.astgrep.adapter import AstGrepAdapter  # type: ignore[import-untyped]
+    from atelier.infra.code_intel.astgrep.adapter import (
+        AstGrepAdapter,
+    )
 
     # Build set of files with usages (including definition file)
-    usage_files = {symbol["file_path"]} | {
-        str(u.get("file_path") or "") for u in usages if u.get("file_path")
-    }
+    usage_files = {symbol["file_path"]} | {str(u.get("file_path") or "") for u in usages if u.get("file_path")}
 
     adapter = AstGrepAdapter(repo_root)
     edits: list[dict[str, Any]] = []
@@ -225,6 +239,7 @@ def _astgrep_rename(
 
 
 # -- public API ---------------------------------------------------------------
+
 
 def build_rename_edits(
     engine: Any,  # CodeContextEngine -- avoid circular import

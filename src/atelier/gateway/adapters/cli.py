@@ -432,9 +432,7 @@ def _write_openmemory_env_files(root: Path) -> None:
     api_env = _openmemory_api_env_path(root)
     ui_env = _openmemory_ui_env_path(root)
     user_id = (
-        os.environ.get("ATELIER_OPENMEMORY_USER_ID", "").strip()
-        or os.environ.get("USER", "").strip()
-        or "atelier"
+        os.environ.get("ATELIER_OPENMEMORY_USER_ID", "").strip() or os.environ.get("USER", "").strip() or "atelier"
     )
     api_url = os.environ.get("ATELIER_OPENMEMORY_URL", "http://127.0.0.1:8765").strip() or "http://127.0.0.1:8765"
     openai_api_key = os.environ.get("ATELIER_OPENMEMORY_OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", "")).strip()
@@ -456,9 +454,7 @@ def _run_openmemory_make(root: Path, *args: str) -> None:
     workdir = _openmemory_workdir(root)
     env = {**os.environ}
     user_id = (
-        os.environ.get("ATELIER_OPENMEMORY_USER_ID", "").strip()
-        or os.environ.get("USER", "").strip()
-        or "atelier"
+        os.environ.get("ATELIER_OPENMEMORY_USER_ID", "").strip() or os.environ.get("USER", "").strip() or "atelier"
     )
     env["USER"] = user_id
     env["NEXT_PUBLIC_API_URL"] = os.environ.get("ATELIER_OPENMEMORY_URL", "http://127.0.0.1:8765")
@@ -3229,6 +3225,7 @@ def route_status_cmd(ctx: click.Context, as_json: bool) -> None:
     click.echo(f"Lesson-driven recommendations: {payload['lesson_application_count']}")
     click.echo(f"Cost-cap triggers: {payload['cost_cap_trigger_count']}")
 
+
 @route_group.command("decide")
 @click.option("--goal", "user_goal", required=True, help="User goal/task summary.")
 @click.option("--repo-root", default=".", show_default=True)
@@ -5415,7 +5412,9 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
                 rid = d.get("session_id")
                 cost = float(d.get("cost_saved_usd", 0.0) or 0.0)
                 lever = str(d.get("lever") or d.get("tool_name") or "")
-                bucket = "routing" if "routing" in lever.lower() else "compaction" if "compact" in lever.lower() else "other"
+                bucket = (
+                    "routing" if "routing" in lever.lower() else "compaction" if "compact" in lever.lower() else "other"
+                )
                 if rid:
                     savings_map[rid] = savings_map.get(rid, 0.0) + cost
                     if bucket == "routing":
@@ -5612,7 +5611,7 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
         status = d.get("status") or "?"
         files_n = len(d.get("files_touched", []) or [])
         tools_n = int(d.get("tool_call_count", 0) or d.get("tool_count", 0) or len(d.get("tools_called", [])))
-        errs_n = len(d.get("errors_seen", []) or [])
+        # errs_n intentionally unused; kept for debugging access
         age_str = _age(d.get("updated_at") or d.get("created_at") or "")
         dur_str = _dur(d.get("created_at", ""), d.get("updated_at", ""))
 
@@ -8097,7 +8096,12 @@ def memory_share_cmd(ctx: click.Context, agent_id: str, label: str, as_json: boo
             details={"agent_id": agent_id, "label": label, "block_id": stored.id},
         )
     )
-    payload = {"id": stored.id, "label": stored.label, "scope": stored.metadata.get("scope"), "workspace_id": workspace.id}
+    payload = {
+        "id": stored.id,
+        "label": stored.label,
+        "scope": stored.metadata.get("scope"),
+        "workspace_id": workspace.id,
+    }
     if as_json:
         _emit(payload, as_json=True)
         return
@@ -8368,7 +8372,9 @@ def audit_verify_cmd(ctx: click.Context, bundle_dir: Path, as_json: bool) -> Non
     if payload["valid"]:
         click.echo(f"verified {bundle_dir}")
         return
-    raise click.ClickException(f"bundle verification failed: {', '.join(payload['tampered_files']) or 'signature mismatch'}")
+    raise click.ClickException(
+        f"bundle verification failed: {', '.join(payload['tampered_files']) or 'signature mismatch'}"
+    )
 
 
 # --------------------------------------------------------------------------- #

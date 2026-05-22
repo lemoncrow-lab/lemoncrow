@@ -37,7 +37,9 @@ def apply_route_preferences(
 ) -> tuple[list[RankedCandidate], list[str]]:
     current = now or datetime.now(UTC)
     phase = session_phase(session_state)
-    matching_lessons = [lesson for lesson in lessons if _matches_lesson(lesson, tool_name=tool_name, phase=phase, at=current)]
+    matching_lessons = [
+        lesson for lesson in lessons if _matches_lesson(lesson, tool_name=tool_name, phase=phase, at=current)
+    ]
     if not matching_lessons:
         return ranked, []
 

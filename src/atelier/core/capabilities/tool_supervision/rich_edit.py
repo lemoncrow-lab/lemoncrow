@@ -294,7 +294,10 @@ def apply_rich_edits(
                 content, spec, old_string, str(edit.get("new_string", ""))
             )
             file_state[path] = new_content
-            applied_entry: dict[str, Any] = {"path": raw_path, "hunks": [{"line_start": line_start, "line_end": line_end}]}
+            applied_entry: dict[str, Any] = {
+                "path": raw_path,
+                "hunks": [{"line_start": line_start, "line_end": line_end}],
+            }
             if resolved_symbol_edits and raw_path == resolved_symbol_edits[-1].scoped_file_path:
                 applied_entry["kind"] = "symbol"
                 applied_entry["symbol_id"] = resolved_symbol_edits[-1].symbol_id

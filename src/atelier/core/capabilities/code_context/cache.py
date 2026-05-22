@@ -175,8 +175,7 @@ class RetrievalCache:
         return conn
 
     def _init_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS retrieval_cache (
                 query_hash TEXT PRIMARY KEY,
                 repo_id TEXT,
@@ -186,26 +185,25 @@ class RetrievalCache:
                 hit_count INTEGER NOT NULL DEFAULT 0,
                 last_hit_at TEXT NOT NULL
             )
-            """
-        )
+            """)
         columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(retrieval_cache)")}
         if "repo_id" not in columns:
             conn.execute("ALTER TABLE retrieval_cache ADD COLUMN repo_id TEXT")
 
     def _evict_lru(self, conn: sqlite3.Connection) -> None:
         while True:
-            row = conn.execute("SELECT COALESCE(SUM(LENGTH(payload_json)), 0) AS total_bytes FROM retrieval_cache").fetchone()
+            row = conn.execute(
+                "SELECT COALESCE(SUM(LENGTH(payload_json)), 0) AS total_bytes FROM retrieval_cache"
+            ).fetchone()
             total_bytes = int(row["total_bytes"]) if row is not None else 0
             if total_bytes <= self.max_bytes:
                 return
-            oldest = conn.execute(
-                """
+            oldest = conn.execute("""
                 SELECT query_hash
                 FROM retrieval_cache
                 ORDER BY last_hit_at ASC, hit_count ASC, query_hash ASC
                 LIMIT 1
-                """
-            ).fetchone()
+                """).fetchone()
             if oldest is None:
                 return
             conn.execute("DELETE FROM retrieval_cache WHERE query_hash = ?", (str(oldest["query_hash"]),))

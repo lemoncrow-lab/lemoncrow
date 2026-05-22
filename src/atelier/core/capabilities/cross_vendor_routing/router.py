@@ -250,8 +250,12 @@ def _effective_price(candidate: CandidateModel) -> float:
 
 
 def _estimate_cost(candidate: CandidateModel, session_state: Mapping[str, Any]) -> float:
-    input_tokens = _token_budget(session_state, keys=("expected_input_tokens", "budget_tokens", "max_output_tokens"), default=1000)
-    output_tokens = _token_budget(session_state, keys=("expected_output_tokens",), default=max(1, int(input_tokens * 0.2)))
+    input_tokens = _token_budget(
+        session_state, keys=("expected_input_tokens", "budget_tokens", "max_output_tokens"), default=1000
+    )
+    output_tokens = _token_budget(
+        session_state, keys=("expected_output_tokens",), default=max(1, int(input_tokens * 0.2))
+    )
     adjusted_output = int(output_tokens * candidate.output_multiplier)
     return round(candidate.pricing.cost_usd(input_tokens=input_tokens, output_tokens=adjusted_output), 6)
 
@@ -270,7 +274,11 @@ def _active_lessons(lesson_store: TypedLessonStore | None, session_state: Mappin
             continue
         if lesson.scope == "team" and team_id and str(lesson.metadata.get("team_id") or "") == team_id:
             active.append(lesson)
-        if lesson.scope == "workspace" and workspace_id and str(lesson.metadata.get("workspace_id") or "") == workspace_id:
+        if (
+            lesson.scope == "workspace"
+            and workspace_id
+            and str(lesson.metadata.get("workspace_id") or "") == workspace_id
+        ):
             active.append(lesson)
     deduped: dict[str, Any] = {lesson.id: lesson for lesson in active}
     return list(deduped.values())

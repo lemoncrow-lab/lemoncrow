@@ -133,9 +133,7 @@ def _write_fixture_repo(repo_root: Path) -> str:
     _git(["config", "user.email", "fixture@example.com"], repo_root)
     now = datetime.now(tz=UTC)
     (repo_root / "service.py").write_text(
-        "def risk_score() -> int:\n"
-        "    value = 1\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 1\n" "    return value\n",
         encoding="utf-8",
     )
     _commit_all(
@@ -146,9 +144,7 @@ def _write_fixture_repo(repo_root: Path) -> str:
         author_date=(now - timedelta(days=240)).isoformat(),
     )
     (repo_root / "service.py").write_text(
-        "def risk_score() -> int:\n"
-        "    value = 3\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 3\n" "    return value\n",
         encoding="utf-8",
     )
     _commit_all(
@@ -159,9 +155,7 @@ def _write_fixture_repo(repo_root: Path) -> str:
         author_date=(now - timedelta(days=30)).isoformat(),
     )
     (repo_root / "service.py").write_text(
-        "def risk_score() -> int:\n"
-        "    value = 5\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 5\n" "    return value\n",
         encoding="utf-8",
     )
     head_sha = _commit_all(
@@ -230,9 +224,13 @@ def run_blame_bench(
         cold_elapsed_ms=round(cold_elapsed_ms, 3),
         hot_elapsed_ms=round(hot_elapsed_ms, 3),
         last_author=str(cold.get("last_author") or ""),
-        churn_commit_count=int(cold.get("churn", {}).get("commit_count", 0)) if isinstance(cold.get("churn"), dict) else None,
+        churn_commit_count=(
+            int(cold.get("churn", {}).get("commit_count", 0)) if isinstance(cold.get("churn"), dict) else None
+        ),
         manual_total_tokens=manual_total_tokens,
-        blame_to_manual_ratio=(int(cold.get("total_tokens", 0) or 0) / manual_total_tokens) if manual_total_tokens else 0.0,
+        blame_to_manual_ratio=(
+            (int(cold.get("total_tokens", 0) or 0) / manual_total_tokens) if manual_total_tokens else 0.0
+        ),
         blame_workflow_steps=1,
         manual_workflow_steps=3,
     )

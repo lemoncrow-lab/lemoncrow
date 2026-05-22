@@ -120,9 +120,7 @@ def _write_fixture_repo(root: Path) -> None:
         encoding="utf-8",
     )
     (root / "docs" / "release.md").write_text(
-        "alpha\n"
-        "NEEDLE_TOKEN appears in release notes\n"
-        "omega\n",
+        "alpha\n" "NEEDLE_TOKEN appears in release notes\n" "omega\n",
         encoding="utf-8",
     )
 
@@ -134,9 +132,7 @@ def _write_fixture_repo(root: Path) -> None:
         )
     else:
         (root / "frontend" / "sample.ts").write_text(
-            "export function issueAccessToken(userId: string): string {\n"
-            "  return `session:${userId}`;\n"
-            "}\n",
+            "export function issueAccessToken(userId: string): string {\n" "  return `session:${userId}`;\n" "}\n",
             encoding="utf-8",
         )
 
@@ -326,7 +322,12 @@ def _baseline_full_glob_read(repo_root: Path, path: str, globs: list[str]) -> st
     [
         ("search.smart_chunks", "chunks", "grep_plus_snippets", _baseline_smart_chunks),
         ("search.smart_full", "full", "grep_plus_full_read", _baseline_smart_full),
-        ("search.smart_map", "map", "read_all_source_files", lambda repo_root, _query, _max_files: _baseline_repo_map(repo_root)),
+        (
+            "search.smart_map",
+            "map",
+            "read_all_source_files",
+            lambda repo_root, _query, _max_files: _baseline_repo_map(repo_root),
+        ),
     ],
 )
 def test_search_ab_smart_modes(
@@ -585,7 +586,5 @@ def test_search_calibration_file_grows() -> None:
     path = _calibration_path()
     assert path.exists(), f"no calibration file at {path}"
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    benchmark_rows = [
-        row for row in rows if str(row.get("tool", "")).startswith(("search.", "grep."))
-    ]
+    benchmark_rows = [row for row in rows if str(row.get("tool", "")).startswith(("search.", "grep."))]
     assert len(benchmark_rows) >= 9, f"expected >= 9 search/grep rows, found {len(benchmark_rows)}"

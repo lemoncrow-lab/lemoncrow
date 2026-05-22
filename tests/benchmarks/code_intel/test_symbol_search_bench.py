@@ -13,7 +13,10 @@ import pytest
 from atelier.core.capabilities.code_context import CodeContextEngine
 from atelier.core.capabilities.repo_map.budget import count_tokens
 from atelier.gateway.adapters.mcp_server import tool_code, tool_smart_read, tool_smart_search
-from benchmarks.code_intel.symbol_search_bench import run_semantic_symbol_search_bench, run_symbol_search_bench
+from benchmarks.code_intel.symbol_search_bench import (
+    run_semantic_symbol_search_bench,
+    run_symbol_search_bench,
+)
 
 pytestmark = pytest.mark.slow  # Full repo-map + token-budget benchmark; takes ~15-20s
 
@@ -219,7 +222,9 @@ def test_symbol_search_uses_at_most_25pct_of_text_search_tokens(tmp_path: Path) 
     symbol_tokens = 0
     for query in queries:
         baseline_tokens += _text_search_plus_read_tokens(repo_root, query)
-        payload = tool_code({"op": "search", "repo_root": str(repo_root), "query": query, "limit": 1, "budget_tokens": 120})
+        payload = tool_code(
+            {"op": "search", "repo_root": str(repo_root), "query": query, "limit": 1, "budget_tokens": 120}
+        )
         assert payload["items"], f"expected code-search match for {query}"
         symbol_tokens += int(payload["total_tokens"])
 

@@ -8,13 +8,13 @@ Usage:
     uv run python -m benchmarks.tool_bench --hosts all --tools all --out /tmp/bench.json
     uv run python -m benchmarks.tool_bench --check-only   # enforcement + savings audit only
 """
+
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
 
-from .runner import HOSTS, run_benchmark
 from .report import (
     export_json,
     print_enforcement_gap,
@@ -23,6 +23,7 @@ from .report import (
     print_savings_table,
     print_statusline_preview,
 )
+from .runner import HOSTS, run_benchmark
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,11 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     # Resolve hosts
-    hosts: tuple[str, ...]
-    if "all" in args.hosts:
-        hosts = HOSTS
-    else:
-        hosts = tuple(args.hosts)
+    hosts: tuple[str, ...] = HOSTS if "all" in args.hosts else tuple(args.hosts)
 
     # Resolve tools
     tools_all = ("read", "shell", "search")
@@ -103,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n\033[1;35m{'='*76}\033[0m")
     print(f"\033[1;35m  RUNNING BENCHMARK: tools={list(tools)}  hosts={list(hosts)}\033[0m")
     print(f"\033[1;35m{'='*76}\033[0m")
-    print(f"  \033[2m(each atelier call spawns a new stdio process — ~2s overhead is expected)\033[0m\n")
+    print("  \033[2m(each atelier call spawns a new stdio process — ~2s overhead is expected)\033[0m\n")
 
     report = run_benchmark(tools=tools, hosts=hosts)
 

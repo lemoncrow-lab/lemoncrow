@@ -52,9 +52,7 @@ def _create_history_fixture(tmp_path: Path) -> tuple[Path, str, str]:
     _git(["config", "user.name", "Fixture Tester"], repo_root)
     _git(["config", "user.email", "fixture@example.com"], repo_root)
     (repo_root / "legacy.py").write_text(
-        "class LegacyCheckout:\n"
-        "    def process(self) -> int:\n"
-        "        return 1\n",
+        "class LegacyCheckout:\n" "    def process(self) -> int:\n" "        return 1\n",
         encoding="utf-8",
     )
     _commit_all(repo_root, "add legacy symbol")
@@ -72,9 +70,7 @@ def _create_delete_fixture(tmp_path: Path) -> tuple[Path, str]:
     _git(["config", "user.name", "Fixture Tester"], repo_root)
     _git(["config", "user.email", "fixture@example.com"], repo_root)
     (repo_root / "legacy.py").write_text(
-        "class LegacyCheckout:\n"
-        "    def process(self) -> int:\n"
-        "        return 1\n",
+        "class LegacyCheckout:\n" "    def process(self) -> int:\n" "        return 1\n",
         encoding="utf-8",
     )
     _commit_all(repo_root, "add legacy symbol")
@@ -90,9 +86,7 @@ def _create_rename_fixture(tmp_path: Path) -> tuple[Path, str]:
     _git(["config", "user.name", "Fixture Tester"], repo_root)
     _git(["config", "user.email", "fixture@example.com"], repo_root)
     (repo_root / "legacy.py").write_text(
-        "class LegacyCheckout:\n"
-        "    def process(self) -> int:\n"
-        "        return 1\n",
+        "class LegacyCheckout:\n" "    def process(self) -> int:\n" "        return 1\n",
         encoding="utf-8",
     )
     _commit_all(repo_root, "add legacy symbol")

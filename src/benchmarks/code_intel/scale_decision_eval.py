@@ -191,7 +191,9 @@ def _default_candidate_specs() -> tuple[CandidateSpec, ...]:
 def evaluate_default_candidates() -> EvaluationReport:
     rows = tuple(_evaluate_candidate(spec) for spec in _default_candidate_specs())
     rows_by_key = {row.key: row for row in rows}
-    selected = select_recommended_candidate(EvaluationReport(rows=rows, rows_by_key=rows_by_key, decision=_placeholder_decision()))
+    selected = select_recommended_candidate(
+        EvaluationReport(rows=rows, rows_by_key=rows_by_key, decision=_placeholder_decision())
+    )
     decision = DecisionSummary(
         selected_candidate_key=selected.key,
         selected_candidate_label=selected.label,
@@ -247,7 +249,7 @@ def render_checkpoint_appendix(report: EvaluationReport, *, date: str, evaluator
         f"- `result_shape`: `{report.decision.result_shape}`",
         f"- `lifecycle_owner`: `{report.decision.lifecycle_owner}`",
         f"- `selected_option`: `{report.decision.selected_option_id}`",
-        "- `code op=\"search\"` remains on the existing local/SCIP/semantic name-first path until a later adapter proves symbol-shape parity.",
+        '- `code op="search"` remains on the existing local/SCIP/semantic name-first path until a later adapter proves symbol-shape parity.',
         "",
         "### Decision",
         "",
@@ -321,10 +323,10 @@ def main() -> None:
 
 __all__ = [
     "CRITERIA",
+    "PASSING_SCORE",
     "CandidateRow",
     "DecisionSummary",
     "EvaluationReport",
-    "PASSING_SCORE",
     "RepoAnswers",
     "evaluate_default_candidates",
     "render_checkpoint_appendix",

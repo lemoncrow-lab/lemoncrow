@@ -35,9 +35,7 @@ skip_docker = pytest.mark.skipif(
 
 
 @skip_docker
-def test_mcp_search_adds_backend_metadata_for_large_repo(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_mcp_search_adds_backend_metadata_for_large_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("ATELIER_ZOEKT_LOC_THRESHOLD", "20")
     monkeypatch.delenv("ATELIER_ZOEKT_BIN", raising=False)
@@ -46,16 +44,11 @@ def test_mcp_search_adds_backend_metadata_for_large_repo(
     src.mkdir()
     for index in range(24):
         (src / f"module_{index}.py").write_text(
-            "".join(
-                f"def item_{index}_{line}() -> str: return 'needle token {index}'\n"
-                for line in range(24)
-            ),
+            "".join(f"def item_{index}_{line}() -> str: return 'needle token {index}'\n" for line in range(24)),
             encoding="utf-8",
         )
 
-    result = tool_smart_search(
-        {"query": "needle token", "file_path": str(tmp_path), "budget_tokens": 4000}
-    )
+    result = tool_smart_search({"query": "needle token", "file_path": str(tmp_path), "budget_tokens": 4000})
 
     assert result["backend"] == "zoekt"
     assert isinstance(result["index_age_seconds"], int)
@@ -109,9 +102,7 @@ def test_mcp_edit_rich_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     (tmp_path / "a.txt").write_text("hello\n", encoding="utf-8")
 
-    result = tool_smart_edit(
-        {"edits": [{"file_path": "a.txt", "old_string": "hello", "new_string": "hi"}]}
-    )
+    result = tool_smart_edit({"edits": [{"file_path": "a.txt", "old_string": "hello", "new_string": "hi"}]})
 
     assert result["failed"] == []
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "hi\n"
@@ -148,12 +139,8 @@ def test_tool_code_search_returns_cache_hit_field(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    first = tool_code(
-        {"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000}
-    )
-    second = tool_code(
-        {"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000}
-    )
+    first = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
+    second = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
 
     assert first["cache_hit"] is False
     assert second["cache_hit"] is True
@@ -163,14 +150,10 @@ def test_tool_code_search_returns_cache_hit_field(tmp_path: Path) -> None:
     assert all("snippet" not in item for item in first["items"])
 
 
-def test_tool_code_search_name_first_contract_stays_unchanged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_tool_code_search_name_first_contract_stays_unchanged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_engine = MagicMock()
     fake_engine.tool_search.return_value = {
-        "items": [
-            {"symbol_name": "OrderService", "file_path": "src/orders.py", "provenance": "local"}
-        ],
+        "items": [{"symbol_name": "OrderService", "file_path": "src/orders.py", "provenance": "local"}],
         "cache_hit": False,
         "provenance": "local",
         "tokens_saved": 8,
@@ -182,9 +165,7 @@ def test_tool_code_search_name_first_contract_stays_unchanged(
         lambda repo_root=".": fake_engine,
     )
 
-    payload = tool_code(
-        {"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 220}
-    )
+    payload = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 220})
 
     assert payload["provenance"] == "local"
     assert "backend" not in payload
@@ -218,16 +199,10 @@ def test_tool_code_search_invalidates_cache_after_reindex(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
-    _ = tool_code(
-        {"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000}
-    )
-    cached = tool_code(
-        {"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000}
-    )
+    _ = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
+    cached = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
     indexed = tool_code({"op": "index", "repo_root": str(tmp_path), "budget_tokens": 4000})
-    fresh = tool_code(
-        {"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000}
-    )
+    fresh = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
 
     assert cached["cache_hit"] is True
     assert indexed["index_version"] >= 2
@@ -240,9 +215,7 @@ def test_tool_code_search_respects_budget_after_wrapper_metadata(tmp_path: Path)
     lines = [f"def func_{index}() -> int:\n    return {index}\n" for index in range(3)]
     (tmp_path / "src" / "big.py").write_text("\n".join(lines), encoding="utf-8")
 
-    payload = tool_code(
-        {"op": "search", "repo_root": str(tmp_path), "query": "func", "budget_tokens": 260}
-    )
+    payload = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "func", "budget_tokens": 260})
 
     assert payload["total_tokens"] <= 260
 
@@ -279,8 +252,7 @@ def test_tool_code_search_accepts_hardened_params(tmp_path: Path) -> None:
     assert payload["provenance_breakdown"] == {"local": len(payload["items"])}
     assert payload["items"][0]["file_path"] == "src/orders.py"
     assert (
-        payload["items"][0]["snippet"]
-        == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
+        payload["items"][0]["snippet"] == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
     )
 
 
@@ -365,9 +337,7 @@ def test_tool_code_workspace_repo_filter_rejects_unsupported_ops(tmp_path: Path)
         encoding="utf-8",
     )
 
-    with pytest.raises(
-        ValueError, match="repo filter is only supported for workspace search and symbol operations"
-    ):
+    with pytest.raises(ValueError, match="repo filter is only supported for workspace search and symbol operations"):
         tool_code(
             {
                 "op": "outline",
@@ -394,9 +364,7 @@ def test_tool_code_usages_returns_grouped_references(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    payload = tool_code(
-        {"op": "usages", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000}
-    )
+    payload = tool_code({"op": "usages", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
 
     assert payload["target"]["qualified_name"] == "OrderService"
     assert payload["group_by"] == "file"
@@ -404,9 +372,7 @@ def test_tool_code_usages_returns_grouped_references(tmp_path: Path) -> None:
     assert payload["references"]["src/checkout.py"][0]["provenance"] == "treesitter"
 
 
-def test_tool_code_call_graph_dispatches_to_engine(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_tool_code_call_graph_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_engine = MagicMock()
     fake_engine.tool_callers.return_value = {
         "target": {"qualified_name": "beta"},
@@ -422,9 +388,7 @@ def test_tool_code_call_graph_dispatches_to_engine(
     fake_engine.tool_callees.return_value = {
         "target": {"qualified_name": "handle"},
         "related": [{"qualified_name": "alpha", "provenance": "scip"}],
-        "edges": [
-            {"caller_symbol_id": "scip-handle", "callee_symbol_id": "scip-alpha", "depth": 1}
-        ],
+        "edges": [{"caller_symbol_id": "scip-handle", "callee_symbol_id": "scip-alpha", "depth": 1}],
         "data_status": "available",
         "snapshot": {"snapshot_id": "snap"},
         "cache_hit": False,
@@ -437,9 +401,7 @@ def test_tool_code_call_graph_dispatches_to_engine(
         lambda repo_root=".": fake_engine,
     )
 
-    callers = tool_code(
-        {"op": "callers", "repo_root": str(tmp_path), "query": "beta", "budget_tokens": 220}
-    )
+    callers = tool_code({"op": "callers", "repo_root": str(tmp_path), "query": "beta", "budget_tokens": 220})
     callees = tool_code(
         {
             "op": "callees",
@@ -480,14 +442,10 @@ def test_tool_code_call_graph_dispatches_to_engine(
     )
 
 
-def test_tool_code_pattern_dispatches_to_engine(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_tool_code_pattern_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_engine = MagicMock()
     fake_engine.tool_pattern.return_value = {
-        "matches": [
-            {"file_path": "src/app.py", "line": 1, "column": 0, "captures": {"URL": "url"}}
-        ],
+        "matches": [{"file_path": "src/app.py", "line": 1, "column": 0, "captures": {"URL": "url"}}],
         "cache_hit": False,
         "provenance": "ast-grep",
         "tokens_saved": 10,
@@ -521,16 +479,12 @@ def test_tool_code_pattern_dispatches_to_engine(
     )
 
 
-def test_tool_code_usages_dispatches_to_engine(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_tool_code_usages_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_engine = MagicMock()
     fake_engine.tool_usages.return_value = {
         "target": {"qualified_name": "OrderService"},
         "references": {
-            "src/checkout.py": [
-                {"file_path": "src/checkout.py", "line": 4, "column": 12, "provenance": "scip"}
-            ]
+            "src/checkout.py": [{"file_path": "src/checkout.py", "line": 4, "column": 12, "provenance": "scip"}]
         },
         "group_by": "file",
         "cache_hit": False,
@@ -543,9 +497,7 @@ def test_tool_code_usages_dispatches_to_engine(
         lambda repo_root=".": fake_engine,
     )
 
-    payload = tool_code(
-        {"op": "usages", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 220}
-    )
+    payload = tool_code({"op": "usages", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 220})
 
     assert payload["cache_hit"] is False
     assert payload["provenance"] == "scip"
@@ -565,9 +517,7 @@ def test_tool_code_usages_dispatches_to_engine(
     )
 
 
-def test_tool_code_cache_diagnostics_dispatch_to_engine(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_tool_code_cache_diagnostics_dispatch_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_engine = MagicMock()
     fake_engine.tool_cache_status.return_value = {
         "entry_count": 2,
@@ -606,9 +556,7 @@ def test_tool_code_cache_diagnostics_dispatch_to_engine(
     assert status["entry_count"] == 2
     assert invalidated["invalidated_entries"] == 1
     fake_engine.tool_cache_status.assert_called_once_with(budget_tokens=220)
-    fake_engine.tool_cache_invalidate.assert_called_once_with(
-        cache_tool="search", budget_tokens=220
-    )
+    fake_engine.tool_cache_invalidate.assert_called_once_with(cache_tool="search", budget_tokens=220)
 
 
 def test_tool_code_deleted_search_stays_on_additive_code_surface(
@@ -703,9 +651,7 @@ def test_tool_code_blame_is_an_additive_extension_to_code_surface(
         "total_tokens": 120,
     }
     fake_engine.tool_search.return_value = {
-        "items": [
-            {"symbol_name": "OrderService", "file_path": "src/orders.py", "provenance": "local"}
-        ],
+        "items": [{"symbol_name": "OrderService", "file_path": "src/orders.py", "provenance": "local"}],
         "cache_hit": False,
         "provenance": "local",
         "tokens_saved": 8,
@@ -717,9 +663,7 @@ def test_tool_code_blame_is_an_additive_extension_to_code_surface(
         lambda repo_root=".": fake_engine,
     )
 
-    blame = tool_code(
-        {"op": "blame", "repo_root": str(tmp_path), "query": "risk_score", "budget_tokens": 220}
-    )
+    blame = tool_code({"op": "blame", "repo_root": str(tmp_path), "query": "risk_score", "budget_tokens": 220})
     search = tool_code(
         {
             "op": "search",
@@ -781,9 +725,7 @@ def test_tool_code_cache_diagnostics_hide_payloads_and_keep_other_ops_cached(
         encoding="utf-8",
     )
 
-    tool_code(
-        {"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000}
-    )
+    tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
     tool_code(
         {
             "op": "symbol",
@@ -824,9 +766,7 @@ def test_tool_code_cache_diagnostics_hide_payloads_and_keep_other_ops_cached(
     assert symbol_after["cache_hit"] is True
 
 
-def test_read_budget_safe_mode_is_smaller_than_expand_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_read_budget_safe_mode_is_smaller_than_expand_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     target = tmp_path / "big_module.py"
     target.write_text(

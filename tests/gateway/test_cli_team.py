@@ -87,4 +87,3 @@ def test_governance_apply_and_audit_export_verify_commands(tmp_path: Path) -> No
     assert exported.exit_code == 0, exported.output
     assert verified.exit_code == 0, verified.output
     assert json.loads(verified.output)["valid"] is True
-

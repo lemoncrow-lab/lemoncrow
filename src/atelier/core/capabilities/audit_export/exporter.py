@@ -201,4 +201,3 @@ def _record_timestamp(record: dict[str, Any]) -> datetime | None:
             return parsed.replace(tzinfo=UTC)
         return parsed.astimezone(UTC)
     return None
-

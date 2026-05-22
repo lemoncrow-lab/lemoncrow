@@ -24,7 +24,16 @@ BOOTSTRAP_BLOCK_TYPES = (
     "language-mix",
 )
 _ENTRYPOINT_FILE_PARTS = ("main", "app", "cli", "server", "index")
-_ENTRYPOINT_SYMBOL_NAMES = {"app", "bootstrap", "cli", "create_app", "main", "run", "serve", "server"}
+_ENTRYPOINT_SYMBOL_NAMES = {
+    "app",
+    "bootstrap",
+    "cli",
+    "create_app",
+    "main",
+    "run",
+    "serve",
+    "server",
+}
 
 
 class BootstrapBlockPlan(BaseModel):
@@ -292,7 +301,7 @@ def _render_language_mix(repo_root: Path, repo_id: str) -> str:
     files = iter_source_files(repo_root)
     languages = Counter((detect_language(path) or "unknown") for path in files)
     scip = ScipIndexer(repo_root, repo_id)
-    artifacts = [path.name for path in scip.discover_artifacts()]
+    artifacts = [artifact.path.name for artifact in scip.discover_artifacts()]
     binaries = sorted(scip.available_binaries())
     lines = ["languages:"]
     for language, count in sorted(languages.items(), key=lambda item: (-item[1], item[0])):

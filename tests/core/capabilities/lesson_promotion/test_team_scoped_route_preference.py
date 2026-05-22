@@ -40,4 +40,3 @@ def test_team_scoped_route_preference_applies_only_for_matching_team(tmp_path: P
     assert matched.vendor == "anthropic"
     assert lesson.id in matched.applied_lessons
     assert unmatched.vendor == "google"
-

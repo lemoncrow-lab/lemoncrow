@@ -33,7 +33,9 @@ class ScipSymbolIntelProvider:
         self.repo_root = repo_root.resolve()
         self.repo_id = repo_id
         self._indexer = ScipIndexer(self.repo_root, repo_id)
-        self._reader = ScipArtifactReader(repo_root=self.repo_root, allowed_roots=[self.repo_root, self._indexer.cache_root])
+        self._reader = ScipArtifactReader(
+            repo_root=self.repo_root, allowed_roots=[self.repo_root, self._indexer.cache_root]
+        )
         self._watcher = ScipArtifactWatcher(state_sync=state_sync)
         self._artifacts: list[LoadedScipArtifact] = []
         self._health = ProviderHealth(status="unhealthy", reason="no SCIP artifacts")

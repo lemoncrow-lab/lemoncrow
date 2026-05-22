@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from datetime import UTC, datetime
 from importlib import import_module
@@ -97,10 +98,8 @@ class LettaAdapter:
                 result = self.client.blocks.create(**payload)
                 block_id = result.id if hasattr(result, "id") else result.get("id", "")
                 if block_id and hasattr(self.client, "agents") and hasattr(self.client.agents, "blocks"):
-                    try:
+                    with contextlib.suppress(Exception):
                         self.client.agents.blocks.attach(block_id=block_id, agent_id=agent_id)
-                    except Exception:
-                        pass  # best-effort attach
                 return self._as_mapping(result)
         except Exception as exc:
             raise _sidecar_error(exc) from exc
@@ -423,11 +422,11 @@ class LettaAdapter:
         if isinstance(value, list):
             return value
         if hasattr(value, "results"):
-            maybe_results = getattr(value, "results")
+            maybe_results = value.results
             if isinstance(maybe_results, list):
                 return maybe_results
         if hasattr(value, "data"):
-            maybe_data = getattr(value, "data")
+            maybe_data = value.data
             if isinstance(maybe_data, list):
                 return maybe_data
         if hasattr(value, "model_dump"):

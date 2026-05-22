@@ -96,17 +96,13 @@ def _write_fixture_repo(repo_root: Path) -> tuple[str, str]:
     _git(["config", "user.name", "Fixture Tester"], repo_root)
     _git(["config", "user.email", "fixture@example.com"], repo_root)
     (repo_root / "legacy.py").write_text(
-        "class LegacyCheckout:\n"
-        "    def process(self) -> int:\n"
-        "        return 1\n",
+        "class LegacyCheckout:\n" "    def process(self) -> int:\n" "        return 1\n",
         encoding="utf-8",
     )
     _commit_all(repo_root, "add legacy symbol", author_date="2024-01-01T00:00:00+00:00")
     _git(["mv", "legacy.py", "modern.py"], repo_root)
     (repo_root / "modern.py").write_text(
-        "class ModernCheckout:\n"
-        "    def process(self) -> int:\n"
-        "        return 2\n",
+        "class ModernCheckout:\n" "    def process(self) -> int:\n" "        return 2\n",
         encoding="utf-8",
     )
     rename_sha = _commit_all(
@@ -116,8 +112,7 @@ def _write_fixture_repo(repo_root: Path) -> tuple[str, str]:
         author_date="2025-02-01T00:00:00+00:00",
     )
     (repo_root / "retired.py").write_text(
-        "def old_worker() -> int:\n"
-        "    return 7\n",
+        "def old_worker() -> int:\n" "    return 7\n",
         encoding="utf-8",
     )
     _commit_all(repo_root, "add retired worker", author_date="2025-02-10T00:00:00+00:00")
@@ -148,7 +143,10 @@ def _manual_archaeology_tokens(repo_root: Path, *, rename_sha: str, query: str, 
             },
             {
                 "command": f"git log --all --since {since} --author {touched_by} -- modern.py legacy.py",
-                "stdout": _git(["log", "--all", "--since", since, "--author", touched_by, "--", "modern.py", "legacy.py"], repo_root),
+                "stdout": _git(
+                    ["log", "--all", "--since", since, "--author", touched_by, "--", "modern.py", "legacy.py"],
+                    repo_root,
+                ),
             },
             {"goal": f"Find the current public identity for {query} from raw git output."},
         ]

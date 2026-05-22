@@ -46,7 +46,9 @@ class ZoektServer:
         self._bridge: subprocess.Popen[str] | None = None
         self._container_id: str | None = None
         self._host_search_binary: Path | None = None
-        self._container_name = f"atelier-zoekt-{sha256(str(self.repo_root).encode('utf-8')).hexdigest()[:12]}-{os.getpid()}"
+        self._container_name = (
+            f"atelier-zoekt-{sha256(str(self.repo_root).encode('utf-8')).hexdigest()[:12]}-{os.getpid()}"
+        )
         self._started_at: float | None = None
         self.start_count = 0
 
@@ -97,7 +99,9 @@ class ZoektServer:
         self.ensure_started()
         runtime_ref = None
         if self.resolution is not None:
-            runtime_ref = self.resolution.image_ref or (str(self.resolution.path) if self.resolution.path is not None else None)
+            runtime_ref = self.resolution.image_ref or (
+                str(self.resolution.path) if self.resolution.path is not None else None
+            )
         index_age_seconds = None
         if self._started_at is not None:
             index_age_seconds = int(max(0, time.time() - self._started_at))
@@ -153,7 +157,7 @@ class ZoektServer:
         command = (
             "set -eu\n"
             "zoekt-index -index /data/index /input >/dev/null\n"
-            "printf '{\"started_at\": %s}\\n' \"$(date +%s)\" > /data/index/.atelier-zoekt-state.json\n"
+            'printf \'{"started_at": %s}\\n\' "$(date +%s)" > /data/index/.atelier-zoekt-state.json\n'
             "exec zoekt-webserver -index /data/index -pprof -rpc\n"
         )
         completed = _run_command(
@@ -228,10 +232,14 @@ class ZoektServer:
             )
             if probe.returncode == 0:
                 return
-            status = _run_command(["docker", "inspect", "-f", "{{.State.Running}}", self._container_id], check=False, timeout=10)
+            status = _run_command(
+                ["docker", "inspect", "-f", "{{.State.Running}}", self._container_id], check=False, timeout=10
+            )
             if status.returncode != 0 or status.stdout.strip() != "true":
                 logs = _run_command(["docker", "logs", self._container_id], check=False, timeout=10)
-                raise RuntimeError(logs.stderr.strip() or logs.stdout.strip() or "zoekt container exited before becoming ready")
+                raise RuntimeError(
+                    logs.stderr.strip() or logs.stdout.strip() or "zoekt container exited before becoming ready"
+                )
             time.sleep(_POLL_INTERVAL_SECONDS)
         raise RuntimeError("zoekt container did not become ready in time")
 
@@ -320,7 +328,9 @@ def _run_command(
         timeout=timeout,
     )
     if check and completed.returncode != 0:
-        raise RuntimeError(completed.stderr.strip() or completed.stdout.strip() or f"command failed: {' '.join(command)}")
+        raise RuntimeError(
+            completed.stderr.strip() or completed.stdout.strip() or f"command failed: {' '.join(command)}"
+        )
     return completed
 
 

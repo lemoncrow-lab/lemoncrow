@@ -301,7 +301,10 @@ def test_background_install_writes_native_stack_unit(tmp_path: Path, monkeypatch
     monkeypatch.setattr("atelier.gateway.adapters.cli._is_linux", lambda: True)
     monkeypatch.setattr("atelier.gateway.adapters.cli._is_macos", lambda: False)
     monkeypatch.setattr("atelier.gateway.adapters.cli.SYSTEMD_USER_DIR", unit_dir)
-    monkeypatch.setattr("atelier.gateway.adapters.cli.shutil.which", lambda name: "/bin/systemctl" if name == "systemctl" else "/usr/bin/atelier")
+    monkeypatch.setattr(
+        "atelier.gateway.adapters.cli.shutil.which",
+        lambda name: "/bin/systemctl" if name == "systemctl" else "/usr/bin/atelier",
+    )
     monkeypatch.setattr(
         "atelier.gateway.adapters.cli.subprocess.run",
         lambda args, **kwargs: commands.append([str(item) for item in args]),

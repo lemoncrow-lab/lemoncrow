@@ -117,7 +117,10 @@ class AtelierRuntimeCore:
 
         try:
             from atelier.core.capabilities.code_context import CodeContextEngine
-            from atelier.core.service.bootstrap_context import bootstrap_status, render_bootstrap_context
+            from atelier.core.service.bootstrap_context import (
+                bootstrap_status,
+                render_bootstrap_context,
+            )
             from atelier.infra.storage.factory import make_memory_store
 
             workspace_root = resolve_workspace_root(self.root)

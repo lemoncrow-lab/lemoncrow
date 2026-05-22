@@ -3,9 +3,11 @@
 Cases are tuples of (label, tool_args_for_atelier).
 The builtin equivalent is computed by the runner from those same args.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 # Repo root — resolved relative to this file so it works from any cwd.
 REPO = str(Path(__file__).resolve().parents[3])
@@ -13,33 +15,33 @@ REPO = str(Path(__file__).resolve().parents[3])
 # ---------------------------------------------------------------------------
 # read cases: (label, atelier args)
 # ---------------------------------------------------------------------------
-READ_CASES: list[tuple[str, dict]] = [
+READ_CASES: list[tuple[str, dict[str, Any]]] = [
     (
         "small/config",
-        {"path": f"{REPO}/pyproject.toml"},
+        {"file_path": f"{REPO}/pyproject.toml"},
     ),
     (
         "medium python",
-        {"path": f"{REPO}/src/atelier/core/capabilities/cross_vendor_routing/router.py"},
+        {"file_path": f"{REPO}/src/atelier/core/capabilities/cross_vendor_routing/router.py"},
     ),
     (
         "large python",
-        {"path": f"{REPO}/src/atelier/gateway/adapters/mcp_server.py"},
+        {"file_path": f"{REPO}/src/atelier/gateway/adapters/mcp_server.py"},
     ),
     (
         "markdown docs",
-        {"path": f"{REPO}/AGENTS.md"},
+        {"file_path": f"{REPO}/AGENTS.md"},
     ),
     (
         "test file",
-        {"path": f"{REPO}/tests/gateway/test_mcp_jsonrpc_e2e.py"},
+        {"file_path": f"{REPO}/tests/gateway/test_mcp_jsonrpc_e2e.py"},
     ),
 ]
 
 # ---------------------------------------------------------------------------
 # shell cases: (label, atelier args)
 # ---------------------------------------------------------------------------
-SHELL_CASES: list[tuple[str, dict]] = [
+SHELL_CASES: list[tuple[str, dict[str, Any]]] = [
     (
         "git log",
         {"command": "git log --oneline -10", "cwd": REPO},
@@ -60,17 +62,41 @@ SHELL_CASES: list[tuple[str, dict]] = [
         "capabilities ls",
         {"command": "ls src/atelier/core/capabilities/", "cwd": REPO},
     ),
+    (
+        "rewrite rg->grep",
+        {
+            "command": "rg tool_shell src/atelier/gateway/adapters/mcp_server.py",
+            "cwd": REPO,
+            "_expect": {"policy_action": "rewrite", "rewrite_target": "grep"},
+        },
+    ),
+    (
+        "rewrite cat->read",
+        {
+            "command": "cat src/atelier/core/environment.py",
+            "cwd": REPO,
+            "_expect": {"policy_action": "rewrite", "rewrite_target": "read"},
+        },
+    ),
+    (
+        "block bash interpreter",
+        {
+            "command": "bash -c 'echo benchmark'",
+            "cwd": REPO,
+            "_expect": {"policy_action": "block"},
+        },
+    ),
 ]
 
 # ---------------------------------------------------------------------------
 # search cases: (label, atelier args)
 # ---------------------------------------------------------------------------
-SEARCH_CASES: list[tuple[str, dict]] = [
+SEARCH_CASES: list[tuple[str, dict[str, Any]]] = [
     (
         "detect_configured",
         {
             "query": "detect_configured_vendors",
-            "path": REPO,
+            "file_path": REPO,
             "content_regex": "detect_configured_vendors",
             "file_glob_patterns": ["**/*.py"],
             "budget_tokens": 2000,
@@ -81,7 +107,7 @@ SEARCH_CASES: list[tuple[str, dict]] = [
         "NoFeasibleRouteError",
         {
             "query": "NoFeasibleRouteError",
-            "path": REPO,
+            "file_path": REPO,
             "content_regex": "NoFeasibleRouteError",
             "file_glob_patterns": ["**/*.py"],
             "budget_tokens": 2000,
@@ -92,7 +118,7 @@ SEARCH_CASES: list[tuple[str, dict]] = [
         "tool_smart_read",
         {
             "query": "tool_smart_read",
-            "path": REPO,
+            "file_path": REPO,
             "content_regex": "tool_smart_read",
             "file_glob_patterns": ["**/*.py"],
             "budget_tokens": 2000,
@@ -103,7 +129,7 @@ SEARCH_CASES: list[tuple[str, dict]] = [
         "CrossVendorRouter",
         {
             "query": "CrossVendorRouter",
-            "path": REPO,
+            "file_path": REPO,
             "content_regex": "CrossVendorRouter",
             "file_glob_patterns": ["**/*.py"],
             "budget_tokens": 2000,
@@ -114,7 +140,7 @@ SEARCH_CASES: list[tuple[str, dict]] = [
         "@mcp_tool decorator",
         {
             "query": "@mcp_tool",
-            "path": REPO,
+            "file_path": REPO,
             "content_regex": "@mcp_tool",
             "file_glob_patterns": ["**/*.py"],
             "budget_tokens": 2000,
@@ -123,7 +149,7 @@ SEARCH_CASES: list[tuple[str, dict]] = [
     ),
 ]
 
-ALL_CASES: dict[str, list[tuple[str, dict]]] = {
+ALL_CASES: dict[str, list[tuple[str, dict[str, Any]]]] = {
     "read": READ_CASES,
     "shell": SHELL_CASES,
     "search": SEARCH_CASES,

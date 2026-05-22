@@ -11,6 +11,7 @@ EXPECTED_TOOLS = {
     "memory",
     "read",
     "edit",
+    "grep",
     "sql",
     "search",
     "compact",

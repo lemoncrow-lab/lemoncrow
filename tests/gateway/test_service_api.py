@@ -100,10 +100,11 @@ def test_mcp_status_matches_non_dev_tool_visibility(store: SQLiteStore, monkeypa
     assert {tool["tool_name"] for tool in tools if tool["mode"] == "active"} == STABLE_LLM_TOOLS
     assert not {tool["tool_name"] for tool in tools if tool["mode"] == "passive"}
     assert "trace" in names
+    assert "read" in names
+    assert "grep" in names
+    assert "search" in names
     assert "compact" in names
     assert "memory" not in names
-    assert "read" not in names
-    assert "search" not in names
     assert "shell" not in names
 
 
@@ -240,9 +241,7 @@ def test_trace_record_accepts_legacy_run_id(app_no_auth: TestClient, store: SQLi
     assert trace.session_id == "legacy-run-001"
 
 
-def test_trace_record_normalizes_legacy_strength_confidence(
-    app_no_auth: TestClient, store: SQLiteStore
-) -> None:
+def test_trace_record_normalizes_legacy_strength_confidence(app_no_auth: TestClient, store: SQLiteStore) -> None:
     resp = app_no_auth.post(
         "/v1/traces",
         json={
