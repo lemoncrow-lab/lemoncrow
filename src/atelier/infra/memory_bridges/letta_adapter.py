@@ -176,7 +176,11 @@ class LettaAdapter:
             "atelier_deprecation_reason": reason,
         }
         try:
-            if hasattr(self.client, "blocks") and hasattr(self.client.blocks, "update"):
+            if (
+                hasattr(self.client, "blocks")
+                and not isinstance(self.client.blocks, dict)
+                and hasattr(self.client.blocks, "update")
+            ):
                 self.client.blocks.update(block_id=block_id, metadata=metadata)
                 return
         except Exception as exc:

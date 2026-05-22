@@ -19,8 +19,8 @@ DEV_LLM_TOOLS = frozenset(
     {
         "code",
         "context",
-        "edit",
-        "route",
+        "edit", #
+        "route", #
         "rescue",
         "shell",
         "sql",

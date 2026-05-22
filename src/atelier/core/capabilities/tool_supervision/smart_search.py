@@ -228,7 +228,11 @@ def _search_with_backend(
         max_chars_per_file=max_chars_per_file,
         include_outline=include_outline,
     )
-    return search_read_to_dict(result, include_metadata=False)
+    payload = search_read_to_dict(result, include_metadata=False)
+    payload["backend"] = result.backend
+    payload["index_age_seconds"] = result.index_age_seconds
+    payload["total_tokens"] = result.total_tokens
+    return payload
 
 
 def smart_search(
@@ -316,6 +320,7 @@ def smart_search(
             "mode": mode,
             "backend": backend,
             "index_age_seconds": payload.get("index_age_seconds"),
+            "total_tokens": payload.get("total_tokens", 0),
             "cache_hit": False,
         }
         if os.environ.get("ATELIER_CACHE_DISABLED") != "1":

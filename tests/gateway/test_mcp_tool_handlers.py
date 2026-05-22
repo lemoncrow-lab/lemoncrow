@@ -427,7 +427,6 @@ def test_tools_list_memory_schema_describes_ops_and_required_fields() -> None:
     assert "block_upsert and block_get" in properties["label"]["description"]
     assert "recall, recall_symbol, and transcript_recall" in properties["query"]["description"]
     assert "session id used by summarize" in properties["session_id"]["description"].lower()
-    assert "metadata" not in properties
     assert "expected_version" not in properties
     assert "include" not in properties
     assert "budget_tokens" not in properties

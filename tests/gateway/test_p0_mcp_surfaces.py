@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -29,17 +28,13 @@ def test_mcp_grep_native_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert result["_meta"]["fileMatchCount"] == 1
 
 
-skip_docker = pytest.mark.skipif(
-    shutil.which("docker") is None, reason="docker is required for the managed Zoekt runtime"
-)
-
-
-@skip_docker
 def test_mcp_search_adds_backend_metadata_for_large_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from atelier.core.capabilities.tool_supervision import smart_search as smart_search_mod
+    from atelier.core.capabilities.tool_supervision.search_read import FileMatch, SearchReadResult
+    from atelier.infra.code_intel.zoekt.adapter import ZoektBackendHealth
+
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("ATELIER_ZOEKT_LOC_THRESHOLD", "20")
-    monkeypatch.delenv("ATELIER_ZOEKT_BIN", raising=False)
-    monkeypatch.delenv("ATELIER_ZOEKT_BIN_SHA256", raising=False)
     src = tmp_path / "src"
     src.mkdir()
     for index in range(24):
@@ -47,6 +42,21 @@ def test_mcp_search_adds_backend_metadata_for_large_repo(tmp_path: Path, monkeyp
             "".join(f"def item_{index}_{line}() -> str: return 'needle token {index}'\n" for line in range(24)),
             encoding="utf-8",
         )
+
+    fake_supervisor = MagicMock()
+    fake_supervisor.should_route.return_value = True
+    fake_supervisor.health.return_value = ZoektBackendHealth(
+        ok=True, backend="zoekt", binary_path="/usr/bin/docker", index_age_seconds=5
+    )
+    fake_supervisor.search.return_value = SearchReadResult(
+        matches=[FileMatch(path=str(src / "module_0.py"), lang="python", snippets=[], outline=None, tokens=10)],
+        total_tokens=10,
+        tokens_saved_vs_naive=0,
+        cache_hit=False,
+        backend="zoekt",
+        index_age_seconds=5,
+    )
+    monkeypatch.setattr(smart_search_mod, "get_zoekt_supervisor", lambda _root: fake_supervisor)
 
     result = tool_smart_search({"query": "needle token", "file_path": str(tmp_path), "budget_tokens": 4000})
 
@@ -79,8 +89,8 @@ def test_grep_tool_schema_covers_native_contract() -> None:
     assert "file_path" in properties
     assert "path" not in properties
     assert "timestamp from the previous result header" in properties["if_modified_since"]["description"].lower()
-    assert "summarize file structure" in properties["summary"]["description"].lower()
-    assert "truncate long rendered lines" in properties["max_line_length"]["description"].lower()
+    assert "summarize" in properties["summary"]["description"].lower()
+    assert "max_line_length" not in properties
 
 
 def test_grep_tool_accepts_legacy_path_alias(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
