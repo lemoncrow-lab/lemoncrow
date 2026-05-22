@@ -363,11 +363,19 @@ def retrieve(
 ) -> list[ScoredBlock]:
     """Return top-N relevant ReasonBlocks for a task context.
 
+    Applies three-tier injection order modelled on the ReasonBlocks.com E-trace
+    system:
+      E3 (tier="e3") — universal standing rules always prepended first.
+      E2 (tier="e2") — relevance-scored failure-mode patterns (default tier).
+      E1 (tier="e1") — instance-level procedures only injected when ctx.errors
+                        is non-empty (monitor-like gate: the agent is actively
+                        struggling).
+
     Args:
         store: The backing store.
         ctx: The current task context.
-        limit: Maximum number of results.
-        min_score: Minimum score to include a block.
+        limit: Maximum number of results (E3 blocks are extra, not counted here).
+        min_score: Minimum relevance score for E2/E1 blocks.
         include_deprecated: Include deprecated blocks.
         vector_scores: Mapping of block_id -> cosine similarity score.
             Pass pre-computed scores from a vector search; they will be
@@ -390,6 +398,10 @@ def retrieve(
     if ctx.domain:
         candidates.extend(store.list_blocks(domain=ctx.domain))
 
+    # 3. Always load E3 (universal) blocks across all domains — they are
+    #    standing rules that apply regardless of domain match.
+    candidates.extend(store.list_blocks(status="active"))
+
     # Deduplicate by id while preserving order.
     seen: set[str] = set()
     unique: list[ReasonBlock] = []
@@ -403,6 +415,20 @@ def retrieve(
         seen.add(b.id)
         unique.append(b)
 
+    # Gate E1 blocks: only inject when errors are present (agent is struggling).
+    # This mirrors the ReasonBlocks.com monitor gate: E1 fires only when a
+    # monitor signal is active. Without errors, E1 blocks are dropped.
+    errors_present = bool(ctx.errors)
+    filtered: list[ReasonBlock] = []
+    e3_blocks: list[ReasonBlock] = []
+    for b in unique:
+        if b.tier == "e3":
+            e3_blocks.append(b)
+        elif b.tier == "e1" and not errors_present:
+            pass  # E1 gated: skip when no error signals
+        else:
+            filtered.append(b)
+
     scored = [
         score_block(
             b,
@@ -410,15 +436,21 @@ def retrieve(
             vector_score=(vector_scores or {}).get(b.id),
             use_vector_weights=use_vector_weights,
         )
-        for b in unique
+        for b in filtered
     ]
     scored = [s for s in scored if s.score >= min_score]
     scored.sort(key=lambda s: s.score, reverse=True)
     if dedup:
         scored = deduplicate_scored_blocks(scored)
-    return pack_by_reasonblock_token_budget(
+    e2_e1_results = pack_by_reasonblock_token_budget(
         scored,
         lambda item: item.block,
         limit=limit,
         token_budget=token_budget,
     )
+
+    # Prepend E3 blocks (always injected, not subject to limit or min_score).
+    # Score them at 1.0 to ensure they sort first in any downstream processing.
+    e3_scored = [ScoredBlock(block=b, score=1.0, breakdown={"tier": 1.0}) for b in e3_blocks]
+    return e3_scored + e2_e1_results
+
