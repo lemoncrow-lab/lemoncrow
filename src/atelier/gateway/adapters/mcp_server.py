@@ -1547,6 +1547,7 @@ def tool_memory(
     query: Annotated[str | None, Field(description="Search query used by recall, recall_symbol, and transcript_recall.")] = None,
     top_k: Annotated[int, Field(description="Max results to return for recall and recall_symbol ops.")] = 5,
     session_id: Annotated[str | None, Field(description="Session id used by summarize.")] = None,
+    metadata: Annotated[dict[str, Any] | None, Field(description="Optional metadata dict attached to block_upsert.")] = None,
 ) -> dict[str, Any] | None:
     """Memory op-dispatch: block_upsert, block_get, archive, recall, recall_symbol, transcript_recall, or summarize."""
 
@@ -1560,6 +1561,7 @@ def tool_memory(
             agent_id=agent_id or "shared",
             label=require("label", label),
             value=require("value", value),
+            metadata=metadata,
         )
     if op == "block_get":
         return _memory_get_block(agent_id=agent_id, label=require("label", label))
@@ -2701,7 +2703,6 @@ def _run_native_grep(
     file_limit: int | None,
     lines_per_file: int | None,
     if_modified_since: str | None,
-    max_line_length: int | None,
     multiline: bool,
     summary: bool | None,
     context_budget_tokens: int,
@@ -2720,7 +2721,7 @@ def _run_native_grep(
         file_limit=file_limit,
         lines_per_file=lines_per_file,
         if_modified_since=if_modified_since,
-        max_line_length=max_line_length,
+        max_line_length=1000,
         multiline=multiline,
         summary=summary,
         context_budget_tokens=context_budget_tokens,
@@ -2763,8 +2764,10 @@ def tool_grep(
         Literal["ranked_file_map", "file_paths_with_content", "file_paths_only", "file_paths_with_match_count"],
         Field(
             description=(
-                "Return ranked file map pointers, matched content, only file paths, "
-                "or file paths annotated with match counts."
+                "`ranked_file_map` (default): token-budgeted pointers with line ranges and symbols — best for navigation. "
+                "`file_paths_with_content`: matched lines with context — best for reading content. "
+                "`file_paths_only`: just paths — best for listings. "
+                "`file_paths_with_match_count`: paths with hit counts — best for frequency analysis."
             )
         ),
     ] = "ranked_file_map",
@@ -2794,7 +2797,7 @@ def tool_grep(
     ] = None,
     lines_per_file: Annotated[
         int | None,
-        Field(description="Cap the rendered lines per matching file."),
+        Field(description="Cap the number of matched lines rendered per file (applies to `file_paths_with_content` mode)."),
     ] = 500,
     if_modified_since: Annotated[
         str | None,
@@ -2805,10 +2808,6 @@ def tool_grep(
             )
         ),
     ] = None,
-    max_line_length: Annotated[
-        int | None,
-        Field(description="Truncate long rendered lines to this many characters."),
-    ] = 1000,
     multiline: Annotated[
         bool,
         Field(description=("Enable multiline regex matching so `.` spans newlines and `^` / `$` work per line.")),
@@ -2817,13 +2816,22 @@ def tool_grep(
         bool | None,
         Field(
             description=(
-                "Summarize file structure instead of returning full content when the file " "type supports it."
+                "Control structural summarization of matched files. "
+                "Omit (default): auto — summarizes Python/JS/TS files over 500 LOC. "
+                "`true`: always summarize (signatures and imports only). "
+                "`false`: never summarize (always return raw matched lines)."
             )
         ),
     ] = None,
     context_budget_tokens: Annotated[
         int,
-        Field(description="Token budget for ranked_file_map output and follow-up handles."),
+        Field(
+            description=(
+                "Token budget that caps output size. For `ranked_file_map` mode this limits "
+                "the number of file handles returned; for `file_paths_with_content` it caps "
+                "total rendered characters. Default 6000 is suitable for most queries."
+            )
+        ),
     ] = 6000,
 ) -> dict[str, Any]:
     """Run grep-style search with regex, globs, type filters, and token-budgeted rendering.
@@ -2843,7 +2851,6 @@ def tool_grep(
         file_limit=file_limit,
         lines_per_file=lines_per_file,
         if_modified_since=if_modified_since,
-        max_line_length=max_line_length,
         multiline=multiline,
         summary=summary,
         context_budget_tokens=context_budget_tokens,

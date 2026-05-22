@@ -1061,7 +1061,7 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     assert context["token_count"] <= context["budget_tokens"]
     assert context["provenance"] == "local"
 
-    impact = _result(_call("code", {"op": "impact", "repo_root": str(tmp_path), "file_path": "a.py"}))
+    impact = _result(_call("code", {"op": "impact", "repo_root": str(tmp_path), "path": "a.py"}))
     assert "b.py" in impact["direct_importers"]
     assert impact["provenance"] == "local"
 

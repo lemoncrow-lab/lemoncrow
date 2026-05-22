@@ -711,7 +711,7 @@ def search_workspace(
             total_chars += len(text)
             blocks.append({"type": "text", "text": text})
             continue
-        rendered, _count = _render_text_result(
+        _file_rendered, _count = _render_text_result(
             candidate,
             root,
             spec,
@@ -725,8 +725,9 @@ def search_workspace(
             summary=summary,
             if_modified_since=since,
         )
-        if rendered is None:
+        if _file_rendered is None:
             continue
+        rendered = _file_rendered
         file_match_count += 1
         remaining = effective_cap_chars - total_chars
         if remaining <= 0:
