@@ -730,7 +730,7 @@ def test_smart_read_and_search_surfaces(store_root: Path, tmp_path: Path) -> Non
     target = tmp_path / "sample.py"
     target.write_text("def alpha():\n    return 'needle'\n", encoding="utf-8")
 
-    read_payload = _result(_call("read", {"file_path": str(target), "max_lines": 20}))
+    read_payload = _result(_call("read", {"file_path": str(target)}))
     assert read_payload["language"] == "python"
 
     search_payload = _result(_call("search", {"query": "needle", "file_path": str(tmp_path)}))
