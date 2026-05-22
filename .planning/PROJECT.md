@@ -59,12 +59,7 @@ with near-zero token overhead by default.
 
 ### Active
 
-- [ ] Extend the current tool surface with the remaining planned code-intel
-  behaviors from `docs/plans/active/code-intel/` M9-M18 without breaking
-  existing entry points
-- [ ] Deliver the remaining roadmap phases until Atelier's default
-  code/search/edit workflows are near-zero-token, budget-aware, traceable, and
-  validated end to end
+*v1.0 complete. All 18 requirements shipped. Start next milestone with `/gsd-new-milestone`.*
 
 ### Out of Scope
 
