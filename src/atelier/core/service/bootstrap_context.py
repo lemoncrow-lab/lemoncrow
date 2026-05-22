@@ -347,10 +347,7 @@ def _is_entry_point(*, file_path: str, basename: str, name: str) -> bool:
 
 def _bootstrap_path_allowed(path_text: str) -> bool:
     parts = [part for part in Path(path_text).parts if part not in {"", "."}]
-    for part in parts:
-        if part in _BOOTSTRAP_IGNORED_PARTS:
-            return False
-    return True
+    return all(part not in _BOOTSTRAP_IGNORED_PARTS for part in parts)
 
 
 __all__ = [

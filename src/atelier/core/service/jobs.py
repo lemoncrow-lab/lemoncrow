@@ -37,6 +37,8 @@ JOB_COMPUTE_EMBEDDINGS = "compute_embeddings"
 JOB_CONSOLIDATE_BLOCKS = "consolidate_reasonblocks"
 JOB_RETENTION_CLEANUP = "retention_cleanup"
 JOB_BOOTSTRAP_CONTEXT = "bootstrap_context"
+JOB_INGEST_SESSION_FILE = "ingest_session_file"
+JOB_INGEST_SESSION_DIRECTORY = "ingest_session_directory"
 
 KNOWN_JOB_TYPES: frozenset[str] = frozenset(
     {
@@ -47,6 +49,8 @@ KNOWN_JOB_TYPES: frozenset[str] = frozenset(
         JOB_CONSOLIDATE_BLOCKS,
         JOB_RETENTION_CLEANUP,
         JOB_BOOTSTRAP_CONTEXT,
+        JOB_INGEST_SESSION_FILE,
+        JOB_INGEST_SESSION_DIRECTORY,
     }
 )
 
@@ -58,6 +62,7 @@ __all__ = [
     "JOB_CONSOLIDATE_BLOCKS",
     "JOB_EXTRACT_REASONBLOCK",
     "JOB_GENERATE_EVAL",
+    "JOB_INGEST_SESSION_FILE",
     "JOB_RETENTION_CLEANUP",
     "KNOWN_JOB_TYPES",
     "Job",

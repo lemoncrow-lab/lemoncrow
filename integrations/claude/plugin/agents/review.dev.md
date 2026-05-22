@@ -2,6 +2,7 @@
 name: review
 description: Verifier agent. Reviews a finished or in-progress patch against Atelier ReasonBlocks and rubrics. Uses verify but never edits code.
 color: green
+model: claude-sonnet-4-5
 tools:
   [
     "Read",

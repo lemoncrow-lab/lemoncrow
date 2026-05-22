@@ -20,8 +20,8 @@ from pathlib import Path
 from atelier.core.foundation.models import (
     CommandRecord,
     FileEditRecord,
-    ToolCall,
     ReasonBlock,
+    ToolCall,
     Trace,
     ValidationResult,
     slugify,
@@ -50,6 +50,17 @@ _TRIGGER_STOPWORDS = {
     "will",
     "does",
     "just",
+}
+_COMMAND_WRAPPER_TOKENS = {
+    "uv",
+    "run",
+    "python",
+    "python3",
+    "env",
+    "bash",
+    "sh",
+    "time",
+    "nohup",
 }
 
 
@@ -141,8 +152,7 @@ def _derive_tool_patterns(trace: Trace) -> list[str]:
         text = _trace_command_text(command).strip()
         if not text:
             continue
-        head = re.split(r"\s+", text, maxsplit=1)[0].strip()
-        exe = Path(head).name
+        exe = _infer_command_tool(text)
         if exe:
             patterns.append(exe)
     return list(dict.fromkeys(patterns))[:12]
@@ -191,6 +201,18 @@ def _trace_validation_text(item: ValidationResult) -> str:
     state = "passed" if item.passed else "failed"
     detail = f" ({item.detail})" if item.detail else ""
     return f"{item.name} {state}{detail}"
+
+
+def _infer_command_tool(command: str) -> str:
+    tokens = [token for token in re.split(r"\s+", command.strip()) if token]
+    for token in tokens:
+        base = Path(token).name
+        if not base or base.startswith("-"):
+            continue
+        if base in _COMMAND_WRAPPER_TOKENS:
+            continue
+        return base
+    return ""
 
 
 def _derive_verification(trace: Trace) -> list[str]:

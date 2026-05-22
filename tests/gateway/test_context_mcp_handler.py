@@ -34,6 +34,7 @@ from atelier.core.service.jobs import (
     JOB_CONSOLIDATE_BLOCKS,
     JOB_EXTRACT_REASONBLOCK,
     JOB_GENERATE_EVAL,
+    JOB_INGEST_SESSION_FILE,
     JOB_RETENTION_CLEANUP,
 )
 from atelier.gateway.adapters.mcp_server import _handle
@@ -444,7 +445,7 @@ def test_worker_run_once_handler_exception_marks_failed(ctx_root: Path) -> None:
 
 
 def test_all_known_job_types_defined(ctx_root: Path) -> None:
-    """Verify all 7 expected job type constants are present in KNOWN_JOB_TYPES."""
+    """Verify all expected job type constants are present in KNOWN_JOB_TYPES."""
     expected = {
         JOB_EXTRACT_REASONBLOCK,
         JOB_ANALYZE_FAILURES,
@@ -453,6 +454,7 @@ def test_all_known_job_types_defined(ctx_root: Path) -> None:
         JOB_CONSOLIDATE_BLOCKS,
         JOB_RETENTION_CLEANUP,
         JOB_BOOTSTRAP_CONTEXT,
+        JOB_INGEST_SESSION_FILE,
     }
     assert expected == KNOWN_JOB_TYPES
 

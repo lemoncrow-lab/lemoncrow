@@ -2,11 +2,11 @@
 Atelier tool benchmark CLI.
 
 Usage:
-    uv run python -m benchmarks.tool_bench
-    uv run python -m benchmarks.tool_bench --hosts claude codex
-    uv run python -m benchmarks.tool_bench --tools read shell
-    uv run python -m benchmarks.tool_bench --hosts all --tools all --out /tmp/bench.json
-    uv run python -m benchmarks.tool_bench --check-only   # enforcement + savings audit only
+    uv run python -m src.benchmarks.tool_bench
+    uv run python -m src.benchmarks.tool_bench --hosts claude codex
+    uv run python -m src.benchmarks.tool_bench --tools read shell
+    uv run python -m src.benchmarks.tool_bench --hosts all --tools all --out /tmp/bench.json
+    uv run python -m src.benchmarks.tool_bench --check-only   # enforcement + savings audit only
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from .runner import HOSTS, run_benchmark
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        prog="python -m benchmarks.tool_bench",
+        prog="python -m src.benchmarks.tool_bench",
         description="Measure savings + correctness: builtin vs atelier MCP across all host CLIs.",
     )
     p.add_argument(
