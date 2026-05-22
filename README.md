@@ -1,5 +1,26 @@
 # Atelier — Open-Source Context Runtime
 
+<p align="center">
+  <a href="https://github.com/atelier-runtime/atelier/stargazers"><img src="https://img.shields.io/github/stars/atelier-runtime/atelier?style=for-the-badge" alt="GitHub stars" /></a>
+  <a href="https://github.com/atelier-runtime/atelier/network/members"><img src="https://img.shields.io/github/forks/atelier-runtime/atelier?style=for-the-badge" alt="GitHub forks" /></a>
+  <a href="https://github.com/atelier-runtime/atelier/watchers"><img src="https://img.shields.io/github/watchers/atelier-runtime/atelier?style=for-the-badge" alt="GitHub watchers" /></a>
+  <a href="https://github.com/atelier-runtime/atelier/issues"><img src="https://img.shields.io/github/issues/atelier-runtime/atelier?style=for-the-badge" alt="GitHub issues" /></a>
+  <a href="https://github.com/atelier-runtime/atelier/pulls"><img src="https://img.shields.io/github/issues-pr/atelier-runtime/atelier?style=for-the-badge" alt="GitHub pull requests" /></a>
+  <a href="https://github.com/atelier-runtime/atelier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/atelier-runtime/atelier?style=for-the-badge" alt="License" /></a>
+  <a href="https://github.com/atelier-runtime/atelier"><img src="https://img.shields.io/github/repo-size/atelier-runtime/atelier?style=for-the-badge" alt="Repository size" /></a>
+  <a href="https://github.com/atelier-runtime/atelier"><img src="https://img.shields.io/github/languages/code-size/atelier-runtime/atelier?style=for-the-badge" alt="Code size" /></a>
+  <a href="https://github.com/atelier-runtime/atelier"><img src="https://img.shields.io/github/languages/count/atelier-runtime/atelier?style=for-the-badge" alt="Language count" /></a>
+  <a href="https://github.com/atelier-runtime/atelier"><img src="https://img.shields.io/github/languages/top/atelier-runtime/atelier?style=for-the-badge" alt="Top language" /></a>
+  <a href="https://github.com/atelier-runtime/atelier/commits/main"><img src="https://img.shields.io/github/last-commit/atelier-runtime/atelier?style=for-the-badge" alt="Last commit" /></a>
+  <a href="https://github.com/atelier-runtime/atelier/graphs/commit-activity"><img src="https://img.shields.io/github/commit-activity/m/atelier-runtime/atelier?style=for-the-badge" alt="Monthly commit activity" /></a>
+  <a href="https://github.com/atelier-runtime/atelier/graphs/contributors"><img src="https://img.shields.io/github/contributors/atelier-runtime/atelier?style=for-the-badge" alt="Contributors" /></a>
+  <a href="https://github.com/atelier-runtime/atelier/releases"><img src="https://img.shields.io/github/v/release/atelier-runtime/atelier?style=for-the-badge" alt="Latest release" /></a>
+  <a href="https://github.com/atelier-runtime/atelier/releases"><img src="https://img.shields.io/github/downloads/atelier-runtime/atelier/total?style=for-the-badge" alt="Total downloads" /></a>
+  <a href="https://github.com/atelier-runtime/atelier/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge" alt="PRs welcome" /></a>
+  <a href="https://github.com/atelier-runtime/atelier"><img src="https://img.shields.io/badge/Maintained-yes-success?style=for-the-badge" alt="Maintained" /></a>
+  <a href="https://github.com/atelier-runtime/atelier"><img src="https://img.shields.io/badge/Open%20Source-%E2%9D%A4-red?style=for-the-badge" alt="Open source" /></a>
+</p>
+
 **Reusable engineering judgment for AI-assisted coding.**
 
 Make your best engineers’ judgment available to junior engineers and AI agents.
