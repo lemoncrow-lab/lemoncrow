@@ -11,7 +11,7 @@ SUPPORTED_HOSTS = [
     "Codex CLI",
     "Copilot",
     "opencode",
-    "Gemini CLI",
+    "Antigravity",
 ]
 
 REQUIRED_HOST_MATRIX_COLUMNS = [

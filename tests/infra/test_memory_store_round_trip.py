@@ -7,6 +7,7 @@ import pytest
 
 from atelier.core.foundation.memory_models import ArchivalPassage, MemoryBlock, RunMemoryFrame
 from atelier.infra.memory_bridges.letta_adapter import LettaMemoryStore
+from atelier.infra.memory_bridges.openmemory import OpenMemoryMemoryStore
 from atelier.infra.storage.memory_store import MemoryStore
 from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
@@ -75,11 +76,38 @@ class _FakeLettaClient:
             self.passages[passage_id]["metadata"] = existing
 
 
-@pytest.fixture(params=["sqlite", "letta"])
+class _FakeOpenMemoryClient:
+    def __init__(self) -> None:
+        self.rows: list[dict[str, Any]] = []
+
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        if name == "add_memories":
+            row = {
+                "id": f"mem-{len(self.rows) + 1}",
+                "memory": str(arguments["messages"][0]["content"]),
+                "metadata": dict(arguments.get("metadata") or {}),
+            }
+            self.rows.append(row)
+            return {"results": [row]}
+        if name == "search_memory":
+            query = str(arguments["query"]).lower()
+            return [
+                row
+                for row in self.rows
+                if query in row["memory"].lower() or query in str(row.get("metadata", {})).lower()
+            ]
+        if name == "list_memories":
+            return list(self.rows)
+        raise AssertionError(f"unexpected tool call: {name}")
+
+
+@pytest.fixture(params=["sqlite", "letta", "openmemory"])
 def memory_store(request: pytest.FixtureRequest, tmp_path: Path) -> MemoryStore:
     if request.param == "sqlite":
         return SqliteMemoryStore(tmp_path / "atelier")
-    return LettaMemoryStore(tmp_path / "atelier", client=_FakeLettaClient())
+    if request.param == "letta":
+        return LettaMemoryStore(tmp_path / "atelier", client=_FakeLettaClient())
+    return OpenMemoryMemoryStore(tmp_path / "atelier", client=_FakeOpenMemoryClient())
 
 
 def test_memory_store_core_round_trip(memory_store: MemoryStore) -> None:
@@ -143,6 +171,27 @@ def test_letta_memory_store_does_not_mirror_primary_memory_to_sqlite(tmp_path: P
             tags=["letta"],
             source="user",
             dedup_hash="letta-primary",
+        )
+    )
+
+    sqlite = SqliteMemoryStore(tmp_path / "atelier")
+    assert sqlite.get_block("atelier:code", "primary") is None
+    assert sqlite.list_passages("atelier:code") == []
+
+
+def test_openmemory_memory_store_does_not_mirror_primary_memory_to_sqlite(tmp_path: Path) -> None:
+    store = OpenMemoryMemoryStore(tmp_path / "atelier", client=_FakeOpenMemoryClient())
+    store.upsert_block(
+        MemoryBlock(agent_id="atelier:code", label="primary", value="stored in openmemory"),
+        actor="agent:atelier:code",
+    )
+    store.insert_passage(
+        ArchivalPassage(
+            agent_id="atelier:code",
+            text="OpenMemory owns this archival passage.",
+            tags=["openmemory"],
+            source="user",
+            dedup_hash="openmemory-primary",
         )
     )
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -12,6 +13,32 @@ from atelier.core.foundation.store import ContextStore
 
 if TYPE_CHECKING:
     from atelier.gateway.adapters.runtime import ContextRuntime
+
+
+@pytest.fixture(autouse=True)
+def _no_network_sync() -> Iterator[None]:
+    """Block all outbound sync_usage calls so no test ever hits atelier.beseam.com."""
+    with patch("atelier.core.service.usage_sync.sync_usage", return_value=True):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _no_ollama() -> Iterator[None]:
+    """Block real Ollama calls so no test waits on a local LLM.
+
+    Patches _ollama_module() — the single gateway all ollama_client functions
+    (summarize, chat) use — so the mock works even for callers that did
+    ``from atelier.infra.internal_llm.ollama_client import summarize``.
+
+    Tests that explicitly need LLM behaviour should override via monkeypatch.
+    """
+    from atelier.infra.internal_llm.ollama_client import OllamaUnavailable
+
+    with patch(
+        "atelier.infra.internal_llm.ollama_client._ollama_module",
+        side_effect=OllamaUnavailable("ollama blocked in tests"),
+    ):
+        yield
 
 
 @pytest.fixture()

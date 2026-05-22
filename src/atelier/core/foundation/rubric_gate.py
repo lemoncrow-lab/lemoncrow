@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 
 from atelier.core.foundation.models import (
     Rubric,
@@ -81,6 +82,30 @@ def run_rubric(
 
 
 def load_packaged_rubrics() -> list[Rubric]:
-    """Load all rubrics shipped with the package."""
-    # TODO: Implement actual loading from package resources
-    return []
+    """Load all rubrics shipped with the package.
+
+    Reads every ``*.yaml`` / ``*.yml`` file from the sibling ``rubrics/``
+    package directory (``atelier/core/rubrics/``).  Parse failures are logged
+    and skipped so a single bad file never prevents the store from starting.
+    """
+    import logging
+
+    import yaml
+
+    rubrics_dir = Path(__file__).parent.parent / "rubrics"
+    rubrics: list[Rubric] = []
+
+    if not rubrics_dir.is_dir():
+        return rubrics
+
+    paths = sorted(rubrics_dir.glob("*.yaml")) + sorted(rubrics_dir.glob("*.yml"))
+    for path in paths:
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            rubrics.append(Rubric.model_validate(data))
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "failed to load packaged rubric %s: %s", path.name, exc
+            )
+
+    return rubrics

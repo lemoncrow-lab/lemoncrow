@@ -21,8 +21,9 @@ Enabled by setting `ATELIER_LANGFUSE_ENABLED=1` (or `true`/`yes`) plus `LANGFUSE
 
 ## OpenMemory Contract
 
-- Local bridge is always available and writes events under `.atelier/openmemory`.
-- Remote sync is best-effort and gated by `ATELIER_OPENMEMORY_ENABLED=true`.
+- Local bridge is always active (no separate enable toggle — set `ATELIER_MEMORY_BACKEND=openmemory` to activate it).
+- SQLite-backed, stores in the existing `atelier.db` (no separate file).
+- Remote sync is best-effort: MCP client is created lazily and never blocks local persistence.
 - Public functions return stable payloads with `ok`, `action`, and `data`.
 
 ## Where To Look Next

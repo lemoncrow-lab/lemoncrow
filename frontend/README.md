@@ -3,16 +3,16 @@
 Vite + React + TypeScript + Tailwind dashboard for the Atelier reasoning
 runtime. Reads from `atelier-api` (FastAPI HTTP wrapper) on port 8787.
 
-## Run (Docker, recommended)
+## Run (native, recommended)
 
-The dashboard is part of the project compose stack. From the repo root:
+The dashboard is part of the native stack. From the repo root:
 
 ```bash
 make start          # brings up atelier-api + atelier-frontend
 open http://localhost:3125
 ```
 
-## Run (local)
+## Run (manual)
 
 ```bash
 cd atelier/frontend

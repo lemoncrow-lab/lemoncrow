@@ -2,7 +2,7 @@
 # verify_agent_clis.sh — Verify Atelier installation across all agent CLIs
 #
 # Runs verification for each host. For hosts where verification is embedded in
-# the install script (codex, copilot, gemini, opencode), it calls the install
+# the install script (codex, copilot, antigravity, opencode), it calls the install
 # script which runs post-install checks. For claude, it uses verify_claude.sh.
 # Hosts that were skipped (CLI absent) do not count as failures.
 #
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 declare -A RESULTS
-HOSTS=(claude codex opencode copilot gemini)
+HOSTS=(claude codex opencode copilot antigravity)
 
 for host in "${HOSTS[@]}"; do
     echo ""

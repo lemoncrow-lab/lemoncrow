@@ -76,49 +76,91 @@ class LettaAdapter:
 
     def upsert_block(self, block: MemoryBlock) -> dict[str, Any]:
         payload = self.block_to_letta(block)
+        agent_id = block.agent_id or "default"
+        try:
+            # New SDK (>= 1.7): agents.blocks.update does label-scoped upsert
+            if hasattr(self.client, "agents") and hasattr(self.client.agents, "blocks"):
+                result = self.client.agents.blocks.update(
+                    block_label=block.label,
+                    agent_id=agent_id,
+                    value=payload["value"],
+                    metadata=payload.get("metadata"),
+                    tags=payload.get("tags"),
+                    limit=payload.get("limit"),
+                )
+                return self._as_mapping(result)
+        except Exception:
+            # Block may not exist yet — create standalone + attach
+            pass
+        try:
+            if hasattr(self.client, "blocks") and hasattr(self.client.blocks, "create"):
+                result = self.client.blocks.create(**payload)
+                block_id = result.id if hasattr(result, "id") else result.get("id", "")
+                if block_id and hasattr(self.client, "agents") and hasattr(self.client.agents, "blocks"):
+                    try:
+                        self.client.agents.blocks.attach(block_id=block_id, agent_id=agent_id)
+                    except Exception:
+                        pass  # best-effort attach
+                return self._as_mapping(result)
+        except Exception as exc:
+            raise _sidecar_error(exc) from exc
+        # Fallback: try flat API
         try:
             if hasattr(self.client, "upsert_block"):
                 result = self.client.upsert_block(payload)
-            elif hasattr(self.client, "blocks") and hasattr(self.client.blocks, "upsert"):
-                result = self.client.blocks.upsert(**payload)
-            elif hasattr(self.client, "blocks") and hasattr(self.client.blocks, "create"):
-                result = self.client.blocks.create(**payload)
-            else:
-                raise RuntimeError("Letta client does not expose block upsert")
-        except Exception as exc:  # pragma: no cover - exercised via fake client tests
+                return self._as_mapping(result)
+        except Exception as exc:
             raise _sidecar_error(exc) from exc
-        return self._as_mapping(result)
+        raise RuntimeError("Letta client does not expose block upsert")
 
     def get_block(self, agent_id: str, label: str) -> dict[str, Any] | None:
         try:
+            # New SDK: agents.blocks.retrieve by label
+            if hasattr(self.client, "agents") and hasattr(self.client.agents, "blocks"):
+                result = self.client.agents.blocks.retrieve(block_label=label, agent_id=agent_id)
+                return self._as_mapping(result)
+        except Exception:
+            pass
+        # Fallback: flat get_block
+        try:
             if hasattr(self.client, "get_block"):
                 result = self.client.get_block(agent_id=agent_id, label=label)
-            elif hasattr(self.client, "blocks") and hasattr(self.client.blocks, "get"):
-                result = self.client.blocks.get(label=label, agent_id=agent_id)
-            else:
-                result = None
+                return self._as_mapping(result) if result else None
         except Exception as exc:
             raise _sidecar_error(exc) from exc
-        return self._as_mapping(result) if result is not None else None
+        return None
 
     def list_blocks(self, agent_id: str) -> list[dict[str, Any]]:
         try:
-            if hasattr(self.client, "list_blocks"):
-                result = self.client.list_blocks(agent_id=agent_id)
-            elif hasattr(self.client, "blocks") and hasattr(self.client.blocks, "list"):
-                result = self.client.blocks.list(agent_id=agent_id)
-            else:
-                result = []
+            # New SDK: agents.blocks.list
+            if hasattr(self.client, "agents") and hasattr(self.client.agents, "blocks"):
+                result = self.client.agents.blocks.list(agent_id=agent_id)
+                items = result.data if hasattr(result, "data") else result
+                return [self._as_mapping(item) for item in items or []]
         except Exception as exc:
             raise _sidecar_error(exc) from exc
-        return [self._as_mapping(item) for item in result or []]
+        # Fallback: flat list_blocks
+        try:
+            if hasattr(self.client, "list_blocks"):
+                result = self.client.list_blocks(agent_id=agent_id)
+                return [self._as_mapping(item) for item in result or []]
+        except Exception as exc:
+            raise _sidecar_error(exc) from exc
+        return []
 
     def delete_block(self, block_id: str) -> None:
         try:
+            # New SDK: blocks.delete
+            if hasattr(self.client, "blocks") and hasattr(self.client.blocks, "delete"):
+                self.client.blocks.delete(block_id)
+                return
+        except Exception as exc:
+            raise _sidecar_error(exc) from exc
+        # Fallback
+        try:
             if hasattr(self.client, "delete_block"):
                 self.client.delete_block(block_id)
-            elif hasattr(self.client, "blocks") and hasattr(self.client.blocks, "delete"):
-                self.client.blocks.delete(block_id)
+                return
         except Exception as exc:
             raise _sidecar_error(exc) from exc
 
@@ -135,29 +177,49 @@ class LettaAdapter:
             "atelier_deprecation_reason": reason,
         }
         try:
+            if hasattr(self.client, "blocks") and hasattr(self.client.blocks, "update"):
+                self.client.blocks.update(block_id=block_id, metadata=metadata)
+                return
+        except Exception as exc:
+            raise _sidecar_error(exc) from exc
+        try:
+            if hasattr(self.client, "update_block"):
+                self.client.update_block(block_id=block_id, metadata=metadata)
+                return
+        except Exception as exc:
+            raise _sidecar_error(exc) from exc
+        try:
             if hasattr(self.client, "tombstone_block"):
                 self.client.tombstone_block(block_id=block_id, metadata=metadata)
-            elif hasattr(self.client, "update_block"):
-                self.client.update_block(block_id=block_id, metadata=metadata)
-            elif hasattr(self.client, "blocks") and hasattr(self.client.blocks, "update"):
-                self.client.blocks.update(block_id=block_id, metadata=metadata)
-            else:
-                raise RuntimeError("Letta client does not expose block tombstone/update")
+                return
         except Exception as exc:
             raise _sidecar_error(exc) from exc
+        raise RuntimeError("Letta client does not expose block tombstone/update")
 
     def insert_archival(self, passage: ArchivalPassage) -> dict[str, Any]:
-        payload = self.passage_to_letta(passage)
+        agent_id = passage.agent_id
         try:
-            if hasattr(self.client, "archival_insert"):
-                result = self.client.archival_insert(**payload)
-            elif hasattr(self.client, "archival") and hasattr(self.client.archival, "insert"):
-                result = self.client.archival.insert(**payload)
-            else:
-                raise RuntimeError("Letta client does not expose archival insert")
+            # New SDK: agents.passages.create
+            if hasattr(self.client, "agents") and hasattr(self.client.agents, "passages"):
+                result = self.client.agents.passages.create(
+                    agent_id=agent_id,
+                    text=passage.text,
+                    tags=list(passage.tags or []),
+                    created_at=passage.created_at.isoformat() if passage.created_at else None,
+                )
+                return self._as_mapping(result)
         except Exception as exc:
             raise _sidecar_error(exc) from exc
-        return self._as_mapping(result)
+        # Fallback: flat archival_insert
+        try:
+            payload = self.passage_to_letta(passage)
+            if hasattr(self.client, "archival_insert"):
+                result = self.client.archival_insert(**payload)
+            else:
+                raise RuntimeError("Letta client does not expose archival insert")
+            return self._as_mapping(result)
+        except Exception as exc:
+            raise _sidecar_error(exc) from exc
 
     def list_archival(
         self,
@@ -168,31 +230,28 @@ class LettaAdapter:
         limit: int,
     ) -> list[dict[str, Any]]:
         try:
+            # New SDK: agents.passages.list
+            if hasattr(self.client, "agents") and hasattr(self.client.agents, "passages"):
+                result = self.client.agents.passages.list(agent_id=agent_id, limit=limit)
+                items = self._extract_items(result)
+                return [self._as_mapping(item) for item in items or []]
+        except Exception as exc:
+            raise _sidecar_error(exc) from exc
+        # Fallback: flat archival_list
+        try:
             if hasattr(self.client, "archival_list"):
                 result = self.client.archival_list(agent_id=agent_id, tags=tags or [], limit=limit)
-            elif hasattr(self.client, "archival") and hasattr(self.client.archival, "list"):
-                result = self.client.archival.list(agent_id=agent_id, tags=tags or [], limit=limit)
             else:
-                result = self.search_archival(
-                    agent_id=agent_id,
-                    query="",
-                    top_k=limit,
-                    tags=tags,
-                    since=since,
-                )
+                result = self.search_archival(agent_id=agent_id, query="", top_k=limit, tags=tags, since=since)
+            raw = result.get("results", result.get("passages", [])) if isinstance(result, dict) else result
+            return [self._as_mapping(item) for item in raw or []]
         except Exception as exc:
             raise _sidecar_error(exc) from exc
-        raw = result.get("results", result.get("passages", [])) if isinstance(result, dict) else result
-        return [self._as_mapping(item) for item in raw or []]
 
     def update_passage_metadata(self, passage_id: str, metadata: dict[str, Any]) -> None:
-        try:
-            if hasattr(self.client, "archival_update"):
-                self.client.archival_update(passage_id=passage_id, metadata=metadata)
-            elif hasattr(self.client, "archival") and hasattr(self.client.archival, "update"):
-                self.client.archival.update(passage_id=passage_id, metadata=metadata)
-        except Exception as exc:
-            raise _sidecar_error(exc) from exc
+        # New letta-client SDK does not expose passage metadata update.
+        # This is a best-effort no-op; callers should handle gracefully.
+        _ = (passage_id, metadata)
 
     def search_archival(
         self,
@@ -204,40 +263,50 @@ class LettaAdapter:
         since: datetime | None,
     ) -> list[dict[str, Any]]:
         try:
-            if hasattr(self.client, "archival_search"):
-                result = self.client.archival_search(
+            # New SDK: agents.passages.search
+            if hasattr(self.client, "agents") and hasattr(self.client.agents, "passages"):
+                result = self.client.agents.passages.search(
                     agent_id=agent_id,
                     query=query,
                     top_k=top_k,
-                    tags=tags or [],
-                    since=since.isoformat() if since else None,
+                    tags=list(tags or []),
+                    start_datetime=since.isoformat() if since else None,
                 )
-            elif hasattr(self.client, "archival") and hasattr(self.client.archival, "search"):
-                result = self.client.archival.search(
-                    agent_id=agent_id,
-                    query=query,
-                    limit=top_k,
-                    tags=tags or [],
+                items = self._extract_items(result)
+                return [self._as_mapping(item) for item in items or []]
+        except Exception as exc:
+            raise _sidecar_error(exc) from exc
+        # Fallback: flat archival_search
+        try:
+            if hasattr(self.client, "archival_search"):
+                result = self.client.archival_search(
+                    agent_id=agent_id, query=query, top_k=top_k, tags=tags or [], since=since
                 )
             else:
                 raise RuntimeError("Letta client does not expose archival search")
+            raw = result.get("results", result.get("passages", [])) if isinstance(result, dict) else result
+            return [self._as_mapping(item) for item in raw or []]
         except Exception as exc:
             raise _sidecar_error(exc) from exc
-        if isinstance(result, dict):
-            raw = result.get("results", result.get("passages", []))
-        else:
-            raw = result
-        return [self._as_mapping(item) for item in raw or []]
 
     def _construct_client(self) -> Any:
         assert LettaClient is not None
+        # letta-client >= 1.7 uses keyword-only constructor: Letta(*, base_url=..., api_key=...)
+        try:
+            return LettaClient(base_url=self.url, api_key=self.api_key or None)
+        except TypeError:
+            pass
+        # Older versions: positional args or different kwarg names
         try:
             return LettaClient(base_url=self.url, token=self.api_key or None)
         except TypeError:
-            try:
-                return LettaClient(url=self.url, api_key=self.api_key or None)
-            except TypeError:
-                return LettaClient(self.url, self.api_key)
+            pass
+        try:
+            return LettaClient(url=self.url, api_key=self.api_key or None)
+        except TypeError:
+            pass
+        # Last-resort fallback — unlikely to work but preserves backward compat
+        return LettaClient(self.url, self.api_key)
 
     def summarize_run(
         self,
@@ -328,10 +397,11 @@ class LettaAdapter:
 
     @staticmethod
     def letta_to_passage(data: dict[str, Any], *, agent_id: str) -> ArchivalPassage | None:
-        text = str(data.get("text", data.get("value", "")))
+        text = str(data.get("text", data.get("value", data.get("content", ""))))
         if not text:
             return None
         metadata = dict(data.get("metadata") or {})
+        created_at = data.get("created_at", data.get("timestamp"))
         return ArchivalPassage(
             id=str(metadata.get("atelier_passage_id") or data.get("id") or data.get("passage_id")),
             agent_id=str(metadata.get("atelier_agent_id") or data.get("agent_id") or agent_id),
@@ -345,10 +415,29 @@ class LettaAdapter:
             source=str(metadata.get("atelier_source", data.get("source", "user"))),  # type: ignore[arg-type]
             source_ref=str(metadata.get("atelier_source_ref", data.get("source_ref", ""))),
             dedup_hash=str(metadata.get("atelier_dedup_hash", data.get("dedup_hash", data.get("id", text)))),
-            created_at=(
-                datetime.fromisoformat(str(data["created_at"])) if data.get("created_at") else datetime.now(UTC)
-            ),
+            created_at=(datetime.fromisoformat(str(created_at)) if created_at else datetime.now(UTC)),
         )
+
+    @staticmethod
+    def _extract_items(value: Any) -> list[Any]:
+        if isinstance(value, list):
+            return value
+        if hasattr(value, "results"):
+            maybe_results = getattr(value, "results")
+            if isinstance(maybe_results, list):
+                return maybe_results
+        if hasattr(value, "data"):
+            maybe_data = getattr(value, "data")
+            if isinstance(maybe_data, list):
+                return maybe_data
+        if hasattr(value, "model_dump"):
+            dumped = value.model_dump()
+            if isinstance(dumped, dict):
+                for key in ("results", "data", "items"):
+                    raw = dumped.get(key)
+                    if isinstance(raw, list):
+                        return raw
+        return []
 
     @staticmethod
     def _as_mapping(value: Any) -> dict[str, Any]:
@@ -450,6 +539,7 @@ class LettaMemoryStore:
         tags: list[str] | None = None,
         since: datetime | None = None,
     ) -> list[ArchivalPassage]:
+        target_agent = agent_id or "default"
         results = self._adapter.search_archival(
             agent_id=agent_id or "default",
             query=query,
@@ -458,13 +548,42 @@ class LettaMemoryStore:
             since=since,
         )
         passages: list[ArchivalPassage] = []
+        seen_ids: set[str] = set()
+        query_lower = query.lower().strip()
+        query_matched = False
         for item in results:
-            text = str(item.get("text", item.get("value", "")))
+            text = str(item.get("text", item.get("value", item.get("content", ""))))
             if not text:
                 continue
-            passage = LettaAdapter.letta_to_passage(item, agent_id=agent_id or "default")
+            passage = LettaAdapter.letta_to_passage(item, agent_id=target_agent)
             if passage is not None:
+                seen_ids.add(passage.id)
                 passages.append(passage)
+                text_lower = passage.text.lower()
+                tags_blob = " ".join(passage.tags).lower()
+                if query_lower in text_lower or query_lower in tags_blob:
+                    query_matched = True
+        if query_lower and (len(passages) < top_k or not query_matched):
+            lexical_rows = self._adapter.list_archival(
+                agent_id=target_agent,
+                tags=tags,
+                since=since,
+                limit=max(top_k * 20, 200),
+            )
+            lexical_hits: list[ArchivalPassage] = []
+            for row in lexical_rows:
+                passage = LettaAdapter.letta_to_passage(row, agent_id=target_agent)
+                if passage is None or passage.id in seen_ids:
+                    continue
+                text_lower = passage.text.lower()
+                tags_blob = " ".join(passage.tags).lower()
+                if query_lower not in text_lower and query_lower not in tags_blob:
+                    continue
+                seen_ids.add(passage.id)
+                lexical_hits.append(passage)
+                if len(lexical_hits) >= top_k:
+                    break
+            passages = lexical_hits + passages
         return passages[:top_k]
 
     def list_passages(

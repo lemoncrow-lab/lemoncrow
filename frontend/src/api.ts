@@ -1266,6 +1266,8 @@ export interface TelemetrySummary {
   value_estimate: {
     tokens_saved_estimate: number;
     cache_hits: number;
+    total_tool_calls: number;
+    cache_hit_rate: number;
     blocks_applied: number;
   };
 }

@@ -37,6 +37,13 @@
       "problemMatcher": []
     },
     {
+      "label": "Atelier: Session Summary",
+      "type": "shell",
+      "command": "atelier",
+      "args": ["session", "report", "--no-color"],
+      "problemMatcher": []
+    },
+    {
       "label": "Atelier: Worktree Bootstrap",
       "type": "shell",
       "command": "bash",

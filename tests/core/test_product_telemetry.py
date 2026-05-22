@@ -282,5 +282,32 @@ def test_emit_product_call_sites_use_allowlisted_props() -> None:
     assert failures == []
 
 
+def test_telemetry_summary_reports_cache_hit_rate(telemetry_env: Path) -> None:
+    emit_product(
+        "value_estimate",
+        session_id="session-1",
+        tokens_saved_estimate=120,
+        cache_hits=3,
+        total_tool_calls=12,
+        cache_hit_rate=0.25,
+        blocks_applied=2,
+    )
+    emit_product(
+        "value_estimate",
+        session_id="session-2",
+        tokens_saved_estimate=80,
+        cache_hits=1,
+        total_tool_calls=8,
+        cache_hit_rate=0.125,
+        blocks_applied=1,
+    )
+
+    summary = LocalTelemetryStore(telemetry_env).summary()
+
+    assert summary["value_estimate"]["cache_hits"] == 4
+    assert summary["value_estimate"]["total_tool_calls"] == 20
+    assert summary["value_estimate"]["cache_hit_rate"] == 0.2
+
+
 def _is_emit_product_call(node: ast.Call) -> bool:
     return isinstance(node.func, ast.Name) and node.func.id == "emit_product"

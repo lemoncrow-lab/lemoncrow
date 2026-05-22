@@ -3,38 +3,58 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from atelier.core.foundation.memory_models import ArchivalPassage, MemoryBlock
+from atelier.infra.memory_bridges.letta_adapter import LettaAdapter
 from atelier.infra.memory_bridges.openmemory import OpenMemoryAdapter, OpenMemoryMemoryStore
+from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 
-def test_openmemory_adapter_disabled_by_default() -> None:
-    adapter = OpenMemoryAdapter()
+class _FakeOpenMemoryClient:
+    def __init__(self) -> None:
+        self.rows: list[dict[str, Any]] = []
+
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        if name == "add_memories":
+            row = {
+                "id": f"mem-{len(self.rows) + 1}",
+                "memory": arguments["messages"][0]["content"],
+                "metadata": dict(arguments.get("metadata") or {}),
+            }
+            self.rows.append(row)
+            return {"results": [row]}
+        if name == "search_memory":
+            query = str(arguments["query"]).lower()
+            return [
+                row
+                for row in self.rows
+                if query in row["memory"].lower() or query in str(row.get("metadata", {})).lower()
+            ]
+        if name == "list_memories":
+            return list(self.rows)
+        raise AssertionError(f"unexpected tool call: {name}")
+
+
+class _FakeEmptyOpenMemoryClient:
+    base_url = "http://127.0.0.1:8765"
+    timeout = 5
+
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        _ = (name, arguments)
+        return {}
+
+
+def test_openmemory_adapter_always_delegates_to_bridge() -> None:
+    adapter = OpenMemoryAdapter(client=_FakeOpenMemoryClient())
     result = adapter.fetch_context(task="Fix the checkout bug")
 
     assert result.ok is True
-    assert result.skipped is False
     assert result.source == "openmemory"
 
 
-def test_openmemory_memory_store_delegates_to_sqlite_and_mirrors_best_effort(
-    tmp_path: Path,
-) -> None:
-    class FakeAdapter:
-        def __init__(self) -> None:
-            self.pushed: list[tuple[str, str]] = []
-            self.fetched: list[tuple[str, str]] = []
-
-        def push_procedural_lesson(self, trace_id: str, memory_id: str):
-            self.pushed.append((trace_id, memory_id))
-            return object()
-
-        def fetch_context(self, task: str, project_id: str | None = None):
-            self.fetched.append((task, project_id or ""))
-            return object()
-
-    adapter = FakeAdapter()
-    store = OpenMemoryMemoryStore(tmp_path / "atelier", adapter=adapter)  # type: ignore[arg-type]
+def test_openmemory_memory_store_uses_openmemory_as_primary(tmp_path: Path) -> None:
+    store = OpenMemoryMemoryStore(tmp_path / "atelier", client=_FakeOpenMemoryClient())
 
     block = store.upsert_block(MemoryBlock(agent_id="atelier:code", label="style", value="compact"), actor="tests")
     assert store.get_block("atelier:code", "style") == block
@@ -49,8 +69,71 @@ def test_openmemory_memory_store_delegates_to_sqlite_and_mirrors_best_effort(
             dedup_hash="hash-1",
         )
     )
-    assert adapter.pushed == [("trace-1", passage.id)]
-
     results = store.search_passages("atelier:code", "checkout", top_k=1)
     assert [item.id for item in results] == [passage.id]
-    assert adapter.fetched == [("checkout", "atelier:code")]
+
+    sqlite = SqliteMemoryStore(tmp_path / "atelier")
+    assert sqlite.get_block("atelier:code", "style") is None
+    assert sqlite.list_passages("atelier:code") == []
+
+
+def test_openmemory_adapter_rest_fallback_when_mcp_returns_empty(monkeypatch: Any) -> None:
+    adapter = OpenMemoryAdapter(client=_FakeEmptyOpenMemoryClient())
+
+    class _Resp:
+        def __init__(self, payload: str) -> None:
+            self._payload = payload.encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._payload
+
+        def __enter__(self) -> "_Resp":
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            _ = (exc_type, exc, tb)
+            return None
+
+    def _fake_urlopen(request: Any, timeout: int) -> _Resp:
+        _ = timeout
+        url = request.full_url
+        method = request.get_method()
+        if method == "POST" and url.endswith("/api/v1/memories/"):
+            return _Resp('{"id":"m1","content":"ok"}')
+        if method == "GET" and "/api/v1/memories/" in url and "search_query=checkout" in url:
+            return _Resp('{"items":[{"id":"m2","content":"checkout retry"}]}')
+        if method == "GET" and "/api/v1/memories/" in url:
+            return _Resp('{"items":[{"id":"m3","content":"all rows"}]}')
+        raise AssertionError(f"unexpected request: {method} {url}")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    added = adapter.add_memory(text="checkout", user_id="pankaj", metadata={})
+    assert added["id"] == "m1"
+    searched = adapter.search_memories(query="checkout", user_id="pankaj", limit=5)
+    assert searched and searched[0]["id"] == "m2"
+    listed = adapter.list_memories(user_id="pankaj", limit=5)
+    assert listed and listed[0]["id"] == "m3"
+
+
+def test_letta_adapter_extracts_results_shape_and_content_fields() -> None:
+    class _SearchResponse:
+        def model_dump(self) -> dict[str, Any]:
+            return {
+                "count": 1,
+                "results": [
+                    {
+                        "id": "passage-1",
+                        "content": "retrieval reranking improves relevance",
+                        "timestamp": "2026-05-22T10:52:57.409958+00:00",
+                        "tags": ["quality"],
+                    }
+                ],
+            }
+
+    items = LettaAdapter._extract_items(_SearchResponse())
+    assert len(items) == 1
+    passage = LettaAdapter.letta_to_passage(items[0], agent_id="agent-1")
+    assert passage is not None
+    assert passage.text == "retrieval reranking improves relevance"
+    assert passage.id == "passage-1"

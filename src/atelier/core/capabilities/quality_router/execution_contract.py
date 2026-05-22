@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ExecutionMode = Literal["advisory", "wrapper_enforced", "provider_enforced"]
 
-_KNOWN_HOSTS = frozenset({"claude", "codex", "copilot", "opencode", "gemini"})
+_KNOWN_HOSTS = frozenset({"claude", "codex", "copilot", "opencode", "antigravity"})
 
 # Per-host defaults derived from the host-capability-matrix.md contract.
 # Each entry: (mode, can_block_start, can_force_model, can_require_verification,
@@ -86,7 +86,7 @@ _HOST_CONTRACTS: dict[str, dict[str, str | bool | list[str]]] = {
         "unsupported_reason": ("cross-host hook parity is unsupported; provider_enforced is future-only and disabled"),
         "host_native_owner": "model,edit,agent_orchestration",
     },
-    "gemini": {
+    "antigravity": {
         "mode": "advisory",
         "supported_tiers": ["cheap", "mid", "premium", "deterministic"],
         "can_block_start": False,
@@ -149,7 +149,7 @@ def route_execution_contract(host: str) -> RouteExecutionContract:
     """Return the ``RouteExecutionContract`` for the named host.
 
     Raises ``ValueError`` for unknown hosts.  Known hosts:
-    ``claude``, ``codex``, ``copilot``, ``opencode``, ``gemini``.
+    ``claude``, ``codex``, ``copilot``, ``opencode``, ``antigravity``.
 
     The ``provider_enforced`` mode is **never** returned as the active ``mode``
     because no provider execution packet exists yet.

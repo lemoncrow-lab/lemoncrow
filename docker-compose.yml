@@ -51,7 +51,7 @@ services:
       - "${ATELIER_FRONTEND_PORT:-3125}:3125"
     environment:
       - CHOKIDAR_USEPOLLING=true
-      - VITE_API_URL=${VITE_API_URL:-http://localhost:8787}
+      - VITE_API_URL=${VITE_API_URL:-http://atelier-service:8787}
     volumes:
       - ./frontend:/app
       - /app/node_modules

@@ -26,22 +26,24 @@ DOC_LINKS = [
 
 HOST_FALLBACKS = {
     "copilot": "Copilot or VS Code native file reads, workspace search, shell `rg`, or `grep`",
+    "antigravity": "Antigravity or agy native file reads, workspace search, shell `rg`, or `grep`",
     "claude": "Claude-native file tools, Grep/Glob, shell `rg`, or `grep`",
     "codex": "native Codex file reads, shell `rg`, `grep`, or direct repository search",
-    "gemini": "Gemini-native file reads, shell `rg`, `grep`, or direct repository search",
     "opencode": "opencode-native file reads, repository search, shell `rg`, or `grep`",
 }
 
 HOST_DISPLAY = {
+    "antigravity": "Antigravity",
     "copilot": "Copilot",
     "claude": "Claude",
     "codex": "Codex",
-    "gemini": "Gemini",
     "opencode": "OpenCode",
 }
 
 SESSION_TEMPLATE = (
     "Atelier budget optimizer is active for {host}.\n"
+    "Use Atelier MCP tools first for file I/O, search, edits, and shell work.\n"
+    "Use native host tools only when Atelier returns `noop`, is hidden, or is unavailable.\n"
     "Before changing files, name the deliverable and summarize the smallest viable plan.\n"
     "Keep context narrow: use only the current goal, relevant files, failing command/output, and known constraints.\n"
     "Restate working context in under 10 bullets before editing or after compaction.\n"
@@ -93,7 +95,37 @@ def validation_line(output_path: Path) -> str:
     return f"See [Validation matrix]({matrix}) for the minimum checks by change surface."
 
 
+def tool_substitution_table() -> str:
+    """Inline substitution table — baked into every host file so agents can't miss it."""
+    return "\n".join([
+        "## Tool substitution — mandatory",
+        "",
+        "| Use this | Instead of | Why |",
+        "|---|---|---|",
+        "| `mcp__atelier__read` | `Read` / `Bash(cat ...)` | outline-first, 80-95% fewer tokens on large files |",
+        "| `mcp__atelier__search` | `Grep` / `Glob` / `Bash(grep/rg ...)` | ranked, budget-capped, ~280k tokens saved vs naive scan |",
+        "| `mcp__atelier__edit` | `Edit` / `Write` | atomic multi-file, snapshot/rollback, diff recorded |",
+        "| `mcp__atelier__shell` | `Bash(...)` | ANSI-stripped, line-truncated, token-compact |",
+        "| `mcp__atelier__code op=search` | `Bash(grep -rn symbol ...)` | SCIP-indexed, zero subprocess cost |",
+        "",
+        "**Bash is only for git commands and process management.** "
+        "Do NOT use `Bash(cat file)`, `Bash(grep ...)`, or `Bash(find ...)` "
+        "— use the atelier equivalents above.",
+    ])
+
+
+def implement_line(output_path: Path) -> str:
+    tool_sub_link = relpath(output_path, ROOT / "docs/agent-os/tool-substitution.md")
+    return (
+        "2. **Implement**: Use Atelier MCP tools for file I/O, search, edits, and shell work "
+        f"(see [Tool substitution]({tool_sub_link})). Use native host tools only when Atelier "
+        "returns `noop`, is hidden, or is unavailable. Use `route` or `rescue` when the same "
+        "approach fails twice."
+    )
+
+
 def render_project_entrypoint(output_path: Path, *, title: str, host: str | None = None) -> str:
+    tool_sub_link = relpath(output_path, ROOT / "docs/agent-os/tool-substitution.md")
     lines = [
         generated_notice(output_path),
         "",
@@ -105,9 +137,13 @@ def render_project_entrypoint(output_path: Path, *, title: str, host: str | None
         "",
         "## Operating loop",
         "",
-        "1. **Context** - read the relevant source of truth first and use `context` when the Atelier MCP surface is available.",
-        "2. **Implement** - make the change, update directly related docs, and use `route` or `rescue` when needed.",
-        "3. **Record** - record the outcome with `record` or the host alias that exposes the same capability.",
+        "1. **Context** — call `mcp__atelier__context` with `task`, `files`, `domain` before touching any file.",
+        "2. **Implement** — use Atelier tools for ALL file I/O and shell ops "
+        f"(see [Tool substitution]({tool_sub_link})). Use `route` to get model recommendations "
+        "before expensive steps. Use `rescue` on repeated failures.",
+        "3. **Record** — call `mcp__atelier__trace` at completion.",
+        "",
+        tool_substitution_table(),
         "",
         "## Project-specific invariants",
         "",
@@ -134,8 +170,13 @@ def render_copilot_body(output_path: Path) -> str:
                 "",
                 "Use the Atelier 3-step process for every task:",
                 "1. **Context**: call `context` with the task, domain, and tools.",
-                "2. **Implement**: execute the task and use `route` or `rescue` when needed.",
+                f"2. **Implement**: use Atelier MCP tools for file I/O, search, edits, and shell work "
+                f"(see [Tool substitution]({relpath(output_path, ROOT / 'docs/agent-os/tool-substitution.md')})). "
+                "Use native Copilot or VS Code tools only when Atelier returns `noop`, is hidden, or is unavailable. "
+                "Use `route` or `rescue` when needed.",
                 "3. **Record**: call `record` when the work is done.",
+                "",
+                tool_substitution_table(),
                 "",
                 "Treat this file as a thin entrypoint. The live source of truth is:",
                 "",
@@ -201,7 +242,8 @@ def render_chatmode(output_path: Path) -> str:
                 "",
                 "1. **Context** - call MCP tool `context` with task, domain, files, and tools.",
                 "2. **Plan** - keep the plan small and concrete.",
-                "3. **Execute** - make the change.",
+                "3. **Execute** - use Atelier MCP tools for file I/O, search, edits, and shell work. "
+                "Use native Copilot or VS Code tools only when Atelier returns `noop`, is hidden, or is unavailable.",
                 "4. **Recover** - call `rescue` after two failed attempts.",
                 "5. **Record** - call `record` with the observable result.",
                 "",
@@ -238,8 +280,144 @@ def render_claude_code_agent(output_path: Path) -> str:
                 "## Operating loop",
                 "",
                 "1. **Context**: Call `context` with `task`, `files`, `domain`, and `errors`.",
-                "2. **Implement**: Execute the task. Use native file tools or Atelier augmentations as appropriate.",
+                f"2. **Implement**: Use Atelier MCP tools for file I/O, search, edits, and shell work "
+                f"(see [Tool substitution]({relpath(output_path, ROOT / 'docs/agent-os/tool-substitution.md')})). "
+                "Use Claude-native tools only when Atelier returns `noop`, is hidden, or is unavailable.",
                 '3. **Record**: Call `record` at completion with `agent: "atelier:code"`.',
+                "",
+                budget_section(),
+                "",
+                fallback_section("claude"),
+            ]
+        ).rstrip()
+        + "\n"
+    )
+
+
+def render_claude_review_agent(output_path: Path) -> str:
+    rubric_path = relpath(output_path, ROOT / "docs/agent-os/review-rubric.md")
+    return (
+        "\n".join(
+            [
+                "---",
+                "name: review",
+                "description: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files.",
+                'tools: ["Read", "Grep", "Glob", "mcp__atelier__context", "mcp__atelier__read", "mcp__atelier__search", "mcp__atelier__verify", "mcp__atelier__trace", "mcp__atelier__memory"]',
+                "color: yellow",
+                "---",
+                "",
+                generated_notice(output_path),
+                "",
+                "# Atelier Review Agent",
+                "",
+                "You are the **adversarial reviewer**. Your job is to find what is wrong, not to validate that work was done.",
+                "",
+                "Use this file as a thin entrypoint and follow the live docs tree:",
+                "",
+                doc_links(output_path),
+                "",
+                "## Operating loop",
+                "",
+                "1. **Read** the files in scope, preferring `mcp__atelier__read` and `mcp__atelier__search` before native Read/Grep/Glob. Never trust summaries — verify the code directly.",
+                "2. **Apply the verification ladder**: existence → substantive → wired → data flow.",
+                f"3. **Report findings** following [{rubric_path}]({rubric_path}): every finding must have a severity (Blocker|Warning), `file:line`, and a concrete fix.",
+                '4. **Verify** — call `verify(rubric_id="rubric_code_review", checks={{...}})` before concluding.',
+                '5. **Record** — call `record` with `agent: "atelier:review"`. Include learnings for any surprise or lesson.',
+                "",
+                "## Hard rules",
+                "",
+                "- **Never edit source files.** Read only.",
+                "- Every finding must carry Blocker or Warning. Unlabelled findings are invalid output.",
+                "- Every Blocker must include `file:line` and a concrete fix snippet.",
+                "- Do not flag style preferences as Blocker or Warning.",
+                "- `status: skipped` (nothing to review) ≠ `status: clean` (reviewed, no issues).",
+                "",
+                fallback_section("claude"),
+            ]
+        ).rstrip()
+        + "\n"
+    )
+
+
+def render_claude_explore_agent(output_path: Path) -> str:
+    return (
+        "\n".join(
+            [
+                "---",
+                "name: explore",
+                "description: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits.",
+                'tools: ["Read", "Grep", "Glob", "mcp__atelier__context", "mcp__atelier__search", "mcp__atelier__read", "mcp__atelier__memory"]',
+                "color: blue",
+                "---",
+                "",
+                generated_notice(output_path),
+                "",
+                "# Atelier Explore Agent",
+                "",
+                "You are the **read-only explorer**. Locate, read, and report. Never edit, create, or delete files.",
+                "",
+                "Use this file as a thin entrypoint and follow the live docs tree:",
+                "",
+                doc_links(output_path),
+                "",
+                "## Operating loop",
+                "",
+                "1. **Context**: Call `context` with `task`, `files`, and `domain` to surface relevant ReasonBlocks.",
+                "2. **Search**: Prefer `mcp__atelier__search` and `mcp__atelier__read`; use Grep, Glob, or Read only as fallback.",
+                "3. **Report**: Return findings immediately. Do not wait for tools to become available.",
+                "",
+                "## Hard rules",
+                "",
+                "- **Never edit, write, or delete files.**",
+                "- Return findings even when partial — partial coverage beats silence.",
+                "- If the first search path is wrong, try an alternative before giving up.",
+                "",
+                fallback_section("claude"),
+            ]
+        ).rstrip()
+        + "\n"
+    )
+
+
+def render_claude_repair_agent(output_path: Path) -> str:
+    return (
+        "\n".join(
+            [
+                "---",
+                "name: repair",
+                "description: Repair specialist for repeated failures. Captures the failing signal, calls rescue, applies the fix, records a postmortem.",
+                'tools: ["*"]',
+                "color: red",
+                "---",
+                "",
+                generated_notice(output_path),
+                "",
+                "# Atelier Repair Agent",
+                "",
+                "You are the **repair specialist**. Activate when the same approach has failed twice.",
+                "",
+                "Use this file as a thin entrypoint and follow the live docs tree:",
+                "",
+                doc_links(output_path),
+                "",
+                "## Operating loop",
+                "",
+                "1. **Capture** the exact failing signal: command output, error text, file and line.",
+                "2. **Rescue** — call `rescue` with the error and recent actions. Apply the recommendation exactly.",
+                "3. **Validate** — run the narrowest command that would prove the fix worked.",
+                "4. **Escalate** — if the same failure persists after the rescue, stop and report. Do not retry a third time.",
+                '5. **Verify** — call `verify(rubric_id="rubric_debugging_task", checks={...})` before concluding:',
+                "   - `failing_signal_captured` — exact error text was collected before acting",
+                "   - `repeated_failure_loop_avoided` — did not retry the same fix a third time",
+                "   - `new_hypothesis_stated` — rescue produced a different hypothesis than what failed",
+                "   - `focused_reproducer_or_validation_run` — narrowest possible validation was run",
+                '6. **Record** — call `record` with `agent: "atelier:repair"`. Include a postmortem in `learnings`.',
+                "",
+                "## Hard rules",
+                "",
+                "- Never retry the same approach a third time. Change strategy or escalate.",
+                "- The failing signal must be captured verbatim before calling rescue — vague descriptions produce useless rescues.",
+                "- Do not modify unrelated files during repair.",
                 "",
                 budget_section(),
                 "",
@@ -263,11 +441,13 @@ def render_host_surface(output_path: Path, *, title: str, host: str) -> str:
         "",
         doc_links(output_path),
         "",
-        "## Operating loop",
+                "## Operating loop",
+                "",
+                "1. **Context**: Call `context` with task, domain, files, tools, and errors when the host supports it.",
+                implement_line(output_path),
+                "3. **Record**: Call `record` when the task is done.",
         "",
-        "1. **Context**: Call `context` with task, domain, files, tools, and errors when the host supports it.",
-        "2. **Implement**: Execute the task. Use `route` or `rescue` when the same approach fails twice.",
-        "3. **Record**: Call `record` when the task is done.",
+        tool_substitution_table(),
         "",
         budget_section(),
         "",
@@ -275,7 +455,7 @@ def render_host_surface(output_path: Path, *, title: str, host: str) -> str:
         "",
         "## Savings visibility",
         "",
-        "Run `atelier-status` or `atelier savings --json` to see current savings.",
+        "Run `atelier status` or `atelier savings --json` to see current savings.",
         f"{HOST_DISPLAY[host]} host-specific notes live in [docs/agent-os/host-overrides/{host}.md]({override}).",
     ]
     if host == "opencode":
@@ -297,7 +477,7 @@ def render_host_surface(output_path: Path, *, title: str, host: str) -> str:
 
 def sync_host_configs() -> dict[Path, str]:
     outputs: dict[Path, str] = {}
-    for host in ("claude", "codex", "copilot", "gemini", "opencode"):
+    for host in ("claude", "codex", "copilot", "antigravity", "opencode"):
         path = ROOT / "src/atelier/gateway/hosts/configs" / f"{host}.yaml"
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         templates = data.get("prompt_templates", [])
@@ -311,12 +491,6 @@ def sync_host_configs() -> dict[Path, str]:
 def build_outputs() -> dict[Path, str]:
     outputs = {
         ROOT / "AGENTS.md": render_project_entrypoint(ROOT / "AGENTS.md", title="Project Instructions: Atelier"),
-        ROOT
-        / "GEMINI.md": render_project_entrypoint(
-            ROOT / "GEMINI.md",
-            title="Project Instructions: Atelier",
-            host="gemini",
-        ),
         ROOT / ".github/copilot-instructions.md": render_copilot_workspace(ROOT / ".github/copilot-instructions.md"),
         ROOT / ".github/chatmodes/atelier.chatmode.md": render_chatmode(ROOT / ".github/chatmodes/atelier.chatmode.md"),
         ROOT
@@ -338,22 +512,28 @@ def build_outputs() -> dict[Path, str]:
             ROOT / "integrations/claude/plugin/agents/code.md"
         ),
         ROOT
+        / "integrations/claude/plugin/agents/review.md": render_claude_review_agent(
+            ROOT / "integrations/claude/plugin/agents/review.md"
+        ),
+        ROOT
+        / "integrations/claude/plugin/agents/explore.md": render_claude_explore_agent(
+            ROOT / "integrations/claude/plugin/agents/explore.md"
+        ),
+        ROOT
+        / "integrations/claude/plugin/agents/repair.md": render_claude_repair_agent(
+            ROOT / "integrations/claude/plugin/agents/repair.md"
+        ),
+        ROOT
         / "integrations/codex/AGENTS.atelier.md": render_host_surface(
             ROOT / "integrations/codex/AGENTS.atelier.md",
             title="Atelier - Codex Agent",
             host="codex",
         ),
         ROOT
-        / "integrations/gemini/GEMINI.atelier.md": render_host_surface(
-            ROOT / "integrations/gemini/GEMINI.atelier.md",
-            title="Atelier - Gemini CLI Agent",
-            host="gemini",
-        ),
-        ROOT
-        / "integrations/gemini/extension/GEMINI.md": render_host_surface(
-            ROOT / "integrations/gemini/extension/GEMINI.md",
-            title="Atelier - Gemini CLI Default Identity",
-            host="gemini",
+        / "integrations/antigravity/AGENTS.atelier.md": render_host_surface(
+            ROOT / "integrations/antigravity/AGENTS.atelier.md",
+            title="Atelier - Antigravity Agent",
+            host="antigravity",
         ),
         ROOT
         / "integrations/opencode/agents/atelier.md": render_host_surface(

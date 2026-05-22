@@ -239,6 +239,7 @@ def test_remote_memory_routes_to_service(service_mode: None) -> None:
     client.memory.assert_called_once()
 
 
+@pytest.mark.slow  # Spawns a real HTTP service subprocess
 def test_remote_mode_live_service_round_trip(
     service_mode: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

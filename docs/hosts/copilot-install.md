@@ -61,6 +61,7 @@ Use Atelier context for this task and record a trace summary when it is done.
 
 Additional workspace helpers:
 
+- `Atelier: Session Summary` prints the latest Atelier per-session cost and savings breakdown after a Copilot task or chat run.
 - `Atelier: Worktree Bootstrap` writes `.env.worktree` with stable per-worktree ports and container names.
 - `Atelier: Runtime Evidence` captures `health`, `analytics/summary`, and `v1/traces` into `reports/runtime-evidence/latest.json`.
 

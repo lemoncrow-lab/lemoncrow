@@ -108,7 +108,6 @@ if $PRINT_ONLY; then
     echo "Scope: ${INSTALL_SCOPE}"
     echo "Config target: ${OC_FILE}"
     echo "Agent target: ${AGENT_DEST_DIR}/atelier.md"
-    echo "Wrapper target: ${WRAPPER_DEST_DIR}/atelier-opencode"
     echo ""
     echo "Merge/create config:"
     echo "$NEW_ENTRY"
@@ -187,7 +186,6 @@ else
     warn "agent source missing: $AGENT_SRC"
 fi
 
-
 if $DRY_RUN; then
     info "Dry run complete; skipped post-install verification because no files were written."
     exit 0
@@ -258,10 +256,10 @@ else
     vfail "atelier-mcp NOT found on PATH"
 fi
 
-if [ -x "${ATELIER_REPO}/bin/atelier-status" ]; then
-    vpass "bin/atelier-status helper exists"
+if command -v atelier >/dev/null 2>&1 && atelier status --help >/dev/null 2>&1; then
+    vpass "atelier status command is available"
 else
-    vfail "bin/atelier-status missing or not executable"
+    vfail "atelier status command unavailable"
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
@@ -271,4 +269,4 @@ fi
 info "All post-install checks passed"
 
 info "Done. Restart opencode - Atelier agent and MCP are available."
-info "Tip: run 'atelier-status' in any shell to see current run state."
+info "Tip: run 'atelier status' in any shell to see the runs dashboard."

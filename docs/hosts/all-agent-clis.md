@@ -21,10 +21,10 @@ bash scripts/install_agent_clis.sh --workspace /path/to/workspace
 | Host        | Support Level                              | Advanced installer            |
 | ----------- | ------------------------------------------ | ----------------------------- |
 | Claude Code | Full plugin (skills, commands, hooks, MCP) | `scripts/install_claude.sh`   |
-| Codex CLI   | Plugin + marketplace + AGENTS + wrapper    | `scripts/install_codex.sh`    |
+| Codex CLI   | Native MCP registration + AGENTS + plugin bundle | `scripts/install_codex.sh`    |
 | opencode    | MCP + workspace agent profile              | `scripts/install_opencode.sh` |
 | Copilot     | MCP + instructions + chat mode + tasks     | `scripts/install_copilot.sh`  |
-| Gemini CLI  | Extension + commands + skills + MCP        | `scripts/install_gemini.sh`   |
+| Antigravity | MCP + generated AGENTS surface             | `scripts/install_antigravity.sh` |
 
 ---
 
@@ -68,7 +68,7 @@ All install scripts:
 - [codex-install.md](codex-install.md)
 - [opencode-install.md](opencode-install.md)
 - [copilot-install.md](copilot-install.md)
-- [gemini-cli-install.md](gemini-cli-install.md)
+- [antigravity-install.md](antigravity-install.md)
 
 Archived capability-contract detail now lives under `docs-archive/hosts/host-capability-matrix.md`.
 
@@ -84,7 +84,7 @@ atelier/integrations/
 ├── codex/           # Codex plugin template + marketplace docs
 ├── opencode/        # opencode.json example
 ├── copilot/         # .vscode/mcp.json + copilot-instructions
-└── gemini/          # Gemini extension bundle + settings example
+└── antigravity/     # Antigravity MCP template + host guidance
 ```
 
 Host install entrypoints are under `scripts/install_<host>.sh`.
@@ -99,7 +99,7 @@ All hosts ultimately invoke the same Atelier MCP server, but packaged hosts now 
 atelier-mcp
 ```
 
-That repo wrapper remains the canonical MCP entrypoint for direct MCP-only installs. Codex and Gemini package that same runtime behavior behind a plugin-local or extension-local wrapper so the host can load a packaged surface instead of a raw settings merge.
+That repo wrapper remains the canonical MCP entrypoint for direct MCP-only installs. Codex packages that same runtime behavior behind a plugin-local wrapper, while Antigravity uses workspace or user MCP configuration plus a generated host surface.
 
 ## Common MCP Surfaces
 

@@ -66,8 +66,6 @@ def _dispatch(entrypoint: str, given: dict[str, Any]) -> Any:
         return runtime.session_start_install_status_line(**given)
     if entrypoint == "hooks.classify_bash":
         return runtime.classify_bash(**given)
-    if entrypoint == "hooks.rewrite_agent":
-        return runtime.rewrite_agent(**given)
     if entrypoint == "hooks.edit_nudge":
         return runtime.edit_nudge(**given)
     if entrypoint == "hooks.session_start":

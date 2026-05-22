@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -72,10 +73,18 @@ DEFAULT_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS = (
 
 CONTROLLER_UNIT = "atelier-controller.service"
 STACK_UNIT = "atelier-stack.service"
+LETTA_UNIT = "atelier-letta.service"
+OPENMEMORY_UNIT = "atelier-openmemory.service"
 SYSTEMD_USER_DIR = Path.home() / ".config" / "systemd" / "user"
 LAUNCHD_USER_DIR = Path.home() / "Library" / "LaunchAgents"
 CONTROLLER_LABEL = "com.atelier.controller"
 STACK_LABEL = "com.atelier.stack"
+LETTA_LABEL = "com.atelier.letta"
+OPENMEMORY_LABEL = "com.atelier.openmemory"
+DEFAULT_STACK_SERVICE_HOST = "0.0.0.0"
+DEFAULT_STACK_SERVICE_PORT = 8787
+DEFAULT_STACK_FRONTEND_HOST = "0.0.0.0"
+DEFAULT_STACK_FRONTEND_PORT = 3125
 
 
 def _is_macos() -> bool:
@@ -352,42 +361,274 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def _stack_compose_file() -> Path:
-    return _project_root() / "docker-compose.yml"
+def _openmemory_dir(root: Path) -> Path:
+    return Path(root) / "openmemory"
 
 
-def _configured_stack_services(requested: list[str]) -> list[str]:
-    compose_file = _stack_compose_file()
-    with contextlib.suppress(OSError, yaml.YAMLError):
-        payload = yaml.safe_load(compose_file.read_text(encoding="utf-8")) or {}
-        services = payload.get("services")
-        if isinstance(services, dict):
-            available = {str(name) for name in services}
-            return [name for name in requested if name in available]
-    return requested
+def _openmemory_checkout_dir(root: Path) -> Path:
+    return _openmemory_dir(root) / "mem0"
 
 
-def _run_stack_compose(args: list[str]) -> None:
-    compose_file = _stack_compose_file()
-    if not compose_file.exists():
-        raise click.ClickException(f"visualization stack compose file not found: {compose_file}")
+def _openmemory_workdir(root: Path) -> Path:
+    return _openmemory_checkout_dir(root) / "openmemory"
+
+
+def _openmemory_service_env_path(root: Path) -> Path:
+    return _openmemory_dir(root) / "service.env"
+
+
+def _openmemory_api_env_path(root: Path) -> Path:
+    return _openmemory_workdir(root) / "api" / ".env"
+
+
+def _openmemory_ui_env_path(root: Path) -> Path:
+    return _openmemory_workdir(root) / "ui" / ".env"
+
+
+def _openmemory_log_path(root: Path) -> Path:
+    return _openmemory_dir(root) / "openmemory.log"
+
+
+def _ensure_openmemory_service_env(root: Path) -> Path:
+    env_path = _openmemory_service_env_path(root)
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    values = {
+        # Do not persist API keys to disk in plaintext.
+        # Keep sensitive secrets in process environment at runtime instead.
+        "USER": os.environ.get("ATELIER_OPENMEMORY_USER_ID", os.environ.get("USER", "")),
+        "ATELIER_OPENMEMORY_URL": os.environ.get("ATELIER_OPENMEMORY_URL", "http://127.0.0.1:8765"),
+    }
+    lines = []
+    for key, value in values.items():
+        if not value:
+            continue
+        escaped = value.replace('"', '\\"')
+        lines.append(f'{key}="{escaped}"')
+    if lines:
+        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    elif not env_path.exists():
+        env_path.write_text("", encoding="utf-8")
+    return env_path
+
+
+def _ensure_openmemory_checkout(root: Path) -> Path:
+    repo_dir = _openmemory_checkout_dir(root)
+    repo_dir.parent.mkdir(parents=True, exist_ok=True)
+    repo_url = os.environ.get("ATELIER_OPENMEMORY_REPO_URL", "https://github.com/mem0ai/mem0.git")
+    repo_ref = os.environ.get("ATELIER_OPENMEMORY_REF", "main")
+    if (repo_dir / ".git").exists():
+        subprocess.run(["git", "-C", str(repo_dir), "fetch", "--depth=1", "origin", repo_ref], check=True)
+        subprocess.run(["git", "-C", str(repo_dir), "checkout", repo_ref], check=True)
+        subprocess.run(["git", "-C", str(repo_dir), "pull", "--ff-only", "origin", repo_ref], check=True)
+    else:
+        subprocess.run(["git", "clone", "--depth=1", "--branch", repo_ref, repo_url, str(repo_dir)], check=True)
+    workdir = _openmemory_workdir(root)
+    if not workdir.exists():
+        raise click.ClickException(f"OpenMemory checkout is missing {workdir}")
+    return workdir
+
+
+def _write_openmemory_env_files(root: Path) -> None:
+    api_env = _openmemory_api_env_path(root)
+    ui_env = _openmemory_ui_env_path(root)
+    user_id = (
+        os.environ.get("ATELIER_OPENMEMORY_USER_ID", "").strip()
+        or os.environ.get("USER", "").strip()
+        or "atelier"
+    )
+    api_url = os.environ.get("ATELIER_OPENMEMORY_URL", "http://127.0.0.1:8765").strip() or "http://127.0.0.1:8765"
+    openai_api_key = os.environ.get("ATELIER_OPENMEMORY_OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", "")).strip()
+    api_env.parent.mkdir(parents=True, exist_ok=True)
+    api_lines = [
+        f"OPENAI_API_KEY={openai_api_key}",
+        f"USER={user_id}",
+    ]
+    api_env.write_text("\n".join(api_lines) + "\n", encoding="utf-8")
+    ui_env.parent.mkdir(parents=True, exist_ok=True)
+    ui_lines = [
+        f"NEXT_PUBLIC_API_URL={api_url}",
+        f"NEXT_PUBLIC_USER_ID={user_id}",
+    ]
+    ui_env.write_text("\n".join(ui_lines) + "\n", encoding="utf-8")
+
+
+def _run_openmemory_make(root: Path, *args: str) -> None:
+    workdir = _openmemory_workdir(root)
+    env = {**os.environ}
+    user_id = (
+        os.environ.get("ATELIER_OPENMEMORY_USER_ID", "").strip()
+        or os.environ.get("USER", "").strip()
+        or "atelier"
+    )
+    env["USER"] = user_id
+    env["NEXT_PUBLIC_API_URL"] = os.environ.get("ATELIER_OPENMEMORY_URL", "http://127.0.0.1:8765")
+    subprocess.run(["make", *args], cwd=workdir, env=env, check=True)
+
+
+def _stack_dir(root: Path) -> Path:
+    return Path(root) / "stack"
+
+
+def _stack_pid_path(root: Path) -> Path:
+    return _stack_dir(root) / "stack.pid"
+
+
+def _stack_service_pid_path(root: Path) -> Path:
+    return _stack_dir(root) / "service.pid"
+
+
+def _stack_frontend_pid_path(root: Path) -> Path:
+    return _stack_dir(root) / "frontend.pid"
+
+
+def _stack_log_path(root: Path) -> Path:
+    return _stack_dir(root) / "stack.log"
+
+
+def _stack_state_path(root: Path) -> Path:
+    return _stack_dir(root) / "state.json"
+
+
+def _read_pidfile(path: Path) -> int | None:
+    if not path.exists():
+        return None
     try:
-        subprocess.run(
-            [
-                "docker",
-                "compose",
-                "--project-directory",
-                str(compose_file.parent),
-                "-f",
-                str(compose_file),
-                *args,
-            ],
-            check=True,
-        )
-    except FileNotFoundError as exc:
-        raise click.ClickException("docker compose is required to manage the visualization stack") from exc
-    except subprocess.CalledProcessError as exc:
-        raise click.ClickException(f"docker compose exited with code {exc.returncode}") from exc
+        return int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _clear_pidfile(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+
+
+def _read_stack_state(root: Path) -> dict[str, Any]:
+    path = _stack_state_path(root)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_stack_state(root: Path, payload: dict[str, Any]) -> None:
+    state_path = _stack_state_path(root)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _stack_frontend_dir() -> Path:
+    return _project_root() / "frontend"
+
+
+def _stack_install_command(frontend_dir: Path) -> list[str]:
+    return ["npm", "ci"] if (frontend_dir / "package-lock.json").exists() else ["npm", "install"]
+
+
+def _ensure_stack_frontend_dependencies(frontend_dir: Path) -> None:
+    if not frontend_dir.exists():
+        raise click.ClickException(f"frontend directory not found: {frontend_dir}")
+    if not shutil.which("npm"):
+        raise click.ClickException("npm is required to run the optional Atelier frontend stack")
+    node_modules = frontend_dir / "node_modules"
+    vite_bin = node_modules / ".bin" / "vite"
+    if node_modules.exists() and vite_bin.exists():
+        return
+    subprocess.run(_stack_install_command(frontend_dir), cwd=frontend_dir, check=True)
+
+
+def _stack_status_payload(root: Path) -> dict[str, Any]:
+    state = _read_stack_state(root)
+    runner_pid = _read_pidfile(_stack_pid_path(root))
+    service_pid = _read_pidfile(_stack_service_pid_path(root))
+    frontend_pid = _read_pidfile(_stack_frontend_pid_path(root))
+    runner_running = bool(runner_pid is not None and _pid_is_running(runner_pid))
+    service_running = bool(service_pid is not None and _pid_is_running(service_pid))
+    frontend_running = bool(frontend_pid is not None and _pid_is_running(frontend_pid))
+    return {
+        "running": runner_running and service_running and frontend_running,
+        "runner_pid": runner_pid,
+        "service_pid": service_pid,
+        "frontend_pid": frontend_pid,
+        "runner_running": runner_running,
+        "service_running": service_running,
+        "frontend_running": frontend_running,
+        "pid_file": str(_stack_pid_path(root)),
+        "service_pid_file": str(_stack_service_pid_path(root)),
+        "frontend_pid_file": str(_stack_frontend_pid_path(root)),
+        "log_file": str(_stack_log_path(root)),
+        "state_file": str(_stack_state_path(root)),
+        "started_at": state.get("started_at"),
+        "service_url": state.get("service_url", f"http://localhost:{DEFAULT_STACK_SERVICE_PORT}"),
+        "frontend_url": state.get("frontend_url", f"http://localhost:{DEFAULT_STACK_FRONTEND_PORT}"),
+        "last_exit_reason": state.get("last_exit_reason"),
+    }
+
+
+def _tail_text(path: Path, lines: int = 20) -> str:
+    if not path.exists():
+        return ""
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    return "\n".join(content[-lines:])
+
+
+def _clear_stack_pidfiles(root: Path) -> None:
+    _clear_pidfile(_stack_pid_path(root))
+    _clear_pidfile(_stack_service_pid_path(root))
+    _clear_pidfile(_stack_frontend_pid_path(root))
+
+
+def _signal_process_group(pid: int, sig: int) -> None:
+    try:
+        pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        return
+    except OSError:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(pid, sig)
+        return
+
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, sig)
+
+
+def _stop_stack_processes(root: Path, *, force: bool) -> dict[str, Any]:
+    runner_pid = _read_pidfile(_stack_pid_path(root))
+    service_pid = _read_pidfile(_stack_service_pid_path(root))
+    frontend_pid = _read_pidfile(_stack_frontend_pid_path(root))
+
+    for pid in (frontend_pid, service_pid, runner_pid):
+        if pid is not None and _pid_is_running(pid):
+            _signal_process_group(pid, signal.SIGTERM)
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        payload = _stack_status_payload(root)
+        if not payload["runner_running"] and not payload["service_running"] and not payload["frontend_running"]:
+            break
+        time.sleep(0.1)
+
+    if force:
+        for pid in (frontend_pid, service_pid, runner_pid):
+            if pid is not None and _pid_is_running(pid):
+                _signal_process_group(pid, signal.SIGKILL)
+
+    payload = _stack_status_payload(root)
+    if not payload["runner_running"]:
+        _clear_pidfile(_stack_pid_path(root))
+    if not payload["service_running"]:
+        _clear_pidfile(_stack_service_pid_path(root))
+    if not payload["frontend_running"]:
+        _clear_pidfile(_stack_frontend_pid_path(root))
+    return _stack_status_payload(root)
 
 
 def _servicectl_dir(root: Path) -> Path:
@@ -529,7 +770,7 @@ def _servicectl_refresh_host_status(root: Path) -> dict[str, str]:
         ("codex", "codex"),
         ("opencode", None),
         ("copilot", None),
-        ("gemini", "gemini"),
+        ("antigravity", "agy"),
     ]
     status: dict[str, str] = {}
     for hid, check in hosts:
@@ -539,6 +780,8 @@ def _servicectl_refresh_host_status(root: Path) -> dict[str, str]:
             installed = shutil.which("opencode") is not None
         elif hid == "copilot":
             installed = shutil.which("code") is not None
+        elif hid == "antigravity":
+            installed = shutil.which("agy") is not None or shutil.which("antigravity") is not None
         else:
             installed = False
         status[hid] = "installed" if installed else "not_installed"
@@ -2391,6 +2634,79 @@ def lesson_decide(
     click.echo(f"{verb} {lesson_id}")
 
 
+@lesson.group("active")
+def lesson_active_group() -> None:
+    """Inspect and manage active typed lessons."""
+
+
+@lesson_active_group.command("list")
+@click.option("--include-inactive", is_flag=True, default=False)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_active_list(ctx: click.Context, include_inactive: bool, as_json: bool) -> None:
+    from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
+
+    lessons = TypedLessonStore(ctx.obj["root"], create=False).list_lessons()
+    if not include_inactive:
+        lessons = [lesson for lesson in lessons if lesson.enabled]
+    if as_json:
+        _emit([lesson.model_dump(mode="json") for lesson in lessons], as_json=True)
+        return
+    if not lessons:
+        click.echo("(no active lessons)")
+        return
+    for lesson in lessons:
+        last_applied = lesson.last_applied_at.isoformat() if lesson.last_applied_at else "-"
+        click.echo(
+            f"{lesson.id}\t{lesson.kind}\t{lesson.scope}\t{lesson.effective_confidence_at():.2f}\t"
+            f"{'enabled' if lesson.enabled else 'disabled'}\t{last_applied}"
+        )
+
+
+@lesson_active_group.command("show")
+@click.argument("lesson_id")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_active_show(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
+    from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
+
+    lesson = TypedLessonStore(ctx.obj["root"], create=False).get_lesson(lesson_id)
+    if lesson is None:
+        raise click.ClickException(f"typed lesson not found: {lesson_id}")
+    if as_json:
+        _emit(lesson.model_dump(mode="json"), as_json=True)
+        return
+    click.echo(json.dumps(lesson.model_dump(mode="json"), indent=2, ensure_ascii=False, default=str))
+
+
+@lesson_active_group.command("disable")
+@click.argument("lesson_id")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_active_disable(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
+    from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
+
+    lesson = TypedLessonStore(ctx.obj["root"]).set_enabled(lesson_id, False)
+    if as_json:
+        _emit(lesson.model_dump(mode="json"), as_json=True)
+        return
+    click.echo(f"disabled {lesson_id}")
+
+
+@lesson_active_group.command("enable")
+@click.argument("lesson_id")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_active_enable(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
+    from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
+
+    lesson = TypedLessonStore(ctx.obj["root"]).set_enabled(lesson_id, True)
+    if as_json:
+        _emit(lesson.model_dump(mode="json"), as_json=True)
+        return
+    click.echo(f"enabled {lesson_id}")
+
+
 @lesson.command("sync-pr")
 @click.argument("lesson_id")
 @click.option("--dry-run", is_flag=True)
@@ -2814,6 +3130,105 @@ def route_group() -> None:
     """Quality-aware routing helpers."""
 
 
+@cli.group("route")
+def route_public_group() -> None:
+    """Cross-vendor routing helpers."""
+
+
+@route_public_group.command("configure")
+@click.option("--vendor", "vendors", multiple=True, type=click.Choice(["anthropic", "openai", "google"]))
+@click.option("--risk-class", type=click.Choice(["low", "medium", "high"]), default="low", show_default=True)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def route_configure_public_cmd(
+    ctx: click.Context,
+    vendors: tuple[str, ...],
+    risk_class: str,
+    as_json: bool,
+) -> None:
+    from atelier.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
+    from atelier.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
+
+    try:
+        payload = CrossVendorRouteAdvisor(ctx.obj["root"]).configure(
+            enabled_vendors=list(vendors) or None,
+            risk_class=risk_class,
+        )
+    except RouteConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"Saved {payload['path']}")
+    click.echo("Enabled vendors: " + ", ".join(payload["enabled_vendors"]))
+
+
+@route_public_group.command("plan")
+@click.option("--tool", "tool_name", required=True, help="Tool or turn type to evaluate.")
+@click.option("--task", "task_text", required=True, help="Task summary for routing.")
+@click.option("--actual-vendor", default=None, help="Current host vendor for edit-pin decisions.")
+@click.option("--expected-input-tokens", default=1000, show_default=True, type=int)
+@click.option("--expected-output-tokens", default=200, show_default=True, type=int)
+@click.option("--turn-number", default=0, show_default=True, type=int)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def route_plan_cmd(
+    ctx: click.Context,
+    tool_name: str,
+    task_text: str,
+    actual_vendor: str | None,
+    expected_input_tokens: int,
+    expected_output_tokens: int,
+    turn_number: int,
+    as_json: bool,
+) -> None:
+    from atelier.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
+    from atelier.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
+
+    try:
+        payload = CrossVendorRouteAdvisor(ctx.obj["root"]).recommend(
+            tool_name=tool_name,
+            task_text=task_text,
+            actual_vendor=actual_vendor,
+            session_state={
+                "expected_input_tokens": expected_input_tokens,
+                "expected_output_tokens": expected_output_tokens,
+                "turn_number": turn_number,
+            },
+        )
+    except RouteConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"Recommendation: {payload['model']}")
+    click.echo(f"  vendor: {payload['vendor']}")
+    click.echo(f"  predicted cost: ${payload['predicted_cost_usd']:.6f}")
+    if payload.get("fallback"):
+        click.echo(f"  fallback: {payload['fallback']}")
+
+
+@route_public_group.command("status")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def route_status_cmd(ctx: click.Context, as_json: bool) -> None:
+    from atelier.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
+    from atelier.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
+
+    try:
+        payload = CrossVendorRouteAdvisor(ctx.obj["root"]).status()
+    except RouteConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo("Enabled vendors: " + ", ".join(payload["enabled_vendors"]))
+    click.echo(f"Recommendations logged: {payload['recommendation_count']}")
+    click.echo(f"Estimated savings: ${payload['estimated_savings_usd']:.6f}")
+    click.echo(f"Active lessons: {payload['active_lesson_count']}")
+    click.echo(f"Lesson-driven recommendations: {payload['lesson_application_count']}")
+    click.echo(f"Cost-cap triggers: {payload['cost_cap_trigger_count']}")
+
 @route_group.command("decide")
 @click.option("--goal", "user_goal", required=True, help="User goal/task summary.")
 @click.option("--repo-root", default=".", show_default=True)
@@ -3199,6 +3614,26 @@ def memory_group() -> None:
     """Session memory operations."""
 
 
+def _workspace_manager_or_none(root: Path) -> Any | None:
+    from atelier.core.capabilities.team import TeamWorkspaceManager
+
+    manager = TeamWorkspaceManager(root)
+    return manager if manager.exists() else None
+
+
+def _workspace_memory_metadata(root: Path, metadata: dict[str, Any]) -> tuple[dict[str, Any], Any | None, Any | None]:
+    manager = _workspace_manager_or_none(root)
+    if manager is None:
+        return metadata, None, None
+    workspace = manager.load_workspace()
+    member = manager.require_member(None, workspace=workspace)
+    merged = dict(metadata)
+    merged.setdefault("scope", "private")
+    merged.setdefault("workspace_id", workspace.id)
+    merged.setdefault("owner_user_id", member.user_id)
+    return merged, manager, member
+
+
 @memory_group.command("upsert")
 @click.option("--agent-id", required=True)
 @click.option("--label", required=True)
@@ -3235,6 +3670,11 @@ def memory_upsert(
         raise click.ClickException(f"invalid --metadata-json: {exc}") from exc
     if not isinstance(metadata_raw, dict):
         raise click.ClickException("--metadata-json must decode to an object")
+    metadata_raw, _, member = _workspace_memory_metadata(ctx.obj["root"], metadata_raw)
+    if member is not None and metadata_raw.get("scope") == "shared":
+        from atelier.core.capabilities.team import ensure_shared_memory_write
+
+        ensure_shared_memory_write(member)
 
     store = make_memory_store(ctx.obj["root"])
     clean_value = _redact_memory_input(_read_memory_value(value), "value")
@@ -3274,10 +3714,19 @@ def memory_get(ctx: click.Context, agent_id: str | None, label: str, as_json: bo
     """Fetch one editable memory block."""
     from atelier.infra.storage.factory import make_memory_store
 
-    block = make_memory_store(ctx.obj["root"]).get_block(agent_id, label)
+    store = make_memory_store(ctx.obj["root"])
+    block = store.get_block(agent_id, label)
     if block is None:
         _emit(None, as_json=as_json)
         return
+    manager = _workspace_manager_or_none(ctx.obj["root"])
+    if manager is not None:
+        from atelier.core.capabilities.team import visible_memory_blocks
+
+        visible = visible_memory_blocks([block], manager=manager)
+        if not visible:
+            raise click.ClickException(f"memory block is not visible to current workspace user: {label}")
+        block = visible[0]
     payload = block.model_dump(mode="json")
     if as_json:
         _emit(payload, as_json=True)
@@ -3288,14 +3737,20 @@ def memory_get(ctx: click.Context, agent_id: str | None, label: str, as_json: bo
 
 @memory_group.command("list")
 @click.option("--agent-id", default=None)
+@click.option("--shared", "shared_only", is_flag=True, help="Show only workspace-shared blocks.")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def memory_list(ctx: click.Context, agent_id: str | None, as_json: bool) -> None:  # type: ignore
+def memory_list(ctx: click.Context, agent_id: str | None, shared_only: bool, as_json: bool) -> None:  # type: ignore
     """List all memory blocks for an agent."""
     from atelier.infra.storage.factory import make_memory_store
 
     store = make_memory_store(ctx.obj["root"])
     blocks = store.list_blocks(agent_id)
+    manager = _workspace_manager_or_none(ctx.obj["root"])
+    if manager is not None:
+        from atelier.core.capabilities.team import visible_memory_blocks
+
+        blocks = visible_memory_blocks(blocks, manager=manager, shared_only=shared_only)
     if as_json:
         _emit([b.model_dump(mode="json") for b in blocks], as_json=True)
         return
@@ -3395,7 +3850,12 @@ def letta_group() -> None:
 
 @letta_group.command("up")
 def letta_up() -> None:
-    """Start the Letta Docker Compose stack."""
+    """Start the Letta Docker Compose stack.
+
+    For a Docker-free alternative, use:
+      atelier background install --with-letta
+    which registers 'letta server' as a systemd/launchd service.
+    """
     _run_compose(["up", "-d"])
 
 
@@ -3403,16 +3863,6 @@ def letta_up() -> None:
 def letta_down() -> None:
     """Stop the Letta Docker Compose stack while preserving volumes."""
     _run_compose(["down"])
-
-
-@letta_group.command("logs")
-@click.option("-f", "follow", is_flag=True)
-def letta_logs(follow: bool) -> None:
-    """Show Letta logs."""
-    args = ["logs"]
-    if follow:
-        args.append("-f")
-    _run_compose(args)
 
 
 @letta_group.command("status")
@@ -3434,6 +3884,69 @@ def letta_reset(yes: bool) -> None:
     if not yes:
         raise click.ClickException("refusing to reset Letta data without --yes")
     _run_compose(["down", "-v"])
+
+
+@cli.group("openmemory")
+def openmemory_group() -> None:
+    """Manage the self-hosted OpenMemory sidecar."""
+
+
+@openmemory_group.command("up")
+@click.pass_context
+def openmemory_up(ctx: click.Context) -> None:
+    """Clone/update OpenMemory and start its local MCP stack."""
+    root = ctx.obj["root"]
+    missing = [name for name in ("git", "docker", "make") if not shutil.which(name)]
+    if missing:
+        raise click.ClickException(f"OpenMemory requires: {', '.join(missing)}")
+    if not os.environ.get("ATELIER_OPENMEMORY_OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", "")).strip():
+        raise click.ClickException("OPENAI_API_KEY or ATELIER_OPENMEMORY_OPENAI_API_KEY must be set for OpenMemory")
+    _ensure_openmemory_checkout(root)
+    _ensure_openmemory_service_env(root)
+    _write_openmemory_env_files(root)
+    _run_openmemory_make(root, "build")
+    _run_openmemory_make(root, "up")
+    click.echo(f"OpenMemory started at {os.environ.get('ATELIER_OPENMEMORY_URL', 'http://127.0.0.1:8765')}")
+
+
+@openmemory_group.command("down")
+@click.pass_context
+def openmemory_down(ctx: click.Context) -> None:
+    """Stop the local OpenMemory stack while preserving the checkout."""
+    root = ctx.obj["root"]
+    workdir = _openmemory_workdir(root)
+    if not workdir.exists():
+        click.echo("OpenMemory checkout not found; nothing to stop.")
+        return
+    _run_openmemory_make(root, "down")
+    click.echo("OpenMemory stopped.")
+
+
+@openmemory_group.command("status")
+@click.pass_context
+def openmemory_status(ctx: click.Context) -> None:
+    """Show the local OpenMemory service status."""
+    root = ctx.obj["root"]
+    workdir = _openmemory_workdir(root)
+    if not workdir.exists():
+        click.echo("OpenMemory checkout not found.")
+        return
+    subprocess.run(["docker", "compose", "ps"], cwd=workdir, check=False)
+
+
+@openmemory_group.command("logs")
+@click.option("-f", "--follow", is_flag=True, help="Follow the logs.")
+@click.pass_context
+def openmemory_logs(ctx: click.Context, follow: bool) -> None:
+    """Show OpenMemory Docker Compose logs."""
+    root = ctx.obj["root"]
+    workdir = _openmemory_workdir(root)
+    if not workdir.exists():
+        raise click.ClickException("OpenMemory checkout not found")
+    cmd = ["docker", "compose", "logs"]
+    if follow:
+        cmd.append("-f")
+    subprocess.run(cmd, cwd=workdir, check=False)
 
 
 @cli.command("consolidate")
@@ -3501,59 +4014,228 @@ def stack_group() -> None:
 
 
 @stack_group.command("start")
-@click.option("--with-docs", is_flag=True, help="Also start the docs site on port 3200.")
-def stack_start(with_docs: bool) -> None:
-    """Start the optional visualization stack via Docker Compose."""
+@click.option("--with-docs", is_flag=True, help="Deprecated; docs are no longer managed by atelier stack.")
+@click.pass_context
+def stack_start(ctx: click.Context, with_docs: bool) -> None:
+    """Start the optional visualization stack with native processes."""
+    root = ctx.obj["root"]
     if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
         click.echo(
             f"Notice: {STACK_UNIT} is installed. "
             "Prefer using 'atelier systemd restart' or 'systemctl --user restart atelier-stack'."
         )
-
-    services = _configured_stack_services(["service", "frontend", "otel-collector"])
     if with_docs:
-        services = _configured_stack_services([*services, "docs"])
-    _run_stack_compose(["up", "--build", "-d", *services])
-    click.echo("frontend: http://localhost:3125")
-    click.echo("service: http://localhost:8787")
-    if with_docs and "docs" in services:
-        click.echo("docs: http://localhost:3200")
+        click.echo("Notice: docs are no longer part of the managed stack; starting service + frontend only.")
+
+    payload = _stack_status_payload(root)
+    if payload["running"]:
+        click.echo(f"frontend: {payload['frontend_url']}")
+        click.echo(f"service: {payload['service_url']}")
+        return
+
+    if payload["runner_running"] or payload["service_running"] or payload["frontend_running"]:
+        _stop_stack_processes(root, force=True)
+
+    stack_dir = _stack_dir(root)
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    project_root = _project_root()
+    command = [
+        sys.executable,
+        "-m",
+        "atelier.gateway.adapters.cli",
+        "--root",
+        str(root),
+        "stack",
+        "run",
+    ]
+    env = os.environ.copy()
+    env["ATELIER_ROOT"] = str(root)
+    with _stack_log_path(root).open("a", encoding="utf-8") as log_file:
+        proc = subprocess.Popen(
+            command,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            env=env,
+            cwd=project_root,
+            start_new_session=True,
+            close_fds=True,
+        )
+
+    _stack_pid_path(root).write_text(f"{proc.pid}\n", encoding="utf-8")
+    deadline = time.time() + 2
+    while time.time() < deadline and _pid_is_running(proc.pid):
+        time.sleep(0.1)
+
+    if not _pid_is_running(proc.pid):
+        tail = _tail_text(_stack_log_path(root))
+        detail = f"\n\n{tail}" if tail else ""
+        raise click.ClickException(f"native stack failed to start; inspect {_stack_log_path(root)}{detail}")
+
+    payload = _stack_status_payload(root)
+    click.echo(f"frontend: {payload['frontend_url']}")
+    click.echo(f"service: {payload['service_url']}")
 
 
 @stack_group.command("stop")
-def stack_stop() -> None:
+@click.option("--force", is_flag=True, help="Use SIGKILL if the stack does not stop cleanly.")
+@click.pass_context
+def stack_stop(ctx: click.Context, force: bool) -> None:
     """Stop the optional visualization stack."""
+    root = ctx.obj["root"]
     if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
         click.echo(
             f"Notice: {STACK_UNIT} is installed. "
             "Prefer using 'atelier systemd uninstall' or 'systemctl --user stop atelier-stack'."
         )
-    _run_stack_compose(["down"])
+    payload = _stop_stack_processes(root, force=force)
+    if payload["running"]:
+        raise click.ClickException("stack did not stop cleanly")
+    click.echo("stopped stack")
 
 
 @stack_group.command("status")
-def stack_status() -> None:
-    """Show visualization stack container status."""
+@click.pass_context
+def stack_status(ctx: click.Context) -> None:
+    """Show visualization stack process status."""
+    root = ctx.obj["root"]
     if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
         subprocess.run(["systemctl", "--user", "status", STACK_UNIT, "--no-pager"], check=False)
         click.echo("-" * 40)
-    _run_stack_compose(["ps"])
+    payload = _stack_status_payload(root)
+    click.echo(f"running: {str(payload['running']).lower()}")
+    click.echo(f"runner_pid: {payload['runner_pid']}")
+    click.echo(f"service_pid: {payload['service_pid']}")
+    click.echo(f"frontend_pid: {payload['frontend_pid']}")
+    click.echo(f"log_file: {payload['log_file']}")
+    click.echo(f"service: {payload['service_url']}")
+    click.echo(f"frontend: {payload['frontend_url']}")
+    if payload["last_exit_reason"]:
+        click.echo(f"last_exit_reason: {payload['last_exit_reason']}")
 
 
-@stack_group.command("logs")
-@click.option("-f", "follow", is_flag=True)
-@click.option("--with-docs", is_flag=True, help="Include docs container logs.")
-def stack_logs(follow: bool, with_docs: bool) -> None:
-    """Show visualization stack logs."""
-    if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
-        click.echo(f"Notice: {STACK_UNIT} is installed. Prefer using 'atelier systemd logs stack'.")
+@stack_group.command("run", hidden=True)
+@click.option("--service-host", default=DEFAULT_STACK_SERVICE_HOST, show_default=True)
+@click.option("--service-port", default=DEFAULT_STACK_SERVICE_PORT, show_default=True, type=int)
+@click.option("--frontend-host", default=DEFAULT_STACK_FRONTEND_HOST, show_default=True)
+@click.option("--frontend-port", default=DEFAULT_STACK_FRONTEND_PORT, show_default=True, type=int)
+@click.pass_context
+def stack_run(
+    ctx: click.Context,
+    service_host: str,
+    service_port: int,
+    frontend_host: str,
+    frontend_port: int,
+) -> None:
+    """Internal long-running supervisor for the optional native stack."""
+    root = ctx.obj["root"]
+    frontend_dir = _stack_frontend_dir()
+    _ensure_stack_frontend_dependencies(frontend_dir)
 
-    args = ["logs"]
-    if follow:
-        args.append("-f")
-    if with_docs:
-        args.append("docs")
-    _run_stack_compose(args)
+    _stack_dir(root).mkdir(parents=True, exist_ok=True)
+    _stack_pid_path(root).write_text(f"{os.getpid()}\n", encoding="utf-8")
+    _write_stack_state(
+        root,
+        {
+            "started_at": datetime.now(UTC).isoformat(),
+            "last_exit_reason": None,
+            "service_url": f"http://localhost:{service_port}",
+            "frontend_url": f"http://localhost:{frontend_port}",
+        },
+    )
+
+    service_env = os.environ.copy()
+    service_env.update(
+        {
+            "ATELIER_ROOT": str(root),
+            "ATELIER_SERVICE_HOST": service_host,
+            "ATELIER_SERVICE_PORT": str(service_port),
+            "ATELIER_REQUIRE_AUTH": "false",
+        }
+    )
+    frontend_env = os.environ.copy()
+    frontend_env["VITE_API_URL"] = f"http://localhost:{service_port}"
+
+    service_proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "atelier.gateway.adapters.cli",
+            "--root",
+            str(root),
+            "service",
+            "start",
+            "--host",
+            service_host,
+            "--port",
+            str(service_port),
+        ],
+        cwd=_project_root(),
+        env=service_env,
+        start_new_session=True,
+    )
+    frontend_proc = subprocess.Popen(
+        [
+            "npm",
+            "exec",
+            "vite",
+            "--",
+            "--host",
+            frontend_host,
+            "--port",
+            str(frontend_port),
+        ],
+        cwd=frontend_dir,
+        env=frontend_env,
+        start_new_session=True,
+    )
+    _stack_service_pid_path(root).write_text(f"{service_proc.pid}\n", encoding="utf-8")
+    _stack_frontend_pid_path(root).write_text(f"{frontend_proc.pid}\n", encoding="utf-8")
+
+    stopping = False
+
+    def _handle_stop(_signum: int, _frame: Any) -> None:
+        nonlocal stopping
+        stopping = True
+
+    previous_sigterm = signal.signal(signal.SIGTERM, _handle_stop)
+    previous_sigint = signal.signal(signal.SIGINT, _handle_stop)
+
+    exit_reason = "stopped"
+    exit_code = 0
+    try:
+        while True:
+            service_code = service_proc.poll()
+            frontend_code = frontend_proc.poll()
+            if stopping:
+                break
+            if service_code is not None:
+                exit_reason = f"service_exited:{service_code}"
+                exit_code = service_code or 1
+                break
+            if frontend_code is not None:
+                exit_reason = f"frontend_exited:{frontend_code}"
+                exit_code = frontend_code or 1
+                break
+            time.sleep(1)
+    finally:
+        for proc in (frontend_proc, service_proc):
+            if proc.poll() is None:
+                _signal_process_group(proc.pid, signal.SIGTERM)
+        deadline = time.time() + 5
+        while time.time() < deadline and any(proc.poll() is None for proc in (frontend_proc, service_proc)):
+            time.sleep(0.1)
+        for proc in (frontend_proc, service_proc):
+            if proc.poll() is None:
+                _signal_process_group(proc.pid, signal.SIGKILL)
+        signal.signal(signal.SIGTERM, previous_sigterm)
+        signal.signal(signal.SIGINT, previous_sigint)
+        _clear_stack_pidfiles(root)
+        state = _read_stack_state(root)
+        state["last_exit_reason"] = exit_reason
+        state["stopped_at"] = datetime.now(UTC).isoformat()
+        _write_stack_state(root, state)
+
+    raise SystemExit(exit_code)
 
 
 @cli.group("bash")
@@ -3583,7 +4265,7 @@ def bash_intercept(ctx: click.Context, command_text: str, history_path: Path | N
 
 
 @cli.command("search-read")
-@click.option("--query", required=True, help="Pattern to search for (grep -rn).")
+@click.option("--query", required=True, help="Pattern to search for (rg).")
 @click.option("--path", "search_path", default=".", show_default=True, help="Directory or file to search.")
 @click.option("--max-files", default=10, show_default=True, type=int, help="Max hit-files to return.")
 @click.option("--max-chars-per-file", default=2000, show_default=True, type=int)
@@ -3872,7 +4554,7 @@ def cached_grep(ctx: click.Context, pattern: str, search_path: str) -> None:
         return
     s = _load_smart_state(ctx.obj["root"])
     cache = s.setdefault("cache", {})
-    key = f"grep:{pattern}:{search_path}:{_path_content_fingerprint(search_path)}"
+    key = f"rg:{pattern}:{search_path}:{_path_content_fingerprint(search_path)}"
     if not _cache_disabled() and key in cache:
         s["savings"]["calls_avoided"] = int(s["savings"].get("calls_avoided", 0)) + 1
         _save_smart_state(ctx.obj["root"], s)
@@ -3882,7 +4564,21 @@ def cached_grep(ctx: click.Context, pattern: str, search_path: str) -> None:
 
     try:
         proc = subprocess.run(
-            ["grep", "-rn", "--", pattern, search_path],
+            [
+                "rg",
+                "-H",
+                "-n",
+                "--no-heading",
+                "--color",
+                "never",
+                "--hidden",
+                "--no-ignore",
+                "--glob",
+                "!.git",
+                "--",
+                pattern,
+                search_path,
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -3890,7 +4586,7 @@ def cached_grep(ctx: click.Context, pattern: str, search_path: str) -> None:
         )
         out = proc.stdout
     except (OSError, subprocess.SubprocessError) as exc:
-        out = f"(grep failed: {exc})"
+        out = f"(rg failed: {exc})"
     payload = {"cached": False, "output": out[:8000]}
     if not _cache_disabled():
         cache[key] = payload
@@ -4566,25 +5262,451 @@ def logout_cmd(ctx: click.Context, no_trial: bool, as_json: bool) -> None:
     click.echo("logged out" + ("; anonymous trial active" if payload.get("anonymous") else ""))
 
 
-@cli.command("status")
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def status_cmd(ctx: click.Context, as_json: bool) -> None:
-    """Show local plugin/auth/subscription status."""
-    from atelier.core.capabilities.plugin_runtime import auth_status, load_plugin_settings
+# ── Status dashboard helpers (ported from bin/atelier-status) ───────────────
 
-    payload = auth_status(ctx.obj["root"])
-    payload["settings"] = load_plugin_settings(ctx.obj["root"])
-    if as_json:
-        _emit(payload, as_json=True)
+_STATUS_COLORS = {
+    "success": "\033[38;2;80;200;120m",
+    "complete": "\033[38;2;80;200;120m",
+    "failed": "\033[38;2;255;80;80m",
+    "error": "\033[38;2;255;80;80m",
+    "running": "\033[38;2;255;200;60m",
+    "partial": "\033[38;2;255;200;60m",
+}
+_RESET = "\033[0m"
+_DIM = "\033[2m"
+_BOLD = "\033[1m"
+_GREEN = "\033[38;2;80;200;120m"
+_RED = "\033[38;2;255;80;80m"
+_YELLOW = "\033[38;2;255;200;60m"
+_BRAND = "\033[1;38;2;255;96;65m"
+_BADGE = "\033[1;48;2;255;96;65;38;2;255;255;255m atelier:code \033[0m"
+_SEP = "\033[2;38;2;180;180;180m │\033[0m"
+_W = 72
+
+
+def _k(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1000:
+        return f"{n // 1000}k"
+    return str(n)
+
+
+def _usd(v: float) -> str:
+    if v >= 1:
+        return f"${v:.2f}"
+    if v > 0:
+        return f"${v:.4f}"
+    return "$0"
+
+
+def _age(ts: str) -> str:
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        s = max(0, int((datetime.now(UTC) - dt).total_seconds()))
+        if s < 60:
+            return f"{s}s ago"
+        if s < 3600:
+            return f"{s // 60}m ago"
+        if s < 86400:
+            return f"{s // 3600}h ago"
+        return f"{s // 86400}d ago"
+    except Exception:
+        return "?"
+
+
+def _dur(t0: str, t1: str) -> str:
+    try:
+        a = datetime.fromisoformat(t0.replace("Z", "+00:00"))
+        b = datetime.fromisoformat(t1.replace("Z", "+00:00"))
+        s = max(0, int((b - a).total_seconds()))
+        if s < 60:
+            return f"{s}s"
+        return f"{s // 60}m{s % 60:02d}s"
+    except Exception:
+        return ""
+
+
+def _status_color(s: str) -> str:
+    c = _STATUS_COLORS.get(s)
+    return f"{c}{s}{_RESET}" if c else f"{_DIM}{s}{_RESET}"
+
+
+def _status_icon(s: str) -> str:
+    if s in ("success", "complete"):
+        return f"{_GREEN}✓{_RESET}"
+    if s in ("failed", "error"):
+        return f"{_RED}✖{_RESET}"
+    if s in ("running", "partial"):
+        return f"{_YELLOW}⋯{_RESET}"
+    return f"{_DIM}?{_RESET}"
+
+
+def _box_line(content: str = "") -> None:
+    plain = re.sub(r"\033\[[^m]*m", "", content)
+    pad = max(0, _W - 2 - len(plain))
+    click.echo(f" {content}{' ' * pad} ")
+
+
+def _rule(label: str = "") -> None:
+    if label:
+        line = f" {_BOLD}{label}{_RESET} "
+        fill = _W - len(line) - 2
+        click.echo(f"{_DIM}─{_RESET}{line}{_DIM}{'─' * fill}{_RESET}")
+    else:
+        click.echo(f"{_DIM}{'─' * _W}{_RESET}")
+
+
+def _render_dashboard(root: Path, *, line_mode: bool, n_runs: int, session_id: str | None) -> None:
+    """Render the runs dashboard (same output as the old atelier-status binary)."""
+
+    # When NO_COLOR is set, suppress all ANSI by swapping module-level globals
+    # for the duration of this call.
+    if os.environ.get("NO_COLOR"):
+        saved = {
+            "_BRAND": _BRAND,
+            "_BADGE": _BADGE,
+            "_SEP": _SEP,
+            "_DIM": _DIM,
+            "_RESET": _RESET,
+            "_GREEN": _GREEN,
+            "_RED": _RED,
+            "_YELLOW": _YELLOW,
+            "_BOLD": _BOLD,
+        }
+        for k in saved:
+            globals()[k] = ""
+        try:
+            return _render_dashboard_impl(root, line_mode, n_runs, session_id)
+        finally:
+            for k, v in saved.items():
+                globals()[k] = v
+    else:
+        return _render_dashboard_impl(root, line_mode, n_runs, session_id)
+
+
+def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id: str | None) -> None:
+    runs_dir = root / "runs"
+
+    # Resolve ledger path
+    ledger_path: str | None = None
+    if session_id:
+        candidate = runs_dir / f"{session_id}.json"
+        if candidate.exists():
+            ledger_path = str(candidate)
+    elif runs_dir.is_dir():
+        files = sorted(runs_dir.glob("*.json"), key=os.path.getmtime, reverse=True)
+        if files:
+            ledger_path = str(files[0])
+    if not ledger_path:
+        ledger_path = "NONE"
+
+    # Load savings data
+    savings_map: dict[str, float] = {}
+    routing_map: dict[str, float] = {}
+    compaction_map: dict[str, float] = {}
+    routing_total = 0.0
+    compaction_total = 0.0
+    savings_path = root / "live_savings_events.jsonl"
+    if savings_path.exists():
+        for line in savings_path.read_text().splitlines():
+            try:
+                d = json.loads(line)
+                rid = d.get("session_id")
+                cost = float(d.get("cost_saved_usd", 0.0) or 0.0)
+                lever = str(d.get("lever") or d.get("tool_name") or "")
+                bucket = "routing" if "routing" in lever.lower() else "compaction" if "compact" in lever.lower() else "other"
+                if rid:
+                    savings_map[rid] = savings_map.get(rid, 0.0) + cost
+                    if bucket == "routing":
+                        routing_map[rid] = routing_map.get(rid, 0.0) + cost
+                        routing_total += cost
+                    elif bucket == "compaction":
+                        compaction_map[rid] = compaction_map.get(rid, 0.0) + cost
+                        compaction_total += cost
+            except Exception:
+                pass
+
+    # Load cost + token data from DB
+    cost_map: dict[str, float] = {}
+    tokens_map: dict[str, int] = {}
+    db_runs: list[dict] = []
+    total_runs_in_db = 0
+    db_path = root / "atelier.db"
+    if db_path.exists():
+        try:
+            import sqlite3
+
+            with sqlite3.connect(str(db_path)) as conn:
+                for row in conn.execute(
+                    "SELECT id, json_extract(payload, '$.input_tokens'), json_extract(payload, '$.output_tokens'), json_extract(payload, '$.cached_input_tokens'), json_extract(payload, '$.thinking_tokens'), host FROM traces"
+                ):
+                    rid, inp, out, cr, th, _h = row
+                    c = ((inp or 0) * 3 + (cr or 0) * 0.3 + (out or 0) * 15) / 1_000_000.0
+                    cost_map[rid] = c
+                    tokens_map[rid] = (inp or 0) + (out or 0) + (cr or 0) + (th or 0)
+
+                total_runs_in_db = conn.execute("SELECT COUNT(*) FROM traces").fetchone()[0]
+
+                for row in conn.execute(
+                    "SELECT session_id, SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens) FROM context_budget GROUP BY session_id"
+                ):
+                    rid, inp, out, cr = row
+                    cost = ((inp or 0) * 3 + (cr or 0) * 0.3 + (out or 0) * 15) / 1_000_000.0
+                    cost_map[rid] = cost
+                    tokens_map[rid] = (inp or 0) + (out or 0) + (cr or 0)
+
+                for row in conn.execute("SELECT payload FROM traces ORDER BY created_at DESC LIMIT 1000"):
+                    p = json.loads(row[0])
+                    db_runs.append(p)
+        except Exception:
+            pass
+
+    # Load flat ledger if exists
+    def _load_run(path: str) -> dict | None:
+        try:
+            return json.loads(Path(path).read_text())
+        except Exception:
+            return None
+
+    snap: dict | None = None
+    if ledger_path != "NONE":
+        snap = _load_run(ledger_path)
+
+    if not snap and session_id:
+        snap = next(
+            (r for r in db_runs if r.get("session_id") == session_id or r.get("id") == session_id),
+            None,
+        )
+
+    if not snap and db_runs and not session_id:
+        snap = db_runs[0]
+
+    # ── ONE-LINER MODE ──
+    if line_mode:
+        if not snap:
+            click.echo(f"atelier | run {Path(ledger_path).stem[:8] if ledger_path != 'NONE' else '?'} not found")
+            return
+
+        sid = snap.get("session_id") or snap.get("id") or "?"
+        domain = snap.get("domain") or "-"
+        task = (snap.get("task") or "").strip().splitlines()[0] if snap.get("task") else "-"
+        if len(task) > 50:
+            task = task[:47] + "..."
+        status = snap.get("status") or "?"
+        events = len(snap.get("events", []) or [])
+        errors = len(snap.get("errors_seen", []) or [])
+        blockers = len(snap.get("current_blockers", []) or [])
+        files_n = len(snap.get("files_touched", []) or [])
+        tools_n = int(snap.get("tool_call_count", 0) or snap.get("tool_count", 0) or len(snap.get("tools_called", [])))
+        agent = snap.get("agent") or "?"
+        age_str = _age(snap.get("updated_at") or snap.get("created_at") or "")
+        dur_str = _dur(snap.get("created_at", ""), snap.get("updated_at", ""))
+
+        cost_v = cost_map.get(sid, float(snap.get("cost", {}).get("total_cost_usd", 0.0)))
+        if cost_v == 0 and "input_tokens" in snap:
+            cost_v = (snap.get("input_tokens", 0) * 3 + snap.get("output_tokens", 0) * 15) / 1_000_000.0
+
+        saved_v = savings_map.get(sid, 0.0)
+        routing_v = routing_map.get(sid, 0.0)
+        compaction_v = compaction_map.get(sid, 0.0)
+
+        saved_seg = ""
+        if saved_v > 0:
+            breakdown = []
+            if compaction_v > 0:
+                breakdown.append(f"compact={_usd(compaction_v)}")
+            if routing_v > 0:
+                breakdown.append(f"routing={_usd(routing_v)}")
+            suffix = f" ({', '.join(breakdown)})" if breakdown else ""
+            saved_seg = f" {_SEP} {_GREEN}saved={_usd(saved_v)}{suffix}{_RESET}"
+
+        line = (
+            f"{_BADGE} {_BRAND}run {sid[:8]}{_RESET} {_SEP} {_DIM}{agent}{_RESET} {_SEP} "
+            f"{domain} {_SEP} {task} {_SEP} {_status_color(status)} "
+            f"{_SEP} ev={events} err={errors} blk={blockers}"
+            f" {_SEP} files={files_n} tools={tools_n}"
+            + (f" {_SEP} cost={_usd(cost_v)}" if cost_v > 0 else "")
+            + saved_seg
+            + (f" {_SEP} {dur_str}" if dur_str else "")
+            + f" {_SEP} {_DIM}{age_str}{_RESET}"
+        )
+        click.echo(line)
         return
-    click.echo(f"authenticated: {payload['authenticated']}")
-    click.echo(f"anonymous: {payload['isAnonymous']}")
-    if payload.get("email"):
-        click.echo(f"email: {payload['email']}")
-    if payload.get("subscription"):
-        click.echo(f"subscription: {payload['subscription']}")
-    click.echo(f"root: {payload['root']}")
+
+    # ── DASHBOARD MODE (default) ──
+    all_run_entries: list[dict] = []
+    seen_ids: set[str] = set()
+
+    if runs_dir.is_dir():
+        for rf in sorted(runs_dir.glob("*.json"), key=os.path.getmtime, reverse=True):
+            try:
+                d = json.loads(rf.read_text())
+                rid = d.get("session_id") or rf.stem
+                all_run_entries.append(d)
+                seen_ids.add(rid)
+            except Exception:
+                pass
+
+    for dr in db_runs:
+        rid = dr.get("session_id") or dr.get("id")
+        if rid not in seen_ids:
+            all_run_entries.append(dr)
+            seen_ids.add(rid)
+
+    total_runs = max(total_runs_in_db, len(seen_ids))
+    success_count = 0
+    failed_count = 0
+    total_tools = 0
+    total_files = 0
+    total_errors = 0
+
+    for d in all_run_entries:
+        s = d.get("status", "")
+        if s in ("success", "complete"):
+            success_count += 1
+        elif s in ("failed", "error"):
+            failed_count += 1
+        total_tools += int(d.get("tool_call_count", 0) or d.get("tool_count", 0) or len(d.get("tools_called", [])))
+        total_files += len(d.get("files_touched", []) or [])
+        total_errors += len(d.get("errors_seen", []) or [])
+
+    total_cost = sum(cost_map.values())
+    saved_usd = sum(savings_map.values())
+    total_tokens = sum(tokens_map.values())
+
+    _rule("SYSTEM OVERVIEW")
+    _box_line(f"{_BADGE}  {_DIM}{root}{_RESET}")
+
+    sr = f"{_GREEN}{success_count} ok{_RESET}" if success_count else f"{_DIM}0 ok{_RESET}"
+    fr = f"{_RED}{failed_count} failed{_RESET}" if failed_count else f"{_DIM}0 failed{_RESET}"
+    _box_line(
+        f"{_BOLD}{total_runs}{_RESET} runs  {sr}  {fr}  "
+        f"{_DIM}tools={_k(total_tools)}  files={total_files}  errs={total_errors}{_RESET}"
+    )
+    if total_cost > 0 or saved_usd > 0:
+        parts = []
+        if compaction_total > 0:
+            parts.append(f"compact {_usd(compaction_total)}")
+        if routing_total > 0:
+            parts.append(f"routing {_usd(routing_total)}")
+        breakdown_str = f"  {_DIM}({' · '.join(parts)}){_RESET}" if parts else ""
+        _box_line(
+            f"{_DIM}cost{_RESET} {_usd(total_cost)}  "
+            + (f"{_GREEN}saved{_RESET} {_usd(saved_usd)}{breakdown_str}" if saved_usd > 0 else "")
+            + (f"  {_DIM}tokens{_RESET} {_k(total_tokens)}" if total_tokens else "")
+        )
+
+    shown = min(n_runs, len(all_run_entries))
+    _rule(f"RECENT RUNS ({shown})")
+
+    for d in all_run_entries[:n_runs]:
+        sid = d.get("session_id") or d.get("id") or "?"
+        agent = (d.get("agent") or "?")[:8]
+        domain = (d.get("domain") or "-")[:12]
+        task = (d.get("task") or "").strip().replace("\n", " ")
+        if len(task) > 55:
+            task = task[:52] + "..."
+        if not task:
+            task = f"{_DIM}(no task){_RESET}"
+        status = d.get("status") or "?"
+        files_n = len(d.get("files_touched", []) or [])
+        tools_n = int(d.get("tool_call_count", 0) or d.get("tool_count", 0) or len(d.get("tools_called", [])))
+        errs_n = len(d.get("errors_seen", []) or [])
+        age_str = _age(d.get("updated_at") or d.get("created_at") or "")
+        dur_str = _dur(d.get("created_at", ""), d.get("updated_at", ""))
+
+        cost_v = cost_map.get(sid, float(d.get("cost", {}).get("total_cost_usd", 0.0)))
+        if cost_v == 0 and "input_tokens" in d:
+            cost_v = (d.get("input_tokens", 0) * 3 + d.get("output_tokens", 0) * 15) / 1_000_000.0
+
+        saved_v = savings_map.get(sid, 0.0)
+        routing_v = routing_map.get(sid, 0.0)
+        compaction_v = compaction_map.get(sid, 0.0)
+
+        dots = "." * max(1, (_W - len(re.sub(r"\033\[[^m]*m", "", task)) - 16))
+        _box_line(f" {_status_icon(status)}  {_BOLD}{task}{_RESET} {_DIM}{dots} {sid[:8]}{_RESET}")
+
+        metrics = []
+        if cost_v > 0:
+            metrics.append(f"cost={_usd(cost_v)}")
+        if saved_v > 0:
+            breakdown_parts = []
+            if compaction_v > 0:
+                breakdown_parts.append(f"c={_usd(compaction_v)}")
+            if routing_v > 0:
+                breakdown_parts.append(f"r={_usd(routing_v)}")
+            run_breakdown_str = f" {_DIM}({' '.join(breakdown_parts)}){_RESET}" if breakdown_parts else ""
+            metrics.append(f"{_GREEN}saved={_usd(saved_v)}{run_breakdown_str}")
+        if dur_str:
+            metrics.append(dur_str)
+        metrics_str = f" {_SEP} ".join(metrics)
+
+        meta_line = f"    {_DIM}{age_str}{_RESET} {_SEP} {agent} {_SEP} {domain}"
+        if metrics_str:
+            meta_line += f" {_SEP} {metrics_str}"
+        meta_line += f" {_SEP} {_DIM}f={files_n} t={tools_n}{_RESET}"
+        _box_line(meta_line)
+
+    _rule()
+    _box_line(f"{_DIM}store: {root}   runs dir: {runs_dir}{_RESET}")
+    _rule()
+
+
+@cli.command("status")
+@click.option("--json", "as_json", is_flag=True, help="Emit raw JSON of runs data.")
+@click.option("--line", "line_mode", is_flag=True, help="One-liner mode (good for status bars).")
+@click.option("-n", type=int, default=5, show_default=True, help="Number of recent runs to show.")
+@click.option("--session-id", default=None, help="Show detail for a specific run only.")
+@click.option("--auth", "auth_mode", is_flag=True, help="Show auth/subscription status instead of runs.")
+@click.pass_context
+def status_cmd(
+    ctx: click.Context,
+    as_json: bool,
+    line_mode: bool,
+    n: int,
+    session_id: str | None,
+    auth_mode: bool,
+) -> None:
+    """Show runs dashboard or auth status.
+
+    Default view: runs dashboard (overview of recent runs, totals, savings).
+
+    Use --auth to show the old auth/subscription status.
+    """
+    root: Path = ctx.obj["root"]
+
+    if auth_mode:
+        from atelier.core.capabilities.plugin_runtime import auth_status, load_plugin_settings
+
+        payload = auth_status(root)
+        payload["settings"] = load_plugin_settings(root)
+        if as_json:
+            _emit(payload, as_json=True)
+            return
+        click.echo(f"authenticated: {payload['authenticated']}")
+        click.echo(f"anonymous: {payload['isAnonymous']}")
+        if payload.get("email"):
+            click.echo(f"email: {payload['email']}")
+        if payload.get("subscription"):
+            click.echo(f"subscription: {payload['subscription']}")
+        click.echo(f"root: {payload['root']}")
+        return
+
+    if as_json:
+        runs_dir = root / "runs"
+        if session_id:
+            target = runs_dir / f"{session_id}.json"
+        else:
+            files = sorted(runs_dir.glob("*.json"), key=os.path.getmtime, reverse=True)
+            target = files[0] if files else None
+        if target and target.exists():
+            click.echo(target.read_text().strip())
+        else:
+            click.echo("{}")
+        return
+
+    _render_dashboard(root, line_mode=line_mode, n_runs=n, session_id=session_id)
 
 
 @cli.command("share")
@@ -5786,29 +6908,6 @@ def servicectl_status(ctx: click.Context, as_json: bool) -> None:
         click.echo("last_processed_jobs: " + ", ".join(payload["last_processed_jobs"]))
 
 
-@servicectl_group.command("logs")
-@click.option("-f", "follow", is_flag=True)
-@click.option("--lines", default=80, show_default=True, type=int)
-@click.pass_context
-def servicectl_logs(ctx: click.Context, follow: bool, lines: int) -> None:
-    """Show background controller logs."""
-    log_path = _servicectl_log_path(ctx.obj["root"])
-    if not log_path.exists():
-        click.echo("(no servicectl logs)")
-        return
-    if follow:
-        try:
-            subprocess.run(["tail", "-n", str(lines), "-f", str(log_path)], check=True)
-        except FileNotFoundError as exc:
-            raise click.ClickException("tail is required for --follow log streaming") from exc
-        except subprocess.CalledProcessError as exc:
-            raise click.ClickException(f"tail exited with code {exc.returncode}") from exc
-        return
-    content = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    for line in content[-lines:]:
-        click.echo(line)
-
-
 @servicectl_group.command("run", hidden=True)
 @click.option("--interval-seconds", default=60, show_default=True, type=int)
 @click.option("--maintenance-interval-seconds", default=300, show_default=True, type=int)
@@ -5866,14 +6965,39 @@ def background_group() -> None:
 
 @background_group.command("install")
 @click.option("--with-stack", is_flag=True, help="Also install the visualization stack service.")
+@click.option("--with-letta", is_flag=True, help="Also install the native Letta memory server service.")
+@click.option("--with-openmemory", is_flag=True, help="Also install the OpenMemory MCP service.")
 @click.pass_context
-def background_install(ctx: click.Context, with_stack: bool) -> None:
+def background_install(ctx: click.Context, with_stack: bool, with_letta: bool, with_openmemory: bool) -> None:
     """Install Atelier services as background units."""
-    import shutil
-
     root = ctx.obj["root"]
     project_root = _project_root()
     atelier_bin = shutil.which("atelier") or str(Path(sys.argv[0]).resolve())
+
+    if with_letta:
+        _letta_bin = shutil.which("letta")
+        if not _letta_bin:
+            click.echo(
+                "Warning: 'letta' CLI not found on PATH. "
+                "Install it with: uv sync --extra memory-server  (or pip install letta)\n"
+                "The Letta service unit will still be created but will fail until 'letta' is available."
+            )
+            _letta_bin = "letta"
+
+    if with_openmemory:
+        _ensure_openmemory_service_env(root)
+        missing = [name for name in ("git", "docker", "make") if not shutil.which(name)]
+        if missing:
+            click.echo(
+                "Warning: OpenMemory requires "
+                + ", ".join(missing)
+                + ". The service unit will be created but will fail until those commands are available."
+            )
+        if not os.environ.get("ATELIER_OPENMEMORY_OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", "")).strip():
+            click.echo(
+                "Warning: OPENAI_API_KEY not set. "
+                "The OpenMemory service unit will be created but startup will fail until the key is provided."
+            )
 
     if _is_linux():
         if not shutil.which("systemctl"):
@@ -5907,11 +7031,12 @@ After={CONTROLLER_UNIT}
 [Service]
 Type=simple
 WorkingDirectory={project_root}
-ExecStart=docker compose up
-ExecStop=docker compose down
+ExecStart={atelier_bin} --root {root} stack run
+ExecStop={atelier_bin} --root {root} stack stop
 Restart=always
 Environment=ATELIER_ROOT={root}
 Environment=ATELIER_STACK_ROOT={root}
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=default.target
@@ -5919,10 +7044,53 @@ WantedBy=default.target
             (SYSTEMD_USER_DIR / STACK_UNIT).write_text(stack_content, encoding="utf-8")
             click.echo(f"Installed {STACK_UNIT}")
 
+        if with_letta:
+            letta_content = f"""[Unit]
+Description=Atelier Letta Memory Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={_letta_bin} server
+Restart=always
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
+"""
+            (SYSTEMD_USER_DIR / LETTA_UNIT).write_text(letta_content, encoding="utf-8")
+            click.echo(f"Installed {LETTA_UNIT}")
+
+        if with_openmemory:
+            openmemory_content = f"""[Unit]
+Description=Atelier OpenMemory MCP Server
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-{_openmemory_service_env_path(root)}
+ExecStart={atelier_bin} --root {root} openmemory up
+ExecStop={atelier_bin} --root {root} openmemory down
+WorkingDirectory={project_root}
+StandardOutput=append:{_openmemory_log_path(root)}
+StandardError=append:{_openmemory_log_path(root)}
+
+[Install]
+WantedBy=default.target
+"""
+            (SYSTEMD_USER_DIR / OPENMEMORY_UNIT).write_text(openmemory_content, encoding="utf-8")
+            click.echo(f"Installed {OPENMEMORY_UNIT}")
+
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
         subprocess.run(["systemctl", "--user", "enable", "--now", CONTROLLER_UNIT], check=True)
         if with_stack:
             subprocess.run(["systemctl", "--user", "enable", "--now", STACK_UNIT], check=True)
+        if with_letta:
+            subprocess.run(["systemctl", "--user", "enable", "--now", LETTA_UNIT], check=True)
+        if with_openmemory:
+            subprocess.run(["systemctl", "--user", "enable", "--now", OPENMEMORY_UNIT], check=True)
 
     elif _is_macos():
         LAUNCHD_USER_DIR.mkdir(parents=True, exist_ok=True)
@@ -5970,9 +7138,11 @@ WantedBy=default.target
     <string>{STACK_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>docker</string>
-        <string>compose</string>
-        <string>up</string>
+        <string>{atelier_bin}</string>
+        <string>--root</string>
+        <string>{root}</string>
+        <string>stack</string>
+        <string>run</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -5980,12 +7150,18 @@ WantedBy=default.target
     <true/>
     <key>WorkingDirectory</key>
     <string>{project_root}</string>
+    <key>StandardOutPath</key>
+    <string>{_stack_log_path(root)}</string>
+    <key>StandardErrorPath</key>
+    <string>{_stack_log_path(root)}</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>ATELIER_ROOT</key>
         <string>{root}</string>
         <key>ATELIER_STACK_ROOT</key>
         <string>{root}</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
     </dict>
 </dict>
 </plist>
@@ -5993,9 +7169,80 @@ WantedBy=default.target
             (LAUNCHD_USER_DIR / f"{STACK_LABEL}.plist").write_text(stack_plist, encoding="utf-8")
             click.echo(f"Installed {STACK_LABEL}.plist")
 
+        if with_letta:
+            letta_plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{LETTA_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{_letta_bin}</string>
+        <string>server</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+</dict>
+</plist>
+"""
+            (LAUNCHD_USER_DIR / f"{LETTA_LABEL}.plist").write_text(letta_plist, encoding="utf-8")
+            click.echo(f"Installed {LETTA_LABEL}.plist")
+
+        if with_openmemory:
+            openmemory_plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{OPENMEMORY_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{atelier_bin}</string>
+        <string>--root</string>
+        <string>{root}</string>
+        <string>openmemory</string>
+        <string>up</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>WorkingDirectory</key>
+    <string>{project_root}</string>
+    <key>StandardOutPath</key>
+    <string>{_openmemory_log_path(root)}</string>
+    <key>StandardErrorPath</key>
+    <string>{_openmemory_log_path(root)}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OPENAI_API_KEY</key>
+        <string>{os.environ.get("ATELIER_OPENMEMORY_OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", ""))}</string>
+        <key>ATELIER_OPENMEMORY_USER_ID</key>
+        <string>{os.environ.get("ATELIER_OPENMEMORY_USER_ID", os.environ.get("USER", "atelier"))}</string>
+        <key>ATELIER_OPENMEMORY_URL</key>
+        <string>{os.environ.get("ATELIER_OPENMEMORY_URL", "http://127.0.0.1:8765")}</string>
+    </dict>
+</dict>
+</plist>
+"""
+            (LAUNCHD_USER_DIR / f"{OPENMEMORY_LABEL}.plist").write_text(openmemory_plist, encoding="utf-8")
+            click.echo(f"Installed {OPENMEMORY_LABEL}.plist")
+
         subprocess.run(["launchctl", "load", str(LAUNCHD_USER_DIR / f"{CONTROLLER_LABEL}.plist")], check=False)
         if with_stack:
             subprocess.run(["launchctl", "load", str(LAUNCHD_USER_DIR / f"{STACK_LABEL}.plist")], check=False)
+        if with_letta:
+            subprocess.run(["launchctl", "load", str(LAUNCHD_USER_DIR / f"{LETTA_LABEL}.plist")], check=False)
+        if with_openmemory:
+            subprocess.run(["launchctl", "load", str(LAUNCHD_USER_DIR / f"{OPENMEMORY_LABEL}.plist")], check=False)
 
     else:
         raise click.ClickException(f"Unsupported platform for background services: {sys.platform}")
@@ -6008,7 +7255,7 @@ WantedBy=default.target
 def background_uninstall(ctx: click.Context) -> None:
     """Stop and remove Atelier background units."""
     if _is_linux():
-        for unit in [CONTROLLER_UNIT, STACK_UNIT]:
+        for unit in [CONTROLLER_UNIT, STACK_UNIT, LETTA_UNIT, OPENMEMORY_UNIT]:
             path = SYSTEMD_USER_DIR / unit
             if path.exists():
                 subprocess.run(["systemctl", "--user", "disable", "--now", unit], check=False)
@@ -6017,7 +7264,7 @@ def background_uninstall(ctx: click.Context) -> None:
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
 
     elif _is_macos():
-        for label in [CONTROLLER_LABEL, STACK_LABEL]:
+        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL]:
             plist = LAUNCHD_USER_DIR / f"{label}.plist"
             if plist.exists():
                 subprocess.run(["launchctl", "unload", str(plist)], check=False)
@@ -6037,12 +7284,16 @@ def background_status(ctx: click.Context) -> None:
         units = [CONTROLLER_UNIT]
         if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
             units.append(STACK_UNIT)
+        if (SYSTEMD_USER_DIR / LETTA_UNIT).exists():
+            units.append(LETTA_UNIT)
+        if (SYSTEMD_USER_DIR / OPENMEMORY_UNIT).exists():
+            units.append(OPENMEMORY_UNIT)
         for unit in units:
             click.echo(f"--- {unit} ---")
             subprocess.run(["systemctl", "--user", "status", unit, "--no-pager"], check=False)
             click.echo("")
     elif _is_macos():
-        for label in [CONTROLLER_LABEL, STACK_LABEL]:
+        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL]:
             if (LAUNCHD_USER_DIR / f"{label}.plist").exists():
                 click.echo(f"--- {label} ---")
                 subprocess.run(["launchctl", "list", label], check=False)
@@ -6059,47 +7310,21 @@ def background_restart(ctx: click.Context) -> None:
         units = [CONTROLLER_UNIT]
         if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
             units.append(STACK_UNIT)
+        if (SYSTEMD_USER_DIR / LETTA_UNIT).exists():
+            units.append(LETTA_UNIT)
+        if (SYSTEMD_USER_DIR / OPENMEMORY_UNIT).exists():
+            units.append(OPENMEMORY_UNIT)
         for unit in units:
             subprocess.run(["systemctl", "--user", "restart", unit], check=True)
             click.echo(f"Restarted {unit}")
     elif _is_macos():
         uid = os.getuid()
-        for label in [CONTROLLER_LABEL, STACK_LABEL]:
+        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL]:
             if (LAUNCHD_USER_DIR / f"{label}.plist").exists():
                 subprocess.run(["launchctl", "kickstart", "-k", f"gui/{uid}/{label}"], check=False)
                 click.echo(f"Restarted {label}")
     else:
         click.echo(f"Background services not supported on {sys.platform}")
-
-
-@background_group.command("logs")
-@click.argument("service", type=click.Choice(["controller", "stack"]), default="controller")
-@click.option("-f", "--follow", is_flag=True, help="Follow the logs.")
-@click.option("-n", "--lines", default=50, type=int, help="Number of lines to show.")
-@click.pass_context
-def background_logs(ctx: click.Context, service: str, follow: bool, lines: int) -> None:
-    """Show logs for Atelier background units."""
-    if _is_linux():
-        unit = CONTROLLER_UNIT if service == "controller" else STACK_UNIT
-        cmd = ["journalctl", "--user", "-u", unit, "-n", str(lines)]
-        if follow:
-            cmd.append("-f")
-        subprocess.run(cmd, check=False)
-    elif _is_macos():
-        click.echo("macOS logs are available via Console.app or 'log show'.")
-        click.echo(f"Checking recently recorded stdout for {service}...")
-        # launchd doesn't have a built-in log viewer like journalctl.
-        # We'd usually rely on StandardOutPath/StandardErrorPath in the plist.
-        # For now, we point them to the same log files as servicectl.
-        log_path = _servicectl_log_path(ctx.obj["root"])
-        if log_path.exists():
-            cmd = ["tail", "-n", str(lines)]
-            if follow:
-                cmd.append("-f")
-            cmd.append(str(log_path))
-            subprocess.run(cmd, check=False)
-    else:
-        click.echo(f"Logs not supported on {sys.platform}")
 
 
 # --------------------------------------------------------------------------- #
@@ -6114,9 +7339,21 @@ def systemd_alias_group() -> None:
 
 @systemd_alias_group.command("install")
 @click.option("--with-stack", is_flag=True)
+@click.option("--with-letta", is_flag=True)
+@click.option("--with-openmemory", is_flag=True)
 @click.pass_context
-def systemd_install_alias(ctx: click.Context, with_stack: bool) -> None:
-    ctx.invoke(background_install, with_stack=with_stack)
+def systemd_install_alias(
+    ctx: click.Context,
+    with_stack: bool,
+    with_letta: bool,
+    with_openmemory: bool,
+) -> None:
+    ctx.invoke(
+        background_install,
+        with_stack=with_stack,
+        with_letta=with_letta,
+        with_openmemory=with_openmemory,
+    )
 
 
 @systemd_alias_group.command("uninstall")
@@ -6137,13 +7374,78 @@ def systemd_restart_alias(ctx: click.Context) -> None:
     ctx.invoke(background_restart)
 
 
-@systemd_alias_group.command("logs")
-@click.argument("service", default="controller")
-@click.option("-f", "--follow", is_flag=True)
-@click.option("-n", "--lines", default=50)
+# --------------------------------------------------------------------------- #
+# Unified logs command                                                        #
+# --------------------------------------------------------------------------- #
+
+
+@cli.command("logs")
+@click.argument("service", type=click.Choice(["stack", "controller", "letta", "openmemory"]))
+@click.option("-f", "--follow", is_flag=True, help="Follow log output.")
+@click.option("-n", "--lines", default=80, show_default=True, type=int, help="Number of lines to show.")
 @click.pass_context
-def systemd_logs_alias(ctx: click.Context, service: str, follow: bool, lines: int) -> None:
-    ctx.invoke(background_logs, service=service, follow=follow, lines=lines)
+def logs_cmd(ctx: click.Context, service: str, follow: bool, lines: int) -> None:
+    """Show logs for an Atelier service.
+
+    SERVICE is one of: stack, controller, letta, openmemory.
+
+    On Linux with systemd units installed, uses journalctl to read
+    the service unit logs (which contain everything the process wrote
+    to stdout/stderr). On macOS and when running natively without
+    systemd, tails the log file directly.
+    """
+    root = ctx.obj["root"]
+
+    unit_map: dict[str, str] = {
+        "stack": STACK_UNIT,
+        "controller": CONTROLLER_UNIT,
+        "letta": LETTA_UNIT,
+        "openmemory": OPENMEMORY_UNIT,
+    }
+    unit = unit_map[service]
+
+    # Linux with systemd unit installed -> journalctl
+    if _is_linux() and (SYSTEMD_USER_DIR / unit).exists():
+        cmd: list[str] = ["journalctl", "--user", "-u", unit, "-n", str(lines)]
+        if follow:
+            cmd.append("-f")
+        subprocess.run(cmd, check=False)
+        return
+
+    # Native / macOS -> tail the log file
+    if service == "stack":
+        log_path = _stack_log_path(root)
+    elif service == "controller":
+        log_path = _servicectl_log_path(root)
+    elif service == "letta":
+        # Letta runs under Docker Compose -> use compose logs
+        args = ["logs"]
+        if follow:
+            args.append("-f")
+        _run_compose(args)
+        return
+    elif service == "openmemory":
+        log_path = _openmemory_log_path(root)
+    else:
+        # unreachable given the Choice validator
+        raise click.ClickException(f"unknown service: {service}")
+
+    if not log_path.exists():
+        click.echo(f"(no {service} logs at {log_path})")
+        return
+
+    if follow:
+        try:
+            subprocess.run(["tail", "-n", str(lines), "-f", str(log_path)], check=True)
+        except FileNotFoundError as exc:
+            raise click.ClickException("tail is required for --follow log streaming") from exc
+        except subprocess.CalledProcessError as exc:
+            raise click.ClickException(f"tail exited with code {exc.returncode}") from exc
+        return
+
+    content = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for line in content[-lines:]:
+        click.echo(line)
 
 
 # --------------------------------------------------------------------------- #
@@ -6757,6 +8059,51 @@ def memory_show_cmd(fact_id: str, as_json: bool) -> None:
     click.echo(fact.content)
 
 
+@memory_group_cli.command("share")
+@click.option("--agent-id", required=True, help="Editable memory agent id, e.g. atelier:code.")
+@click.option("--label", required=True, help="Editable memory block label.")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON.")
+@click.pass_context
+def memory_share_cmd(ctx: click.Context, agent_id: str, label: str, as_json: bool) -> None:
+    """Promote one editable memory block into workspace-shared memory."""
+    from atelier.core.capabilities.team import (
+        TeamAuditEvent,
+        TeamWorkspaceManager,
+        ensure_shared_memory_write,
+    )
+    from atelier.infra.storage.factory import make_memory_store
+
+    root = ctx.obj["root"]
+    manager = TeamWorkspaceManager(root)
+    workspace = manager.load_workspace()
+    member = manager.require_member(None, workspace=workspace)
+    ensure_shared_memory_write(member)
+
+    store = make_memory_store(root)
+    block = store.get_block(agent_id, label)
+    if block is None:
+        raise click.ClickException(f"memory block not found: {agent_id}:{label}")
+    metadata = dict(block.metadata or {})
+    metadata["scope"] = "shared"
+    metadata.setdefault("workspace_id", workspace.id)
+    metadata.setdefault("owner_user_id", member.user_id)
+    metadata["shared_by_user_id"] = member.user_id
+    updated = block.model_copy(update={"metadata": metadata})
+    stored = store.upsert_block(updated, actor=f"team:{member.user_id}", reason="workspace share")
+    manager.append_audit_event(
+        TeamAuditEvent(
+            action="memory.share",
+            actor_user_id=member.user_id,
+            details={"agent_id": agent_id, "label": label, "block_id": stored.id},
+        )
+    )
+    payload = {"id": stored.id, "label": stored.label, "scope": stored.metadata.get("scope"), "workspace_id": workspace.id}
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"shared {agent_id}:{label} into workspace {workspace.name}")
+
+
 @memory_group_cli.command("find")
 @click.argument("query")
 @click.option("--limit", default=20, show_default=True, help="Max results.")
@@ -6801,6 +8148,227 @@ def memory_paths_cmd(as_json: bool) -> None:
         click.echo(f"{vendor}:")
         for p in paths:
             click.echo(f"  {p}")
+
+
+# --------------------------------------------------------------------------- #
+# team                                                                         #
+# --------------------------------------------------------------------------- #
+
+
+@cli.group("team")
+def team_group() -> None:
+    """Manage local team workspace state."""
+
+
+@team_group.command("init")
+@click.option("--name", required=True, help="Workspace display name.")
+@click.option("--admin-email", default="admin@local", show_default=True)
+@click.option("--json", "as_json", is_flag=True, default=False)
+@click.pass_context
+def team_init_cmd(ctx: click.Context, name: str, admin_email: str, as_json: bool) -> None:
+    from atelier.core.capabilities.team import TeamWorkspaceManager
+
+    workspace = TeamWorkspaceManager(ctx.obj["root"]).init_workspace(name=name, admin_email=admin_email)
+    payload = workspace.model_dump(mode="json")
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"initialized workspace {workspace.name} ({workspace.id})")
+
+
+@team_group.command("invite")
+@click.argument("emails", nargs=-1)
+@click.option("--role", type=click.Choice(["member", "viewer", "admin"]), default="member", show_default=True)
+@click.option("--json", "as_json", is_flag=True, default=False)
+@click.pass_context
+def team_invite_cmd(ctx: click.Context, emails: tuple[str, ...], role: str, as_json: bool) -> None:
+    from atelier.core.capabilities.team import TeamWorkspaceManager
+
+    if not emails:
+        raise click.ClickException("provide at least one email")
+    invites = TeamWorkspaceManager(ctx.obj["root"]).invite_members(list(emails), role=role)  # type: ignore[arg-type]
+    payload = [invite.model_dump(mode="json") for invite in invites]
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    for invite in invites:
+        click.echo(f"{invite.email}\t{invite.role}\t{invite.code}")
+
+
+@team_group.command("join")
+@click.argument("invite_code")
+@click.option("--user-id", default=None, help="Override the invite email as the local user id.")
+@click.option("--json", "as_json", is_flag=True, default=False)
+@click.pass_context
+def team_join_cmd(ctx: click.Context, invite_code: str, user_id: str | None, as_json: bool) -> None:
+    from atelier.core.capabilities.team import TeamWorkspaceManager
+
+    member = TeamWorkspaceManager(ctx.obj["root"]).join_workspace(invite_code, user_id=user_id)
+    payload = member.model_dump(mode="json")
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"joined workspace as {member.user_id} ({member.role})")
+
+
+@team_group.command("role")
+@click.argument("user_id")
+@click.argument("role", type=click.Choice(["admin", "member", "viewer"]))
+@click.option("--json", "as_json", is_flag=True, default=False)
+@click.pass_context
+def team_role_cmd(ctx: click.Context, user_id: str, role: str, as_json: bool) -> None:
+    from atelier.core.capabilities.team import TeamWorkspaceManager
+
+    member = TeamWorkspaceManager(ctx.obj["root"]).set_role(user_id, role)  # type: ignore[arg-type]
+    payload = member.model_dump(mode="json")
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"{member.user_id}\t{member.role}")
+
+
+@team_group.command("usage")
+@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
+@click.option("--json", "as_json", is_flag=True, default=False)
+@click.pass_context
+def team_usage_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
+    from atelier.core.capabilities.team import TeamWorkspaceManager, summarize_workspace_usage
+
+    manager = TeamWorkspaceManager(ctx.obj["root"])
+    manager.require_admin()
+    payload = summarize_workspace_usage(ctx.obj["root"], manager=manager, since=_parse_since_arg(since))
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"workspace: {payload['workspace_id']}")
+    click.echo(f"sessions: {payload['session_count']}")
+    click.echo(f"total cost usd: {payload['total_cost_usd']:.6f}")
+    for row in payload["users"]:
+        click.echo(f"{row['user_id']}\t{row['role']}\t{row['session_count']}\t{row['total_cost_usd']:.6f}")
+
+
+@team_group.command("audit")
+@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
+@click.option("--json", "as_json", is_flag=True, default=False)
+@click.pass_context
+def team_audit_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
+    from atelier.core.capabilities.team import TeamWorkspaceManager
+
+    manager = TeamWorkspaceManager(ctx.obj["root"])
+    manager.require_admin()
+    events = manager.list_audit_events(since=_parse_since_arg(since))
+    payload = [event.model_dump(mode="json") for event in events]
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    if not events:
+        click.echo("(no team audit events)")
+        return
+    for event in events:
+        click.echo(f"{event.at.isoformat()}\t{event.action}\t{event.actor_user_id}")
+
+
+# --------------------------------------------------------------------------- #
+# governance                                                                   #
+# --------------------------------------------------------------------------- #
+
+
+@cli.group("governance")
+def governance_group() -> None:
+    """Inspect and apply workspace governance policy."""
+
+
+@governance_group.command("show")
+@click.option("--json", "as_json", is_flag=True, default=False)
+@click.pass_context
+def governance_show_cmd(ctx: click.Context, as_json: bool) -> None:
+    from atelier.core.capabilities.governance import load_policy
+
+    policy = load_policy(ctx.obj["root"])
+    payload = policy.model_dump(mode="json")
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(yaml.safe_dump(payload, sort_keys=True).rstrip())
+
+
+@governance_group.command("apply")
+@click.option("--file", "file_path", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--json", "as_json", is_flag=True, default=False)
+@click.pass_context
+def governance_apply_cmd(ctx: click.Context, file_path: Path, as_json: bool) -> None:
+    from atelier.core.capabilities.governance import GovernancePolicy, save_policy
+    from atelier.core.capabilities.team import TeamAuditEvent, TeamWorkspaceManager
+
+    manager = TeamWorkspaceManager(ctx.obj["root"])
+    member = manager.require_admin()
+    loaded = yaml.safe_load(file_path.read_text(encoding="utf-8")) or {}
+    policy = GovernancePolicy.model_validate(loaded)
+    saved = save_policy(ctx.obj["root"], policy)
+    manager.append_audit_event(
+        TeamAuditEvent(
+            action="governance.apply",
+            actor_user_id=member.user_id,
+            details={"source": str(file_path)},
+        )
+    )
+    payload = saved.model_dump(mode="json")
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"applied governance policy from {file_path}")
+
+
+# --------------------------------------------------------------------------- #
+# audit export                                                                 #
+# --------------------------------------------------------------------------- #
+
+
+@cli.group("audit")
+def audit_group() -> None:
+    """Export and verify workspace audit bundles."""
+
+
+@audit_group.command("export")
+@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
+@click.option("--out", "out_dir", required=True, type=click.Path(path_type=Path))
+@click.option("--json", "as_json", is_flag=True, default=False)
+@click.pass_context
+def audit_export_cmd(ctx: click.Context, since: str, out_dir: Path, as_json: bool) -> None:
+    from atelier.core.capabilities.audit_export import export_audit_bundle
+    from atelier.core.capabilities.team import TeamAuditEvent, TeamWorkspaceManager
+
+    manager = TeamWorkspaceManager(ctx.obj["root"])
+    member = manager.require_admin()
+    payload = export_audit_bundle(ctx.obj["root"], out_dir=out_dir, since=_parse_since_arg(since))
+    manager.append_audit_event(
+        TeamAuditEvent(
+            action="audit.export",
+            actor_user_id=member.user_id,
+            details={"bundle_dir": payload["bundle_dir"]},
+        )
+    )
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(payload["bundle_dir"])
+
+
+@audit_group.command("verify")
+@click.argument("bundle_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--json", "as_json", is_flag=True, default=False)
+@click.pass_context
+def audit_verify_cmd(ctx: click.Context, bundle_dir: Path, as_json: bool) -> None:
+    from atelier.core.capabilities.audit_export import verify_audit_bundle
+
+    payload = verify_audit_bundle(ctx.obj["root"], bundle_dir=bundle_dir)
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    if payload["valid"]:
+        click.echo(f"verified {bundle_dir}")
+        return
+    raise click.ClickException(f"bundle verification failed: {', '.join(payload['tampered_files']) or 'signature mismatch'}")
 
 
 # --------------------------------------------------------------------------- #

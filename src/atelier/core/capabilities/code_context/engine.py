@@ -6,36 +6,182 @@ import ast
 import contextlib
 import fnmatch
 import hashlib
+import json
 import re
 import shutil
 import sqlite3
 import subprocess
 from bisect import bisect_right
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
+from atelier.core.capabilities.code_context.budget import (
+    FROZEN_DROP_STAGES,
+    PROTECTED_TOP_RANK,
+    BudgetPacker,
+)
+from atelier.core.capabilities.code_context.cache import RetrievalCache
+from atelier.core.capabilities.code_context.call_graph import (
+    CallGraphDirection,
+    CallGraphNode,
+    build_call_graph_payload,
+    traverse_call_graph,
+)
+from atelier.core.capabilities.code_context.embedding import (
+    SearchMode,
+    SemanticSearchRanker,
+    resolve_search_mode,
+    semantic_candidate_limit,
+)
+from atelier.core.capabilities.code_context.intel_store import SymbolIntelStore
 from atelier.core.capabilities.code_context.models import (
     ContextPack,
+    CrossLangReference,
     ImpactResult,
     IndexStats,
     SymbolRecord,
     TextMatch,
+    UsageReference,
 )
 from atelier.core.capabilities.repo_map import build_repo_map
 from atelier.core.capabilities.repo_map.budget import count_tokens
 from atelier.core.capabilities.repo_map.graph import iter_source_files
 from atelier.core.foundation.paths import default_store_root
 from atelier.core.service.telemetry import emit_product_local
+from atelier.infra.code_intel.astgrep import (
+    AstGrepAdapter,
+    AstGrepToolUnavailable,
+    PatternRewriteResult,
+    PatternSearchResult,
+)
+from atelier.infra.code_intel.cross_lang import CrossLangEdge, CrossLangEdgeStore
 from atelier.infra.tree_sitter.tags import detect_language, extract_tags
+
+if TYPE_CHECKING:
+    from atelier.infra.code_intel.git_history.adapter import DeletedHistorySearchAdapter
 
 _MAX_FILE_BYTES = 1_000_000
 _FTS_TERM_RE = re.compile(r"[A-Za-z0-9_]+")
+_SINCE_RELATIVE_RE = re.compile(r"^(?P<amount>\d+)(?P<unit>[dwmy])$")
 _JS_IMPORT_RE = re.compile(
     r"(?:from\s+['\"]([^'\"]+)['\"]|import\s*\(\s*['\"]([^'\"]+)['\"]\s*\)|require\(\s*['\"]([^'\"]+)['\"]\s*\))"
 )
 _RUST_MOD_RE = re.compile(r"^\s*(?:pub\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", re.M)
 _GO_IMPORT_RE = re.compile(r"^\s*import\s+(?:\((.*?)\)|\"([^\"]+)\")", re.M | re.S)
+_LOCAL_PROVENANCE = "local"
+_SEARCH_ESSENTIAL_KEYS = [
+    "symbol_id",
+    "symbol_name",
+    "qualified_name",
+    "file_path",
+    "kind",
+    "signature",
+    "start_line",
+    "end_line",
+    "language",
+    "origin",
+    "provenance",
+]
+_SEARCH_OPTIONAL_KEYS = ["snippet", "doc_summary", "score", "repo_id", "content_hash", "parent_symbol", "start_byte", "end_byte"]
+_DELETED_SEARCH_ESSENTIAL_KEYS = [
+    *_SEARCH_ESSENTIAL_KEYS,
+    "deleted_at",
+    "deleted_at_sha",
+    "last_author",
+]
+_DELETED_SEARCH_OPTIONAL_KEYS = [
+    "rename_target",
+    "rename_note",
+    "last_commit_msg",
+    "matched_on",
+]
+_OUTLINE_ESSENTIAL_KEYS = ["file_path", "name", "qualified_name", "kind", "signature", "line_start", "line_end"]
+_SYMBOL_ESSENTIAL_KEYS = [
+    "symbol_id",
+    "symbol_name",
+    "qualified_name",
+    "file_path",
+    "kind",
+    "signature",
+    "start_line",
+    "end_line",
+    "language",
+    "origin",
+    "provenance",
+]
+_SYMBOL_OPTIONAL_KEYS = [
+    "source",
+    "doc_summary",
+    "content_hash",
+    "parent_symbol",
+    "start_byte",
+    "end_byte",
+    "repo_id",
+    "score",
+    "cross_lang_refs",
+]
+_INDEX_ESSENTIAL_KEYS = [
+    "repo_id",
+    "repo_root",
+    "files_indexed",
+    "symbols_indexed",
+    "imports_indexed",
+    "index_version",
+    "provenance",
+]
+_CONTEXT_ESSENTIAL_KEYS = [
+    "task",
+    "budget_tokens",
+    "token_count",
+    "tokens_saved_vs_full_files",
+    "symbols",
+    "content",
+    "provenance",
+]
+_IMPACT_ESSENTIAL_KEYS = ["file_path", "direct_importers", "affected_tests", "risk_level", "provenance"]
+_USAGES_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column", "provenance"]
+_USAGES_OPTIONAL_KEYS = ["snippet", "caller", "edge_kind", "confidence"]
+_PATTERN_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column", "captures"]
+_PATTERN_OPTIONAL_KEYS = ["snippet"]
+_CACHE_STATUS_ESSENTIAL_KEYS = ["repo_id", "index_version", "entry_count", "entries_by_tool", "total_bytes", "max_bytes"]
+_CACHE_INVALIDATE_ESSENTIAL_KEYS = ["repo_id", "index_version", "invalidated_entries", "entries_by_tool", "scope"]
+_CALL_GRAPH_ESSENTIAL_KEYS = ["target", "direction", "depth", "related", "edges", "data_status", "provenance"]
+_CALL_GRAPH_OPTIONAL_KEYS = ["related_count", "edge_count", "truncated", "message", "snapshot"]
+_BLAME_ESSENTIAL_KEYS = [
+    "symbol_name",
+    "qualified_name",
+    "file_path",
+    "line_start",
+    "line_end",
+    "freshness",
+    "last_author",
+    "last_commit_sha",
+    "age_days",
+    "local_edits",
+    "distinct_authors",
+    "provenance",
+]
+_BLAME_OPTIONAL_KEYS = ["index_sha", "head_sha", "last_modified", "last_commit_summary", "hunks", "churn"]
+DeletedHistoryItem = dict[str, Any]
+_CACHE_TOOL_ALIASES = {
+    "all": None,
+    "search": "code.search",
+    "symbol": "code.symbol",
+    "outline": "code.outline",
+    "context": "code.context",
+    "impact": "code.impact",
+    "usages": "code.usages",
+    "callers": "code.callers",
+    "callees": "code.callees",
+    "pattern": "code.pattern",
+}
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
 @dataclass(frozen=True)
@@ -93,6 +239,46 @@ def _safe_fts_query(query: str) -> str:
     return " OR ".join(term[:64] for term in terms[:12])
 
 
+def _parse_since_filter(value: str | None) -> int | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("since must not be empty")
+    match = _SINCE_RELATIVE_RE.fullmatch(normalized.lower())
+    if match:
+        amount = int(match.group("amount"))
+        unit = match.group("unit")
+        delta = {
+            "d": timedelta(days=amount),
+            "w": timedelta(weeks=amount),
+            "m": timedelta(days=amount * 30),
+            "y": timedelta(days=amount * 365),
+        }[unit]
+        return int((datetime.now(UTC) - delta).timestamp())
+    iso_value = normalized.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(iso_value)
+    except ValueError:
+        try:
+            parsed_date = date.fromisoformat(normalized)
+        except ValueError as exc:
+            raise ValueError("since must be an ISO date/datetime or relative duration like 30d") from exc
+        parsed = datetime(parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=UTC)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return int(parsed.timestamp())
+
+
+def _normalize_touched_by(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if not normalized:
+        raise ValueError("touched_by must not be empty")
+    return normalized
+
+
 def _row_to_symbol(row: sqlite3.Row) -> SymbolRecord:
     row_keys = set(row.keys())
     return SymbolRecord(
@@ -130,6 +316,20 @@ class CodeContextEngine:
         self.repo_root = Path(repo_root).resolve()
         self.repo_id = _repo_id(self.repo_root)
         self.db_path = Path(db_path).resolve() if db_path is not None else _default_db_path(self.repo_root)
+        self._cache = RetrievalCache(self.db_path)
+        self._budget = BudgetPacker()
+        self._semantic_ranker = SemanticSearchRanker(self.repo_root, store_root=default_store_root())
+        self.intel_store = SymbolIntelStore(
+            cache=self._cache,
+            packer=self._budget,
+            local_search=self._search_symbols_local,
+            local_get_symbol=self._get_symbol_local,
+            local_find_references=self._find_references_local,
+            local_find_callers=self._find_callers_local,
+            local_find_callees=self._find_callees_local,
+        )
+        self._deleted_history_search_adapter: DeletedHistorySearchAdapter | None = None
+        self._register_symbol_intel_providers()
 
     def index_repo(
         self,
@@ -186,6 +386,7 @@ class CodeContextEngine:
                 files_indexed += 1
                 symbols_indexed += len(extracted)
                 imports_indexed += len(imports)
+            index_version = self._bump_index_version(conn)
         emit_product_local(
             "code_index_completed",
             repo_id=self.repo_id,
@@ -199,20 +400,880 @@ class CodeContextEngine:
             files_indexed=files_indexed,
             symbols_indexed=symbols_indexed,
             imports_indexed=imports_indexed,
+            index_version=index_version,
         )
+
+    def tool_index(
+        self,
+        *,
+        include_globs: list[str] | None = None,
+        exclude_globs: list[str] | None = None,
+        force: bool = True,
+        budget_tokens: int = 4000,
+    ) -> dict[str, Any]:
+        self._sync_symbol_intel()
+        stats = self.index_repo(include_globs=include_globs, exclude_globs=exclude_globs, force=force)
+        return self._pack_single_payload(
+            stats.model_dump(mode="json"),
+            budget_tokens=budget_tokens,
+            essential_keys=_INDEX_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=["db_path"],
+        )
+
+    def tool_search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        mode: SearchMode = "auto",
+        kind: str | None = None,
+        language: str | None = None,
+        snippet: Literal["none", "head", "full"] = "none",
+        snippet_lines: int = 8,
+        file_glob: str | None = None,
+        scope: Literal["repo", "external", "deleted"] = "repo",
+        since: str | None = None,
+        touched_by: str | None = None,
+        budget_tokens: int = 4000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index and scope != "deleted":
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        resolved_mode = resolve_search_mode(query, mode)
+        temporal_scope = scope in {"repo", "deleted"}
+        parsed_since = _parse_since_filter(since) if temporal_scope else None
+        normalized_touched_by = _normalize_touched_by(touched_by) if temporal_scope else None
+        cache_args = {
+            "query": query,
+            "limit": limit,
+            "mode": mode,
+            "resolved_mode": resolved_mode,
+            "kind": kind,
+            "language": language,
+            "snippet": snippet,
+            "snippet_lines": snippet_lines,
+            "file_glob": file_glob,
+            "scope": scope,
+            "since_ts": parsed_since,
+            "touched_by": normalized_touched_by,
+            "budget_tokens": budget_tokens,
+            "semantic_candidate_limit": semantic_candidate_limit(limit),
+        }
+        hit, cached = self._cache_get("code.search", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+
+        if scope == "deleted":
+            raw_deleted_items = self.search_symbols(
+                query,
+                limit=limit,
+                mode=resolved_mode,
+                kind=kind,
+                language=language,
+                snippet=snippet,
+                snippet_lines=snippet_lines,
+                file_glob=file_glob,
+                scope="deleted",
+                since=since,
+                touched_by=touched_by,
+                auto_index=False,
+            )
+            items = [dict(item) for item in raw_deleted_items]
+        else:
+            raw_items = self.search_symbols(
+                query,
+                limit=limit,
+                mode=resolved_mode,
+                kind=kind,
+                language=language,
+                snippet=snippet,
+                snippet_lines=snippet_lines,
+                file_glob=file_glob,
+                scope=scope,
+                since=since,
+                touched_by=touched_by,
+                auto_index=False,
+            )
+            items = [item.model_dump(mode="json", exclude_none=True) for item in raw_items]
+        if scope == "repo" and (parsed_since is not None or normalized_touched_by is not None):
+            changed_files = self._deleted_history_adapter().changed_files(
+                since_ts=parsed_since,
+                touched_by=normalized_touched_by,
+            )
+            items = [item for item in items if str(item.get("file_path") or "") in changed_files]
+        essential_keys = _DELETED_SEARCH_ESSENTIAL_KEYS if scope == "deleted" else _SEARCH_ESSENTIAL_KEYS
+        optional_keys = _DELETED_SEARCH_OPTIONAL_KEYS if scope == "deleted" else _SEARCH_OPTIONAL_KEYS
+        payload = self._pack_items_payload(
+            items,
+            budget_tokens=budget_tokens,
+            essential_keys=essential_keys,
+            optional_keys_in_drop_order=optional_keys,
+            extra_payload={"mode": resolved_mode},
+        )
+        self._cache_set("code.search", cache_args, payload)
+        return payload
+
+    def tool_blame(
+        self,
+        *,
+        query: str | None = None,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        symbol_name: str | None = None,
+        file_path: str | None = None,
+        include_churn: bool = True,
+        budget_tokens: int = 4000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        target = self._resolve_symbol_target(
+            operation_name="blame",
+            query=query,
+            symbol_id=symbol_id,
+            qualified_name=qualified_name,
+            symbol_name=symbol_name,
+            file_path=file_path,
+            kind=None,
+            language=None,
+            file_glob=None,
+        )
+        if target.get("error"):
+            return self._pack_single_payload(
+                target,
+                budget_tokens=budget_tokens,
+                essential_keys=["error", "message", "matches", "cache_hit", "provenance"],
+                optional_keys_in_drop_order=["provenance_breakdown"],
+            )
+        head_sha = self._current_head_sha()
+        index_sha = str(target.get("index_sha") or head_sha)
+        normalized_file_path = str(target["file_path"])
+        cache_args = {
+            "query": query,
+            "symbol_id": symbol_id or target.get("symbol_id"),
+            "qualified_name": qualified_name or target.get("qualified_name"),
+            "symbol_name": symbol_name or target.get("symbol_name"),
+            "file_path": normalized_file_path,
+            "include_churn": include_churn,
+            "index_sha": index_sha,
+            "head_sha": head_sha,
+            "budget_tokens": budget_tokens,
+        }
+        hit, cached = self._cache_get("code.blame", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+        if index_sha != head_sha:
+            payload = self._pack_single_payload(
+                {
+                    "error": "index_stale",
+                    "hint": 'run code op="index" first',
+                    "symbol_name": str(target["symbol_name"]),
+                    "qualified_name": str(target["qualified_name"]),
+                    "file_path": normalized_file_path,
+                    "freshness": "stale",
+                    "index_sha": index_sha,
+                    "head_sha": head_sha,
+                    "provenance": "blame",
+                },
+                budget_tokens=budget_tokens,
+                essential_keys=["error", "hint", "symbol_name", "qualified_name", "file_path", "freshness", "provenance"],
+                optional_keys_in_drop_order=["index_sha", "head_sha"],
+            )
+            self._cache_set("code.blame", cache_args, payload)
+            return payload
+        from atelier.infra.code_intel.git_history.blame import BlameAnnotator
+        from atelier.infra.code_intel.git_history.models import BlameRequest
+
+        annotation = BlameAnnotator(self.repo_root).annotate(
+            BlameRequest(
+                file_path=normalized_file_path,
+                line_start=int(target["start_line"]),
+                line_end=int(target["end_line"]),
+                index_sha=index_sha,
+                head_sha=head_sha,
+                include_churn=include_churn,
+            )
+        )
+        latest_commit_ts = max(hunk.commit_time for hunk in annotation.hunks)
+        payload_data: dict[str, Any] = {
+            "symbol_name": str(target["symbol_name"]),
+            "qualified_name": str(target["qualified_name"]),
+            "file_path": normalized_file_path,
+            "line_start": int(target["start_line"]),
+            "line_end": int(target["end_line"]),
+            "index_sha": index_sha,
+            "head_sha": head_sha,
+            "freshness": annotation.freshness,
+            "last_modified": datetime.fromtimestamp(latest_commit_ts, tz=UTC).isoformat().replace("+00:00", "Z"),
+            "last_author": annotation.last_author,
+            "last_commit_sha": annotation.last_commit_sha,
+            "last_commit_summary": annotation.last_commit_summary,
+            "age_days": annotation.age_days,
+            "local_edits": annotation.local_edits,
+            "distinct_authors": len({hunk.author_email for hunk in annotation.hunks if hunk.author_email}),
+            "hunks": [asdict(hunk) for hunk in annotation.hunks],
+            "provenance": "blame",
+        }
+        if annotation.churn is not None:
+            payload_data["churn"] = asdict(annotation.churn)
+        payload = self._pack_single_payload(
+            payload_data,
+            budget_tokens=budget_tokens,
+            essential_keys=_BLAME_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=_BLAME_OPTIONAL_KEYS,
+        )
+        self._cache_set("code.blame", cache_args, payload)
+        return payload
+
+    def tool_hover(
+        self,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        symbol_name: str | None = None,
+        file_path: str | None = None,
+        line: int | None = None,
+        col: int | None = None,
+        budget_tokens: int = 2000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        """Surface type, docstring, and signature for a symbol — no subprocess needed.
+
+        Resolution priority: symbol_id → qualified_name → (file_path, line) → symbol_name.
+        Returns {symbol_id, symbol_name, qualified_name, kind, signature, docstring,
+                 documentation, file, line, col, source_snippet, provenance, cache_hit}.
+        """
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+
+        sym: dict[str, Any]
+
+        positional_lookup = (
+            file_path is not None
+            and line is not None
+            and not symbol_id
+            and not qualified_name
+            and not symbol_name
+        )
+        if positional_lookup:
+            normalized = self._normalize_file_arg(file_path)  # type: ignore[arg-type]
+            with self._connect() as conn:
+                self._init_schema(conn)
+                row = conn.execute(
+                    """
+                    SELECT *, NULL AS score FROM symbols
+                    WHERE repo_id = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
+                    ORDER BY start_line DESC
+                    LIMIT 1
+                    """,
+                    (self.repo_id, normalized, line, line),
+                ).fetchone()
+            if row is None:
+                raise LookupError("no symbol at that position")
+            symbol_rec = _row_to_symbol(row)
+            path = self.repo_root / symbol_rec.file_path
+            source = path.read_bytes()[symbol_rec.start_byte : symbol_rec.end_byte].decode("utf-8", errors="replace")
+            sym = {**symbol_rec.model_dump(mode="json"), "source": source}
+        else:
+            sym = self.get_symbol(
+                symbol_id=symbol_id,
+                qualified_name=qualified_name,
+                symbol_name=symbol_name,
+                file_path=file_path,
+                auto_index=False,
+            )
+
+        emit_product_local("code_hover_retrieved", repo_id=self.repo_id, kind=sym["kind"])
+        return {
+            "symbol_id": sym["symbol_id"],
+            "symbol_name": sym["symbol_name"],
+            "qualified_name": sym["qualified_name"],
+            "kind": sym["kind"],
+            "signature": sym["signature"],
+            "docstring": sym.get("doc_summary"),
+            "documentation": sym.get("documentation"),
+            "file": sym["file_path"],
+            "line": sym["start_line"],
+            "col": None,
+            "source_snippet": sym.get("source", "")[:500],
+            "provenance": sym.get("provenance", "local"),
+            "cache_hit": sym.get("cache_hit", False),
+            "tokens_saved": sym.get("tokens_saved", 0),
+        }
+
+    def tool_symbol(
+        self,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        file_path: str | None = None,
+        symbol_name: str | None = None,
+        budget_tokens: int = 4000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        normalized_file_path = self._normalize_file_arg(file_path) if file_path else None
+        cache_args = {
+            "symbol_id": symbol_id,
+            "qualified_name": qualified_name,
+            "symbol_name": symbol_name,
+            "file_path": normalized_file_path,
+            "budget_tokens": budget_tokens,
+        }
+        hit, cached = self._cache_get("code.symbol", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+
+        payload = self._pack_single_payload(
+            self._hydrate_symbol_cross_lang(
+                self.get_symbol(
+                    symbol_id=symbol_id,
+                    qualified_name=qualified_name,
+                    symbol_name=symbol_name,
+                    file_path=normalized_file_path,
+                    auto_index=False,
+                )
+            ),
+            budget_tokens=budget_tokens,
+            essential_keys=_SYMBOL_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=_SYMBOL_OPTIONAL_KEYS,
+        )
+        self._cache_set("code.symbol", cache_args, payload)
+        return payload
+
+    def _hydrate_symbol_cross_lang(self, payload: dict[str, Any]) -> dict[str, Any]:
+        symbol_id = str(payload.get("symbol_id") or "")
+        symbol_name = str(payload.get("symbol_name") or "")
+        if not symbol_id:
+            return payload
+        refs: list[CrossLangReference] = []
+        for edge in self._cross_lang_store().query_by_source_symbol(symbol_id):
+            refs.append(self._symbol_cross_lang_ref(edge, direction="outgoing"))
+        for edge in self._cross_lang_store().query_by_target_symbol(tgt_symbol_id=symbol_id, tgt_symbol_name=symbol_name):
+            refs.append(self._symbol_cross_lang_ref(edge, direction="incoming"))
+        if not refs:
+            return payload
+        deduped = list(
+            {
+                (
+                    ref.direction,
+                    ref.symbol_id,
+                    ref.symbol_name,
+                    ref.file_path,
+                    ref.line,
+                    ref.edge_kind,
+                ): ref
+                for ref in refs
+            }.values()
+        )
+        allowed = {key: value for key, value in payload.items() if key in SymbolRecord.model_fields}
+        validated = SymbolRecord.model_validate(
+            {
+                **allowed,
+                "cross_lang_refs": [ref.model_dump(mode="json", exclude_none=True) for ref in deduped],
+            }
+        ).model_dump(mode="json", exclude_none=True)
+        if "source" in payload:
+            validated["source"] = payload["source"]
+        return validated
+
+    def _symbol_cross_lang_ref(
+        self,
+        edge: CrossLangEdge,
+        *,
+        direction: Literal["incoming", "outgoing"],
+    ) -> CrossLangReference:
+        if direction == "incoming":
+            return CrossLangReference(
+                symbol_id=edge.src_symbol_id,
+                symbol_name=edge.src_symbol_name,
+                qualified_name=edge.src_qualified_name,
+                language=edge.src_language,
+                file_path=edge.src_file_path,
+                line=edge.src_line,
+                direction=direction,
+                edge_kind=edge.edge_kind,
+                confidence=edge.confidence,
+            )
+        return CrossLangReference(
+            symbol_id=edge.tgt_symbol_id,
+            symbol_name=edge.tgt_symbol_name,
+            qualified_name=None,
+            language=edge.tgt_language,
+            file_path=edge.tgt_file_path,
+            line=edge.src_line,
+            direction=direction,
+            edge_kind=edge.edge_kind,
+            confidence=edge.confidence,
+        )
+
+    def _cross_lang_store(self) -> CrossLangEdgeStore:
+        return CrossLangEdgeStore(self.connection)
+
+    def tool_outline(
+        self,
+        *,
+        file_path: str | None = None,
+        limit: int = 200,
+        budget_tokens: int = 4000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        normalized_file_path = self._normalize_file_arg(file_path) if file_path else None
+        cache_args = {
+            "file_path": normalized_file_path,
+            "limit": limit,
+            "budget_tokens": budget_tokens,
+            "file_mtime_ns": self._file_mtime_ns(normalized_file_path) if normalized_file_path else None,
+        }
+        hit, cached = self._cache_get("code.outline", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+
+        raw = self.file_outline(file_path=normalized_file_path, limit=limit, auto_index=False)
+        flat_items = self._flatten_outline(raw["files"])
+        full_payload = {
+            "repo_id": str(raw["repo_id"]),
+            "files": raw["files"],
+            "symbol_count": int(raw["symbol_count"]),
+            "provenance": _LOCAL_PROVENANCE,
+        }
+        full_total_tokens = self._compute_total_tokens({**full_payload, "cache_hit": False, "tokens_saved": 0})
+
+        def build_payload(packed_items: list[dict[str, Any]]) -> dict[str, Any]:
+            return self._finalize_packed_payload(
+                {
+                    "repo_id": str(raw["repo_id"]),
+                    "files": self._group_outline(packed_items),
+                    "symbol_count": len(packed_items),
+                    "cache_hit": False,
+                    "provenance": _LOCAL_PROVENANCE,
+                },
+                full_total_tokens=full_total_tokens,
+            )
+
+        payload = self._fit_items_to_budget(
+            flat_items,
+            budget_tokens=budget_tokens,
+            essential_keys=_OUTLINE_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=[],
+            build_payload=build_payload,
+        )
+        self._cache_set("code.outline", cache_args, payload)
+        return payload
+
+    def tool_context(
+        self,
+        *,
+        task: str,
+        seed_files: list[str] | None = None,
+        budget_tokens: int = 4000,
+        max_symbols: int = 8,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        normalized_seeds = [self._normalize_file_arg(seed) for seed in seed_files or []]
+        cache_args = {
+            "task": task,
+            "seed_files": normalized_seeds,
+            "budget_tokens": budget_tokens,
+            "max_symbols": max_symbols,
+        }
+        hit, cached = self._cache_get("code.context", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+
+        raw = self.context_pack(
+            task=task,
+            seed_files=normalized_seeds,
+            budget_tokens=budget_tokens,
+            max_symbols=max_symbols,
+            auto_index=False,
+        )
+        payload = self._pack_single_payload(
+            raw.model_dump(mode="json"),
+            budget_tokens=budget_tokens,
+            essential_keys=_CONTEXT_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=["telemetry", "import_neighbors", "repo_map"],
+            base_tokens_saved=raw.tokens_saved_vs_full_files,
+        )
+        self._cache_set("code.context", cache_args, payload)
+        return payload
+
+    def tool_impact(
+        self,
+        file_path: str,
+        *,
+        budget_tokens: int = 4000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        normalized_file_path = self._normalize_file_arg(file_path)
+        cache_args = {
+            "file_path": normalized_file_path,
+            "budget_tokens": budget_tokens,
+            "file_mtime_ns": self._file_mtime_ns(normalized_file_path),
+        }
+        hit, cached = self._cache_get("code.impact", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+
+        payload = self._pack_single_payload(
+            self.impact(normalized_file_path, auto_index=False).model_dump(mode="json"),
+            budget_tokens=budget_tokens,
+            essential_keys=_IMPACT_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=["transitive_importers", "dead_code_candidates"],
+        )
+        self._cache_set("code.impact", cache_args, payload)
+        return payload
+
+    def tool_usages(
+        self,
+        query: str | None = None,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        symbol_name: str | None = None,
+        file_path: str | None = None,
+        kind: str | None = None,
+        language: str | None = None,
+        file_glob: str | None = None,
+        group_by: Literal["file", "caller", "none"] = "file",
+        snippet_lines: int = 3,
+        limit: int = 20,
+        budget_tokens: int = 4000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        normalized_file_path = self._normalize_file_arg(file_path) if file_path else None
+        cache_args = {
+            "query": query,
+            "symbol_id": symbol_id,
+            "qualified_name": qualified_name,
+            "symbol_name": symbol_name,
+            "file_path": normalized_file_path,
+            "kind": kind,
+            "language": language,
+            "file_glob": file_glob,
+            "group_by": group_by,
+            "snippet_lines": snippet_lines,
+            "limit": limit,
+            "budget_tokens": budget_tokens,
+        }
+        hit, cached = self._cache_get("code.usages", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+        payload = self.find_references(
+            query=query,
+            symbol_id=symbol_id,
+            qualified_name=qualified_name,
+            symbol_name=symbol_name,
+            file_path=normalized_file_path,
+            kind=kind,
+            language=language,
+            file_glob=file_glob,
+            group_by=group_by,
+            snippet_lines=snippet_lines,
+            limit=limit,
+            auto_index=False,
+            budget_tokens=budget_tokens,
+        )
+        if "error" not in payload:
+            self._cache_set("code.usages", cache_args, payload)
+        return payload
+
+    def tool_callers(
+        self,
+        query: str | None = None,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        symbol_name: str | None = None,
+        file_path: str | None = None,
+        kind: str | None = None,
+        language: str | None = None,
+        depth: int = 1,
+        limit: int = 20,
+        snapshot: bool = False,
+        budget_tokens: int = 4000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        return self._tool_call_graph(
+            "callers",
+            query=query,
+            symbol_id=symbol_id,
+            qualified_name=qualified_name,
+            symbol_name=symbol_name,
+            file_path=file_path,
+            kind=kind,
+            language=language,
+            depth=depth,
+            limit=limit,
+            snapshot=snapshot,
+            budget_tokens=budget_tokens,
+            auto_index=auto_index,
+        )
+
+    def tool_callees(
+        self,
+        query: str | None = None,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        symbol_name: str | None = None,
+        file_path: str | None = None,
+        kind: str | None = None,
+        language: str | None = None,
+        depth: int = 1,
+        limit: int = 20,
+        snapshot: bool = False,
+        budget_tokens: int = 4000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        return self._tool_call_graph(
+            "callees",
+            query=query,
+            symbol_id=symbol_id,
+            qualified_name=qualified_name,
+            symbol_name=symbol_name,
+            file_path=file_path,
+            kind=kind,
+            language=language,
+            depth=depth,
+            limit=limit,
+            snapshot=snapshot,
+            budget_tokens=budget_tokens,
+            auto_index=auto_index,
+        )
+
+    def tool_pattern(
+        self,
+        *,
+        pattern: str,
+        rewrite: str | None = None,
+        language: str | None = None,
+        file_glob: str | None = None,
+        dry_run: bool = True,
+        limit: int = 20,
+        budget_tokens: int = 4000,
+    ) -> dict[str, Any]:
+        adapter = AstGrepAdapter(self.repo_root)
+        if rewrite is None:
+            cache_args = {
+                "pattern": pattern,
+                "language": language,
+                "file_glob": file_glob,
+                "limit": limit,
+                "budget_tokens": budget_tokens,
+            }
+            hit, cached = self._cache_get("code.pattern", cache_args)
+            if hit and cached is not None:
+                return self._mark_cache_hit(cached)
+            try:
+                result = adapter.search(pattern=pattern, language=language, file_glob=file_glob, limit=limit)
+            except AstGrepToolUnavailable as exc:
+                return exc.payload
+            if len(result.matches) > limit:
+                result = PatternSearchResult(
+                    matches=result.matches[:limit],
+                    truncated=True,
+                    total_matches=result.total_matches if result.total_matches is not None else len(result.matches),
+                )
+            payload = self._pack_pattern_matches(
+                result,
+                budget_tokens=budget_tokens,
+            )
+            self._cache_set("code.pattern", cache_args, payload)
+            return payload
+
+        try:
+            rewrite_result = adapter.rewrite(
+                pattern=pattern,
+                rewrite=rewrite,
+                language=language,
+                file_glob=file_glob,
+                dry_run=dry_run,
+            )
+        except AstGrepToolUnavailable as exc:
+            return exc.payload
+        if not dry_run and rewrite_result.files_changed:
+            self._reindex_files(rewrite_result.files_changed)
+        return self._pack_pattern_rewrite(rewrite_result, budget_tokens=budget_tokens)
+
+    def tool_cache_status(
+        self,
+        *,
+        cache_tool: str | None = None,
+        budget_tokens: int = 4000,
+    ) -> dict[str, Any]:
+        tool_name = self._normalize_cache_tool(cache_tool)
+        payload = {
+            "repo_id": self.repo_id,
+            "index_version": self._current_index_version(),
+            **self._cache.stats(
+                repo_id=self.repo_id,
+                index_version=self._current_index_version(),
+                tool_name=tool_name,
+            ),
+            "scope": {
+                "cache_tool": cache_tool or "all",
+                "tool_name": tool_name,
+                "frozen_drop_stages": list(FROZEN_DROP_STAGES),
+            },
+            "provenance": _LOCAL_PROVENANCE,
+        }
+        return self._pack_single_payload(
+            payload,
+            budget_tokens=budget_tokens,
+            essential_keys=_CACHE_STATUS_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=["last_hit_at", "scope"],
+        )
+
+    def tool_cache_invalidate(
+        self,
+        *,
+        cache_tool: str | None = None,
+        budget_tokens: int = 4000,
+    ) -> dict[str, Any]:
+        tool_name = self._normalize_cache_tool(cache_tool)
+        index_version = self._current_index_version()
+        invalidated = self._cache.invalidate(repo_id=self.repo_id, index_version=index_version, tool_name=tool_name)
+        return self._pack_single_payload(
+            {
+                "repo_id": self.repo_id,
+                "index_version": index_version,
+                **invalidated,
+                "scope": {"cache_tool": cache_tool or "all", "tool_name": tool_name},
+                "provenance": _LOCAL_PROVENANCE,
+            },
+            budget_tokens=budget_tokens,
+            essential_keys=_CACHE_INVALIDATE_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=[],
+        )
+
+    @overload
+    def search_symbols(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        mode: SearchMode = "auto",
+        kind: str | None = None,
+        language: str | None = None,
+        snippet: Literal["none", "head", "full"] = "none",
+        snippet_lines: int = 8,
+        file_glob: str | None = None,
+        scope: Literal["repo", "external"] = "repo",
+        since: str | None = None,
+        touched_by: str | None = None,
+        auto_index: bool = True,
+    ) -> list[SymbolRecord]: ...
+
+    @overload
+    def search_symbols(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        mode: SearchMode = "auto",
+        kind: str | None = None,
+        language: str | None = None,
+        snippet: Literal["none", "head", "full"] = "none",
+        snippet_lines: int = 8,
+        file_glob: str | None = None,
+        scope: Literal["deleted"],
+        since: str | None = None,
+        touched_by: str | None = None,
+        auto_index: bool = True,
+    ) -> list[DeletedHistoryItem]: ...
 
     def search_symbols(
         self,
         query: str,
         *,
         limit: int = 20,
+        mode: SearchMode = "auto",
         kind: str | None = None,
         language: str | None = None,
+        snippet: Literal["none", "head", "full"] = "none",
+        snippet_lines: int = 8,
+        file_glob: str | None = None,
+        scope: Literal["repo", "external", "deleted"] = "repo",
+        since: str | None = None,
+        touched_by: str | None = None,
         auto_index: bool = True,
-    ) -> list[SymbolRecord]:
-        """BM25/FTS-ranked symbol search."""
-        if auto_index:
+    ) -> list[SymbolRecord] | list[DeletedHistoryItem]:
+        """BM25/FTS-ranked symbol search with routed-provider fallback."""
+        if auto_index and scope != "deleted":
             self._ensure_indexed()
+        if scope == "deleted":
+            return self._deleted_history_adapter().search(
+                query,
+                limit=limit,
+                since_ts=_parse_since_filter(since),
+                touched_by=_normalize_touched_by(touched_by),
+                language=language,
+            )
+        resolved_mode = resolve_search_mode(query, mode)
+        if resolved_mode == "lexical":
+            hits = self.intel_store.search_symbols(query, limit=limit, kind=kind, language=language, scope=scope)
+        else:
+            candidate_limit = semantic_candidate_limit(limit)
+            if scope == "external":
+                hits = self.intel_store.search_symbols(
+                    query,
+                    limit=candidate_limit,
+                    kind=kind,
+                    language=language,
+                    scope="external",
+                )
+            else:
+                lexical_hits = self.intel_store.search_symbols(
+                    query,
+                    limit=candidate_limit,
+                    kind=kind,
+                    language=language,
+                    scope="repo",
+                )
+                semantic_hits = self._search_symbols_semantic_local(
+                    query,
+                    limit=candidate_limit,
+                    kind=kind,
+                    language=language,
+                )
+                hits = (
+                    semantic_hits[:limit]
+                    if resolved_mode == "semantic"
+                    else self._semantic_ranker.reciprocal_rank_fuse(lexical_hits, semantic_hits, limit=limit)
+                )
+        if file_glob:
+            hits = [hit for hit in hits if Path(hit.file_path).match(file_glob)]
+        return [
+            self._attach_snippet(symbol, snippet=snippet, snippet_lines=snippet_lines)
+            for symbol in hits[:limit]
+        ]
+
+    def _search_symbols_local(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        kind: str | None = None,
+        language: str | None = None,
+    ) -> list[SymbolRecord]:
         fts_query = _safe_fts_query(query)
         if not fts_query:
             return []
@@ -253,6 +1314,53 @@ class CodeContextEngine:
         )
         return [_row_to_symbol(row) for row in rows]
 
+    def _search_symbols_semantic_local(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        kind: str | None = None,
+        language: str | None = None,
+    ) -> list[SymbolRecord]:
+        candidates = self._semantic_symbol_candidates(limit=limit, kind=kind, language=language)
+        return self._semantic_ranker.semantic_search(
+            query,
+            candidates=candidates,
+            limit=limit,
+            source_loader=lambda symbol: self._read_file_slice(symbol.file_path, symbol.start_byte, symbol.end_byte),
+        )
+
+    def _semantic_symbol_candidates(
+        self,
+        *,
+        limit: int,
+        kind: str | None = None,
+        language: str | None = None,
+    ) -> list[SymbolRecord]:
+        filters = ["repo_id = ?"]
+        params: list[Any] = [self.repo_id]
+        if kind:
+            filters.append("kind = ?")
+            params.append(kind)
+        if language:
+            filters.append("language = ?")
+            params.append(language)
+        params.append(limit)
+        where_sql = " AND ".join(filters)
+        with self._connect() as conn:
+            self._init_schema(conn)
+            rows = conn.execute(
+                f"""
+                SELECT *, NULL AS score
+                FROM symbols
+                WHERE {where_sql}
+                ORDER BY file_path, start_line
+                LIMIT ?
+                """,
+                tuple(params),
+            ).fetchall()
+        return [_row_to_symbol(row) for row in rows]
+
     def get_symbol(
         self,
         *,
@@ -265,6 +1373,21 @@ class CodeContextEngine:
         """Retrieve exact symbol metadata and source by byte offsets."""
         if auto_index:
             self._ensure_indexed()
+        return self.intel_store.get_symbol(
+            symbol_id=symbol_id,
+            qualified_name=qualified_name,
+            file_path=file_path,
+            symbol_name=symbol_name,
+        )
+
+    def _get_symbol_local(
+        self,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        file_path: str | None = None,
+        symbol_name: str | None = None,
+    ) -> dict[str, Any]:
         clauses = ["repo_id = ?"]
         params: list[Any] = [self.repo_id]
         if symbol_id:
@@ -441,6 +1564,189 @@ class CodeContextEngine:
             return self._parse_rg_output(proc.stdout, limit=limit)
         return self._python_text_search(query, search_path, limit=limit, ignore_case=ignore_case)
 
+    def find_references(
+        self,
+        query: str | None = None,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        symbol_name: str | None = None,
+        file_path: str | None = None,
+        kind: str | None = None,
+        language: str | None = None,
+        file_glob: str | None = None,
+        group_by: Literal["file", "caller", "none"] = "file",
+        snippet_lines: int = 3,
+        limit: int = 20,
+        auto_index: bool = True,
+        budget_tokens: int = 4000,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        target = self._resolve_symbol_target(
+            operation_name="usages",
+            query=query,
+            symbol_id=symbol_id,
+            qualified_name=qualified_name,
+            symbol_name=symbol_name,
+            file_path=file_path,
+            kind=kind,
+            language=language,
+            file_glob=file_glob,
+        )
+        if target.get("error"):
+            return self._pack_single_payload(
+                target,
+                budget_tokens=budget_tokens,
+                essential_keys=["error", "message", "matches", "cache_hit", "provenance"],
+                optional_keys_in_drop_order=["provenance_breakdown"],
+            )
+        references = self.intel_store.find_references(
+            symbol_id=str(target["symbol_id"]),
+            qualified_name=str(target["qualified_name"]),
+            file_path=str(target["file_path"]),
+            symbol_name=str(target["symbol_name"]),
+        )
+        cross_lang_refs = self._cross_lang_usage_references(target)
+        ordered_references = [
+            *references,
+            *sorted(cross_lang_refs, key=lambda item: (item.file_path, item.line, item.column, item.provenance)),
+        ]
+        items = [self._usage_item(reference, snippet_lines=snippet_lines) for reference in ordered_references]
+        if file_glob:
+            items = [item for item in items if Path(str(item["file_path"])).match(file_glob)]
+        full_payload = self._build_usages_payload(
+            target=target,
+            items=items,
+            group_by=group_by,
+            truncated=False,
+        )
+        full_total_tokens = self._compute_total_tokens({**full_payload, "tokens_saved": 0})
+
+        def build_payload(packed_items: list[dict[str, Any]]) -> dict[str, Any]:
+            return self._finalize_packed_payload(
+                self._build_usages_payload(
+                    target=target,
+                    items=packed_items,
+                    group_by=group_by,
+                    truncated=len(packed_items) < len(items),
+                ),
+                full_total_tokens=full_total_tokens,
+            )
+
+        return self._fit_items_to_budget(
+            items[:limit],
+            budget_tokens=budget_tokens,
+            essential_keys=_USAGES_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=_USAGES_OPTIONAL_KEYS,
+            build_payload=build_payload,
+        )
+
+    def _cross_lang_usage_references(self, target: dict[str, Any]) -> list[UsageReference]:
+        symbol_id = str(target.get("symbol_id") or "")
+        symbol_name = str(target.get("symbol_name") or "")
+        if not symbol_id:
+            return []
+        refs: list[UsageReference] = []
+        for edge in self._cross_lang_store().query_by_target_symbol(tgt_symbol_id=symbol_id, tgt_symbol_name=symbol_name):
+            refs.append(
+                UsageReference(
+                    file_path=edge.src_file_path,
+                    line=edge.src_line,
+                    column=1,
+                    end_line=edge.src_line,
+                    end_column=1,
+                    caller=edge.src_qualified_name,
+                    provenance="cross_lang",
+                    edge_kind=edge.edge_kind,
+                    confidence=edge.confidence,
+                )
+            )
+        return refs
+
+    def _tool_call_graph(
+        self,
+        direction: CallGraphDirection,
+        *,
+        query: str | None = None,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        symbol_name: str | None = None,
+        file_path: str | None = None,
+        kind: str | None = None,
+        language: str | None = None,
+        depth: int = 1,
+        limit: int = 20,
+        snapshot: bool = False,
+        budget_tokens: int = 4000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        normalized_file_path = self._normalize_file_arg(file_path) if file_path else None
+        bounded_depth = max(1, depth)
+        cache_args = {
+            "direction": direction,
+            "query": query,
+            "symbol_id": symbol_id,
+            "qualified_name": qualified_name,
+            "symbol_name": symbol_name,
+            "file_path": normalized_file_path,
+            "kind": kind,
+            "language": language,
+            "depth": bounded_depth,
+            "limit": limit,
+            "snapshot": snapshot,
+            "budget_tokens": budget_tokens,
+        }
+        hit, cached = self._cache_get(f"code.{direction}", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+        target = self._resolve_symbol_target(
+            operation_name=direction,
+            query=query,
+            symbol_id=symbol_id,
+            qualified_name=qualified_name,
+            symbol_name=symbol_name,
+            file_path=normalized_file_path,
+            kind=kind,
+            language=language,
+            file_glob=None,
+        )
+        if target.get("error"):
+            return self._pack_single_payload(
+                target,
+                budget_tokens=budget_tokens,
+                essential_keys=["error", "message", "matches", "cache_hit", "provenance"],
+                optional_keys_in_drop_order=["provenance_breakdown"],
+            )
+        lookup = self.intel_store.find_callers if direction == "callers" else self.intel_store.find_callees
+        traversal = traverse_call_graph(
+            target,
+            direction=direction,
+            depth=bounded_depth,
+            limit=limit,
+            snapshot=snapshot,
+            lookup_neighbors=lambda current_symbol_id: lookup(symbol_id=current_symbol_id),
+        )
+        payload = build_call_graph_payload(
+            target,
+            direction=direction,
+            depth=bounded_depth,
+            result=traversal,
+        )
+        payload["provenance"] = str(target.get("provenance") or _LOCAL_PROVENANCE)
+        packed = self._pack_single_payload(
+            payload,
+            budget_tokens=budget_tokens,
+            essential_keys=_CALL_GRAPH_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=_CALL_GRAPH_OPTIONAL_KEYS,
+        )
+        if "error" not in packed:
+            self._cache_set(f"code.{direction}", cache_args, packed)
+        return packed
+
     def impact(self, file_path: str, *, auto_index: bool = True) -> ImpactResult:
         """Approximate import blast radius and dead-code candidates for a file."""
         if auto_index:
@@ -479,6 +1785,7 @@ class CodeContextEngine:
             affected_tests=affected_tests,
             risk_level=risk,
             dead_code_candidates=self._dead_code_candidates(rel),
+            provenance=_LOCAL_PROVENANCE,
         )
 
     def changed_symbols(self, *, base_ref: str = "HEAD") -> list[SymbolRecord]:
@@ -495,13 +1802,23 @@ class CodeContextEngine:
         return []
 
     def _connect(self) -> sqlite3.Connection:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        return conn
+
+    def connection(self) -> sqlite3.Connection:
+        conn = self._connect()
+        self._init_schema(conn)
         return conn
 
     def _init_schema(self, conn: sqlite3.Connection) -> None:
         conn.executescript("""
             PRAGMA journal_mode=WAL;
+            CREATE TABLE IF NOT EXISTS engine_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS files (
                 repo_id TEXT NOT NULL,
                 file_path TEXT NOT NULL,
@@ -547,6 +1864,7 @@ class CodeContextEngine:
             CREATE INDEX IF NOT EXISTS idx_symbols_repo_name ON symbols(repo_id, symbol_name);
             CREATE INDEX IF NOT EXISTS idx_imports_target ON imports(repo_id, target_file);
             """)
+        conn.execute("INSERT OR IGNORE INTO engine_state(key, value) VALUES ('index_version', '0')")
 
     def _insert_symbol(
         self,
@@ -894,6 +2212,236 @@ class CodeContextEngine:
         data = (self.repo_root / rel).read_bytes()
         return data[start_byte:end_byte].decode("utf-8", errors="replace")
 
+    def _usage_item(self, reference: UsageReference, *, snippet_lines: int) -> dict[str, Any]:
+        payload = reference.model_dump(mode="json", exclude_none=True)
+        if snippet_lines > 0 and "snippet" not in payload:
+            payload["snippet"] = self._reference_snippet(reference.file_path, reference.line, snippet_lines)
+        return payload
+
+    def _reference_snippet(self, file_path: str, line: int, snippet_lines: int) -> str:
+        lines = self._read_file(file_path).splitlines()
+        if not lines:
+            return ""
+        start = max(0, line - 1)
+        end = min(len(lines), start + max(1, snippet_lines))
+        return "\n".join(lines[start:end])
+
+    def _build_usages_payload(
+        self,
+        *,
+        target: dict[str, Any],
+        items: list[dict[str, Any]],
+        group_by: Literal["file", "caller", "none"],
+        truncated: bool,
+    ) -> dict[str, Any]:
+        provenance_breakdown = self._provenance_breakdown(items)
+        provenance = self._items_provenance(items) if items else str(target.get("provenance") or _LOCAL_PROVENANCE)
+        payload: dict[str, Any] = {
+            "target": self._usage_target_summary(target),
+            "references": self._group_usages(items, group_by=group_by),
+            "reference_count": len(items),
+            "group_by": group_by,
+            "truncated": truncated,
+            "cache_hit": False,
+            "provenance": provenance,
+            "provenance_breakdown": provenance_breakdown,
+        }
+        return payload
+
+    def _group_usages(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        group_by: Literal["file", "caller", "none"],
+    ) -> list[dict[str, Any]] | dict[str, list[dict[str, Any]]]:
+        if group_by == "none":
+            return items
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            if group_by == "caller":
+                key = str(item.get("caller") or item["file_path"])
+            else:
+                key = str(item["file_path"])
+            grouped.setdefault(key, []).append(item)
+        return grouped
+
+    def _usage_target_summary(self, payload: dict[str, Any]) -> dict[str, Any]:
+        keys = [
+            "symbol_id",
+            "symbol_name",
+            "qualified_name",
+            "file_path",
+            "kind",
+            "signature",
+            "start_line",
+            "end_line",
+            "language",
+            "provenance",
+        ]
+        return {key: payload[key] for key in keys if key in payload}
+
+    def _resolve_symbol_target(
+        self,
+        *,
+        operation_name: str,
+        query: str | None,
+        symbol_id: str | None,
+        qualified_name: str | None,
+        symbol_name: str | None,
+        file_path: str | None,
+        kind: str | None,
+        language: str | None,
+        file_glob: str | None,
+        ) -> dict[str, Any]:
+        if symbol_id or qualified_name or (symbol_name and file_path):
+            try:
+                return self.get_symbol(
+                    symbol_id=symbol_id,
+                    qualified_name=qualified_name,
+                    symbol_name=symbol_name,
+                    file_path=file_path,
+                    auto_index=False,
+                )
+            except LookupError:
+                return {
+                    "error": "symbol_not_found",
+                    "message": "no matching symbol was found",
+                    "cache_hit": False,
+                    "provenance": _LOCAL_PROVENANCE,
+                }
+        target_query = query or qualified_name or symbol_name
+        if not target_query:
+            raise ValueError(
+                f"query, symbol_id, qualified_name, or symbol_name is required for code {operation_name}"
+            )
+        candidates = self.search_symbols(
+            target_query,
+            limit=20,
+            kind=kind,
+            language=language,
+            snippet="none",
+            file_glob=file_glob,
+            auto_index=False,
+        )
+        exact = [
+            candidate
+            for candidate in candidates
+            if (
+                candidate.qualified_name == target_query
+                or candidate.symbol_name == target_query
+            )
+            and (file_path is None or candidate.file_path == file_path)
+        ]
+        matches = exact or candidates
+        deduped = list({candidate.symbol_id: candidate for candidate in matches}.values())
+        if not deduped:
+            return {
+                "error": "symbol_not_found",
+                "message": "no matching symbol was found",
+                "cache_hit": False,
+                "provenance": _LOCAL_PROVENANCE,
+            }
+        if len(deduped) > 1:
+            return {
+                "error": "disambiguation_required",
+                "message": f"multiple symbols match the {operation_name} query",
+                "matches": [
+                    {
+                        "symbol_id": candidate.symbol_id,
+                        "qualified_name": candidate.qualified_name,
+                        "symbol_name": candidate.symbol_name,
+                        "file_path": candidate.file_path,
+                        "start_line": candidate.start_line,
+                        "provenance": candidate.provenance,
+                    }
+                    for candidate in deduped[:10]
+                ],
+                "cache_hit": False,
+                "provenance": _LOCAL_PROVENANCE,
+            }
+        return self.get_symbol(symbol_id=deduped[0].symbol_id, auto_index=False)
+
+    def _find_references_local(
+        self,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        file_path: str | None = None,
+        symbol_name: str | None = None,
+    ) -> list[UsageReference]:
+        try:
+            target = self._get_symbol_local(
+                symbol_id=symbol_id,
+                qualified_name=qualified_name,
+                file_path=file_path,
+                symbol_name=symbol_name,
+            )
+        except LookupError:
+            target = self._get_symbol_local(
+                qualified_name=qualified_name,
+                file_path=file_path,
+                symbol_name=symbol_name,
+            )
+        target_name = str(target["symbol_name"])
+        target_file = str(target["file_path"])
+        target_start = int(target["start_line"])
+        target_end = int(target["end_line"])
+        results: list[UsageReference] = []
+        seen: set[tuple[str, int, int]] = set()
+        for rel in self._indexed_files():
+            path = self.repo_root / rel
+            try:
+                tags = extract_tags(path)
+            except OSError:
+                continue
+            lines = self._read_file(rel).splitlines()
+            for tag in tags:
+                if tag.kind != "reference" or tag.name != target_name:
+                    continue
+                if rel == target_file and target_start <= tag.line <= target_end:
+                    continue
+                line_text = lines[tag.line - 1] if 1 <= tag.line <= len(lines) else ""
+                column = max(1, line_text.find(target_name) + 1) if line_text else 1
+                key = (rel, tag.line, column)
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append(
+                    UsageReference(
+                        file_path=rel,
+                        line=tag.line,
+                        column=column,
+                        end_line=tag.line,
+                        end_column=column + len(target_name) - 1,
+                        snippet=line_text,
+                        provenance="treesitter",
+                    )
+                )
+        results.sort(key=lambda item: (item.file_path, item.line, item.column))
+        return results
+
+    def _find_callers_local(
+        self,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        file_path: str | None = None,
+        symbol_name: str | None = None,
+    ) -> list[CallGraphNode] | None:
+        del symbol_id, qualified_name, file_path, symbol_name
+        return None
+
+    def _find_callees_local(
+        self,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        file_path: str | None = None,
+        symbol_name: str | None = None,
+    ) -> list[CallGraphNode] | None:
+        del symbol_id, qualified_name, file_path, symbol_name
+        return None
+
     def _parse_rg_output(self, output: str, *, limit: int) -> list[TextMatch]:
         matches: list[TextMatch] = []
         for line in output.splitlines():
@@ -919,6 +2467,369 @@ class CodeContextEngine:
                 )
         return matches
 
+    def _cache_get(self, tool_name: str, args: dict[str, Any]) -> tuple[bool, dict[str, Any] | None]:
+        return self._cache.get(
+            tool_name=tool_name,
+            args=args,
+            index_version=self._current_index_version(),
+            repo_id=self.repo_id,
+        )
+
+    def _cache_set(self, tool_name: str, args: dict[str, Any], payload: dict[str, Any]) -> None:
+        self._cache.set(
+            tool_name=tool_name,
+            args=args,
+            index_version=self._current_index_version(),
+            repo_id=self.repo_id,
+            payload=payload,
+        )
+
+    def _reindex_files(self, file_paths: list[str]) -> None:
+        if not file_paths:
+            return
+        self.index_repo()
+
+    def _current_index_version(self) -> int:
+        with self._connect() as conn:
+            self._init_schema(conn)
+            row = conn.execute("SELECT value FROM engine_state WHERE key = 'index_version'").fetchone()
+        return int(row["value"]) if row is not None else 0
+
+    def _bump_index_version(self, conn: sqlite3.Connection) -> int:
+        row = conn.execute("SELECT value FROM engine_state WHERE key = 'index_version'").fetchone()
+        current = int(row["value"]) if row is not None else 0
+        next_version = current + 1
+        conn.execute(
+            """
+            INSERT INTO engine_state(key, value)
+            VALUES ('index_version', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (str(next_version),),
+        )
+        return next_version
+
+    def _payload_tokens(self, payload: Any) -> int:
+        return count_tokens(_canonical_json(payload))
+
+    def _compute_total_tokens(self, payload: dict[str, Any]) -> int:
+        total_tokens = 0
+        while True:
+            candidate = dict(payload)
+            candidate["total_tokens"] = total_tokens
+            measured = self._payload_tokens(candidate)
+            if measured == total_tokens:
+                return measured
+            total_tokens = measured
+
+    def _items_provenance(self, items: list[dict[str, Any]]) -> str:
+        provenances = [str(item.get("provenance")) for item in items if item.get("provenance")]
+        if not provenances:
+            return _LOCAL_PROVENANCE
+        first = provenances[0]
+        if all(provenance == first for provenance in provenances):
+            return first
+        return _LOCAL_PROVENANCE
+
+    def _provenance_breakdown(self, items: list[dict[str, Any]]) -> dict[str, int]:
+        breakdown: dict[str, int] = {}
+        for item in items:
+            provenance = str(item.get("provenance") or _LOCAL_PROVENANCE)
+            breakdown[provenance] = breakdown.get(provenance, 0) + 1
+        return breakdown
+
+    def _finalize_packed_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        full_total_tokens: int,
+        base_tokens_saved: int = 0,
+    ) -> dict[str, Any]:
+        finalized = dict(payload)
+        tokens_saved = max(0, base_tokens_saved)
+        while True:
+            finalized["tokens_saved"] = tokens_saved
+            total_tokens = self._compute_total_tokens(finalized)
+            updated_tokens_saved = max(base_tokens_saved, full_total_tokens - total_tokens)
+            if updated_tokens_saved == tokens_saved:
+                finalized["total_tokens"] = total_tokens
+                return finalized
+            tokens_saved = updated_tokens_saved
+
+    def _fit_items_to_budget(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        budget_tokens: int,
+        essential_keys: list[str],
+        optional_keys_in_drop_order: list[str],
+        build_payload: Callable[[list[dict[str, Any]]], dict[str, Any]],
+        enforce_protected_top_rank: bool = True,
+    ) -> dict[str, Any]:
+        minimal_items, _, _ = self._budget.pack(
+            items,
+            0,
+            essential_keys=essential_keys,
+            optional_keys_in_drop_order=optional_keys_in_drop_order,
+        )
+        protected_items = minimal_items[: min(PROTECTED_TOP_RANK, len(minimal_items))]
+        protected_payload = build_payload(protected_items)
+        if enforce_protected_top_rank and protected_items and protected_payload["total_tokens"] > budget_tokens:
+            return self._budget_error_payload(
+                budget_tokens=budget_tokens,
+                minimum_required_tokens=int(protected_payload["total_tokens"]),
+                provenance=str(protected_payload.get("provenance") or _LOCAL_PROVENANCE),
+            )
+
+        best_payload = build_payload(minimal_items)
+        if best_payload["total_tokens"] > budget_tokens:
+            for end in range(len(minimal_items) - 1, -1, -1):
+                candidate = build_payload(minimal_items[:end])
+                if candidate["total_tokens"] <= budget_tokens:
+                    return candidate
+            return build_payload([])
+
+        low = 0
+        high = max(0, budget_tokens)
+        while low <= high:
+            mid = (low + high) // 2
+            packed_items, _, _ = self._budget.pack(
+                items,
+                mid,
+                essential_keys=essential_keys,
+                optional_keys_in_drop_order=optional_keys_in_drop_order,
+            )
+            candidate = build_payload(packed_items)
+            if candidate["total_tokens"] <= budget_tokens:
+                best_payload = candidate
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        return best_payload
+
+    def _budget_error_payload(
+        self,
+        *,
+        budget_tokens: int,
+        minimum_required_tokens: int,
+        provenance: str,
+    ) -> dict[str, Any]:
+        return self._finalize_packed_payload(
+            {
+                "error": "budget_too_small",
+                "message": "budget_tokens cannot fit the protected top-ranked essentials",
+                "budget_tokens": budget_tokens,
+                "minimum_required_tokens": minimum_required_tokens,
+                "cache_hit": False,
+                "provenance": provenance,
+            },
+            full_total_tokens=max(minimum_required_tokens, 0),
+        )
+
+    def _pack_items_payload(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        budget_tokens: int,
+        essential_keys: list[str],
+        optional_keys_in_drop_order: list[str],
+        extra_payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        extra = dict(extra_payload or {})
+        provenance = self._items_provenance(items)
+        provenance_breakdown = self._provenance_breakdown(items)
+        full_payload = {
+            "items": items,
+            "cache_hit": False,
+            "provenance": provenance,
+            "provenance_breakdown": provenance_breakdown,
+            **extra,
+        }
+        full_total_tokens = self._compute_total_tokens({**full_payload, "tokens_saved": 0})
+
+        def build_payload(packed_items: list[dict[str, Any]]) -> dict[str, Any]:
+            return self._finalize_packed_payload(
+                {
+                    "items": packed_items,
+                    "cache_hit": False,
+                    "provenance": provenance,
+                    "provenance_breakdown": self._provenance_breakdown(packed_items),
+                    **extra,
+                },
+                full_total_tokens=full_total_tokens,
+            )
+
+        return self._fit_items_to_budget(
+            items,
+            budget_tokens=budget_tokens,
+            essential_keys=essential_keys,
+            optional_keys_in_drop_order=optional_keys_in_drop_order,
+            build_payload=build_payload,
+        )
+
+    def _pack_pattern_matches(
+        self,
+        result: PatternSearchResult,
+        *,
+        budget_tokens: int,
+    ) -> dict[str, Any]:
+        items = [match.to_dict() for match in result.matches]
+        full_payload = {
+            "matches": items,
+            "truncated": bool(result.truncated),
+            "total_matches": result.total_matches if result.total_matches is not None else len(items),
+            "cache_hit": False,
+            "provenance": "ast-grep",
+            "provenance_breakdown": {"ast-grep": len(items)},
+        }
+        full_total_tokens = self._compute_total_tokens({**full_payload, "tokens_saved": 0})
+
+        def build_payload(packed_items: list[dict[str, Any]]) -> dict[str, Any]:
+            truncated = bool(result.truncated) or len(packed_items) < len(items)
+            return self._finalize_packed_payload(
+                {
+                    "matches": packed_items,
+                    "truncated": truncated,
+                    "total_matches": result.total_matches if result.total_matches is not None else len(items),
+                    "cache_hit": False,
+                    "provenance": "ast-grep",
+                    "provenance_breakdown": {"ast-grep": len(packed_items)},
+                },
+                full_total_tokens=full_total_tokens,
+            )
+
+        return self._fit_items_to_budget(
+            items,
+            budget_tokens=budget_tokens,
+            essential_keys=_PATTERN_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=_PATTERN_OPTIONAL_KEYS,
+            build_payload=build_payload,
+        )
+
+    def _pack_pattern_rewrite(
+        self,
+        result: PatternRewriteResult,
+        *,
+        budget_tokens: int,
+    ) -> dict[str, Any]:
+        return self._pack_single_payload(
+            {
+                "diff": result.diff,
+                "files_changed": result.files_changed,
+                "provenance": "ast-grep",
+            },
+            budget_tokens=budget_tokens,
+            essential_keys=["diff", "files_changed", "provenance"],
+            optional_keys_in_drop_order=[],
+        )
+
+    def _pack_single_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        budget_tokens: int,
+        essential_keys: list[str],
+        optional_keys_in_drop_order: list[str],
+        base_tokens_saved: int = 0,
+    ) -> dict[str, Any]:
+        full_payload = dict(payload)
+        full_payload.setdefault("cache_hit", False)
+        full_payload.setdefault("provenance", _LOCAL_PROVENANCE)
+        full_total_tokens = self._compute_total_tokens({**full_payload, "tokens_saved": max(0, base_tokens_saved)})
+
+        def build_payload(packed_items: list[dict[str, Any]]) -> dict[str, Any]:
+            packed_payload = dict(packed_items[0]) if packed_items else dict(full_payload)
+            packed_payload["cache_hit"] = False
+            packed_payload["provenance"] = str(full_payload.get("provenance") or _LOCAL_PROVENANCE)
+            return self._finalize_packed_payload(
+                packed_payload,
+                full_total_tokens=full_total_tokens,
+                base_tokens_saved=base_tokens_saved,
+            )
+
+        return self._fit_items_to_budget(
+            [full_payload],
+            budget_tokens=budget_tokens,
+            essential_keys=[*essential_keys, "cache_hit", "tokens_saved", "provenance"],
+            optional_keys_in_drop_order=optional_keys_in_drop_order,
+            build_payload=build_payload,
+            enforce_protected_top_rank=False,
+        )
+
+    def _mark_cache_hit(self, payload: dict[str, Any]) -> dict[str, Any]:
+        cached = cast(dict[str, Any], json.loads(_canonical_json(payload)))
+        cached["cache_hit"] = True
+        cached["provenance"] = "cached"
+        cached["total_tokens"] = self._compute_total_tokens(cached)
+        return cached
+
+    def _normalize_cache_tool(self, cache_tool: str | None) -> str | None:
+        normalized = (cache_tool or "all").strip().lower()
+        if normalized not in _CACHE_TOOL_ALIASES:
+            choices = ", ".join(sorted(_CACHE_TOOL_ALIASES))
+            raise ValueError(f"cache_tool must be one of: {choices}")
+        return _CACHE_TOOL_ALIASES[normalized]
+
+    def _attach_snippet(
+        self,
+        symbol: SymbolRecord,
+        *,
+        snippet: Literal["none", "head", "full"],
+        snippet_lines: int,
+    ) -> SymbolRecord:
+        if snippet == "none":
+            return symbol.model_copy(update={"snippet": None})
+        safe_line_count = max(1, snippet_lines)
+        snippet_text = self._read_symbol_snippet(
+            symbol.file_path,
+            start_line=symbol.start_line,
+            end_line=symbol.end_line,
+            mode=snippet,
+            snippet_lines=safe_line_count,
+        )
+        return symbol.model_copy(update={"snippet": snippet_text})
+
+    def _read_symbol_snippet(
+        self,
+        file_path: str,
+        *,
+        start_line: int,
+        end_line: int,
+        mode: Literal["head", "full"],
+        snippet_lines: int,
+    ) -> str:
+        resolved = self._resolve_inside_repo(file_path)
+        lines = resolved.read_text(encoding="utf-8", errors="replace").splitlines()
+        if not lines:
+            return ""
+        start_index = max(0, start_line - 1)
+        max_end_index = min(len(lines), start_index + snippet_lines)
+        if mode == "full":
+            max_end_index = min(max_end_index, max(start_index + 1, end_line))
+        snippet_slice = lines[start_index:max_end_index]
+        return "\n".join(snippet_slice)
+
+    def _flatten_outline(self, files: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for file_path in sorted(files):
+            for item in files[file_path]:
+                items.append({"file_path": file_path, **item})
+        return items
+
+    def _group_outline(self, items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            file_path = str(item["file_path"])
+            grouped.setdefault(file_path, []).append({k: v for k, v in item.items() if k != "file_path"})
+        return grouped
+
+    def _file_mtime_ns(self, file_path: str) -> int | None:
+        path = self._resolve_inside_repo(file_path)
+        with contextlib.suppress(OSError):
+            return path.stat().st_mtime_ns
+        return None
+
     def _python_text_search(self, query: str, search_path: Path, *, limit: int, ignore_case: bool) -> list[TextMatch]:
         query_cmp = query.lower() if ignore_case else query
         paths = [search_path] if search_path.is_file() else iter_source_files(search_path)
@@ -933,6 +2844,58 @@ class CodeContextEngine:
                     if len(matches) >= limit:
                         return matches
         return matches
+
+    def _register_symbol_intel_providers(self) -> None:
+        try:
+            from atelier.infra.code_intel.scip import ScipSymbolIntelProvider
+        except Exception:
+            return
+        self.intel_store.register(
+            ScipSymbolIntelProvider(
+                repo_root=self.repo_root,
+                repo_id=self.repo_id,
+                state_sync=self._sync_external_artifact_state,
+            )
+        )
+
+    def _sync_symbol_intel(self) -> None:
+        self.intel_store.refresh()
+
+    def _sync_external_artifact_state(self, state_key: str, signature: str) -> bool:
+        with self._connect() as conn:
+            self._init_schema(conn)
+            row = conn.execute("SELECT value FROM engine_state WHERE key = ?", (state_key,)).fetchone()
+            previous = str(row["value"]) if row is not None else None
+            conn.execute(
+                """
+                INSERT INTO engine_state(key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (state_key, signature),
+            )
+            if previous is not None and previous != signature:
+                self._bump_index_version(conn)
+                return True
+        return False
+
+    def _current_head_sha(self) -> str:
+        from atelier.infra.code_intel.git_history import require_pygit2
+
+        pygit2 = require_pygit2()
+        repo = pygit2.Repository(str(self.repo_root))
+        return str(repo.revparse_single("HEAD").id)
+
+    def _deleted_history_adapter(self) -> DeletedHistorySearchAdapter:
+        if self._deleted_history_search_adapter is None:
+            from atelier.infra.code_intel.git_history.adapter import DeletedHistorySearchAdapter
+
+            self._deleted_history_search_adapter = DeletedHistorySearchAdapter(
+                repo_root=self.repo_root,
+                repo_id=self.repo_id,
+                connection_factory=self.connection,
+            )
+        return self._deleted_history_search_adapter
 
 
 __all__ = ["CodeContextEngine"]

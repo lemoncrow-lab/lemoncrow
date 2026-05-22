@@ -345,10 +345,10 @@ else
     vfail "$TASKS_DEST missing Atelier task presets"
 fi
 
-if [ -x "${ATELIER_REPO}/bin/atelier-status" ]; then
-    vpass "bin/atelier-status helper exists"
+if command -v atelier >/dev/null 2>&1 && atelier status --help >/dev/null 2>&1; then
+    vpass "atelier status command is available"
 else
-    vfail "bin/atelier-status missing or not executable"
+    vfail "atelier status command unavailable"
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
@@ -358,4 +358,4 @@ fi
 info "All post-install checks passed"
 
 info "Done. Reload VS Code window - Atelier MCP and tasks are available."
-info "Tip: run 'atelier-status' in any shell to see current run state."
+info "Tip: run 'atelier status' in any shell to see the runs dashboard."

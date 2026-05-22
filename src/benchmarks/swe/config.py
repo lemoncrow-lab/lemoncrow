@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from benchmarks.swe.modes import Mode
 
-AgentHost = Literal["claude", "codex", "opencode", "copilot", "gemini", "mock"]
+AgentHost = Literal["claude", "codex", "opencode", "copilot", "antigravity", "mock"]
 
 
 class BenchConfig(BaseModel):

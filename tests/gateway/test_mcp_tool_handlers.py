@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,14 +12,24 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
+from atelier.core.capabilities.code_context import CodeContextEngine
 from atelier.core.environment import (
     DEV_LLM_TOOLS,
     NON_DEV_LLM_TOOLS,
     STABLE_LLM_TOOLS,
 )
+from atelier.core.service.bootstrap_context import build_bootstrap_plan, persist_bootstrap_plan
+from atelier.core.service.jobs import JOB_BOOTSTRAP_CONTEXT
 from atelier.gateway.adapters import mcp_server
 from atelier.gateway.adapters.cli import cli
-from atelier.gateway.adapters.mcp_server import TOOLS, _handle
+from atelier.gateway.adapters.mcp_server import TOOLS, _handle, tool_code, tool_smart_edit
+from atelier.infra.code_intel.astgrep import (
+    AstGrepToolUnavailable,
+    PatternMatch,
+    PatternRewriteResult,
+    PatternSearchResult,
+)
+from atelier.infra.storage.factory import create_store, make_memory_store
 
 EXPECTED_TOOLS = {
     "context",
@@ -70,6 +81,155 @@ def _mock_client(return_values: dict[str, dict[str, Any]]) -> MagicMock:
     return client
 
 
+def _write_gateway_scip_fixture(
+    repo_root: Path,
+    *,
+    symbol_id: str,
+    include_call_graph: bool = False,
+    artifact_name: str = "python.scip",
+    file_path: str = "a.py",
+    symbol_name: str = "alpha",
+    qualified_name: str = "alpha",
+    source: str | None = None,
+) -> Path:
+    engine = CodeContextEngine(repo_root)
+    symbol_source = source or (repo_root / file_path).read_text(encoding="utf-8")
+    caller_source = (
+        (repo_root / "b.py").read_text(encoding="utf-8") if (repo_root / "b.py").exists() else ""
+    )
+    artifact_dir = repo_root / ".atelier" / "cache" / "scip" / engine.repo_id
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = artifact_dir / artifact_name
+    payload: dict[str, Any] = {
+        "version": 1,
+        "repo_id": engine.repo_id,
+        "language": "python",
+        "index_sha": "a" * 40,
+        "symbols": [
+            {
+                "symbol_id": symbol_id,
+                "repo_id": engine.repo_id,
+                "file_path": file_path,
+                "language": "python",
+                "symbol_name": symbol_name,
+                "qualified_name": qualified_name,
+                "kind": "function",
+                "signature": f"def {symbol_name}():",
+                "start_byte": 0,
+                "end_byte": len(symbol_source.encode("utf-8")),
+                "start_line": 1,
+                "end_line": len(symbol_source.splitlines()),
+                "content_hash": hashlib.sha256(symbol_source.encode("utf-8")).hexdigest(),
+                "source": symbol_source,
+                "provenance": "scip",
+            }
+        ],
+    }
+    if include_call_graph:
+        payload["symbols"].append(
+            {
+                "symbol_id": "scip-beta",
+                "repo_id": engine.repo_id,
+                "file_path": "b.py",
+                "language": "python",
+                "symbol_name": "beta",
+                "qualified_name": "beta",
+                "kind": "function",
+                "signature": "def beta():",
+                "start_byte": 0,
+                "end_byte": len(caller_source.encode("utf-8")),
+                "start_line": 3,
+                "end_line": 4,
+                "content_hash": hashlib.sha256(caller_source.encode("utf-8")).hexdigest(),
+                "source": caller_source,
+                "provenance": "scip",
+            }
+        )
+        payload["call_graph"] = {
+            "callers": {
+                symbol_id: [
+                    {
+                        "symbol_id": "scip-beta",
+                        "symbol_name": "beta",
+                        "qualified_name": "beta",
+                        "file_path": "b.py",
+                        "kind": "function",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "provenance": "scip",
+                    }
+                ]
+            },
+            "callees": {
+                "scip-beta": [
+                    {
+                        "symbol_id": symbol_id,
+                        "symbol_name": "alpha",
+                        "qualified_name": "alpha",
+                        "file_path": "a.py",
+                        "kind": "function",
+                        "start_line": 1,
+                        "end_line": 2,
+                        "provenance": "scip",
+                    }
+                ]
+            },
+        }
+    artifact_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    return artifact_path
+
+
+def _write_bootstrap_fixture_repo(root: Path) -> None:
+    (root / "src").mkdir(parents=True, exist_ok=True)
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    (root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "src" / "app.py").write_text(
+        "from src.worker import run_worker\n\ndef main() -> str:\n    return run_worker()\n",
+        encoding="utf-8",
+    )
+    (root / "src" / "worker.py").write_text(
+        "def run_worker() -> str:\n    return 'ready'\n",
+        encoding="utf-8",
+    )
+    (root / "scripts" / "cli.py").write_text(
+        "from src.app import main\n\ndef cli() -> str:\n    return main()\n",
+        encoding="utf-8",
+    )
+
+
+def _write_workspace_fixture_repo(
+    root: Path, *, module_name: str, class_name: str = "SharedConfig"
+) -> None:
+    (root / "src").mkdir(parents=True, exist_ok=True)
+    (root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "src" / "config.py").write_text(
+        f"class {class_name}:\n    SOURCE = '{module_name}'\n",
+        encoding="utf-8",
+    )
+
+
+def _write_workspace_fixture_config(workspace_root: Path, sibling_root: Path) -> None:
+    (workspace_root / ".atelier").mkdir(parents=True, exist_ok=True)
+    (workspace_root / ".atelier" / "workspace.toml").write_text(
+        "\n".join(
+            [
+                "[workspace]",
+                'id = "fixture-workspace"',
+                "",
+                "[[workspace.repos]]",
+                'name = "atelier"',
+                'path = "."',
+                "",
+                "[[workspace.repos]]",
+                'name = "billing"',
+                f'path = "{os.path.relpath(sibling_root, workspace_root)}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 @pytest.fixture()
 def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / ".atelier"
@@ -108,11 +268,15 @@ def test_initialize_returns_server_info() -> None:
 
 
 def test_notifications_initialized_returns_none() -> None:
-    resp = _handle({"jsonrpc": "2.0", "id": None, "method": "notifications/initialized", "params": {}})
+    resp = _handle(
+        {"jsonrpc": "2.0", "id": None, "method": "notifications/initialized", "params": {}}
+    )
     assert resp is None
 
 
-def test_tools_list_returns_exact_consolidated_surface_in_dev_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tools_list_returns_exact_consolidated_surface_in_dev_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("ATELIER_DEV_MODE", "1")
     resp = _handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     assert resp is not None
@@ -132,10 +296,14 @@ def test_tools_list_only_product_tools_without_dev_mode(
     assert names == NON_DEV_LLM_TOOLS
     assert names == STABLE_LLM_TOOLS
     assert not (names & DEV_LLM_TOOLS)
-    assert all("passive" not in tool["description"] for tool in tools if tool["name"] in STABLE_LLM_TOOLS)
+    assert all(
+        "passive" not in tool["description"] for tool in tools if tool["name"] in STABLE_LLM_TOOLS
+    )
 
 
-def test_cli_tools_list_respects_stable_and_dev_modes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_tools_list_respects_stable_and_dev_modes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("ATELIER_DEV_MODE", raising=False)
     runner = CliRunner()
 
@@ -149,7 +317,9 @@ def test_cli_tools_list_respects_stable_and_dev_modes(tmp_path: Path, monkeypatc
     assert "ATELIER_DEV_MODE" not in os.environ
 
 
-def test_cli_tools_call_invokes_stable_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_tools_call_invokes_stable_tool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("ATELIER_DEV_MODE", raising=False)
     runner = CliRunner()
 
@@ -181,6 +351,30 @@ def test_tools_list_each_entry_has_schema() -> None:
         assert isinstance(tool.get("inputSchema"), dict)
 
 
+def test_tools_list_search_schema_prefers_file_path_and_documents_modes() -> None:
+    search_tool = TOOLS["search"]
+    properties = search_tool["inputSchema"]["properties"]
+
+    assert "query" in search_tool["description"]
+    assert "grep" in search_tool["description"]
+    assert "file_path" in properties
+    assert "path" not in properties
+    assert "content_regex" not in properties
+    assert "legacy callers may still send `path`" in properties["file_path"]["description"]
+    assert "repo map" in properties["mode"]["description"].lower()
+
+
+def test_tools_list_grep_schema_covers_native_mode() -> None:
+    grep_tool = TOOLS["grep"]
+    properties = grep_tool["inputSchema"]["properties"]
+
+    assert "regex" in grep_tool["description"].lower()
+    assert "file_path" in properties
+    assert "path" not in properties
+    assert "content_regex" in properties
+    assert "summary" in properties
+
+
 def test_unknown_method_returns_error() -> None:
     resp = _handle({"jsonrpc": "2.0", "id": 3, "method": "unknown/method", "params": {}})
     assert resp is not None
@@ -201,6 +395,91 @@ def test_get_context_can_include_folded_state(store_root: Path) -> None:
     payload = _result(resp)
     assert isinstance(payload.get("context"), str)
     assert "run_ledger" in payload
+
+
+def test_context_enqueues_single_bootstrap_job_for_cold_repo(
+    store_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
+    _write_bootstrap_fixture_repo(workspace_root)
+    mcp_server._reset_runtime_cache_for_testing()
+    monkeypatch.setattr(mcp_server, "_run_worker_tick_safe", lambda root: None)
+
+    first = mcp_server.tool_get_context({"task": "Map the repo entry points"})
+    second = mcp_server.tool_get_context({"task": "Map the repo entry points"})
+
+    store = create_store(store_root)
+    store.init()
+    jobs = [
+        job
+        for job in store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20)
+        if job["status"] in {"pending", "running"}
+    ]
+
+    assert len(jobs) == 1
+    assert first["bootstrap"]["queued"] is True
+    assert second["bootstrap"]["queued"] is False
+
+
+def test_context_worker_tick_persists_bootstrap_blocks_without_blocking_initial_response(
+    store_root: Path,
+) -> None:
+    workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
+    _write_bootstrap_fixture_repo(workspace_root)
+    mcp_server._reset_runtime_cache_for_testing()
+
+    payload = mcp_server.tool_get_context({"task": "Warm the repository context"})
+
+    assert "Repository bootstrap" not in payload["context"]
+    mcp_server._run_worker_tick_safe(store_root)
+
+    plan = build_bootstrap_plan(workspace_root)
+    blocks = make_memory_store(store_root).list_pinned_blocks(plan.agent_id)
+
+    assert (
+        len([block for block in blocks if block.label.startswith(f"bootstrap/{plan.repo_id}/")])
+        == 4
+    )
+
+
+def test_context_reuses_bootstrap_blocks_instead_of_enqueuing_duplicate_work(
+    store_root: Path,
+) -> None:
+    workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
+    _write_bootstrap_fixture_repo(workspace_root)
+    mcp_server._reset_runtime_cache_for_testing()
+
+    mcp_server.tool_get_context({"task": "Warm the repository context"})
+    mcp_server._run_worker_tick_safe(store_root)
+    mcp_server._reset_runtime_cache_for_testing()
+    payload = mcp_server.tool_get_context({"task": "Warm the repository context"})
+
+    store = create_store(store_root)
+    store.init()
+    jobs = store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20)
+
+    assert len(jobs) == 1
+    assert payload["bootstrap"]["status"] == "warm"
+    assert "Repository bootstrap" in payload["context"]
+
+
+def test_context_injects_preseeded_bootstrap_blocks_without_recomputing(
+    store_root: Path,
+) -> None:
+    workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
+    _write_bootstrap_fixture_repo(workspace_root)
+    memory_store = make_memory_store(store_root)
+    persist_bootstrap_plan(workspace_root, memory_store)
+    mcp_server._reset_runtime_cache_for_testing()
+
+    payload = mcp_server.tool_get_context({"task": "Use the warmed bootstrap state"})
+
+    store = create_store(store_root)
+    store.init()
+    assert store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20) == []
+    assert payload["bootstrap"]["status"] == "warm"
+    assert "architecture-sketch" in payload["context"]
 
 
 def test_rescue_failure_returns_procedure(store_root: Path) -> None:
@@ -261,7 +540,9 @@ def test_run_rubric_gate_pass(store_root: Path) -> None:
 
 def test_compact_output_op_passthrough(store_root: Path) -> None:
     _ = store_root
-    payload = _result(_call("compact", {"op": "output", "content": "short output", "content_type": "bash"}))
+    payload = _result(
+        _call("compact", {"op": "output", "content": "short output", "content_type": "bash"})
+    )
     assert payload["compacted"] == "short output"
     assert payload["method"] == "passthrough"
 
@@ -342,10 +623,14 @@ def test_model_recommendation_emitted_before_tool_dispatch(store_root: Path) -> 
     assert recommendations[-1].payload["cost_saved_usd"] >= 0
 
 
-def test_compact_session_op_emits_session_compaction_savings(monkeypatch: pytest.MonkeyPatch, store_root: Path) -> None:
+def test_compact_session_op_emits_session_compaction_savings(
+    monkeypatch: pytest.MonkeyPatch, store_root: Path
+) -> None:
     _ = store_root
     events: list[dict[str, Any]] = []
-    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
+    monkeypatch.setattr(
+        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
+    )
     led = mcp_server._get_ledger()
     led.token_count = 48_000
     for idx in range(4):
@@ -367,7 +652,9 @@ def test_compact_advise_emits_session_compaction_savings_when_auto_compacting(
 ) -> None:
     _ = store_root
     events: list[dict[str, Any]] = []
-    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
+    monkeypatch.setattr(
+        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
+    )
     led = mcp_server._get_ledger()
     led.token_count = 160_000
     for idx in range(16):
@@ -385,7 +672,7 @@ def test_compact_advise_emits_session_compaction_savings_when_auto_compacting(
 
 
 def test_detect_agent_supports_all_five_cli_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
-    for host in ("claude", "codex", "copilot", "opencode", "gemini"):
+    for host in ("claude", "codex", "copilot", "opencode", "antigravity"):
         monkeypatch.setenv("ATELIER_AGENT", host)
         assert mcp_server._detect_agent() == host
         monkeypatch.delenv("ATELIER_AGENT", raising=False)
@@ -396,15 +683,23 @@ def test_smart_read_and_search_surfaces(store_root: Path, tmp_path: Path) -> Non
     target = tmp_path / "sample.py"
     target.write_text("def alpha():\n    return 'needle'\n", encoding="utf-8")
 
-    read_payload = _result(_call("read", {"path": str(target), "max_lines": 20}))
+    read_payload = _result(_call("read", {"file_path": str(target), "max_lines": 20}))
     assert read_payload["language"] == "python"
 
-    search_payload = _result(_call("search", {"path": str(target), "content_regex": "needle"}))
-    assert search_payload["isError"] is False
-    assert search_payload["_meta"]["fileMatchCount"] == 1
+    search_payload = _result(_call("search", {"query": "needle", "file_path": str(tmp_path)}))
+    assert search_payload["matches"]
+
+    grep_payload = _result(_call("grep", {"file_path": str(target), "content_regex": "needle"}))
+    assert grep_payload["isError"] is False
+    assert grep_payload["_meta"]["fileMatchCount"] == 1
+
+    legacy_payload = _result(_call("grep", {"path": str(target), "content_regex": "needle"}))
+    assert legacy_payload["_meta"]["fileMatchCount"] == 1
 
 
-def test_smart_edit_surface_applies_patch(store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_smart_edit_surface_applies_patch(
+    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _ = store_root
     monkeypatch.chdir(tmp_path)
     target = Path("edit.txt")
@@ -429,6 +724,141 @@ def test_smart_edit_surface_applies_patch(store_root: Path, tmp_path: Path, monk
     assert target.read_text(encoding="utf-8") == "hello atelier"
 
 
+def test_code_context_external_scope_surface_returns_external_hits_only(
+    store_root: Path, tmp_path: Path
+) -> None:
+    _ = store_root
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    _write_gateway_scip_fixture(
+        tmp_path,
+        symbol_id="scip-requests-get",
+        artifact_name="external-python.scip",
+        file_path="external/requests/api.py",
+        symbol_name="get",
+        qualified_name="requests.get",
+        source="def get(url: str) -> str:\n    return url\n",
+    )
+
+    repo_payload = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "get"})
+    external_payload = tool_code(
+        {"op": "search", "repo_root": str(tmp_path), "query": "get", "scope": "external"}
+    )
+
+    assert repo_payload["items"] == []
+    assert [item["qualified_name"] for item in external_payload["items"]] == ["requests.get"]
+    assert external_payload["items"][0]["origin"] == "external"
+
+
+def test_edit_symbol_rejects_external_target_cleanly(
+    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = store_root
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    _write_gateway_scip_fixture(
+        tmp_path,
+        symbol_id="scip-requests-get",
+        artifact_name="external-python.scip",
+        file_path="external/requests/api.py",
+        symbol_name="get",
+        qualified_name="requests.get",
+        source="def get(url: str) -> str:\n    return url\n",
+    )
+
+    payload = tool_smart_edit(
+        {
+            "edits": [
+                {
+                    "kind": "symbol",
+                    "symbol_id": "scip-requests-get",
+                    "mode": "replace",
+                    "new_body": "def get(url: str) -> str:\n    return 'patched'\n",
+                }
+            ]
+        }
+    )
+
+    assert payload["rolled_back"] is True
+    assert payload["failed"][0]["error"] == "external_symbol_edit_not_allowed"
+
+
+def test_code_context_workspace_search_returns_repo_tagged_hits_and_repo_filter(
+    store_root: Path,
+    tmp_path: Path,
+) -> None:
+    _ = store_root
+    billing_root = tmp_path.parent / "billing"
+    _write_workspace_fixture_repo(tmp_path, module_name="atelier")
+    _write_workspace_fixture_repo(billing_root, module_name="billing")
+    _write_workspace_fixture_config(tmp_path, billing_root)
+
+    payload = tool_code(
+        {"op": "search", "repo_root": str(tmp_path), "query": "SharedConfig", "budget_tokens": 4000}
+    )
+    billing_only = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "SharedConfig",
+            "repo": "billing",
+            "budget_tokens": 4000,
+        }
+    )
+
+    assert [(item["repo_name"], item["file_path"]) for item in payload["items"]] == [
+        ("atelier", "src/config.py"),
+        ("billing", "src/config.py"),
+    ]
+    assert [item["repo_name"] for item in billing_only["items"]] == ["billing"]
+
+
+def test_code_context_workspace_symbol_filter_and_external_origin_metadata(
+    store_root: Path,
+    tmp_path: Path,
+) -> None:
+    _ = store_root
+    billing_root = tmp_path.parent / "billing"
+    _write_workspace_fixture_repo(tmp_path, module_name="atelier")
+    _write_workspace_fixture_repo(billing_root, module_name="billing")
+    _write_workspace_fixture_config(tmp_path, billing_root)
+    _write_gateway_scip_fixture(
+        billing_root,
+        symbol_id="scip-requests-get",
+        artifact_name="external-python.scip",
+        file_path="external/requests/api.py",
+        symbol_name="get",
+        qualified_name="requests.get",
+        source="def get(url: str) -> str:\n    return url\n",
+    )
+
+    default_symbol = tool_code(
+        {"op": "symbol", "repo_root": str(tmp_path), "symbol_name": "SharedConfig"}
+    )
+    billing_symbol = tool_code(
+        {
+            "op": "symbol",
+            "repo_root": str(tmp_path),
+            "symbol_name": "SharedConfig",
+            "repo": "billing",
+        }
+    )
+    external_payload = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "get",
+            "scope": "external",
+            "repo": "billing",
+        }
+    )
+
+    assert default_symbol["repo_name"] == "atelier"
+    assert billing_symbol["repo_name"] == "billing"
+    assert billing_symbol["qualified_name"] == "SharedConfig"
+    assert external_payload["items"][0]["repo_name"] == "billing"
+    assert external_payload["items"][0]["origin"] == "external"
+
+
 def test_repo_map_surface(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     target = tmp_path / "sample.py"
@@ -446,13 +876,26 @@ def test_repo_map_surface(store_root: Path, tmp_path: Path) -> None:
 def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
-    (tmp_path / "b.py").write_text("from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text(
+        "from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8"
+    )
 
     indexed = _result(_call("code", {"op": "index", "repo_root": str(tmp_path)}))
     assert indexed["symbols_indexed"] >= 2
+    assert indexed["cache_hit"] is False
+    assert indexed["provenance"] == "local"
 
-    searched = _result(_call("code", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
+    searched = _result(
+        _call("code", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"})
+    )
     assert searched["items"]
+    assert searched["cache_hit"] is False
+    assert all("snippet" not in item for item in searched["items"])
+    cached_search = _result(
+        _call("code", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"})
+    )
+    assert cached_search["cache_hit"] is True
+    assert cached_search["provenance"] == "cached"
 
     symbol = _result(
         _call(
@@ -466,9 +909,13 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
         )
     )
     assert "def alpha" in symbol["source"]
+    assert symbol["provenance"] == "local"
 
-    outline = _result(_call("code", {"op": "outline", "repo_root": str(tmp_path), "file_path": "a.py"}))
+    outline = _result(
+        _call("code", {"op": "outline", "repo_root": str(tmp_path), "file_path": "a.py"})
+    )
     assert "a.py" in outline["files"]
+    assert outline["provenance"] == "local"
 
     context = _result(
         _call(
@@ -483,6 +930,539 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
         )
     )
     assert context["token_count"] <= context["budget_tokens"]
+    assert context["provenance"] == "local"
 
-    impact = _result(_call("code", {"op": "impact", "repo_root": str(tmp_path), "file_path": "a.py"}))
+    impact = _result(
+        _call("code", {"op": "impact", "repo_root": str(tmp_path), "file_path": "a.py"})
+    )
     assert "b.py" in impact["direct_importers"]
+    assert impact["provenance"] == "local"
+
+
+def test_code_context_mcp_routes_scip_and_invalidates_cache(
+    store_root: Path, tmp_path: Path
+) -> None:
+    _ = store_root
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    artifact_path = _write_gateway_scip_fixture(tmp_path, symbol_id="scip-alpha-v1")
+
+    first = _result(_call("code", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
+    cached = _result(_call("code", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
+    artifact_path.write_text(
+        artifact_path.read_text(encoding="utf-8").replace("scip-alpha-v1", "scip-alpha-v2"),
+        encoding="utf-8",
+    )
+    fresh = _result(_call("code", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
+
+    assert first["cache_hit"] is False
+    assert first["provenance"] == "scip"
+    assert first["items"][0]["symbol_id"] == "scip-alpha-v1"
+    assert cached["cache_hit"] is True
+    assert fresh["cache_hit"] is False
+    assert fresh["provenance"] == "scip"
+    assert fresh["items"][0]["symbol_id"] == "scip-alpha-v2"
+
+
+def test_code_context_search_surface_supports_snippet_scope_and_glob(
+    store_root: Path, tmp_path: Path
+) -> None:
+    _ = store_root
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "src" / "orders.py").write_text(
+        "class OrderService:\n"
+        "    def calculate_total(self, items: list[int]) -> int:\n"
+        "        return sum(items)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tests" / "test_orders.py").write_text(
+        "from src.orders import OrderService\n",
+        encoding="utf-8",
+    )
+
+    payload = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "OrderService",
+            "snippet": "head",
+            "snippet_lines": 2,
+            "file_glob": "src/*.py",
+            "scope": "repo",
+            "budget_tokens": 4000,
+        }
+    )
+
+    assert payload["cache_hit"] is False
+    assert payload["provenance"] == "local"
+    assert payload["provenance_breakdown"] == {"local": len(payload["items"])}
+    assert payload["items"][0]["file_path"] == "src/orders.py"
+    assert (
+        payload["items"][0]["snippet"]
+        == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
+    )
+
+
+def test_tool_code_search_dispatches_mode_without_gateway_ranking_logic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_engine = MagicMock()
+    fake_engine.tool_search.return_value = {
+        "items": [{"symbol_name": "issue_access_token", "provenance": "local"}],
+        "cache_hit": False,
+        "provenance": "local",
+        "tokens_saved": 10,
+        "total_tokens": 80,
+        "mode": "semantic",
+    }
+    monkeypatch.setattr(
+        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        lambda repo_root=".": fake_engine,
+    )
+
+    payload = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "create login token for authenticated user",
+            "mode": "semantic",
+            "budget_tokens": 220,
+        }
+    )
+
+    assert payload["mode"] == "semantic"
+    fake_engine.tool_search.assert_called_once_with(
+        "create login token for authenticated user",
+        limit=20,
+        mode="semantic",
+        kind=None,
+        language=None,
+        snippet="none",
+        snippet_lines=8,
+        file_glob=None,
+        scope="repo",
+        budget_tokens=220,
+    )
+
+
+def test_tool_code_search_dispatches_deleted_scope_filters_without_gateway_history_logic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_engine = MagicMock()
+    fake_engine.tool_search.return_value = {
+        "items": [
+            {
+                "symbol_name": "LegacyCheckout",
+                "provenance": "graveyard",
+                "deleted_at_sha": "abc123",
+                "rename_target": "modern.py",
+            }
+        ],
+        "cache_hit": False,
+        "provenance": "graveyard",
+        "tokens_saved": 11,
+        "total_tokens": 120,
+        "mode": "auto",
+    }
+    monkeypatch.setattr(
+        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        lambda repo_root=".": fake_engine,
+    )
+
+    payload = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "ModernCheckout",
+            "scope": "deleted",
+            "since": "2025-01-01",
+            "touched_by": "history@example.com",
+            "budget_tokens": 220,
+        }
+    )
+
+    assert payload["provenance"] == "graveyard"
+    assert payload["items"][0]["rename_target"] == "modern.py"
+    fake_engine.tool_search.assert_called_once_with(
+        "ModernCheckout",
+        limit=20,
+        mode="auto",
+        kind=None,
+        language=None,
+        snippet="none",
+        snippet_lines=8,
+        file_glob=None,
+        scope="deleted",
+        since="2025-01-01",
+        touched_by="history@example.com",
+        budget_tokens=220,
+    )
+
+
+def test_tool_code_blame_dispatches_additively_without_gateway_aggregation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_engine = MagicMock()
+    fake_engine.tool_blame.return_value = {
+        "symbol_name": "risk_score",
+        "qualified_name": "risk_score",
+        "file_path": "service.py",
+        "freshness": "fresh",
+        "last_author": "carol@example.com",
+        "last_commit_sha": "abc123",
+        "local_edits": False,
+        "distinct_authors": 2,
+        "cache_hit": False,
+        "provenance": "blame",
+        "tokens_saved": 12,
+        "total_tokens": 150,
+    }
+    monkeypatch.setattr(
+        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        lambda repo_root=".": fake_engine,
+    )
+
+    payload = tool_code(
+        {
+            "op": "blame",
+            "repo_root": str(tmp_path),
+            "query": "risk_score",
+            "include_churn": False,
+            "budget_tokens": 220,
+        }
+    )
+
+    assert payload["provenance"] == "blame"
+    assert payload["symbol_name"] == "risk_score"
+    fake_engine.tool_blame.assert_called_once_with(
+        query="risk_score",
+        symbol_id=None,
+        qualified_name=None,
+        symbol_name=None,
+        file_path=None,
+        include_churn=False,
+        budget_tokens=220,
+    )
+
+
+def test_tool_code_include_churn_remains_additive_for_non_blame_ops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_engine = MagicMock()
+    fake_engine.tool_search.return_value = {
+        "items": [
+            {"symbol_name": "OrderService", "file_path": "src/orders.py", "provenance": "local"}
+        ],
+        "cache_hit": False,
+        "provenance": "local",
+        "tokens_saved": 10,
+        "total_tokens": 100,
+        "mode": "auto",
+    }
+    monkeypatch.setattr(
+        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        lambda repo_root=".": fake_engine,
+    )
+
+    payload = tool_code(
+        {
+            "op": "search",
+            "repo_root": str(tmp_path),
+            "query": "OrderService",
+            "include_churn": False,
+            "budget_tokens": 220,
+        }
+    )
+
+    assert payload["provenance"] == "local"
+    fake_engine.tool_search.assert_called_once_with(
+        "OrderService",
+        limit=20,
+        mode="auto",
+        kind=None,
+        language=None,
+        snippet="none",
+        snippet_lines=8,
+        file_glob=None,
+        scope="repo",
+        budget_tokens=220,
+    )
+
+
+def test_code_context_usages_surface_groups_references(store_root: Path, tmp_path: Path) -> None:
+    _ = store_root
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "orders.py").write_text(
+        "class OrderService:\n"
+        "    def calculate_total(self, items: list[int]) -> int:\n"
+        "        return sum(items)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "checkout.py").write_text(
+        "from src.orders import OrderService\n\n"
+        "def checkout(items: list[int]) -> int:\n"
+        "    return OrderService().calculate_total(items)\n",
+        encoding="utf-8",
+    )
+
+    payload = _result(
+        _call("code", {"op": "usages", "repo_root": str(tmp_path), "query": "OrderService"})
+    )
+
+    assert payload["cache_hit"] is False
+    assert payload["group_by"] == "file"
+    assert payload["target"]["qualified_name"] == "OrderService"
+    assert "src/checkout.py" in payload["references"]
+    assert payload["references"]["src/checkout.py"][0]["provenance"] == "treesitter"
+
+
+def test_code_context_call_graph_surface_is_additive(store_root: Path, tmp_path: Path) -> None:
+    _ = store_root
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text(
+        "from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8"
+    )
+    _write_gateway_scip_fixture(tmp_path, symbol_id="scip-alpha", include_call_graph=True)
+
+    callers = _result(
+        _call("code", {"op": "callers", "repo_root": str(tmp_path), "query": "alpha"})
+    )
+    callees = _result(
+        _call(
+            "code", {"op": "callees", "repo_root": str(tmp_path), "query": "beta", "snapshot": True}
+        )
+    )
+
+    assert callers["cache_hit"] is False
+    assert callers["provenance"] == "scip"
+    assert callers["data_status"] == "available"
+    assert callers["related"][0]["qualified_name"] == "beta"
+    assert callees["snapshot"]["direction"] == "callees"
+    assert callees["edges"][0]["callee_symbol_id"] == "scip-alpha"
+
+
+def test_code_context_mcp_falls_back_when_scip_artifact_is_invalid(
+    store_root: Path, tmp_path: Path
+) -> None:
+    _ = store_root
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    engine = CodeContextEngine(tmp_path)
+    artifact_dir = tmp_path / ".atelier" / "cache" / "scip" / engine.repo_id
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "python.scip").write_text("{invalid json", encoding="utf-8")
+
+    searched = _result(
+        _call("code", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"})
+    )
+
+    assert searched["cache_hit"] is False
+    assert searched["provenance"] == "local"
+    assert searched["items"][0]["symbol_name"] == "alpha"
+
+
+def test_code_context_pattern_search_surface_is_cached(
+    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = store_root
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("requests.get(url)\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "atelier.core.capabilities.code_context.engine.AstGrepAdapter.search",
+        lambda self, *, pattern, language=None, file_glob=None, limit=20: PatternSearchResult(
+            matches=[
+                PatternMatch(
+                    file_path="src/app.py",
+                    line=1,
+                    column=0,
+                    end_line=1,
+                    end_column=17,
+                    snippet="requests.get(url)",
+                    captures={"URL": "url"},
+                )
+            ],
+            truncated=False,
+            total_matches=1,
+        ),
+    )
+
+    first = _result(
+        _call(
+            "code",
+            {
+                "op": "pattern",
+                "repo_root": str(tmp_path),
+                "pattern": "requests.get($URL)",
+                "budget_tokens": 220,
+            },
+        )
+    )
+    cached = _result(
+        _call(
+            "code",
+            {
+                "op": "pattern",
+                "repo_root": str(tmp_path),
+                "pattern": "requests.get($URL)",
+                "budget_tokens": 220,
+            },
+        )
+    )
+
+    assert first["cache_hit"] is False
+    assert first["provenance"] == "ast-grep"
+    assert first["matches"][0]["captures"] == {"URL": "url"}
+    assert first["total_tokens"] <= 220
+    assert cached["cache_hit"] is True
+    assert cached["provenance"] == "cached"
+
+
+def test_code_context_cache_diagnostics_surface_is_additive(
+    store_root: Path, tmp_path: Path
+) -> None:
+    _ = store_root
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "orders.py").write_text(
+        "class OrderService:\n"
+        "    def calculate_total(self, items: list[int]) -> int:\n"
+        "        return sum(items)\n",
+        encoding="utf-8",
+    )
+
+    _result(
+        _call(
+            "code",
+            {
+                "op": "search",
+                "repo_root": str(tmp_path),
+                "query": "OrderService",
+                "budget_tokens": 4000,
+            },
+        )
+    )
+    _result(
+        _call(
+            "code",
+            {
+                "op": "symbol",
+                "repo_root": str(tmp_path),
+                "qualified_name": "OrderService",
+                "file_path": "src/orders.py",
+                "budget_tokens": 4000,
+            },
+        )
+    )
+
+    status = _result(
+        _call("code", {"op": "cache_status", "repo_root": str(tmp_path), "budget_tokens": 200})
+    )
+    invalidated = _result(
+        _call(
+            "code",
+            {
+                "op": "cache_invalidate",
+                "repo_root": str(tmp_path),
+                "cache_tool": "search",
+                "budget_tokens": 200,
+            },
+        )
+    )
+
+    assert status["entries_by_tool"] == {"code.search": 1, "code.symbol": 1}
+    assert "items" not in status
+    assert "matches" not in status
+    assert invalidated["scope"]["cache_tool"] == "search"
+    assert invalidated["invalidated_entries"] == 1
+
+
+def test_code_context_pattern_rewrite_reindexes_changed_files(
+    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = store_root
+    target = tmp_path / "src" / "app.py"
+    target.parent.mkdir()
+    target.write_text("requests.get(url)\n", encoding="utf-8")
+
+    def fake_rewrite(self, *, pattern, rewrite, language=None, file_glob=None, dry_run=True):  # type: ignore[no-untyped-def]
+        before = target.read_text(encoding="utf-8")
+        after = before.replace("requests.get(url)", "requests.get(url, timeout=30)")
+        diff = "--- a/src/app.py\n+++ b/src/app.py\n@@\n-requests.get(url)\n+requests.get(url, timeout=30)\n"
+        if not dry_run:
+            target.write_text(after, encoding="utf-8")
+        return PatternRewriteResult(diff=diff, files_changed=["src/app.py"])
+
+    reindexed: list[list[str]] = []
+
+    monkeypatch.setattr(
+        "atelier.core.capabilities.code_context.engine.AstGrepAdapter.rewrite", fake_rewrite
+    )
+    monkeypatch.setattr(
+        CodeContextEngine,
+        "_reindex_files",
+        lambda self, file_paths: reindexed.append(list(file_paths)),
+        raising=False,
+    )
+
+    preview = _result(
+        _call(
+            "code",
+            {
+                "op": "pattern",
+                "repo_root": str(tmp_path),
+                "pattern": "requests.get($URL)",
+                "rewrite": "requests.get($URL, timeout=30)",
+                "dry_run": True,
+            },
+        )
+    )
+    applied = _result(
+        _call(
+            "code",
+            {
+                "op": "pattern",
+                "repo_root": str(tmp_path),
+                "pattern": "requests.get($URL)",
+                "rewrite": "requests.get($URL, timeout=30)",
+                "dry_run": False,
+            },
+        )
+    )
+
+    assert "--- a/src/app.py" in preview["diff"]
+    assert applied["files_changed"] == ["src/app.py"]
+    assert reindexed == [["src/app.py"]]
+    assert target.read_text(encoding="utf-8") == "requests.get(url, timeout=30)\n"
+
+
+def test_code_context_pattern_returns_structured_tool_unavailable(
+    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = store_root
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("requests.get(url)\n", encoding="utf-8")
+
+    payload = {
+        "error": "tool_unavailable",
+        "tool": "ast-grep",
+        "expected_binary": "ast-grep",
+        "message": "ast-grep is unavailable",
+        "checked": [],
+        "hint": "install ast-grep",
+    }
+    monkeypatch.setattr(
+        "atelier.core.capabilities.code_context.engine.AstGrepAdapter.search",
+        lambda self, *, pattern, language=None, file_glob=None, limit=20: (_ for _ in ()).throw(
+            AstGrepToolUnavailable(payload)
+        ),
+    )
+
+    result = _result(
+        _call(
+            "code", {"op": "pattern", "repo_root": str(tmp_path), "pattern": "requests.get($URL)"}
+        )
+    )
+
+    assert result["error"] == "tool_unavailable"
+    assert result["expected_binary"] == "ast-grep"

@@ -1,11 +1,14 @@
-"""OpenMemory interoperability wrapper."""
+"""OpenMemory-backed MemoryStore implementation."""
 
 from __future__ import annotations
 
-import contextlib
 import json
-from datetime import datetime
+import os
+import urllib.parse
+import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, Callable, TypeVar
 
 from atelier.core.foundation.memory_models import (
     ArchivalPassage,
@@ -16,14 +19,27 @@ from atelier.core.foundation.memory_models import (
 )
 from atelier.gateway.integrations import openmemory as openmemory_bridge
 from atelier.infra.memory_bridges.base import MemorySyncResult
+from atelier.infra.storage.memory_store import MemorySidecarUnavailable
 from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
+
+_BLOCK_KIND = "atelier_block"
+_PASSAGE_KIND = "atelier_passage"
+_PINNED_TAG = "atelier:pinned"
+_T = TypeVar("_T")
+
+
+def _sidecar_error(exc: Exception) -> MemorySidecarUnavailable:
+    return MemorySidecarUnavailable(f"OpenMemory sidecar unavailable: {exc}")
 
 
 class OpenMemoryAdapter:
     source = "openmemory"
 
+    def __init__(self, *, client: openmemory_bridge.OpenMemoryClient | None = None) -> None:
+        self.client = client or openmemory_bridge.get_client()
+
     def fetch_context(self, *, task: str, project_id: str | None = None) -> MemorySyncResult:
-        result = openmemory_bridge.maybe_fetch_memory_context_for_task(task, project_id)
+        result = self._call_bridge(openmemory_bridge.maybe_fetch_memory_context_for_task, task, project_id)
         data = result.get("data", {})
         context = json.dumps(data, ensure_ascii=False) if isinstance(data, dict) else str(data)
         return MemorySyncResult(
@@ -35,7 +51,7 @@ class OpenMemoryAdapter:
         )
 
     def push_procedural_lesson(self, *, trace_id: str, memory_id: str) -> MemorySyncResult:
-        result = openmemory_bridge.maybe_store_memory_pointer(trace_id, memory_id)
+        result = self._call_bridge(openmemory_bridge.maybe_store_memory_pointer, trace_id, memory_id)
         return MemorySyncResult(
             ok=bool(result.get("ok", False)),
             skipped=bool(result.get("skipped", False)),
@@ -43,47 +59,240 @@ class OpenMemoryAdapter:
             detail=str(result.get("reason", "")),
         )
 
+    def _call_bridge(self, fn: Callable[..., _T], *args: Any) -> _T:
+        previous_client = openmemory_bridge._CLIENT
+        openmemory_bridge._CLIENT = self.client
+        try:
+            return fn(*args)
+        finally:
+            openmemory_bridge._CLIENT = previous_client
+
+    def add_memory(self, *, text: str, user_id: str, metadata: dict[str, Any], infer: bool = False) -> Any:
+        tool_payload = {
+            "messages": [{"role": "system", "content": text}],
+            "user_id": user_id,
+            "metadata": metadata,
+            "infer": infer,
+        }
+        try:
+            payload = self.client.call_tool("add_memories", tool_payload)
+            if payload not in ({}, None):
+                return payload
+        except Exception as exc:
+            last_error = exc
+        else:
+            last_error = RuntimeError("empty add_memories response")
+        try:
+            return self._rest_add_memory(text=text, user_id=user_id, metadata=metadata, infer=infer)
+        except Exception as exc:
+            if isinstance(last_error, Exception):
+                raise _sidecar_error(RuntimeError(f"{last_error}; fallback failed: {exc}")) from exc
+            raise _sidecar_error(exc) from exc
+
+    def search_memories(self, *, query: str, user_id: str, limit: int) -> list[dict[str, Any]]:
+        try:
+            payload = self.client.call_tool(
+                "search_memory",
+                {
+                    "query": query,
+                    "user_id": user_id,
+                    "limit": limit,
+                },
+            )
+        except Exception as exc:
+            last_error = exc
+            payload = None
+        else:
+            last_error = None
+        rows = openmemory_bridge._coerce_memory_list(payload)
+        if rows:
+            return rows
+        if payload in ({}, None):
+            try:
+                return self._rest_list_memories(user_id=user_id, limit=limit, search_query=query)
+            except Exception as exc:
+                if last_error is not None:
+                    raise _sidecar_error(last_error) from exc
+                raise _sidecar_error(exc) from exc
+        return rows
+
+    def list_memories(self, *, user_id: str, limit: int) -> list[dict[str, Any]]:
+        try:
+            payload = self.client.call_tool(
+                "list_memories",
+                {
+                    "user_id": user_id,
+                    "limit": limit,
+                },
+            )
+        except Exception as exc:
+            last_error = exc
+            payload = None
+        else:
+            last_error = None
+        rows = openmemory_bridge._coerce_memory_list(payload)
+        if rows:
+            return rows
+        if payload in ({}, None):
+            try:
+                return self._rest_list_memories(user_id=user_id, limit=limit)
+            except Exception as exc:
+                if last_error is not None:
+                    raise _sidecar_error(last_error) from exc
+                raise _sidecar_error(exc) from exc
+        return rows
+
+    def _rest_add_memory(self, *, text: str, user_id: str, metadata: dict[str, Any], infer: bool) -> Any:
+        return self._rest_json(
+            method="POST",
+            path="/api/v1/memories/",
+            timeout_seconds=60 if infer else None,
+            payload={
+                "user_id": user_id,
+                "text": text,
+                "metadata": metadata,
+                "infer": infer,
+                "app": "atelier",
+            },
+        )
+
+    def _rest_list_memories(self, *, user_id: str, limit: int, search_query: str | None = None) -> list[dict[str, Any]]:
+        page_size = max(1, min(limit, 100))
+        params: dict[str, str] = {
+            "user_id": user_id,
+            "size": str(page_size),
+        }
+        if search_query:
+            params["search_query"] = search_query
+        payload = self._rest_json(method="GET", path="/api/v1/memories/", params=params)
+        return openmemory_bridge._coerce_memory_list(payload)
+
+    def _rest_json(
+        self,
+        *,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        timeout_seconds: int | None = None,
+    ) -> Any:
+        base_url = str(getattr(self.client, "base_url", "") or os.environ.get("ATELIER_OPENMEMORY_URL", "")).rstrip("/")
+        if not base_url:
+            raise RuntimeError("ATELIER_OPENMEMORY_URL not set")
+        url = f"{base_url}{path}"
+        if params:
+            url = f"{url}?{urllib.parse.urlencode(params)}"
+        timeout = int(timeout_seconds or getattr(self.client, "timeout", 15) or 15)
+        body = json.dumps(payload).encode("utf-8") if payload is not None else None
+        request = urllib.request.Request(
+            url=url,
+            data=body,
+            method=method,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+        data = json.loads(raw) if raw else {}
+        if isinstance(data, dict) and data.get("error"):
+            raise RuntimeError(str(data["error"]))
+        return data
+
 
 class OpenMemoryMemoryStore:
-    """MemoryStore adapter for OpenMemory with local SQLite durability.
+    """MemoryStore implementation backed by OpenMemory as the primary."""
 
-    The existing OpenMemory bridge is pointer/context oriented and remote sync
-    is optional.  This adapter keeps the full Atelier MemoryStore contract by
-    storing canonical data in SQLite, then mirrors archival pointers to the
-    OpenMemory bridge on a best-effort basis.
-    """
-
-    def __init__(self, root: str | Path, *, adapter: OpenMemoryAdapter | None = None) -> None:
-        self._store = SqliteMemoryStore(root)
-        self._adapter = adapter or OpenMemoryAdapter()
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        adapter: OpenMemoryAdapter | None = None,
+        client: openmemory_bridge.OpenMemoryClient | None = None,
+    ) -> None:
+        self._recall_store = SqliteMemoryStore(root)
+        self._adapter = adapter or OpenMemoryAdapter(client=client)
+        self._user_id = getattr(self._adapter.client, "user_id", None) or os.environ.get("ATELIER_OPENMEMORY_USER_ID", "")
+        self._user_id = self._user_id.strip() or os.environ.get("USER", "").strip() or "atelier"
 
     @property
     def root(self) -> Path:
-        return self._store.root
+        return self._recall_store.root
 
     @property
     def db_path(self) -> Path:
-        return self._store.db_path
+        return self._recall_store.db_path
 
     def upsert_block(self, block: MemoryBlock, *, actor: str, reason: str = "") -> MemoryBlock:
-        return self._store.upsert_block(block, actor=actor, reason=reason)
+        _ = actor
+        existing = self.get_block(block.agent_id, block.label, include_tombstoned=True)
+        stored = block
+        if existing is not None:
+            stored = block.model_copy(
+                update={
+                    "id": existing.id,
+                    "created_at": existing.created_at,
+                    "updated_at": datetime.now(UTC),
+                    "version": existing.version + 1 if existing.value != block.value else existing.version,
+                }
+            )
+        metadata = {
+            "atelier_kind": _BLOCK_KIND,
+            "atelier_agent_id": stored.agent_id,
+            "atelier_block_id": stored.id,
+            "atelier_label": stored.label,
+            "atelier_reason": reason,
+        }
+        if stored.pinned:
+            metadata["atelier_pinned"] = True
+        self._adapter.add_memory(
+            text=self._serialize({"atelier_kind": _BLOCK_KIND, "block": stored.model_dump(mode="json")}),
+            user_id=self._user_id,
+            metadata=metadata,
+        )
+        return stored
 
     def get_block(self, agent_id: str | None, label: str, *, include_tombstoned: bool = False) -> MemoryBlock | None:
-        return self._store.get_block(agent_id, label, include_tombstoned=include_tombstoned)
+        target_agent = agent_id or "default"
+        blocks = [block for block in self.list_blocks(target_agent, include_tombstoned=True, limit=500) if block.label == label]
+        if not blocks:
+            return None
+        block = blocks[0]
+        if block.deprecated_at is not None and not include_tombstoned:
+            return None
+        return block
 
     def list_blocks(
-        self, agent_id: str | None, *, include_tombstoned: bool = False, limit: int = 500
+        self,
+        agent_id: str | None,
+        *,
+        include_tombstoned: bool = False,
+        limit: int = 500,
     ) -> list[MemoryBlock]:
-        return self._store.list_blocks(agent_id, include_tombstoned=include_tombstoned, limit=limit)
+        target_agent = agent_id or "default"
+        rows = self._adapter.list_memories(user_id=self._user_id, limit=max(limit * 4, 200))
+        latest: dict[str, MemoryBlock] = {}
+        for row in rows:
+            block = self._row_to_block(row, agent_id=target_agent)
+            if block is None:
+                continue
+            if block.agent_id != target_agent:
+                continue
+            current = latest.get(block.label)
+            if current is None or (block.updated_at, block.version) > (current.updated_at, current.version):
+                latest[block.label] = block
+        blocks = sorted(latest.values(), key=lambda item: item.updated_at, reverse=True)
+        if not include_tombstoned:
+            blocks = [block for block in blocks if block.deprecated_at is None]
+        return blocks[:limit]
 
     def list_pinned_blocks(self, agent_id: str | None) -> list[MemoryBlock]:
-        return self._store.list_pinned_blocks(agent_id)
+        return [block for block in self.list_blocks(agent_id, include_tombstoned=False, limit=500) if block.pinned]
 
     def list_block_history(self, block_id: str, *, limit: int = 50) -> list[MemoryBlockHistory]:
-        return self._store.list_block_history(block_id, limit=limit)
+        _ = (block_id, limit)
+        return []
 
     def delete_block(self, block_id: str) -> None:
-        self._store.delete_block(block_id)
+        self.tombstone_block(block_id, reason="deleted")
 
     def tombstone_block(
         self,
@@ -92,13 +301,44 @@ class OpenMemoryMemoryStore:
         deprecated_by_block_id: str | None = None,
         reason: str = "",
     ) -> None:
-        self._store.tombstone_block(block_id, deprecated_by_block_id=deprecated_by_block_id, reason=reason)
+        rows = self._adapter.list_memories(user_id=self._user_id, limit=1000)
+        target = next(
+            (
+                block
+                for row in rows
+                for block in [self._row_to_block(row, agent_id="default")]
+                if block is not None and block.id == block_id
+            ),
+            None,
+        )
+        if target is None:
+            return
+        tombstoned = target.model_copy(
+            update={
+                "deprecated_at": datetime.now(UTC),
+                "deprecated_by_block_id": deprecated_by_block_id,
+                "deprecation_reason": reason,
+                "updated_at": datetime.now(UTC),
+                "version": target.version + 1,
+            }
+        )
+        self.upsert_block(tombstoned, actor="openmemory", reason=reason)
 
     def insert_passage(self, passage: ArchivalPassage) -> ArchivalPassage:
-        stored = self._store.insert_passage(passage)
-        with contextlib.suppress(Exception):
-            self._adapter.push_procedural_lesson(trace_id=stored.source_ref or stored.id, memory_id=stored.id)
-        return stored
+        metadata = {
+            "atelier_kind": _PASSAGE_KIND,
+            "atelier_agent_id": passage.agent_id,
+            "atelier_passage_id": passage.id,
+            "atelier_dedup_hash": passage.dedup_hash,
+            "atelier_source": passage.source,
+            "atelier_source_ref": passage.source_ref,
+        }
+        self._adapter.add_memory(
+            text=self._serialize({"atelier_kind": _PASSAGE_KIND, "passage": passage.model_dump(mode="json")}),
+            user_id=self._user_id,
+            metadata=metadata,
+        )
+        return passage.model_copy(update={"dedup_hit": False})
 
     def search_passages(
         self,
@@ -109,9 +349,13 @@ class OpenMemoryMemoryStore:
         tags: list[str] | None = None,
         since: datetime | None = None,
     ) -> list[ArchivalPassage]:
-        with contextlib.suppress(Exception):
-            self._adapter.fetch_context(task=query, project_id=agent_id or "default")
-        return self._store.search_passages(agent_id, query, top_k=top_k, tags=tags, since=since)
+        target_agent = agent_id or "default"
+        rows = self._adapter.search_memories(query=query, user_id=self._user_id, limit=max(top_k * 4, 20))
+        passages = self._filter_passages(rows, agent_id=target_agent, tags=tags, since=since)
+        if len(passages) < top_k:
+            rows = self._adapter.list_memories(user_id=self._user_id, limit=max(top_k * 8, 200))
+            passages = self._filter_passages(rows, agent_id=target_agent, tags=tags, since=since, query=query)
+        return passages[:top_k]
 
     def list_passages(
         self,
@@ -121,16 +365,100 @@ class OpenMemoryMemoryStore:
         since: datetime | None = None,
         limit: int = 200,
     ) -> list[ArchivalPassage]:
-        return self._store.list_passages(agent_id, tags=tags, since=since, limit=limit)
+        target_agent = agent_id or "default"
+        rows = self._adapter.list_memories(user_id=self._user_id, limit=max(limit * 4, 200))
+        return self._filter_passages(rows, agent_id=target_agent, tags=tags, since=since)[:limit]
 
     def record_recall(self, recall: MemoryRecall) -> MemoryRecall:
-        return self._store.record_recall(recall)
+        return self._recall_store.record_recall(recall)
 
     def list_recalls(self, agent_id: str | None, *, limit: int = 50) -> list[MemoryRecall]:
-        return self._store.list_recalls(agent_id, limit=limit)
+        return self._recall_store.list_recalls(agent_id, limit=limit)
 
     def write_run_frame(self, frame: RunMemoryFrame) -> None:
-        self._store.write_run_frame(frame)
+        self._recall_store.write_run_frame(frame)
 
     def get_run_frame(self, session_id: str) -> RunMemoryFrame | None:
-        return self._store.get_run_frame(session_id)
+        return self._recall_store.get_run_frame(session_id)
+
+    def _filter_passages(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        agent_id: str,
+        tags: list[str] | None,
+        since: datetime | None,
+        query: str | None = None,
+    ) -> list[ArchivalPassage]:
+        passages: list[ArchivalPassage] = []
+        seen: set[str] = set()
+        query_lower = query.lower() if query else ""
+        for row in rows:
+            passage = self._row_to_passage(row, agent_id=agent_id)
+            if passage is None or passage.id in seen:
+                continue
+            if passage.agent_id != agent_id:
+                continue
+            if tags and not set(tags).issubset(set(passage.tags)):
+                continue
+            if since is not None and passage.created_at < since:
+                continue
+            if query_lower and query_lower not in passage.text.lower():
+                metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+                if query_lower not in json.dumps(metadata, ensure_ascii=False).lower():
+                    continue
+            seen.add(passage.id)
+            passages.append(passage)
+        passages.sort(key=lambda item: item.created_at, reverse=True)
+        return passages
+
+    @staticmethod
+    def _serialize(payload: dict[str, Any]) -> str:
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+    @staticmethod
+    def _parse_payload(row: dict[str, Any]) -> dict[str, Any] | None:
+        text = str(row.get("memory", row.get("text", row.get("content", ""))))
+        if not text:
+            return None
+        try:
+            payload = json.loads(text)
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return payload
+
+    @staticmethod
+    def _row_to_block(row: dict[str, Any], *, agent_id: str) -> MemoryBlock | None:
+        payload = OpenMemoryMemoryStore._parse_payload(row)
+        if not payload or payload.get("atelier_kind") != _BLOCK_KIND:
+            return None
+        raw = payload.get("block")
+        if not isinstance(raw, dict):
+            return None
+        metadata = dict(raw.get("metadata") or {})
+        tags = list(metadata.get("tags") or [])
+        if raw.get("pinned") and _PINNED_TAG not in tags:
+            tags.append(_PINNED_TAG)
+            metadata["tags"] = tags
+        return MemoryBlock.model_validate(
+            {
+                **raw,
+                "agent_id": raw.get("agent_id") or agent_id,
+                "metadata": metadata,
+            }
+        )
+
+    @staticmethod
+    def _row_to_passage(row: dict[str, Any], *, agent_id: str) -> ArchivalPassage | None:
+        payload = OpenMemoryMemoryStore._parse_payload(row)
+        if not payload or payload.get("atelier_kind") != _PASSAGE_KIND:
+            return None
+        raw = payload.get("passage")
+        if not isinstance(raw, dict):
+            return None
+        return ArchivalPassage.model_validate({**raw, "agent_id": raw.get("agent_id") or agent_id})
+
+
+__all__ = ["OpenMemoryAdapter", "OpenMemoryMemoryStore"]

@@ -6,7 +6,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 
-HOST_CONFIGS = ["claude", "codex", "copilot", "gemini", "opencode"]
+HOST_CONFIGS = ["claude", "codex", "copilot", "antigravity", "opencode"]
 
 HOST_SURFACES = [
     ROOT / "integrations/claude/AGENTS.atelier.md",
@@ -14,8 +14,7 @@ HOST_SURFACES = [
     ROOT / "integrations/codex/AGENTS.atelier.md",
     ROOT / "integrations/copilot/COPILOT_INSTRUCTIONS.atelier.md",
     ROOT / "integrations/copilot/chatmodes/atelier.chatmode.md",
-    ROOT / "integrations/gemini/GEMINI.atelier.md",
-    ROOT / "integrations/gemini/extension/GEMINI.md",
+    ROOT / "integrations/antigravity/AGENTS.atelier.md",
     ROOT / "integrations/opencode/agents/atelier.md",
 ]
 

@@ -16,6 +16,7 @@
 #   ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS Periodic maintenance interval (default: 21600)
 #   ATELIER_DRY_RUN    If set to 1, print planned actions and exit
 #   ATELIER_NO_STACK   If set to 1, skip starting the visualization stack (service + frontend)
+#   ATELIER_NO_OPENMEMORY If set to 1, skip installing the OpenMemory sidecar service
 #   ATELIER_LOCAL      If set to 1, install from the current checkout in editable mode
 #   ATELIER_STRICT     If set to 1, treat selected post-install degradations as errors
 #
@@ -51,14 +52,14 @@ ATELIER_REF="${ATELIER_REF:-main}"
 ATELIER_INSTALL_DIR="${ATELIER_INSTALL_DIR:-${HOME}/.local/share/atelier}"
 ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.local/bin}"
 ATELIER_TOOL_DIR="${ATELIER_TOOL_DIR:-${HOME}/.local/share/uv/tools}"
-ATELIER_INSTALL_RECORD="${HOME}/.atelier/install_dir"
+ATELIER_INSTALL_RECORD="${ATELIER_INSTALL_RECORD:-${HOME}/.atelier/install_dir}"
 ATELIER_NO_HOSTS="${ATELIER_NO_HOSTS:-0}"
 ATELIER_NO_SERVICECTL="${ATELIER_NO_SERVICECTL:-0}"
 ATELIER_SERVICECTL_INTERVAL_SECONDS="${ATELIER_SERVICECTL_INTERVAL_SECONDS:-60}"
 ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS="${ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS:-21600}"
 ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_NO_STACK="${ATELIER_NO_STACK:-0}"
-ATELIER_NO_IMPORT="${ATELIER_NO_IMPORT:-0}"
+ATELIER_NO_OPENMEMORY="${ATELIER_NO_OPENMEMORY:-0}"
 ATELIER_LOCAL="${ATELIER_LOCAL:-0}"
 ATELIER_STRICT="${ATELIER_STRICT:-0}"
 STACK_STARTED=0
@@ -223,9 +224,9 @@ prepare_repo() {
 }
 
 install_console_scripts() {
-    local extras="mcp,memory,smart,cloud,repo-map,api,postgres,vector,parsers,telemetry"
+    local extras="mcp,memory,smart,cloud,repo-map,api,postgres,vector,parsers,rename,telemetry"
     local package_spec="${ATELIER_INSTALL_DIR}[${extras}]"
-    local install_args=(tool install --force)
+    local install_args=(tool install --quiet --force)
 
     if [[ "$ATELIER_LOCAL" == "1" ]]; then
         install_args+=(--editable)
@@ -272,6 +273,56 @@ persist_install_record() {
     printf '%s\n' "$ATELIER_INSTALL_DIR" > "$ATELIER_INSTALL_RECORD"
 }
 
+install_code_tools() {
+    # Install optional code-quality tools used by the post-edit hook pipeline and
+    # the rename backend.  All steps are best-effort: missing tools are warned about
+    # but do not abort the install.
+
+    local os_type
+    os_type="$(uname -s)"
+
+
+    # prettier + eslint + ts-morph (TypeScript/JavaScript tools, require npm)
+    if command -v npm >/dev/null 2>&1; then
+        info "Installing prettier (JS/TS formatter)..."
+        run npm install -g prettier
+        info "Installing eslint, ts-morph, and typescript (JS/TS linter and rename backend)..."
+        run npm install -g eslint ts-morph typescript
+    else
+        warn "npm not found — skipping prettier, eslint, and ts-morph (install Node.js 20+ to enable)"
+    fi
+
+    # rustfmt + cargo (Rust formatter and lint-fix backend, via rustup)
+    if ! command -v cargo >/dev/null 2>&1; then
+        info "cargo not found — installing Rust toolchain via rustup..."
+        if [[ "$os_type" == "Darwin" ]]; then
+            if command -v brew >/dev/null 2>&1; then
+                run brew install rustup
+                if [[ "$ATELIER_DRY_RUN" != "1" ]]; then
+                    rustup-init -y --no-modify-path 2>/dev/null || true
+                fi
+            else
+                warn "Homebrew not found — skipping Rust install on macOS (install from https://rustup.rs)"
+            fi
+        else
+            # Linux
+            if command -v curl >/dev/null 2>&1; then
+                if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+                    echo "[dry-run] curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+                else
+                    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path 2>/dev/null \
+                        || warn "rustup install failed — Rust post-edit hooks will be skipped"
+                fi
+            else
+                warn "curl not found — skipping Rust toolchain install"
+            fi
+        fi
+    else
+        info "Found cargo: $(cargo --version 2>/dev/null || echo unknown)"
+    fi
+
+}
+
 main() {
     case "$(uname -s)" in
         Linux|Darwin) ;;
@@ -282,9 +333,25 @@ main() {
     need_cmd bash
     install_uv_if_needed
 
+    local stack_available=0
+    if [[ "$ATELIER_NO_STACK" != "1" ]] && command -v npm >/dev/null 2>&1; then
+        stack_available=1
+    elif [[ "$ATELIER_NO_STACK" != "1" ]]; then
+        warn "npm is required to run the optional visualization stack; skipping stack setup"
+    fi
+
     local stack_expected=0
-    if [[ "$ATELIER_NO_SERVICECTL" != "1" && "$ATELIER_NO_STACK" != "1" ]] && command -v systemctl >/dev/null 2>&1; then
+    if [[ "$ATELIER_NO_SERVICECTL" != "1" && "$stack_available" == "1" ]] && { command -v systemctl >/dev/null 2>&1 || [[ "$(uname -s)" == "Darwin" ]]; }; then
         stack_expected=1
+    fi
+
+    local openmemory_available=0
+    if [[ "$ATELIER_NO_OPENMEMORY" != "1" ]] \
+        && command -v git >/dev/null 2>&1 \
+        && command -v docker >/dev/null 2>&1 \
+        && command -v make >/dev/null 2>&1 \
+        && [[ -n "${ATELIER_OPENMEMORY_OPENAI_API_KEY:-}${OPENAI_API_KEY:-}" ]]; then
+        openmemory_available=1
     fi
 
     if [[ "$ATELIER_LOCAL" == "1" ]]; then
@@ -299,6 +366,9 @@ main() {
     install_console_scripts
     persist_install_record
 
+    info "Installing optional code-quality tools (format, lint, rename)..."
+    install_code_tools
+
     if command -v npm >/dev/null 2>&1; then
         info "Installing codeburn (token/cost reporting)..."
         run npm install -g codeburn
@@ -308,13 +378,7 @@ main() {
         warn "npm not found — skipping codeburn and tokscale (install Node.js 20+ to enable)"
     fi
 
-    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-        echo "[dry-run] ln -sf $ATELIER_INSTALL_DIR/bin/atelier-status $ATELIER_BIN_DIR/atelier-status"
-    elif [[ -f "$ATELIER_INSTALL_DIR/bin/atelier-status" ]]; then
-        run ln -sf "$ATELIER_INSTALL_DIR/bin/atelier-status" "$ATELIER_BIN_DIR/atelier-status"
-    else
-        warn "atelier-status helper not found at $ATELIER_INSTALL_DIR/bin/atelier-status"
-    fi
+    # atelier-status was folded into `atelier status` — no separate binary needed
 
     if [[ ":$PATH:" != *":$ATELIER_BIN_DIR:"* ]]; then
         warn "$ATELIER_BIN_DIR is not currently on PATH"
@@ -354,7 +418,7 @@ main() {
                 FINAL_EXIT_CODE=1
             fi
         fi
-        # Persist host detection results for the Docker service
+        # Persist host detection results for the local service/UI surfaces
         if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
             bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write 2>/dev/null \
                 || degrade "Failed to persist host detection status"
@@ -372,8 +436,11 @@ main() {
         if command -v systemctl >/dev/null 2>&1 || [[ "$(uname -s)" == "Darwin" ]]; then
             info "Registering Atelier services with background manager..."
             local background_args=()
-            if [[ "$ATELIER_NO_STACK" != "1" && $(command -v docker) ]]; then
+            if [[ "$stack_available" == "1" ]]; then
                 background_args+=("--with-stack")
+            fi
+            if [[ "$openmemory_available" == "1" ]]; then
+                background_args+=("--with-openmemory")
             fi
 
             if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
@@ -391,16 +458,14 @@ main() {
                     --maintenance-interval-seconds "$ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS" >/dev/null
             fi
 
-            if [[ "$ATELIER_NO_STACK" != "1" ]]; then
-                if command -v docker >/dev/null 2>&1; then
-                    info "Starting Atelier visualization stack (service + frontend)..."
-                    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-                        echo "[dry-run] $ATELIER_BIN_DIR/atelier stack start"
-                    else
-                        "$ATELIER_BIN_DIR/atelier" stack start \
-                            && STACK_STARTED=1 \
-                            || degrade "Visualization stack did not start (Docker daemon may not be running)"
-                    fi
+            if [[ "$stack_available" == "1" ]]; then
+                info "Starting Atelier visualization stack (service + frontend)..."
+                if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+                    echo "[dry-run] $ATELIER_BIN_DIR/atelier stack start"
+                else
+                    "$ATELIER_BIN_DIR/atelier" stack start \
+                        && STACK_STARTED=1 \
+                        || degrade "Visualization stack did not start cleanly"
                 fi
             fi
         fi
@@ -418,26 +483,11 @@ main() {
     echo "    atelier --version           - Check core CLI version"
     echo "    atelier-mcp --version       - Check MCP server version"
     echo "    atelier background status   - View background service status"
-    echo "    atelier stack start         - Start production API and Frontend (requires Docker)"
+    echo "    atelier stack start         - Start production API and frontend (requires npm)"
     echo "    atelier stack stop          - Stop the visualization stack"
     echo "    atelier stack logs          - View stack logs"
-    echo "    atelier-status              - Show one-line status of the active reasoning run"
-
-    if [[ "$ATELIER_DRY_RUN" != "1" ]] && [[ "$ATELIER_NO_IMPORT" != "1" ]]; then
-        echo ""
-        info "Importing agent sessions (all available history)..."
-        "$ATELIER_BIN_DIR/atelier" import \
-            && info "Session import complete." \
-            || degrade "Session import failed or no sessions found."
-
-        echo ""
-        info "Collecting and storing external reports (today, week, month)..."
-        for period in today week month; do
-            "$ATELIER_BIN_DIR/atelier" external-report --tool all --period "$period" --persist \
-                && info "external reports collected for $period." \
-                || degrade "external reports failed for $period."
-        done
-    fi
+    echo "    atelier status              - Show one-line status of the active reasoning run"
+    echo "    atelier import              - Import agent sessions from all available history sources (CLI, VS Code, etc.)"
 
     print_final_report
     if [[ ${#ERRORS[@]} -gt 0 ]]; then

@@ -36,6 +36,7 @@ JOB_GENERATE_EVAL = "generate_eval_from_failure_cluster"
 JOB_COMPUTE_EMBEDDINGS = "compute_embeddings"
 JOB_CONSOLIDATE_BLOCKS = "consolidate_reasonblocks"
 JOB_RETENTION_CLEANUP = "retention_cleanup"
+JOB_BOOTSTRAP_CONTEXT = "bootstrap_context"
 
 KNOWN_JOB_TYPES: frozenset[str] = frozenset(
     {
@@ -45,6 +46,7 @@ KNOWN_JOB_TYPES: frozenset[str] = frozenset(
         JOB_COMPUTE_EMBEDDINGS,
         JOB_CONSOLIDATE_BLOCKS,
         JOB_RETENTION_CLEANUP,
+        JOB_BOOTSTRAP_CONTEXT,
     }
 )
 
@@ -53,6 +55,7 @@ __all__ = [
     "JOB_ANALYZE_FAILURES",
     "JOB_COMPUTE_EMBEDDINGS",
     "JOB_CONSOLIDATE_BLOCKS",
+    "JOB_BOOTSTRAP_CONTEXT",
     "JOB_EXTRACT_REASONBLOCK",
     "JOB_GENERATE_EVAL",
     "JOB_RETENTION_CLEANUP",

@@ -4,7 +4,7 @@
 
 ## What we're building
 
-Atelier is the **honest, vendor-neutral layer for AI-assisted coding**. We sit alongside Claude Code, Codex, and Gemini CLI. We do three things they can't:
+Atelier is the **honest, vendor-neutral layer for AI-assisted coding**. We sit alongside Claude Code, Codex, and Antigravity. We do three things they can't:
 
 1. **Honest cost & quality dashboard** — see where your AI spend goes, including cross-vendor counterfactuals
 2. **Cross-vendor memory router** — read and audit memory from all three native CLIs in one inspectable view

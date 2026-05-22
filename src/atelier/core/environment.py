@@ -65,17 +65,17 @@ def cli_dev_disabled_message(command_name: str) -> str:
     return "noop"
 
 
-def mcp_tool_description(tool_name: str, description: str | None, *, is_dev: bool) -> str:
+def mcp_tool_description(tool_name: str, description: str | None) -> str:
     return str(description or "")
 
 
-def mcp_tool_visible_to_llm(tool_name: str, *, is_dev: bool) -> bool:
+def mcp_tool_visible_to_llm(tool_name: str) -> bool:
     if is_dev_mode():
         return True
     return tool_name in STABLE_LLM_TOOLS
 
 
-def mcp_tool_mode(tool_name: str, *, is_dev: bool) -> str:
+def mcp_tool_mode(tool_name: str) -> str:
     if is_dev_mode():
         return "active"
     if tool_name in STABLE_LLM_TOOLS:

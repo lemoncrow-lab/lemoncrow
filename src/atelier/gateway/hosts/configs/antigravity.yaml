@@ -1,0 +1,108 @@
+host_id: antigravity
+name: Antigravity
+version: 1.0.0
+description: Integration with Antigravity and the agy companion CLI for MCP-backed
+  coding workflows
+platforms:
+- macos
+- linux
+- windows
+detection:
+  command: antigravity --version
+  config_path: ~/.config/Antigravity/User/settings.json
+  env_var: ANTIGRAVITY_HOME
+recommended_packs:
+- atelier-pack-vscode-extensions
+- atelier-pack-coding-general
+- atelier-pack-audit-service
+mcp:
+  servers:
+  - name: atelier
+    command: atelier-mcp
+    args:
+    - --host
+    - antigravity
+    env:
+      ATELIER_ROOT: ~/.atelier
+installation:
+  macos: '# Install Antigravity
+
+    brew install --cask antigravity
+
+
+    # Install Atelier
+
+    brew install atelier
+
+
+    # Setup Antigravity integration
+
+    atelier host setup antigravity
+
+
+    # Verify installation
+
+    atelier host info antigravity
+
+    '
+  linux: '# Install Antigravity
+
+    antigravity --version
+
+
+    # Install Atelier
+
+    sudo apt-get install atelier  # or your distro''s package manager
+
+
+    # Setup Antigravity integration
+
+    atelier host setup antigravity
+
+
+    # Verify installation
+
+    atelier host info antigravity
+
+    '
+  windows: '# Install Antigravity
+
+    winget install Antigravity.Antigravity
+
+
+    # Install Atelier
+
+    choco install atelier
+
+
+    # Setup Antigravity integration
+
+    atelier host setup antigravity
+
+
+    # Verify installation
+
+    atelier host info antigravity
+
+    '
+prompt_templates:
+- name: session-optimization
+  template: 'Atelier budget optimizer is active for Antigravity.
+
+    Use Atelier MCP tools first for file I/O, search, edits, and shell work.
+
+    Use native host tools only when Atelier returns `noop`, is hidden, or is unavailable.
+
+    Before changing files, name the deliverable and summarize the smallest viable
+    plan.
+
+    Keep context narrow: use only the current goal, relevant files, failing command/output,
+    and known constraints.
+
+    Restate working context in under 10 bullets before editing or after compaction.
+
+    If more than 10 minutes pass without an edit, name the expected deliverable or
+    check with the user.
+
+    If the same approach fails twice, call rescue or change approach; do not retry
+    a third time.'

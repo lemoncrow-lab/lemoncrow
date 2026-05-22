@@ -214,7 +214,9 @@ def _write_run_ledger_snapshot_with_events(
     (runs_dir / f"{session_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_savings_summary_returns_per_lever_and_by_day(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_savings_summary_returns_per_lever_and_by_day(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     root = tmp_path / ".atelier"
     _write_cost_history(root / "cost_history.json")
 
@@ -236,7 +238,9 @@ def test_savings_summary_returns_per_lever_and_by_day(monkeypatch: pytest.Monkey
     assert all("day" in row and "naive" in row and "actual" in row for row in data["by_day"])
 
 
-def test_savings_summary_includes_live_plugin_sources(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_savings_summary_includes_live_plugin_sources(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     root = tmp_path / ".atelier"
     _write_cost_history(root / "cost_history.json")
     _write_live_savings_events(root / "live_savings_events.jsonl")
@@ -738,7 +742,9 @@ def test_record_context_budget_avoids_double_counting_tool_delta(
 
     monkeypatch.setattr(mcp_server, "_get_context_budget_recorder", lambda: Recorder())
     monkeypatch.setattr(mcp_server, "_record_smart_state_savings", lambda **_: None)
-    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
+    monkeypatch.setattr(
+        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
+    )
     monkeypatch.setattr(plugin_runtime, "equivalent_calls", lambda *_args, **_kwargs: 3.0)
     monkeypatch.setattr(
         plugin_runtime,
@@ -753,7 +759,9 @@ def test_record_context_budget_avoids_double_counting_tool_delta(
         },
     )
 
-    led = SimpleNamespace(session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}])
+    led = SimpleNamespace(
+        session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}]
+    )
     mcp_server._record_context_budget_for_tool(
         "search_read",
         {},
@@ -809,7 +817,9 @@ def test_record_context_budget_persists_tool_marker_for_zero_saved_turn(
         },
     )
 
-    led = SimpleNamespace(session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}])
+    led = SimpleNamespace(
+        session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}]
+    )
     mcp_server._record_context_budget_for_tool(
         "trace",
         {},
@@ -862,7 +872,9 @@ def test_record_context_budget_classifies_smart_read_savings(
 
     monkeypatch.setattr(mcp_server, "_get_context_budget_recorder", lambda: Recorder())
     monkeypatch.setattr(mcp_server, "_record_smart_state_savings", lambda **_: None)
-    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
+    monkeypatch.setattr(
+        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
+    )
     monkeypatch.setattr(plugin_runtime, "equivalent_calls", lambda *_args, **_kwargs: 0.0)
     monkeypatch.setattr(
         plugin_runtime,
@@ -877,7 +889,9 @@ def test_record_context_budget_classifies_smart_read_savings(
         },
     )
 
-    led = SimpleNamespace(session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}])
+    led = SimpleNamespace(
+        session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}]
+    )
     args = {"path": "/tmp/sample.py", **extra_args}
     result = {
         "mode": mode,
@@ -891,6 +905,8 @@ def test_record_context_budget_classifies_smart_read_savings(
 
     mcp_server._record_context_budget_for_tool("read", args, led, result)
 
+    # Tool-reported savings (240 tokens) are now credited to input_tokens_saved
+    # and priced via LiteLLM (claude-sonnet-4 input = $3/1M).
     assert events == [
         {
             "agent": "codex",
@@ -899,11 +915,11 @@ def test_record_context_budget_classifies_smart_read_savings(
             "cache_read_tokens_saved": 0,
             "cache_write_tokens_saved": 0,
             "calls_saved": 0,
-            "cost_saved_usd": 0.0,
+            "cost_saved_usd": 0.00072,
             "equivalent_baseline_calls": 0.0,
-            "input_tokens_saved": 0,
+            "input_tokens_saved": 240,
             "lever": expected_lever,
-            "live_tokens_saved": 0,
+            "live_tokens_saved": 240,
             "model": "claude-sonnet-4",
             "output_tokens_saved": 0,
             "path": "/tmp/sample.py",
@@ -927,6 +943,188 @@ def test_record_context_budget_classifies_smart_read_savings(
             "output_tokens": 180,
             "naive_input_tokens": 420,
             "lever_savings": {expected_lever: 240, "tool:read": 0},
+            "tool_calls": 1,
+        }
+    ]
+
+
+def test_record_context_budget_attaches_cache_metadata_for_code_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from atelier.core.capabilities import plugin_runtime
+    from atelier.gateway.adapters import mcp_server
+
+    events: list[dict[str, object]] = []
+    recorder_rows: list[dict[str, object]] = []
+
+    class Recorder:
+        def record(self, **kwargs: object) -> None:
+            recorder_rows.append(kwargs)
+
+        def record_compact_tool_output(self, **kwargs: object) -> None:
+            raise AssertionError(
+                "compact recording should not be used for direct code-tool savings"
+            )
+
+    monkeypatch.setattr(mcp_server, "_get_context_budget_recorder", lambda: Recorder())
+    monkeypatch.setattr(mcp_server, "_record_smart_state_savings", lambda **_: None)
+    monkeypatch.setattr(
+        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
+    )
+    monkeypatch.setattr(plugin_runtime, "equivalent_calls", lambda *_args, **_kwargs: 0.0)
+    monkeypatch.setattr(
+        plugin_runtime,
+        "compute_live_savings",
+        lambda *_args, **_kwargs: {
+            "calls_saved": 0,
+            "time_saved_ms": 0,
+            "input_tokens_saved": 0,
+            "output_tokens_saved": 0,
+            "cache_read_tokens_saved": 0,
+            "cache_write_tokens_saved": 0,
+        },
+    )
+
+    led = SimpleNamespace(
+        session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}]
+    )
+    args = {"op": "search", "query": "OrderService"}
+    result = {
+        "cache_hit": True,
+        "provenance": "cached",
+        "tokens_saved": 120,
+        "total_tokens": 80,
+    }
+
+    mcp_server._record_context_budget_for_tool("code", args, led, result)
+
+    # 120 saved tokens credited as input via LiteLLM pricing ($3/1M).
+    assert events == [
+        {
+            "agent": "codex",
+            "at": events[0]["at"],
+            "cache_hit": True,
+            "cache_read_tokens_saved": 0,
+            "cache_write_tokens_saved": 0,
+            "calls_saved": 0,
+            "cost_saved_usd": 0.00036,
+            "equivalent_baseline_calls": 0.0,
+            "input_tokens_saved": 120,
+            "lever": "code",
+            "live_tokens_saved": 120,
+            "model": "claude-sonnet-4",
+            "op": "search",
+            "output_tokens_saved": 0,
+            "provenance": "cached",
+            "session_id": "run-proof",
+            "time_saved_ms": 0,
+            "tokens_saved": 120,
+            "tool_name": "code",
+            "tool_tokens_saved": 120,
+        }
+    ]
+    assert recorder_rows == [
+        {
+            "session_id": "run-proof",
+            "turn_index": 2,
+            "model": "claude-sonnet-4",
+            "input_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "output_tokens": 80,
+            "naive_input_tokens": 200,
+            "lever_savings": {"code": 120, "tool:code": 0},
+            "tool_calls": 1,
+        }
+    ]
+
+
+def test_record_context_budget_attaches_local_metadata_for_uncached_code_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from atelier.core.capabilities import plugin_runtime
+    from atelier.gateway.adapters import mcp_server
+
+    events: list[dict[str, object]] = []
+    recorder_rows: list[dict[str, object]] = []
+
+    class Recorder:
+        def record(self, **kwargs: object) -> None:
+            recorder_rows.append(kwargs)
+
+        def record_compact_tool_output(self, **kwargs: object) -> None:
+            raise AssertionError(
+                "compact recording should not be used for direct code-tool savings"
+            )
+
+    monkeypatch.setattr(mcp_server, "_get_context_budget_recorder", lambda: Recorder())
+    monkeypatch.setattr(mcp_server, "_record_smart_state_savings", lambda **_: None)
+    monkeypatch.setattr(
+        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
+    )
+    monkeypatch.setattr(plugin_runtime, "equivalent_calls", lambda *_args, **_kwargs: 0.0)
+    monkeypatch.setattr(
+        plugin_runtime,
+        "compute_live_savings",
+        lambda *_args, **_kwargs: {
+            "calls_saved": 0,
+            "time_saved_ms": 0,
+            "input_tokens_saved": 0,
+            "output_tokens_saved": 0,
+            "cache_read_tokens_saved": 0,
+            "cache_write_tokens_saved": 0,
+        },
+    )
+
+    led = SimpleNamespace(
+        session_id="run-proof", agent="codex", model="claude-sonnet-4", events=[{}, {}, {}]
+    )
+    args = {"op": "search", "query": "OrderService"}
+    result = {
+        "cache_hit": False,
+        "provenance": "local",
+        "tokens_saved": 40,
+        "total_tokens": 120,
+    }
+
+    mcp_server._record_context_budget_for_tool("code", args, led, result)
+
+    # 40 saved tokens credited as input via LiteLLM pricing ($3/1M).
+    assert events == [
+        {
+            "agent": "codex",
+            "at": events[0]["at"],
+            "cache_hit": False,
+            "cache_read_tokens_saved": 0,
+            "cache_write_tokens_saved": 0,
+            "calls_saved": 0,
+            "cost_saved_usd": 0.00012,
+            "equivalent_baseline_calls": 0.0,
+            "input_tokens_saved": 40,
+            "lever": "code",
+            "live_tokens_saved": 40,
+            "model": "claude-sonnet-4",
+            "op": "search",
+            "output_tokens_saved": 0,
+            "provenance": "local",
+            "session_id": "run-proof",
+            "time_saved_ms": 0,
+            "tokens_saved": 40,
+            "tool_name": "code",
+            "tool_tokens_saved": 40,
+        }
+    ]
+    assert recorder_rows == [
+        {
+            "session_id": "run-proof",
+            "turn_index": 2,
+            "model": "claude-sonnet-4",
+            "input_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "output_tokens": 120,
+            "naive_input_tokens": 160,
+            "lever_savings": {"code": 40, "tool:code": 0},
             "tool_calls": 1,
         }
     ]

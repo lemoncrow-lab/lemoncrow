@@ -15,9 +15,11 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
-from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS, KNOWN_JOB_TYPES
+from atelier.core.foundation.paths import default_store_root
+from atelier.core.service.jobs import JOB_BOOTSTRAP_CONTEXT, JOB_CONSOLIDATE_BLOCKS, KNOWN_JOB_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +49,26 @@ class Worker:
 
     def _default_dispatch(self) -> dict[str, JobHandler]:
         from atelier.core.capabilities.consolidation import consolidate
+        from atelier.core.service.bootstrap_context import persist_bootstrap_plan
+        from atelier.infra.storage.factory import make_memory_store
 
         def consolidate_handler(payload: dict[str, Any]) -> dict[str, Any]:
             report = consolidate(self._store, dry_run=bool(payload.get("dry_run", False)))
             return report.to_dict()
 
+        def bootstrap_context_handler(payload: dict[str, Any]) -> dict[str, Any]:
+            repo_root = Path(str(payload.get("repo_root", ""))).resolve()
+            store_root = Path(getattr(self._store, "root", default_store_root())).resolve()
+            result = persist_bootstrap_plan(
+                repo_root,
+                make_memory_store(store_root),
+                actor="worker:bootstrap-context",
+            )
+            return result.model_dump(mode="json")
+
         return {
             JOB_CONSOLIDATE_BLOCKS: consolidate_handler,
+            JOB_BOOTSTRAP_CONTEXT: bootstrap_context_handler,
         }
 
     # ------------------------------------------------------------------ #

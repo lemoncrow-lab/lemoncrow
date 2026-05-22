@@ -1,5 +1,3 @@
-"""Tests for OpenMemory bridge local persistence + optional remote sync."""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -7,133 +5,116 @@ from typing import Any, cast
 
 import pytest
 
+import atelier.gateway.integrations.openmemory as openmemory
 from atelier.gateway.integrations.openmemory import (
-    is_enabled,
+    OpenMemoryMCPError,
     list_available_memory_tools,
     maybe_fetch_memory_context_for_task,
     maybe_link_trace_to_memory_context,
     maybe_store_memory_pointer,
 )
 
-# --------------------------------------------------------------------------- #
-# is_enabled                                                                  #
-# --------------------------------------------------------------------------- #
+
+class _FakeClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def list_tools(self) -> list[str]:
+        return ["add_memories", "search_memory", "list_memories", "delete_all_memories"]
+
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        self.calls.append((name, arguments))
+        if name == "add_memories":
+            return {"results": [{"id": "mem-added"}]}
+        if name == "search_memory":
+            return [
+                {
+                    "id": "mem-1",
+                    "memory": '{"atelier_kind":"trace_context_link","trace_id":"trace-123","context_id":"ctx-456"}',
+                    "metadata": {"atelier_kind": "trace_context_link"},
+                    "score": 0.9,
+                }
+            ]
+        if name == "list_memories":
+            return []
+        raise AssertionError(f"unexpected tool call: {name}")
+
+
+class _FailingClient:
+    def list_tools(self) -> list[str]:
+        raise OpenMemoryMCPError("boom")
+
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        _ = (name, arguments)
+        raise OpenMemoryMCPError("boom")
 
 
 def _data(result: dict[str, object]) -> dict[str, Any]:
     return cast("dict[str, Any]", result["data"])
 
 
-def test_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_OPENMEMORY_ENABLED", raising=False)
-    assert is_enabled() is False
+def _has_required_keys(result: dict[str, object]) -> bool:
+    return all(k in result for k in ("ok", "data", "action"))
 
 
-def test_enabled_via_env_true(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_OPENMEMORY_ENABLED", "true")
-    assert is_enabled() is True
-
-
-def test_enabled_via_env_1(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_OPENMEMORY_ENABLED", "1")
-    assert is_enabled() is True
-
-
-def test_disabled_via_env_false(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_OPENMEMORY_ENABLED", "false")
-    assert is_enabled() is False
-
-
-# --------------------------------------------------------------------------- #
-# list_available_memory_tools                                                 #
-# --------------------------------------------------------------------------- #
-
-
-def test_list_tools_disabled_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_OPENMEMORY_ENABLED", raising=False)
+def test_list_tools_returns_openmemory_tool_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(openmemory, "_CLIENT", _FakeClient())
     tools = list_available_memory_tools()
-    assert "fetch_memory_context_for_task" in tools
+    assert tools[:3] == ["add_memories", "search_memory", "list_memories"]
 
 
-def test_list_tools_enabled_server_unavailable_returns_empty(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("ATELIER_OPENMEMORY_ENABLED", "true")
-    tools = list_available_memory_tools()
-    assert isinstance(tools, list)
+def test_list_tools_falls_back_to_canonical_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(openmemory, "_CLIENT", _FailingClient())
+    assert list_available_memory_tools() == [
+        "add_memories",
+        "search_memory",
+        "list_memories",
+        "delete_memories",
+        "delete_all_memories",
+    ]
 
 
-# --------------------------------------------------------------------------- #
-# maybe_link_trace_to_memory_context                                         #
-# --------------------------------------------------------------------------- #
+def test_link_trace_persists_via_add_memories(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _FakeClient()
+    monkeypatch.setattr(openmemory, "_CLIENT", client)
 
-
-def test_link_trace_disabled_noop(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_OPENMEMORY_ENABLED", raising=False)
-    result = maybe_link_trace_to_memory_context("trace-123")
-    assert result["ok"] is True
-    assert result["action"] == "link_trace_to_memory_context"
-    assert _data(result)["context_id"]
-
-
-def test_link_trace_disabled_with_context_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_OPENMEMORY_ENABLED", raising=False)
     result = maybe_link_trace_to_memory_context("trace-123", context_id="ctx-456")
+
     assert result["ok"] is True
     assert result["action"] == "link_trace_to_memory_context"
     assert _data(result)["context_id"] == "ctx-456"
+    name, arguments = client.calls[0]
+    assert name == "add_memories"
+    assert arguments["infer"] is False
+    assert arguments["metadata"]["atelier_kind"] == "trace_context_link"
 
 
-def test_link_trace_enabled_server_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_OPENMEMORY_ENABLED", "true")
-    monkeypatch.setenv("ATELIER_OPENMEMORY_MCP_SERVER_NAME", "openmemory-test")
-    result = maybe_link_trace_to_memory_context("trace-123", context_id="ctx-456")
-    assert result["ok"] is True
-    assert _data(result)["context_id"] == "ctx-456"
+def test_fetch_context_uses_search_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _FakeClient()
+    monkeypatch.setattr(openmemory, "_CLIENT", client)
 
+    result = maybe_fetch_memory_context_for_task("trace-123")
 
-# --------------------------------------------------------------------------- #
-# maybe_fetch_memory_context_for_task                                        #
-# --------------------------------------------------------------------------- #
-
-
-def test_fetch_context_disabled_noop(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_OPENMEMORY_ENABLED", raising=False)
-    result = maybe_fetch_memory_context_for_task("fix the failing test")
     assert result["ok"] is True
     assert result["action"] == "fetch_memory_context_for_task"
-    assert "matches" in _data(result)
+    assert _data(result)["count"] == 1
+    assert _data(result)["matches"][0]["parsed"]["trace_id"] == "trace-123"
+    name, arguments = client.calls[0]
+    assert name == "search_memory"
+    assert arguments["query"] == "trace-123"
 
 
-def test_fetch_context_enabled_server_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_OPENMEMORY_ENABLED", "true")
-    result = maybe_fetch_memory_context_for_task("update Shopify product metafields", project_id="proj-1")
-    assert result["ok"] is True
-    assert "matches" in _data(result)
+def test_store_pointer_persists_via_add_memories(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _FakeClient()
+    monkeypatch.setattr(openmemory, "_CLIENT", client)
 
-
-# --------------------------------------------------------------------------- #
-# maybe_store_memory_pointer                                                  #
-# --------------------------------------------------------------------------- #
-
-
-def test_store_pointer_disabled_noop(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_OPENMEMORY_ENABLED", raising=False)
     result = maybe_store_memory_pointer("trace-123", "mem-456")
+
     assert result["ok"] is True
     assert _data(result)["memory_id"] == "mem-456"
-
-
-def test_store_pointer_enabled_server_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_OPENMEMORY_ENABLED", "true")
-    result = maybe_store_memory_pointer("trace-abc", "mem-xyz")
-    assert result["ok"] is True
-    assert _data(result)["memory_id"] == "mem-xyz"
-
-
-# --------------------------------------------------------------------------- #
-# Response shape — bridge responses share a stable contract                   #
-# --------------------------------------------------------------------------- #
+    name, arguments = client.calls[0]
+    assert name == "add_memories"
+    assert arguments["metadata"]["memory_id"] == "mem-456"
 
 
 @pytest.mark.parametrize(
@@ -144,31 +125,20 @@ def test_store_pointer_enabled_server_unavailable(monkeypatch: pytest.MonkeyPatc
         lambda: maybe_store_memory_pointer("t1", "m1"),
     ],
 )
-def test_disabled_response_has_required_keys(
-    fn: Callable[[], dict[str, object]], monkeypatch: pytest.MonkeyPatch
+def test_response_has_required_keys(
+    fn: Callable[[], dict[str, object]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("ATELIER_OPENMEMORY_ENABLED", raising=False)
+    monkeypatch.setattr(openmemory, "_CLIENT", _FakeClient())
     result = fn()
-    assert "ok" in result
-    assert result["ok"] is True
-    assert "data" in result
-    assert "action" in result
+    assert _has_required_keys(result)
 
 
-# CLI openmemory tests removed — openmemory top-level group cut in CLI
-# consolidation. Backend selection belongs in init --backend=... and
-# ATELIER_MEMORY_BACKEND env. Bridge logic is tested via Python API below.
+def test_bridge_returns_unavailable_when_client_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(openmemory, "_CLIENT", _FailingClient())
 
+    result = maybe_fetch_memory_context_for_task("task")
 
-def test_bridge_persists_local_state(tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-    monkeypatch.delenv("ATELIER_OPENMEMORY_ENABLED", raising=False)
-
-    link = maybe_link_trace_to_memory_context("trace-x", context_id="ctx-x")
-    store = maybe_store_memory_pointer("trace-x", "mem-x")
-    fetch = maybe_fetch_memory_context_for_task("trace-x")
-
-    assert link["ok"] is True
-    assert store["ok"] is True
-    assert fetch["ok"] is True
-    assert cast("int", _data(fetch)["count"]) >= 1
+    assert result["ok"] is False
+    assert result["skipped"] is True
+    assert "unavailable" in str(result["reason"]).lower()

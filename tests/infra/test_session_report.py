@@ -128,9 +128,11 @@ def test_derive_vendor_empty() -> None:
 
 
 def test_read_routing_savings_empty() -> None:
-    downtiered, saved = _read_routing_savings([])
+    downtiered, saved, lesson_applications, cost_cap_fired = _read_routing_savings([])
     assert downtiered == 0
     assert saved == 0.0
+    assert lesson_applications == 0
+    assert cost_cap_fired == 0
 
 
 def test_read_routing_savings_with_events() -> None:
@@ -139,16 +141,53 @@ def test_read_routing_savings_with_events() -> None:
         _model_rec_event(cost_saved_usd=0.03),
         {"kind": "tool_call", "at": _NOW.isoformat()},  # non-rec event
     ]
-    downtiered, saved = _read_routing_savings(events)
+    downtiered, saved, lesson_applications, cost_cap_fired = _read_routing_savings(events)
     assert downtiered == 2
     assert abs(saved - 0.08) < 1e-6
+    assert lesson_applications == 0
+    assert cost_cap_fired == 0
 
 
 def test_read_routing_savings_zero_saved_not_counted() -> None:
     events = [_model_rec_event(cost_saved_usd=0.0)]
-    downtiered, saved = _read_routing_savings(events)
+    downtiered, saved, lesson_applications, cost_cap_fired = _read_routing_savings(events)
     assert downtiered == 0
     assert saved == 0.0
+    assert lesson_applications == 0
+    assert cost_cap_fired == 0
+
+
+def test_read_routing_savings_ignores_unconfigured_events() -> None:
+    events = [
+        {"kind": "model_recommendation", "payload": {"configured": False, "cost_saved_usd": 9.99}},
+        _model_rec_event(cost_saved_usd=0.05),
+    ]
+    downtiered, saved, lesson_applications, cost_cap_fired = _read_routing_savings(events)
+    assert downtiered == 1
+    assert abs(saved - 0.05) < 1e-6
+    assert lesson_applications == 0
+    assert cost_cap_fired == 0
+
+
+def test_read_routing_savings_counts_lesson_applications_and_cost_caps() -> None:
+    events = [
+        {
+            "kind": "model_recommendation",
+            "payload": {
+                "configured": True,
+                "cost_saved_usd": 0.5,
+                "applied_lessons": ["tl-1"],
+                "cost_cap_triggered": True,
+            },
+        }
+    ]
+
+    downtiered, saved, lesson_applications, cost_cap_fired = _read_routing_savings(events)
+
+    assert downtiered == 1
+    assert saved == 0.5
+    assert lesson_applications == 1
+    assert cost_cap_fired == 1
 
 
 # --------------------------------------------------------------------------- #

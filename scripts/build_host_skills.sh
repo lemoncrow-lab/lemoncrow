@@ -3,7 +3,7 @@
 #
 # Usage:
 #   bash scripts/build_host_skills.sh --host codex
-#   bash scripts/build_host_skills.sh --host gemini --include-dev
+#   bash scripts/build_host_skills.sh --host antigravity --include-dev
 #   bash scripts/build_host_skills.sh --host codex --dest /tmp/codex-skills
 #   bash scripts/build_host_skills.sh --host all --include-dev
 
@@ -48,7 +48,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$HOST" ]]; then
-    echo "--host is required (codex | gemini | all)" >&2
+    echo "--host is required (codex | antigravity | all)" >&2
     exit 1
 fi
 
@@ -91,7 +91,7 @@ is_always_excluded_skill() {
 default_dest_for_host() {
     case "$1" in
         codex) printf "%s" "${ATELIER_REPO}/integrations/codex/plugin/skills" ;;
-        gemini) printf "%s" "${ATELIER_REPO}/integrations/gemini/extension/skills" ;;
+        antigravity) printf "%s" "${ATELIER_REPO}/integrations/antigravity/skills" ;;
         *)
             echo "Unknown host: $1" >&2
             exit 1
@@ -137,7 +137,7 @@ if [[ "$HOST" == "all" ]]; then
         exit 1
     fi
     render_host_bundle "codex" "$(default_dest_for_host codex)"
-    render_host_bundle "gemini" "$(default_dest_for_host gemini)"
+    render_host_bundle "antigravity" "$(default_dest_for_host antigravity)"
     exit 0
 fi
 

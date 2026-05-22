@@ -40,7 +40,7 @@ The installer does four things by default:
 - installs `atelier` and `atelier-mcp` as user-level console commands in `~/.local/bin`
 - initializes the runtime store under `~/.atelier`
 - starts the detached `servicectl` background loop
-- attempts to start the optional visualization stack when Docker is available and `ATELIER_NO_STACK=1` is not set
+- attempts to start the optional visualization stack when npm is available and `ATELIER_NO_STACK=1` is not set
 - installs supported host integrations when the host CLI is found on `PATH`
 
 Check the installed runtime:
@@ -62,7 +62,7 @@ Atelier automatically registers itself with your OS background manager (**system
 - `atelier ...` works with no HTTP server.
 - `atelier-mcp` works with no HTTP server.
 - `atelier background ...` manages the OS-level services (controller + stack).
-- `atelier stack ...` manages the visualization containers manually.
+- `atelier stack ...` manages the optional API + frontend processes manually.
 
 Pure CLI mode still emits Atelier telemetry events unless you disable it with `atelier telemetry off` or `ATELIER_TELEMETRY=0`.
 
@@ -108,7 +108,7 @@ atelier tools call search --dev --args '{"query":"read after write verification"
 
 ## Optional UI Stack
 
-The UI is optional. The installer registers it as a background service by default if Docker is available. You can manage it alongside the controller:
+The UI is optional. The installer registers it as a background service by default when npm is available. You can manage it alongside the controller:
 
 ```bash
 # View logs for the visualization stack
@@ -156,7 +156,7 @@ The installer already attempts host integration when the relevant CLI is present
 - Codex CLI: MCP + AGENTS.md — [docs/hosts/codex-install.md](docs/hosts/codex-install.md)
 - Copilot: MCP + instructions — [docs/hosts/copilot-install.md](docs/hosts/copilot-install.md)
 - opencode: MCP — [docs/hosts/opencode-install.md](docs/hosts/opencode-install.md)
-- Gemini CLI: MCP — [docs/hosts/gemini-cli-install.md](docs/hosts/gemini-cli-install.md)
+- Antigravity: MCP — [docs/hosts/antigravity-install.md](docs/hosts/antigravity-install.md)
 
 → Full host overview: [docs/hosts/all-agent-clis.md](docs/hosts/all-agent-clis.md)
 
@@ -224,7 +224,7 @@ rescue = client.rescue_failure(
 Atelier is a context runtime, not an agent framework and not a general-purpose vector database.
 
 ```text
-Agent Host (Claude Code / Codex / Copilot / opencode / Gemini CLI)
+Agent Host (Claude Code / Codex / Copilot / opencode / Antigravity)
         |
         |  MCP stdio  (or CLI / Python SDK)
         v

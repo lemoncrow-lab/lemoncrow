@@ -9,6 +9,7 @@ This checklist is the release gate for Atelier Phase D hardening.
 - `make benchmark` passes when benchmark evidence is required for the release.
 - Service config reviewed with `atelier service config`.
 - `ATELIER_REQUIRE_AUTH=true` for non-local environments.
+  Local development defaults to `false`.
 - `ATELIER_API_KEY` set for service environments.
 
 ## Backups

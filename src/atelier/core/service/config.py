@@ -24,7 +24,7 @@ class ServiceConfig:
 
     @property
     def require_auth(self) -> bool:
-        return _bool_env("ATELIER_REQUIRE_AUTH", True)
+        return _bool_env("ATELIER_REQUIRE_AUTH", False)
 
     @property
     def api_key(self) -> str:

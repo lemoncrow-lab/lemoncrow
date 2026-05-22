@@ -48,9 +48,9 @@ Remote mode (`ATELIER_MCP_MODE=remote`) routes the core HTTP-backed tools throug
 
 ## OpenMemory CLI Notes
 
-- `atelier openmemory status` always shows local bridge tools.
-- `ATELIER_OPENMEMORY_ENABLED=true` switches mode to local + remote sync.
-- Disabled remote mode still keeps local persistence available.
+- `atelier openmemory status` shows both local bridge and remote sync state.
+- The bridge is always active when `ATELIER_MEMORY_BACKEND=openmemory` is set (no separate enable toggle).
+- Remote MCP sync is best-effort — local SQLite persistence always works.
 
 ## Where to look next
 

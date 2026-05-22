@@ -25,7 +25,7 @@ SUPPORTED_HOSTS = [
     "Codex CLI",
     "Copilot",
     "opencode",
-    "Gemini CLI",
+    "Antigravity",
 ]
 
 CONFIDENCE_LEVELS = [
@@ -352,3 +352,45 @@ def test_mcp_server_record_trace_accepts_legacy_run_id(tmp_path: Path) -> None:
         assert fake_store.record_trace.called
         stored_trace = fake_store.record_trace.call_args[0][0]
         assert stored_trace.session_id == "legacy-run-001"
+
+
+def test_mcp_server_record_trace_normalizes_legacy_strength_confidence(tmp_path: Path) -> None:
+    """Legacy callers may send qualitative confidence labels like `high`."""
+    import os
+
+    os.environ["ATELIER_ROOT"] = str(tmp_path)
+    (tmp_path / "blocks").mkdir(parents=True, exist_ok=True)
+
+    import unittest.mock as mock
+
+    with (
+        mock.patch("atelier.gateway.adapters.mcp_server._runtime") as mock_rt,
+        mock.patch("atelier.gateway.adapters.mcp_server._get_ledger") as mock_led,
+        mock.patch("atelier.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
+    ):
+        fake_store = mock.MagicMock()
+        fake_rt = mock.MagicMock()
+        fake_rt.store = fake_store
+        mock_rt.return_value = fake_rt
+
+        fake_ledger = mock.MagicMock()
+        fake_ledger.session_id = "run-test-004"
+        mock_led.return_value = fake_ledger
+
+        mock_rtc.return_value = mock.MagicMock()
+
+        from atelier.gateway.adapters.mcp_server import tool_record_trace
+
+        tool_record_trace(
+            {
+                "agent": "atelier:code",
+                "domain": "coding",
+                "task": "accept legacy confidence strength",
+                "status": "success",
+                "trace_confidence": "high",
+            }
+        )
+
+        assert fake_store.record_trace.called
+        stored_trace = fake_store.record_trace.call_args[0][0]
+        assert stored_trace.trace_confidence == "manual"

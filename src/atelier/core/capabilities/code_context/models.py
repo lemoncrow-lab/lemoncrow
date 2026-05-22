@@ -7,6 +7,21 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 
+class CrossLangReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    symbol_id: str | None = None
+    symbol_name: str
+    qualified_name: str | None = None
+    language: str
+    file_path: str | None = None
+    line: int | None = None
+    direction: Literal["incoming", "outgoing"]
+    provenance: str = "cross_lang"
+    edge_kind: str
+    confidence: float
+
+
 class SymbolRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -24,8 +39,14 @@ class SymbolRecord(BaseModel):
     end_line: int
     parent_symbol: str | None = None
     doc_summary: str | None = None
+    documentation: list[str] | None = None  # raw SCIP SymbolInformation.documentation strings
+    snippet: str | None = None
     content_hash: str
     score: float | None = None
+    provenance: str = "local"
+    origin: Literal["internal", "external"] = "internal"
+    repo_name: str | None = None
+    cross_lang_refs: list[CrossLangReference] | None = None
 
 
 class IndexStats(BaseModel):
@@ -37,6 +58,7 @@ class IndexStats(BaseModel):
     files_indexed: int
     symbols_indexed: int
     imports_indexed: int
+    index_version: int = 0
 
 
 class TextMatch(BaseModel):
@@ -46,6 +68,22 @@ class TextMatch(BaseModel):
     line: int
     column: int
     text: str
+
+
+class UsageReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_path: str
+    line: int
+    column: int
+    end_line: int
+    end_column: int
+    snippet: str | None = None
+    caller: str | None = None
+    provenance: str = "local"
+    edge_kind: str | None = None
+    confidence: float | None = None
+    repo_name: str | None = None
 
 
 class ContextPack(BaseModel):
@@ -60,6 +98,9 @@ class ContextPack(BaseModel):
     import_neighbors: list[str]
     content: str
     telemetry: dict[str, Any]
+    cache_hit: bool = False
+    tokens_saved: int = 0
+    provenance: str = "local"
 
 
 class ImpactResult(BaseModel):
@@ -71,12 +112,17 @@ class ImpactResult(BaseModel):
     affected_tests: list[str]
     risk_level: Literal["low", "medium", "high", "critical"]
     dead_code_candidates: list[str]
+    cache_hit: bool = False
+    tokens_saved: int = 0
+    provenance: str = "local"
 
 
 __all__ = [
     "ContextPack",
+    "CrossLangReference",
     "ImpactResult",
     "IndexStats",
     "SymbolRecord",
     "TextMatch",
+    "UsageReference",
 ]

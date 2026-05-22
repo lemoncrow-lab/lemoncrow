@@ -13,7 +13,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from atelier.core.capabilities.lesson_promotion.draft import draft_lesson_candidate
+from atelier.core.capabilities.lesson_promotion.models import TypedLesson
 from atelier.core.capabilities.lesson_promotion.reflection import draft_lesson_body
+from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
 from atelier.core.foundation.extractor import extract_candidate
 from atelier.core.foundation.lesson_models import LessonCandidate, LessonPromotion
 from atelier.core.foundation.models import Rubric, Trace
@@ -220,9 +222,14 @@ class LessonPromoterCapability:
 
         promotion = self._promote(candidate)
         self.store.upsert_lesson_promotion(promotion)
+        typed_lesson: TypedLesson | None = None
+        if candidate.kind in {"route-preference", "cost-cap"}:
+            typed_lesson = self._typed_lesson_from_candidate(candidate)
+            TypedLessonStore(self.store.root).upsert_lesson(typed_lesson)
         return {
             "lesson": candidate.model_dump(mode="json"),
             "promotion": promotion.model_dump(mode="json"),
+            "typed_lesson": typed_lesson.model_dump(mode="json") if typed_lesson is not None else None,
         }
 
     def _promote(self, candidate: LessonCandidate) -> LessonPromotion:
@@ -274,4 +281,18 @@ class LessonPromoterCapability:
             self.store.upsert_rubric(rubric, write_yaml=False)
             return LessonPromotion(lesson_id=candidate.id)
 
+        if kind in {"route-preference", "cost-cap"}:
+            return LessonPromotion(lesson_id=candidate.id)
+
         raise ValueError(f"unsupported lesson candidate kind: {candidate.kind}")
+
+    def _typed_lesson_from_candidate(self, candidate: LessonCandidate) -> TypedLesson:
+        lesson_payload = dict(candidate.evidence.get("typed_lesson") or {})
+        if not lesson_payload:
+            raise ValueError(f"typed lesson candidate {candidate.id} is missing typed_lesson evidence")
+        lesson_payload.setdefault("id", candidate.id)
+        lesson_payload.setdefault("kind", candidate.kind)
+        lesson_payload.setdefault("source_session_id", lesson_payload.get("source_session_id") or candidate.evidence.get("source_session_id"))
+        lesson_payload.setdefault("confidence", candidate.confidence)
+        lesson_payload.setdefault("captured_at", candidate.created_at)
+        return TypedLesson.model_validate(lesson_payload)

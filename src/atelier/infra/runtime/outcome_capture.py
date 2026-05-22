@@ -24,6 +24,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from atelier.core.foundation.lesson_models import LessonCandidate
+
 # Window sizes (hardcoded for v1, configurable later per spec)
 _ROUTE_WINDOW = 5
 _COMPACT_WINDOW = 10
@@ -40,10 +42,16 @@ class RouteOutcome:
     at: str
     kind: str  # always "route"
     tool: str
+    recommended_vendor: str | None
     recommended_tier: str
     recommended_model: str
+    actual_vendor: str | None
+    actual_model: str | None
     recommendation_followed: bool
-    scored_state: dict[str, Any]
+    scored_state: dict[str, Any] = field(default_factory=dict)
+    applied_lessons: list[str] = field(default_factory=list)
+    cost_cap_triggered: bool = False
+    cost_cap_limit_usd_per_session: float | None = None
     # mutable tracking fields (not serialised directly)
     _turns_observed: int = field(default=0, repr=False)
     _model_errors: int = field(default=0, repr=False)
@@ -58,9 +66,15 @@ class RouteOutcome:
             "at": self.at,
             "kind": self.kind,
             "tool": self.tool,
+            "recommended_vendor": self.recommended_vendor,
             "recommended_tier": self.recommended_tier,
             "recommended_model": self.recommended_model,
+            "actual_vendor": self.actual_vendor,
+            "actual_model": self.actual_model,
             "recommendation_followed": self.recommendation_followed,
+            "applied_lessons": self.applied_lessons,
+            "cost_cap_triggered": self.cost_cap_triggered,
+            "cost_cap_limit_usd_per_session": self.cost_cap_limit_usd_per_session,
             "scored_state": self.scored_state,
             "outcome_window": self.outcome_window,
         }
@@ -142,9 +156,15 @@ def schedule_route(
     *,
     session_id: str,
     tool: str,
+    recommended_vendor: str | None = None,
     recommended_tier: str,
     recommended_model: str,
+    actual_vendor: str | None = None,
+    actual_model: str | None = None,
     recommendation_followed: bool,
+    applied_lessons: list[str] | None = None,
+    cost_cap_triggered: bool = False,
+    cost_cap_limit_usd_per_session: float | None = None,
     scored_state: dict[str, Any],
     writer: _StateWriter | None = None,
 ) -> str:
@@ -155,9 +175,15 @@ def schedule_route(
         at=datetime.now(UTC).isoformat(),
         kind="route",
         tool=tool,
+        recommended_vendor=recommended_vendor,
         recommended_tier=recommended_tier,
         recommended_model=recommended_model,
+        actual_vendor=actual_vendor,
+        actual_model=actual_model,
         recommendation_followed=recommendation_followed,
+        applied_lessons=list(applied_lessons or []),
+        cost_cap_triggered=cost_cap_triggered,
+        cost_cap_limit_usd_per_session=cost_cap_limit_usd_per_session,
         scored_state=dict(scored_state),
     )
     _pending_route.setdefault(session_id, []).append(entry)
@@ -235,6 +261,92 @@ def get_outcomes(session_id: str) -> dict[str, list[dict[str, Any]]]:
     route_list = [e.to_dict() for e in _pending_route.get(session_id, [])]
     compact_list = [e.to_dict() for e in _pending_compact.get(session_id, [])]
     return {"route_outcomes": route_list, "compact_outcomes": compact_list}
+
+
+def emit_typed_lesson_candidate(
+    store: Any,
+    *,
+    kind: str,
+    domain: str,
+    route_outcomes: list[dict[str, Any]] | None = None,
+    breach_count: int = 0,
+    limit_usd_per_session: float | None = None,
+    source_session_id: str | None = None,
+    now: datetime | None = None,
+    min_occurrences: int = 3,
+) -> LessonCandidate | None:
+    captured_at = now or datetime.now(UTC)
+    if kind == "route-preference":
+        outcomes = route_outcomes or []
+        recurring = [
+            outcome
+            for outcome in outcomes
+            if outcome.get("recommended_vendor") and outcome.get("recommended_model") and not outcome.get("recommendation_followed")
+        ]
+        if len(recurring) < min_occurrences:
+            return None
+        first = recurring[0]
+        tool = str(first.get("tool") or "Read")
+        phase = str((first.get("scored_state") or {}).get("session_phase") or "explore")
+        vendor = str(first.get("recommended_vendor") or "")
+        model = str(first.get("recommended_model") or "")
+        confidence = min(0.95, 0.55 + len(recurring) * 0.1)
+        candidate = LessonCandidate(
+            domain=domain,
+            cluster_fingerprint=f"route-preference:{tool}:{phase}:{vendor}:{model}",
+            kind="route-preference",
+            evidence_trace_ids=[],
+            body=f"Recurring route preference detected for {tool}/{phase}: prefer {vendor}:{model}",
+            confidence=confidence,
+            created_at=captured_at,
+            evidence={
+                "source_session_id": source_session_id,
+                "typed_lesson": {
+                    "kind": "route-preference",
+                    "scope": "user",
+                    "match": {"tool": tool, "phase": phase},
+                    "prefer": {"vendor": vendor, "model": model},
+                    "confidence": confidence,
+                    "source_session_id": source_session_id,
+                    "captured_at": captured_at.isoformat(),
+                    "decay_half_life_days": 30,
+                },
+                "route_outcomes": recurring,
+            },
+        )
+        store.upsert_lesson_candidate(candidate)
+        return candidate
+
+    if kind == "cost-cap":
+        if breach_count < min_occurrences or limit_usd_per_session is None:
+            return None
+        candidate = LessonCandidate(
+            domain=domain,
+            cluster_fingerprint=f"cost-cap:{limit_usd_per_session}",
+            kind="cost-cap",
+            evidence_trace_ids=[],
+            body=f"Recurring session cost pressure suggests a ${limit_usd_per_session:.2f} session cap.",
+            confidence=1.0,
+            created_at=captured_at,
+            evidence={
+                "source_session_id": source_session_id,
+                "typed_lesson": {
+                    "kind": "cost-cap",
+                    "scope": "user",
+                    "limit_usd_per_session": limit_usd_per_session,
+                    "on_breach": "downgrade-one-tier",
+                    "confidence": 1.0,
+                    "source_session_id": source_session_id,
+                    "captured_at": captured_at.isoformat(),
+                    "decay_half_life_days": None,
+                },
+                "breach_count": breach_count,
+            },
+        )
+        store.upsert_lesson_candidate(candidate)
+        return candidate
+
+    raise ValueError(f"unsupported typed lesson candidate kind: {kind}")
 
 
 # --------------------------------------------------------------------------- #

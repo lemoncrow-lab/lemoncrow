@@ -135,7 +135,7 @@ fi
 
 # ---- per-host uninstallers --------------------------------------------------
 if [[ "$ATELIER_NO_HOSTS" != "1" ]]; then
-    for host in claude codex opencode copilot gemini; do
+    for host in claude codex opencode copilot antigravity; do
         script="${SCRIPT_DIR}/uninstall_${host}.sh"
         [ -f "$script" ] || continue
         echo ""
@@ -157,7 +157,7 @@ fi
 
 # ---- remove main bin commands ------------------------------------------------
 info "Removing Atelier bin commands from ${ATELIER_BIN_DIR}..."
-for cmd in atelier atelier-mc atelier-status; do
+for cmd in atelier atelier-mc; do
     target="${ATELIER_BIN_DIR}/${cmd}"
     if [ -f "$target" ] || [ -L "$target" ]; then
         run "rm -f '$target'"

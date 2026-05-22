@@ -1,7 +1,7 @@
 """Auth helpers for the service API.
 
-- When ATELIER_REQUIRE_AUTH=false, all requests pass without a key.
-- When ATELIER_REQUIRE_AUTH=true (default), requests must carry:
+- When ATELIER_REQUIRE_AUTH=false (the local default), all requests pass without a key.
+- When ATELIER_REQUIRE_AUTH=true, requests must carry:
     Authorization: Bearer <ATELIER_API_KEY>
 - API key values are NEVER logged.
 """

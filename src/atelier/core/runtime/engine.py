@@ -108,8 +108,27 @@ class AtelierRuntimeCore:
             dedup=dedup,
         )
         reasonblock_context = render_context_for_agent([item.block for item in scored])
+        bootstrap_context = ""
+        bootstrap_blocks: list[dict[str, Any]] = []
+        bootstrap_repo_id: str | None = None
+        bootstrap_state = "cold"
         memory_context = ""
         recalled_passages: list[dict[str, str | float]] = []
+
+        try:
+            from atelier.core.capabilities.code_context import CodeContextEngine
+            from atelier.core.service.bootstrap_context import bootstrap_status, render_bootstrap_context
+            from atelier.infra.storage.factory import make_memory_store
+
+            workspace_root = resolve_workspace_root(self.root)
+            bootstrap_repo_id = CodeContextEngine(workspace_root).repo_id
+            memory_store = make_memory_store(self.root)
+            bootstrap_state = bootstrap_status(memory_store, bootstrap_repo_id)
+            bootstrap_context, bootstrap_blocks = render_bootstrap_context(memory_store, bootstrap_repo_id)
+        except Exception:
+            bootstrap_context = ""
+            bootstrap_blocks = []
+            bootstrap_repo_id = None
 
         if recall and agent_id:
             from atelier.core.capabilities.archival_recall import ArchivalRecallCapability
@@ -129,8 +148,9 @@ class AtelierRuntimeCore:
             memory_context = render_memory_for_agent(scoped_passages)
             recalled_passages = summarize_recalled_passages(scoped_passages, query=task)
 
-        context = reasonblock_context + memory_context
+        context = reasonblock_context + bootstrap_context + memory_context
         reasonblock_tokens = count_tokens(reasonblock_context)
+        bootstrap_tokens = count_tokens(bootstrap_context) if bootstrap_context else 0
         memory_tokens = count_tokens(memory_context) if memory_context else 0
         should_return_payload = include_telemetry or agent_id is not None
         if not should_return_payload:
@@ -141,8 +161,14 @@ class AtelierRuntimeCore:
             "recalled_passages": recalled_passages,
             "tokens_breakdown": {
                 "reasonblocks": reasonblock_tokens,
+                "bootstrap": bootstrap_tokens,
                 "memory": memory_tokens,
-                "total": reasonblock_tokens + memory_tokens,
+                "total": reasonblock_tokens + bootstrap_tokens + memory_tokens,
+            },
+            "bootstrap": {
+                "status": "warm" if bootstrap_context else bootstrap_state,
+                "repo_id": bootstrap_repo_id,
+                "blocks": bootstrap_blocks,
             },
         }
         if not include_telemetry:
@@ -742,7 +768,9 @@ class AtelierRuntimeCore:
         emit_product(
             "value_estimate",
             tokens_saved_estimate=int(supervision.get("token_savings", 0) or 0),
-            cache_hits=int(supervision.get("cache_hits", 0) or 0),
+            cache_hits=int(supervision.get("avoided_tool_calls", 0) or 0),
+            total_tool_calls=int(supervision.get("total_tool_calls", 0) or 0),
+            cache_hit_rate=float(supervision.get("cache_hit_rate", 0.0) or 0.0),
             blocks_applied=files_cached,
         )
         return {

@@ -376,7 +376,10 @@ class ContextStore:
                     conn.execute(ddl)
             self._apply_v2_migrations(conn)
             self.verify_v2_schema(conn)
-            self.sync_knowledge()
+        # Seed packaged rubrics and sync user knowledge outside the schema
+        # migration connection so each upsert gets its own committed transaction.
+        self._seed_packaged_rubrics()
+        self.sync_knowledge()
         self._initialized = True
 
     def _connect(self) -> sqlite3.Connection:
@@ -756,6 +759,22 @@ class ContextStore:
             self._save_sync_manifest("rubrics", fresh_rubrics)
 
         return results
+
+    def _seed_packaged_rubrics(self) -> None:
+        """Upsert rubrics shipped with the package into the DB.
+
+        Called once per ``init()`` before ``sync_knowledge()`` so packaged
+        rubrics are always available.  User-managed rubrics (synced from
+        ``self.rubrics_dir``) are written afterward and will override any
+        packaged rubric with the same ``id``.
+        """
+        try:
+            from atelier.core.foundation.rubric_gate import load_packaged_rubrics
+
+            for rubric in load_packaged_rubrics():
+                self.upsert_rubric(rubric, write_yaml=False)
+        except Exception as exc:
+            logger.warning("failed to seed packaged rubrics: %s", exc)
 
     def _sync_manifest_path(self, kind: str) -> Path:
         """Return path to the incremental-sync manifest for *kind*."""

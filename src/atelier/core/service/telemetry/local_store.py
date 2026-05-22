@@ -110,7 +110,13 @@ class LocalTelemetryStore:
         plan_checks: Counter[str] = Counter()
         frustration_behavioral: Counter[str] = Counter()
         frustration_lexical: Counter[str] = Counter()
-        value = {"tokens_saved_estimate": 0, "cache_hits": 0, "blocks_applied": 0}
+        value = {
+            "tokens_saved_estimate": 0,
+            "cache_hits": 0,
+            "total_tool_calls": 0,
+            "cache_hit_rate": 0.0,
+            "blocks_applied": 0,
+        }
         event_counts: Counter[str] = Counter()
         session_ids: set[str] = set()
         first_event_ts: float | None = None
@@ -160,10 +166,14 @@ class LocalTelemetryStore:
                 if isinstance(category, str):
                     frustration_lexical[category] += 1
             if item["event"] == "value_estimate":
-                for key in value:
+                for key in ("tokens_saved_estimate", "cache_hits", "total_tool_calls", "blocks_applied"):
                     raw = props.get(key)
                     if isinstance(raw, int) and not isinstance(raw, bool):
                         value[key] += raw
+
+        total_tool_calls = int(value["total_tool_calls"])
+        cache_hits = int(value["cache_hits"])
+        value["cache_hit_rate"] = round(cache_hits / total_tool_calls, 3) if total_tool_calls > 0 else 0.0
 
         return {
             "events_total": sum(event_counts.values()),

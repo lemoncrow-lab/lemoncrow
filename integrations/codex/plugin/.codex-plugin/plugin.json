@@ -11,13 +11,13 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Atelier",
-    "shortDescription": "Atelier trace capture for Codex.",
-    "longDescription": "Bundle the stable Atelier MCP transport for Codex. Non-development installs expose passive tracing only; task, rescue, and trace tools are dev-profile features.",
+    "shortDescription": "Atelier tools and trace capture for Codex.",
+    "longDescription": "Bundle the Atelier MCP transport, skills, and trace capture for Codex. The standard Atelier install registers Atelier as a real Codex MCP server and uses native Codex tools only as explicit fallback when an Atelier tool is hidden, unavailable, or returns noop.",
     "developerName": "Atelier Team",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "defaultPrompt": [
-      "Use Atelier only for passive trace recording unless development-mode tools are explicitly installed."
+      "Use Atelier MCP tools first for reads, search, edits, and shell work. If an Atelier tool is hidden, unavailable, or returns noop, fall back to native Codex tools and still return findings."
     ],
     "brandColor": "#0f766e"
   }

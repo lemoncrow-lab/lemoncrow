@@ -189,38 +189,41 @@ def _start_container(name: str, tag: str, root: Path, port: int) -> subprocess.C
 def test_real_ollama_model_backed_paths() -> None:
     os.environ["ATELIER_OLLAMA_MODEL"] = "llama3.2:latest"
     try:
-        payload = ollama_client.chat(
-            [{"role": "user", "content": 'Return JSON with key "procedural" set to true.'}],
-            json_schema={"type": "object"},
-        )
-        assert isinstance(payload, dict)
-        assert payload.get("procedural") is True
+        try:
+            payload = ollama_client.chat(
+                [{"role": "user", "content": 'Return JSON with key "procedural" set to true.'}],
+                json_schema={"type": "object"},
+            )
+            assert isinstance(payload, dict)
+            assert payload.get("procedural") is True
 
-        summary = ollama_client.summarize(
-            "Atelier recorded a trace, verified it with pytest, and persisted it to sqlite.",
-            model="llama3.2:latest",
-            max_tokens=128,
-        )
-        assert isinstance(summary, str)
-        assert summary.strip()
+            summary = ollama_client.summarize(
+                "Atelier recorded a trace, verified it with pytest, and persisted it to sqlite.",
+                model="llama3.2:latest",
+                max_tokens=128,
+            )
+            assert isinstance(summary, str)
+            assert summary.strip()
 
-        compacted = compact(
-            ("tool output line with trace context\n" * 5000),
-            content_type="tool_output",
-            budget_tokens=128,
-        )
-        assert compacted.method == "ollama_summary"
-        assert compacted.compacted_tokens < compacted.original_tokens
+            compacted = compact(
+                ("tool output line with trace context\n" * 5000),
+                content_type="tool_output",
+                budget_tokens=128,
+            )
+            assert compacted.method == "ollama_summary"
+            assert compacted.compacted_tokens < compacted.original_tokens
 
-        chunks = summarize_ledger(
-            [
-                {"kind": "tool_output", "summary": "pytest output", "payload": {"stdout": "ok"}},
-                {"kind": "tool_output", "summary": "trace saved", "payload": {"trace_id": "t-1"}},
-            ],
-            start_index=3,
-        )
-        assert chunks
-        assert chunks[0].paraphrase.strip()
+            chunks = summarize_ledger(
+                [
+                    {"kind": "tool_output", "summary": "pytest output", "payload": {"stdout": "ok"}},
+                    {"kind": "tool_output", "summary": "trace saved", "payload": {"trace_id": "t-1"}},
+                ],
+                start_index=3,
+            )
+            assert chunks
+            assert chunks[0].paraphrase.strip()
+        except ollama_client.OllamaUnavailable as exc:
+            pytest.skip(f"Ollama unavailable: {exc}")
     finally:
         os.environ.pop("ATELIER_OLLAMA_MODEL", None)
 
@@ -329,6 +332,11 @@ def test_real_installer_runs_in_target_directory(tmp_path: Path) -> None:
         "ATELIER_BIN_DIR": str(bin_dir),
         "ATELIER_TOOL_DIR": str(tmp_path / "uv-tools"),
         "ATELIER_NO_HOSTS": "1",
+        # Prevent install.sh from overwriting the real systemd/launchd unit
+        # files and ~/.atelier/install_dir with paths pointing to this test's
+        # tmp directories.
+        "ATELIER_NO_SERVICECTL": "1",
+        "ATELIER_INSTALL_RECORD": str(tmp_path / "install_dir"),
     }
     result = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts" / "install.sh")],

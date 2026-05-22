@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "atelier": {
+      "command": "atelier-mcp",
+      "args": ["--host", "antigravity"],
+      "env": {
+        "ATELIER_WORKSPACE_ROOT": "<WORKSPACE_ROOT>"
+      }
+    }
+  }
+}

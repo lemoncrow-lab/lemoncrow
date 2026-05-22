@@ -19,7 +19,7 @@ Host configuration templates (YAML):
 - `claude.yaml` — Claude Code host config
 - `codex.yaml` — Codex host config
 - `copilot.yaml` — Copilot host config
-- `gemini.yaml` — Gemini host config
+- `antigravity.yaml` — Antigravity host config
 - `opencode.yaml` — OpenCode host config
 
 These define MCP server bindings, paths, and environment-specific settings per host.

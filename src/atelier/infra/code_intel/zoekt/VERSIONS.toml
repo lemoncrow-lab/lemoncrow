@@ -1,0 +1,3 @@
+[zoekt]
+version = "sha256:7adebed4e40151594cd6a6e612e85aa6106b65e0abdd6e86b96337afe242955c"
+image_ref = "ghcr.io/sourcegraph/zoekt@sha256:7adebed4e40151594cd6a6e612e85aa6106b65e0abdd6e86b96337afe242955c"

@@ -55,7 +55,7 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
-          id: "hosts/gemini-cli-install",
+          id: "hosts/antigravity-install",
         },
         {
           type: "doc",

@@ -1,0 +1,28 @@
+id: rubric_verification_ladder
+domain: coding.verification
+# Four-level ladder for confirming a change is actually complete.
+# Borrowed from adversarial verifier practice: task completion ≠ goal achievement.
+#
+# Level 1  existence    — the artifact or change exists on disk
+# Level 2  substantive  — it is not a stub, placeholder, or TODO skeleton
+# Level 3  wired        — it is imported, registered, or called by real code
+# Level 4  data_flow    — real data reaches and flows through it at runtime
+required_checks:
+  - existence_confirmed
+  - substantive_not_stub
+  - wired_to_callsites
+  - data_flow_verified_or_not_applicable
+block_if_missing:
+  - existence_confirmed
+  - substantive_not_stub
+  - wired_to_callsites
+warning_checks:
+  # Error paths and edge cases were considered, not just the happy path.
+  - error_path_handled
+  # The change is consistent with related modules (no orphaned imports/types).
+  - cross_module_consistency_checked
+escalation_conditions:
+  # Agent reported task complete but a stub or hardcoded placeholder was found.
+  - task_claimed_complete_but_stub_detected
+  # A component that renders dynamic data was not traced to its data source.
+  - dynamic_component_data_flow_unverified

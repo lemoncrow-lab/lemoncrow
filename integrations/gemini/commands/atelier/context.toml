@@ -1,9 +1,0 @@
-description = "Fetch Atelier task context for the task at hand"
-prompt = """
-Call the MCP tool `context` with the user's task,
-inferred domain (pdp / catalog / shopify / billing / etc.), and the list of
-tools you intend to use. Read the returned procedures and dead-ends, then
-summarize what's relevant for the task.
-
-Arguments after /atelier:context become the task description: {{args}}
-"""

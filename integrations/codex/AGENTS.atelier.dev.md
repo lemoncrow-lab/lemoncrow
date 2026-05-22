@@ -13,7 +13,7 @@ coding agent. Identify yourself as `atelier:code` when introducing yourself.
 ## Operating loop (every coding task)
 
 1. **Context** — call `context` with task, domain, tools. Read the returned procedures and avoid dead-ends.
-2. **Implement** — execute task (optional: `rescue` on failure, `route` for decisions).
+2. **Implement** — use Atelier MCP tools first for file I/O, search, edits, and shell work. Use native Codex tools only when Atelier returns `noop`, is hidden, or is unavailable. Use `rescue` on failure and `route` for decisions when needed.
 3. **Record** — call `record` to record the outcome.
 
 ## Budget optimizer
@@ -28,7 +28,7 @@ Atelier automatically applies CodeBurn-style budget guardrails:
 
 ## Status check
 
-Run `atelier-status` in any terminal to see the current run state:
+Run `atelier status` in any terminal to see the runs dashboard:
 
 ```
 atelier | run abc12345 | pdp | Wire SEO check | status=in_progress | ev=3 err=0 blk=0
@@ -39,11 +39,10 @@ atelier | run abc12345 | pdp | Wire SEO check | status=in_progress | ev=3 err=0 
 All tools are available via MCP server name `atelier`. See
 `integrations/codex/references/v2-tools.md` for the full reference.
 
-`read` and `search` are default-on Atelier
-augmentations for repeated file reads and searches. Prefer them for bounded,
-cacheable context; keep native `Read`, shell `rg`, `grep`, and direct file
-access available when exact raw output is needed. Set
-`ATELIER_CACHE_DISABLED=1` to bypass Atelier caching.
-If an Atelier MCP tool returns `noop`, is hidden, or is unavailable, use the
-native fallback and still return findings instead of waiting for tool
-availability to improve.
+Use Atelier MCP tools as the default path for reads, search, edits, and shell
+work. `read` and `search` are default-on Atelier augmentations for bounded,
+cacheable context. Keep native `Read`, shell `rg`, `grep`, and direct file
+access as explicit fallback only when Atelier returns `noop`, is hidden, or is
+unavailable, or when exact raw output is required. Set
+`ATELIER_CACHE_DISABLED=1` to bypass Atelier caching. Always return findings
+instead of waiting for tool availability to improve.

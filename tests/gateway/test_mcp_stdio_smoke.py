@@ -2,7 +2,10 @@ import json
 import os
 import subprocess
 
+import pytest
 
+
+@pytest.mark.slow
 def test_mcp_stdio_smoke() -> None:
     """
     MCP stdio protocol smoke test.
@@ -58,7 +61,8 @@ def test_mcp_stdio_smoke() -> None:
     env["ATELIER_DEV_MODE"] = "1"
 
     result = subprocess.run(
-        ["uv", "run", "atelier-mcp"], input=input_str, text=True, capture_output=True, check=True, env=env
+        ["uv", "run", "atelier-mcp"], input=input_str, text=True, capture_output=True, check=True, env=env,
+        timeout=30,
     )
 
     responses = {}

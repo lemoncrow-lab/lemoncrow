@@ -76,5 +76,4 @@ if [ -f "$AGENT_FILE" ]; then
     info "Removed $AGENT_FILE"
 fi
 
-
 info "Done."

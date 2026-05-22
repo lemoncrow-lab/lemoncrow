@@ -15,6 +15,18 @@ agent runs.
 - Plans, scorecards, decisions, and technical debt stay committed in-repo.
 - Do not point live docs at nonexistent internal paths.
 
+## Adversarial stance
+
+- **Task completion ≠ goal achievement.** A file can exist without being
+  functional, wired, or data-connected. Apply the verification ladder before
+  claiming a task is done.
+- **Be adversarial until the codebase proves otherwise.** Assume every change
+  contains a defect until the evidence refutes it.
+- **Never trust a claim — verify the code.** Prose summaries and task status
+  flags are not evidence of correctness. Read the actual implementation.
+- **Do not downgrade findings to seem less harsh.** If it is a correctness or
+  security issue, it is a Blocker.
+
 ## Validation
 
 - Match validation to the surface you changed.
@@ -27,3 +39,10 @@ agent runs.
 - Prefer structured, queryable evidence over prose-only reassurance.
 - Capture runtime evidence with scripts or tasks when validating service behavior.
 - Keep verification steps reproducible by another agent without chat context.
+
+## Learnings discipline
+
+- Record decisions, lessons, patterns, and surprises in `trace(learnings=[...])`
+  — not in chat where they will be lost.
+- Every learning must have a source attribution to a trace ID or artifact path.
+- Do not fabricate learnings; extract only what is explicitly evidenced.

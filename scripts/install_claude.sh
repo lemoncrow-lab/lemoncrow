@@ -6,12 +6,11 @@
 #   2. Installs/updates atelier@atelier.
 #   3. Global mode: registers MCP with Claude's user scope.
 #   4. Workspace mode (--workspace DIR): writes project-local .mcp.json and settings.
-#
 # Options:
-#   --dry-run      Print what would happen, touch nothing
-#   --print-only   Print config snippets for manual install, touch nothing
+#   --dry-run        Print what would happen, touch nothing
+#   --print-only     Print config snippets for manual install, touch nothing
 #   --workspace DIR  Install project-local artifacts into DIR instead of global user config
-#   --strict       Exit nonzero if 'claude' CLI not on PATH
+#   --strict         Exit nonzero if 'claude' CLI not on PATH
 
 set -euo pipefail
 
@@ -67,12 +66,16 @@ info()  { echo "[atelier:claude] $*"; }
 warn()  { echo "[atelier:claude] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
+
 # ---- resolve install profile ------------------------------------------------
 atelier_resolve_install_profile "atelier:claude"
 if [[ -n "${ATELIER_INSTALL_PROFILE_WARNING:-}" ]]; then
     warn "$ATELIER_INSTALL_PROFILE_WARNING"
 fi
 STAGING_DIR="${HOME}/.atelier/claude-plugin-${INSTALL_PROFILE}"
+# Start fresh — stale symlinks from prior installs (hooks → source dir)
+# will cause `cp -r` to error with "same file".
+run "rm -rf '$STAGING_DIR'"
 run "mkdir -p '$STAGING_DIR/.claude-plugin'"
 run "cp '${SOURCE_PLUGIN_DIR}/.claude-plugin/plugin.json' '$STAGING_DIR/.claude-plugin/'"
 run "cp '${SOURCE_PLUGIN_DIR}/.claude-plugin/marketplace.json' '$STAGING_DIR/.claude-plugin/'"
@@ -93,37 +96,6 @@ run "cp '${SOURCE_PLUGIN_DIR}/.mcp.json' '$STAGING_DIR/'"
 PLUGIN_DIR="$STAGING_DIR"
 INSTALL_SOURCE_DIR="$STAGING_DIR"
 
-if $WORKSPACE_SET; then
-    NEW_MCP_ENTRY=$(cat <<JSON
-{
-  "mcpServers": {
-    "atelier": {
-      "type": "stdio",
-      "command": "atelier-mcp",
-      "args": ["--host", "claude"],
-      "env": {
-        "ATELIER_WORKSPACE_ROOT": "${WORKSPACE}"
-      }
-    }
-  }
-}
-JSON
-)
-else
-    NEW_MCP_ENTRY=$(cat <<JSON
-{
-  "mcpServers": {
-    "atelier": {
-      "type": "stdio",
-      "command": "atelier-mcp",
-      "args": ["--host", "claude"]
-    }
-  }
-}
-JSON
-)
-fi
-
 if $PRINT_ONLY; then
     echo ""
     echo "=== Atelier Claude Code - Install Steps ==="
@@ -137,8 +109,8 @@ if $PRINT_ONLY; then
     echo "  claude plugin install ${PLUGIN_REF}"
     echo ""
     if $WORKSPACE_SET; then
-        echo "Step 3 - Create/merge ${MCP_JSON}:"
-        echo "$NEW_MCP_ENTRY"
+        echo "Step 3 - Ensure project-level MCP and agent rules (run once per project):"
+        echo "  bash scripts/install_agents.sh --workspace '${WORKSPACE}'"
         echo ""
         echo "Step 4 - Optional project setting:"
         echo "  set env.CLAUDE_WORKSPACE_ROOT=${WORKSPACE} in ${CLAUDE_LOCAL_SETTINGS}"
@@ -275,37 +247,11 @@ else
 fi
 
 # ---- MCP config -------------------------------------------------------------
+# NOTE: Project-level .mcp.json is handled by scripts/install_agents.sh.
+# This installer only deals with Claude-specific global/user MCP and settings.
 if $WORKSPACE_SET; then
-    run "mkdir -p '$(dirname "$MCP_JSON")'"
-    if $DRY_RUN; then
-        echo "  [dry-run] merge atelier entry into ${MCP_JSON}"
-    elif [ ! -f "${MCP_JSON}" ]; then
-        info "Creating ${MCP_JSON} with atelier entry"
-        echo "${NEW_MCP_ENTRY}" > "${MCP_JSON}"
-    else
-        HAS=$(python3 -c "
-import json
-d = json.load(open('${MCP_JSON}'))
-servers = d.get('mcpServers', {})
-print('yes' if 'atelier' in servers else 'no')
-" 2>/dev/null || echo "error")
-        if [ "$HAS" = "yes" ]; then
-            info "atelier entry already in ${MCP_JSON}"
-        else
-            info "Merging atelier entry into ${MCP_JSON}"
-            python3 - <<PYEOF
-import json
-from pathlib import Path
-
-path = Path('${MCP_JSON}')
-existing = json.loads(path.read_text(encoding='utf-8') or '{}')
-new_entry = json.loads('''${NEW_MCP_ENTRY}''')
-existing.setdefault('mcpServers', {}).update(new_entry['mcpServers'])
-path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
-PYEOF
-            info "atelier entry merged into ${MCP_JSON}"
-        fi
-    fi
+    info "Project-level .mcp.json is managed by scripts/install_agents.sh — skipping"
+    info "  Run: scripts/install_agents.sh --workspace '${WORKSPACE}'"
 else
     if $DRY_RUN; then
         echo "  [dry-run] claude mcp add --scope user atelier -- atelier-mcp --host claude"
@@ -385,9 +331,55 @@ PYEOF
     rm -f "${HOOK_SCRIPT}"
 fi
 
+# ---- permissions: auto-allow all Atelier MCP tools --------------------------
 if $DRY_RUN; then
-    info "Dry run complete; skipped post-install verification because no files were written."
-    exit 0
+    echo "  [dry-run] merge Atelier MCP tools into permissions.allow in ${CLAUDE_SETTINGS}"
+else
+    PERM_SCRIPT=$(mktemp /tmp/atelier_perm_XXXXXX.py)
+    cat > "${PERM_SCRIPT}" << 'PYEOF'
+import json
+import sys
+
+ATELIER_MCP_TOOLS = [
+    "mcp__atelier__code",
+    "mcp__atelier__compact",
+    "mcp__atelier__context",
+    "mcp__atelier__edit",
+    "mcp__atelier__memory",
+    "mcp__atelier__read",
+    "mcp__atelier__rescue",
+    "mcp__atelier__route",
+    "mcp__atelier__search",
+    "mcp__atelier__shell",
+    "mcp__atelier__sql",
+    "mcp__atelier__trace",
+    "mcp__atelier__verify",
+]
+
+path = sys.argv[1]
+with open(path) as f:
+    d = json.load(f)
+
+perms = d.setdefault("permissions", {})
+allow = perms.setdefault("allow", [])
+
+added = []
+for tool in ATELIER_MCP_TOOLS:
+    if tool not in allow:
+        allow.append(tool)
+        added.append(tool)
+
+with open(path, "w") as f:
+    json.dump(d, f, indent=2)
+    f.write("\n")
+
+if added:
+    print(f"[atelier:claude] Added {len(added)} Atelier MCP tools to permissions.allow in {path}")
+else:
+    print("[atelier:claude] Atelier MCP tools already in permissions.allow")
+PYEOF
+    python3 "${PERM_SCRIPT}" "${CLAUDE_SETTINGS}"
+    rm -f "${PERM_SCRIPT}"
 fi
 
 # ---- statusLine setting in ~/.claude/settings.json -------------------------
@@ -410,6 +402,11 @@ print("[atelier:claude] default agent set → atelier-code")
 PYEOF2
 else
     warn "statusline.sh not found at ${STATUSLINE_SCRIPT} — skipping statusLine"
+fi
+
+if $DRY_RUN; then
+    info "Dry run complete; skipped post-install verification because no files were written."
+    exit 0
 fi
 
 info "Done. Start Claude Code in your workspace. Skills and agents are available."

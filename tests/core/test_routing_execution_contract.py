@@ -22,7 +22,7 @@ def test_contract_is_pydantic_model() -> None:
 
 def test_provider_enforced_always_disabled() -> None:
     """provider_enforced mode must never be the active mode for any host."""
-    for host in ("claude", "codex", "copilot", "opencode", "gemini"):
+    for host in ("claude", "codex", "copilot", "opencode", "antigravity"):
         contract = route_execution_contract(host)
         assert contract.mode != "provider_enforced", f"host={host!r}: provider_enforced must not be the active mode"
         assert contract.provider_enforced_disabled is True, f"host={host!r}: provider_enforced_disabled must be True"
@@ -112,9 +112,9 @@ def test_opencode_wrapper_enforced() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_gemini_advisory() -> None:
-    contract = route_execution_contract("gemini")
-    assert contract.host == "gemini"
+def test_antigravity_advisory() -> None:
+    contract = route_execution_contract("antigravity")
+    assert contract.host == "antigravity"
     assert contract.mode == "advisory"
     assert contract.can_block_start is False
     assert contract.fallback_mode == "advisory"
@@ -127,7 +127,7 @@ def test_gemini_advisory() -> None:
 
 def test_all_hosts_support_standard_tiers() -> None:
     expected = {"cheap", "mid", "premium", "deterministic"}
-    for host in ("claude", "codex", "copilot", "opencode", "gemini"):
+    for host in ("claude", "codex", "copilot", "opencode", "antigravity"):
         contract = route_execution_contract(host)
         assert (
             set(contract.supported_tiers) == expected

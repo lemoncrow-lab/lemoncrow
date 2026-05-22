@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner, Result
 
 from atelier.gateway.adapters.cli import cli
@@ -462,6 +463,7 @@ def test_savings_reset_clears_counters(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.slow
 def test_benchmark_hosts_command_runs(tmp_path: Path) -> None:
     """benchmark hosts runs the host verify script; may fail in CI but must emit valid JSON."""
     runner = CliRunner()
@@ -504,6 +506,7 @@ def test_benchmark_packs_returns_domain_keys(tmp_path: Path) -> None:
     assert payload["domains_total"] >= payload["domains_benchmarked"]
 
 
+@pytest.mark.slow
 def test_benchmark_full_runs(tmp_path: Path) -> None:
     """benchmark full may fail due to host verification, but must emit valid JSON."""
     runner = CliRunner()

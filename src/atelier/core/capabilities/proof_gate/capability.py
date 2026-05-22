@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # Sub-models
 # ---------------------------------------------------------------------------
 
-_HOSTS = ("claude", "codex", "copilot", "opencode", "gemini")
+_HOSTS = ("claude", "codex", "copilot", "opencode", "antigravity")
 
 # Feature boundary labels (per WP-32 spec)
 FeatureBoundaryLabel = str  # "Host-native" | "Atelier augmentation" | "Future-only"
@@ -44,7 +44,7 @@ _HOST_TRACE_CONFIDENCE: dict[str, TraceConfidenceLevel] = {
     "codex": "wrapper_live",
     "copilot": "mcp_live",
     "opencode": "wrapper_live",
-    "gemini": "mcp_live",
+    "antigravity": "mcp_live",
 }
 
 # Per-feature boundary labels from WP-29 / WP-31 implementation boundary

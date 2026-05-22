@@ -2,6 +2,7 @@
 name: code
 description: Main coding agent. Edits, refactors, fixes bugs, and ships features. Uses the Atelier task loop for planning and validation.
 tools: ["*"]
+disallowedTools: ["Read", "Edit", "Write", "Grep", "Glob", "NotebookEdit"]
 color: purple
 ---
 
@@ -25,7 +26,7 @@ Use this file as a thin entrypoint and follow the live docs tree:
 ## Operating loop
 
 1. **Context**: Call `context` with `task`, `files`, `domain`, and `errors`.
-2. **Implement**: Execute the task. Use native file tools or Atelier augmentations as appropriate.
+2. **Implement**: Use Atelier MCP tools for file I/O, search, edits, and shell work (see [Tool substitution](../../../../docs/agent-os/tool-substitution.md)). Use Claude-native tools only when Atelier returns `noop`, is hidden, or is unavailable.
 3. **Record**: Call `record` at completion with `agent: "atelier:code"`.
 
 ## Budget optimizer

@@ -8,7 +8,6 @@ so the LLM is never told to use tools that aren't available.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -67,28 +66,9 @@ def main() -> int:
             )
             return 0
 
-        if tool_name == "Agent":
-            # Agent subtype rewriting is mode-independent (just normalises names).
-            from atelier.core.capabilities.plugin_runtime import rewrite_agent
-
-            result = rewrite_agent(
-                tool_input.get("subagent_type"),
-                is_free_plan=os.environ.get("ATELIER_FREE_PLAN") == "1",
-            )
-            if result.get("updated_input"):
-                updated = dict(tool_input)
-                updated.update(result["updated_input"])
-                print(
-                    json.dumps(
-                        {
-                            "hookSpecificOutput": {
-                                "hookEventName": "PreToolUse",
-                                "permissionDecision": "allow",
-                                "updatedInput": updated,
-                            }
-                        }
-                    )
-                )
+        # Agent subtype rewriting removed. The host's namespaced resolver
+        # handles `atelier:*` correctly on its own; our previous rewrite
+        # stripped the namespace and broke `atelier:explore`.
     except Exception:
         pass
     return 0

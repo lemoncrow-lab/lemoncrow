@@ -2,7 +2,7 @@
 
 Only the ``mock`` agent is fully implemented (deterministic, no network)
 so that unit tests, CI, and offline reproduction work. Real-host adapters
-(``claude``, ``codex``, ``opencode``, ``copilot``, ``gemini``) raise
+(``claude``, ``codex``, ``opencode``, ``copilot``, ``antigravity``) raise
 ``NotImplementedError`` until wired by the integration installer; the CLI
 prints actionable instructions when a host is missing.
 """

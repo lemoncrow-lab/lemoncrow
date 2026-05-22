@@ -74,6 +74,8 @@ EVENTS: dict[str, EventSpec] = {
             "session_id": STR,
             "tokens_saved_estimate": INT,
             "cache_hits": INT,
+            "total_tool_calls": INT,
+            "cache_hit_rate": FLOAT,
             "blocks_applied": INT,
         }
     ),

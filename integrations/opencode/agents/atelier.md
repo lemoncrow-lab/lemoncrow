@@ -23,8 +23,20 @@ This file is a thin entrypoint to the live repo rules:
 ## Operating loop
 
 1. **Context**: Call `context` with task, domain, files, tools, and errors when the host supports it.
-2. **Implement**: Execute the task. Use `route` or `rescue` when the same approach fails twice.
+2. **Implement**: Use Atelier MCP tools for file I/O, search, edits, and shell work (see [Tool substitution](../../../docs/agent-os/tool-substitution.md)). Use native host tools only when Atelier returns `noop`, is hidden, or is unavailable. Use `route` or `rescue` when the same approach fails twice.
 3. **Record**: Call `record` when the task is done.
+
+## Tool substitution — mandatory
+
+| Use this | Instead of | Why |
+|---|---|---|
+| `mcp__atelier__read` | `Read` / `Bash(cat ...)` | outline-first, 80-95% fewer tokens on large files |
+| `mcp__atelier__search` | `Grep` / `Glob` / `Bash(grep/rg ...)` | ranked, budget-capped, ~280k tokens saved vs naive scan |
+| `mcp__atelier__edit` | `Edit` / `Write` | atomic multi-file, snapshot/rollback, diff recorded |
+| `mcp__atelier__shell` | `Bash(...)` | ANSI-stripped, line-truncated, token-compact |
+| `mcp__atelier__code op=search` | `Bash(grep -rn symbol ...)` | SCIP-indexed, zero subprocess cost |
+
+**Bash is only for git commands and process management.** Do NOT use `Bash(cat file)`, `Bash(grep ...)`, or `Bash(find ...)` — use the atelier equivalents above.
 
 ## Budget optimizer
 
@@ -41,5 +53,5 @@ Always return findings instead of waiting for tool availability to improve.
 
 ## Savings visibility
 
-Run `atelier-status` or `atelier savings --json` to see current savings.
+Run `atelier status` or `atelier savings --json` to see current savings.
 OpenCode host-specific notes live in [docs/agent-os/host-overrides/opencode.md](../../../docs/agent-os/host-overrides/opencode.md).

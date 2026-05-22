@@ -286,7 +286,7 @@ def test_proof_host_enforcement_matrix_has_all_hosts(tmp_path: Path) -> None:
         save=False,
     )
     host_names = {h.host for h in report.host_enforcement_matrix}
-    assert host_names == {"claude", "codex", "copilot", "opencode", "gemini"}
+    assert host_names == {"claude", "codex", "copilot", "opencode", "antigravity"}
 
 
 def test_proof_host_enforcement_matrix_provider_enforced_disabled(tmp_path: Path) -> None:

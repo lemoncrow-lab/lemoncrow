@@ -111,6 +111,35 @@ PYEOF
     fi
 fi
 
+# ---- permissions: remove Atelier MCP tools from permissions.allow -----------
+if [ -f "$CLAUDE_SETTINGS" ] && grep -q "mcp__atelier__" "$CLAUDE_SETTINGS" 2>/dev/null; then
+    if $DRY_RUN; then
+        echo "  [dry-run] remove mcp__atelier__* entries from permissions.allow in $CLAUDE_SETTINGS"
+    else
+        python3 - <<PYEOF
+import json
+from pathlib import Path
+
+path = Path("$CLAUDE_SETTINGS")
+data = json.loads(path.read_text(encoding="utf-8") or "{}")
+perms = data.get("permissions", {})
+allow = perms.get("allow", [])
+filtered = [r for r in allow if not r.startswith("mcp__atelier__")]
+if len(filtered) < len(allow):
+    if filtered:
+        perms["allow"] = filtered
+    else:
+        perms.pop("allow", None)
+    if not perms:
+        data.pop("permissions", None)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    print(f"[atelier:uninstall:claude] Removed {len(allow) - len(filtered)} mcp__atelier__* entries from permissions.allow")
+else:
+    print("[atelier:uninstall:claude] No mcp__atelier__* entries found in permissions.allow")
+PYEOF
+    fi
+fi
+
 # ---- project-local and user-global agent files ------------------------------
 # Claude Code writes plugin agents into the CWD's .claude/agents/ at install time.
 # Remove them from the current directory and from ~/.claude/agents/ (user-global).

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from atelier.core.foundation.models import ReasonBlock, _utcnow
 from atelier.infra.storage.ids import make_uuid7
 
-LessonCandidateKind = Literal["new_block", "edit_block", "new_rubric_check"]
+LessonCandidateKind = Literal["new_block", "edit_block", "new_rubric_check", "route-preference", "cost-cap"]
 LessonCandidateStatus = Literal["inbox", "approved", "rejected", "superseded"]
 
 

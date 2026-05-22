@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # install_agent_clis.sh — Install Atelier into all available agent CLIs
 #
-# By default installs into all CLIs that are on PATH.
-# Use flags to target specific hosts or change behavior.
+# When run without flags in an interactive terminal, prompts the user to
+# select which AI coding agents to install and whether to install globally
+# (user config) or project-locally (.mcp.json + AGENTS.md + per-host config).
+#
+# When run without flags in a non-interactive terminal (CI/scripted), or
+# with flags, behaves as before: installs to all detected CLIs globally.
 #
 # Options:
-#   --all          Force attempt all hosts (same as default)
+#   --all          Force attempt all hosts (same as default in non-TTY)
 #   --claude       Only install Claude Code
 #   --codex        Only install Codex
 #   --opencode     Only install opencode
 #   --copilot      Only install Copilot
-#   --gemini       Only install Gemini CLI
+#   --antigravity  Only install Antigravity / agy
 #   --dry-run      Pass through to all install scripts
 #   --print-only   Pass through to all install scripts
 #   --strict       Pass through; scripts exit nonzero if CLI absent
@@ -51,18 +55,18 @@ DO_CLAUDE=false
 DO_CODEX=false
 DO_OPENCODE=false
 DO_COPILOT=false
-DO_GEMINI=false
+DO_ANTIGRAVITY=false
 EXPLICIT=false
 PASSTHROUGH=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --all)       EXPLICIT=true; DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_COPILOT=true; DO_GEMINI=true ;;
+        --all)       EXPLICIT=true; DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_COPILOT=true; DO_ANTIGRAVITY=true ;;
         --claude)    EXPLICIT=true; DO_CLAUDE=true ;;
         --codex)     EXPLICIT=true; DO_CODEX=true ;;
         --opencode)  EXPLICIT=true; DO_OPENCODE=true ;;
         --copilot)   EXPLICIT=true; DO_COPILOT=true ;;
-        --gemini)    EXPLICIT=true; DO_GEMINI=true ;;
+        --antigravity) EXPLICIT=true; DO_ANTIGRAVITY=true ;;
         --dry-run|--print-only|--strict) PASSTHROUGH+=("$1") ;;
         --workspace)
             if [ $# -lt 2 ]; then
@@ -77,9 +81,93 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
+# ── Interactive prompts (when no flags and TTY) ──────────────────────────────
+if ! $EXPLICIT && [[ -t 0 ]] && [[ -t 1 ]]; then
+    echo ""
+    print_message "$C_CYAN" "══════════════════════════════════════════════"
+    print_message "$C_CYAN" " Atelier — Agent Installation"
+    print_message "$C_CYAN" "══════════════════════════════════════════════"
+    echo ""
+
+    # ── Runtime selection ──────────────────────────────────────────────────
+    echo "  Which AI coding agents would you like to install Atelier for?"
+    echo ""
+    echo "  ${C_CYAN}1${C_RESET}) Claude Code"
+    echo "  ${C_CYAN}2${C_RESET}) OpenCode"
+    echo "  ${C_CYAN}3${C_RESET}) Codex CLI"
+    echo "  ${C_CYAN}4${C_RESET}) GitHub Copilot"
+    echo "  ${C_CYAN}5${C_RESET}) Antigravity / agy"
+    echo "  ${C_CYAN}a${C_RESET}) All"
+    echo "  ${C_CYAN}n${C_RESET}) None (skip agent installs)"
+    echo ""
+
+    read -r -p "  Choice [a]: " runtime_answer
+    runtime_answer="${runtime_answer:-a}"
+
+    # Reset all to false — user picks explicitly
+    DO_CLAUDE=false; DO_CODEX=false; DO_OPENCODE=false; DO_COPILOT=false; DO_ANTIGRAVITY=false
+
+    case "$runtime_answer" in
+        a|A|all|ALL)
+            DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_COPILOT=true; DO_ANTIGRAVITY=true
+            echo "  → All agents"
+            ;;
+        n|N|none|NONE|skip|SKIP|0)
+            echo "  → Skipping agent installs"
+            ;;
+        *)
+            IFS=',' read -ra choices <<< "$runtime_answer"
+            for choice in "${choices[@]}"; do
+                choice="$(echo "$choice" | xargs)"
+                case "$choice" in
+                    1) DO_CLAUDE=true ;;
+                    2) DO_OPENCODE=true ;;
+                    3) DO_CODEX=true ;;
+                    4) DO_COPILOT=true ;;
+                    5) DO_ANTIGRAVITY=true ;;
+                    *) echo "  ${C_YELLOW}Unknown choice: $choice${C_RESET}" ;;
+                esac
+            done
+            selected=""
+            $DO_CLAUDE    && selected="$selected claude"
+            $DO_OPENCODE  && selected="$selected opencode"
+            $DO_CODEX     && selected="$selected codex"
+            $DO_COPILOT   && selected="$selected copilot"
+            $DO_ANTIGRAVITY && selected="$selected antigravity"
+            echo "  → Selected:${selected:- none}"
+            ;;
+    esac
+
+    echo ""
+
+    # ── Scope selection ────────────────────────────────────────────────────
+    # Only prompt for scope if at least one runtime was selected
+    if $DO_CLAUDE || $DO_CODEX || $DO_OPENCODE || $DO_COPILOT || $DO_ANTIGRAVITY; then
+        echo "  ${C_YELLOW}Install scope:${C_RESET}"
+        echo ""
+        echo "  ${C_CYAN}1${C_RESET}) Global — available in all projects"
+        echo "  ${C_CYAN}2${C_RESET}) Project — this directory only (via .mcp.json + AGENTS.md)"
+        echo ""
+        read -r -p "  Choice [1]: " scope_answer
+        scope_answer="${scope_answer:-1}"
+
+        if [ "$scope_answer" = "2" ]; then
+            if [[ ! " ${PASSTHROUGH[*]} " =~ "--workspace" ]]; then
+                PASSTHROUGH+=("--workspace" ".")
+            fi
+            echo "  → Project-local install"
+        else
+            echo "  → Global install"
+        fi
+        echo ""
+    fi
+
+    EXPLICIT=true  # prevent default fallback below
+fi
+
 # Default: all hosts
 if ! $EXPLICIT; then
-    DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_COPILOT=true; DO_GEMINI=true
+    DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_COPILOT=true; DO_ANTIGRAVITY=true
 fi
 
 PASS=()
@@ -204,11 +292,34 @@ run_installer() {
     fi
 }
 
+# ── Universal agents (always run first when using --workspace) ──────────────
+if [[ " ${PASSTHROUGH[*]} " =~ "--workspace" ]]; then
+    echo ""
+    print_message "$C_CYAN" "──────────────────────────────────────────"
+    print_message "$C_CYAN" " Installing universal agents (.mcp.json + AGENTS.md)"
+    print_message "$C_CYAN" "──────────────────────────────────────────"
+    UNIVERSAL_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/atelier-agents.XXXXXX")"
+    set +e
+    bash "${SCRIPT_DIR}/install_agents.sh" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1 | stream_colored_output "$UNIVERSAL_OUTPUT_FILE"
+    UNIVERSAL_RET=${PIPESTATUS[0]}
+    set -e
+    UNIVERSAL_OUTPUT="$(cat "$UNIVERSAL_OUTPUT_FILE")"
+    rm -f "$UNIVERSAL_OUTPUT_FILE"
+    collect_issues_from_output "$UNIVERSAL_OUTPUT"
+    if echo "$UNIVERSAL_OUTPUT" | grep -q "] WARN:"; then
+        WARN+=("agents")
+    elif [ $UNIVERSAL_RET -ne 0 ]; then
+        FAIL+=("agents")
+    else
+        PASS+=("agents")
+    fi
+fi
+
 $DO_CLAUDE    && run_installer claude
 $DO_CODEX     && run_installer codex
 $DO_OPENCODE  && run_installer opencode
 $DO_COPILOT   && run_installer copilot
-$DO_GEMINI    && run_installer gemini
+$DO_ANTIGRAVITY && run_installer antigravity
 
 echo ""
 print_message "$C_CYAN" "══════════════════════════════════════════════"

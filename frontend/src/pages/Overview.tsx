@@ -461,6 +461,14 @@ export default function Overview() {
       )} cache hits observed`
     );
   }
+  if (data.telemetry?.value_estimate.cache_hit_rate != null) {
+    efficiencyFooterParts.push(
+      `${formatMetric(
+        data.telemetry.value_estimate.cache_hit_rate * 100,
+        pct
+      )} cache hit rate`
+    );
+  }
   if (data.telemetry?.value_estimate.blocks_applied != null) {
     efficiencyFooterParts.push(
       `${formatMetric(
@@ -672,11 +680,16 @@ export default function Overview() {
                   data.telemetry?.value_estimate.tokens_saved_estimate
                 ),
                 detail:
-                  data.telemetry?.value_estimate.cache_hits != null
+                  data.telemetry?.value_estimate.cache_hit_rate != null
                     ? `${formatMetric(
-                        data.telemetry.value_estimate.cache_hits
-                      )} cache hits`
-                    : undefined,
+                        data.telemetry.value_estimate.cache_hit_rate * 100,
+                        pct
+                      )} cache hit rate`
+                    : data.telemetry?.value_estimate.cache_hits != null
+                      ? `${formatMetric(
+                          data.telemetry.value_estimate.cache_hits
+                        )} cache hits`
+                      : undefined,
               },
             ]}
             footer={telemetryFooterParts.join(" · ") || undefined}

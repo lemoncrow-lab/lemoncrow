@@ -10,7 +10,7 @@ Canonical adapter configs and install/verify scripts for every supported agent C
 | Codex       | `codex/`    | Skills + MCP       | `scripts/install_codex.sh`    |
 | opencode    | `opencode/` | MCP config         | `scripts/install_opencode.sh` |
 | Copilot     | `copilot/`  | MCP + instructions | `scripts/install_copilot.sh`  |
-| Gemini CLI  | `gemini/`   | MCP config         | `scripts/install_gemini.sh`   |
+| Antigravity | `antigravity/` | MCP config      | `scripts/install_antigravity.sh` |
 
 ## Quick Install
 
@@ -31,7 +31,7 @@ bash scripts/install_claude.sh --dry-run
 bash scripts/install_codex.sh --print-only
 bash scripts/install_opencode.sh --strict
 bash scripts/install_copilot.sh --workspace /path/to/workspace
-bash scripts/install_gemini.sh
+bash scripts/install_antigravity.sh
 ```
 
 ## Installer contract

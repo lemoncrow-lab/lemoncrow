@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+pytestmark = pytest.mark.slow  # Each test spawns a real Python subprocess (~2s each)
+
 from atelier.infra.runtime.run_ledger import RunLedger
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -138,6 +142,33 @@ def test_codex_savings_reporter_ignores_non_atelier_tools(tmp_path: Path) -> Non
     assert result.stdout == ""
 
 
+def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
+    root = tmp_path / ".atelier"
+    _run_hook(
+        "savings_reporter.py",
+        root,
+        {
+            "hook_event_name": "PostToolUse",
+            "session_id": "c1",
+            "tool_name": "mcp__plugin_atelier_atelier__Edit",
+            "tool_input": {"edits": [{"file_path": "a.py"}, {"file_path": "b.py"}]},
+        },
+    )
+
+    result = _run_hook("stop.py", root, {"hook_event_name": "Stop", "session_id": "c1"})
+
+    output = json.loads(result.stdout)
+    assert "Atelier session complete." in output["systemMessage"]
+    assert "calls avoided" in output["systemMessage"]
+    assert "Atelier tool calls: 1" in output["systemMessage"]
+
+
+def test_codex_stop_hook_is_quiet_without_session_activity(tmp_path: Path) -> None:
+    result = _run_hook("stop.py", tmp_path / ".atelier", {"hook_event_name": "Stop", "session_id": "c1"})
+
+    assert result.stdout == ""
+
+
 def test_codex_update_notification_outputs_sessionstart_message(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     root.mkdir()
@@ -166,6 +197,8 @@ def test_codex_hooks_manifest_wires_reporter_and_update() -> None:
     data = json.loads((HOOKS / "hooks.json").read_text(encoding="utf-8"))
     assert "SessionStart" in data["hooks"]
     assert "PostToolUse" in data["hooks"]
+    assert "Stop" in data["hooks"]
     rendered = json.dumps(data)
     assert "update_notification.py" in rendered
     assert "savings_reporter.py" in rendered
+    assert "stop.py" in rendered

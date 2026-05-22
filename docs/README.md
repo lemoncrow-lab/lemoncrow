@@ -57,7 +57,7 @@ Use these when wiring Atelier into an editor or agent CLI:
 | [hosts/copilot-install.md](hosts/copilot-install.md)         | Copilot                                 |
 | [hosts/codex-install.md](hosts/codex-install.md)             | Codex CLI                               |
 | [hosts/opencode-install.md](hosts/opencode-install.md)       | opencode                                |
-| [hosts/gemini-cli-install.md](hosts/gemini-cli-install.md)   | Gemini CLI                              |
+| [hosts/antigravity-install.md](hosts/antigravity-install.md) | Antigravity                             |
 | [integrations/host-matrix.md](integrations/host-matrix.md)   | Install-path and enforcement matrix     |
 
 ## SDK And API

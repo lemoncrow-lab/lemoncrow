@@ -22,7 +22,7 @@ how much to trust a recorded session. Every trace may carry the metadata fields
 | Codex CLI | `mcp_live`, `wrapper_live`, `imported`, `manual` | mcp, wrapper, import, manual | native shell/file edits outside MCP, missing hook stream | Codex has no durable hook bus today, so `full_live` is not a valid claim. |
 | Copilot | `mcp_live`, `wrapper_live`, `manual` | mcp, wrapper, manual | native chat edits, VS Code file edits, hidden task internals | Copilot tasks help with wrappers, but they do not provide full per-tool hooks. |
 | opencode | `mcp_live`, `imported`, `manual` | mcp, import, manual | stable hook coverage, some local editor actions | DB import improves recovery, but live provenance is thinner than Claude. |
-| Gemini CLI | `mcp_live`, `imported`, `manual` | mcp, import, manual | native CLI-only actions, missing hook stream | Saved chats can be imported, but there is no first-class hook surface. |
+| Antigravity | `mcp_live`, `wrapper_live`, `manual` | mcp, wrapper, manual | native editor actions, hidden UI state, missing hook stream | Antigravity can carry Atelier MCP live and `agy` can provide wrapper-level execution boundaries, but there is still no first-class hook surface. |
 
 ## Recording Rules
 

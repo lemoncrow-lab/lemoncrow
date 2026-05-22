@@ -31,7 +31,7 @@ def is_executable(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "gemini"])
+@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "antigravity"])
 def test_install_script_exists(host: str) -> None:
     script = SCRIPTS / f"install_{host}.sh"
     assert script.exists(), f"Missing: scripts/install_{host}.sh"
@@ -49,15 +49,7 @@ def test_mcp_binary_on_path() -> None:
     assert "atelier-mcp" in content
 
 
-@pytest.mark.parametrize(
-    "wrapper_name",
-    ["atelier-status"],
-)
-def test_host_preflight_wrappers_exist(wrapper_name: str) -> None:
-    wrapper = ATELIER_ROOT / "bin" / wrapper_name
-    assert wrapper.exists(), f"Missing: bin/{wrapper_name}"
-    assert is_executable(wrapper), f"Not executable: bin/{wrapper_name}"
-
+# atelier-status was folded into `atelier status` — its test moved to the CLI test suite.
 
 # ---------------------------------------------------------------------------
 # 3. Unified scripts
@@ -95,7 +87,7 @@ def test_build_host_skills_can_include_dev_skills(tmp_path: Path) -> None:
             "bash",
             str(SCRIPTS / "build_host_skills.sh"),
             "--host",
-            "gemini",
+            "antigravity",
             "--dest",
             str(dest),
             "--include-dev",
@@ -118,7 +110,7 @@ def test_verify_agent_clis_script_exists() -> None:
 
 def test_install_agent_clis_references_all_hosts() -> None:
     content = (SCRIPTS / "install_agent_clis.sh").read_text()
-    for host in ["claude", "codex", "opencode", "copilot", "gemini"]:
+    for host in ["claude", "codex", "opencode", "copilot", "antigravity"]:
         assert host in content, f"install_agent_clis.sh missing reference to {host}"
 
 
@@ -134,7 +126,7 @@ def test_host_installers_stream_output_instead_of_buffering() -> None:
 
 def test_verify_agent_clis_references_all_hosts() -> None:
     content = (SCRIPTS / "verify_agent_clis.sh").read_text()
-    for host in ["claude", "codex", "opencode", "copilot", "gemini"]:
+    for host in ["claude", "codex", "opencode", "copilot", "antigravity"]:
         assert host in content, f"verify_agent_clis.sh missing reference to {host}"
 
 
@@ -167,7 +159,7 @@ def test_makefile_has_single_verify_target() -> None:
         "codex-install.md",
         "opencode-install.md",
         "copilot-install.md",
-        "gemini-cli-install.md",
+        "antigravity-install.md",
         "all-agent-clis.md",
     ],
 )
@@ -183,7 +175,7 @@ def test_host_install_doc_exists(doc: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "gemini"])
+@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "antigravity"])
 def test_integrations_install_symlink(host: str) -> None:
     link = INTEGRATIONS / host / "install.sh"
     assert link.exists(), f"Missing integrations/{host}/install.sh"
@@ -203,29 +195,26 @@ def test_opencode_example_has_mcp_key() -> None:
     assert "atelier" in data["mcp"], "opencode example must have 'mcp.atelier' key"
 
 
-GEMINI_EXTENSION = INTEGRATIONS / "gemini" / "extension"
+ANTIGRAVITY_INTEGRATION = INTEGRATIONS / "antigravity"
 
 
-def test_gemini_extension_dir_exists() -> None:
-    assert GEMINI_EXTENSION.is_dir(), "integrations/gemini/extension/ directory must exist"
+def test_antigravity_integration_dir_exists() -> None:
+    assert ANTIGRAVITY_INTEGRATION.is_dir(), "integrations/antigravity/ directory must exist"
 
 
-def test_gemini_extension_manifest_exists() -> None:
-    manifest = GEMINI_EXTENSION / "gemini-extension.json"
-    assert manifest.exists(), "integrations/gemini/extension/gemini-extension.json must exist"
-    data = json.loads(manifest.read_text())
-    assert data.get("name") == "atelier", "Gemini extension name must be atelier"
-    assert data.get("contextFileName") == "GEMINI.md", "Gemini extension must load GEMINI.md as context"
-    assert "atelier" in data.get("mcpServers", {}), "Gemini extension must declare the atelier MCP server"
-    assert data.get("mcpServers", {}).get("atelier", {}).get("command") == "atelier-mcp"
+def test_antigravity_mcp_template_exists() -> None:
+    template = ANTIGRAVITY_INTEGRATION / "mcp.atelier.template.json"
+    assert template.exists(), "integrations/antigravity/mcp.atelier.template.json must exist"
+    data = json.loads(template.read_text())
+    assert "atelier" in data.get("servers", {}), "Antigravity template must have 'servers.atelier'"
+    assert data["servers"]["atelier"]["command"] == "atelier-mcp"
+    assert data["servers"]["atelier"]["args"] == ["--host", "antigravity"]
 
 
-def test_gemini_extension_bundles_commands_and_context() -> None:
-    cmd_dir = GEMINI_EXTENSION / "commands" / "atelier"
-    assert cmd_dir.is_dir(), "Gemini extension must bundle commands/atelier/"
-    assert (cmd_dir / "status.toml").exists(), "Gemini extension must bundle status.toml"
-    assert (cmd_dir / "context.toml").exists(), "Gemini extension must bundle context.toml"
-    assert (GEMINI_EXTENSION / "GEMINI.md").exists(), "Gemini extension must bundle GEMINI.md"
+def test_antigravity_agents_surface_exists() -> None:
+    surface = ANTIGRAVITY_INTEGRATION / "AGENTS.atelier.md"
+    assert surface.exists(), "integrations/antigravity/AGENTS.atelier.md must exist"
+    assert "atelier:code" in surface.read_text()
 
 
 def test_copilot_example_has_servers_key() -> None:
@@ -259,6 +248,13 @@ def test_codex_plugin_mcp_template_exists() -> None:
     data = json.loads(mcp_json.read_text())
     atelier = data.get("atelier", {})
     assert atelier.get("command") == "atelier-mcp", "Codex plugin template must call atelier-mcp directly"
+
+
+def test_codex_hooks_bundle_exists() -> None:
+    hooks_dir = INTEGRATIONS / "codex" / "hooks"
+    assert hooks_dir.is_dir(), "integrations/codex/hooks must exist"
+    for script in ("hooks.json", "savings_reporter.py", "stop.py", "update_notification.py"):
+        assert (hooks_dir / script).exists(), f"integrations/codex/hooks/{script} must exist"
 
 
 @pytest.mark.skip(reason="Marketplace file missing from repo root")
@@ -322,14 +318,14 @@ def test_readme_mentions_install_sh() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "gemini"])
+@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "antigravity"])
 def test_install_script_has_dry_run(host: str) -> None:
     script = SCRIPTS / f"install_{host}.sh"
     content = script.read_text()
     assert "--dry-run" in content, f"scripts/install_{host}.sh missing --dry-run support"
 
 
-@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "gemini"])
+@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "antigravity"])
 def test_install_script_has_print_only(host: str) -> None:
     script = SCRIPTS / f"install_{host}.sh"
     content = script.read_text()
@@ -367,11 +363,10 @@ def test_install_scripts_document_global_and_workspace_paths() -> None:
     assert '.mcp.json"' in claude
     assert "atelier-mcp" in claude
 
-    gemini = (SCRIPTS / "install_gemini.sh").read_text()
-    assert "gemini extensions validate" in gemini
-    assert "gemini extensions link" in gemini
-    assert "settings.json" not in gemini
-    assert "atelier-mcp" in gemini
+    antigravity = (SCRIPTS / "install_antigravity.sh").read_text()
+    assert "antigravity --add-mcp" in antigravity
+    assert "mcp.json" in antigravity
+    assert "atelier-mcp" in antigravity
 
 
 def test_install_codex_merges_existing_agents_file() -> None:
@@ -381,6 +376,7 @@ def test_install_codex_merges_existing_agents_file() -> None:
     assert 'backup_file "$dest_file"' in content
     assert "merged Atelier Codex instructions into $dest_file" in content
     assert 'atelier_upsert_managed_block "$source_file" "$dest_file" "$DRY_RUN"' in content
+    assert "integrations/codex/hooks" in content
 
 
 def test_uninstall_codex_removes_managed_agents_block() -> None:
@@ -398,7 +394,7 @@ def test_managed_context_helper_shared_across_host_installs() -> None:
     for script_name in [
         "install_codex.sh",
         "install_claude.sh",
-        "install_gemini.sh",
+        "install_antigravity.sh",
         "install_copilot.sh",
         "install_opencode.sh",
     ]:
@@ -439,12 +435,17 @@ def test_copilot_tasks_include_preflight_wrapper() -> None:
     tasks = json.loads((INTEGRATIONS / "copilot" / "tasks.json").read_text(encoding="utf-8"))
     labels = {task.get("label") for task in tasks.get("tasks", [])}
     assert "Atelier: Copilot Preflight" in labels
+    assert "Atelier: Session Summary" in labels
     assert "Atelier: Copilot Preflight" in (SCRIPTS / "install_copilot.sh").read_text()
 
     preflight_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "Atelier: Copilot Preflight")
     assert preflight_task.get("command") == "bash"
     args = preflight_task.get("args", [])
     assert any("atelier tools call context" in arg for arg in args)
+
+    summary_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "Atelier: Session Summary")
+    assert summary_task.get("command") == "atelier"
+    assert summary_task.get("args") == ["session", "report", "--no-color"]
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +459,7 @@ def test_copilot_tasks_include_preflight_wrapper() -> None:
         ("codex", "codex"),
         ("opencode", "opencode"),
         ("copilot", "code"),
-        ("gemini", "gemini"),
+        ("antigravity", "antigravity"),
     ],
 )
 def test_install_script_handles_missing_cli(host: str, cli: str) -> None:
@@ -767,20 +768,16 @@ def test_codex_agents_atelier_md_has_persona() -> None:
     assert "atelier:code" in content, "codex AGENTS.atelier.md must declare atelier:code persona"
 
 
-def test_gemini_atelier_md_exists() -> None:
-    f = INTEGRATIONS / "gemini" / "GEMINI.atelier.md"
-    assert f.exists(), "Missing: integrations/gemini/GEMINI.atelier.md"
+def test_antigravity_atelier_md_exists() -> None:
+    f = INTEGRATIONS / "antigravity" / "AGENTS.atelier.md"
+    assert f.exists(), "Missing: integrations/antigravity/AGENTS.atelier.md"
     assert "atelier:code" in f.read_text()
 
 
-def test_gemini_atelier_commands_dir_has_toml() -> None:
-    cmd_dir = INTEGRATIONS / "gemini" / "commands" / "atelier"
-    assert cmd_dir.is_dir(), "Missing: integrations/gemini/commands/atelier/"
-    tomls = list(cmd_dir.glob("*.toml"))
-    assert len(tomls) >= 2, "expected >=2 atelier slash command TOMLs"
-    for t in tomls:
-        text = t.read_text()
-        assert "description" in text and "prompt" in text, f"{t.name} missing description or prompt"
+def test_antigravity_skills_readme_exists() -> None:
+    readme = INTEGRATIONS / "antigravity" / "skills" / "README.md"
+    assert readme.exists(), "Missing: integrations/antigravity/skills/README.md"
+    assert "build_host_skills.sh" in readme.read_text()
 
 
 def test_opencode_atelier_agent_exists() -> None:

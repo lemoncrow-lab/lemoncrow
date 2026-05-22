@@ -164,7 +164,7 @@ def _read_compact_savings(session_id: str, root: Path) -> tuple[int, float]:
 # --------------------------------------------------------------------------- #
 
 
-def _read_routing_savings(events: list[dict[str, Any]]) -> tuple[int, float]:
+def _read_routing_savings(events: list[dict[str, Any]]) -> tuple[int, float, int, int]:
     """Extract routing savings from ledger events.
 
     Returns ``(downtiered_turns, total_saved_usd)``.
@@ -172,15 +172,23 @@ def _read_routing_savings(events: list[dict[str, Any]]) -> tuple[int, float]:
     """
     downtiered = 0
     total_saved = 0.0
+    lesson_applications = 0
+    cost_cap_fired = 0
     for ev in events:
         if ev.get("kind") != "model_recommendation":
             continue
         payload = ev.get("payload") or ev
+        if payload.get("configured") is False:
+            continue
         saved = float(payload.get("cost_saved_usd") or 0.0)
+        if payload.get("applied_lessons"):
+            lesson_applications += 1
+        if payload.get("cost_cap_triggered"):
+            cost_cap_fired += 1
         if saved > 0:
             downtiered += 1
             total_saved += saved
-    return downtiered, round(total_saved, 6)
+    return downtiered, round(total_saved, 6), lesson_applications, cost_cap_fired
 
 
 # --------------------------------------------------------------------------- #
@@ -229,6 +237,8 @@ class SessionReport:
 
     # Top tools by estimated cost
     top_tools_by_cost: list[tuple[str, int, float]]
+    routing_lesson_applications: int = 0
+    cost_cap_fired_turns: int = 0
 
     @property
     def is_running(self) -> bool:
@@ -331,7 +341,7 @@ def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
         cw_cost = round(cw_cost * ratio, 6)
 
     # --- routing savings ---
-    routing_downtiered, routing_saved = _read_routing_savings(raw_events)
+    routing_downtiered, routing_saved, lesson_applications, cost_cap_fired = _read_routing_savings(raw_events)
 
     # --- compact savings ---
     compact_count, compact_saved = _read_compact_savings(session_id, root)
@@ -372,6 +382,8 @@ def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
         output_tokens=out_tok,
         routing_downtiered_turns=routing_downtiered,
         routing_savings_usd=routing_saved,
+        routing_lesson_applications=lesson_applications,
+        cost_cap_fired_turns=cost_cap_fired,
         compact_events=compact_count,
         compact_savings_estimate_usd=compact_saved,
         total_atelier_savings_usd=total_saved,
@@ -493,6 +505,16 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
         )
     else:
         lines.append("  Routing recommendations: none this session")
+    if report.routing_lesson_applications:
+        lines.append(
+            f"  Active lessons applied: {report.routing_lesson_applications} recommendation"
+            f"{'s' if report.routing_lesson_applications != 1 else ''}"
+        )
+    if report.cost_cap_fired_turns:
+        lines.append(
+            f"  Cost cap fired: {report.cost_cap_fired_turns} turn"
+            f"{'s' if report.cost_cap_fired_turns != 1 else ''}"
+        )
 
     if report.compact_events:
         lines.append(

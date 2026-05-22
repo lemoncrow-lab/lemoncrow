@@ -45,7 +45,7 @@ Hook state is persisted at `$&#123;workspace&#125;/.atelier/session_state.json`.
 
 ### OpenMemory Stub
 
-The OpenMemory bridge (`src/atelier/integrations/openmemory.py`) is a no-op stub by default. It becomes active only when `ATELIER_OPENMEMORY_ENABLED=true`. Without this flag, all OpenMemory calls return empty results with a notice. There is no accidental data leakage to an external memory service.
+The OpenMemory bridge (`src/atelier/integrations/openmemory.py`) is a no-op stub by default.
 
 ### Cached-Grep Injection Guard
 

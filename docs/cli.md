@@ -31,7 +31,7 @@ optional visualization stack.
 | `atelier init`           | Initialize the runtime store under `--root`.            |
 | `atelier uninstall`      | Remove Atelier-managed host integrations and wrappers.  |
 | `atelier status`         | Show local plugin, auth, and subscription status.       |
-| `atelier stack ...`      | Start, stop, inspect, or log the optional UI/API stack. |
+| `atelier stack ...`      | Start, stop, inspect, or log the optional native UI/API stack. |
 | `atelier service ...`    | Manage the HTTP/API service surface.                    |
 | `atelier background ...` | Manage OS-level background services and auto-updates.   |
 | `atelier worker ...`     | Inspect, enqueue, and run worker jobs.                  |

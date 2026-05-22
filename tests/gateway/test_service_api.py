@@ -240,6 +240,50 @@ def test_trace_record_accepts_legacy_run_id(app_no_auth: TestClient, store: SQLi
     assert trace.session_id == "legacy-run-001"
 
 
+def test_trace_record_normalizes_legacy_strength_confidence(
+    app_no_auth: TestClient, store: SQLiteStore
+) -> None:
+    resp = app_no_auth.post(
+        "/v1/traces",
+        json={
+            "agent": "test-agent",
+            "domain": "ecommerce",
+            "task": "accept legacy confidence strength",
+            "status": "success",
+            "trace_confidence": "high",
+        },
+    )
+    assert resp.status_code == 200
+    trace_id = resp.json()["id"]
+
+    trace = store.get_trace(trace_id)
+    assert trace is not None
+    assert trace.trace_confidence == "manual"
+
+
+def test_trace_record_ignores_mcp_only_fields(app_no_auth: TestClient, store: SQLiteStore) -> None:
+    resp = app_no_auth.post(
+        "/v1/traces",
+        json={
+            "agent": "test-agent",
+            "domain": "ecommerce",
+            "task": "accept mcp-only extras",
+            "status": "success",
+            "trace_confidence": "high",
+            "capture_files": ["src/example.py"],
+            "learnings": ["Prefer focused regressions."],
+            "capture_sources": ["mcp"],
+        },
+    )
+    assert resp.status_code == 200
+    trace_id = resp.json()["id"]
+
+    trace = store.get_trace(trace_id)
+    assert trace is not None
+    assert trace.trace_confidence == "manual"
+    assert trace.capture_sources == ["mcp"]
+
+
 def test_external_analytics_endpoints_return_summary_and_detail(
     app_no_auth: TestClient,
     store: SQLiteStore,

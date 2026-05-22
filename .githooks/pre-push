@@ -18,7 +18,7 @@ echo "📍 Checking Pushing $CURRENT_BRANCH to $REMOTE_BRANCH"
 # Skip session import + external reports — those are slow, code-independent, and
 # covered by tests; only host integrations need to be verified at push time.
 echo "🛠️ Running make install (host integrations only)..."
-if ! ATELIER_NO_IMPORT=1 ATELIER_STRICT=1 make install; then
+if ! ATELIER_STRICT=1 make install; then
     echo -e "\033[1;31m❌ make install failed. Push blocked.\033[0m"
     echo "   Fix the install error locally or use 'git push --no-verify' if you intentionally need to bypass the hook."
     exit 1

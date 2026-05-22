@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .fuzzy_match import apply_fuzzy_replace, normalize_for_fuzzy
+from .symbol_edit import SymbolEditError, record_symbol_edit_memory, resolve_symbol_edit
 
 logger = logging.getLogger(__name__)
 
@@ -249,10 +250,21 @@ def apply_rich_edits(
     file_state: dict[Path, str] = {}
     applied: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
+    resolved_symbol_edits = []
 
     try:
         for edit in edits:
-            raw_path = str(edit.get("file_path") or edit.get("path") or "")
+            if str(edit.get("kind") or "") == "symbol":
+                resolved = resolve_symbol_edit(edit, repo_root=root)
+                resolved_symbol_edits.append(resolved)
+                edit = {
+                    "file_path": resolved.scoped_file_path,
+                    "old_string": resolved.old_string,
+                    "new_string": resolved.new_string,
+                }
+                raw_path = resolved.scoped_file_path
+            else:
+                raw_path = str(edit.get("file_path") or edit.get("path") or "")
             if not raw_path:
                 raise ValueError("file_path is required")
             spec = _parse_target(raw_path)
@@ -282,13 +294,27 @@ def apply_rich_edits(
                 content, spec, old_string, str(edit.get("new_string", ""))
             )
             file_state[path] = new_content
-            applied.append({"path": raw_path, "hunks": [{"line_start": line_start, "line_end": line_end}]})
+            applied_entry: dict[str, Any] = {"path": raw_path, "hunks": [{"line_start": line_start, "line_end": line_end}]}
+            if resolved_symbol_edits and raw_path == resolved_symbol_edits[-1].scoped_file_path:
+                applied_entry["kind"] = "symbol"
+                applied_entry["symbol_id"] = resolved_symbol_edits[-1].symbol_id
+            applied.append(applied_entry)
 
         for path, content in file_state.items():
             _atomic_write(path, content)
+        if resolved_symbol_edits:
+            from atelier.core.capabilities.code_context import CodeContextEngine
+
+            engine = CodeContextEngine(root)
+            engine._reindex_files([item.repo_file_path for item in resolved_symbol_edits])
+            for resolved in resolved_symbol_edits:
+                record_symbol_edit_memory(resolved)
         return {"applied": applied, "failed": [], "rolled_back": False, "writes": len(file_state)}
     except Exception as exc:
-        failed.append({"error": str(exc)})
+        if isinstance(exc, SymbolEditError):
+            failed.append(exc.to_dict())
+        else:
+            failed.append({"error": str(exc)})
         if atomic:
             for path, payload in backups.items():
                 if payload is None:
