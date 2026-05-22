@@ -2046,12 +2046,6 @@ EDIT_TOOL_INPUT_SCHEMA: dict[str, Any] = {
             "default": True,
             "description": "Run post-edit hooks (formatter, linter, LSP diagnostics) on touched files. Diagnostics appear in the result.",
         },
-        "post_edit_timeout_ms": {
-            "type": "integer",
-            "default": 30000,
-            "minimum": 1,
-            "description": "Total wall-clock budget for all post-edit hooks in milliseconds. Increase only for slow formatters.",
-        },
     },
     "required": ["edits"],
     "additionalProperties": False,
