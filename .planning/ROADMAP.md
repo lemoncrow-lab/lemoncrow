@@ -1,27 +1,17 @@
 # Roadmap: Atelier Code Intelligence
 
-## Overview
+## Shipped Milestones
 
-This brownfield roadmap extends Atelier's existing CLI, MCP, HTTP, and frontend-backed runtime with the full M0-M18 code-intelligence program. The phases follow the active milestone dependency order, keep all work on existing tool surfaces by default, and drive toward near-zero-token code search, navigation, and editing with observable cache, provenance, history, scale, and enablement outcomes.
+- **v1.0 Code Intelligence** ✅ — 7 phases, 21 plans, 18 requirements, shipped 2026-05-23. [Archive](milestones/v1.0-ROADMAP.md)
 
-## Phases
+## Active Milestones
 
-**Phase Numbering:**
+*No active milestones. Start the next milestone with `/gsd-new-milestone`.*
 
-- Integer phases (1, 2, 3): Planned milestone work
-- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+## Backlog
 
-Decimal phases appear between their surrounding integers in numeric order.
-
-- [x] **Phase 1: Retrieval Core & Routed Symbol Search** - Establish shared cache/budget primitives, routed symbol backends, and hardened symbol lookup on existing `code` ops. (completed 2026-05-18)
-- [x] **Phase 2: Structural Discovery & Symbol-Safe Change Flows** - Add structural pattern search, freeze low-token defaults, and ship symbol edits plus usages. (completed 2026-05-19)
-- [x] **Phase 3: Semantic Recall & Relationship Navigation** - Layer semantic retrieval, symbol-linked memory, and caller/callee graph traversal. (completed 2026-05-19)
-- [x] **Phase 4: Historical Code Intelligence** - Make deleted symbols, renames, blame, and churn first-class code-intel queries. (completed 2026-05-19)
-- [x] **Phase 5: Scale Decision & Extended Retrieval Reach** - Gate large-repo backend work, then ship validated scale routing and cross-language edges. (completed 2026-05-19)
-- [x] **Phase 6: Bootstrap, Dependency Scope & Multi-Repo Workspaces** - Warm code-intel state on first context and expand routing across external deps and repo boundaries. (completed 2026-05-23)
-- [x] **Phase 7: Maintainer Playbooks & Scorecards** - Document symbol-first usage and publish the scorecard/validation guidance that preserves the token wins. (completed 2026-05-23)
-
-## Phase Details
+- DEFR-01: Broader cross-language/runtime edges (JNI, Rust FFI, runtime traces)
+- DEFR-02: Build-system dependency graphs (Bazel/Buck) as first-class code-intel edges
 
 ### Phase 1: Retrieval Core & Routed Symbol Search
 

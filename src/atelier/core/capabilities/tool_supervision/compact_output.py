@@ -8,12 +8,15 @@ Key design choices:
 - Asymmetric head/tail split: head gets more budget (start has command, first error,
   context; tail has final result/status — middle is usually repetitive output)
 - Ollama summarization is opt-in only; head+tail alone achieves the benchmark savings
+- keep_recent_tool_messages exempts the last N messages from compression, matching
+  the RB spec (agent must see its active step at full fidelity)
 """
 
 from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from typing import Literal
 
 import tiktoken
@@ -28,6 +31,45 @@ ContentType = Literal["file", "grep", "bash", "tool_output", "unknown"]
 DEFAULT_COMPRESS_THRESHOLD_CHARS = 1800
 DEFAULT_HEAD_KEEP_CHARS = 900   # ~56% of budget — head has more signal
 DEFAULT_TAIL_KEEP_CHARS = 700   # ~44% of budget — tail has final result/status
+
+
+# --------------------------------------------------------------------------- #
+# Stats tracker                                                                #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class TokenSavingStats:
+    """Aggregate token-saving counters for a session or benchmark run.
+
+    Matches the ReasonBlocks TokenSavingMiddleware.stats surface.
+    """
+
+    compressions: int = 0
+    chars_saved: int = 0
+    early_exits: int = 0
+    tokens_saved: int = 0  # approx from tiktoken cl100k_base
+    messages_compressed: list[int] = field(default_factory=list)  # chars saved per message
+
+    def record(self, original_chars: int, compacted_chars: int, original_tokens: int, compacted_tokens: int) -> None:
+        """Record one compression event."""
+        if original_chars > compacted_chars:
+            self.compressions += 1
+            saved_chars = original_chars - compacted_chars
+            self.chars_saved += saved_chars
+            self.tokens_saved += max(0, original_tokens - compacted_tokens)
+            self.messages_compressed.append(saved_chars)
+
+    @property
+    def compression_ratio(self) -> float:
+        """Fraction of chars removed (0 = no savings, 1 = all removed)."""
+        if not self.messages_compressed:
+            return 0.0
+        total_original = self.chars_saved + sum(
+            DEFAULT_COMPRESS_THRESHOLD_CHARS for _ in self.messages_compressed
+        )
+        return self.chars_saved / max(1, total_original + self.chars_saved)
+
 
 
 class CompactResult(BaseModel):
@@ -105,16 +147,21 @@ def _compact_grep(content: str) -> str:
 
 
 def _compact_bash(content: str, budget_chars: int = 8000) -> str:
-    """Compress bash output keeping head and tail by char budget."""
-    stderr_match = re.search(r"stderr:\s*(.*)$", content, flags=re.IGNORECASE | re.DOTALL)
+    """Compress bash output keeping head and tail by char budget.
+
+    Preserves stderr context even after truncation — extracts it first,
+    then re-attaches it if the truncated body lost it.
+    """
+    stderr_match = re.search(r"stderr:\s*(.+?)(?:\n\n|\Z)", content, flags=re.IGNORECASE | re.DOTALL)
     stderr = stderr_match.group(1).strip() if stderr_match else ""
+
     if len(content) <= budget_chars:
         return content
-    # Use asymmetric split: 60/40 head/tail
+
     head_chars = int(budget_chars * 0.6)
     tail_chars = budget_chars - head_chars
     compacted = compress_tool_output(content, threshold_chars=budget_chars, head_chars=head_chars, tail_chars=tail_chars)
-    if stderr and "stderr" not in compacted:
+    if stderr and stderr not in compacted:
         return f"{compacted}\n\nFull stderr:\n{stderr}"
     return compacted
 
@@ -205,4 +252,66 @@ def compact(
     )
 
 
-__all__ = ["CompactResult", "compact", "compress_tool_output", "deterministic_truncate"]
+def compress_history(
+    messages: list[dict[str, str]],
+    *,
+    keep_recent: int = 2,
+    threshold_chars: int = DEFAULT_COMPRESS_THRESHOLD_CHARS,
+    head_chars: int = DEFAULT_HEAD_KEEP_CHARS,
+    tail_chars: int = DEFAULT_TAIL_KEEP_CHARS,
+    stats: TokenSavingStats | None = None,
+) -> list[dict[str, str]]:
+    """Head+tail compress stale tool-output messages in a history list.
+
+    The most recent ``keep_recent`` tool messages are exempt — the agent must
+    see its active step at full fidelity (matches RB ``keep_recent_tool_messages``
+    default of 2).
+
+    Each message is expected to be a dict with at least a ``"role"`` key and
+    a ``"content"`` key (LangChain / OpenAI message shape). Only messages with
+    ``role == "tool"`` are candidates for compression.
+
+    Args:
+        messages:         The full message history list (modified in a new list).
+        keep_recent:      How many of the most recent tool messages to exempt.
+        threshold_chars:  Minimum content length before compression is applied.
+        head_chars:       Characters to keep from the start of a tool message.
+        tail_chars:       Characters to keep from the end of a tool message.
+        stats:            Optional stats tracker — records each compression event.
+
+    Returns:
+        A new list of messages with stale tool outputs compressed.
+    """
+    # Identify tool-message indices in order.
+    tool_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+    # The last `keep_recent` tool messages are exempt.
+    exempt = set(tool_indices[-keep_recent:]) if keep_recent > 0 else set()
+
+    result: list[dict[str, str]] = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") != "tool" or i in exempt:
+            result.append(msg)
+            continue
+        content = msg.get("content", "")
+        compressed = compress_tool_output(
+            content,
+            threshold_chars=threshold_chars,
+            head_chars=head_chars,
+            tail_chars=tail_chars,
+        )
+        if stats is not None and compressed != content:
+            orig_tokens = _count_tokens(content)
+            comp_tokens = _count_tokens(compressed)
+            stats.record(len(content), len(compressed), orig_tokens, comp_tokens)
+        result.append({**msg, "content": compressed})
+    return result
+
+
+__all__ = [
+    "CompactResult",
+    "TokenSavingStats",
+    "compact",
+    "compress_history",
+    "compress_tool_output",
+    "deterministic_truncate",
+]

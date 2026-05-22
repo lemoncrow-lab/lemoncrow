@@ -21,6 +21,7 @@ from atelier.core.capabilities.monitors.fsm import (
     DifficultyFSM,
     FSMState,
     advance_many,
+    make_signals_fn,
     score_step,
 )
 from atelier.core.capabilities.monitors.suite import (
@@ -38,5 +39,6 @@ __all__ = [
     "DifficultyFSM",
     "FSMState",
     "advance_many",
+    "make_signals_fn",
     "score_step",
 ]

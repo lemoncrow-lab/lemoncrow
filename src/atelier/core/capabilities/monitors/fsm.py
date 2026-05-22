@@ -33,9 +33,10 @@ Usage::
 
 from __future__ import annotations
 
+import itertools
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -83,9 +84,12 @@ def score_step(text: str, ref_length: int = _REF_LENGTH) -> float:
 
     The heuristic combines four signals:
         hedging_density — fraction of tokens that are hedge words   (→ harder)
-        response_length — normalised length score                   (→ shorter = harder)
+        response_length — longer responses indicate more work       (→ longer = harder)
         error_language  — presence of error words                   (→ harder)
         entity_density  — ratio of Title-case tokens (proxy for specificity, → easier)
+
+    Short completion messages like "All tests pass." score LOW (easy). Long
+    error-heavy messages with hedging score HIGH (hard).
 
     Args:
         text:       The agent step text to score.
@@ -102,7 +106,8 @@ def score_step(text: str, ref_length: int = _REF_LENGTH) -> float:
     n = len(lower)
 
     hedging = sum(1 for t in lower if t in _HEDGE_WORDS) / n
-    length_score = max(0.0, 1.0 - len(text) / max(1, ref_length * 3))
+    # Longer responses = more complex work = harder (short clean steps = easy)
+    length_score = min(1.0, len(text) / max(1, ref_length * 3))
     error_hits = sum(1 for t in lower if t in _ERROR_WORDS) / n
     entity = sum(1 for t in tokens if t[0].isupper()) / n
     specificity = entity  # high entity density → more concrete → easier
@@ -243,9 +248,70 @@ def advance_many(
     return state
 
 
+def make_signals_fn(
+    fsm: DifficultyFSM,
+) -> Callable[[Sequence[str]], dict[str, float]]:
+    """Build a ``signals_fn`` compatible with ReasonBlocks TokenSavingMiddleware.
+
+    Returns ``{streak, hedge, diversity}`` in [0, 1] for the early-exit condition:
+
+        streak > 0.7  OR  (hedge > 0.6 AND diversity > 0.5)
+
+    * ``streak``    — fraction of last 10 steps above ``fsm.slow_threshold``
+    * ``hedge``     — scaled mean hedging density over last 5 steps
+    * ``diversity`` — 1 - mean pairwise bigram-Jaccard over last 4 steps
+    """
+
+    def _bigram_set(text: str) -> set[tuple[str, str]]:
+        tokens = re.findall(r"[a-zA-Z']+", text.lower())
+        return set(itertools.pairwise(tokens)) if len(tokens) >= 2 else set()
+
+    def _jaccard(a: set[tuple[str, str]], b: set[tuple[str, str]]) -> float:
+        if not a and not b:
+            return 1.0
+        union = len(a | b)
+        return len(a & b) / union if union else 0.0
+
+    slow_threshold = fsm.slow_threshold
+
+    def signals_fn(steps: Sequence[str]) -> dict[str, float]:
+        if not steps:
+            return {"streak": 0.0, "hedge": 0.0, "diversity": 0.0}
+
+        recent_scores = [score_step(s) for s in steps[-10:]]
+        streak = sum(1 for s in recent_scores if s >= slow_threshold) / len(recent_scores)
+
+        last5 = list(steps[-5:])
+        # Hedge: fraction of hedge words, scaled up (typical max ~20% of tokens)
+        hedge_vals = []
+        for text in last5:
+            tokens = re.findall(r"[a-zA-Z']+", text.lower())
+            if tokens:
+                hedge_vals.append(sum(1 for t in tokens if t in _HEDGE_WORDS) / len(tokens))
+        hedge = min(1.0, (sum(hedge_vals) / max(1, len(hedge_vals))) * 5.0)
+
+        last4 = list(steps[-4:])
+        bigrams = [_bigram_set(s) for s in last4]
+        pairs = [
+            _jaccard(bigrams[i], bigrams[j])
+            for i in range(len(bigrams))
+            for j in range(i + 1, len(bigrams))
+        ]
+        diversity = 1.0 - (sum(pairs) / max(1, len(pairs)))
+
+        return {
+            "streak": round(streak, 4),
+            "hedge": round(hedge, 4),
+            "diversity": round(diversity, 4),
+        }
+
+    return signals_fn
+
+
 __all__ = [
     "DifficultyFSM",
     "FSMState",
     "advance_many",
+    "make_signals_fn",
     "score_step",
 ]

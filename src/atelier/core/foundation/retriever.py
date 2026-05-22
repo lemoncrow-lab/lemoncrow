@@ -360,6 +360,8 @@ def retrieve(
     use_vector_weights: bool | None = None,
     dedup: bool = True,
     token_budget: int | None = _DEFAULT_TOKEN_BUDGET,
+    monitor_composite: float = 0.0,
+    fsm_skip_etraces: bool = False,
 ) -> list[ScoredBlock]:
     """Return top-N relevant ReasonBlocks for a task context.
 
@@ -367,9 +369,12 @@ def retrieve(
     system:
       E3 (tier="e3") — universal standing rules always prepended first.
       E2 (tier="e2") — relevance-scored failure-mode patterns (default tier).
-      E1 (tier="e1") — instance-level procedures only injected when ctx.errors
-                        is non-empty (monitor-like gate: the agent is actively
-                        struggling).
+      E1 (tier="e1") — instance-level procedures only injected when the
+                        monitor composite score exceeds 0.15 or ctx.errors
+                        are present (mirrors the RB two-condition E1 gate).
+
+    The entire E-trace pipeline (E1/E2) is skipped when ``fsm_skip_etraces``
+    is True (FSM FAST state) — only E3 universal blocks are returned.
 
     Args:
         store: The backing store.
@@ -385,6 +390,12 @@ def retrieve(
             and procedure text, keeping the highest-ranked block.
         token_budget: Greedy-pack compact rendered blocks under this token
             budget. Pass None to disable budget packing.
+        monitor_composite: Weighted composite from trajectory monitor evaluation
+            (0-1). E1 is allowed when this exceeds 0.15 even if ctx.errors is
+            empty. Mirrors the ReasonBlocks.com E1 gate threshold.
+        fsm_skip_etraces: When True (FSM FAST state) skip the entire E-trace
+            pipeline — only E3 universal blocks are returned. Monitor evaluation
+            still runs on the caller side; this flag only gates retrieval.
     """
     candidates: list[ReasonBlock] = []
 
@@ -415,19 +426,25 @@ def retrieve(
         seen.add(b.id)
         unique.append(b)
 
-    # Gate E1 blocks: only inject when errors are present (agent is struggling).
-    # This mirrors the ReasonBlocks.com monitor gate: E1 fires only when a
-    # monitor signal is active. Without errors, E1 blocks are dropped.
-    errors_present = bool(ctx.errors)
+    # Partition E3 blocks first (always injected).
+    e3_blocks: list[ReasonBlock] = [b for b in unique if b.tier == "e3"]
+    e3_scored = [ScoredBlock(block=b, score=1.0, breakdown={"tier": 1.0}) for b in e3_blocks]
+
+    # When FSM is in FAST state, skip the entire E-trace pipeline (E1/E2).
+    # Monitors still evaluated on the caller side; only retrieval is gated.
+    if fsm_skip_etraces:
+        return e3_scored
+
+    # Gate E1 blocks: allow when monitor composite > 0.15 (RB gate threshold)
+    # OR when ctx.errors are present — same two-condition gate as RB.
+    e1_allowed = monitor_composite > 0.15 or bool(ctx.errors)
     filtered: list[ReasonBlock] = []
-    e3_blocks: list[ReasonBlock] = []
     for b in unique:
         if b.tier == "e3":
-            e3_blocks.append(b)
-        elif b.tier == "e1" and not errors_present:
-            pass  # E1 gated: skip when no error signals
-        else:
-            filtered.append(b)
+            continue  # already handled above
+        if b.tier == "e1" and not e1_allowed:
+            continue  # E1 gated: neither monitor signal nor errors present
+        filtered.append(b)
 
     scored = [
         score_block(
@@ -450,7 +467,4 @@ def retrieve(
     )
 
     # Prepend E3 blocks (always injected, not subject to limit or min_score).
-    # Score them at 1.0 to ensure they sort first in any downstream processing.
-    e3_scored = [ScoredBlock(block=b, score=1.0, breakdown={"tier": 1.0}) for b in e3_blocks]
     return e3_scored + e2_e1_results
-

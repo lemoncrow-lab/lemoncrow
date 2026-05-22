@@ -123,18 +123,12 @@ should be treated as the reference for implementation planning.
 
 ## Current State
 
-- Phase 1 complete — retrieval cache, routed SCIP lookup, and hardened code
-  search are validated on the existing `code` surface.
-- Phase 2 complete — structural pattern search, symbol-safe edits, usages
-  navigation, and the M12 telemetry/validation closeout are now recorded on the
-  existing `code` / `edit` surfaces.
-- Phase 3 complete — semantic search, symbol-linked recall, and routed
-  caller/callee traversal are now recorded on the existing `code` / `memory`
-  surfaces.
-- Phase 4 complete — historical search, blame, churn, and temporal filters are now recorded on the existing `code` surface.
-- Phase 5 complete — explicit scale-backend decision, managed Zoekt `search` routing, and additive literal-only cross-language edges are recorded with trace evidence.
-- Phase 6 complete pending human/UAT sign-off — first-context bootstrap warming, external dependency scope routing, and multi-repo workspace routing are now recorded on the existing `context`, `code`, and `edit` surfaces.
-- Next up after Phase 6 approval: Phase 7 — Maintainer Playbooks & Scorecards.
+**v1.0 shipped 2026-05-23.** All 7 phases complete, 21 plans, 18 requirements validated.
+
+- All M0–M13 milestones delivered: retrieval cache, SCIP routing, hardened search, structural patterns, symbol edits, usages, semantic search, memory recall, call graph traversal, historical search, blame/churn, scale routing, cross-language edges, bootstrap warming, dependency scope, multi-repo workspaces, maintainer playbooks/scorecard.
+- Symbol-first adoption playbook committed to `docs/agent-os/workflow.md`.
+- ADR 001 promoted to Accepted. Scorecard metrics live. Architecture diagram published.
+- Open milestones M14–M18 remain in `docs/plans/active/code-intel/index.md` for v2 consideration.
 
 ## Evolution
 
