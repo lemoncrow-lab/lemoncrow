@@ -105,6 +105,16 @@ export default function Sessions() {
    const [summaries, setSummaries] = useState<SessionSummary[] | null>(null);
    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+   // Pre-compute a summary lookup map to eliminate repeated .find() calls
+   // in the sort comparator and inside each map callback — O(m + n) instead of
+   // O(m · n).
+   const sessionsMap = useMemo(() => {
+     if (!summaries) return null;
+     const m = new Map<string, SessionSummary>();
+     for (const s of summaries) m.set(s.session_id, s);
+     return m;
+   }, [summaries]);
+
    const fetchTracesPage = useCallback((offset: number) => {
      const requestSeq = ++tracesRequestSeq.current;
      setLoadingTraces(true);
@@ -303,18 +313,14 @@ export default function Sessions() {
               {traces
                 ?.slice()
                 .sort((a, b) => {
-                  const sa = summaries?.find(
-                    (s) => s.session_id === (a.session_id || a.id)
-                  );
-                  const sb = summaries?.find(
-                    (s) => s.session_id === (b.session_id || b.id)
-                  );
+                  const sa = sessionsMap?.get(a.session_id || a.id);
+                  const sb = sessionsMap?.get(b.session_id || b.id);
                   return latestActivityMs(b, sb) - latestActivityMs(a, sa);
                 })
                 .map((t) => {
                 const sid = t.session_id || t.id;
                 const isActive = id === sid;
-                const summary = summaries?.find((s) => s.session_id === sid);
+                const summary = sessionsMap?.get(sid);
                 const sessionModel = resolveSessionModel(summary, t);
                 const inputTokens = preferNonZeroMetric(
                   summary?.input_tokens,

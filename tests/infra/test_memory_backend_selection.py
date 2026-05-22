@@ -58,5 +58,5 @@ def test_memory_backend_env_selects_openmemory(tmp_path: Path, monkeypatch: pyte
 
 def test_unknown_memory_backend_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATELIER_MEMORY_BACKEND", "bogus")
-    with pytest.raises(ValueError, match=r"sqlite.*letta.*openmemory"):
+    with pytest.raises(ValueError, match=r"letta.*openmemory.*sqlite"):
         make_memory_store(tmp_path / "atelier")

@@ -418,7 +418,7 @@ def test_install_sh_installs_tool_scripts_not_uv_runtime_wrappers() -> None:
     content = (SCRIPTS / "install.sh").read_text()
     assert "tool install" in content
     assert "UV_TOOL_BIN_DIR" in content
-    assert "mcp,memory,smart,cloud,repo-map,api,postgres,vector,parsers,telemetry" in content
+    assert "mcp,memory,smart,cloud,repo-map,api,postgres,vector,parsers,rename,telemetry" in content
 
 
 def test_install_sh_has_only_local_and_remote_source_modes() -> None:

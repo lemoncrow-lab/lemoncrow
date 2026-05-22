@@ -21,25 +21,25 @@ import json
 import threading
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from atelier.core.foundation.memory_models import ArchivalPassage
 from atelier.core.service.jobs import (
-    KNOWN_JOB_TYPES,
     JOB_ANALYZE_FAILURES,
     JOB_BOOTSTRAP_CONTEXT,
     JOB_COMPUTE_EMBEDDINGS,
     JOB_CONSOLIDATE_BLOCKS,
     JOB_EXTRACT_REASONBLOCK,
     JOB_GENERATE_EVAL,
+    JOB_INGEST_SESSION_DIRECTORY,
     JOB_INGEST_SESSION_FILE,
     JOB_RETENTION_CLEANUP,
+    KNOWN_JOB_TYPES,
 )
 from atelier.gateway.adapters.mcp_server import _handle
 from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -290,19 +290,20 @@ def test_spawn_worker_if_idle_throttled(tmp_path: Path) -> None:
             spawned.append(self)
             super().__init__(*args, **kwargs)
 
-    with patch("atelier.gateway.adapters.mcp_server.threading.Thread", CapturingThread):
-        with patch("atelier.gateway.adapters.mcp_server._run_worker_tick_safe"):
-            mcp._spawn_worker_if_idle(tmp_path)
-            mcp._spawn_worker_if_idle(tmp_path)  # Should be throttled
-            mcp._spawn_worker_if_idle(tmp_path)  # Should be throttled
+    with (
+        patch("atelier.gateway.adapters.mcp_server.threading.Thread", CapturingThread),
+        patch("atelier.gateway.adapters.mcp_server._run_worker_tick_safe"),
+    ):
+        mcp._spawn_worker_if_idle(tmp_path)
+        mcp._spawn_worker_if_idle(tmp_path)  # Should be throttled
 
     assert len(spawned) == 1, f"Expected 1 thread, got {len(spawned)} — throttle not working"
 
 
 def test_spawn_worker_if_idle_allows_after_window(tmp_path: Path) -> None:
     """After the throttle window, a new thread is spawned."""
+
     import atelier.gateway.adapters.mcp_server as mcp
-    import time
 
     # Set last spawn time far in the past to simulate expired throttle
     mcp._last_worker_spawn_time = 0.0
@@ -336,9 +337,8 @@ def test_bootstrap_failed_job_does_not_block_requeue(ctx_root: Path) -> None:
     store.init()
 
     # Simulate a failed bootstrap job for the current repo
-    from atelier.core.capabilities.code_context import CodeContextEngine
-
     import atelier.gateway.adapters.mcp_server as mcp
+    from atelier.core.capabilities.code_context import CodeContextEngine
 
     repo_id = CodeContextEngine(mcp._workspace_root().resolve()).repo_id
     jid = store.enqueue_job(JOB_BOOTSTRAP_CONTEXT, {"repo_root": str(mcp._workspace_root()), "repo_id": repo_id})
@@ -455,6 +455,7 @@ def test_all_known_job_types_defined(ctx_root: Path) -> None:
         JOB_RETENTION_CLEANUP,
         JOB_BOOTSTRAP_CONTEXT,
         JOB_INGEST_SESSION_FILE,
+        JOB_INGEST_SESSION_DIRECTORY,
     }
     assert expected == KNOWN_JOB_TYPES
 
@@ -472,5 +473,5 @@ def test_run_worker_tick_safe_suppresses_exceptions(tmp_path: Path) -> None:
     # Should not raise
     try:
         _run_worker_tick_safe(bad_root)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         pytest.fail(f"_run_worker_tick_safe leaked exception: {exc}")

@@ -208,22 +208,3 @@ class Worker:
             return job_id
 
         return job_id
-
-        handler = self._dispatch.get(job_type)
-        if handler is None:
-            # Job type is known but no handler registered — treat as transient.
-            error = f"no handler registered for job type: {job_type!r}"
-            logger.warning("Job %s: %s", job_id, error)
-            self._store.fail_job(job_id, error)
-            return job_id
-
-        try:
-            result = handler(payload)
-            self._store.complete_job(job_id, result)
-            logger.info("Job %s completed successfully", job_id)
-        except Exception as exc:
-            error_msg = f"{type(exc).__name__}: {exc}"
-            logger.error("Job %s failed: %s", job_id, error_msg)
-            self._store.fail_job(job_id, error_msg)
-
-        return job_id

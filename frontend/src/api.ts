@@ -837,6 +837,17 @@ export interface Skill {
   content: string;
 }
 
+export interface Agent {
+  id: string;
+  name: string;
+  description: string;
+  tools: string[];
+  color: string;
+  model?: string | null;
+  file: string;
+  content: string;
+}
+
 export interface MemoryBlock {
   id: string;
   agent_id: string;
@@ -1398,6 +1409,7 @@ export const api = {
   }) => post<WatchdogConfig>("/watchdogs/config", payload),
   skills: () => get<Skill[]>("/skills"),
   skill: (name: string) => get<Skill>(`/skills/${name}`),
+  agents: () => get<Agent[]>("/agents"),
   memoryBlocks: (agentId?: string, label?: string) => {
     const params = new URLSearchParams();
     if (agentId) params.set("agent_id", agentId);

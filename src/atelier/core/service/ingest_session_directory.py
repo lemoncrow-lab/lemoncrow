@@ -36,8 +36,10 @@ def _get_session_id(file_path: Path, content: str) -> str:
 def ingest_session_file(file_path: str, store: Any = None) -> dict[str, Any]:
     """Ingest a single session file."""
     if store is None:
-        store_root = Path(getattr(store, "root", default_store_root())).resolve()
+        store_root = default_store_root()
         store = make_memory_store(store_root)
+    else:
+        store_root = Path(getattr(store, "root", default_store_root())).resolve()
 
     path = Path(file_path)
     if not path.exists():
@@ -74,7 +76,7 @@ def ingest_session_file(file_path: str, store: Any = None) -> dict[str, Any]:
 
 class SessionDirectoryWatcher:
     """Watches a directory for new or modified session files and ingests them."""
-    
+
     def __init__(self, directory_path: str, store: Any = None, poll_interval: float = 5.0):
         self.directory_path = directory_path
         self.store = store
@@ -82,11 +84,11 @@ class SessionDirectoryWatcher:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._seen_files: dict[Path, float] = {}
-        
+
         if self.store is None:
-            store_root = Path(getattr(self.store, "root", default_store_root())).resolve()
+            store_root = default_store_root()
             self.store = make_memory_store(store_root)
-            
+
         self.directory = Path(directory_path)
         if not self.directory.exists() or not self.directory.is_dir():
             raise ValueError(f"Directory does not exist or is not a directory: {directory_path}")
@@ -96,12 +98,15 @@ class SessionDirectoryWatcher:
         if self._thread is not None and self._thread.is_alive():
             logger.warning("Directory watcher is already running")
             return
-            
+
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
-        logger.info("Started directory watcher for: %s (poll interval: %ss)", 
-                   self.directory_path, self.poll_interval)
+        logger.info(
+            "Started directory watcher for: %s (poll interval: %ss)",
+            self.directory_path,
+            self.poll_interval,
+        )
 
     def stop(self) -> None:
         """Stop the directory watcher."""
@@ -114,7 +119,7 @@ class SessionDirectoryWatcher:
     def _run(self) -> None:
         """Main watcher loop."""
         logger.info("Directory watcher loop started for: %s", self.directory_path)
-        
+
         try:
             while not self._stop_event.is_set():
                 try:
@@ -178,13 +183,13 @@ def ingest_session_directory(directory_path: str, store: Any = None, poll_interv
         return {
             "status": "success",
             "message": f"Directory watcher started for {directory_path}",
-            "watcher": watcher  # Return the watcher so caller can stop it later if needed
+            "watcher": watcher,  # Return the watcher so caller can stop it later if needed
         }
     except Exception as exc:  # pylint: disable=broad-except
         logger.error("Failed to start directory watcher: %s", exc)
         return {
             "status": "error",
-            "message": f"Failed to start directory watcher: {exc}"
+            "message": f"Failed to start directory watcher: {exc}",
         }
 
 

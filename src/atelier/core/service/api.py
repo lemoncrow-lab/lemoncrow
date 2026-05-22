@@ -4646,6 +4646,55 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         return {"name": name, "description": "", "content": content}
 
     # ------------------------------------------------------------------ #
+    # Agents                                                              #
+    # ------------------------------------------------------------------ #
+
+    @app.get("/agents", tags=["ops"], dependencies=[Depends(verify_api_key)])
+    def list_agents() -> list[dict[str, Any]]:
+        import re
+
+        import yaml
+
+        root = Path(__file__).parent.parent.parent.parent.parent
+        agents_dir = root / "integrations" / "claude" / "plugin" / "agents"
+        result: list[dict[str, Any]] = []
+        if not agents_dir.exists():
+            return result
+        for path in sorted(agents_dir.glob("*.md")):
+            if path.name.endswith(".dev.md"):
+                continue
+            text = path.read_text(encoding="utf-8")
+            # Parse YAML frontmatter between first two --- markers
+            fm: dict[str, Any] = {}
+            body = text
+            if text.startswith("---"):
+                end = text.find("---", 3)
+                if end > 0:
+                    try:
+                        fm = yaml.safe_load(text[3:end]) or {}
+                    except Exception:
+                        fm = {}
+                    body = text[end + 3:].strip()
+            # Strip generator comment from body
+            body = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL).strip()
+            tools_raw = fm.get("tools", [])
+            if isinstance(tools_raw, str):
+                tools_raw = [tools_raw]
+            result.append(
+                {
+                    "id": path.stem,
+                    "name": fm.get("name", path.stem),
+                    "description": fm.get("description", ""),
+                    "tools": tools_raw,
+                    "color": fm.get("color", "neutral"),
+                    "model": fm.get("model"),
+                    "file": str(path.relative_to(root)),
+                    "content": body,
+                }
+            )
+        return result
+
+    # ------------------------------------------------------------------ #
     # Rubrics                                                             #
     # ------------------------------------------------------------------ #
 

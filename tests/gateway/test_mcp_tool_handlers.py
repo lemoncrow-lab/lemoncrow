@@ -291,7 +291,7 @@ def test_tools_list_only_product_tools_without_dev_mode(
     assert names == NON_DEV_LLM_TOOLS
     assert names == STABLE_LLM_TOOLS
     assert not (names & DEV_LLM_TOOLS)
-    assert "route" not in names
+    assert "route" in names
     assert all("passive" not in tool["description"] for tool in tools if tool["name"] in STABLE_LLM_TOOLS)
 
 

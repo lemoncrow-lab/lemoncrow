@@ -2,9 +2,7 @@
 
 Covers:
   decide (cheap/balanced/best budgets, with and without route config)
-  spawn  (no-sampling fallback path)
-  recommend (hidden op, backward compat)
-  verify (hidden op, backward compat)
+  spawn  (directive fallback when no CLI; live subprocess when CLI available)
 
 Baseline estimates are the token cost an agent would incur WITHOUT route:
 manually picking a model by scanning docs / vendor pages, or just always
@@ -36,20 +34,23 @@ def _assert_decide_cheap(result: dict[str, Any]) -> None:
     assert result["tier"] == "cheap", f"budget=cheap must yield tier=cheap, got: {result['tier']}"
 
 
-def _assert_spawn_result(result: dict[str, Any]) -> None:
-    """Accept any valid spawn response: CLI result, MCP sampling result, or no-mechanism fallback."""
-    if "spawn_method" in result:
-        # CLI subprocess path (success or failure)
-        assert "model_used" in result, f"cli spawn must have 'model_used', got: {list(result)}"
-    elif result.get("sampling_supported") is False:
-        # No-mechanism fallback path
-        assert "error" in result, "no-mechanism fallback must include 'error'"
-        assert "prompt" in result, "no-mechanism fallback must echo 'prompt'"
-    elif result.get("sampling_supported") is True:
-        # MCP sampling path
-        assert "model_used" in result or "error" in result
-    else:
-        raise AssertionError(f"unrecognized spawn response shape: {list(result)}")
+def _assert_spawn_directive(result: dict[str, Any]) -> None:
+    """spawn with no CLI available: must return handled=false + spawn_directive."""
+    assert result.get("handled") is False, f"expected handled=false, got: {result.get('handled')}"
+    assert "spawn_directive" in result, f"spawn must return spawn_directive, got: {list(result)}"
+    directive = result["spawn_directive"]
+    assert "prompt" in directive, f"spawn_directive must have 'prompt', got: {directive}"
+    assert "agent_type" in directive, f"spawn_directive must have 'agent_type', got: {directive}"
+    assert "SPAWN_REQUIRED" in result.get("message", ""), f"missing SPAWN_REQUIRED in message: {result.get('message')}"
+
+
+def _assert_spawn_subprocess(result: dict[str, Any]) -> None:
+    """spawn with CLI available: handled=true OR falls back to directive if CLI errors."""
+    assert "handled" in result, f"spawn must return 'handled', got: {list(result)}"
+    assert "spawn_directive" in result, f"spawn must always return spawn_directive, got: {list(result)}"
+    if result["handled"]:
+        assert result.get("spawn_method") == "cli_subprocess", f"unexpected spawn_method: {result.get('spawn_method')}"
+        assert "response" in result, "handled=true spawn must have 'response'"
 
 
 ROUTE_CASES: list[BenchCase] = [
@@ -93,13 +94,27 @@ ROUTE_CASES: list[BenchCase] = [
         baseline_description="Agent has no routing info — uses default model.",
         baseline_tokens=0,
     ),
-    # ── op=spawn ───────────────────────────────────────────────────────────
+    # ── op=spawn (no CLI — directive fallback) ─────────────────────────────
     BenchCase(
         op="spawn",
-        label="spawn/basic",
+        label="spawn/directive-no-cli",
         args={"op": "spawn", "prompt": "List the top 3 causes of this bug", "model": "claude-haiku-4-5"},
-        custom_assert=_assert_spawn_result,
+        custom_assert=_assert_spawn_directive,
         baseline_description="Agent tries to spawn a sub-task manually — unclear outcome.",
         baseline_tokens=0,
     ),
+    # ── op=spawn (real subprocess via claude CLI) ──────────────────────────
+    BenchCase(
+        op="spawn",
+        label="spawn/subprocess-live",
+        args={
+            "op": "spawn",
+            "prompt": 'Reply with exactly: {"status":"ok","agent":"haiku"}',
+            "model": "claude-haiku-4-5",
+        },
+        custom_assert=_assert_spawn_subprocess,
+        baseline_description="Real subprocess spawn via claude CLI — verifies end-to-end delegation.",
+        baseline_tokens=0,
+    ),
 ]
+
