@@ -59,7 +59,15 @@ with near-zero token overhead by default.
 
 ### Active
 
-*v1.0 complete. All 18 requirements shipped. Start next milestone with `/gsd-new-milestone`.*
+- BLOC-01, BLOC-02: Block model with stability taxonomy
+- COMP-01, COMP-02: Compiler core with deterministic sort and prefix boundary
+- LINT-01, LINT-02: Cache-safety linter
+- PROV-01, PROV-02, PROV-03: Provider adapters (OpenAI/Anthropic/Gemini/DeepSeek)
+- TRAC-01, TRAC-02: Trace + telemetry integration
+- CLI-01, CLI-02, CLI-03: `atelier prompt` CLI surface
+- INSP-01: Session inspector
+- MCP-01: MCP tool integration
+- SDK-01: Python SDK public surface
 
 ### Out of Scope
 
@@ -116,7 +124,22 @@ should be treated as the reference for implementation planning.
 | Treat the full `docs/plans/active/code-intel/` M0-M18 program as active scope | The user directed project initialization to follow that full plan set | — Pending |
 | Define success as near-zero-token default code/search/edit flows, not feature parity with other tools | Matches both the code-intel north star and the user's definition of done | — Pending |
 
-## Current State
+## Current Milestone: v1.1 Prompt Compiler
+
+**Goal:** Make the cacheable prefix of a coding-agent prompt deterministic, large, and identical across turns — so provider-side prompt caching (OpenAI, Anthropic, Gemini, DeepSeek) fires and savings are proven in Atelier traces.
+
+**Target features:**
+- Block model with stability taxonomy (STATIC/SESSION/BRANCH/TURN/VOLATILE)
+- Compiler core: deterministic sort, prefix boundary, tail budget packing
+- Cache-safety linter: detects volatile-before-stable, reordered tools, timestamp leaks
+- Provider adapters: OpenAI prompt_cache_key, Anthropic cache_control, Gemini, DeepSeek
+- Trace integration: stable_prefix_hash, cache savings in every compile() call
+- CLI surface: `atelier prompt compile|lint|inspect-session`
+- Session inspector: replay JSONL sessions → diagnose cache breakers
+- MCP tool: one round-trip compile + cache metadata
+- Python SDK: `atelier.prompt_compiler` public surface
+
+## Prior Milestone
 
 **v1.0 shipped 2026-05-23.** All 7 phases complete, 21 plans, 18 requirements validated.
 
@@ -143,4 +166,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-19 after Phase 6 verification*
+*Last updated: 2026-05-23 — v1.1 milestone started*

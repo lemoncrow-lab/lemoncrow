@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: complete
-stopped_at: Phase 07 complete; all 7 phases delivered; milestone v1.0 complete
-last_updated: "2026-05-23T01:00:00Z"
-last_activity: 2026-05-23 -- Phase 07 docs complete; make docs-check + check-agent-context pass
+milestone: v1.1
+milestone_name: Prompt Compiler
+status: planning
+stopped_at: Milestone v1.1 started; requirements and roadmap defined
+last_updated: "2026-05-23T02:00:00Z"
+last_activity: 2026-05-23 -- Milestone v1.1 started
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 21
-  completed_plans: 21
-  percent: 100
+  total_phases: 9
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -20,17 +20,17 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-05-19)
 
-**Core value:** Agents can find and change code through budget-aware, precomputed intelligence with near-zero token overhead by default.
-**Current focus:** All phases complete — milestone v1.0 delivered
+**Core value:** Make coding-agent prompt prefixes deterministic, large, and cache-safe so provider-side caching fires and savings are proven in Atelier traces.
+**Current focus:** v1.1 Prompt Compiler — Phase 8 (Block Model) ready to plan
 
 ## Current Position
 
-Phase: 07 (maintainer-playbooks-and-scorecards) — COMPLETE
-Plan: All 21 plans complete
-Status: All 7 phases complete; milestone v1.0 delivered
-Last activity: 2026-05-23 -- Phase 07 docs complete; make docs-check + check-agent-context pass
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-23 — Milestone v1.1 started
 
-Progress: [██████████] 100%
+Progress: [          ] 0%
 
 ## Performance Metrics
 
