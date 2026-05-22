@@ -1638,9 +1638,9 @@ def test_route_decide_summary_is_present(
 
     assert "_summary" in payload, f"'_summary' key missing from route decide response: {list(payload)}"
     summary = payload["_summary"]
-    assert "recommended_route" in summary, f"_summary missing 'recommended_route': {summary}"
-    assert "required_validation" in summary, f"_summary missing 'required_validation': {summary}"
-    assert "risk" in summary, f"_summary missing 'risk': {summary}"
+    assert "recommended" in summary, f"_summary missing 'recommended': {summary}"
+    assert "budget" in summary, f"_summary missing 'budget': {summary}"
+    assert "can_spawn" in summary, f"_summary missing 'can_spawn': {summary}"
 
 
 def test_shell_failure_preserves_tail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

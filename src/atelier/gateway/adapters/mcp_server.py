@@ -155,6 +155,8 @@ _product_session_started_at: float | None = None
 _last_plan_hash_by_session: dict[str, str] = {}
 _last_plan_by_session: dict[str, dict[str, Any]] = {}
 _last_blocked_plan_hash_by_session: dict[str, str] = {}
+_client_sampling_supported: bool = False
+_sampling_seq: int = 0
 
 
 def _service_backed_state() -> bool:
@@ -489,6 +491,26 @@ def _run_worker_tick_safe(root: Path) -> None:
         )
 
 
+_last_worker_spawn_time: float = 0.0
+_WORKER_SPAWN_THROTTLE_SECS: float = 30.0
+
+
+def _spawn_worker_if_idle(root: Path) -> None:
+    """Spawn a worker thread at most once per throttle window to avoid thread storms."""
+    import time
+
+    global _last_worker_spawn_time
+    now = time.monotonic()
+    if now - _last_worker_spawn_time < _WORKER_SPAWN_THROTTLE_SECS:
+        return
+    _last_worker_spawn_time = now
+    threading.Thread(
+        target=_run_worker_tick_safe,
+        args=(root,),
+        daemon=True,
+    ).start()
+
+
 _runtime_cache: ContextRuntime | None = None
 _context_budget_recorder: Any = None
 
@@ -503,6 +525,7 @@ def _runtime() -> ContextRuntime:
 def _reset_runtime_cache_for_testing() -> None:
     global _current_ledger, _realtime_ctx, _product_session_id, _product_session_started_at
     global _runtime_cache, _remote_client, _context_budget_recorder
+    global _last_worker_spawn_time
     _current_ledger = None
     _realtime_ctx = None
     _product_session_id = None
@@ -510,6 +533,7 @@ def _reset_runtime_cache_for_testing() -> None:
     _runtime_cache = None
     _remote_client = None
     _context_budget_recorder = None
+    _last_worker_spawn_time = 0.0
     _last_plan_hash_by_session.clear()
     _last_plan_by_session.clear()
     _last_blocked_plan_hash_by_session.clear()
@@ -698,10 +722,11 @@ def _bootstrap_context_status(root: Path) -> dict[str, Any]:
         if isinstance(job.get("payload"), dict) and job["payload"].get("repo_id") == repo_id
     ]
     queued = False
-    active_job = next((job for job in jobs if job["status"] in {"pending", "running", "failed"}), None)
-    blocking_job = next((job for job in jobs if job["status"] in {"pending", "running", "failed", "dead"}), None)
+    # Only block re-queueing if there is an already-active (pending or running) job.
+    # Failed/dead jobs should not permanently prevent retrying bootstrap.
+    active_job = next((job for job in jobs if job["status"] in {"pending", "running"}), None)
     job_id: str | None = None
-    if state != "warm" and blocking_job is None:
+    if state != "warm" and active_job is None:
         job_id = store.enqueue_job(
             JOB_BOOTSTRAP_CONTEXT,
             {"repo_root": str(repo_root), "repo_id": repo_id},
@@ -730,7 +755,29 @@ def tool_get_context(
     agent_id: str | None = None,
     recall: bool = True,
 ) -> dict[str, Any]:
-    """[DEV] Record task context and retrieve relevant ReasonBlocks for the task."""
+    """Record task context and retrieve relevant ReasonBlocks for the task.
+
+    Call this at the start of every task to seed your context with prior
+    procedures, bootstrap repo knowledge, and per-agent memory.
+
+    Args:
+        task:         Current task description (required). Drives block retrieval ranking.
+        domain:       Optional domain tag (e.g. "python", "infra") to narrow retrieval.
+        files:        File paths relevant to the task — boosts blocks associated with those files.
+        tools:        Tools you plan to use — helps rank procedure blocks that match.
+        errors:       Recent error messages — triggers rescue-mode block retrieval.
+        max_blocks:   Maximum number of ReasonBlocks to inject (default 5).
+        token_budget: Token cap for injected procedures (default 2000). Pass None for unlimited.
+        dedup:        Deduplicate near-identical blocks before returning (default True).
+        agent_id:     When set, loads per-agent archival memory passages via recall.
+        recall:       Set False to skip archival memory recall entirely (default True).
+
+    Returns a dict with:
+        context:            Full context string ready to prepend to your prompt.
+        bootstrap:          Repo bootstrap status (status, repo_id, queued, missing_labels).
+        recalled_passages:  Per-agent memory passages (empty list when agent_id is None).
+        tokens_breakdown:   Token counts by source (reasonblocks / bootstrap / memory / total).
+    """
     if errors is None:
         errors = []
     if tools is None:
@@ -763,19 +810,6 @@ def tool_get_context(
     if stub := _check_dev_mode("context"):
         return {"context": stub}
 
-    with contextlib.suppress(Exception):
-        scored = rt.core_runtime.context_reuse.retrieve(
-            task=task,
-            domain=domain,
-            files=files,
-            tools=tools,
-            errors=errors,
-            limit=max_blocks,
-            token_budget=token_budget,
-            dedup=dedup,
-        )
-        _emit_reasonblock_retrieved(scored, domain)
-
     bootstrap = _bootstrap_context_status(_atelier_root())
     payload = rt.get_context(
         task=task,
@@ -791,25 +825,172 @@ def tool_get_context(
     )
     result: dict[str, Any] = payload if isinstance(payload, dict) else {"context": payload}
     if bootstrap["status"] != "warm":
-        threading.Thread(
-            target=_run_worker_tick_safe,
-            args=(_atelier_root(),),
-            daemon=True,
-        ).start()
+        _spawn_worker_if_idle(_atelier_root())
     result["bootstrap"] = bootstrap
     return result
 
 
-@mcp_tool(name="route")
+
+_TASK_TYPE_TO_ADVISOR_TOOL: dict[str, str] = {
+    "debug": "shell",
+    "feature": "edit",
+    "refactor": "edit",
+    "test": "context",
+    "explain": "search",
+    "review": "read",
+    "docs": "compact",
+    "ops": "shell",
+}
+
+_TIER_PRIORITY: dict[str, int] = {"cheap": 0, "medium": 1, "high": 2, "expensive": 2}
+
+
+def _get_available_models() -> list[dict[str, Any]]:
+    """Return models the current session can access, ordered cheapest-first."""
+    from atelier.core.capabilities.counterfactual.pricing import _DEFAULT_CANDIDATES
+    from atelier.core.capabilities.cross_vendor_routing.configuration import (
+        detect_configured_vendors,
+    )
+
+    configured = set(detect_configured_vendors())
+    return [
+        {"vendor": c.vendor, "model_id": c.model_id, "tier": c.tier}
+        for c in _DEFAULT_CANDIDATES
+        if c.vendor in configured
+    ]
+
+
+def _sampling_invoke(prompt: str, model_hint: str, max_tokens: int) -> dict[str, Any]:
+    """Send a sampling/createMessage request to the MCP client and return its response."""
+    global _sampling_seq
+    if not _client_sampling_supported:
+        return {
+            "sampling_supported": False,
+            "error": (
+                "Host does not support MCP sampling. Use the host agent's native sub-agent "
+                "mechanism (e.g. Claude Code's Task tool) with model='" + model_hint + "'."
+            ),
+            "prompt": prompt,
+            "model_hint": model_hint,
+        }
+    _sampling_seq += 1
+    req_id = f"samp-{_sampling_seq}"
+    request = {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "method": "sampling/createMessage",
+        "params": {
+            "messages": [{"role": "user", "content": {"type": "text", "text": prompt}}],
+            "modelPreferences": {
+                "hints": [{"name": model_hint}] if model_hint else [],
+                "costPriority": 0.3,
+                "speedPriority": 0.3,
+                "intelligencePriority": 0.4,
+            },
+            "maxTokens": max_tokens,
+            "includeContext": "none",
+        },
+    }
+    sys.stdout.write(json.dumps(request, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+    for raw_line in sys.stdin:
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        try:
+            msg = json.loads(raw_line)
+        except json.JSONDecodeError:
+            return {"sampling_supported": True, "error": "invalid sampling response from host", "model_used": None}
+        if msg.get("id") != req_id:
+            # Unexpected message — process inline and keep waiting
+            inline_resp = _handle(msg)
+            if inline_resp is not None:
+                sys.stdout.write(json.dumps(inline_resp, ensure_ascii=False) + "\n")
+                sys.stdout.flush()
+            continue
+        if "error" in msg:
+            return {
+                "sampling_supported": True,
+                "error": msg["error"].get("message", "sampling failed"),
+                "model_used": None,
+            }
+        result = msg.get("result", {})
+        content = result.get("content", {})
+        text = content.get("text", "") if isinstance(content, dict) else str(content)
+        return {
+            "sampling_supported": True,
+            "model_used": result.get("model", model_hint),
+            "response": text,
+            "stop_reason": result.get("stopReason", "end_turn"),
+        }
+    return {"sampling_supported": True, "error": "stdin closed before sampling response", "model_used": None}
+
+
+
+@mcp_tool(
+    name="route",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "op": {
+                "type": "string",
+                "enum": ["decide", "spawn"],
+                "description": (
+                    "decide: pick the best model for an upcoming task — returns model ID, tier, "
+                    "available models, and whether the host supports spawning. "
+                    "spawn: run a task on a specific model via MCP sampling (requires host support)."
+                ),
+            },
+            "task": {
+                "type": "string",
+                "description": "(decide) describe what you are about to do so the router can pick the right model.",
+            },
+            "task_type": {
+                "type": "string",
+                "enum": ["debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"],
+                "default": "feature",
+                "description": "(decide) task category — used to calibrate expected model complexity.",
+            },
+            "budget": {
+                "type": "string",
+                "enum": ["cheap", "balanced", "best"],
+                "default": "balanced",
+                "description": "(decide) cost preference: cheap=lowest cost, balanced=smart default, best=highest quality.",
+            },
+            "prompt": {
+                "type": "string",
+                "description": "(spawn) full task prompt to run on the chosen model via MCP sampling.",
+            },
+            "model": {
+                "type": "string",
+                "description": "(spawn) model ID to use (e.g. 'claude-haiku-4-5', from a prior decide call).",
+            },
+            "max_tokens": {
+                "type": "integer",
+                "default": 4096,
+                "description": "(spawn) maximum output tokens for the spawned model call.",
+            },
+        },
+        "required": ["op"],
+    },
+)
 def tool_route(
-    op: Literal["decide", "verify", "recommend"],
+    op: Literal["decide", "spawn", "verify", "recommend"] = "decide",
+    # --- decide params ---
+    task: str = "",
+    task_type: Literal["debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"] = "feature",
+    budget: Literal["cheap", "balanced", "best"] = "balanced",
+    # --- spawn params ---
+    prompt: str = "",
+    model: str = "",
+    max_tokens: int = 4096,
+    # --- backward compat (hidden from agent schema) ---
     user_goal: str = "",
     repo_root: str = ".",
     tool_name: str = "",
     task_text: str = "",
     session_state: dict[str, Any] | None = None,
     actual_vendor: str | None = None,
-    task_type: Literal["debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"] = "feature",
     risk_level: Literal["low", "medium", "high"] = "medium",
     changed_files: list[str] | None = None,
     domain: str | None = None,
@@ -836,8 +1017,7 @@ def tool_route(
     human_accepted: bool | None = None,
     benchmark_accepted: bool | None = None,
 ) -> dict[str, Any]:
-    """Route op-dispatch: op=decide computes a route; op=verify checks the outcome."""
-    rt = _runtime()
+    """Route op-dispatch: op=decide picks a model; op=spawn runs a task on that model."""
     led = _get_ledger()
 
     if changed_files is None:
@@ -851,15 +1031,81 @@ def tool_route(
     if evidence_summary is None:
         evidence_summary = {}
 
-    if op == "recommend":
-        led.record_tool_call(
-            "route",
-            {
-                "op": op,
-                "tool_name": tool_name,
-                "actual_vendor": actual_vendor,
+    # --- op=decide: pick the best model for an upcoming task ---
+    if op == "decide":
+        effective_task = task or task_text or user_goal
+        led.record_tool_call("route", {"op": op, "task_type": task_type, "budget": budget})
+        available = _get_available_models()
+        host_model = os.environ.get("ATELIER_MODEL", "")
+
+        # Try cross-vendor advisor for a cost-and-quality-aware recommendation
+        chosen_model = ""
+        tier = ""
+        rationale = ""
+        try:
+            from atelier.core.capabilities.cross_vendor_routing.advisor import (
+                CrossVendorRouteAdvisor,
+            )
+
+            advisor = CrossVendorRouteAdvisor(_atelier_root())
+            advisor_tool = _TASK_TYPE_TO_ADVISOR_TOOL.get(task_type, "edit")
+            rec = advisor.recommend(
+                tool_name=advisor_tool,
+                task_text=effective_task,
+                session_state=_model_recommendation_state(led, {}),
+            )
+            chosen_model = rec.get("model", "")
+            tier = rec.get("tier", "")
+            rationale = rec.get("reason", "")
+        except Exception:
+            pass
+
+        # Apply budget override on top of advisor recommendation
+        if budget == "cheap" and available:
+            cheap_models = [m for m in available if m["tier"] == "cheap"]
+            if cheap_models:
+                chosen_model = cheap_models[0]["model_id"]
+                tier = "cheap"
+                rationale = "cheapest available model selected per budget=cheap"
+        elif budget == "best" and available:
+            expensive_models = sorted(
+                available,
+                key=lambda m: _TIER_PRIORITY.get(m["tier"], 0),
+                reverse=True,
+            )
+            if expensive_models:
+                chosen_model = expensive_models[0]["model_id"]
+                tier = expensive_models[0]["tier"]
+                rationale = "highest-capability available model selected per budget=best"
+
+        # Final fallback: pick cheapest available model
+        if not chosen_model and available:
+            chosen_model = available[0]["model_id"]
+            tier = available[0]["tier"]
+            rationale = "fallback: cheapest configured model"
+
+        return {
+            "model": chosen_model,
+            "tier": tier,
+            "rationale": rationale,
+            "available_models": available,
+            "host_model": host_model,
+            "sampling_supported": _client_sampling_supported,
+            "_summary": {
+                "recommended": chosen_model,
+                "budget": budget,
+                "can_spawn": _client_sampling_supported,
             },
-        )
+        }
+
+    # --- op=spawn: run a task on a specific model via MCP sampling ---
+    if op == "spawn":
+        led.record_tool_call("route", {"op": op, "model": model, "max_tokens": max_tokens})
+        return _sampling_invoke(prompt=prompt, model_hint=model, max_tokens=max_tokens)
+
+    # --- op=recommend: backward-compat cross-vendor advisor (hidden from schema) ---
+    if op == "recommend":
+        led.record_tool_call("route", {"op": op, "tool_name": tool_name, "actual_vendor": actual_vendor})
         if session_state is None:
             session_state = _model_recommendation_state(led, {})
         from atelier.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
@@ -872,61 +1118,17 @@ def tool_route(
             actual_vendor=actual_vendor,
         )
 
-    if op == "decide":
-        led.record_tool_call(
-            "route",
-            {
-                "op": op,
-                "task_type": task_type,
-                "risk_level": risk_level,
-                "changed_files": changed_files,
-                "domain": domain,
-                "step_type": step_type,
-                "step_index": step_index,
-            },
-        )
-        decision = rt.route_decide(
-            user_goal=user_goal,
-            repo_root=repo_root,
-            task_type=task_type,
-            risk_level=risk_level,
-            changed_files=changed_files,
-            domain=domain,
-            step_type=step_type,
-            step_index=step_index,
-            session_id=led.session_id,
-            evidence_summary=evidence_summary,
-            ledger=led,
-        )
-        out = to_jsonable(decision)
-        if isinstance(out, dict):
-            # Compact human-readable summary so the caller always gets an
-            # actionable recommendation without parsing the full decision object.
-            out.setdefault(
-                "_summary",
-                {
-                    "recommended_route": out.get("tier") or out.get("selected_model") or "local edit",
-                    "required_validation": out.get("verifier_required") or [],
-                    "risk": out.get("risk_level") or risk_level,
-                },
-            )
-        return out
-
+    # --- op=verify: internal quality gate (hidden from schema) ---
     if route_decision_id is None:
         raise ValueError("route_decision_id is required when op='verify'")
+    rt = _runtime()
     led.record_tool_call(
         "route",
         {
             "op": op,
             "route_decision_id": route_decision_id,
-            "changed_files": changed_files,
             "rubric_status": rubric_status,
-            "required_verifiers": required_verifiers,
-            "protected_file_match": protected_file_match,
-            "repeated_failure_signatures": repeated_failure_signatures,
             "diff_line_count": diff_line_count,
-            "human_accepted": human_accepted,
-            "benchmark_accepted": benchmark_accepted,
         },
     )
     envelope = rt.core_runtime.quality_router.verify(
@@ -950,8 +1152,7 @@ def tool_route(
                 "outcome": verify_out.get("outcome") or "unknown",
                 "passed": verify_out.get("outcome") in {"pass", "warn"},
                 "blocking_checks": [
-                    r.get("name", "") for r in (verify_out.get("validation_results") or [])
-                    if not r.get("passed", True)
+                    r.get("name", "") for r in (verify_out.get("validation_results") or []) if not r.get("passed", True)
                 ],
             },
         )
@@ -3656,6 +3857,8 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
 
     if method == "initialize":
         _emit_mcp_session_start()
+        global _client_sampling_supported
+        _client_sampling_supported = "sampling" in (params.get("capabilities") or {})
         return _ok(
             rid,
             {

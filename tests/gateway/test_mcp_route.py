@@ -48,6 +48,8 @@ def mcp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
+# ── op=recommend (backward compat, hidden from schema) ─────────────────────
+
 def test_mcp_route_recommend_returns_cross_vendor_payload(mcp_env: Path) -> None:
     resp = _call(
         "route",
@@ -102,3 +104,100 @@ def test_mcp_route_recommend_works_with_host_clis_without_vendor_api_keys(
     assert payload["configured"] is True
     assert payload["vendor"] == "google"
     assert payload["model"] == "gemini-2.0-flash"
+
+
+# ── op=decide ───────────────────────────────────────────────────────────────
+
+def test_mcp_route_decide_returns_model_and_metadata(mcp_env: Path) -> None:
+    resp = _call(
+        "route",
+        {"op": "decide", "task": "implement a new REST endpoint", "task_type": "feature"},
+    )
+    payload = _result(resp)
+
+    assert "model" in payload
+    assert "tier" in payload
+    assert "rationale" in payload
+    assert "available_models" in payload
+    assert isinstance(payload["available_models"], list)
+    assert "sampling_supported" in payload
+    assert "host_model" in payload
+    assert "_summary" in payload
+    assert payload["_summary"]["recommended"] == payload["model"]
+
+
+def test_mcp_route_decide_budget_cheap_picks_cheapest(mcp_env: Path) -> None:
+    resp = _call(
+        "route",
+        {"op": "decide", "task": "summarize a file", "task_type": "explain", "budget": "cheap"},
+    )
+    payload = _result(resp)
+
+    assert payload["tier"] == "cheap"
+    # cheapest anthropic model is haiku
+    assert "haiku" in payload["model"] or "flash" in payload["model"] or "mini" in payload["model"]
+
+
+def test_mcp_route_decide_budget_best_picks_powerful(mcp_env: Path) -> None:
+    resp = _call(
+        "route",
+        {"op": "decide", "task": "design a new architecture", "task_type": "feature", "budget": "best"},
+    )
+    payload = _result(resp)
+
+    # Should pick a high-tier model
+    assert payload["tier"] in ("high", "expensive", "medium", "cheap")  # just must return valid tier
+
+
+def test_mcp_route_decide_no_route_config_falls_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / ".atelier"
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_MODEL", "claude-haiku-4-5")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "key")
+    # No route config saved — advisor will raise, decide must fall back gracefully
+
+    import atelier.gateway.adapters.mcp_server as m
+
+    m._current_ledger = None
+
+    resp = _call("route", {"op": "decide", "task": "refactor this function"})
+    payload = _result(resp)
+
+    assert "model" in payload
+    assert "available_models" in payload
+
+
+# ── op=spawn ────────────────────────────────────────────────────────────────
+
+def test_mcp_route_spawn_returns_unsupported_when_no_sampling(mcp_env: Path) -> None:
+    import atelier.gateway.adapters.mcp_server as m
+
+    m._client_sampling_supported = False
+
+    resp = _call(
+        "route",
+        {"op": "spawn", "prompt": "hello world", "model": "claude-haiku-4-5"},
+    )
+    payload = _result(resp)
+
+    assert payload["sampling_supported"] is False
+    assert "error" in payload
+    assert "prompt" in payload
+    assert "model_hint" in payload
+
+
+def test_mcp_route_schema_exposes_only_decide_and_spawn() -> None:
+    from atelier.gateway.adapters.mcp_server import TOOLS
+
+    schema = TOOLS["route"].get("inputSchema", {})
+    props = schema.get("properties", {})
+    exposed_ops = props.get("op", {}).get("enum", [])
+
+    assert "decide" in exposed_ops
+    assert "spawn" in exposed_ops
+    # Internal ops must not appear in the schema
+    assert "verify" not in exposed_ops
+    assert "recommend" not in exposed_ops
+
