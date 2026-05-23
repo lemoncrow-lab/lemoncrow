@@ -1124,28 +1124,45 @@ def test_tool_routes_extracts_framework_endpoints(tmp_path: Path) -> None:
     )
     (tmp_path / "src" / "urls.py").write_text(
         "from django.urls import path\n"
+        "from django.conf.urls import url\n"
         "from . import views\n\n"
         "urlpatterns = [\n"
         "    path('admin/', views.admin),\n"
+        "    url(r'^legacy/$', views.legacy),\n"
         "]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "flask_app.py").write_text(
+        "from flask import Flask\n\n"
+        "app = Flask(__name__)\n\n"
+        "def healthz() -> str:\n"
+        "    return 'ok'\n\n"
+        "app.add_url_rule('/healthz', view_func=healthz, methods=['GET'])\n",
         encoding="utf-8",
     )
     (tmp_path / "src" / "server.ts").write_text(
         "import express from 'express';\n"
         "const app = express();\n"
+        "const router = express.Router();\n"
         "function pingHandler() { return 'pong'; }\n"
-        "app.get('/ping', pingHandler);\n",
+        "app.get('/ping', pingHandler);\n"
+        "function listOrders() { return []; }\n"
+        "function createOrder() { return {}; }\n"
+        "router.route('/orders').get(listOrders).post(createOrder);\n",
         encoding="utf-8",
     )
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
 
     payload = engine.tool_routes(limit=20, budget_tokens=4000)
 
-    assert payload["route_count"] >= 3
+    assert payload["route_count"] >= 6
     routes = payload["routes"]
     assert any(route["framework"] == "fastapi" and route["method"] == "GET" and route["route"] == "/health" for route in routes)
     assert any(route["framework"] == "express" and route["route"] == "/ping" for route in routes)
     assert any(route["framework"] == "django" and route["route"] == "admin/" for route in routes)
+    assert any(route["framework"] == "django" and route["route"] == "^legacy/$" for route in routes)
+    assert any(route["framework"] == "flask" and route["route"] == "/healthz" for route in routes)
+    assert any(route["framework"] == "express" and route["method"] == "POST" and route["route"] == "/orders" for route in routes)
 
 
 def test_tool_explore_respects_budget_and_keeps_identity_fields(tmp_path: Path) -> None:

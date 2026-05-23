@@ -86,11 +86,23 @@ _FASTAPI_API_ROUTE_RE = re.compile(
 _FLASK_ROUTE_RE = re.compile(
     r"^\s*@(?P<router>[A-Za-z_][A-Za-z0-9_]*)\.route\(\s*['\"](?P<route>[^'\"]+)['\"](?P<rest>.*)\)\s*$"
 )
+_FLASK_ADD_URL_RULE_RE = re.compile(
+    r"^\s*(?P<router>[A-Za-z_][A-Za-z0-9_]*)\.add_url_rule\(\s*['\"](?P<route>[^'\"]+)['\"](?P<rest>.*)\)\s*$"
+)
 _DJANGO_PATH_RE = re.compile(
     r"^\s*(?:re_)?path\(\s*['\"](?P<route>[^'\"]+)['\"]\s*,\s*(?P<handler>[A-Za-z_][A-Za-z0-9_\.]*)"
 )
+_DJANGO_URL_RE = re.compile(
+    r"^\s*url\(\s*(?:r)?['\"](?P<route>[^'\"]+)['\"]\s*,\s*(?P<handler>[A-Za-z_][A-Za-z0-9_\.]*)"
+)
 _EXPRESS_ROUTE_RE = re.compile(
     r"(?P<router>app|router)\.(?P<verb>get|post|put|patch|delete|options|head|all|use)\(\s*[`'\"](?P<route>[^`'\"]+)[`'\"]\s*(?:,\s*(?P<handler>[A-Za-z_$][A-Za-z0-9_$.]*))?"
+)
+_EXPRESS_ROUTE_CHAIN_RE = re.compile(
+    r"(?P<router>app|router)\.route\(\s*[`'\"](?P<route>[^`'\"]+)[`'\"]\s*\)(?P<chain>.+)$"
+)
+_EXPRESS_CHAIN_METHOD_RE = re.compile(
+    r"\.(?P<verb>get|post|put|patch|delete|options|head|all|use)\(\s*(?P<handler>[A-Za-z_$][A-Za-z0-9_$.]*)?"
 )
 _METHOD_LITERAL_RE = re.compile(r"['\"](?P<method>GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|TRACE|CONNECT)['\"]", re.I)
 _LOCAL_PROVENANCE = "local"
@@ -1652,6 +1664,7 @@ class CodeContextEngine:
             "autosync": self._autosync_status(),
             "provenance": _LOCAL_PROVENANCE,
         }
+        payload = cast(dict[str, Any], self._json_safe(payload))
         packed = self._pack_single_payload(
             payload,
             budget_tokens=budget_tokens,
@@ -3876,6 +3889,26 @@ class CodeContextEngine:
                         )
                     )
                 continue
+            flask_rule_match = _FLASK_ADD_URL_RULE_RE.search(line)
+            if flask_rule_match:
+                route = flask_rule_match.group("route")
+                methods = self._parse_methods(flask_rule_match.group("rest"))
+                handler = self._parse_python_handler(flask_rule_match.group("rest"))
+                for method in methods:
+                    records.append(
+                        RouteRecord(
+                            framework="flask",
+                            method=method,
+                            route=route,
+                            file_path=file_path,
+                            line=index,
+                            language="python",
+                            handler=handler,
+                            router=flask_rule_match.group("router"),
+                            provenance=_LOCAL_PROVENANCE,
+                        )
+                    )
+                continue
             django_match = _DJANGO_PATH_RE.search(line)
             if django_match:
                 records.append(
@@ -3890,29 +3923,64 @@ class CodeContextEngine:
                         provenance=_LOCAL_PROVENANCE,
                     )
                 )
+                continue
+            django_url_match = _DJANGO_URL_RE.search(line)
+            if django_url_match:
+                records.append(
+                    RouteRecord(
+                        framework="django",
+                        method="ANY",
+                        route=django_url_match.group("route"),
+                        file_path=file_path,
+                        line=index,
+                        language="python",
+                        handler=django_url_match.group("handler"),
+                        provenance=_LOCAL_PROVENANCE,
+                    )
+                )
         return records
 
     def _extract_js_routes(self, *, file_path: str, lines: list[str], language: str) -> list[RouteRecord]:
         records: list[RouteRecord] = []
         for index, line in enumerate(lines, start=1):
             match = _EXPRESS_ROUTE_RE.search(line)
-            if not match:
-                continue
-            verb = match.group("verb").upper()
-            method = "ANY" if verb in {"ALL", "USE"} else verb
-            records.append(
-                RouteRecord(
-                    framework="express",
-                    method=method,
-                    route=match.group("route"),
-                    file_path=file_path,
-                    line=index,
-                    language=language,
-                    handler=match.group("handler"),
-                    router=match.group("router"),
-                    provenance=_LOCAL_PROVENANCE,
+            if match:
+                verb = match.group("verb").upper()
+                method = "ANY" if verb in {"ALL", "USE"} else verb
+                records.append(
+                    RouteRecord(
+                        framework="express",
+                        method=method,
+                        route=match.group("route"),
+                        file_path=file_path,
+                        line=index,
+                        language=language,
+                        handler=match.group("handler"),
+                        router=match.group("router"),
+                        provenance=_LOCAL_PROVENANCE,
+                    )
                 )
-            )
+            chain_match = _EXPRESS_ROUTE_CHAIN_RE.search(line)
+            if not chain_match:
+                continue
+            base_route = chain_match.group("route")
+            chain = chain_match.group("chain") or ""
+            for method_match in _EXPRESS_CHAIN_METHOD_RE.finditer(chain):
+                verb = method_match.group("verb").upper()
+                method = "ANY" if verb in {"ALL", "USE"} else verb
+                records.append(
+                    RouteRecord(
+                        framework="express",
+                        method=method,
+                        route=base_route,
+                        file_path=file_path,
+                        line=index,
+                        language=language,
+                        handler=method_match.group("handler"),
+                        router=chain_match.group("router"),
+                        provenance=_LOCAL_PROVENANCE,
+                    )
+                )
         return records
 
     def _next_python_def_name(self, lines: list[str], decorator_line: int) -> str | None:
@@ -3933,6 +4001,17 @@ class CodeContextEngine:
             return ["GET"]
         methods = [match.group("method").upper() for match in _METHOD_LITERAL_RE.finditer(value)]
         return methods or ["GET"]
+
+    def _parse_python_handler(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        named = re.search(r"view_func\s*=\s*([A-Za-z_][A-Za-z0-9_\.]*)", value)
+        if named:
+            return named.group(1)
+        positional = re.search(r",\s*([A-Za-z_][A-Za-z0-9_\.]*)", value)
+        if positional:
+            return positional.group(1)
+        return None
 
     def _files_flat(
         self,
@@ -4171,6 +4250,15 @@ class CodeContextEngine:
         self._autosync_history.append(entry)
         if len(self._autosync_history) > 20:
             self._autosync_history = self._autosync_history[-20:]
+
+    def _json_safe(self, value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            return {str(key): self._json_safe(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._json_safe(item) for item in value]
+        return str(value)
 
     def _current_head_sha(self) -> str:
         from atelier.infra.code_intel.git_history import require_pygit2
