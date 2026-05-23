@@ -178,11 +178,7 @@ _CONTEXT_ESSENTIAL_KEYS = [
 ]
 _EXPLORE_ESSENTIAL_KEYS = [
     "query",
-    "repo_id",
     "entry_points",
-    "files",
-    "relationships",
-    "additional_relevant_files",
     "truncated",
     "provenance",
 ]
@@ -3531,9 +3527,10 @@ class CodeContextEngine:
         full_payload.setdefault("cache_hit", False)
         full_payload.setdefault("provenance", _LOCAL_PROVENANCE)
         full_total_tokens = self._compute_total_tokens({**full_payload, "tokens_saved": max(0, base_tokens_saved)})
+        minimal_payload = {key: full_payload[key] for key in essential_keys if key in full_payload}
 
         def build_payload(packed_items: list[dict[str, Any]]) -> dict[str, Any]:
-            packed_payload = dict(packed_items[0]) if packed_items else dict(full_payload)
+            packed_payload = dict(packed_items[0]) if packed_items else dict(minimal_payload)
             packed_payload["cache_hit"] = False
             packed_payload["provenance"] = str(full_payload.get("provenance") or _LOCAL_PROVENANCE)
             return self._finalize_packed_payload(
