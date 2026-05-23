@@ -61,6 +61,7 @@ from atelier.core.service.telemetry import emit_product_local
 from atelier.infra.code_intel.astgrep import (
     AstGrepAdapter,
     AstGrepToolUnavailable,
+    PatternMatch,
     PatternRewriteResult,
     PatternSearchResult,
 )
@@ -284,6 +285,35 @@ class _ExtractedSymbol:
     doc_summary: str | None = None
 
 
+@dataclass(frozen=True)
+class _IndexedReference:
+    """A local, index-time reference extracted from Python AST."""
+
+    file_path: str
+    symbol_name: str
+    line: int
+    column: int
+    end_column: int
+    enclosing_symbol_name: str | None
+    enclosing_qualified_name: str | None
+    snippet: str
+
+
+@dataclass(frozen=True)
+class _IndexedCallEdge:
+    """A local, index-time function/method call edge extracted from Python AST."""
+
+    caller_symbol_name: str
+    caller_qualified_name: str
+    caller_file_path: str
+    caller_start_line: int
+    caller_end_line: int
+    callee_name: str
+    call_line: int
+    call_column: int
+    snippet: str
+
+
 def _repo_id(repo_root: Path) -> str:
     return hashlib.sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:16]
 
@@ -449,6 +479,8 @@ class CodeContextEngine:
             conn.execute("DELETE FROM symbol_fts")
             conn.execute("DELETE FROM symbols")
             conn.execute("DELETE FROM imports")
+            conn.execute('DELETE FROM "references"')
+            conn.execute("DELETE FROM call_edges")
             conn.execute("DELETE FROM files")
             for path in files:
                 try:
@@ -478,6 +510,49 @@ class CodeContextEngine:
                         "INSERT INTO imports(repo_id, source_file, raw_import, target_file) VALUES (?, ?, ?, ?)",
                         (self.repo_id, rel, raw_import, target_file),
                     )
+                if language == "python":
+                    references, call_edges = self._extract_python_reference_index(rel, source, extracted)
+                    for reference in references:
+                        conn.execute(
+                            """
+                            INSERT INTO "references"(
+                                repo_id, symbol_name, file_path, line, column, end_column,
+                                enclosing_symbol_name, enclosing_qualified_name, snippet
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                self.repo_id,
+                                reference.symbol_name,
+                                reference.file_path,
+                                reference.line,
+                                reference.column,
+                                reference.end_column,
+                                reference.enclosing_symbol_name,
+                                reference.enclosing_qualified_name,
+                                reference.snippet,
+                            ),
+                        )
+                    for edge in call_edges:
+                        conn.execute(
+                            """
+                            INSERT INTO call_edges(
+                                repo_id, caller_symbol_name, caller_qualified_name, caller_file_path,
+                                caller_start_line, caller_end_line, callee_name, call_line, call_column, snippet
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                self.repo_id,
+                                edge.caller_symbol_name,
+                                edge.caller_qualified_name,
+                                edge.caller_file_path,
+                                edge.caller_start_line,
+                                edge.caller_end_line,
+                                edge.callee_name,
+                                edge.call_line,
+                                edge.call_column,
+                                edge.snippet,
+                            ),
+                        )
                 files_indexed += 1
                 symbols_indexed += len(extracted)
                 imports_indexed += len(imports)
@@ -1506,6 +1581,20 @@ class CodeContextEngine:
     ) -> dict[str, Any]:
         adapter = AstGrepAdapter(self.repo_root)
         if rewrite is None:
+            native = self._native_python_pattern_search(
+                pattern=pattern,
+                language=language,
+                file_glob=file_glob,
+                limit=limit,
+            )
+            if native is not None:
+                payload = self._pack_pattern_matches(native, budget_tokens=budget_tokens)
+                self._cache_set(
+                    "code.pattern",
+                    {"pattern": pattern, "language": language, "file_glob": file_glob, "limit": limit, "budget_tokens": budget_tokens, "native": True},
+                    payload,
+                )
+                return payload
             cache_args = {
                 "pattern": pattern,
                 "language": language,
@@ -1519,6 +1608,14 @@ class CodeContextEngine:
             try:
                 result = adapter.search(pattern=pattern, language=language, file_glob=file_glob, limit=limit)
             except AstGrepToolUnavailable as exc:
+                native_unavailable = self._native_python_pattern_search(
+                    pattern=pattern,
+                    language=language,
+                    file_glob=file_glob,
+                    limit=limit,
+                )
+                if native_unavailable is not None:
+                    return self._pack_pattern_matches(native_unavailable, budget_tokens=budget_tokens)
                 return exc.payload
             if len(result.matches) > limit:
                 result = PatternSearchResult(
@@ -1546,6 +1643,97 @@ class CodeContextEngine:
         if not dry_run and rewrite_result.files_changed:
             self._reindex_files(rewrite_result.files_changed)
         return self._pack_pattern_rewrite(rewrite_result, budget_tokens=budget_tokens)
+
+    def _native_python_pattern_search(
+        self,
+        *,
+        pattern: str,
+        language: str | None,
+        file_glob: str | None,
+        limit: int,
+    ) -> PatternSearchResult | None:
+        """Native Python structural search for common benchmark-critical patterns.
+
+        ast-grep remains the advanced backend, but decorators/calls should not
+        fail just because an external binary is unavailable.
+        """
+        normalized = pattern.strip()
+        if language not in {None, "python", "py"}:
+            return None
+        decorator_name: str | None = None
+        call_wildcard = False
+        if normalized.startswith("@"):
+            decorator_name = normalized[1:].split("(", 1)[0].strip()
+        elif normalized in {"$F($$$ARGS)", "$F($$$)", "$F()"}:
+            call_wildcard = True
+        else:
+            return None
+
+        matches: list[PatternMatch] = []
+        candidates = [path for path in self._indexed_files() if path.endswith(".py")]
+        if file_glob:
+            candidates = [path for path in candidates if fnmatch.fnmatch(path, file_glob)]
+        for rel in candidates:
+            if len(matches) >= limit:
+                break
+            source = self._read_file(rel)
+            lines = source.splitlines()
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                continue
+            if decorator_name is not None:
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                        continue
+                    for decorator in node.decorator_list:
+                        name = self._python_call_name(decorator)
+                        if name is None and isinstance(decorator, ast.Name):
+                            name = decorator.id
+                        if name != decorator_name and not (name or "").endswith(f".{decorator_name}"):
+                            continue
+                        line = int(getattr(decorator, "lineno", getattr(node, "lineno", 1)) or 1)
+                        col = int(getattr(decorator, "col_offset", 0) or 0) + 1
+                        snippet = lines[line - 1].strip() if 1 <= line <= len(lines) else ""
+                        matches.append(
+                            PatternMatch(
+                                file_path=rel,
+                                line=line,
+                                column=col,
+                                end_line=line,
+                                end_column=col + len(snippet),
+                                snippet=snippet,
+                                captures={"decorator": name or decorator_name},
+                            )
+                        )
+                        if len(matches) >= limit:
+                            break
+                    if len(matches) >= limit:
+                        break
+            elif call_wildcard:
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    name = self._python_call_name(node.func)
+                    if not name:
+                        continue
+                    line = int(getattr(node, "lineno", 1) or 1)
+                    col = int(getattr(node, "col_offset", 0) or 0) + 1
+                    snippet = lines[line - 1].strip() if 1 <= line <= len(lines) else ""
+                    matches.append(
+                        PatternMatch(
+                            file_path=rel,
+                            line=line,
+                            column=col,
+                            end_line=line,
+                            end_column=col + len(snippet),
+                            snippet=snippet,
+                            captures={"F": name},
+                        )
+                    )
+                    if len(matches) >= limit:
+                        break
+        return PatternSearchResult(matches=matches, truncated=len(matches) >= limit, total_matches=len(matches))
 
     def tool_status(
         self,
@@ -2470,9 +2658,38 @@ class CodeContextEngine:
                 target_file TEXT,
                 UNIQUE(repo_id, source_file, raw_import, target_file)
             );
+            CREATE TABLE IF NOT EXISTS "references" (
+                repo_id TEXT NOT NULL,
+                symbol_name TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                column INTEGER NOT NULL,
+                end_column INTEGER NOT NULL,
+                enclosing_symbol_name TEXT,
+                enclosing_qualified_name TEXT,
+                snippet TEXT NOT NULL,
+                UNIQUE(repo_id, symbol_name, file_path, line, column, enclosing_qualified_name)
+            );
+            CREATE TABLE IF NOT EXISTS call_edges (
+                repo_id TEXT NOT NULL,
+                caller_symbol_name TEXT NOT NULL,
+                caller_qualified_name TEXT NOT NULL,
+                caller_file_path TEXT NOT NULL,
+                caller_start_line INTEGER NOT NULL,
+                caller_end_line INTEGER NOT NULL,
+                callee_name TEXT NOT NULL,
+                call_line INTEGER NOT NULL,
+                call_column INTEGER NOT NULL,
+                snippet TEXT NOT NULL,
+                UNIQUE(repo_id, caller_qualified_name, caller_file_path, call_line, call_column, callee_name)
+            );
             CREATE INDEX IF NOT EXISTS idx_symbols_repo_file ON symbols(repo_id, file_path);
             CREATE INDEX IF NOT EXISTS idx_symbols_repo_name ON symbols(repo_id, symbol_name);
             CREATE INDEX IF NOT EXISTS idx_imports_target ON imports(repo_id, target_file);
+            CREATE INDEX IF NOT EXISTS idx_references_name ON "references"(repo_id, symbol_name);
+            CREATE INDEX IF NOT EXISTS idx_references_file ON "references"(repo_id, file_path);
+            CREATE INDEX IF NOT EXISTS idx_call_edges_callee ON call_edges(repo_id, callee_name);
+            CREATE INDEX IF NOT EXISTS idx_call_edges_caller ON call_edges(repo_id, caller_file_path, caller_start_line);
             """)
         conn.execute("INSERT OR IGNORE INTO engine_state(key, value) VALUES ('index_version', '0')")
 
@@ -2624,6 +2841,110 @@ class CodeContextEngine:
         walk_body(tree.body)
         return sorted(symbols, key=lambda item: (item.start_line, item.qualified_name))
 
+    def _extract_python_reference_index(
+        self,
+        rel: str,
+        source: str,
+        symbols: list[_ExtractedSymbol],
+    ) -> tuple[list[_IndexedReference], list[_IndexedCallEdge]]:
+        """Extract local references and call edges from Python AST during indexing."""
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return [], []
+
+        lines = source.splitlines()
+        references: list[_IndexedReference] = []
+        call_edges: list[_IndexedCallEdge] = []
+        seen_refs: set[tuple[str, int, int, str | None]] = set()
+        seen_edges: set[tuple[str, int, int, str]] = set()
+
+        def snippet_for(line: int) -> str:
+            return lines[line - 1].strip() if 1 <= line <= len(lines) else ""
+
+        def containing_symbol(line: int) -> _ExtractedSymbol | None:
+            candidates = [
+                symbol
+                for symbol in symbols
+                if symbol.start_line <= line <= symbol.end_line
+                and symbol.kind in {"function", "async_function", "method", "class"}
+            ]
+            if not candidates:
+                return None
+            return sorted(candidates, key=lambda item: (item.end_line - item.start_line, -item.start_line))[0]
+
+        def add_reference(name: str, node: ast.AST) -> None:
+            line = int(getattr(node, "lineno", 0) or 0)
+            if line <= 0:
+                return
+            column = int(getattr(node, "col_offset", 0) or 0) + 1
+            end_column = int(getattr(node, "end_col_offset", column + len(name) - 1) or (column + len(name) - 1))
+            enclosing = containing_symbol(line)
+            key = (name, line, column, enclosing.qualified_name if enclosing else None)
+            if key in seen_refs:
+                return
+            seen_refs.add(key)
+            references.append(
+                _IndexedReference(
+                    file_path=rel,
+                    symbol_name=name,
+                    line=line,
+                    column=column,
+                    end_column=max(column, end_column),
+                    enclosing_symbol_name=enclosing.name if enclosing else None,
+                    enclosing_qualified_name=enclosing.qualified_name if enclosing else None,
+                    snippet=snippet_for(line),
+                )
+            )
+
+        class Visitor(ast.NodeVisitor):
+            def visit_Name(self, node: ast.Name) -> None:  # noqa: N802
+                if isinstance(node.ctx, ast.Load):
+                    add_reference(node.id, node)
+                self.generic_visit(node)
+
+            def visit_Attribute(self, node: ast.Attribute) -> None:  # noqa: N802
+                add_reference(node.attr, node)
+                self.generic_visit(node)
+
+            def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+                callee = CodeContextEngine._python_call_name(node.func)
+                caller = containing_symbol(int(getattr(node, "lineno", 0) or 0))
+                if callee and caller is not None:
+                    line = int(getattr(node, "lineno", caller.start_line) or caller.start_line)
+                    column = int(getattr(node, "col_offset", 0) or 0) + 1
+                    edge_key = (caller.qualified_name, line, column, callee)
+                    if edge_key not in seen_edges:
+                        seen_edges.add(edge_key)
+                        call_edges.append(
+                            _IndexedCallEdge(
+                                caller_symbol_name=caller.name,
+                                caller_qualified_name=caller.qualified_name,
+                                caller_file_path=rel,
+                                caller_start_line=caller.start_line,
+                                caller_end_line=caller.end_line,
+                                callee_name=callee,
+                                call_line=line,
+                                call_column=column,
+                                snippet=snippet_for(line),
+                            )
+                        )
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+        return references, call_edges
+
+    @staticmethod
+    def _python_call_name(node: ast.AST) -> str | None:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            base = CodeContextEngine._python_call_name(node.value)
+            return f"{base}.{node.attr}" if base else node.attr
+        if isinstance(node, ast.Call):
+            return CodeContextEngine._python_call_name(node.func)
+        return None
+
     def _extract_tag_symbols(self, path: Path, source: str, language: str) -> list[_ExtractedSymbol]:
         del language
         try:
@@ -2698,13 +3019,27 @@ class CodeContextEngine:
 
     def _resolve_python_module(self, base: Path, module: str) -> str | None:
         parts = module.split(".")
-        for search_base in [base, *base.parents[:4]]:
+        search_bases: list[Path] = []
+        for candidate in [base, *base.parents, self.repo_root, self.repo_root / "src"]:
+            resolved = candidate.resolve()
+            if resolved not in search_bases:
+                search_bases.append(resolved)
+        for search_base in search_bases:
             candidate = search_base / Path(*parts).with_suffix(".py")
             if candidate.is_file():
                 return _safe_relpath(self.repo_root, candidate)
             package = search_base / Path(*parts) / "__init__.py"
             if package.is_file():
                 return _safe_relpath(self.repo_root, package)
+            # src-layout imports often omit the top-level src directory while
+            # file-local parent probing starts below it. Also handle package-root
+            # candidates such as atelier.core.foo -> src/atelier/core/foo.py.
+            src_candidate = self.repo_root / "src" / Path(*parts).with_suffix(".py")
+            if src_candidate.is_file():
+                return _safe_relpath(self.repo_root, src_candidate)
+            src_package = self.repo_root / "src" / Path(*parts) / "__init__.py"
+            if src_package.is_file():
+                return _safe_relpath(self.repo_root, src_package)
         return None
 
     def _resolve_relative_module(self, base: Path, raw: str, suffixes: list[str]) -> str | None:
@@ -3089,6 +3424,14 @@ class CodeContextEngine:
         target_file = str(target["file_path"])
         target_start = int(target["start_line"])
         target_end = int(target["end_line"])
+        indexed = self._indexed_references_for_symbol(
+            target_name=target_name,
+            target_file=target_file,
+            target_start=target_start,
+            target_end=target_end,
+        )
+        if indexed:
+            return indexed
         results: list[UsageReference] = []
         seen: set[tuple[str, int, int]] = set()
         for rel in self._indexed_files():
@@ -3123,6 +3466,51 @@ class CodeContextEngine:
         results.sort(key=lambda item: (item.file_path, item.line, item.column))
         return results
 
+    def _indexed_references_for_symbol(
+        self,
+        *,
+        target_name: str,
+        target_file: str,
+        target_start: int,
+        target_end: int,
+    ) -> list[UsageReference]:
+        with self._connect() as conn:
+            self._init_schema(conn)
+            rows = conn.execute(
+                """
+                SELECT file_path, line, column, end_column, enclosing_qualified_name, snippet
+                FROM "references"
+                WHERE repo_id = ? AND symbol_name = ?
+                ORDER BY file_path, line, column
+                """,
+                (self.repo_id, target_name),
+            ).fetchall()
+        results: list[UsageReference] = []
+        seen: set[tuple[str, int, int]] = set()
+        for row in rows:
+            file_path = str(row["file_path"])
+            line = int(row["line"])
+            column = int(row["column"])
+            if file_path == target_file and target_start <= line <= target_end:
+                continue
+            key = (file_path, line, column)
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(
+                UsageReference(
+                    file_path=file_path,
+                    line=line,
+                    column=column,
+                    end_line=line,
+                    end_column=int(row["end_column"]),
+                    caller=cast(str | None, row["enclosing_qualified_name"]),
+                    snippet=str(row["snippet"]),
+                    provenance="local_index",
+                )
+            )
+        return results
+
     def _find_callers_local(
         self,
         *,
@@ -3131,8 +3519,38 @@ class CodeContextEngine:
         file_path: str | None = None,
         symbol_name: str | None = None,
     ) -> list[CallGraphNode] | None:
-        del symbol_id, qualified_name, file_path, symbol_name
-        return None
+        try:
+            target = self._get_symbol_local(
+                symbol_id=symbol_id,
+                qualified_name=qualified_name,
+                file_path=file_path,
+                symbol_name=symbol_name,
+            )
+        except LookupError:
+            return None
+        target_name = str(target["symbol_name"])
+        with self._connect() as conn:
+            self._init_schema(conn)
+            rows = conn.execute(
+                """
+                SELECT DISTINCT caller_symbol_name, caller_qualified_name, caller_file_path,
+                       caller_start_line, caller_end_line
+                FROM call_edges
+                WHERE repo_id = ? AND (callee_name = ? OR callee_name LIKE ?)
+                ORDER BY caller_file_path, caller_start_line
+                """,
+                (self.repo_id, target_name, f"%.{target_name}"),
+            ).fetchall()
+        return [
+            self._call_graph_node_from_indexed_row(
+                file_path=str(row["caller_file_path"]),
+                start_line=int(row["caller_start_line"]),
+                end_line=int(row["caller_end_line"]),
+                symbol_name=str(row["caller_symbol_name"]),
+                qualified_name=str(row["caller_qualified_name"]),
+            )
+            for row in rows
+        ]
 
     def _fallback_callers_from_references(
         self,
@@ -3253,8 +3671,110 @@ class CodeContextEngine:
         file_path: str | None = None,
         symbol_name: str | None = None,
     ) -> list[CallGraphNode] | None:
-        del symbol_id, qualified_name, file_path, symbol_name
-        return None
+        try:
+            target = self._get_symbol_local(
+                symbol_id=symbol_id,
+                qualified_name=qualified_name,
+                file_path=file_path,
+                symbol_name=symbol_name,
+            )
+        except LookupError:
+            return None
+        target_file = str(target["file_path"])
+        target_start = int(target["start_line"])
+        target_end = int(target["end_line"])
+        with self._connect() as conn:
+            self._init_schema(conn)
+            rows = conn.execute(
+                """
+                SELECT DISTINCT callee_name
+                FROM call_edges
+                WHERE repo_id = ? AND caller_file_path = ?
+                  AND caller_start_line = ? AND caller_end_line = ?
+                ORDER BY callee_name
+                """,
+                (self.repo_id, target_file, target_start, target_end),
+            ).fetchall()
+        nodes: list[CallGraphNode] = []
+        seen: set[str] = set()
+        for row in rows:
+            callee_name = str(row["callee_name"])
+            short_name = callee_name.rsplit(".", 1)[-1]
+            if short_name in seen:
+                continue
+            seen.add(short_name)
+            try:
+                payload = self._get_symbol_local(symbol_name=short_name)
+                nodes.append(
+                    CallGraphNode(
+                        symbol_id=str(payload["symbol_id"]),
+                        symbol_name=str(payload["symbol_name"]),
+                        qualified_name=str(payload["qualified_name"]),
+                        file_path=str(payload["file_path"]),
+                        kind=str(payload["kind"]),
+                        start_line=int(payload["start_line"]),
+                        end_line=int(payload["end_line"]),
+                        provenance=str(payload.get("provenance") or "local_index"),
+                    )
+                )
+            except LookupError:
+                synthetic_id = f"local-callee::{hashlib.sha1(callee_name.encode('utf-8')).hexdigest()[:16]}"
+                nodes.append(
+                    CallGraphNode(
+                        symbol_id=synthetic_id,
+                        symbol_name=short_name,
+                        qualified_name=callee_name,
+                        file_path=target_file,
+                        kind="reference",
+                        start_line=target_start,
+                        end_line=target_end,
+                        provenance="local_index",
+                    )
+                )
+        return nodes
+
+    def _call_graph_node_from_indexed_row(
+        self,
+        *,
+        file_path: str,
+        start_line: int,
+        end_line: int,
+        symbol_name: str,
+        qualified_name: str,
+    ) -> CallGraphNode:
+        with self._connect() as conn:
+            self._init_schema(conn)
+            row = conn.execute(
+                    """
+                    SELECT *, NULL AS score FROM symbols
+                    WHERE repo_id = ? AND file_path = ? AND start_line = ? AND symbol_name = ?
+                    LIMIT 1
+                    """,
+                    (self.repo_id, file_path, start_line, symbol_name),
+            ).fetchone()
+        if row is not None:
+            symbol = _row_to_symbol(row)
+            return CallGraphNode(
+                    symbol_id=symbol.symbol_id,
+                    symbol_name=symbol.symbol_name,
+                    qualified_name=symbol.qualified_name,
+                    file_path=symbol.file_path,
+                    kind=symbol.kind,
+                    start_line=symbol.start_line,
+                    end_line=symbol.end_line,
+                    provenance="local_index",
+            )
+        synthetic_id = f"local-call::{hashlib.sha1(f'{file_path}:{start_line}:{qualified_name}'.encode('utf-8')).hexdigest()[:16]}"
+        return CallGraphNode(
+            symbol_id=synthetic_id,
+            symbol_name=symbol_name,
+            qualified_name=qualified_name,
+            file_path=file_path,
+            kind="function",
+            start_line=start_line,
+            end_line=end_line,
+            provenance="local_index",
+        )
 
     def _parse_rg_output(self, output: str, *, limit: int) -> list[TextMatch]:
         matches: list[TextMatch] = []

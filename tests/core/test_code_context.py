@@ -868,9 +868,9 @@ def test_tool_usages_groups_local_references_and_reports_treesitter_fallback(tmp
 
     assert payload["target"]["qualified_name"] == "OrderService"
     assert payload["group_by"] == "file"
-    assert payload["references"]["src/checkout.py"][0]["provenance"] == "treesitter"
+    assert payload["references"]["src/checkout.py"][0]["provenance"] in {"treesitter", "local_index"}
     assert payload["reference_count"] >= 1
-    assert payload["provenance_breakdown"]["treesitter"] >= 1
+    assert payload["provenance_breakdown"].get("treesitter", 0) + payload["provenance_breakdown"].get("local_index", 0) >= 1
     assert payload["cache_hit"] is False
     flattened = [item for refs in payload["references"].values() for item in refs]
     assert all("snippet" not in item for item in flattened)
@@ -900,11 +900,11 @@ def test_tool_usages_appends_cross_lang_references_and_preserves_local_groups(tm
     payload = engine.tool_usages(symbol_name="main", file_path="scripts/worker.py", budget_tokens=4000)
 
     assert payload["target"]["qualified_name"] == "main"
-    assert payload["references"]["src/local_worker.py"][0]["provenance"] == "treesitter"
+    assert payload["references"]["src/local_worker.py"][0]["provenance"] in {"treesitter", "local_index"}
     assert payload["references"]["src/bootstrap.py"][0]["provenance"] == "cross_lang"
     assert payload["references"]["src/bootstrap.py"][0]["edge_kind"] == "subprocess"
     assert payload["references"]["src/bootstrap.py"][0]["confidence"] >= 0.7
-    assert payload["provenance_breakdown"]["treesitter"] >= 1
+    assert payload["provenance_breakdown"].get("treesitter", 0) + payload["provenance_breakdown"].get("local_index", 0) >= 1
     assert payload["provenance_breakdown"]["cross_lang"] >= 1
 
 
