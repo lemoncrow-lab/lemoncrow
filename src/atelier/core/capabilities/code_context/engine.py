@@ -86,11 +86,23 @@ _FASTAPI_API_ROUTE_RE = re.compile(
 _FLASK_ROUTE_RE = re.compile(
     r"^\s*@(?P<router>[A-Za-z_][A-Za-z0-9_]*)\.route\(\s*['\"](?P<route>[^'\"]+)['\"](?P<rest>.*)\)\s*$"
 )
+_FLASK_ADD_URL_RULE_RE = re.compile(
+    r"^\s*(?P<router>[A-Za-z_][A-Za-z0-9_]*)\.add_url_rule\(\s*['\"](?P<route>[^'\"]+)['\"](?P<rest>.*)\)\s*$"
+)
 _DJANGO_PATH_RE = re.compile(
     r"^\s*(?:re_)?path\(\s*['\"](?P<route>[^'\"]+)['\"]\s*,\s*(?P<handler>[A-Za-z_][A-Za-z0-9_\.]*)"
 )
+_DJANGO_URL_RE = re.compile(
+    r"^\s*url\(\s*(?:r)?['\"](?P<route>[^'\"]+)['\"]\s*,\s*(?P<handler>[A-Za-z_][A-Za-z0-9_\.]*)"
+)
 _EXPRESS_ROUTE_RE = re.compile(
     r"(?P<router>app|router)\.(?P<verb>get|post|put|patch|delete|options|head|all|use)\(\s*[`'\"](?P<route>[^`'\"]+)[`'\"]\s*(?:,\s*(?P<handler>[A-Za-z_$][A-Za-z0-9_$.]*))?"
+)
+_EXPRESS_ROUTE_CHAIN_RE = re.compile(
+    r"(?P<router>app|router)\.route\(\s*[`'\"](?P<route>[^`'\"]+)[`'\"]\s*\)(?P<chain>.+)$"
+)
+_EXPRESS_CHAIN_METHOD_RE = re.compile(
+    r"\.(?P<verb>get|post|put|patch|delete|options|head|all|use)\(\s*(?P<handler>[A-Za-z_$][A-Za-z0-9_$.]*)?"
 )
 _METHOD_LITERAL_RE = re.compile(r"['\"](?P<method>GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|TRACE|CONNECT)['\"]", re.I)
 _LOCAL_PROVENANCE = "local"
@@ -178,11 +190,7 @@ _CONTEXT_ESSENTIAL_KEYS = [
 ]
 _EXPLORE_ESSENTIAL_KEYS = [
     "query",
-    "repo_id",
     "entry_points",
-    "files",
-    "relationships",
-    "additional_relevant_files",
     "truncated",
     "provenance",
 ]
@@ -404,8 +412,13 @@ class CodeContextEngine:
         self._deleted_history_search_adapter: DeletedHistorySearchAdapter | None = None
         self._autosync_enabled = os.getenv("ATELIER_CODE_AUTOSYNC", "").strip().lower() in {"1", "true", "yes", "on"}
         self._autosync_debounce_ms = self._parse_autosync_debounce(os.getenv("ATELIER_CODE_AUTOSYNC_DEBOUNCE_MS"))
+        self._autosync_state = "idle"
+        self._autosync_signature: str | None = None
+        self._autosync_last_sync_ms = 0
         self._autosync_last_event_at: str | None = None
         self._autosync_pending_events = 0
+        self._autosync_reindex_count = 0
+        self._autosync_history: list[dict[str, Any]] = []
         self._register_symbol_intel_providers()
 
     def index_repo(
@@ -1578,7 +1591,7 @@ class CodeContextEngine:
                 entry["status"] = health.status
                 entry["ok"] = health.ok
                 if health.reason:
-                    entry["reason"] = health.reason
+                    entry["reason"] = str(health.reason)
             else:
                 ok = bool(health)
                 entry["status"] = "ok" if ok else "unhealthy"
@@ -1651,6 +1664,7 @@ class CodeContextEngine:
             "autosync": self._autosync_status(),
             "provenance": _LOCAL_PROVENANCE,
         }
+        payload = cast(dict[str, Any], self._json_safe(payload))
         packed = self._pack_single_payload(
             payload,
             budget_tokens=budget_tokens,
@@ -2469,6 +2483,15 @@ class CodeContextEngine:
             count = int(row["n"]) if row is not None else 0
         if count == 0:
             self.index_repo()
+            if self._autosync_enabled:
+                self._autosync_signature = self._source_tree_signature()
+                self._autosync_last_sync_ms = int(time.time() * 1000)
+                self._autosync_state = "idle"
+                self._autosync_pending_events = 0
+                self._record_autosync_event(event="initial_index", reason="empty_index_bootstrap", reindexed=True)
+            return
+        if self._autosync_enabled:
+            self._maybe_autosync_reindex()
 
     def _excluded(self, path: Path, patterns: list[str]) -> bool:
         rel = _safe_relpath(self.repo_root, path)
@@ -3517,9 +3540,10 @@ class CodeContextEngine:
         full_payload.setdefault("cache_hit", False)
         full_payload.setdefault("provenance", _LOCAL_PROVENANCE)
         full_total_tokens = self._compute_total_tokens({**full_payload, "tokens_saved": max(0, base_tokens_saved)})
+        minimal_payload = {key: full_payload[key] for key in essential_keys if key in full_payload}
 
         def build_payload(packed_items: list[dict[str, Any]]) -> dict[str, Any]:
-            packed_payload = dict(packed_items[0]) if packed_items else dict(full_payload)
+            packed_payload = dict(packed_items[0]) if packed_items else dict(minimal_payload)
             packed_payload["cache_hit"] = False
             packed_payload["provenance"] = str(full_payload.get("provenance") or _LOCAL_PROVENANCE)
             return self._finalize_packed_payload(
@@ -3865,6 +3889,26 @@ class CodeContextEngine:
                         )
                     )
                 continue
+            flask_rule_match = _FLASK_ADD_URL_RULE_RE.search(line)
+            if flask_rule_match:
+                route = flask_rule_match.group("route")
+                methods = self._parse_methods(flask_rule_match.group("rest"))
+                handler = self._parse_python_handler(flask_rule_match.group("rest"))
+                for method in methods:
+                    records.append(
+                        RouteRecord(
+                            framework="flask",
+                            method=method,
+                            route=route,
+                            file_path=file_path,
+                            line=index,
+                            language="python",
+                            handler=handler,
+                            router=flask_rule_match.group("router"),
+                            provenance=_LOCAL_PROVENANCE,
+                        )
+                    )
+                continue
             django_match = _DJANGO_PATH_RE.search(line)
             if django_match:
                 records.append(
@@ -3879,29 +3923,64 @@ class CodeContextEngine:
                         provenance=_LOCAL_PROVENANCE,
                     )
                 )
+                continue
+            django_url_match = _DJANGO_URL_RE.search(line)
+            if django_url_match:
+                records.append(
+                    RouteRecord(
+                        framework="django",
+                        method="ANY",
+                        route=django_url_match.group("route"),
+                        file_path=file_path,
+                        line=index,
+                        language="python",
+                        handler=django_url_match.group("handler"),
+                        provenance=_LOCAL_PROVENANCE,
+                    )
+                )
         return records
 
     def _extract_js_routes(self, *, file_path: str, lines: list[str], language: str) -> list[RouteRecord]:
         records: list[RouteRecord] = []
         for index, line in enumerate(lines, start=1):
             match = _EXPRESS_ROUTE_RE.search(line)
-            if not match:
-                continue
-            verb = match.group("verb").upper()
-            method = "ANY" if verb in {"ALL", "USE"} else verb
-            records.append(
-                RouteRecord(
-                    framework="express",
-                    method=method,
-                    route=match.group("route"),
-                    file_path=file_path,
-                    line=index,
-                    language=language,
-                    handler=match.group("handler"),
-                    router=match.group("router"),
-                    provenance=_LOCAL_PROVENANCE,
+            if match:
+                verb = match.group("verb").upper()
+                method = "ANY" if verb in {"ALL", "USE"} else verb
+                records.append(
+                    RouteRecord(
+                        framework="express",
+                        method=method,
+                        route=match.group("route"),
+                        file_path=file_path,
+                        line=index,
+                        language=language,
+                        handler=match.group("handler"),
+                        router=match.group("router"),
+                        provenance=_LOCAL_PROVENANCE,
+                    )
                 )
-            )
+            chain_match = _EXPRESS_ROUTE_CHAIN_RE.search(line)
+            if not chain_match:
+                continue
+            base_route = chain_match.group("route")
+            chain = chain_match.group("chain") or ""
+            for method_match in _EXPRESS_CHAIN_METHOD_RE.finditer(chain):
+                verb = method_match.group("verb").upper()
+                method = "ANY" if verb in {"ALL", "USE"} else verb
+                records.append(
+                    RouteRecord(
+                        framework="express",
+                        method=method,
+                        route=base_route,
+                        file_path=file_path,
+                        line=index,
+                        language=language,
+                        handler=method_match.group("handler"),
+                        router=chain_match.group("router"),
+                        provenance=_LOCAL_PROVENANCE,
+                    )
+                )
         return records
 
     def _next_python_def_name(self, lines: list[str], decorator_line: int) -> str | None:
@@ -3922,6 +4001,17 @@ class CodeContextEngine:
             return ["GET"]
         methods = [match.group("method").upper() for match in _METHOD_LITERAL_RE.finditer(value)]
         return methods or ["GET"]
+
+    def _parse_python_handler(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        named = re.search(r"view_func\s*=\s*([A-Za-z_][A-Za-z0-9_\.]*)", value)
+        if named:
+            return named.group(1)
+        positional = re.search(r",\s*([A-Za-z_][A-Za-z0-9_\.]*)", value)
+        if positional:
+            return positional.group(1)
+        return None
 
     def _files_flat(
         self,
@@ -4103,12 +4193,72 @@ class CodeContextEngine:
     def _autosync_status(self) -> dict[str, Any]:
         return {
             "enabled": self._autosync_enabled,
-            "state": "idle",
-            "mode": "scaffold_only",
+            "state": self._autosync_state,
+            "mode": "incremental" if self._autosync_enabled else "scaffold_only",
             "debounce_ms": self._autosync_debounce_ms,
             "pending_events": self._autosync_pending_events,
             "last_event_at": self._autosync_last_event_at,
+            "reindex_count": self._autosync_reindex_count,
+            "history": list(self._autosync_history),
         }
+
+    def _source_tree_signature(self) -> str:
+        parts: list[str] = []
+        for path in iter_source_files(self.repo_root):
+            with contextlib.suppress(OSError):
+                stat = path.stat()
+                rel = _safe_relpath(self.repo_root, path)
+                parts.append(f"{rel}|{stat.st_mtime_ns}|{stat.st_size}")
+        digest_input = "\n".join(sorted(parts)).encode("utf-8")
+        return hashlib.sha256(digest_input).hexdigest()
+
+    def _maybe_autosync_reindex(self) -> None:
+        current_signature = self._source_tree_signature()
+        if self._autosync_signature is None:
+            self._autosync_signature = current_signature
+            self._autosync_last_sync_ms = int(time.time() * 1000)
+            self._autosync_state = "idle"
+            self._record_autosync_event(event="bootstrap", reason="seed_signature", reindexed=False)
+            return
+        if current_signature == self._autosync_signature:
+            self._autosync_state = "idle"
+            self._autosync_pending_events = 0
+            return
+        now_ms = int(time.time() * 1000)
+        self._autosync_last_event_at = datetime.now(UTC).isoformat()
+        self._autosync_pending_events = max(1, self._autosync_pending_events + 1)
+        if now_ms - self._autosync_last_sync_ms < self._autosync_debounce_ms:
+            self._autosync_state = "debouncing"
+            self._record_autosync_event(event="change_detected", reason="within_debounce_window", reindexed=False)
+            return
+        self._autosync_state = "syncing"
+        self.index_repo()
+        self._autosync_signature = self._source_tree_signature()
+        self._autosync_last_sync_ms = int(time.time() * 1000)
+        self._autosync_pending_events = 0
+        self._autosync_state = "idle"
+        self._autosync_reindex_count += 1
+        self._record_autosync_event(event="reindex", reason="source_signature_changed", reindexed=True)
+
+    def _record_autosync_event(self, *, event: str, reason: str, reindexed: bool) -> None:
+        entry = {
+            "at": datetime.now(UTC).isoformat(),
+            "event": event,
+            "reason": reason,
+            "reindexed": reindexed,
+        }
+        self._autosync_history.append(entry)
+        if len(self._autosync_history) > 20:
+            self._autosync_history = self._autosync_history[-20:]
+
+    def _json_safe(self, value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            return {str(key): self._json_safe(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._json_safe(item) for item in value]
+        return str(value)
 
     def _current_head_sha(self) -> str:
         from atelier.infra.code_intel.git_history import require_pygit2
@@ -4119,7 +4269,10 @@ class CodeContextEngine:
 
     def _safe_current_head_sha(self) -> str | None:
         with contextlib.suppress(Exception):
-            return self._current_head_sha()
+            value = self._current_head_sha()
+            if value is None:
+                return None
+            return str(value)
         return None
 
     def _deleted_history_adapter(self) -> DeletedHistorySearchAdapter:

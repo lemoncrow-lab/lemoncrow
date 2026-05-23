@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -1123,28 +1124,45 @@ def test_tool_routes_extracts_framework_endpoints(tmp_path: Path) -> None:
     )
     (tmp_path / "src" / "urls.py").write_text(
         "from django.urls import path\n"
+        "from django.conf.urls import url\n"
         "from . import views\n\n"
         "urlpatterns = [\n"
         "    path('admin/', views.admin),\n"
+        "    url(r'^legacy/$', views.legacy),\n"
         "]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "flask_app.py").write_text(
+        "from flask import Flask\n\n"
+        "app = Flask(__name__)\n\n"
+        "def healthz() -> str:\n"
+        "    return 'ok'\n\n"
+        "app.add_url_rule('/healthz', view_func=healthz, methods=['GET'])\n",
         encoding="utf-8",
     )
     (tmp_path / "src" / "server.ts").write_text(
         "import express from 'express';\n"
         "const app = express();\n"
+        "const router = express.Router();\n"
         "function pingHandler() { return 'pong'; }\n"
-        "app.get('/ping', pingHandler);\n",
+        "app.get('/ping', pingHandler);\n"
+        "function listOrders() { return []; }\n"
+        "function createOrder() { return {}; }\n"
+        "router.route('/orders').get(listOrders).post(createOrder);\n",
         encoding="utf-8",
     )
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
 
     payload = engine.tool_routes(limit=20, budget_tokens=4000)
 
-    assert payload["route_count"] >= 3
+    assert payload["route_count"] >= 6
     routes = payload["routes"]
     assert any(route["framework"] == "fastapi" and route["method"] == "GET" and route["route"] == "/health" for route in routes)
     assert any(route["framework"] == "express" and route["route"] == "/ping" for route in routes)
     assert any(route["framework"] == "django" and route["route"] == "admin/" for route in routes)
+    assert any(route["framework"] == "django" and route["route"] == "^legacy/$" for route in routes)
+    assert any(route["framework"] == "flask" and route["route"] == "/healthz" for route in routes)
+    assert any(route["framework"] == "express" and route["method"] == "POST" and route["route"] == "/orders" for route in routes)
 
 
 def test_tool_explore_respects_budget_and_keeps_identity_fields(tmp_path: Path) -> None:
@@ -1186,8 +1204,43 @@ def test_tool_status_reports_index_cache_and_freshness(tmp_path: Path) -> None:
     assert isinstance(payload["warnings"], list)
     assert payload["autosync"]["state"] == "idle"
     assert payload["autosync"]["mode"] == "scaffold_only"
+    assert payload["autosync"]["reindex_count"] == 0
+    assert isinstance(payload["autosync"]["history"], list)
     assert "entry_count" in payload["cache"]
     assert cached["cache_hit"] is True
+
+
+def test_autosync_incremental_reindex_updates_index_after_edit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write_fixture_repo(tmp_path)
+    monkeypatch.setenv("ATELIER_CODE_AUTOSYNC", "1")
+    monkeypatch.setenv("ATELIER_CODE_AUTOSYNC_DEBOUNCE_MS", "50")
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+
+    first = engine.tool_search("OrderService", limit=5, budget_tokens=4000)
+    version_before = engine._current_index_version()
+    assert first["items"]
+
+    (tmp_path / "src" / "orders.py").write_text(
+        "class OrderService:\n"
+        "    def calculate_total(self, items: list[int]) -> int:\n"
+        "        return sum(items)\n"
+        "\n"
+        "class NewService:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    engine._autosync_last_sync_ms = int(time.time() * 1000) - 500
+
+    second = engine.tool_search("NewService", limit=5, budget_tokens=4000)
+    status = engine.tool_status(budget_tokens=4000)
+
+    assert second["items"]
+    assert second["items"][0]["symbol_name"] == "NewService"
+    assert engine._current_index_version() > version_before
+    assert status["autosync"]["enabled"] is True
+    assert status["autosync"]["mode"] == "incremental"
+    assert status["autosync"]["reindex_count"] >= 1
+    assert any(event["event"] == "reindex" for event in status["autosync"]["history"])
 
 
 def test_low_token_defaults_stay_lighter_for_search_and_pattern(
