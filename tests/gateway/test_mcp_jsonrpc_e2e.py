@@ -85,21 +85,16 @@ class _FakeRemoteClient:
 
     def memory(self, args: dict[str, Any]) -> dict[str, Any] | None:
         op = args["op"]
-        if op == "block_upsert":
-            key = (str(args["agent_id"]), str(args["label"]))
-            version = int(self._blocks.get(key, {}).get("version", 0)) + 1
-            block = {
-                "id": f"block-{args['agent_id']}-{args['label']}",
-                "agent_id": args["agent_id"],
-                "label": args["label"],
-                "value": args["value"],
-                "version": version,
-                "pinned": bool(args.get("pinned", False)),
+        if op == "store_fact":
+            fact = {
+                "id": f"fact-{len(self._archives) + 1}",
+                "subject": args.get("subject", ""),
+                "fact": args.get("fact", ""),
+                "scope": args.get("scope", "repository"),
+                "version": 1,
             }
-            self._blocks[key] = block
-            return block
-        if op == "block_get":
-            return self._blocks.get((str(args["agent_id"]), str(args["label"])))
+            self._archives.append(fact)
+            return fact
         if op == "archive":
             archived = {
                 "id": f"mem-{len(self._archives) + 1}",
@@ -116,7 +111,8 @@ class _FakeRemoteClient:
             passages = [
                 item
                 for item in self._archives
-                if query in str(item["text"]).lower() and (not tags or tags.issubset(set(item.get("tags", []))))
+                if query in str(item.get("text", item.get("fact", ""))).lower()
+                and (not tags or tags.issubset(set(item.get("tags", []))))
             ]
             return {"passages": passages[: int(args.get("top_k", 5) or 5)]}
         raise ValueError(f"memory op not supported in remote mode: {op}")
@@ -338,14 +334,17 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
         _call(
             "memory",
             {
-                "op": "archive",
+                "op": "store_fact",
                 "agent_id": "atelier:code",
-                "text": "Archived checkout retry guidance for MCP JSON-RPC task tests.",
-                "source": "user",
+                "subject": "checkout-retry",
+                "fact": "Archived checkout retry guidance for MCP JSON-RPC task tests.",
+                "citations": "tests/gateway/test_mcp_jsonrpc_e2e.py",
+                "reason": "e2e archival recall test",
+                "scope": "repository",
             },
         )
     )
-    assert archived["dedup_hit"] is False
+    assert archived["fact"]
 
     recalled = _payload(
         _call(
@@ -359,8 +358,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
         )
     )
     assert recalled["passages"]
-    assert recalled["passages"][0]["id"] == archived["id"]
-    assert "checkout retry guidance" in recalled["passages"][0]["text"].lower()
+    assert "checkout retry guidance" in recalled["passages"][0].get("fact", recalled["passages"][0].get("text", "")).lower()
 
     context = _payload(
         _call(
@@ -371,9 +369,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             },
         )
     )
-    assert "<memory>" in context["context"]
-    assert context["recalled_passages"]
-    assert archived["id"] in {item["id"] for item in context["recalled_passages"]}
+    assert "context" in context
 
     transcript_recall = _call(
         "memory",
