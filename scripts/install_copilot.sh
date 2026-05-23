@@ -68,7 +68,7 @@ else
     TASKS_DEST="${VSCODE_USER_DIR}/tasks.json"
 fi
 
-info()  { echo "[atelier:copilot] $*"; }
+info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:copilot] $*" || true; }
 warn()  { echo "[atelier:copilot] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 backup_file() {

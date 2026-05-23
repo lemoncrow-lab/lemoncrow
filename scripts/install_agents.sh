@@ -52,7 +52,7 @@ if [ -z "$WORKSPACE" ]; then
 fi
 WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 
-info()  { echo "[atelier:agents] $*"; }
+info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:agents] $*" || true; }
 warn()  { echo "[atelier:agents] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 

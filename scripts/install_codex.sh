@@ -64,7 +64,7 @@ fi
 PLUGIN_MCP_JSON="${PLUGIN_DIR}/.mcp.json"
 SKILL_BUILDER="${SCRIPT_DIR}/build_host_skills.sh"
 
-info()  { echo "[atelier:codex] $*"; }
+info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:codex] $*" || true; }
 warn()  { echo "[atelier:codex] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 

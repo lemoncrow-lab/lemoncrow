@@ -79,7 +79,7 @@ fi
 CLAUDE_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.json"
 CLAUDE_LOCAL_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.local.json"
 
-info()  { echo "[atelier:claude] $*"; }
+info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:claude] $*" || true; }
 warn()  { echo "[atelier:claude] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 

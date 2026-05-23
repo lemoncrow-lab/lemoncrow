@@ -57,7 +57,7 @@ else
     AGENT_DEST_DIR="${OPENCODE_CONFIG_HOME}/agents"
 fi
 
-info()  { echo "[atelier:opencode] $*"; }
+info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:opencode] $*" || true; }
 warn()  { echo "[atelier:opencode] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 backup_file() {

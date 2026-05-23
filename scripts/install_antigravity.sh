@@ -55,7 +55,7 @@ else
     MCP_JSON="${ANTIGRAVITY_USER_DIR}/mcp.json"
 fi
 
-info()  { echo "[atelier:antigravity] $*"; }
+info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:antigravity] $*" || true; }
 warn()  { echo "[atelier:antigravity] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 backup_file() {

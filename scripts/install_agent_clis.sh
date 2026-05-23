@@ -27,8 +27,8 @@ if [[ -t 1 ]]; then
     C_GREEN="$(printf '\033[32m')"
     C_RED="$(printf '\033[31m')"
     C_YELLOW="$(printf '\033[33m')"
-    C_CYAN="$(printf '\033[36m')"
-    C_PURPLE="$(printf '\033[35m')"
+    C_CYAN="$(printf '\033[38;2;155;117;217m')"
+    C_PURPLE="$(printf '\033[38;2;155;117;217m')"
 else
     C_RESET=""
     C_GREEN=""
@@ -42,10 +42,11 @@ if [[ -n "${FORCE_COLOR:-}${CLICOLOR_FORCE:-}" && -z "${NO_COLOR:-}" ]]; then
     C_GREEN="$(printf '\033[32m')"
     C_RED="$(printf '\033[31m')"
     C_YELLOW="$(printf '\033[33m')"
-    C_CYAN="$(printf '\033[36m')"
-    C_PURPLE="$(printf '\033[35m')"
+    C_CYAN="$(printf '\033[38;2;155;117;217m')"
+    C_PURPLE="$(printf '\033[38;2;155;117;217m')"
 fi
 
+ATELIER_VERBOSE="${ATELIER_VERBOSE:-0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 print_message() {
@@ -53,6 +54,8 @@ print_message() {
     shift
     printf "%b%s%b\n" "$color" "$*" "$C_RESET"
 }
+
+verbose() { [[ "$ATELIER_VERBOSE" == "1" ]] && printf "%s\n" "$*" || true; }
 
 DO_CLAUDE=false
 DO_CODEX=false
@@ -281,9 +284,11 @@ run_installer() {
     esac
 
     echo ""
-    print_message "$C_PURPLE" "──────────────────────────────────────────"
-    print_message "$C_PURPLE" " Installing Atelier -> ${host}"
-    print_message "$C_PURPLE" "──────────────────────────────────────────"
+    if [[ "$ATELIER_VERBOSE" == "1" ]]; then
+        print_message "$C_PURPLE" "──────────────────────────────────────────"
+        print_message "$C_PURPLE" " Installing Atelier -> ${host}"
+        print_message "$C_PURPLE" "──────────────────────────────────────────"
+    fi
     output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-${host}.XXXXXX")"
     set +e
     if [[ "$host" == "claude" ]]; then
@@ -311,9 +316,11 @@ run_installer() {
 # ── Universal agents (always run first when using --workspace) ──────────────
 if [[ " ${PASSTHROUGH[*]} " =~ "--workspace" ]]; then
     echo ""
-    print_message "$C_PURPLE" "──────────────────────────────────────────"
-    print_message "$C_PURPLE" " Installing universal agents (.mcp.json + AGENTS.md)"
-    print_message "$C_PURPLE" "──────────────────────────────────────────"
+    if [[ "$ATELIER_VERBOSE" == "1" ]]; then
+        print_message "$C_PURPLE" "──────────────────────────────────────────"
+        print_message "$C_PURPLE" " Installing universal agents (.mcp.json + AGENTS.md)"
+        print_message "$C_PURPLE" "──────────────────────────────────────────"
+    fi
     UNIVERSAL_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/atelier-agents.XXXXXX")"
     set +e
     bash "${SCRIPT_DIR}/install_agents.sh" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1 | stream_colored_output "$UNIVERSAL_OUTPUT_FILE"
@@ -354,9 +361,6 @@ if [ ${#FAIL[@]} -gt 0 ]; then
     print_message "$C_PURPLE" "Next: fix the errors above, then re-run: make install"
 elif [ ${#WARN[@]} -gt 0 ]; then
     print_message "$C_YELLOW" "Host installs completed with warnings. Review the warnings above before continuing."
-    print_message "$C_PURPLE" "Next: make verify"
-else
-    print_message "$C_GREEN" "Next: make verify"
 fi
 
 # Persist host detection results for the Docker service (write-only, no terminal output)
