@@ -824,7 +824,7 @@ ensure_local_zoekt_runtime() {
         if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
             echo "[dry-run] $atelier_cli zoekt install --auto"
         else
-            "$atelier_cli" zoekt install --auto \
+            spin "Installing local Zoekt binaries" "$atelier_cli" zoekt install --auto \
                 || warn "Automatic local Zoekt install failed. Run: atelier zoekt install"
         fi
     else
@@ -967,9 +967,9 @@ install_code_tools() {
     # prettier + eslint + ts-morph (TypeScript/JavaScript tools, require npm)
     if command -v npm >/dev/null 2>&1; then
         verbose "Installing prettier (JS/TS formatter)..."
-        run npm install -g prettier
+        spin "Installing prettier" npm install -g --no-fund prettier
         verbose "Installing eslint, ts-morph, and typescript (JS/TS linter and rename backend)..."
-        run npm install -g eslint ts-morph typescript
+        spin "Installing eslint + ts-morph" npm install -g --no-fund eslint ts-morph typescript
     else
         warn "npm not found — skipping prettier, eslint, and ts-morph (install Node.js 20+ to enable)"
     fi
@@ -1175,19 +1175,40 @@ main() {
         if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
             echo "[dry-run] bash $ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh ${host_install_args[*]}"
         else
-            local host_output host_output_file host_ret
+            local host_output host_output_file host_ret stripped_host_output
             host_output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-hosts.XXXXXX")"
             set +e
-            if [[ -n "$C_RESET" ]]; then
-                FORCE_COLOR=1 bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]}" 2>&1 | tee "$host_output_file"
+            if [[ "$ATELIER_VERBOSE" == "1" ]]; then
+                if [[ -n "$C_RESET" ]]; then
+                    FORCE_COLOR=1 bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]}" 2>&1 | tee "$host_output_file"
+                else
+                    bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]}" 2>&1 | tee "$host_output_file"
+                fi
             else
-                bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]}" 2>&1 | tee "$host_output_file"
+                bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]}" >"$host_output_file" 2>&1
             fi
             host_ret=$?
             set -e
             host_output="$(cat "$host_output_file")"
             rm -f "$host_output_file"
             collect_issues_from_output "$host_output"
+            if [[ "$ATELIER_VERBOSE" != "1" ]]; then
+                # Re-display per-host results inside the clack frame
+                stripped_host_output="$(printf "%s" "$host_output" | sed $'s/\x1b\\[[0-9;]*m//g')"
+                local line hname
+                while IFS= read -r line; do
+                    hname="$(printf "%s" "$line" | sed 's/^[[:space:]]*[A-Z]*[[:space:]]*//')"
+                    if [[ "$line" =~ ^[[:space:]]+OK[[:space:]] ]]; then
+                        printf "%b│%b  %b✓%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_GREEN" "$C_RESET" "$hname"
+                    elif [[ "$line" =~ ^[[:space:]]+WARN[[:space:]] ]]; then
+                        printf "%b│%b  %b⚠%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_YELLOW" "$C_RESET" "$hname"
+                    elif [[ "$line" =~ ^[[:space:]]+(FAILED|FAIL)[[:space:]] ]]; then
+                        printf "%b│%b  %b✗%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_RED" "$C_RESET" "$hname"
+                    elif [[ "$line" =~ ^[[:space:]]+SKIPPED[[:space:]] ]]; then
+                        printf "%b│%b  %b—%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_DIM" "$C_RESET" "$hname"
+                    fi
+                done <<<"$stripped_host_output"
+            fi
             if [[ $host_ret -ne 0 ]]; then
                 ERRORS+=("One or more host integrations failed")
                 FINAL_EXIT_CODE=1
@@ -1195,14 +1216,14 @@ main() {
         fi
         # Persist host detection results for the local service/UI surfaces
         if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
-            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write 2>/dev/null \
+            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write >/dev/null 2>&1 \
                 || degrade "Failed to persist host detection status"
         fi
     else
         verbose "Skipping host integrations because ATELIER_NO_HOSTS=1"
         # Still persist current detection state even when skipping install
         if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
-            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write 2>/dev/null \
+            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write >/dev/null 2>&1 \
                 || degrade "Failed to persist host detection status"
         fi
     fi
@@ -1259,35 +1280,15 @@ main() {
     fi
 
     step_start "What's next"
-    info "atelier --version           — check core CLI version"
-    info "atelier-mcp --version       — check MCP server version"
-    info "atelier background status   — view background service status"
-    info "atelier status              — show active reasoning run"
-    info "atelier import              — import agent sessions from history"
-    info ""
-    info "Docker sidecars (--advanced, require Docker):"
-    info "  atelier letta up/down/status/reset"
-    info "  atelier openmemory up/down/status/logs"
-    if [[ "$ATELIER_ADVANCED" != "1" ]]; then
-        info "Tip: re-run with --advanced to install Letta + OpenMemory sidecars."
-    fi
-    info ""
-    info "Memory sidecar:"
+    info "atelier status              — view active reasoning run"
+    info "atelier import              — import past agent sessions"
     case "$selected_memory" in
-        letta)      info "  ACTIVE: Letta — atelier letta up/down/status/reset" ;;
-        openmemory) info "  ACTIVE: OpenMemory — atelier openmemory up/down/status/logs" ;;
-        *)
-            info "  None selected.  Use --advanced --memory letta|openmemory"
-            ;;
+        letta)      info "atelier letta status        — Letta memory sidecar" ;;
+        openmemory) info "atelier openmemory status   — OpenMemory sidecar" ;;
+        *)          if [[ "$ATELIER_ADVANCED" != "1" ]]; then info "re-run with --advanced --memory letta|openmemory  — add memory sidecars"; fi ;;
     esac
-    info ""
-    info "Zoekt:"
-    info "  atelier zoekt install / index . / search 'text' / serve"
-    info "  Zoekt Docker sidecar:"
-    if [[ "$selected_zoekt" == "1" ]]; then
-        info "    ACTIVE — atelier zoekt up/down/status/reindex/reset"
-    else
-        info "    Not enabled (Docker unavailable)."
+    if ! command -v zoekt >/dev/null 2>&1; then
+        info "atelier zoekt install       — install Zoekt full-text search"
     fi
     step_done
 

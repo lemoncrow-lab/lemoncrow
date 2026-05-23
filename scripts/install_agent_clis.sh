@@ -244,7 +244,9 @@ stream_colored_output() {
     local line
     while IFS= read -r line; do
         printf "%s\n" "$line" >>"$output_file"
-        print_colored_line "$line"
+        if [[ "${ATELIER_VERBOSE:-0}" == "1" ]]; then
+            print_colored_line "$line"
+        fi
     done
 }
 
@@ -366,7 +368,7 @@ fi
 # Persist host detection results for the Docker service (write-only, no terminal output)
 STATUS_SCRIPT="${SCRIPT_DIR}/status.sh"
 if [ -f "$STATUS_SCRIPT" ]; then
-    bash "$STATUS_SCRIPT" --write 2>/dev/null || true
+    bash "$STATUS_SCRIPT" --write >/dev/null 2>&1 || true
 fi
 
 if [ ${#FAIL[@]} -gt 0 ]; then
