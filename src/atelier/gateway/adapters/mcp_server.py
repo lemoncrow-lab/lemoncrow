@@ -869,6 +869,59 @@ def _get_available_models() -> list[dict[str, Any]]:
     ]
 
 
+def _compute_route_tier_for_response(tier: str, led: Any) -> str:
+    """Map raw tier string to semantic RouteTier string for the route response."""
+    from atelier.core.capabilities.model_routing.router import _detect_local_slm
+
+    escalating = any(
+        e.payload.get("escalate") for e in led.events if e.kind == "watchdog_alert"
+    )
+    if escalating:
+        return "human_review"
+    if tier == "expensive":
+        return "frontier_llm"
+    if tier == "cheap" and _detect_local_slm():
+        return "local_slm"
+    return "cheap_llm"
+
+
+def _prefix_cache_diagnostics_from_ledger(led: Any) -> dict[str, Any]:
+    """Extract prefix cache metrics from recorded llm_call events in the ledger."""
+    call_events = [e for e in led.events if e.kind == "llm_call"]
+    if not call_events:
+        return {
+            "turn_count": 0,
+            "cache_hit_ratio": 0.0,
+            "cache_read_tokens_saved": 0,
+            "avg_prefix_tokens": 0,
+            "avg_dynamic_tokens": 0,
+            "current_prefix_hash": "",
+            "prefix_invalidated_reason": "",
+        }
+
+    cache_read_totals = [int(e.payload.get("cache_read_tokens", 0)) for e in call_events]
+    input_totals = [int(e.payload.get("input_tokens", 0)) for e in call_events]
+    prefix_hashes = [e.payload.get("stable_prefix_hash", "") for e in call_events]
+
+    # A turn is a cache "hit" when cache_read_tokens > 0
+    eligible = call_events[1:]
+    hits = sum(1 for e in eligible if int(e.payload.get("cache_read_tokens", 0)) > 0)
+    hit_ratio = round(hits / len(eligible), 4) if eligible else 0.0
+    cache_read_saved = sum(cache_read_totals)
+    avg_input = int(sum(input_totals) / len(input_totals)) if input_totals else 0
+
+    last = call_events[-1]
+    return {
+        "turn_count": len(call_events),
+        "cache_hit_ratio": hit_ratio,
+        "cache_read_tokens_saved": cache_read_saved,
+        "avg_prefix_tokens": avg_input,
+        "avg_dynamic_tokens": 0,
+        "current_prefix_hash": prefix_hashes[-1] if prefix_hashes else "",
+        "prefix_invalidated_reason": last.payload.get("prefix_invalidated_reason", ""),
+    }
+
+
 def _sampling_invoke(prompt: str, model_hint: str, max_tokens: int) -> dict[str, Any]:
     """Send a sampling/createMessage request to the MCP client and return its response."""
     global _sampling_seq
@@ -1068,16 +1121,24 @@ def tool_route(
         tier = available[0]["tier"]
         rationale = "fallback: cheapest configured model"
 
+    # Emit route_tier using the semantic 5-tier model
+    route_tier = _compute_route_tier_for_response(tier, led)
+
+    # Prefix cache diagnostics from session ledger
+    prefix_cache = _prefix_cache_diagnostics_from_ledger(led)
+
     return {
         "model": chosen_model,
         "tier": tier,
+        "route_tier": route_tier,
         "rationale": rationale,
         "available_models": available,
         "host_model": host_model,
         "can_spawn": can_spawn,
+        "prefix_cache": prefix_cache,
         "_summary": {
             "recommended": chosen_model,
-            "recommended_route": tier or chosen_model or "local edit",
+            "recommended_route": route_tier or tier or chosen_model or "local edit",
             "budget": budget,
             "required_validation": [],
             "risk": "unknown",
@@ -3159,9 +3220,6 @@ def tool_code(
     render_compact: bool = False,
 ) -> dict[str, Any]:
     """Index, search, inspect, outline, pack, or analyze code context."""
-    allowed_ops = {"context", "search", "node", "explore", "files", "callers", "callees", "impact", "status", "routes"}
-    if op not in allowed_ops:
-        raise ValueError("unsupported code op: " f"{op!r}. supported ops: {', '.join(sorted(allowed_ops))}")
     if op == "node":
         op = "symbol"
     workspace_router = _workspace_code_router(repo_root)

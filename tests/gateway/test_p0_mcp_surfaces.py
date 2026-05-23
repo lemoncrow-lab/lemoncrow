@@ -278,12 +278,13 @@ def test_tool_code_search_invalidates_cache_after_reindex(tmp_path: Path) -> Non
 
     _ = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
     cached = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
-    with pytest.raises(ValueError, match="unsupported code op: 'index'"):
-        tool_code({"op": "index", "repo_root": str(tmp_path), "budget_tokens": 4000})
+    indexed = tool_code({"op": "index", "repo_root": str(tmp_path), "budget_tokens": 4000})
     fresh = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
 
     assert cached["provenance"] == "cached"
-    assert fresh["provenance"] == "cached"
+    assert indexed["index_version"] >= 2
+    assert fresh["provenance"] == "local"
+    assert fresh["provenance"] == "local"
 
 
 def test_tool_code_search_respects_budget_after_wrapper_metadata(tmp_path: Path) -> None:
@@ -386,7 +387,7 @@ def test_tool_code_search_accepts_semantic_modes_additively(tmp_path: Path) -> N
 
 
 def test_tool_code_pattern_requires_pattern(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="unsupported code op: 'pattern'"):
+    with pytest.raises(ValueError, match="pattern is required for code pattern"):
         tool_code({"op": "pattern", "repo_root": str(tmp_path), "dry_run": True})
 
 
@@ -413,7 +414,7 @@ def test_tool_code_workspace_repo_filter_rejects_unsupported_ops(tmp_path: Path)
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="unsupported code op: 'outline'"):
+    with pytest.raises(ValueError, match="repo filter is only supported for workspace search and symbol operations"):
         tool_code(
             {
                 "op": "outline",
@@ -440,8 +441,12 @@ def test_tool_code_usages_returns_grouped_references(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="unsupported code op: 'usages'"):
-        tool_code({"op": "usages", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
+    payload = tool_code({"op": "usages", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
+
+    assert payload["target"]["qualified_name"] == "OrderService"
+    assert payload["group_by"] == "file"
+    assert "src/checkout.py" in payload["references"]
+    assert payload["references"]["src/checkout.py"][0]["provenance"] == "local_index"
 
 
 def test_tool_code_call_graph_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -528,17 +533,26 @@ def test_tool_code_pattern_dispatches_to_engine(tmp_path: Path, monkeypatch: pyt
         lambda repo_root=".": fake_engine,
     )
 
-    with pytest.raises(ValueError, match="unsupported code op: 'pattern'"):
-        tool_code(
-            {
-                "op": "pattern",
-                "repo_root": str(tmp_path),
-                "pattern": "requests.get($URL)",
-                "dry_run": True,
-                "budget_tokens": 220,
-            }
-        )
-    fake_engine.tool_pattern.assert_not_called()
+    payload = tool_code(
+        {
+            "op": "pattern",
+            "repo_root": str(tmp_path),
+            "pattern": "requests.get($URL)",
+            "dry_run": True,
+            "budget_tokens": 220,
+        }
+    )
+
+    assert payload["provenance"] == "ast-grep"
+    fake_engine.tool_pattern.assert_called_once_with(
+        pattern="requests.get($URL)",
+        rewrite=None,
+        language=None,
+        file_glob=None,
+        dry_run=True,
+        limit=20,
+        budget_tokens=220,
+    )
 
 
 def test_tool_code_files_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -733,18 +747,22 @@ def test_tool_code_symbol_rendered_shape_is_compact_summary(tmp_path: Path, monk
         lambda repo_root=".": fake_engine,
     )
 
-    with pytest.raises(ValueError, match="unsupported code op: 'symbol'"):
-        tool_code(
-            {
-                "op": "symbol",
-                "repo_root": str(tmp_path),
-                "qualified_name": "OrderService.calculate_total",
-                "file_path": "src/orders.py",
-                "budget_tokens": 220,
-                "render_compact": True,
-            }
-        )
-    fake_engine.tool_symbol.assert_not_called()
+    payload = tool_code(
+        {
+            "op": "symbol",
+            "repo_root": str(tmp_path),
+            "qualified_name": "OrderService.calculate_total",
+            "file_path": "src/orders.py",
+            "budget_tokens": 220,
+            "render_compact": True,
+        }
+    )
+
+    assert "rendered" in payload
+    assert payload["rendered"].startswith("### symbol")
+    assert "- id: sym-order-total" in payload["rendered"]
+    assert "- location: src/orders.py:12-20" in payload["rendered"]
+    assert "total = sum(items)" not in payload["rendered"]
 
 
 def test_tool_code_outline_rendered_shape_is_structural(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -783,9 +801,14 @@ def test_tool_code_outline_rendered_shape_is_structural(tmp_path: Path, monkeypa
         lambda repo_root=".": fake_engine,
     )
 
-    with pytest.raises(ValueError, match="unsupported code op: 'outline'"):
-        tool_code({"op": "outline", "repo_root": str(tmp_path), "budget_tokens": 220, "render_compact": True})
-    fake_engine.tool_outline.assert_not_called()
+    payload = tool_code({"op": "outline", "repo_root": str(tmp_path), "budget_tokens": 220, "render_compact": True})
+
+    assert "rendered" in payload
+    assert payload["rendered"].startswith("### outline")
+    assert "10-40: Worker [class] — class Worker" in payload["rendered"]
+    assert "25-30: Worker.run [method] — def run(self) -> None" in payload["rendered"]
+    assert payload["rendered"].index("10-40: Worker [class]") < payload["rendered"].index("25-30: Worker.run [method]")
+    assert "def run(self): ..." not in payload["rendered"]
 
 
 def test_tool_code_impact_rendered_shape_groups_lists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -867,9 +890,12 @@ def test_tool_code_index_rendered_shape_is_compact(tmp_path: Path, monkeypatch: 
         lambda repo_root=".": fake_engine,
     )
 
-    with pytest.raises(ValueError, match="unsupported code op: 'index'"):
-        tool_code({"op": "index", "repo_root": str(tmp_path), "budget_tokens": 220, "render_compact": True})
-    fake_engine.tool_index.assert_not_called()
+    payload = tool_code({"op": "index", "repo_root": str(tmp_path), "budget_tokens": 220, "render_compact": True})
+
+    assert "rendered" in payload
+    assert payload["rendered"].startswith("### index")
+    assert "counts: files=3, symbols=8, imports=2" in payload["rendered"]
+    fake_engine.tool_index.assert_called_once_with(include_globs=None, exclude_globs=None, budget_tokens=220)
 
 
 def test_tool_code_cache_status_rendered_shape_is_compact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -891,9 +917,15 @@ def test_tool_code_cache_status_rendered_shape_is_compact(tmp_path: Path, monkey
         lambda repo_root=".": fake_engine,
     )
 
-    with pytest.raises(ValueError, match="unsupported code op: 'cache_status'"):
-        tool_code({"op": "cache_status", "repo_root": str(tmp_path), "budget_tokens": 220, "render_compact": True})
-    fake_engine.tool_cache_status.assert_not_called()
+    payload = tool_code(
+        {"op": "cache_status", "repo_root": str(tmp_path), "budget_tokens": 220, "render_compact": True}
+    )
+
+    assert "rendered" in payload
+    assert payload["rendered"].startswith("### cache_status")
+    assert "entries: 4" in payload["rendered"]
+    assert "tools: code.search=2, code.symbol=2" in payload["rendered"]
+    fake_engine.tool_cache_status.assert_called_once_with(budget_tokens=220)
 
 
 def test_tool_code_routes_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -955,9 +987,23 @@ def test_tool_code_usages_dispatches_to_engine(tmp_path: Path, monkeypatch: pyte
         lambda repo_root=".": fake_engine,
     )
 
-    with pytest.raises(ValueError, match="unsupported code op: 'usages'"):
-        tool_code({"op": "usages", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 220})
-    fake_engine.tool_usages.assert_not_called()
+    payload = tool_code({"op": "usages", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 220})
+
+    assert payload["provenance"] == "scip"
+    fake_engine.tool_usages.assert_called_once_with(
+        query="OrderService",
+        symbol_id=None,
+        qualified_name=None,
+        symbol_name=None,
+        file_path=None,
+        kind=None,
+        language=None,
+        file_glob=None,
+        group_by="file",
+        snippet_lines=3,
+        limit=20,
+        budget_tokens=220,
+    )
 
 
 def test_tool_code_cache_diagnostics_dispatch_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -986,19 +1032,20 @@ def test_tool_code_cache_diagnostics_dispatch_to_engine(tmp_path: Path, monkeypa
         lambda repo_root=".": fake_engine,
     )
 
-    with pytest.raises(ValueError, match="unsupported code op: 'cache_status'"):
-        tool_code({"op": "cache_status", "repo_root": str(tmp_path), "budget_tokens": 220})
-    with pytest.raises(ValueError, match="unsupported code op: 'cache_invalidate'"):
-        tool_code(
-            {
-                "op": "cache_invalidate",
-                "repo_root": str(tmp_path),
-                "cache_tool": "search",
-                "budget_tokens": 220,
-            }
-        )
-    fake_engine.tool_cache_status.assert_not_called()
-    fake_engine.tool_cache_invalidate.assert_not_called()
+    status = tool_code({"op": "cache_status", "repo_root": str(tmp_path), "budget_tokens": 220})
+    invalidated = tool_code(
+        {
+            "op": "cache_invalidate",
+            "repo_root": str(tmp_path),
+            "cache_tool": "search",
+            "budget_tokens": 220,
+        }
+    )
+
+    assert status["entry_count"] == 2
+    assert invalidated["invalidated_entries"] == 1
+    fake_engine.tool_cache_status.assert_called_once_with(budget_tokens=220)
+    fake_engine.tool_cache_invalidate.assert_called_once_with(cache_tool="search", budget_tokens=220)
 
 
 def test_tool_code_deleted_search_stays_on_additive_code_surface(
@@ -1101,8 +1148,7 @@ def test_tool_code_blame_is_an_additive_extension_to_code_surface(
         lambda repo_root=".": fake_engine,
     )
 
-    with pytest.raises(ValueError, match="unsupported code op: 'blame'"):
-        tool_code({"op": "blame", "repo_root": str(tmp_path), "query": "risk_score", "budget_tokens": 220})
+    blame = tool_code({"op": "blame", "repo_root": str(tmp_path), "query": "risk_score", "budget_tokens": 220})
     search = tool_code(
         {
             "op": "search",
@@ -1113,8 +1159,28 @@ def test_tool_code_blame_is_an_additive_extension_to_code_surface(
         }
     )
 
+    assert sorted(blame.keys()) == [
+        "distinct_authors",
+        "file_path",
+        "freshness",
+        "last_author",
+        "last_commit_sha",
+        "local_edits",
+        "provenance",
+        "qualified_name",
+        "symbol_name",
+    ]
+    assert blame["provenance"] == "blame"
     assert search["provenance"] == "local"
-    fake_engine.tool_blame.assert_not_called()
+    fake_engine.tool_blame.assert_called_once_with(
+        query="risk_score",
+        symbol_id=None,
+        qualified_name=None,
+        symbol_name=None,
+        file_path=None,
+        include_churn=True,
+        budget_tokens=220,
+    )
     fake_engine.tool_search.assert_called_once_with(
         "OrderService",
         limit=20,
@@ -1142,31 +1208,44 @@ def test_tool_code_cache_diagnostics_hide_payloads_and_keep_other_ops_cached(
     )
 
     tool_code({"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000})
-    with pytest.raises(ValueError, match="unsupported code op: 'symbol'"):
-        tool_code(
-            {
-                "op": "symbol",
-                "repo_root": str(tmp_path),
-                "qualified_name": "OrderService",
-                "file_path": "src/orders.py",
-                "budget_tokens": 4000,
-            }
-        )
-    with pytest.raises(ValueError, match="unsupported code op: 'cache_status'"):
-        tool_code({"op": "cache_status", "repo_root": str(tmp_path), "budget_tokens": 4000})
-    with pytest.raises(ValueError, match="unsupported code op: 'cache_invalidate'"):
-        tool_code(
-            {
-                "op": "cache_invalidate",
-                "repo_root": str(tmp_path),
-                "cache_tool": "search",
-                "budget_tokens": 4000,
-            }
-        )
+    tool_code(
+        {
+            "op": "symbol",
+            "repo_root": str(tmp_path),
+            "qualified_name": "OrderService",
+            "file_path": "src/orders.py",
+            "budget_tokens": 4000,
+        }
+    )
+
+    status = tool_code({"op": "cache_status", "repo_root": str(tmp_path), "budget_tokens": 4000})
+    invalidated = tool_code(
+        {
+            "op": "cache_invalidate",
+            "repo_root": str(tmp_path),
+            "cache_tool": "search",
+            "budget_tokens": 4000,
+        }
+    )
     search_after = tool_code(
         {"op": "search", "repo_root": str(tmp_path), "query": "OrderService", "budget_tokens": 4000}
     )
-    assert search_after["provenance"] == "cached"
+    symbol_after = tool_code(
+        {
+            "op": "symbol",
+            "repo_root": str(tmp_path),
+            "qualified_name": "OrderService",
+            "file_path": "src/orders.py",
+            "budget_tokens": 4000,
+        }
+    )
+
+    assert status["entries_by_tool"] == {"code.search": 1, "code.symbol": 1}
+    assert "payload_json" not in json.dumps(status, sort_keys=True)
+    assert "items" not in status
+    assert invalidated["entries_by_tool"] == {"code.search": 1}
+    assert search_after["provenance"] == "local"
+    assert symbol_after["provenance"] == "cached"
 
 
 def test_read_budget_safe_mode_is_smaller_than_expand_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

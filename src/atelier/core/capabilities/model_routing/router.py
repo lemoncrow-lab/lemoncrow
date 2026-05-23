@@ -12,6 +12,21 @@ from typing import Any, Literal
 
 ModelTier = Literal["cheap", "medium", "expensive"]
 
+# Semantic 5-tier route type aligned with enterprise routing language:
+#   deterministic  - pure function / regex / rule, no LLM call needed
+#   local_slm      - small local model via Ollama (free, private)
+#   cheap_llm      - small hosted model (Haiku, Flash, gpt-4.1-mini)
+#   frontier_llm   - frontier hosted model (Opus, GPT-5, Sonnet)
+#   human_review   - escalate to human; agent cannot proceed alone
+RouteTier = Literal["deterministic", "local_slm", "cheap_llm", "frontier_llm", "human_review"]
+
+# Map ModelTier → RouteTier for backward compat
+_MODEL_TIER_TO_ROUTE_TIER: dict[ModelTier, RouteTier] = {
+    "cheap": "cheap_llm",
+    "medium": "cheap_llm",
+    "expensive": "frontier_llm",
+}
+
 
 _CHEAP_TOOLS = {
     "bash",
@@ -79,6 +94,7 @@ _OPEN_OUTPUT_RE = re.compile(r"\b(open[- ]ended|comprehensive|full|deep|thorough
 class ModelRecommendation:
     tier: ModelTier
     model: str
+    route_tier: RouteTier = "cheap_llm"
     reasons: list[str] = field(default_factory=list)
     score: int = 0
     cache_affinity_model: str | None = None
@@ -86,11 +102,26 @@ class ModelRecommendation:
     def to_dict(self) -> dict[str, Any]:
         return {
             "tier": self.tier,
+            "route_tier": self.route_tier,
             "model": self.model,
             "reasons": list(self.reasons),
             "score": self.score,
             "cache_affinity_model": self.cache_affinity_model,
         }
+
+
+def _detect_local_slm() -> str | None:
+    """Return the Ollama base URL if a local SLM is available, else None."""
+    import os
+
+    return os.environ.get("OLLAMA_BASE_URL") or os.environ.get("ATELIER_LOCAL_SLM_URL") or None
+
+
+def _local_slm_model() -> str:
+    """Return the preferred local SLM model name from env or a sensible default."""
+    import os
+
+    return os.environ.get("ATELIER_LOCAL_SLM_MODEL", "llama3.2:3b")
 
 
 class ModelRouter:
@@ -156,13 +187,40 @@ class ModelRouter:
             else:
                 reasons.append(f"cache_affinity ignored: scored {tier}, affinity suggests {affinity_tier}")
 
+        # Compute semantic RouteTier: prefer local_slm when Ollama is available
+        # and the task scored into the cheap tier.
+        route_tier = self._compute_route_tier(tier, score, state)
+
         return ModelRecommendation(
             tier=tier,
+            route_tier=route_tier,
             model=model,
             reasons=reasons,
             score=score,
             cache_affinity_model=cache_affinity_model,
         )
+
+    def _compute_route_tier(
+        self, tier: ModelTier, score: int, state: Mapping[str, Any]
+    ) -> RouteTier:
+        """Map scored ModelTier to semantic RouteTier.
+
+        Escalation to human_review is triggered when the caller sets
+        state["escalate"] = True (e.g. from quality_router after repeated
+        failures or protected-file writes).
+        """
+        if state.get("escalate"):
+            return "human_review"
+        # Pure-function tasks (no LLM needed): regex/grep/deterministic ops
+        if score == 0 and tier == "cheap" and state.get("deterministic"):
+            return "deterministic"
+        # Local SLM available and task is cheap — prefer free/private
+        if tier == "cheap" and _detect_local_slm():
+            return "local_slm"
+        if tier == "expensive":
+            return "frontier_llm"
+        # cheap / medium both map to cheap_llm when no local SLM
+        return "cheap_llm"
 
     def _score_tool(self, tool_name: str) -> tuple[int, str]:
         normalized = tool_name.strip().lower().replace("-", "_")

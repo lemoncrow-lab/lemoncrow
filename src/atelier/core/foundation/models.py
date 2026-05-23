@@ -427,6 +427,7 @@ class LedgerEvent(BaseModel):
         "model_recommendation",
         "reasoning",
         "agent_message",
+        "checkpoint",
     ]
     at: datetime = Field(default_factory=_utcnow)
     summary: str

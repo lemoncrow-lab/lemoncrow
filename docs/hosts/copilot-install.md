@@ -96,12 +96,12 @@ After install, reload the VS Code window:
 
 ## MCP Tools and Dev Mode
 
-With `ATELIER_DEV_MODE=1`, the active Atelier MCP surface for Copilot includes
-`context`, `route`, `rescue`, `trace`, `verify`, `memory`, `read`, `edit`,
-`sql`, `search`, `compact`, `shell`, and the `code` helpers.
+With developer mode enabled (`ATELIER_DEV_MODE=1`), the active Atelier MCP
+surface for Copilot includes all stable tools plus dev-only tools such as
+`rescue` and `verify`.
 
-Without developer mode, `trace` remains the most reliable active surface and
-some other tools may still appear as passive compatibility stubs.
+Without developer mode, the full stable surface is still active, including
+`code`, while dev-only tools remain passive/noop.
 
 VS Code's native search, file reads, and editing remain the preferred raw-access
 tools when you do not need Atelier-specific context or trace behavior.

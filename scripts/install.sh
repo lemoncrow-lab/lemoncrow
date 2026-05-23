@@ -929,6 +929,7 @@ _install_go() {
 install_local_zoekt_if_selected() {
     [[ "$INSTALL_ZOEKT_LOCAL" != "1" ]] && return 0
     local atelier_cli="$1"
+    local go_user_bin="${HOME}/.local/go/bin"
 
     # Check/install Go first
     if ! command -v go >/dev/null 2>&1; then
@@ -937,14 +938,23 @@ install_local_zoekt_if_selected() {
         else
             spin "Installing Go" _install_go || {
                 # Tarball may have set PATH in subshell; try the known path
-                if [[ -x "${HOME}/.local/go/bin/go" ]]; then
-                    export PATH="${HOME}/.local/go/bin:${PATH}"
+                if [[ -x "${go_user_bin}/go" ]]; then
+                    export PATH="${go_user_bin}:${PATH}"
                 else
                     warn "Go install failed — skipping Zoekt binary install"
                     return 0
                 fi
             }
         fi
+    fi
+
+    # spin() runs in a subshell, so always re-apply user-local Go path in parent shell.
+    if [[ -x "${go_user_bin}/go" && ":$PATH:" != *":${go_user_bin}:"* ]]; then
+        export PATH="${go_user_bin}:${PATH}"
+    fi
+    if ! command -v go >/dev/null 2>&1; then
+        warn "Go is still not on PATH — skipping Zoekt binary install"
+        return 0
     fi
 
     if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
