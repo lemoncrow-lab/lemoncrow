@@ -86,6 +86,7 @@ ATELIER_STRICT="${ATELIER_STRICT:-0}"
 ATELIER_VERBOSE="${ATELIER_VERBOSE:-0}"
 export ATELIER_VERBOSE
 ATELIER_ZOEKT_AUTO_INSTALL="${ATELIER_ZOEKT_AUTO_INSTALL:-1}"
+INSTALL_ZOEKT_LOCAL=0
 STACK_STARTED=0
 PASSTHROUGH=()
 WARNINGS=()
@@ -673,6 +674,19 @@ detect_hosts() {
         HOST_CHOICES+=("Antigravity|not found")
         HOST_DEFAULT_SELECTION+=(0)
     fi
+
+    # Zoekt local binary option
+    local zoekt_all_present=1
+    local _z; for _z in zoekt-git-index zoekt-index zoekt zoekt-webserver; do
+        command -v "$_z" >/dev/null 2>&1 || zoekt_all_present=0
+    done
+    if [[ "$zoekt_all_present" == "1" ]]; then
+        HOST_CHOICES+=("Zoekt full-text search|installed")
+        HOST_DEFAULT_SELECTION+=(1)
+    else
+        HOST_CHOICES+=("Zoekt full-text search|not installed")
+        HOST_DEFAULT_SELECTION+=(1)
+    fi
 }
 
 join_with_comma_space() {
@@ -719,6 +733,7 @@ host_wizard() {
                     2) HOST_FLAGS+=(--opencode) ;;
                     3) HOST_FLAGS+=(--copilot) ;;
                     4) HOST_FLAGS+=(--antigravity) ;;
+                    5) INSTALL_ZOEKT_LOCAL=1 ;;
                 esac
             done
             [[ ${#HOST_FLAGS[@]} -gt 0 ]] || ATELIER_NO_HOSTS=1
@@ -729,6 +744,7 @@ host_wizard() {
         printf "│  3) %s\n" "${HOST_CHOICES[2]}"
         printf "│  4) %s\n" "${HOST_CHOICES[3]}"
         printf "│  5) %s\n" "${HOST_CHOICES[4]}"
+        printf "│  6) %s\n" "${HOST_CHOICES[5]}"
         printf "│  a) All (default)\n"
         printf "│\n"
         printf "Choice [a]: "
@@ -753,6 +769,7 @@ host_wizard() {
                         3) HOST_FLAGS+=(--opencode) ;;
                         4) HOST_FLAGS+=(--copilot) ;;
                         5) HOST_FLAGS+=(--antigravity) ;;
+                        6) INSTALL_ZOEKT_LOCAL=1 ;;
                     esac
                 done
                 [[ ${#HOST_FLAGS[@]} -gt 0 ]] || ATELIER_NO_HOSTS=1
@@ -805,6 +822,7 @@ host_wizard() {
 }
 
 ensure_local_zoekt_runtime() {
+    # Kept for legacy --zoekt-auto-install flag path; prefer install_local_zoekt_if_selected
     local atelier_cli="$1"
     local missing=()
     local name
@@ -813,28 +831,68 @@ ensure_local_zoekt_runtime() {
             missing+=("$name")
         fi
     done
+    [[ ${#missing[@]} -eq 0 ]] && return
+    warn "Local Zoekt binaries missing — run: atelier zoekt install"
+}
 
-    if [[ ${#missing[@]} -eq 0 ]]; then
-        verbose "Local Zoekt runtime detected (${missing[*]:-ok})"
-        return
+# Install Go via package manager or official tarball to ~/.local/go
+_install_go() {
+    local os_type; os_type="$(uname -s)"
+    if [[ "$os_type" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+        brew install go
+        return $?
+    fi
+    # Try package managers with passwordless sudo
+    if command -v apt-get >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+        sudo apt-get install -y golang-go && return 0
+    elif command -v dnf >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+        sudo dnf install -y golang && return 0
+    elif command -v pacman >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+        sudo pacman -S --noconfirm go && return 0
+    fi
+    # Fallback: official tarball to ~/.local/go (no sudo required)
+    local go_ver arch os_low tarball
+    go_ver="$(curl -sSL 'https://go.dev/VERSION?m=text' 2>/dev/null | head -1)" || return 1
+    [[ -z "$go_ver" ]] && return 1
+    case "$(uname -m)" in
+        x86_64)        arch="amd64" ;;
+        aarch64|arm64) arch="arm64" ;;
+        *)             arch="amd64" ;;
+    esac
+    os_low="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    tarball="${go_ver}.${os_low}-${arch}.tar.gz"
+    mkdir -p "${HOME}/.local"
+    curl -sSL "https://go.dev/dl/${tarball}" | tar -xz -C "${HOME}/.local" || return 1
+    export PATH="${HOME}/.local/go/bin:${PATH}"
+    command -v go >/dev/null 2>&1
+}
+
+install_local_zoekt_if_selected() {
+    [[ "$INSTALL_ZOEKT_LOCAL" != "1" ]] && return 0
+    local atelier_cli="$1"
+
+    # Check/install Go first
+    if ! command -v go >/dev/null 2>&1; then
+        if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+            echo "[dry-run] install go"
+        else
+            spin "Installing Go" _install_go || {
+                # Tarball may have set PATH in subshell; try the known path
+                if [[ -x "${HOME}/.local/go/bin/go" ]]; then
+                    export PATH="${HOME}/.local/go/bin:${PATH}"
+                else
+                    warn "Go install failed — skipping Zoekt binary install"
+                    return 0
+                fi
+            }
+        fi
     fi
 
-    warn "Local Zoekt binaries missing: ${missing[*]}"
-    if [[ "$ATELIER_ZOEKT_AUTO_INSTALL" == "1" ]]; then
-        if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-            echo "[dry-run] $atelier_cli zoekt install --auto"
-        else
-            spin "Installing local Zoekt binaries" "$atelier_cli" zoekt install --auto \
-                || warn "Automatic local Zoekt install failed. Run: atelier zoekt install"
-        fi
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] $atelier_cli zoekt install --auto"
     else
-        echo "Install local Zoekt binaries with:"
-        echo "  $atelier_cli zoekt install"
-        echo "or:"
-        echo "  go install github.com/sourcegraph/zoekt/cmd/zoekt-git-index@latest"
-        echo "  go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest"
-        echo "  go install github.com/sourcegraph/zoekt/cmd/zoekt@latest"
-        echo "  go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest"
+        spin "Installing Zoekt" "$atelier_cli" zoekt install --auto \
+            || warn "Zoekt install failed. Run: atelier zoekt install"
     fi
 }
 
@@ -1138,7 +1196,12 @@ main() {
     fi
 
     local atelier_cli="$ATELIER_BIN_DIR/atelier"
-    ensure_local_zoekt_runtime "$atelier_cli"
+
+    if [[ "$INSTALL_ZOEKT_LOCAL" == "1" ]]; then
+        step_start "Installing Zoekt"
+        install_local_zoekt_if_selected "$atelier_cli"
+        step_done
+    fi
 
     step_start "Initializing"
     if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
