@@ -12,6 +12,7 @@ Atelier tools are **not optional wrappers**. They are the reason this repo exist
 | `Bash(anything)` | `mcp__atelier__shell` | ANSI-stripped + line-truncated output | _pending A/B_ |
 | `Edit(...)` / `Write(...)` | `mcp__atelier__edit` | atomic multi-file with snapshot/rollback | _pending A/B_ |
 | chaining search + symbol + callers/callees + read | `mcp__atelier__code op=explore` | grouped source + relationships in one budgeted call | **Fixture A/B (`tests/benchmarks/test_code_explore_ab_real.py`):** 3,510 → 1,927 tokens (45.1% fewer; 1,583 tokens saved) for an auth/login exploration flow. |
+| manual grep+read route inventory | `mcp__atelier__code op=routes` | framework route nodes (method/path/handler) in one call | **Fixture A/B (`tests/benchmarks/test_code_routes_ab_real.py`):** 690 → 332 tokens (51.9% fewer; 358 tokens saved) for mixed FastAPI/Django/Express route discovery. |
 
 > Every "X% saved" claim in this row must cite a real A/B test under `tests/benchmarks/`. If the test isn't there, the cell reads `_pending A/B_`. No exceptions.
 >
