@@ -628,6 +628,11 @@ def test_tool_code_status_dispatches_to_engine(tmp_path: Path, monkeypatch: pyte
         "index": {"files_indexed": 3, "symbols_indexed": 8, "imports_indexed": 2},
         "cache": {"entry_count": 1},
         "providers": [{"name": "scip", "status": "ok", "ok": True}],
+        "provider_freshness": {
+            "thresholds": {"required_health_status": "ok", "require_index_head_match_for_scip": True},
+            "summary": {"ok": 1, "degraded": 0, "unhealthy": 0, "total": 1},
+        },
+        "warnings": [],
         "freshness": {"status": "fresh", "indexed": True, "stale_after_seconds": 86400},
         "autosync": {"enabled": False, "state": "idle", "mode": "scaffold_only", "debounce_ms": 500},
         "cache_hit": False,
@@ -643,6 +648,7 @@ def test_tool_code_status_dispatches_to_engine(tmp_path: Path, monkeypatch: pyte
     payload = tool_code({"op": "status", "repo_root": str(tmp_path), "budget_tokens": 220})
 
     assert payload["freshness"]["status"] == "fresh"
+    assert payload["provider_freshness"]["summary"]["ok"] == 1
     assert payload["autosync"]["mode"] == "scaffold_only"
     fake_engine.tool_status.assert_called_once_with(budget_tokens=220)
 

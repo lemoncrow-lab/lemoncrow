@@ -200,6 +200,8 @@ _STATUS_ESSENTIAL_KEYS = [
     "index",
     "cache",
     "providers",
+    "provider_freshness",
+    "warnings",
     "freshness",
     "autosync",
     "provenance",
@@ -1533,6 +1535,7 @@ class CodeContextEngine:
             "index_version": self._current_index_version(),
             "autosync_enabled": self._autosync_enabled,
             "autosync_debounce_ms": self._autosync_debounce_ms,
+            "head_sha": self._safe_current_head_sha(),
         }
         hit, cached = self._cache_get("code.status", cache_args)
         if hit and cached is not None:
@@ -1556,6 +1559,13 @@ class CodeContextEngine:
             freshness_status = "fresh"
             freshness_reason = "index within freshness threshold"
 
+        provider_thresholds = {
+            "required_health_status": "ok",
+            "require_index_head_match_for_scip": True,
+        }
+        head_sha = self._safe_current_head_sha()
+        warnings: list[dict[str, Any]] = []
+        provider_counts = {"ok": 0, "degraded": 0, "unhealthy": 0}
         providers: list[dict[str, Any]] = []
         for provider in self.intel_store.providers:
             provider_name = str(getattr(provider, "name", provider.__class__.__name__.lower()))
@@ -1573,12 +1583,45 @@ class CodeContextEngine:
                 ok = bool(health)
                 entry["status"] = "ok" if ok else "unhealthy"
                 entry["ok"] = ok
+            provider_status = str(entry.get("status") or "unhealthy")
+            if provider_status in provider_counts:
+                provider_counts[provider_status] += 1
+            if provider_status != "ok":
+                warnings.append(
+                    {
+                        "code": "provider_health_not_ok",
+                        "level": "warning",
+                        "provider": provider_name,
+                        "message": f"provider '{provider_name}' health is {provider_status}",
+                    }
+                )
             index_sha_fn = getattr(provider, "index_sha", None)
             if callable(index_sha_fn):
                 with contextlib.suppress(Exception):
                     index_sha = index_sha_fn()
                     if index_sha:
                         entry["index_sha"] = str(index_sha)
+            if provider_name == "scip":
+                if head_sha is not None:
+                    entry["head_sha"] = head_sha
+                index_sha = entry.get("index_sha")
+                if isinstance(index_sha, str) and head_sha:
+                    if index_sha == head_sha:
+                        entry["freshness"] = "fresh"
+                    else:
+                        entry["freshness"] = "stale"
+                        warnings.append(
+                            {
+                                "code": "provider_index_stale",
+                                "level": "warning",
+                                "provider": provider_name,
+                                "message": "SCIP index SHA does not match HEAD; reindex recommended.",
+                            }
+                        )
+                else:
+                    entry["freshness"] = "unknown"
+            else:
+                entry["freshness"] = "unknown"
             providers.append(entry)
 
         payload = {
@@ -1589,6 +1632,14 @@ class CodeContextEngine:
             "index": index_stats,
             "cache": cache_stats,
             "providers": providers,
+            "provider_freshness": {
+                "thresholds": provider_thresholds,
+                "summary": {
+                    **provider_counts,
+                    "total": sum(provider_counts.values()),
+                },
+            },
+            "warnings": warnings,
             "freshness": {
                 "status": freshness_status,
                 "reason": freshness_reason,
@@ -4065,6 +4116,11 @@ class CodeContextEngine:
         pygit2 = require_pygit2()
         repo = pygit2.Repository(str(self.repo_root))
         return str(repo.revparse_single("HEAD").id)
+
+    def _safe_current_head_sha(self) -> str | None:
+        with contextlib.suppress(Exception):
+            return self._current_head_sha()
+        return None
 
     def _deleted_history_adapter(self) -> DeletedHistorySearchAdapter:
         if self._deleted_history_search_adapter is None:

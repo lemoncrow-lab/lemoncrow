@@ -1181,6 +1181,9 @@ def test_tool_status_reports_index_cache_and_freshness(tmp_path: Path) -> None:
     assert payload["index"]["symbols_indexed"] >= 1
     assert payload["freshness"]["status"] in {"fresh", "stale", "empty"}
     assert "providers" in payload
+    assert payload["provider_freshness"]["thresholds"]["required_health_status"] == "ok"
+    assert "summary" in payload["provider_freshness"]
+    assert isinstance(payload["warnings"], list)
     assert payload["autosync"]["state"] == "idle"
     assert payload["autosync"]["mode"] == "scaffold_only"
     assert "entry_count" in payload["cache"]
