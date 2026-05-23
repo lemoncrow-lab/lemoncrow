@@ -442,7 +442,7 @@ else
     vwarn "Codex config missing plugin entry for atelier@openai-curated; MCP registration is the required surface, plugin install remains best-effort"
 fi
 
-if codex_cmd plugin list 2>/dev/null | grep -q 'atelier@openai-curated (installed, enabled)'; then
+if codex_cmd plugin list 2>/dev/null | grep -Eq '^atelier@openai-curated[[:space:]]+installed, enabled([[:space:]]|$)'; then
     vpass "codex plugin list shows atelier plugin installed"
 else
     vwarn "codex plugin list does not show atelier plugin installed; Codex will still use Atelier via the registered MCP server"
