@@ -616,10 +616,12 @@ def test_tool_code_status_dispatches_to_engine(tmp_path: Path, monkeypatch: pyte
     fake_engine.tool_status.return_value = {
         "repo_id": "repo",
         "repo_root": str(tmp_path),
+        "db_path": str(tmp_path / "code.sqlite"),
         "index_version": 2,
         "index": {"files_indexed": 3, "symbols_indexed": 8, "imports_indexed": 2},
         "cache": {"entry_count": 1},
-        "freshness": "fresh",
+        "providers": [{"name": "scip", "status": "ok", "ok": True}],
+        "freshness": {"status": "fresh", "indexed": True, "stale_after_seconds": 86400},
         "cache_hit": False,
         "provenance": "local",
         "tokens_saved": 0,
@@ -632,7 +634,7 @@ def test_tool_code_status_dispatches_to_engine(tmp_path: Path, monkeypatch: pyte
 
     payload = tool_code({"op": "status", "repo_root": str(tmp_path), "budget_tokens": 220})
 
-    assert payload["freshness"] == "fresh"
+    assert payload["freshness"]["status"] == "fresh"
     fake_engine.tool_status.assert_called_once_with(budget_tokens=220)
 
 

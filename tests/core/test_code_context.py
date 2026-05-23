@@ -1135,10 +1135,12 @@ def test_tool_status_reports_index_cache_and_freshness(tmp_path: Path) -> None:
 
     assert payload["repo_id"] == engine.repo_id
     assert payload["repo_root"] == str(tmp_path.resolve())
+    assert payload["db_path"] == str((tmp_path / "code.sqlite").resolve())
     assert payload["index_version"] >= 1
     assert payload["index"]["files_indexed"] >= 1
     assert payload["index"]["symbols_indexed"] >= 1
-    assert payload["freshness"] in {"fresh", "stale", "empty"}
+    assert payload["freshness"]["status"] in {"fresh", "stale", "empty"}
+    assert "providers" in payload
     assert "entry_count" in payload["cache"]
     assert cached["cache_hit"] is True
 

@@ -39,7 +39,7 @@ from atelier.core.capabilities.code_context.embedding import (
     resolve_search_mode,
     semantic_candidate_limit,
 )
-from atelier.core.capabilities.code_context.intel_store import SymbolIntelStore
+from atelier.core.capabilities.code_context.intel_store import ProviderHealth, SymbolIntelStore
 from atelier.core.capabilities.code_context.models import (
     ContextPack,
     CrossLangReference,
@@ -172,7 +172,17 @@ _USAGES_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column
 _USAGES_OPTIONAL_KEYS = ["snippet", "caller", "edge_kind", "confidence"]
 _PATTERN_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column", "captures"]
 _PATTERN_OPTIONAL_KEYS = ["snippet"]
-_STATUS_ESSENTIAL_KEYS = ["repo_id", "repo_root", "index_version", "index", "cache", "freshness", "provenance"]
+_STATUS_ESSENTIAL_KEYS = [
+    "repo_id",
+    "repo_root",
+    "db_path",
+    "index_version",
+    "index",
+    "cache",
+    "providers",
+    "freshness",
+    "provenance",
+]
 _CACHE_STATUS_ESSENTIAL_KEYS = [
     "repo_id",
     "index_version",
@@ -1442,19 +1452,60 @@ class CodeContextEngine:
             index_version=self._current_index_version(),
             tool_name=None,
         )
-        freshness = "empty"
-        if int(index_stats.get("files_indexed", 0) or 0) > 0:
-            freshness = "fresh"
-            index_age_seconds = index_stats.get("index_age_seconds")
-            if isinstance(index_age_seconds, int) and index_age_seconds > 86_400:
-                freshness = "stale"
+        stale_after_seconds = 86_400
+        files_indexed = int(index_stats.get("files_indexed", 0) or 0)
+        index_age_seconds = index_stats.get("index_age_seconds")
+        if files_indexed <= 0:
+            freshness_status = "empty"
+            freshness_reason = "no indexed files"
+        elif isinstance(index_age_seconds, int) and index_age_seconds > stale_after_seconds:
+            freshness_status = "stale"
+            freshness_reason = "index older than stale threshold"
+        else:
+            freshness_status = "fresh"
+            freshness_reason = "index within freshness threshold"
+
+        providers: list[dict[str, Any]] = []
+        for provider in self.intel_store.providers:
+            provider_name = str(getattr(provider, "name", provider.__class__.__name__.lower()))
+            entry: dict[str, Any] = {"name": provider_name}
+            try:
+                health = provider.health()
+            except Exception as exc:
+                health = ProviderHealth(status="unhealthy", reason=str(exc))
+            if isinstance(health, ProviderHealth):
+                entry["status"] = health.status
+                entry["ok"] = health.ok
+                if health.reason:
+                    entry["reason"] = health.reason
+            else:
+                ok = bool(health)
+                entry["status"] = "ok" if ok else "unhealthy"
+                entry["ok"] = ok
+            index_sha_fn = getattr(provider, "index_sha", None)
+            if callable(index_sha_fn):
+                with contextlib.suppress(Exception):
+                    index_sha = index_sha_fn()
+                    if index_sha:
+                        entry["index_sha"] = str(index_sha)
+            providers.append(entry)
+
         payload = {
             "repo_id": self.repo_id,
             "repo_root": str(self.repo_root),
+            "db_path": str(self.db_path),
             "index_version": self._current_index_version(),
             "index": index_stats,
             "cache": cache_stats,
-            "freshness": freshness,
+            "providers": providers,
+            "freshness": {
+                "status": freshness_status,
+                "reason": freshness_reason,
+                "indexed": files_indexed > 0,
+                "last_indexed_at": index_stats.get("last_indexed_at"),
+                "index_age_seconds": index_age_seconds,
+                "stale_after_seconds": stale_after_seconds,
+            },
             "provenance": _LOCAL_PROVENANCE,
         }
         packed = self._pack_single_payload(
