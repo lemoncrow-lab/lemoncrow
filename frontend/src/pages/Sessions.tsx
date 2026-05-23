@@ -76,7 +76,10 @@ function latestActivityMs(
   summary?: SessionSummary | null
 ): number {
   const candidate =
-    summary?.ended_at || summary?.started_at || trace.created_at;
+    summary?.ended_at ||
+    summary?.updated_at ||
+    summary?.started_at ||
+    trace.created_at;
   const ts = candidate ? Date.parse(candidate) : NaN;
   return Number.isFinite(ts) ? ts : 0;
 }

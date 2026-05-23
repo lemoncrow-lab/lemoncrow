@@ -8,6 +8,7 @@ tmp_path fixture so every test is fully isolated with no real filesystem reads.
 
 from __future__ import annotations
 
+import os
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -585,6 +586,46 @@ class TestListSessions:
         assert data["output_tokens"] == expected["output_tokens"]
         assert data["cached_input_tokens"] == expected["cached_input_tokens"]
         assert data["cache_write_tokens"] == expected["cache_creation_input_tokens"]
+
+    def test_running_sessions_sort_by_file_mtime_before_started_at(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        now = datetime.now(UTC)
+
+        def write_run(session_id: str, started: str, mtime: float) -> None:
+            runs_dir = tmp_path / "runs"
+            runs_dir.mkdir(parents=True, exist_ok=True)
+            snap = _run_snapshot(session_id)
+            snap["status"] = "running"
+            snap["created_at"] = started
+            snap["updated_at"] = started
+            path = runs_dir / f"{session_id}.json"
+            path.write_text(json.dumps(snap))
+            os.utime(path, (mtime, mtime))
+
+        write_run(
+            "sess-old",
+            (now - timedelta(hours=2)).isoformat(),
+            (now - timedelta(hours=1, minutes=30)).timestamp(),
+        )
+        write_run(
+            "sess-new",
+            (now - timedelta(hours=3)).isoformat(),
+            (now - timedelta(minutes=30)).timestamp(),
+        )
+
+        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.chdir(tmp_path)
+
+        from atelier.core.service.api import create_app
+
+        client = TestClient(create_app(store_root=str(tmp_path)))
+        listing = client.get("/v1/sessions")
+        assert listing.status_code == 200
+        data = listing.json()
+        assert [item["session_id"] for item in data[:2]] == ["sess-new", "sess-old"]
+        assert data[0]["updated_at"] > data[1]["updated_at"]
 
 
 # ---------------------------------------------------------------------------

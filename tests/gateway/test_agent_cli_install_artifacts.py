@@ -407,7 +407,13 @@ def test_managed_context_helper_shared_across_host_installs() -> None:
 def test_install_sh_bootstraps_atelier_before_host_installers() -> None:
     content = (SCRIPTS / "install.sh").read_text()
     install_pos = content.index('info "Installing Atelier console commands..."')
-    init_pos = content.index('"$ATELIER_BIN_DIR/atelier" init >/dev/null')
+    init_pos_candidates = [
+        content.find('"$ATELIER_BIN_DIR/atelier" init >/dev/null'),
+        content.find('"$atelier_cli" init >/dev/null'),
+    ]
+    init_positions = [pos for pos in init_pos_candidates if pos >= 0]
+    assert init_positions, "install.sh must initialize Atelier runtime before host installers"
+    init_pos = min(init_positions)
     hosts_pos = content.index('info "Installing Atelier host integrations (skip if host CLI is missing)..."')
 
     assert install_pos < hosts_pos

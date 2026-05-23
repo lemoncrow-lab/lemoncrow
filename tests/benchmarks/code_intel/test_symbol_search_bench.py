@@ -147,6 +147,19 @@ def test_semantic_symbol_search_bench_preserves_exact_identifier_regression_gate
     assert payload["hybrid_ndcg_at_5"] >= payload["lexical_ndcg_at_5"]
 
 
+def test_symbol_search_planner_handles_typo_fuzzy_without_displacing_exact(tmp_path: Path) -> None:
+    repo_root = tmp_path / "planner_repo"
+    _write_fixture_repo(repo_root)
+
+    exact = tool_code({"op": "search", "repo_root": str(repo_root), "query": "OrderService", "limit": 5, "mode": "lexical"})
+    fuzzy = tool_code({"op": "search", "repo_root": str(repo_root), "query": "OrdreServce", "limit": 5, "mode": "lexical"})
+
+    assert exact["items"]
+    assert exact["items"][0]["symbol_name"] == "OrderService"
+    assert fuzzy["items"]
+    assert fuzzy["items"][0]["symbol_name"] == "OrderService"
+
+
 def test_scip_vs_local_latency_ratio_min_100x(tmp_path: Path) -> None:
     local_repo_root = tmp_path / "latency_local_repo"
     routed_repo_root = tmp_path / "latency_routed_repo"

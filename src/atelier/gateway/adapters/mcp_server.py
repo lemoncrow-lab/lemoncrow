@@ -2563,6 +2563,34 @@ def _workspace_code_router(repo_root: str = ".") -> Any:
     )
 
 
+def _maybe_attach_code_rendered(op: str, payload: dict[str, Any], *, render_compact: bool) -> dict[str, Any]:
+    if not render_compact:
+        return payload
+    from atelier.core.capabilities.code_context.renderer import render_code_payload
+
+    rendered = render_code_payload(op, payload)
+    if not rendered:
+        return payload
+    augmented = dict(payload)
+    augmented["rendered"] = rendered
+    augmented["rendered_format"] = "markdown"
+    return augmented
+
+
+_CODE_CORE_SURFACE_OPS = {
+    "context",
+    "search",
+    "node",
+    "symbol",
+    "explore",
+    "files",
+    "callers",
+    "callees",
+    "impact",
+    "status",
+}
+
+
 CODE_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["op"],
@@ -2576,54 +2604,34 @@ CODE_TOOL_INPUT_SCHEMA: dict[str, Any] = {
                 "Use `grep` only for free-form regex on non-symbol text. "
                 "Use `search` only when you have a natural-language description and no symbol name. "
                 "\n\n**Recommended workflow (funnel strategy):**\n"
-                "1. `search` or `outline` → discover symbol names/IDs\n"
-                "2. `symbol` or `hover` → inspect a specific hit\n"
-                "3. `usages`/`callers`/`callees` → understand relationships\n"
-                "4. `pattern`/`rename` → structural changes\n"
+                "1. `search` or `files` → discover symbol names/locations\n"
+                "2. `node` → inspect a specific symbol\n"
+                "3. `callers`/`callees`/`impact` → understand relationships\n"
+                "4. `context`/`explore` → task-level synthesis\n"
                 "Read file content (via `read`) only as a last step — most tasks complete without it."
                 "\n\nOp reference:"
                 "\n• `search` — Find symbols by name or natural-language description. "
                 "Indexed, up to 100x faster than grep. mode='semantic' for intent-based ('parse JSON config'), "
                 "'lexical' for exact identifier match. Requires: query."
-                "\n• `symbol` — Full definition for one symbol: signature, docstring, source, file+line, "
-                "cross-language references. Use after search to inspect a hit. "
+                "\n• `node` — Full definition for one symbol (symbol-level inspect). "
                 "Requires one of: symbol_name, qualified_name, symbol_id, path+line."
-                "\n• `hover` — Minimal type+signature at a file position. Like IDE hover. "
-                "Token-optimal when you already have path+line. Requires: path + line OR symbol name."
-                "\n• `outline` — All symbols in a file (functions, classes, methods with line ranges). "
-                "Replaces grepping for 'def ' or 'class '. path=file for one file, omit for repo summary."
                 "\n• `files` — Indexed file tree/list view with optional path/pattern filters and grouped output. "
                 "Use this before globbing the filesystem."
                 "\n• `explore` — One-call grouped source and relationships for a query. "
                 "Use it instead of chaining search → symbol → callers/callees for multi-file understanding."
-                "\n• `routes` — Framework route inventory (FastAPI/Flask/Django/Express) with method/path/handler. "
-                "Use it to discover app endpoints before tracing handlers."
-                "\n• `usages` — Every site where a symbol is referenced across the repo. "
-                "Use before refactoring to see blast radius. Grouped by file."
                 "\n• `callers` — Who calls this function (call graph, inbound edges). "
                 "depth=1 for direct callers, depth=2 for transitive. Use to trace invocation paths."
                 "\n• `callees` — What this function calls (call graph, outbound edges). "
                 "Use to understand dependencies before editing."
-                "\n• `pattern` — Structural (AST-level) find using ast-grep. Unlike regex, matches "
-                "code structure: '$F($$$ARGS)' matches any call. Add rewrite= for safe codemod. "
-                "Requires: pattern."
-                "\n• `impact` — What files break if this file changes: direct + transitive importers. "
-                "Use before large refactors. Requires: path."
-                "\n• `blame` — Who last changed this symbol and when (git blame at symbol granularity). "
-                "Requires symbol identifier."
+                "\n• `impact` — Blast radius for a file path or symbol (query, symbol_id, qualified_name). "
+                "Includes grouped affected files and deterministic reason labels."
                 "\n• `context` — Task-based context builder: given a task description, surfaces the most "
                 "relevant symbols + files. Replaces reading many files manually. Requires: task."
-                "\n• `rename` — Safe, index-backed rename across all files (rope/ts-morph/ast-grep). "
-                "More reliable than search-and-replace. Requires: new_name + symbol identifier."
-                "\n• `index` — Build/rebuild the SCIP symbol index. Call if search returns 'not indexed'. "
-                "Auto-triggered on first use normally; only call manually after large merges."
                 "\n• `status` — Quick index/cache/freshness/autosync diagnostics for this repo. "
                 "Use before heavy code-intel operations if results look stale."
             ),
             "enum": [
-                "index", "search", "blame", "hover", "symbol", "outline", "files", "explore", "routes", "status",
-                "context", "impact", "usages", "callers", "callees",
-                "pattern", "rename", "cache_status", "cache_invalidate",
+                "context", "search", "node", "explore", "files", "callers", "callees", "impact", "status",
             ],
         },
         "query": {
@@ -2661,7 +2669,7 @@ CODE_TOOL_INPUT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": (
                 "Workspace-relative file path. "
-                "Required for: outline (one file), impact, hover (positional lookup). "
+                "Required for: outline (one file), hover (positional lookup). "
                 "Optional filter for: usages, callers, callees (restrict to file), files (subtree or file)."
             ),
         },
@@ -2856,6 +2864,14 @@ CODE_TOOL_INPUT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": "Repo name filter for multi-repo workspaces (requires .atelier/workspace.toml). ops: search, symbol.",
         },
+        "render_compact": {
+            "type": "boolean",
+            "description": (
+                "When true, include a compact benchmark-facing markdown summary in response field `rendered` "
+                "without changing the structured payload."
+            ),
+            "default": False,
+        },
     },
 }
 
@@ -2865,6 +2881,7 @@ def tool_code(
     op: Literal[
         "index",
         "search",
+        "node",
         "blame",
         "hover",
         "symbol",
@@ -2922,7 +2939,7 @@ def tool_code(
     task: str | None = None,
     seed_files: list[str] | None = None,
     budget_tokens: int = 4000,
-    max_symbols: int = 8,
+    max_symbols: int = 4,
     dry_run: bool = True,
     cache_tool: (
         Literal[
@@ -2943,8 +2960,11 @@ def tool_code(
         ]
         | None
     ) = None,
+    render_compact: bool = False,
 ) -> dict[str, Any]:
     """Index, search, inspect, outline, pack, or analyze code context."""
+    if op == "node":
+        op = "symbol"
     workspace_router = _workspace_code_router(repo_root)
     if repo is not None and not workspace_router.is_configured:
         raise ValueError("repo filter requires .atelier/workspace.toml")
@@ -2954,14 +2974,14 @@ def tool_code(
     engine = _code_context_engine(repo_root)
 
     if op == "index":
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_index(
                 include_globs=include_globs,
                 exclude_globs=exclude_globs,
                 budget_tokens=budget_tokens,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "search":
         if not query:
@@ -2982,19 +3002,19 @@ def tool_code(
         if touched_by is not None:
             search_kwargs["touched_by"] = touched_by
         if workspace_router.is_configured:
-            return cast(
+            return _maybe_attach_code_rendered(op, cast(
                 dict[str, Any],
                 workspace_router.route("search", repo=repo, query=query, **search_kwargs),
-            )
-        return cast(
+            ), render_compact=render_compact)
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_search(query, **search_kwargs),
-        )
+        ), render_compact=render_compact)
 
     if op == "blame":
         if not (query or symbol_id or qualified_name or symbol_name):
             raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code blame")
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_blame(
                 query=query,
@@ -3005,12 +3025,12 @@ def tool_code(
                 include_churn=include_churn,
                 budget_tokens=budget_tokens,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "hover":
         if not any([symbol_id, qualified_name, symbol_name, query, (path and line is not None)]):
             raise ValueError("symbol_id, qualified_name, symbol_name, query, or (file_path + line) is required for hover")
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_hover(
                 symbol_id=symbol_id,
@@ -3021,11 +3041,11 @@ def tool_code(
                 col=col,
                 budget_tokens=budget_tokens,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "symbol":
         if workspace_router.is_configured:
-            return cast(
+            return _maybe_attach_code_rendered(op, cast(
                 dict[str, Any],
                 workspace_router.route(
                     "symbol",
@@ -3036,8 +3056,8 @@ def tool_code(
                     file_path=path,
                     budget_tokens=budget_tokens,
                 ),
-            )
-        return cast(
+            ), render_compact=render_compact)
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_symbol(
                 symbol_id=symbol_id,
@@ -3046,16 +3066,16 @@ def tool_code(
                 file_path=path,
                 budget_tokens=budget_tokens,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "outline":
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_outline(file_path=path, limit=limit, budget_tokens=budget_tokens),
-        )
+        ), render_compact=render_compact)
 
     if op == "files":
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_files(
                 path=path,
@@ -3065,12 +3085,12 @@ def tool_code(
                 max_depth=max_depth,
                 budget_tokens=budget_tokens,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "explore":
         if not query:
             raise ValueError("query is required for code explore")
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_explore(
                 query=query,
@@ -3083,10 +3103,10 @@ def tool_code(
                 depth=depth,
                 budget_tokens=budget_tokens,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "routes":
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_routes(
                 file_glob=file_glob,
@@ -3094,15 +3114,19 @@ def tool_code(
                 limit=limit,
                 budget_tokens=budget_tokens,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "status":
-        return cast(dict[str, Any], engine.tool_status(budget_tokens=budget_tokens))
+        return _maybe_attach_code_rendered(
+            op,
+            cast(dict[str, Any], engine.tool_status(budget_tokens=budget_tokens)),
+            render_compact=render_compact,
+        )
 
     if op == "context":
         if not task:
             raise ValueError("task is required for code context")
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_context(
                 task=task,
@@ -3110,12 +3134,12 @@ def tool_code(
                 budget_tokens=budget_tokens,
                 max_symbols=max_symbols,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "pattern":
         if not pattern:
             raise ValueError("pattern is required for code pattern")
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_pattern(
                 pattern=pattern,
@@ -3126,12 +3150,12 @@ def tool_code(
                 limit=limit,
                 budget_tokens=budget_tokens,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "usages":
         if not any([query, symbol_id, qualified_name, symbol_name]):
             raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code usages")
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_usages(
                 query=query,
@@ -3147,12 +3171,12 @@ def tool_code(
                 limit=limit,
                 budget_tokens=budget_tokens,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "callers":
         if not any([query, symbol_id, qualified_name, symbol_name]):
             raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code callers")
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_callers(
                 query=query,
@@ -3167,12 +3191,12 @@ def tool_code(
                 snapshot=snapshot,
                 budget_tokens=budget_tokens,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "callees":
         if not any([query, symbol_id, qualified_name, symbol_name]):
             raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code callees")
-        return cast(
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_callees(
                 query=query,
@@ -3187,7 +3211,7 @@ def tool_code(
                 snapshot=snapshot,
                 budget_tokens=budget_tokens,
             ),
-        )
+        ), render_compact=render_compact)
 
     if op == "rename":
         if not new_name:
@@ -3211,12 +3235,12 @@ def tool_code(
         rich_edits = [e for e in edits if not e.get("_astgrep_applied")]
         if not rich_edits and edits:
             # ast-grep applied everything directly; return summary
-            return {
+            return _maybe_attach_code_rendered(op, {
                 "op": "rename",
                 "files_changed": len(edits),
                 "backend": "ast-grep",
                 "new_name": new_name,
-            }
+            }, render_compact=render_compact)
         from atelier.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
         touched = _collect_touched_paths(rich_edits, repo_root=Path(workspace))
@@ -3227,28 +3251,54 @@ def tool_code(
         result["op"] = "rename"
         result["new_name"] = new_name
         result["backend"] = rename_backend
-        return result
+        return _maybe_attach_code_rendered(op, result, render_compact=render_compact)
 
     if op == "cache_status":
         if cache_tool is None:
-            return cast(dict[str, Any], engine.tool_cache_status(budget_tokens=budget_tokens))
-        return cast(
+            return _maybe_attach_code_rendered(
+                op,
+                cast(dict[str, Any], engine.tool_cache_status(budget_tokens=budget_tokens)),
+                render_compact=render_compact,
+            )
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_cache_status(cache_tool=cache_tool, budget_tokens=budget_tokens),
-        )
+        ), render_compact=render_compact)
 
     if op == "cache_invalidate":
         if cache_tool is None:
-            return cast(dict[str, Any], engine.tool_cache_invalidate(budget_tokens=budget_tokens))
-        return cast(
+            return _maybe_attach_code_rendered(
+                op,
+                cast(dict[str, Any], engine.tool_cache_invalidate(budget_tokens=budget_tokens)),
+                render_compact=render_compact,
+            )
+        return _maybe_attach_code_rendered(op, cast(
             dict[str, Any],
             engine.tool_cache_invalidate(cache_tool=cache_tool, budget_tokens=budget_tokens),
-        )
+        ), render_compact=render_compact)
 
     if op == "impact":
-        if not path:
-            raise ValueError("path is required for code impact")
-        return cast(dict[str, Any], engine.tool_impact(path, budget_tokens=budget_tokens))
+        if not any([path, query, symbol_id, qualified_name, symbol_name]):
+            raise ValueError("path or symbol identifier is required for code impact")
+        return _maybe_attach_code_rendered(
+            op,
+            cast(
+                dict[str, Any],
+                engine.tool_impact(
+                    path,
+                    query=query,
+                    symbol_id=symbol_id,
+                    qualified_name=qualified_name,
+                    symbol_name=symbol_name,
+                    file_path=path,
+                    kind=kind,
+                    language=language,
+                    file_glob=file_glob,
+                    budget_tokens=budget_tokens,
+                ),
+            ),
+            render_compact=render_compact,
+        )
 
     raise ValueError(f"unknown op: {op!r}")
 

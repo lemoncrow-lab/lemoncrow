@@ -1,0 +1,12 @@
+{
+  "default_agent": "atelier",
+  "mcp": {
+      "atelier": {
+        "type": "local",
+        "command": ["atelier-mcp", "--host", "opencode"],
+        "environment": {
+          "ATELIER_WORKSPACE_ROOT": "/home/pankaj/Projects/leanchain/atelier"
+        }
+      }
+  }
+}

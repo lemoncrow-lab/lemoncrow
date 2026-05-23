@@ -43,6 +43,8 @@ class BenchCase:
     custom_assert: Callable[[dict[str, Any]], None] | None = field(default=None, repr=False)
     # Optional grep needle used when a response spills to overflow artifact.
     spill_probe_pattern: str | None = None
+    # Optional quality score used for effective-token reporting/comparisons.
+    quality_score: float = 1.0
     label: str = ""
 
     def __post_init__(self) -> None:
@@ -56,6 +58,7 @@ class CaseResult:
     response: dict[str, Any]
     atelier_tokens: int
     baseline_tokens: int
+    quality_score: float
     input_file_tokens: int
     baseline_commands: list[str]
     spill_probe_tokens: int
@@ -73,6 +76,10 @@ class CaseResult:
         if self.baseline_tokens == 0:
             return 0.0
         return self.tokens_saved / self.baseline_tokens * 100
+
+    @property
+    def effective_tokens(self) -> float:
+        return self.atelier_tokens / max(self.quality_score, 0.1)
 
 
 @dataclass
@@ -95,6 +102,16 @@ class ToolReport:
     @property
     def total_saved_tokens(self) -> int:
         return sum(r.tokens_saved for r in self.results)
+
+    @property
+    def total_effective_tokens(self) -> float:
+        return sum(r.effective_tokens for r in self.results)
+
+    @property
+    def avg_effective_tokens(self) -> float:
+        if not self.results:
+            return 0.0
+        return self.total_effective_tokens / len(self.results)
 
     @property
     def avg_savings_pct(self) -> float:
@@ -126,6 +143,7 @@ def run_case(
             response={},
             atelier_tokens=0,
             baseline_tokens=case.baseline_tokens,
+            quality_score=case.quality_score,
             input_file_tokens=0,
             baseline_commands=[],
             spill_probe_tokens=0,
@@ -169,6 +187,7 @@ def run_case(
         response=response or {},
         atelier_tokens=atelier_tokens,
         baseline_tokens=baseline_tokens,
+        quality_score=case.quality_score,
         input_file_tokens=input_file_tokens,
         baseline_commands=baseline_commands,
         spill_probe_tokens=spill_probe_tokens,

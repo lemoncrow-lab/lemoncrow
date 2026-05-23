@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import fnmatch
+import subprocess
 from pathlib import Path
 
 import networkx as nx
@@ -21,6 +23,44 @@ def iter_source_files(repo_root: Path, include_globs: list[str] | None = None) -
         "**/*.go",
         "**/*.rs",
     ]
+    files = _iter_git_visible_source_files(repo_root, patterns)
+    if files:
+        return files
+    files = _iter_glob_source_files(repo_root, patterns)
+    return files
+
+
+def _iter_git_visible_source_files(repo_root: Path, patterns: list[str]) -> list[Path]:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=False,
+        )
+    except OSError:
+        return []
+    if completed.returncode != 0:
+        return []
+    files: list[Path] = []
+    entries = [entry for entry in completed.stdout.split(b"\x00") if entry]
+    for raw_entry in entries:
+        rel = raw_entry.decode("utf-8", errors="replace")
+        if not any(fnmatch.fnmatch(rel, pattern) for pattern in patterns):
+            continue
+        path = (repo_root / rel).resolve()
+        if not path.is_file():
+            continue
+        if any(part in _SKIP_PARTS for part in path.parts):
+            continue
+        if detect_language(path) is None:
+            continue
+        files.append(path)
+    return sorted(set(files))
+
+
+def _iter_glob_source_files(repo_root: Path, patterns: list[str]) -> list[Path]:
     files: list[Path] = []
     for pattern in patterns:
         for path in repo_root.glob(pattern):

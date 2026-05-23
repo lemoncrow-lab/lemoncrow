@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+TRUNCATION_MARKER = "... [truncated]"
+
 
 @dataclass(frozen=True)
 class OutputPolicy:
@@ -105,14 +107,22 @@ def resolve_output_policy(operation: str) -> OutputPolicy:
 
 def hard_cap_chars(text: str, max_chars: int) -> str:
     if max_chars <= 0:
-        return "... (truncated)"
+        return TRUNCATION_MARKER
     if len(text) <= max_chars:
         return text
-    cut = text[:max_chars]
+    marker = TRUNCATION_MARKER
+    if max_chars <= len(marker):
+        return marker
+    available_chars = max_chars - len(marker)
+    cut = text[:available_chars]
+    newline_floor = int(available_chars * 0.8)
     last_newline = cut.rfind("\n")
-    if last_newline > int(max_chars * 0.8):
+    if last_newline >= newline_floor:
         cut = cut[:last_newline]
-    return f"{cut}\n... (truncated)"
+    cut = cut.rstrip()
+    if not cut:
+        return marker
+    return f"{cut}\n{marker}"
 
 
 __all__ = [
@@ -121,6 +131,7 @@ __all__ = [
     "NODE_OUTLINE_COMPACT",
     "RELATION_COMPACT",
     "SEARCH_COMPACT",
+    "TRUNCATION_MARKER",
     "OutputPolicy",
     "hard_cap_chars",
     "resolve_output_policy",

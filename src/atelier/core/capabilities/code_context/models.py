@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CrossLangReference(BaseModel):
@@ -117,6 +117,9 @@ class ContextPack(BaseModel):
     token_count: int
     tokens_saved_vs_full_files: int
     symbols: list[SymbolRecord]
+    entry_points: list[dict[str, Any]] = Field(default_factory=list)
+    related_symbols: list[dict[str, Any]] = Field(default_factory=list)
+    code_blocks: list[dict[str, Any]] = Field(default_factory=list)
     repo_map: str
     import_neighbors: list[str]
     content: str
@@ -129,7 +132,10 @@ class ContextPack(BaseModel):
 class ImpactResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    target: dict[str, Any]
+    target_type: Literal["file", "symbol"]
     file_path: str
+    affected_files: list[dict[str, Any]]
     direct_importers: list[str]
     transitive_importers: list[str]
     affected_tests: list[str]

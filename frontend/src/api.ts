@@ -938,6 +938,7 @@ export interface SessionSummary {
   session_id: string;
   started_at: string;
   ended_at: string | null;
+  updated_at?: string | null;
   duration_seconds: number;
   active_duration_seconds: number;
   vendor: string;

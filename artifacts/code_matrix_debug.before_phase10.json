@@ -1,0 +1,2172 @@
+[
+  {
+    "operation": "cache_status",
+    "input": {
+      "op": "cache_status",
+      "budget_tokens": 2000
+    },
+    "raw_output": {
+      "repo_id": "221445b350fc9bcf",
+      "index_version": 50,
+      "entry_count": 9,
+      "entries_by_tool": {
+        "code.callees": 1,
+        "code.callers": 1,
+        "code.context": 1,
+        "code.impact": 1,
+        "code.outline": 1,
+        "code.pattern": 1,
+        "code.search": 1,
+        "code.symbol": 1,
+        "code.usages": 1
+      },
+      "total_bytes": 38897,
+      "max_bytes": 67108864,
+      "scope": {
+        "cache_tool": "all",
+        "tool_name": null
+      },
+      "last_hit_at": "2026-05-23T14:54:06.609Z",
+      "provenance": "local",
+      "cache_hit": false,
+      "tokens_saved": 0,
+      "total_tokens": 144
+    },
+    "tokens": 185,
+    "contains_expected_terms": true,
+    "error": null,
+    "elapsed_ms": 24.342
+  },
+  {
+    "operation": "index",
+    "input": {
+      "op": "index",
+      "include_globs": [
+        "src/**/*.py",
+        "tests/**/*.py"
+      ],
+      "budget_tokens": 3000
+    },
+    "raw_output": {
+      "repo_id": "221445b350fc9bcf",
+      "index_version": 51,
+      "files_indexed": 618,
+      "symbols_indexed": 7138,
+      "imports_indexed": 4208,
+      "provenance": "local",
+      "cache_hit": false,
+      "tokens_saved": 0,
+      "total_tokens": 59
+    },
+    "tokens": 75,
+    "contains_expected_terms": true,
+    "error": null,
+    "elapsed_ms": 10179.146
+  },
+  {
+    "operation": "search",
+    "input": {
+      "op": "search",
+      "query": "classify_command",
+      "mode": "lexical",
+      "limit": 10,
+      "budget_tokens": 3000
+    },
+    "raw_output": {
+      "items": [
+        {
+          "symbol_id": "70d677a22bfb24c7f5f3c737",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+          "language": "python",
+          "symbol_name": "classify_command",
+          "qualified_name": "classify_command",
+          "kind": "function",
+          "signature": "def classify_command(command: str) -> CommandPolicyDecision:",
+          "start_line": 129,
+          "end_line": 168,
+          "score": 1359.0,
+          "provenance": "local",
+          "origin": "internal"
+        },
+        {
+          "symbol_id": "1ac9a44444d2717438490684",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+          "language": "python",
+          "symbol_name": "run_command",
+          "qualified_name": "run_command",
+          "kind": "function",
+          "signature": "def run_command(",
+          "start_line": 171,
+          "end_line": 251,
+          "score": 1011.8783067934266,
+          "provenance": "local",
+          "origin": "internal"
+        },
+        {
+          "symbol_id": "790ea96819c6b32d57f45c5f",
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "language": "python",
+          "symbol_name": "_run_shell_tool",
+          "qualified_name": "_run_shell_tool",
+          "kind": "function",
+          "signature": "def _run_shell_tool(",
+          "start_line": 3309,
+          "end_line": 3441,
+          "score": 1011.5112328494029,
+          "provenance": "local",
+          "origin": "internal"
+        },
+        {
+          "symbol_id": "b686fcc8421eecae44a6ed98",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+          "language": "python",
+          "symbol_name": "__all__",
+          "qualified_name": "__all__",
+          "kind": "variable",
+          "signature": "__all__ = [\"CommandPolicyDecision\", \"RunResult\", \"classify_command\", \"run_command\"]",
+          "start_line": 254,
+          "end_line": 254,
+          "score": 992.6110349462722,
+          "provenance": "local",
+          "origin": "internal"
+        },
+        {
+          "symbol_id": "43fe43eec2a3897599415115",
+          "file_path": "tests/core/test_code_context_indexed_relations.py",
+          "language": "python",
+          "symbol_name": "_write_repo",
+          "qualified_name": "_write_repo",
+          "kind": "function",
+          "signature": "def _write_repo(root: Path) -> None:",
+          "start_line": 8,
+          "end_line": 24,
+          "score": 912.7663302477265,
+          "provenance": "local",
+          "origin": "internal"
+        },
+        {
+          "symbol_id": "7074c99a14a96712f684b78e",
+          "file_path": "tests/gateway/test_run_tool.py",
+          "language": "python",
+          "symbol_name": "test_classify_rewrite_rg",
+          "qualified_name": "test_classify_rewrite_rg",
+          "kind": "function",
+          "signature": "def test_classify_rewrite_rg() -> None:",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 910.7393704813977,
+          "provenance": "local",
+          "origin": "internal"
+        },
+        {
+          "symbol_id": "6a15d44db48f321ff5aa8fec",
+          "file_path": "tests/core/test_code_context_indexed_relations.py",
+          "language": "python",
+          "symbol_name": "test_indexed_usages_callers_and_callees",
+          "qualified_name": "test_indexed_usages_callers_and_callees",
+          "kind": "function",
+          "signature": "def test_indexed_usages_callers_and_callees(tmp_path: Path) -> None:",
+          "start_line": 27,
+          "end_line": 43,
+          "score": 910.6157586293842,
+          "provenance": "local",
+          "origin": "internal"
+        },
+        {
+          "symbol_id": "fa0f38b4170d7fab58619df2",
+          "file_path": "tests/gateway/test_run_tool.py",
+          "language": "python",
+          "symbol_name": "test_classify_rewrite_cat",
+          "qualified_name": "test_classify_rewrite_cat",
+          "kind": "function",
+          "signature": "def test_classify_rewrite_cat() -> None:",
+          "start_line": 57,
+          "end_line": 60,
+          "score": 909.7865532984054,
+          "provenance": "local",
+          "origin": "internal"
+        }
+      ],
+      "cache_hit": false,
+      "provenance": "local",
+      "provenance_breakdown": {
+        "local": 8
+      },
+      "mode": "lexical",
+      "tokens_saved": 0,
+      "total_tokens": 852
+    },
+    "tokens": 1044,
+    "contains_expected_terms": true,
+    "error": null,
+    "elapsed_ms": 61.416
+  },
+  {
+    "operation": "symbol",
+    "input": {
+      "op": "symbol",
+      "symbol_name": "classify_command",
+      "budget_tokens": 3000
+    },
+    "raw_output": {
+      "symbol_id": "70d677a22bfb24c7f5f3c737",
+      "repo_id": "221445b350fc9bcf",
+      "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+      "language": "python",
+      "symbol_name": "classify_command",
+      "qualified_name": "classify_command",
+      "kind": "function",
+      "signature": "def classify_command(command: str) -> CommandPolicyDecision:",
+      "start_byte": 3741,
+      "end_byte": 5113,
+      "start_line": 129,
+      "end_line": 168,
+      "parent_symbol": null,
+      "doc_summary": null,
+      "documentation": null,
+      "snippet": null,
+      "content_hash": "b029e255461ff16583231a155579712bc8cb3cf02bf3edb0129040391cc06d4b",
+      "score": null,
+      "provenance": "local",
+      "origin": "internal",
+      "repo_name": null,
+      "cross_lang_refs": null,
+      "source": "def classify_command(command: str) -> CommandPolicyDecision:\n    try:\n        tokens = shlex.split(command)\n    except ValueError:\n        return CommandPolicyDecision(category=\"generic\", action=\"allow\")\n    if not tokens:\n        return CommandPolicyDecision(category=\"generic\", action=\"allow\")\n\n    head = tokens[0].lower()\n    if head in {\"bash\", \"sh\", \"zsh\", \"fish\"}:\n        return CommandPolicyDecision(\n            category=\"shell-interpreter\",\n            action=\"block\",\n            reason=f\"Direct {head} execution is blocked; use Atelier tools instead\",\n        )\n\n    if _is_rm_family(tokens):\n        return CommandPolicyDecision(\n            category=\"destructive\",\n            action=\"block\",\n            reason=\"Destructive rm -rf commands are blocked\",\n        )\n    if _is_git_reset_hard(tokens):\n        return CommandPolicyDecision(\n            category=\"destructive\",\n            action=\"block\",\n            reason=\"git reset --hard is blocked\",\n        )\n    if _is_git_clean_fd(tokens):\n        return CommandPolicyDecision(\n            category=\"destructive\",\n            action=\"block\",\n            reason=\"git clean -fd is blocked\",\n        )\n\n    if head == \"cat\":\n        return _rewrite_cat(tokens)\n    if head in {\"rg\", \"grep\"}:\n        return _rewrite_search(tokens, head)\n    return CommandPolicyDecision(category=\"generic\", action=\"allow\")",
+      "cache_hit": false,
+      "tokens_saved": 0,
+      "total_tokens": 540
+    },
+    "tokens": 582,
+    "contains_expected_terms": true,
+    "error": null,
+    "elapsed_ms": 53.901
+  },
+  {
+    "operation": "outline",
+    "input": {
+      "op": "outline",
+      "path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+      "budget_tokens": 3000
+    },
+    "raw_output": {
+      "repo_id": "221445b350fc9bcf",
+      "files": {
+        "src/atelier/core/capabilities/tool_supervision/bash_exec.py": [
+          {
+            "name": "_ANSI_ESCAPE",
+            "qualified_name": "_ANSI_ESCAPE",
+            "kind": "variable",
+            "signature": "_ANSI_ESCAPE = re.compile(r\"\\x1b(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])\")",
+            "line_start": 12,
+            "line_end": 12
+          },
+          {
+            "name": "_strip_ansi",
+            "qualified_name": "_strip_ansi",
+            "kind": "function",
+            "signature": "def _strip_ansi(text: str) -> str:",
+            "line_start": 15,
+            "line_end": 16
+          },
+          {
+            "name": "_head_tail_lines",
+            "qualified_name": "_head_tail_lines",
+            "kind": "function",
+            "signature": "def _head_tail_lines(lines: list[str], head: int, tail: int) -> tuple[str, int]:",
+            "line_start": 19,
+            "line_end": 24
+          },
+          {
+            "name": "RunResult",
+            "qualified_name": "RunResult",
+            "kind": "class",
+            "signature": "class RunResult:",
+            "line_start": 28,
+            "line_end": 40
+          },
+          {
+            "name": "CommandPolicyDecision",
+            "qualified_name": "CommandPolicyDecision",
+            "kind": "class",
+            "signature": "class CommandPolicyDecision:",
+            "line_start": 44,
+            "line_end": 49
+          },
+          {
+            "name": "_rewrite_cat",
+            "qualified_name": "_rewrite_cat",
+            "kind": "function",
+            "signature": "def _rewrite_cat(tokens: list[str]) -> CommandPolicyDecision:",
+            "line_start": 52,
+            "line_end": 61
+          },
+          {
+            "name": "_rewrite_search",
+            "qualified_name": "_rewrite_search",
+            "kind": "function",
+            "signature": "def _rewrite_search(tokens: list[str], command_name: str) -> CommandPolicyDecision:",
+            "line_start": 64,
+            "line_end": 109
+          },
+          {
+            "name": "_is_rm_family",
+            "qualified_name": "_is_rm_family",
+            "kind": "function",
+            "signature": "def _is_rm_family(tokens: list[str]) -> bool:",
+            "line_start": 112,
+            "line_end": 115
+          },
+          {
+            "name": "_is_git_reset_hard",
+            "qualified_name": "_is_git_reset_hard",
+            "kind": "function",
+            "signature": "def _is_git_reset_hard(tokens: list[str]) -> bool:",
+            "line_start": 118,
+            "line_end": 119
+          },
+          {
+            "name": "_is_git_clean_fd",
+            "qualified_name": "_is_git_clean_fd",
+            "kind": "function",
+            "signature": "def _is_git_clean_fd(tokens: list[str]) -> bool:",
+            "line_start": 122,
+            "line_end": 126
+          },
+          {
+            "name": "classify_command",
+            "qualified_name": "classify_command",
+            "kind": "function",
+            "signature": "def classify_command(command: str) -> CommandPolicyDecision:",
+            "line_start": 129,
+            "line_end": 168
+          },
+          {
+            "name": "run_command",
+            "qualified_name": "run_command",
+            "kind": "function",
+            "signature": "def run_command(",
+            "line_start": 171,
+            "line_end": 251
+          },
+          {
+            "name": "__all__",
+            "qualified_name": "__all__",
+            "kind": "variable",
+            "signature": "__all__ = [\"CommandPolicyDecision\", \"RunResult\", \"classify_command\", \"run_command\"]",
+            "line_start": 254,
+            "line_end": 254
+          }
+        ]
+      },
+      "symbol_count": 13,
+      "cache_hit": false,
+      "provenance": "local",
+      "tokens_saved": 0,
+      "total_tokens": 651
+    },
+    "tokens": 787,
+    "contains_expected_terms": true,
+    "error": null,
+    "elapsed_ms": 23.766
+  },
+  {
+    "operation": "pattern",
+    "input": {
+      "op": "pattern",
+      "pattern": "@mcp_tool($$$)",
+      "language": "python",
+      "limit": 20,
+      "budget_tokens": 3000
+    },
+    "raw_output": {
+      "matches": [
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 746,
+          "column": 2,
+          "end_line": 746,
+          "end_column": 26,
+          "snippet": "@mcp_tool(name=\"context\")",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 989,
+          "column": 2,
+          "end_line": 1032,
+          "end_column": 2,
+          "snippet": "@mcp_tool(",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 1163,
+          "column": 2,
+          "end_line": 1163,
+          "end_column": 25,
+          "snippet": "@mcp_tool(name=\"rescue\")",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 1245,
+          "column": 2,
+          "end_line": 1245,
+          "end_column": 24,
+          "snippet": "@mcp_tool(name=\"trace\")",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 1522,
+          "column": 2,
+          "end_line": 1522,
+          "end_column": 25,
+          "snippet": "@mcp_tool(name=\"verify\")",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 1714,
+          "column": 2,
+          "end_line": 1721,
+          "end_column": 2,
+          "snippet": "@mcp_tool(",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 1798,
+          "column": 2,
+          "end_line": 1798,
+          "end_column": 23,
+          "snippet": "@mcp_tool(name=\"read\")",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 2076,
+          "column": 2,
+          "end_line": 2076,
+          "end_column": 60,
+          "snippet": "@mcp_tool(name=\"edit\", input_schema=EDIT_TOOL_INPUT_SCHEMA)",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 2207,
+          "column": 2,
+          "end_line": 2207,
+          "end_column": 58,
+          "snippet": "@mcp_tool(name=\"sql\", input_schema=SQL_TOOL_INPUT_SCHEMA)",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 2885,
+          "column": 2,
+          "end_line": 2885,
+          "end_column": 60,
+          "snippet": "@mcp_tool(name=\"code\", input_schema=CODE_TOOL_INPUT_SCHEMA)",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 3483,
+          "column": 2,
+          "end_line": 3489,
+          "end_column": 2,
+          "snippet": "@mcp_tool(",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 3611,
+          "column": 2,
+          "end_line": 3663,
+          "end_column": 2,
+          "snippet": "@mcp_tool(",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 3785,
+          "column": 2,
+          "end_line": 3785,
+          "end_column": 26,
+          "snippet": "@mcp_tool(name=\"compact\")",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "line": 3937,
+          "column": 2,
+          "end_line": 3937,
+          "end_column": 62,
+          "snippet": "@mcp_tool(name=\"shell\", input_schema=SHELL_TOOL_INPUT_SCHEMA)",
+          "captures": {
+            "decorator": "mcp_tool"
+          }
+        }
+      ],
+      "truncated": false,
+      "total_matches": 14,
+      "cache_hit": false,
+      "provenance": "ast-grep",
+      "provenance_breakdown": {
+        "ast-grep": 14
+      },
+      "tokens_saved": 0,
+      "total_tokens": 837
+    },
+    "tokens": 1051,
+    "contains_expected_terms": true,
+    "error": null,
+    "elapsed_ms": 1600.903
+  },
+  {
+    "operation": "callers",
+    "input": {
+      "op": "callers",
+      "symbol_name": "run_command",
+      "path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+      "depth": 1,
+      "budget_tokens": 3000
+    },
+    "raw_output": {
+      "target": {
+        "symbol_id": "1ac9a44444d2717438490684",
+        "symbol_name": "run_command",
+        "qualified_name": "run_command",
+        "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+        "kind": "function",
+        "signature": "def run_command(",
+        "start_line": 171,
+        "end_line": 251,
+        "language": "python",
+        "provenance": "local"
+      },
+      "direction": "callers",
+      "depth": 1,
+      "related": [
+        {
+          "symbol_id": "fc4fcc0edae5cef8207101fe",
+          "symbol_name": "run_post_edit_hooks",
+          "qualified_name": "run_post_edit_hooks",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/post_edit_hooks.py",
+          "kind": "function",
+          "start_line": 231,
+          "end_line": 318,
+          "provenance": "local_index"
+        },
+        {
+          "symbol_id": "790ea96819c6b32d57f45c5f",
+          "symbol_name": "_run_shell_tool",
+          "qualified_name": "_run_shell_tool",
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "kind": "function",
+          "start_line": 3309,
+          "end_line": 3441,
+          "provenance": "local_index"
+        },
+        {
+          "symbol_id": "ecc8ccd8de43ae1928d5e248",
+          "symbol_name": "test_run_simple_command",
+          "qualified_name": "test_run_simple_command",
+          "file_path": "tests/gateway/test_run_tool.py",
+          "kind": "function",
+          "start_line": 13,
+          "end_line": 17,
+          "provenance": "local_index"
+        },
+        {
+          "symbol_id": "7fdded304b1be00cd93feacc",
+          "symbol_name": "test_run_exit_code",
+          "qualified_name": "test_run_exit_code",
+          "file_path": "tests/gateway/test_run_tool.py",
+          "kind": "function",
+          "start_line": 20,
+          "end_line": 22,
+          "provenance": "local_index"
+        },
+        {
+          "symbol_id": "4c861bcc494539cc561551d8",
+          "symbol_name": "test_run_stderr_captured",
+          "qualified_name": "test_run_stderr_captured",
+          "file_path": "tests/gateway/test_run_tool.py",
+          "kind": "function",
+          "start_line": 25,
+          "end_line": 27,
+          "provenance": "local_index"
+        },
+        {
+          "symbol_id": "1bed5bc02b07521300ed82d7",
+          "symbol_name": "test_run_ansi_stripped",
+          "qualified_name": "test_run_ansi_stripped",
+          "file_path": "tests/gateway/test_run_tool.py",
+          "kind": "function",
+          "start_line": 30,
+          "end_line": 33,
+          "provenance": "local_index"
+        },
+        {
+          "symbol_id": "9df989c914b9887d882f03ac",
+          "symbol_name": "test_run_truncation",
+          "qualified_name": "test_run_truncation",
+          "file_path": "tests/gateway/test_run_tool.py",
+          "kind": "function",
+          "start_line": 36,
+          "end_line": 43,
+          "provenance": "local_index"
+        },
+        {
+          "symbol_id": "f494fc6d365fc0028a1a8b72",
+          "symbol_name": "test_run_timeout",
+          "qualified_name": "test_run_timeout",
+          "file_path": "tests/gateway/test_run_tool.py",
+          "kind": "function",
+          "start_line": 46,
+          "end_line": 49,
+          "provenance": "local_index"
+        },
+        {
+          "symbol_id": "df53516dcc8aafab34f60bb2",
+          "symbol_name": "test_run_duration_recorded",
+          "qualified_name": "test_run_duration_recorded",
+          "file_path": "tests/gateway/test_run_tool.py",
+          "kind": "function",
+          "start_line": 52,
+          "end_line": 54,
+          "provenance": "local_index"
+        },
+        {
+          "symbol_id": "6c3037c328b1084df2b849de",
+          "symbol_name": "test_run_blocks_destructive_rm",
+          "qualified_name": "test_run_blocks_destructive_rm",
+          "file_path": "tests/gateway/test_run_tool.py",
+          "kind": "function",
+          "start_line": 75,
+          "end_line": 79,
+          "provenance": "local_index"
+        },
+        {
+          "symbol_id": "1db1e9fa3e8eeed6b1516b9c",
+          "symbol_name": "test_run_blocks_shell_interpreter",
+          "qualified_name": "test_run_blocks_shell_interpreter",
+          "file_path": "tests/gateway/test_run_tool.py",
+          "kind": "function",
+          "start_line": 82,
+          "end_line": 86,
+          "provenance": "local_index"
+        }
+      ],
+      "edges": [
+        {
+          "caller_symbol_id": "1bed5bc02b07521300ed82d7",
+          "callee_symbol_id": "1ac9a44444d2717438490684",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "1db1e9fa3e8eeed6b1516b9c",
+          "callee_symbol_id": "1ac9a44444d2717438490684",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "4c861bcc494539cc561551d8",
+          "callee_symbol_id": "1ac9a44444d2717438490684",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "6c3037c328b1084df2b849de",
+          "callee_symbol_id": "1ac9a44444d2717438490684",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "790ea96819c6b32d57f45c5f",
+          "callee_symbol_id": "1ac9a44444d2717438490684",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "7fdded304b1be00cd93feacc",
+          "callee_symbol_id": "1ac9a44444d2717438490684",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "9df989c914b9887d882f03ac",
+          "callee_symbol_id": "1ac9a44444d2717438490684",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "df53516dcc8aafab34f60bb2",
+          "callee_symbol_id": "1ac9a44444d2717438490684",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "ecc8ccd8de43ae1928d5e248",
+          "callee_symbol_id": "1ac9a44444d2717438490684",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "f494fc6d365fc0028a1a8b72",
+          "callee_symbol_id": "1ac9a44444d2717438490684",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "fc4fcc0edae5cef8207101fe",
+          "callee_symbol_id": "1ac9a44444d2717438490684",
+          "depth": 1
+        }
+      ],
+      "related_count": 11,
+      "edge_count": 11,
+      "truncated": false,
+      "data_status": "available",
+      "message": null,
+      "snapshot": null,
+      "provenance": "local",
+      "cache_hit": false,
+      "tokens_saved": 0,
+      "total_tokens": 1336
+    },
+    "tokens": 1617,
+    "contains_expected_terms": true,
+    "error": null,
+    "elapsed_ms": 114.194
+  },
+  {
+    "operation": "callees",
+    "input": {
+      "op": "callees",
+      "symbol_name": "classify_command",
+      "depth": 1,
+      "budget_tokens": 3000
+    },
+    "raw_output": {
+      "target": {
+        "symbol_id": "70d677a22bfb24c7f5f3c737",
+        "symbol_name": "classify_command",
+        "qualified_name": "classify_command",
+        "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+        "kind": "function",
+        "signature": "def classify_command(command: str) -> CommandPolicyDecision:",
+        "start_line": 129,
+        "end_line": 168,
+        "language": "python",
+        "provenance": "local"
+      },
+      "direction": "callees",
+      "depth": 1,
+      "related": [
+        {
+          "symbol_id": "ce2ac57a419ba103d9603c9f",
+          "symbol_name": "CommandPolicyDecision",
+          "qualified_name": "CommandPolicyDecision",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+          "kind": "class",
+          "start_line": 44,
+          "end_line": 49,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "7c5f729361acca7af39ed4c3",
+          "symbol_name": "_rewrite_cat",
+          "qualified_name": "_rewrite_cat",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+          "kind": "function",
+          "start_line": 52,
+          "end_line": 61,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "ba31664960ef125e717b89dc",
+          "symbol_name": "_rewrite_search",
+          "qualified_name": "_rewrite_search",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+          "kind": "function",
+          "start_line": 64,
+          "end_line": 109,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "7fa83ec09783d4841c719ac1",
+          "symbol_name": "_is_rm_family",
+          "qualified_name": "_is_rm_family",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+          "kind": "function",
+          "start_line": 112,
+          "end_line": 115,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "9af8caae2a19d8f5e56691a4",
+          "symbol_name": "_is_git_reset_hard",
+          "qualified_name": "_is_git_reset_hard",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+          "kind": "function",
+          "start_line": 118,
+          "end_line": 119,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "a13b5414a3bb5eb2194b7311",
+          "symbol_name": "_is_git_clean_fd",
+          "qualified_name": "_is_git_clean_fd",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+          "kind": "function",
+          "start_line": 122,
+          "end_line": 126,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "local-callee::346e3ee198e98146",
+          "symbol_name": "lower",
+          "qualified_name": "lower",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+          "kind": "reference",
+          "start_line": 129,
+          "end_line": 168,
+          "provenance": "local_index"
+        },
+        {
+          "symbol_id": "local-callee::ce0fa28909c11ae1",
+          "symbol_name": "split",
+          "qualified_name": "shlex.split",
+          "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+          "kind": "reference",
+          "start_line": 129,
+          "end_line": 168,
+          "provenance": "local_index"
+        }
+      ],
+      "edges": [
+        {
+          "caller_symbol_id": "70d677a22bfb24c7f5f3c737",
+          "callee_symbol_id": "7c5f729361acca7af39ed4c3",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "70d677a22bfb24c7f5f3c737",
+          "callee_symbol_id": "7fa83ec09783d4841c719ac1",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "70d677a22bfb24c7f5f3c737",
+          "callee_symbol_id": "9af8caae2a19d8f5e56691a4",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "70d677a22bfb24c7f5f3c737",
+          "callee_symbol_id": "a13b5414a3bb5eb2194b7311",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "70d677a22bfb24c7f5f3c737",
+          "callee_symbol_id": "ba31664960ef125e717b89dc",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "70d677a22bfb24c7f5f3c737",
+          "callee_symbol_id": "ce2ac57a419ba103d9603c9f",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "70d677a22bfb24c7f5f3c737",
+          "callee_symbol_id": "local-callee::346e3ee198e98146",
+          "depth": 1
+        },
+        {
+          "caller_symbol_id": "70d677a22bfb24c7f5f3c737",
+          "callee_symbol_id": "local-callee::ce0fa28909c11ae1",
+          "depth": 1
+        }
+      ],
+      "related_count": 8,
+      "edge_count": 8,
+      "truncated": false,
+      "data_status": "available",
+      "message": null,
+      "snapshot": null,
+      "provenance": "local",
+      "cache_hit": false,
+      "tokens_saved": 0,
+      "total_tokens": 1072
+    },
+    "tokens": 1278,
+    "contains_expected_terms": true,
+    "error": null,
+    "elapsed_ms": 189.605
+  },
+  {
+    "operation": "usages",
+    "input": {
+      "op": "usages",
+      "symbol_name": "run_command",
+      "path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+      "limit": 30,
+      "budget_tokens": 3000
+    },
+    "raw_output": {
+      "target": {
+        "symbol_id": "1ac9a44444d2717438490684",
+        "symbol_name": "run_command",
+        "qualified_name": "run_command",
+        "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+        "kind": "function",
+        "signature": "def run_command(",
+        "start_line": 171,
+        "end_line": 251,
+        "language": "python",
+        "provenance": "local"
+      },
+      "references": {
+        "src/atelier/core/capabilities/tool_supervision/post_edit_hooks.py": [
+          {
+            "file_path": "src/atelier/core/capabilities/tool_supervision/post_edit_hooks.py",
+            "line": 270,
+            "column": 26,
+            "end_line": 270,
+            "end_column": 36,
+            "caller": "run_post_edit_hooks",
+            "provenance": "local_index"
+          },
+          {
+            "file_path": "src/atelier/core/capabilities/tool_supervision/post_edit_hooks.py",
+            "line": 292,
+            "column": 26,
+            "end_line": 292,
+            "end_column": 36,
+            "caller": "run_post_edit_hooks",
+            "provenance": "local_index"
+          }
+        ],
+        "src/atelier/gateway/adapters/mcp_server.py": [
+          {
+            "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+            "line": 3382,
+            "column": 25,
+            "end_line": 3382,
+            "end_column": 35,
+            "caller": "_run_shell_tool",
+            "provenance": "local_index"
+          },
+          {
+            "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+            "line": 3424,
+            "column": 14,
+            "end_line": 3424,
+            "end_column": 24,
+            "caller": "_run_shell_tool",
+            "provenance": "local_index"
+          }
+        ],
+        "tests/gateway/test_run_tool.py": [
+          {
+            "file_path": "tests/gateway/test_run_tool.py",
+            "line": 14,
+            "column": 14,
+            "end_line": 14,
+            "end_column": 24,
+            "caller": "test_run_simple_command",
+            "provenance": "local_index"
+          },
+          {
+            "file_path": "tests/gateway/test_run_tool.py",
+            "line": 21,
+            "column": 14,
+            "end_line": 21,
+            "end_column": 24,
+            "caller": "test_run_exit_code",
+            "provenance": "local_index"
+          },
+          {
+            "file_path": "tests/gateway/test_run_tool.py",
+            "line": 26,
+            "column": 14,
+            "end_line": 26,
+            "end_column": 24,
+            "caller": "test_run_stderr_captured",
+            "provenance": "local_index"
+          },
+          {
+            "file_path": "tests/gateway/test_run_tool.py",
+            "line": 31,
+            "column": 14,
+            "end_line": 31,
+            "end_column": 24,
+            "caller": "test_run_ansi_stripped",
+            "provenance": "local_index"
+          },
+          {
+            "file_path": "tests/gateway/test_run_tool.py",
+            "line": 37,
+            "column": 14,
+            "end_line": 37,
+            "end_column": 24,
+            "caller": "test_run_truncation",
+            "provenance": "local_index"
+          },
+          {
+            "file_path": "tests/gateway/test_run_tool.py",
+            "line": 47,
+            "column": 14,
+            "end_line": 47,
+            "end_column": 24,
+            "caller": "test_run_timeout",
+            "provenance": "local_index"
+          },
+          {
+            "file_path": "tests/gateway/test_run_tool.py",
+            "line": 53,
+            "column": 14,
+            "end_line": 53,
+            "end_column": 24,
+            "caller": "test_run_duration_recorded",
+            "provenance": "local_index"
+          },
+          {
+            "file_path": "tests/gateway/test_run_tool.py",
+            "line": 76,
+            "column": 14,
+            "end_line": 76,
+            "end_column": 24,
+            "caller": "test_run_blocks_destructive_rm",
+            "provenance": "local_index"
+          },
+          {
+            "file_path": "tests/gateway/test_run_tool.py",
+            "line": 83,
+            "column": 14,
+            "end_line": 83,
+            "end_column": 24,
+            "caller": "test_run_blocks_shell_interpreter",
+            "provenance": "local_index"
+          }
+        ]
+      },
+      "reference_count": 13,
+      "group_by": "file",
+      "truncated": false,
+      "cache_hit": false,
+      "provenance": "local_index",
+      "provenance_breakdown": {
+        "local_index": 13
+      },
+      "tokens_saved": 0,
+      "total_tokens": 766
+    },
+    "tokens": 984,
+    "contains_expected_terms": true,
+    "error": null,
+    "elapsed_ms": 89.307
+  },
+  {
+    "operation": "impact",
+    "input": {
+      "op": "impact",
+      "path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+      "budget_tokens": 3000
+    },
+    "raw_output": {
+      "target": {
+        "type": "file",
+        "path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py"
+      },
+      "target_type": "file",
+      "file_path": "src/atelier/core/capabilities/tool_supervision/bash_exec.py",
+      "affected_files": [
+        {
+          "file_path": "src/atelier/core/capabilities/tool_supervision/post_edit_hooks.py",
+          "reasons": [
+            "direct_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/atelier/core/capabilities/tool_supervision/rich_edit.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/atelier/core/capabilities/tool_supervision/symbol_edit.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/atelier/core/service/api.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/cli.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/atelier/gateway/adapters/mcp_server.py",
+          "reasons": [
+            "direct_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/blame_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/bootstrap_prefetch_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/call_graph_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/cost_discipline.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/cross_lang_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/external_scope_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/graveyard_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/pattern_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/recall_symbol_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/symbol_edit_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/symbol_search_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/usages_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/workspace_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "src/benchmarks/code_intel/zoekt_bench.py",
+          "reasons": [
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_blame_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_bootstrap_prefetch_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_call_graph_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_cost_discipline.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_cross_lang_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_external_scope_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_graveyard_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_pattern_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_recall_symbol_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_symbol_edit_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_symbol_search_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_usages_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_workspace_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/code_intel/test_zoekt_bench.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/test_edit_ab_real.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/test_search_ab_real.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/benchmarks/test_shell_ab_real.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/core/capabilities/cross_vendor_routing/test_outcome_capture_feeds_quality_prior.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/core/capabilities/cross_vendor_routing/test_recommendation_is_logged_as_counterfactual_when_unused.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/core/capabilities/tool_supervision/test_rich_edit_symbol.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/core/service/test_api_week2_routes.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/core/test_capabilities_production.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/core/test_capabilities_runtime_core.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/core/test_domains.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/core/test_retriever_eval.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/core/test_rich_edit.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_benchmark_cli_actions.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_cli.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_cli_core_capabilities.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_cli_coverage.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_cli_lesson_active.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_cli_memory_commands.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_cli_proof_gate.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_cli_route.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_cli_team.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_cli_v2.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_cli_v3_commands.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_context_mcp_handler.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_edit_mcp_handler.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_host_trace_confidence.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_import_style_guide_cli.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_init_with_stack.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_mcp_consolidation_tools.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_mcp_jsonrpc_e2e.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_mcp_memory_tools.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_mcp_remote_mode.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_mcp_route.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_mcp_route_decide.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_mcp_tool_handlers.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_optimizations_api.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_p0_mcp_surfaces.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_pr_bot_skipped_when_disabled.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_report_cli.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_run_tool.py",
+          "reasons": [
+            "direct_import",
+            "test"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_savings_api.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_security.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_service_api.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_service_api_team.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_telemetry_api.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_telemetry_cli.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/gateway/test_uninstall_cli.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/infra/benchmarks/test_publisher.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/infra/test_batch_edit_round_trip.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/infra/test_cached_grep_hit_rate.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/infra/test_get_reasoning_context_includes_memory.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/infra/test_project_knowledge_store.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        },
+        {
+          "file_path": "tests/infra/test_smart_read_outline_first.py",
+          "reasons": [
+            "test",
+            "transitive_import"
+          ],
+          "symbols": [],
+          "symbol_count": 0
+        }
+      ],
+      "direct_importers": [
+        "src/atelier/core/capabilities/tool_supervision/post_edit_hooks.py",
+        "src/atelier/gateway/adapters/mcp_server.py",
+        "tests/gateway/test_run_tool.py"
+      ],
+      "affected_tests": [
+        "tests/benchmarks/code_intel/test_blame_bench.py",
+        "tests/benchmarks/code_intel/test_bootstrap_prefetch_bench.py",
+        "tests/benchmarks/code_intel/test_call_graph_bench.py",
+        "tests/benchmarks/code_intel/test_cost_discipline.py",
+        "tests/benchmarks/code_intel/test_cross_lang_bench.py",
+        "tests/benchmarks/code_intel/test_external_scope_bench.py",
+        "tests/benchmarks/code_intel/test_graveyard_bench.py",
+        "tests/benchmarks/code_intel/test_pattern_bench.py",
+        "tests/benchmarks/code_intel/test_recall_symbol_bench.py",
+        "tests/benchmarks/code_intel/test_symbol_edit_bench.py",
+        "tests/benchmarks/code_intel/test_symbol_search_bench.py",
+        "tests/benchmarks/code_intel/test_usages_bench.py",
+        "tests/benchmarks/code_intel/test_workspace_bench.py",
+        "tests/benchmarks/code_intel/test_zoekt_bench.py",
+        "tests/benchmarks/test_edit_ab_real.py",
+        "tests/benchmarks/test_search_ab_real.py",
+        "tests/benchmarks/test_shell_ab_real.py",
+        "tests/core/capabilities/cross_vendor_routing/test_outcome_capture_feeds_quality_prior.py",
+        "tests/core/capabilities/cross_vendor_routing/test_recommendation_is_logged_as_counterfactual_when_unused.py",
+        "tests/core/capabilities/tool_supervision/test_rich_edit_symbol.py",
+        "tests/core/service/test_api_week2_routes.py",
+        "tests/core/test_capabilities_production.py",
+        "tests/core/test_capabilities_runtime_core.py",
+        "tests/core/test_domains.py",
+        "tests/core/test_retriever_eval.py",
+        "tests/core/test_rich_edit.py",
+        "tests/gateway/test_benchmark_cli_actions.py",
+        "tests/gateway/test_cli.py",
+        "tests/gateway/test_cli_core_capabilities.py",
+        "tests/gateway/test_cli_coverage.py",
+        "tests/gateway/test_cli_lesson_active.py",
+        "tests/gateway/test_cli_memory_commands.py",
+        "tests/gateway/test_cli_proof_gate.py",
+        "tests/gateway/test_cli_route.py",
+        "tests/gateway/test_cli_team.py",
+        "tests/gateway/test_cli_v2.py",
+        "tests/gateway/test_cli_v3_commands.py",
+        "tests/gateway/test_context_mcp_handler.py",
+        "tests/gateway/test_edit_mcp_handler.py",
+        "tests/gateway/test_host_trace_confidence.py",
+        "tests/gateway/test_import_style_guide_cli.py",
+        "tests/gateway/test_init_with_stack.py",
+        "tests/gateway/test_mcp_consolidation_tools.py",
+        "tests/gateway/test_mcp_jsonrpc_e2e.py",
+        "tests/gateway/test_mcp_memory_tools.py",
+        "tests/gateway/test_mcp_remote_mode.py",
+        "tests/gateway/test_mcp_route.py",
+        "tests/gateway/test_mcp_route_decide.py",
+        "tests/gateway/test_mcp_tool_handlers.py",
+        "tests/gateway/test_optimizations_api.py",
+        "tests/gateway/test_p0_mcp_surfaces.py",
+        "tests/gateway/test_pr_bot_skipped_when_disabled.py",
+        "tests/gateway/test_report_cli.py",
+        "tests/gateway/test_run_tool.py",
+        "tests/gateway/test_savings_api.py",
+        "tests/gateway/test_security.py",
+        "tests/gateway/test_service_api.py",
+        "tests/gateway/test_service_api_team.py",
+        "tests/gateway/test_telemetry_api.py",
+        "tests/gateway/test_telemetry_cli.py",
+        "tests/gateway/test_uninstall_cli.py",
+        "tests/infra/benchmarks/test_publisher.py",
+        "tests/infra/test_batch_edit_round_trip.py",
+        "tests/infra/test_cached_grep_hit_rate.py",
+        "tests/infra/test_get_reasoning_context_includes_memory.py",
+        "tests/infra/test_project_knowledge_store.py",
+        "tests/infra/test_smart_read_outline_first.py"
+      ],
+      "risk_level": "critical",
+      "provenance": "local",
+      "cache_hit": false,
+      "tokens_saved": 976,
+      "total_tokens": 3628
+    },
+    "tokens": 4307,
+    "contains_expected_terms": true,
+    "error": null,
+    "elapsed_ms": 288.378
+  },
+  {
+    "operation": "context",
+    "input": {
+      "op": "context",
+      "task": "add a new MCP code handler with schema validation",
+      "budget_tokens": 4000,
+      "max_symbols": 12
+    },
+    "raw_output": {
+      "task": "add a new MCP code handler with schema validation",
+      "budget_tokens": 4000,
+      "token_count": 1805,
+      "tokens_saved_vs_full_files": 8112,
+      "symbols": [
+        {
+          "symbol_id": "33e2fd05bc72dfc988fe9b64",
+          "repo_id": "221445b350fc9bcf",
+          "file_path": "src/atelier/gateway/hosts/session_parsers/codex.py",
+          "language": "python",
+          "symbol_name": "_parse_event_msg",
+          "qualified_name": "CodexImporter._parse_event_msg",
+          "kind": "method",
+          "signature": "def _parse_event_msg(self, session_id: str, raw_content: str, artifact_id: str) -> Trace:",
+          "start_byte": 14513,
+          "end_byte": 26672,
+          "start_line": 388,
+          "end_line": 634,
+          "parent_symbol": "CodexImporter",
+          "doc_summary": null,
+          "documentation": null,
+          "snippet": null,
+          "content_hash": "68e6b0d9dab87659569480b4914dca82847ade2908d5e5a85c6b9a919f1f89e0",
+          "score": 0.015625,
+          "provenance": "local",
+          "origin": "internal",
+          "repo_name": null,
+          "cross_lang_refs": null
+        },
+        {
+          "symbol_id": "7a1ec14726881d1a13d67c25",
+          "repo_id": "221445b350fc9bcf",
+          "file_path": "src/atelier/core/capabilities/archival_recall/ranking.py",
+          "language": "python",
+          "symbol_name": "rank_archival_passages",
+          "qualified_name": "rank_archival_passages",
+          "kind": "function",
+          "signature": "def rank_archival_passages(",
+          "start_byte": 1540,
+          "end_byte": 3158,
+          "start_line": 54,
+          "end_line": 97,
+          "parent_symbol": null,
+          "doc_summary": "Rank archival passages with hybrid BM25 and cosine scoring.",
+          "documentation": null,
+          "snippet": null,
+          "content_hash": "fc1c7f60d9e724af37e1a019e04656a2fb675ee7c3b6237b6ef65d7717832ccf",
+          "score": 0.01639344262295082,
+          "provenance": "local",
+          "origin": "internal",
+          "repo_name": null,
+          "cross_lang_refs": null
+        },
+        {
+          "symbol_id": "92701c4e137df0db0c741e0b",
+          "repo_id": "221445b350fc9bcf",
+          "file_path": "src/atelier/gateway/sdk/mcp.py",
+          "language": "python",
+          "symbol_name": "_LoopbackTransport",
+          "qualified_name": "_LoopbackTransport",
+          "kind": "class",
+          "signature": "class _LoopbackTransport(MCPToolTransport):",
+          "start_byte": 805,
+          "end_byte": 1609,
+          "start_line": 32,
+          "end_line": 48,
+          "parent_symbol": null,
+          "doc_summary": null,
+          "documentation": null,
+          "snippet": null,
+          "content_hash": "bc8ae16d9d20005dfd6d09bf82f0e7f453767ee8291939e3624335cab80e1335",
+          "score": 0.01639344262295082,
+          "provenance": "local",
+          "origin": "internal",
+          "repo_name": null,
+          "cross_lang_refs": null
+        }
+      ],
+      "entry_points": [
+        {
+          "symbol_id": "33e2fd05bc72dfc988fe9b64",
+          "symbol_name": "_parse_event_msg",
+          "qualified_name": "CodexImporter._parse_event_msg",
+          "kind": "method",
+          "file_path": "src/atelier/gateway/hosts/session_parsers/codex.py",
+          "start_line": 388,
+          "end_line": 634,
+          "score": 0.015625,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "7a1ec14726881d1a13d67c25",
+          "symbol_name": "rank_archival_passages",
+          "qualified_name": "rank_archival_passages",
+          "kind": "function",
+          "file_path": "src/atelier/core/capabilities/archival_recall/ranking.py",
+          "start_line": 54,
+          "end_line": 97,
+          "score": 0.01639344262295082,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "92701c4e137df0db0c741e0b",
+          "symbol_name": "_LoopbackTransport",
+          "qualified_name": "_LoopbackTransport",
+          "kind": "class",
+          "file_path": "src/atelier/gateway/sdk/mcp.py",
+          "start_line": 32,
+          "end_line": 48,
+          "score": 0.01639344262295082,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "2f9d14bec5b1fd4d02d18de9",
+          "symbol_name": "SymbolRecallCapability",
+          "qualified_name": "SymbolRecallCapability",
+          "kind": "class",
+          "file_path": "src/atelier/core/capabilities/archival_recall/symbol_recall.py",
+          "start_line": 23,
+          "end_line": 387,
+          "score": 0.016129032258064516,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "d46e17685da3ba8949c3b1e3",
+          "symbol_name": "RetrievalCache",
+          "qualified_name": "RetrievalCache",
+          "kind": "class",
+          "file_path": "src/atelier/core/capabilities/code_context/cache.py",
+          "start_line": 16,
+          "end_line": 209,
+          "score": 0.016129032258064516,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "3e50915d642a63884e400ca7",
+          "symbol_name": "_bm25_scores",
+          "qualified_name": "_bm25_scores",
+          "kind": "function",
+          "file_path": "src/atelier/core/capabilities/archival_recall/ranking.py",
+          "start_line": 27,
+          "end_line": 51,
+          "score": 0.015873015873015872,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "4e29b07bddcef728d91e6978",
+          "symbol_name": "RouteRecord",
+          "qualified_name": "RouteRecord",
+          "kind": "class",
+          "file_path": "src/atelier/core/capabilities/code_context/models.py",
+          "start_line": 73,
+          "end_line": 84,
+          "score": 0.015873015873015872,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "3adc0d1dc070fdeba9010a10",
+          "symbol_name": "_widen_query",
+          "qualified_name": "_widen_query",
+          "kind": "function",
+          "file_path": "src/atelier/core/capabilities/archival_recall/capability.py",
+          "start_line": 127,
+          "end_line": 133,
+          "score": 0.015625,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "39785af56a12012b9a6d8673",
+          "symbol_name": "_chunk_text",
+          "qualified_name": "_chunk_text",
+          "kind": "function",
+          "file_path": "src/atelier/core/capabilities/archival_recall/capability.py",
+          "start_line": 110,
+          "end_line": 124,
+          "score": 0.015384615384615385,
+          "provenance": "local"
+        },
+        {
+          "symbol_id": "15d59c7990c4346122bbb6bc",
+          "symbol_name": "_init_schema",
+          "qualified_name": "SymbolGraveyard._init_schema",
+          "kind": "method",
+          "file_path": "src/atelier/infra/code_intel/git_history/graveyard.py",
+          "start_line": 17,
+          "end_line": 38,
+          "score": 0.015384615384615385,
+          "provenance": "local"
+        }
+      ],
+      "related_symbols": [],
+      "import_neighbors": [],
+      "content": "# Atelier code context\ntask: add a new MCP code handler with schema validation\n\n## repo_map\n.claude/hooks/gsd-check-update-worker.js\n  L12: fs\n  L13: path\n  L16: cacheFile\n  L17: projectVersionFile\n  L18: globalVersionFile\n  L22: isNewer\n  L23: pa\n  L24: pb\n  L25: i\n  L33: installed\n  L34: configDir\n  L49: MANAGED_HOOKS\n  L64: staleHooks\n  L66: hooksDir\n  L69: hookFiles\n  L70: hookFile\n  L72: content\n  L74: versionMatch\n  L76: hookVersion\n  L90: latest\n  L106: result\n.claude/worktrees/agent-a7521c467b6ba7184/frontend/src/pages/Traces.tsx\n  L5: Trace\n  L6: CommandRecord\n  L7: FileEditRecord\n  L8: ToolCall\n  L9: TraceListResponse\n  L13: Traces\n  L15: initialQuery\n  L30: tracesRequestSeq\n  L33: urlQuery\n  L40: timer\n  L41: nextQuery\n  L44: currentQuery\n  L47: next\n  L60: deepLinkedTraceId\n  L62: setTraceQuery\n  L63: next\n  L74: requestSeq\n  L75: cancelled\n  L104: localTrace\n  L111: cancelled\n  L135: loadMore\n  L137: requestSeq\n  L139: nextOffset\n  L159: filtered\n  L168: hosts\n  L174: domains\n  L179: searchActive\n  L180: searchPending\n  L186: toggleExpanded\n  L190: openInspector\n  L350: TraceCard\n  L432: TraceSearchHits\n  L439: matchingSnippets\n  L458: searchTerms\n  L459: terms\n  L466: snippetMatchesSearchQuery\n  L467: terms\n  L470: markedTerms\n  L480: SnippetText\n  L481: compact\n.claude/worktrees/agent-a7521c467b6ba7184/frontend/src/components/RunInspectorDrawer.tsx\n  L1: ReactNode\n  L2: RunInspectorData\n  L2: Trace\n  L4: RunInspectorDrawerProps\n  L10: parseInspectorData\n  L11: events\n  L13: recalled\n  L20: payload\n  L38: tokensPre\n  L39: tokensPost\n  L40: i\n  L41: payload\n  L42: pre\n  L43: post\n  L51: summarizedEventsCount\n  L52: payload\n  L78: SessionSearchMatch\n  L85: normalizeSearchTerms\n  L91: escapeRegExp\n  L95: matchesSearch\n  L97: lower\n  L101: buildSearchSnippet\n  L106: compact\n  L110: lower\n  L111: matchIndex\n  L112: matchLength\n  L114: term\n  L115: index\n  L129: start\n  L130: end\n  L135: highlightSearchText\n  L138: pattern\n  L146: matcher\n  L147: parts\n  L163: RunInspectorDrawer\n  L182: sessionLookupId\n  L183: fallbackLookupId\n  L186: cancelled\n  L188: loadLedger\n  L190: ledger\n\n## entry_points\n- src/atelier/gateway/hosts/session_parsers/codex.py:388 \u2014 CodexImporter._parse_event_msg [method]\n- src/atelier/core/capabilities/archival_recall/ranking.py:54 \u2014 rank_archival_passages [function]\n- src/atelier/gateway/sdk/mcp.py:32 \u2014 _LoopbackTransport [class]\n- src/atelier/core/capabilities/archival_recall/symbol_recall.py:23 \u2014 SymbolRecallCapability [class]\n- src/atelier/core/capabilities/code_context/cache.py:16 \u2014 RetrievalCache [class]\n- src/atelier/core/capabilities/archival_recall/ranking.py:27 \u2014 _bm25_scores [function]\n- src/atelier/core/capabilities/code_context/models.py:73 \u2014 RouteRecord [class]\n- src/atelier/core/capabilities/archival_recall/capability.py:127 \u2014 _widen_query [function]\n- src/atelier/core/capabilities/archival_recall/capability.py:110 \u2014 _chunk_text [function]\n- src/atelier/infra/code_intel/git_history/graveyard.py:17 \u2014 SymbolGraveyard._init_schema [method]\n\n## related_symbols\n- none\n\n## code_blocks\n### CodexImporter._parse_event_msg (src/atelier/gateway/hosts/session_parsers/codex.py:388-634)\n```python\ndef _parse_event_msg(self, session_id: str, raw_content: str, artifact_id: str) -> Trace:\n        tools_called: dict[str, int] = {}\n        tool_args: dict[str, dict[str, Any] | None] = {}\n        tool_in_tokens: dict[str, int] = {}\n        tool_out_tokens: dict[str, int] = {}\n        # token_count events carry { info: { last_token_usage, total_token_usage } }.\n        # last_token_usage is the per-turn delta (used for tool distribution).\n        # total_token_usage is cumulative; we keep the FINAL value for session totals.\n        # cached_input_tokens is a SUBSET of input_tokens in OpenAI accounting.\n        # reasoning_output_tokens is a SUBSET of output_tokens.\n        final_total_in = 0\n        final_total_out = 0\n        final_total_think = 0\n        final_total_cached = 0\n        model_seen = \"\"\n        models_seen: set[str] = set()\n        usage_entries = []\n        curr_tool_calls: list[tuple[str, Any]] = []\n        files_touched: set[str] = set()\n... (truncated)\n```\n\n### rank_archival_passages (src/atelier/core/capabilities/archival_recall/ranking.py:54-97)\n```python\ndef rank_archival_passages(\n    *,\n    query: str,\n    passages: list[ArchivalPassage],\n    query_embedding: list[float] | None = None,\n    tags: list[str] | None = None,\n    since: datetime | None = None,\n    top_k: int = 5,\n) -> list[RankedPassage]:\n    \"\"\"Rank archival passages with hybrid BM25 and cosine scoring.\"\"\"\n    filtered = passages\n    if tags:\n        required = set(tags)\n        filtered = [p for p in filtered if required.issubset(set(p.tags))]\n    if since is not None:\n        filtered = [p for p in filtered if p.created_at >= since]\n    if not filtered:\n        return []\n\n    bm25 = _bm25_scores(query, filtered)\n    max_bm25 = max(bm25.values(), default=0.0)\n    bm25_norm = {pid: (score / max_bm25 if max_bm25 > 0 else 0.0) for pid, score in bm25.items()}\n\n    vector_enabled = bool(query_embedding)\n    ranked: list[RankedPassage] = []\n    for passage in filtered:\n        cosine = 0.0\n... (truncated)\n```\n\n### _LoopbackTransport (src/atelier/gateway/sdk/mcp.py:32-48)\n```python\nclass _LoopbackTransport(MCPToolTransport):\n    def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:\n        tools = {\n            \"context\": mcp_server.tool_get_context,\n            \"rescue\": mcp_server.tool_rescue_failure,\n            \"trace\": mcp_server.tool_record_trace,\n            \"record\": mcp_server.tool_record_trace,\n            \"verify\": mcp_server.tool_run_rubric_gate,\n            \"route\": mcp_server.tool_route,\n            \"memory\": mcp_server.tool_memory,\n            \"read\": mcp_server.tool_smart_read,\n            \"search\": mcp_server.tool_smart_search,\n            \"edit\": mcp_server.tool_smart_edit,\n            \"compact\": mcp_server.tool_compact,\n            \"code\": mcp_server.tool_code,\n        }\n        return cast(dict[str, Any], tools[name](arguments))\n```",
+      "cache_hit": false,
+      "tokens_saved": 8112,
+      "provenance": "local",
+      "total_tokens": 3480,
+      "overflow": {
+        "spilled": true,
+        "reason": "budget_exceeded",
+        "full_total_tokens": 5143,
+        "artifact_path": "/home/pankaj/.atelier/overflow/code/221445b350fc9bcf-1779549637283-b62520d5d49ff1df.json",
+        "artifact_format": "json",
+        "artifact_bytes": 18747
+      }
+    },
+    "tokens": 3822,
+    "contains_expected_terms": true,
+    "error": null,
+    "elapsed_ms": 6815.838
+  }
+]

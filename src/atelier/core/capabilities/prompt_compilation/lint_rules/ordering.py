@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from .common import FindingData, RuleSpec
 from ..compiler import CompiledPrompt
 from ..models import Stability
+from .common import FindingData, RuleSpec
 
 
 def _volatile_before_stable(

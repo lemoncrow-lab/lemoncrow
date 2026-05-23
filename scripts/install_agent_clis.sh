@@ -28,12 +28,14 @@ if [[ -t 1 ]]; then
     C_RED="$(printf '\033[31m')"
     C_YELLOW="$(printf '\033[33m')"
     C_CYAN="$(printf '\033[36m')"
+    C_PURPLE="$(printf '\033[35m')"
 else
     C_RESET=""
     C_GREEN=""
     C_RED=""
     C_YELLOW=""
     C_CYAN=""
+    C_PURPLE=""
 fi
 if [[ -n "${FORCE_COLOR:-}${CLICOLOR_FORCE:-}" && -z "${NO_COLOR:-}" ]]; then
     C_RESET="$(printf '\033[0m')"
@@ -41,6 +43,7 @@ if [[ -n "${FORCE_COLOR:-}${CLICOLOR_FORCE:-}" && -z "${NO_COLOR:-}" ]]; then
     C_RED="$(printf '\033[31m')"
     C_YELLOW="$(printf '\033[33m')"
     C_CYAN="$(printf '\033[36m')"
+    C_PURPLE="$(printf '\033[35m')"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -93,21 +96,21 @@ done
 # ── Interactive prompts (when no flags and TTY) ──────────────────────────────
 if ! $EXPLICIT && [[ -t 0 ]] && [[ -t 1 ]]; then
     echo ""
-    print_message "$C_CYAN" "══════════════════════════════════════════════"
-    print_message "$C_CYAN" " Atelier — Agent Installation"
-    print_message "$C_CYAN" "══════════════════════════════════════════════"
+    print_message "$C_PURPLE" "══════════════════════════════════════════════"
+    print_message "$C_PURPLE" " Atelier — Agent Installation"
+    print_message "$C_PURPLE" "══════════════════════════════════════════════"
     echo ""
 
     # ── Runtime selection ──────────────────────────────────────────────────
     echo "  Which AI coding agents would you like to install Atelier for?"
     echo ""
-    echo "  ${C_CYAN}1${C_RESET}) Claude Code"
-    echo "  ${C_CYAN}2${C_RESET}) OpenCode"
-    echo "  ${C_CYAN}3${C_RESET}) Codex CLI"
-    echo "  ${C_CYAN}4${C_RESET}) GitHub Copilot"
-    echo "  ${C_CYAN}5${C_RESET}) Antigravity / agy"
-    echo "  ${C_CYAN}a${C_RESET}) All"
-    echo "  ${C_CYAN}n${C_RESET}) None (skip agent installs)"
+    echo "  ${C_PURPLE}1${C_RESET}) Claude Code"
+    echo "  ${C_PURPLE}2${C_RESET}) OpenCode"
+    echo "  ${C_PURPLE}3${C_RESET}) Codex CLI"
+    echo "  ${C_PURPLE}4${C_RESET}) GitHub Copilot"
+    echo "  ${C_PURPLE}5${C_RESET}) Antigravity / agy"
+    echo "  ${C_PURPLE}a${C_RESET}) All"
+    echo "  ${C_PURPLE}n${C_RESET}) None (skip agent installs)"
     echo ""
 
     read -r -p "  Choice [a]: " runtime_answer
@@ -154,8 +157,8 @@ if ! $EXPLICIT && [[ -t 0 ]] && [[ -t 1 ]]; then
     if $DO_CLAUDE || $DO_CODEX || $DO_OPENCODE || $DO_COPILOT || $DO_ANTIGRAVITY; then
         echo "  ${C_YELLOW}Install scope:${C_RESET}"
         echo ""
-        echo "  ${C_CYAN}1${C_RESET}) Global — available in all projects"
-        echo "  ${C_CYAN}2${C_RESET}) Project — this directory only (via .mcp.json + AGENTS.md)"
+        echo "  ${C_PURPLE}1${C_RESET}) Global — available in all projects"
+        echo "  ${C_PURPLE}2${C_RESET}) Project — this directory only (via .mcp.json + AGENTS.md)"
         echo ""
         read -r -p "  Choice [1]: " scope_answer
         scope_answer="${scope_answer:-1}"
@@ -278,9 +281,9 @@ run_installer() {
     esac
 
     echo ""
-    print_message "$C_CYAN" "──────────────────────────────────────────"
-    print_message "$C_CYAN" " Installing Atelier -> ${host}"
-    print_message "$C_CYAN" "──────────────────────────────────────────"
+    print_message "$C_PURPLE" "──────────────────────────────────────────"
+    print_message "$C_PURPLE" " Installing Atelier -> ${host}"
+    print_message "$C_PURPLE" "──────────────────────────────────────────"
     output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-${host}.XXXXXX")"
     set +e
     if [[ "$host" == "claude" ]]; then
@@ -308,9 +311,9 @@ run_installer() {
 # ── Universal agents (always run first when using --workspace) ──────────────
 if [[ " ${PASSTHROUGH[*]} " =~ "--workspace" ]]; then
     echo ""
-    print_message "$C_CYAN" "──────────────────────────────────────────"
-    print_message "$C_CYAN" " Installing universal agents (.mcp.json + AGENTS.md)"
-    print_message "$C_CYAN" "──────────────────────────────────────────"
+    print_message "$C_PURPLE" "──────────────────────────────────────────"
+    print_message "$C_PURPLE" " Installing universal agents (.mcp.json + AGENTS.md)"
+    print_message "$C_PURPLE" "──────────────────────────────────────────"
     UNIVERSAL_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/atelier-agents.XXXXXX")"
     set +e
     bash "${SCRIPT_DIR}/install_agents.sh" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1 | stream_colored_output "$UNIVERSAL_OUTPUT_FILE"
@@ -335,9 +338,9 @@ $DO_COPILOT   && run_installer copilot
 $DO_ANTIGRAVITY && run_installer antigravity
 
 echo ""
-print_message "$C_CYAN" "══════════════════════════════════════════════"
-print_message "$C_CYAN" " Atelier Install Summary"
-print_message "$C_CYAN" "══════════════════════════════════════════════"
+print_message "$C_PURPLE" "══════════════════════════════════════════════"
+print_message "$C_PURPLE" " Atelier Install Summary"
+print_message "$C_PURPLE" "══════════════════════════════════════════════"
 for h in "${PASS[@]+"${PASS[@]}"}"; do printf "  %bOK%b       %s\n" "$C_GREEN" "$C_RESET" "$h"; done
 for h in "${WARN[@]+"${WARN[@]}"}"; do printf "  %bWARN%b     %s\n" "$C_YELLOW" "$C_RESET" "$h"; done
 for h in "${SKIP[@]+"${SKIP[@]}"}"; do printf "  %bSKIPPED%b  %s (CLI not found)\n" "$C_YELLOW" "$C_RESET" "$h"; done
@@ -348,10 +351,10 @@ print_issue_group "Host install warnings" "$C_YELLOW" "${WARNINGS[@]+"${WARNINGS
 
 if [ ${#FAIL[@]} -gt 0 ]; then
     print_message "$C_RED" "Some installs failed. Scroll up for the error output from each failed host."
-    print_message "$C_CYAN" "Next: fix the errors above, then re-run: make install"
+    print_message "$C_PURPLE" "Next: fix the errors above, then re-run: make install"
 elif [ ${#WARN[@]} -gt 0 ]; then
     print_message "$C_YELLOW" "Host installs completed with warnings. Review the warnings above before continuing."
-    print_message "$C_CYAN" "Next: make verify"
+    print_message "$C_PURPLE" "Next: make verify"
 else
     print_message "$C_GREEN" "Next: make verify"
 fi

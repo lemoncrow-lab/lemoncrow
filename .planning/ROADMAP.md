@@ -52,7 +52,8 @@
 
 - Routes/autosync are explicitly deferred to post-v1.1 follow-up work.
 - No new top-level MCP tools: all functionality lands via `mcp__atelier__code` op extensions.
+- Completion verification: targeted phase tests passed, `benchmarks/mcp_tools/bench_code.py` passed, and 3-way comparison (`bench_code_3way.py`) executed with Atelier/Serena/code-index-mcp rows.
 
 ---
 *Created: 2026-05-23*
-*Last updated: 2026-05-23 after milestone v1.1 roadmap definition*
+*Last updated: 2026-05-23 after milestone v1.1 completion verification*

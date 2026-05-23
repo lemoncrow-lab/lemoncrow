@@ -6,7 +6,6 @@ import {
   Routes,
 } from "react-router-dom";
 import Overview from "./pages/Overview";
-import SessionDetail from "./pages/SessionDetail";
 import Sessions from "./pages/Sessions";
 import Learnings from "./pages/Learnings";
 import Savings from "./pages/Savings";
@@ -180,7 +179,7 @@ export default function App() {
               element={<Navigate to="/system" replace />}
             />
             <Route path="/sessions" element={<Sessions />} />
-            <Route path="/sessions/:id" element={<SessionDetail />} />
+            <Route path="/sessions/:id" element={<Sessions />} />
             <Route path="/runs" element={<Navigate to="/sessions" replace />} />
             <Route
               path="/trace"

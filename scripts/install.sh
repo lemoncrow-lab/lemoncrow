@@ -21,9 +21,10 @@
 #   ATELIER_NO_STACK   If set to 1, skip starting the visualization stack (service + frontend)
 #   ATELIER_ADVANCED   If set to 1, enable Docker sidecar install (requires --memory)
 #   ATELIER_MEMORY_BACKEND  Memory sidecar to install: letta | openmemory (default: none)
-#   ATELIER_ZOEKT      If set to 1, install the persistent Zoekt code-search sidecar (Docker)
+#   ATELIER_ZOEKT      Install the persistent Zoekt code-search sidecar (Docker) (default: 1)
 #   ATELIER_LOCAL      If set to 1, install from the current checkout in editable mode
 #   ATELIER_STRICT     If set to 1, treat selected post-install degradations as errors
+#   ATELIER_ZOEKT_AUTO_INSTALL If set to 1, run `atelier zoekt install --auto` when local zoekt binaries are missing (default: 1)
 #
 # Notes:
 #   Exactly one memory sidecar can be active at a time; the selection is
@@ -40,7 +41,8 @@ if [[ -t 1 ]]; then
     C_GREEN="$(printf '\033[32m')"
     C_RED="$(printf '\033[31m')"
     C_YELLOW="$(printf '\033[33m')"
-    C_CYAN="$(printf '\033[36m')"
+    C_CYAN="$(printf '\033[38;2;155;117;217m')"
+    C_PURPLE="$(printf '\033[38;2;155;117;217m')"
 else
     C_RESET=""
     C_BOLD=""
@@ -48,6 +50,7 @@ else
     C_RED=""
     C_YELLOW=""
     C_CYAN=""
+    C_PURPLE=""
 fi
 if [[ -n "${FORCE_COLOR:-}${CLICOLOR_FORCE:-}" && -z "${NO_COLOR:-}" ]]; then
     C_RESET="$(printf '\033[0m')"
@@ -55,7 +58,8 @@ if [[ -n "${FORCE_COLOR:-}${CLICOLOR_FORCE:-}" && -z "${NO_COLOR:-}" ]]; then
     C_GREEN="$(printf '\033[32m')"
     C_RED="$(printf '\033[31m')"
     C_YELLOW="$(printf '\033[33m')"
-    C_CYAN="$(printf '\033[36m')"
+    C_CYAN="$(printf '\033[38;2;155;117;217m')"
+    C_PURPLE="$(printf '\033[38;2;155;117;217m')"
 fi
 
 ATELIER_REPO_URL="${ATELIER_REPO_URL:-https://github.com/pankaj4u4m/atelier.git}"
@@ -72,9 +76,10 @@ ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_NO_STACK="${ATELIER_NO_STACK:-0}"
 ATELIER_ADVANCED="${ATELIER_ADVANCED:-0}"
 ATELIER_MEMORY_BACKEND="${ATELIER_MEMORY_BACKEND:-}"   # letta | openmemory | (empty = none)
-ATELIER_ZOEKT="${ATELIER_ZOEKT:-}"                     # 1 = install persistent Zoekt sidecar
+ATELIER_ZOEKT="${ATELIER_ZOEKT:-1}"                    # 1 = install persistent Zoekt sidecar
 ATELIER_LOCAL="${ATELIER_LOCAL:-0}"
 ATELIER_STRICT="${ATELIER_STRICT:-0}"
+ATELIER_ZOEKT_AUTO_INSTALL="${ATELIER_ZOEKT_AUTO_INSTALL:-1}"
 STACK_STARTED=0
 PASSTHROUGH=()
 WARNINGS=()
@@ -83,7 +88,12 @@ FINAL_EXIT_CODE=0
 HOST_FLAGS=()
 HOST_SCOPE_ARGS=()
 HOST_EXTRA_ARGS=()
-SKIP_CLI_INSTALL=0
+HOST_CHOICES=()
+HOST_DEFAULT_SELECTION=()
+HOST_SUMMARY=()
+_SPINNER_PID=""
+_SPINNER_MSG=""
+_SPINNER_ACTIVE=0
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -105,24 +115,104 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-info() { echo "[atelier-install] $*"; }
-warn() {
+trap '[[ -n "${_SPINNER_PID:-}" ]] && { kill "${_SPINNER_PID}" 2>/dev/null; printf "\n"; } || true' EXIT INT TERM
+
+info()  { _spinner_pause; printf "%b│%b  ◇  %s\n" "$C_PURPLE" "$C_RESET" "$*"; _spinner_resume; }
+warn()  {
     WARNINGS+=("$*")
-    printf "%b[atelier-install] WARN:%b %s\n" "$C_YELLOW" "$C_RESET" "$*" >&2
+    _spinner_pause
+    printf "%b│%b  %b⚠%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_YELLOW" "$C_RESET" "$*"
+    _spinner_resume
 }
 error() {
     ERRORS+=("$*")
-    printf "%b[atelier-install] ERROR:%b %s\n" "$C_RED" "$C_RESET" "$*" >&2
+    _spinner_pause
+    printf "%b│%b  %b✗%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_RED" "$C_RESET" "$*" >&2
+    _spinner_resume
 }
-fail() { error "$*"; exit 1; }
+fail()  { error "$*"; exit 1; }
 degrade() {
     if [[ "$ATELIER_STRICT" == "1" ]]; then
         ERRORS+=("$*")
         FINAL_EXIT_CODE=1
-        printf "%b[atelier-install] ERROR:%b %s\n" "$C_RED" "$C_RESET" "$*" >&2
+        _spinner_pause
+        printf "%b│%b  %b✗%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_RED" "$C_RESET" "$*" >&2
+        _spinner_resume
     else
         warn "$*"
     fi
+}
+
+_spinner_run() {
+    [[ -t 1 && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]] || return 0
+    local _frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+    (
+        local _i=0
+        while true; do
+            printf "\r%b│%b  %b%s%b  %s " \
+                "$C_PURPLE" "$C_RESET" "$C_PURPLE" "${_frames[$((_i % 10))]}" "$C_RESET" "$_SPINNER_MSG"
+            sleep 0.08
+            _i=$((_i + 1))
+        done
+    ) &
+    _SPINNER_PID=$!
+}
+_spinner_pause() {
+    [[ -n "${_SPINNER_PID:-}" ]] || return 0
+    kill "$_SPINNER_PID" 2>/dev/null || true
+    wait "$_SPINNER_PID" 2>/dev/null || true
+    _SPINNER_PID=""
+    printf "\r\033[2K"
+}
+_spinner_resume() { if [[ "${_SPINNER_ACTIVE:-0}" == "1" ]]; then _spinner_run; fi; }
+_spinner_stop() {
+    local _st="${1:-ok}"
+    _spinner_pause; _SPINNER_ACTIVE=0
+    case "$_st" in
+        ok)   printf "%b│%b  %b✓%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_GREEN"  "$C_RESET" "$_SPINNER_MSG" ;;
+        warn) printf "%b│%b  %b⚠%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_YELLOW" "$C_RESET" "$_SPINNER_MSG" ;;
+        skip) printf "%b│%b  ○  %s\n"     "$C_PURPLE" "$C_RESET"                             "$_SPINNER_MSG" ;;
+        err)  printf "%b│%b  %b✗%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_RED"    "$C_RESET"  "$_SPINNER_MSG" >&2 ;;
+    esac
+}
+step_start() {
+    _SPINNER_ACTIVE=0; _SPINNER_MSG="$*"
+    printf "%b│%b\n%b◆%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_PURPLE" "$C_RESET" "$*"
+}
+step_done() { printf "%b│%b\n" "$C_PURPLE" "$C_RESET"; }
+spin() {
+    # spin "message" cmd [args...]  — runs cmd with animated spinner; ✓ or ✗ on finish
+    _SPINNER_MSG="$1"; shift; _SPINNER_ACTIVE=1; _spinner_run
+    local _ret=0
+    local _out
+    _out="$("$@" 2>&1)" || _ret=$?
+    if [[ $_ret -eq 0 ]]; then
+        _spinner_stop ok
+    else
+        _spinner_stop err
+        [[ -n "$_out" ]] && printf "%b│%b  %s\n" "$C_PURPLE" "$C_RESET" "$_out"
+    fi
+    _SPINNER_ACTIVE=0; return $_ret
+}
+
+print_installer_header() {
+    local script_root
+    local display_version="0.1.0"
+    script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    if [[ -f "$script_root/pyproject.toml" ]]; then
+        local parsed
+        parsed="$(sed -n 's/^version = "\(.*\)"/\1/p' "$script_root/pyproject.toml" | head -n 1)"
+        if [[ -n "$parsed" ]]; then
+            display_version="$parsed"
+        fi
+    fi
+    echo ""
+    printf "%b┌%b  Atelier v%s\n" "$C_PURPLE" "$C_RESET" "$display_version"
+    printf "%b│%b\n" "$C_PURPLE" "$C_RESET"
+}
+
+print_installer_footer() {
+    printf "%b│%b\n" "$C_PURPLE" "$C_RESET"
 }
 
 collect_issues_from_output() {
@@ -158,42 +248,293 @@ print_issue_group() {
     done
 
     [[ $count -gt 0 ]] || return 0
-    printf "%b%s (%d)%b\n" "$color" "$title" "$count" "$C_RESET"
+    printf "%b│%b  %b%s (%d)%b\n" "$C_PURPLE" "$C_RESET" "$color" "$title" "$count" "$C_RESET"
     for entry in "${entries[@]+"${entries[@]}"}"; do
         [[ -n "$entry" && -z "${printed[$entry]+x}" ]] || continue
         printed["$entry"]=1
-        printf "  %b-%b %s\n" "$color" "$C_RESET" "$entry"
+        printf "%b│%b    %b-%b %s\n" "$C_PURPLE" "$C_RESET" "$color" "$C_RESET" "$entry"
     done
 }
 
 print_final_report() {
-    echo ""
-    echo "══════════════════════════════════════════════"
-    echo " Atelier Install Report"
-    echo "══════════════════════════════════════════════"
     if [[ ${#ERRORS[@]} -eq 0 && ${#WARNINGS[@]} -eq 0 ]]; then
-        echo "  No warnings or errors detected."
         return
     fi
-    print_issue_group "Errors" "$C_RED" "${ERRORS[@]+"${ERRORS[@]}"}"
+    info ""
+    print_issue_group "Errors"   "$C_RED"    "${ERRORS[@]+"${ERRORS[@]}"}"
     print_issue_group "Warnings" "$C_YELLOW" "${WARNINGS[@]+"${WARNINGS[@]}"}"
+}
+
+supports_interactive_selector() {
+    [[ -t 0 && -t 1 ]] || return 1
+    [[ -n "${TERM:-}" && "${TERM:-}" != "dumb" ]] || return 1
+    return 0
+}
+
+_frame_line() {
+    printf "\033[2K\r%b│%b  %s\n" "$C_PURPLE" "$C_RESET" "$1"
+}
+
+_prompt_line() {
+    local glyph="$1"
+    local text="$2"
+    printf "\033[2K\r%b%s%b  %s\n" "$C_PURPLE" "$glyph" "$C_RESET" "$text"
+}
+
+_menu_save_cursor() {
+    tput sc 2>/dev/null || printf "\033[s"
+}
+
+_menu_restore_cursor() {
+    tput rc 2>/dev/null || printf "\033[u"
+}
+
+_read_menu_byte() {
+    local __out_var="${1-}"
+    local timeout="${2-}"
+    local byte=""
+    [[ -n "$__out_var" ]] || return 1
+    if [[ -n "$timeout" ]]; then
+        IFS= read -rsn1 -t "$timeout" byte </dev/tty 2>/dev/null || IFS= read -rsn1 -t "$timeout" byte 2>/dev/null || return 1
+    else
+        IFS= read -rsn1 byte </dev/tty 2>/dev/null || IFS= read -rsn1 byte 2>/dev/null || return 1
+    fi
+    printf -v "$__out_var" '%s' "$byte"
+    return 0
+}
+
+_read_menu_key() {
+    local key ch i
+    _read_menu_byte key || key=""
+    if [[ "$key" == $'\e' ]]; then
+        for i in {1..16}; do
+            if ! _read_menu_byte ch 0.6; then
+                break
+            fi
+            key+="$ch"
+            case "$ch" in
+                [A-Za-z~]) break ;;
+                *) ;;
+            esac
+        done
+        while _read_menu_byte ch 0.01; do
+            key+="$ch"
+            case "$ch" in
+                [A-Za-z~]) break ;;
+                *) ;;
+            esac
+        done
+    fi
+    printf "%s" "$key"
+}
+
+_term_key_up() {
+    tput kcuu1 2>/dev/null || true
+}
+
+_term_key_down() {
+    tput kcud1 2>/dev/null || true
+}
+
+_menu_key_kind() {
+    local key="$1"
+    local term_up
+    local term_down
+    term_up="$(_term_key_up)"
+    term_down="$(_term_key_down)"
+    case "$key" in
+        ""|$'\n'|$'\r') printf "enter" ;;
+        " ") printf "space" ;;
+        a|A) printf "all" ;;
+        k|K|A|$'\e[A'|$'\eOA'|$'\e['*A|$'\eO'*A|$'\e'*A) printf "up" ;;
+        j|J|B|$'\e[B'|$'\eOB'|$'\e['*B|$'\eO'*B|$'\e'*B) printf "down" ;;
+        *)
+            if [[ -n "$term_up" && "$key" == "$term_up" ]]; then
+                printf "up"
+            elif [[ -n "$term_down" && "$key" == "$term_down" ]]; then
+                printf "down"
+            else
+                printf "other"
+            fi
+            ;;
+    esac
+}
+
+render_single_select() {
+    local selected_index="$1"
+    shift 1
+    local options=("$@")
+    local i
+
+    for i in "${!options[@]}"; do
+        if [[ "$i" -eq "$selected_index" ]]; then
+            _frame_line "  ${C_PURPLE}●${C_RESET} ${options[$i]}"
+        else
+            _frame_line "  ○ ${options[$i]}"
+        fi
+    done
+    _frame_line "  ${C_PURPLE}↑/↓${C_RESET} move · ${C_PURPLE}Enter${C_RESET} select"
+}
+
+interactive_single_select() {
+    local prompt="$1"
+    local out_var="$2"
+    local default_index="$3"
+    shift 3
+    local options=("$@")
+    local option_count="${#options[@]}"
+    local selected_index="$default_index"
+    local first_render=1
+
+    _prompt_line "◆" "$prompt"
+    _menu_save_cursor
+
+    while true; do
+        if [[ "$first_render" == "0" ]]; then
+            _menu_restore_cursor
+        fi
+        render_single_select "$selected_index" "${options[@]}"
+        first_render=0
+        local key kind
+        key="$(_read_menu_key)"
+        kind="$(_menu_key_kind "$key")"
+        case "$kind" in
+            up)
+                selected_index=$(( (selected_index - 1 + option_count) % option_count ))
+                ;;
+            down)
+                selected_index=$(( (selected_index + 1) % option_count ))
+                ;;
+            enter)
+                break
+                ;;
+            *) ;;
+        esac
+    done
+    echo ""
+    printf -v "$out_var" '%s' "$selected_index"
+}
+
+render_multi_select() {
+    local selected_cursor="$1"
+    shift 1
+    local options=("$@")
+    local i marker
+
+    for i in "${!options[@]}"; do
+        marker="◻"
+        if [[ "${SELECTED_ITEMS[$i]:-0}" == "1" ]]; then
+            marker="${C_PURPLE}◼${C_RESET}"
+        fi
+        if [[ "$i" -eq "$selected_cursor" ]]; then
+            _frame_line "  ${C_PURPLE}${marker} ${options[$i]}${C_RESET}"
+        else
+            _frame_line "  ${marker} ${options[$i]}"
+        fi
+    done
+    _frame_line "  ${C_PURPLE}↑/↓${C_RESET} move · ${C_PURPLE}Space${C_RESET} toggle · ${C_PURPLE}a${C_RESET} all · ${C_PURPLE}Enter${C_RESET} done"
+}
+
+interactive_multi_select() {
+    local prompt="$1"
+    local out_var="$2"
+    local default_state="${3:-all}"
+    shift 3
+    local options=("$@")
+    local option_count="${#options[@]}"
+    local cursor=0
+    local i
+    local first_render=1
+
+    if [[ "$default_state" != "preset" ]]; then
+        SELECTED_ITEMS=()
+        for i in "${!options[@]}"; do
+            if [[ "$default_state" == "none" ]]; then
+                SELECTED_ITEMS[$i]=0
+            else
+                SELECTED_ITEMS[$i]=1
+            fi
+        done
+    fi
+
+    _prompt_line "◇" "$prompt"
+    _menu_save_cursor
+    while true; do
+        if [[ "$first_render" == "0" ]]; then
+            _menu_restore_cursor
+        fi
+        render_multi_select "$cursor" "${options[@]}"
+        first_render=0
+        local key kind
+        key="$(_read_menu_key)"
+        kind="$(_menu_key_kind "$key")"
+        case "$kind" in
+            up)
+                cursor=$(( (cursor - 1 + option_count) % option_count ))
+                ;;
+            down)
+                cursor=$(( (cursor + 1) % option_count ))
+                ;;
+            space)
+                if [[ "${SELECTED_ITEMS[$cursor]:-0}" == "1" ]]; then
+                    SELECTED_ITEMS[$cursor]=0
+                else
+                    SELECTED_ITEMS[$cursor]=1
+                fi
+                ;;
+            all)
+                for i in "${!options[@]}"; do
+                    SELECTED_ITEMS[$i]=1
+                done
+                ;;
+            enter)
+                break
+                ;;
+            *) ;;
+        esac
+    done
+    echo ""
+
+    local chosen_indices=()
+    for i in "${!options[@]}"; do
+        if [[ "${SELECTED_ITEMS[$i]:-0}" == "1" ]]; then
+            chosen_indices+=("$i")
+        fi
+    done
+    printf -v "$out_var" '%s' "${chosen_indices[*]:-}"
 }
 
 prompt_memory_selection() {
     [[ -t 0 ]] || return 0
     [[ -n "$ATELIER_MEMORY_BACKEND" || "$ATELIER_ADVANCED" == "1" ]] && return 0
 
-    echo ""
-    printf "%b[atelier-install]%b Choose a memory backend:\n" "$C_BOLD" "$C_RESET"
-    printf "  0) SQLite      - local, no Docker needed (default)\n"
-    printf "  1) letta       - Letta memory server (Docker)\n"
-    printf "  2) openmemory  - OpenMemory MCP server (Docker + OpenAI key or ollama)\n"
-    printf "Choice [0/1/2, default: 0]: "
-    local choice
-    read -r choice </dev/tty
-    echo ""
+    local choice_index=0
+    if supports_interactive_selector; then
+        interactive_single_select \
+            "Choose memory backend:" \
+            choice_index \
+            0 \
+            "SQLite      - local, no Docker needed (default)" \
+            "letta       - Letta memory server (Docker)" \
+            "openmemory  - OpenMemory MCP server (Docker + OpenAI key or ollama)"
+    else
+        echo ""
+        printf "%b[atelier-install]%b Choose a memory backend:\n" "$C_BOLD" "$C_RESET"
+        printf "  0) SQLite      - local, no Docker needed (default)\n"
+        printf "  1) letta       - Letta memory server (Docker)\n"
+        printf "  2) openmemory  - OpenMemory MCP server (Docker + OpenAI key or ollama)\n"
+        printf "Choice [0/1/2, default: 0]: "
+        local choice
+        read -r choice </dev/tty
+        echo ""
+        case "$choice" in
+            1) choice_index=1 ;;
+            2) choice_index=2 ;;
+            *) choice_index=0 ;;
+        esac
+    fi
 
-    case "$choice" in
+    case "$choice_index" in
         1) ATELIER_MEMORY_BACKEND="letta"; ATELIER_ADVANCED=1 ;;
         2) ATELIER_MEMORY_BACKEND="openmemory"; ATELIER_ADVANCED=1 ;;
         *) ATELIER_MEMORY_BACKEND="" ;;
@@ -222,35 +563,57 @@ contains_any_host_flag() {
 detect_hosts() {
     HOST_FLAGS=()
     HOST_SUMMARY=()
+    HOST_CHOICES=()
+    HOST_DEFAULT_SELECTION=()
 
     if command -v claude >/dev/null 2>&1; then
         HOST_SUMMARY+=("Claude Code (detected)")
+        HOST_CHOICES+=("Claude Code (detected)")
+        HOST_DEFAULT_SELECTION+=(1)
     else
-        HOST_SUMMARY+=("Claude Code")
+        HOST_SUMMARY+=("Claude Code (not found)")
+        HOST_CHOICES+=("Claude Code (not found)")
+        HOST_DEFAULT_SELECTION+=(0)
     fi
 
     if command -v codex >/dev/null 2>&1; then
         HOST_SUMMARY+=("Codex CLI (detected)")
+        HOST_CHOICES+=("Codex CLI (detected)")
+        HOST_DEFAULT_SELECTION+=(1)
     else
-        HOST_SUMMARY+=("Codex CLI")
+        HOST_SUMMARY+=("Codex CLI (not found)")
+        HOST_CHOICES+=("Codex CLI (not found)")
+        HOST_DEFAULT_SELECTION+=(0)
     fi
 
     if command -v opencode >/dev/null 2>&1; then
         HOST_SUMMARY+=("opencode (detected)")
+        HOST_CHOICES+=("opencode (detected)")
+        HOST_DEFAULT_SELECTION+=(1)
     else
-        HOST_SUMMARY+=("opencode")
+        HOST_SUMMARY+=("opencode (not found)")
+        HOST_CHOICES+=("opencode (not found)")
+        HOST_DEFAULT_SELECTION+=(0)
     fi
 
     if command -v code >/dev/null 2>&1; then
         HOST_SUMMARY+=("Copilot/VS Code (detected)")
+        HOST_CHOICES+=("Copilot/VS Code (detected)")
+        HOST_DEFAULT_SELECTION+=(1)
     else
-        HOST_SUMMARY+=("Copilot/VS Code")
+        HOST_SUMMARY+=("Copilot/VS Code (not found)")
+        HOST_CHOICES+=("Copilot/VS Code (not found)")
+        HOST_DEFAULT_SELECTION+=(0)
     fi
 
     if command -v antigravity >/dev/null 2>&1 || command -v agy >/dev/null 2>&1; then
         HOST_SUMMARY+=("Antigravity (detected)")
+        HOST_CHOICES+=("Antigravity (detected)")
+        HOST_DEFAULT_SELECTION+=(1)
     else
-        HOST_SUMMARY+=("Antigravity")
+        HOST_SUMMARY+=("Antigravity (not found)")
+        HOST_CHOICES+=("Antigravity (not found)")
+        HOST_DEFAULT_SELECTION+=(0)
     fi
 }
 
@@ -275,65 +638,96 @@ host_wizard() {
 
     detect_hosts
 
-    echo ""
-    printf "%b┌  Atelier installer%b\n" "$C_CYAN" "$C_RESET"
-    echo "│"
-    printf "◇  Which agents should Atelier configure?\n"
-    printf "│  %s\n" "$(join_with_comma_space "${HOST_SUMMARY[@]}")"
-    echo "│"
-    printf "│  1) Claude Code\n"
-    printf "│  2) Codex CLI\n"
-    printf "│  3) opencode\n"
-    printf "│  4) Copilot/VS Code\n"
-    printf "│  5) Antigravity\n"
-    printf "│  a) All (default)\n"
-    printf "│  n) None (skip host integrations)\n"
-    printf "│\n"
-    printf "Choice [a]: "
-
-    local selection
-    read -r selection </dev/tty || selection="a"
-    selection="${selection:-a}"
-    echo ""
-
-    case "$selection" in
-        a|A|all|ALL)
-            HOST_FLAGS=(--all)
-            ;;
-        n|N|none|NONE|skip|SKIP|0)
+    if supports_interactive_selector; then
+        local selected_host_indices=""
+        SELECTED_ITEMS=()
+        local i
+        for i in "${!HOST_DEFAULT_SELECTION[@]}"; do
+            SELECTED_ITEMS[$i]="${HOST_DEFAULT_SELECTION[$i]}"
+        done
+        interactive_multi_select \
+            "Which agents should Atelier configure?" \
+            selected_host_indices \
+            "preset" \
+            "${HOST_CHOICES[@]}"
+        if [[ -z "${selected_host_indices// }" ]]; then
             ATELIER_NO_HOSTS=1
-            ;;
-        *)
-            local token
-            IFS=',' read -ra _choices <<<"$selection"
-            for token in "${_choices[@]}"; do
-                token="$(echo "$token" | xargs)"
-                case "$token" in
-                    1) HOST_FLAGS+=(--claude) ;;
-                    2) HOST_FLAGS+=(--codex) ;;
-                    3) HOST_FLAGS+=(--opencode) ;;
-                    4) HOST_FLAGS+=(--copilot) ;;
-                    5) HOST_FLAGS+=(--antigravity) ;;
+        else
+            local idx
+            for idx in $selected_host_indices; do
+                case "$idx" in
+                    0) HOST_FLAGS+=(--claude) ;;
+                    1) HOST_FLAGS+=(--codex) ;;
+                    2) HOST_FLAGS+=(--opencode) ;;
+                    3) HOST_FLAGS+=(--copilot) ;;
+                    4) HOST_FLAGS+=(--antigravity) ;;
                 esac
             done
             [[ ${#HOST_FLAGS[@]} -gt 0 ]] || ATELIER_NO_HOSTS=1
-            ;;
-    esac
+        fi
+    else
+        printf "│  1) %s\n" "${HOST_CHOICES[0]}"
+        printf "│  2) %s\n" "${HOST_CHOICES[1]}"
+        printf "│  3) %s\n" "${HOST_CHOICES[2]}"
+        printf "│  4) %s\n" "${HOST_CHOICES[3]}"
+        printf "│  5) %s\n" "${HOST_CHOICES[4]}"
+        printf "│  a) All (default)\n"
+        printf "│\n"
+        printf "Choice [a]: "
+
+        local selection
+        read -r selection </dev/tty || selection="a"
+        selection="${selection:-a}"
+        echo ""
+
+        case "$selection" in
+            a|A|all|ALL)
+                HOST_FLAGS=(--all)
+                ;;
+            *)
+                local token
+                IFS=',' read -ra _choices <<<"$selection"
+                for token in "${_choices[@]}"; do
+                    token="$(echo "$token" | xargs)"
+                    case "$token" in
+                        1) HOST_FLAGS+=(--claude) ;;
+                        2) HOST_FLAGS+=(--codex) ;;
+                        3) HOST_FLAGS+=(--opencode) ;;
+                        4) HOST_FLAGS+=(--copilot) ;;
+                        5) HOST_FLAGS+=(--antigravity) ;;
+                    esac
+                done
+                [[ ${#HOST_FLAGS[@]} -gt 0 ]] || ATELIER_NO_HOSTS=1
+                ;;
+        esac
+    fi
 
     [[ "$ATELIER_NO_HOSTS" == "1" ]] && return 0
 
-    echo "◇  Apply agent configs to all your projects, or just this one?"
-    echo "│  1) All projects (global)"
-    echo "│  2) Just this project"
-    printf "Choice [1]: "
-
-    local scope_choice
-    read -r scope_choice </dev/tty || scope_choice="1"
-    scope_choice="${scope_choice:-1}"
-    echo ""
+    local scope_choice=0
+    if supports_interactive_selector; then
+        interactive_single_select \
+            "Apply configs globally or just here?" \
+            scope_choice \
+            0 \
+            "All projects (global)" \
+            "Just this project"
+    else
+        echo "◇  Apply agent configs to all your projects, or just this one?"
+        echo "│  1) All projects (global)"
+        echo "│  2) Just this project"
+        printf "Choice [1]: "
+        local scope_choice_raw
+        read -r scope_choice_raw </dev/tty || scope_choice_raw="1"
+        scope_choice_raw="${scope_choice_raw:-1}"
+        echo ""
+        if [[ "$scope_choice_raw" == "2" ]]; then
+            scope_choice=1
+        fi
+    fi
 
     local scope="global"
-    if [[ "$scope_choice" == "2" ]]; then
+    if [[ "$scope_choice" == "1" ]]; then
         HOST_SCOPE_ARGS=(--workspace .)
         scope="local"
     fi
@@ -348,55 +742,42 @@ host_wizard() {
     done
 
     if [[ "$wants_claude" == "1" && "$scope" == "global" ]]; then
-        echo "◇  Auto-allow Atelier commands? (Skips permission prompts in Claude Code)"
-        printf "Choice [Y/n]: "
-        local auto_allow
-        read -r auto_allow </dev/tty || auto_allow="y"
-        auto_allow="${auto_allow:-y}"
-        echo ""
-        case "$auto_allow" in
-            [Nn]*) ;;
-            *)
-                HOST_EXTRA_ARGS=(--claude-project "$(pwd)")
-                ;;
-        esac
+        HOST_EXTRA_ARGS=(--claude-project "$(pwd)")
     fi
 }
 
-prompt_cli_install_choice() {
-    [[ -t 0 && -t 1 ]] || return 0
-    [[ "$ATELIER_DRY_RUN" == "1" ]] && return 0
+ensure_local_zoekt_runtime() {
+    local atelier_cli="$1"
+    local missing=()
+    local name
+    for name in zoekt-git-index zoekt-index zoekt zoekt-webserver; do
+        if ! command -v "$name" >/dev/null 2>&1; then
+            missing+=("$name")
+        fi
+    done
 
-    echo "◇  Install/update Atelier CLI on your PATH? (Required so agents can launch the MCP server)"
-    printf "Choice [Y/n]: "
-    local answer
-    read -r answer </dev/tty || answer="y"
-    answer="${answer:-y}"
-    echo ""
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        info "Local Zoekt runtime detected (${missing[*]:-ok})"
+        return
+    fi
 
-    case "$answer" in
-        [Nn]*) SKIP_CLI_INSTALL=1 ;;
-        *) SKIP_CLI_INSTALL=0 ;;
-    esac
-}
-
-prompt_zoekt_selection() {
-    [[ -t 0 ]] || return 0
-    [[ -n "$ATELIER_ZOEKT" ]] && return 0
-
-    echo ""
-    printf "%b[atelier-install]%b Enable persistent Zoekt code-search sidecar?\n" "$C_BOLD" "$C_RESET"
-    printf "  0) No (default)\n"
-    printf "  1) Yes (Docker)\n"
-    printf "Choice [0/1, default: 0]: "
-    local choice
-    read -r choice </dev/tty
-    echo ""
-
-    case "$choice" in
-        1) ATELIER_ZOEKT=1; ATELIER_ADVANCED=1 ;;
-        *) ATELIER_ZOEKT="" ;;
-    esac
+    warn "Local Zoekt binaries missing: ${missing[*]}"
+    if [[ "$ATELIER_ZOEKT_AUTO_INSTALL" == "1" ]]; then
+        if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+            echo "[dry-run] $atelier_cli zoekt install --auto"
+        else
+            "$atelier_cli" zoekt install --auto \
+                || warn "Automatic local Zoekt install failed. Run: atelier zoekt install"
+        fi
+    else
+        echo "Install local Zoekt binaries with:"
+        echo "  $atelier_cli zoekt install"
+        echo "or:"
+        echo "  go install github.com/sourcegraph/zoekt/cmd/zoekt-git-index@latest"
+        echo "  go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest"
+        echo "  go install github.com/sourcegraph/zoekt/cmd/zoekt@latest"
+        echo "  go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest"
+    fi
 }
 
 run() {
@@ -575,10 +956,13 @@ main() {
     need_cmd git
     need_cmd bash
 
+    print_installer_header
     host_wizard
-    prompt_cli_install_choice
     prompt_memory_selection
-    prompt_zoekt_selection
+
+    if supports_interactive_selector; then
+        print_installer_footer
+    fi
 
     case "$ATELIER_MEMORY_BACKEND" in
         letta|openmemory|"") ;;
@@ -602,6 +986,7 @@ main() {
         stack_expected=1
     fi
 
+    step_start "Preparing environment"
     if [[ "$ATELIER_LOCAL" == "1" ]]; then
         info "Local mode: using current directory as an editable install source"
         ATELIER_INSTALL_DIR="$(pwd)"
@@ -609,26 +994,20 @@ main() {
         prepare_repo
     fi
     export ATELIER_INSTALL_DIR
+    step_done
 
-    if [[ "$SKIP_CLI_INSTALL" == "1" ]]; then
-        warn "Skipped CLI install; installer will use existing 'atelier'/'atelier-mcp' on PATH."
-    else
-        info "Installing Atelier console commands..."
+    step_start "Installing Atelier"
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
         install_console_scripts
-        persist_install_record
-    fi
-
-    info "Installing optional code-quality tools (format, lint, rename)..."
-    install_code_tools
-
-    if command -v npm >/dev/null 2>&1; then
-        info "Installing codeburn (token/cost reporting)..."
-        run npm install -g codeburn
-        info "Installing tokscale (token/cost reporting)..."
-        run npm install -g tokscale
     else
-        warn "npm not found — skipping codeburn and tokscale (install Node.js 20+ to enable)"
+        spin "Installing packages" install_console_scripts
     fi
+    persist_install_record
+    step_done
+
+    step_start "Installing code tools"
+    install_code_tools
+    step_done
 
     local selected_memory=""
     if [[ "$ATELIER_ADVANCED" == "1" ]]; then
@@ -664,9 +1043,9 @@ main() {
     if [[ "$ATELIER_ZOEKT" == "1" ]]; then
         if command -v docker >/dev/null 2>&1; then
             selected_zoekt="1"
-            info "Zoekt sidecar: enabled (Docker)"
+            info "Zoekt sidecar: enabled by default (Docker)"
         else
-            warn "--zoekt requires Docker - skipping Zoekt sidecar"
+            warn "Docker not found — skipping Zoekt sidecar service setup"
         fi
     fi
 
@@ -694,44 +1073,26 @@ main() {
         : >"$zoekt_record"
     fi
 
-    # atelier-status was folded into `atelier status` — no separate binary needed
-
     if [[ ":$PATH:" != *":$ATELIER_BIN_DIR:"* ]]; then
         warn "$ATELIER_BIN_DIR is not currently on PATH"
-        echo ""
-        echo "Add this to your shell profile, then restart your shell:"
-        echo "  export PATH=\"$ATELIER_BIN_DIR:\$PATH\""
-        echo ""
+        info "Add this to your shell profile, then restart your shell:"
+        info "  export PATH=\"$ATELIER_BIN_DIR:\$PATH\""
     fi
 
     local atelier_cli="$ATELIER_BIN_DIR/atelier"
-    if [[ "$SKIP_CLI_INSTALL" == "1" && ! -x "$atelier_cli" ]]; then
-        atelier_cli="$(command -v atelier || true)"
-        [[ -n "$atelier_cli" ]] || fail "'atelier' CLI is required but was not found on PATH."
-    fi
+    ensure_local_zoekt_runtime "$atelier_cli"
 
-    info "Initializing Atelier runtime store..."
+    step_start "Initializing"
     if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
         echo "[dry-run] $atelier_cli init"
+        echo "[dry-run] $atelier_cli code index --repo-root $ATELIER_INSTALL_DIR"
     else
-        "$atelier_cli" init >/dev/null
-    fi
-
-    # Persist the selected memory backend so uninstall knows what to clean up.
-    local memory_record="${HOME}/.atelier/memory_backend"
-    if [[ -n "$selected_memory" ]]; then
-        if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-            echo "[dry-run] printf '%s\\n' '$selected_memory' > '$memory_record'"
-        else
-            mkdir -p "${HOME}/.atelier"
-            printf '%s\n' "$selected_memory" > "$memory_record"
-            info "Persisted memory backend: $selected_memory"
+        spin "Initializing runtime store" "$atelier_cli" init
+        if ! spin "Bootstrapping code index" "$atelier_cli" code index --repo-root "$ATELIER_INSTALL_DIR"; then
+            degrade "Initial code indexing failed; Atelier will continue and autosync will retry."
         fi
-    elif [[ -f "$memory_record" && "$ATELIER_DRY_RUN" != "1" ]]; then
-        # No sidecar selected on this run — clear any previous selection so
-        # uninstall does not try to tear down a sidecar that is no longer managed.
-        : > "$memory_record"
     fi
+    step_done
 
     if [[ "$ATELIER_NO_HOSTS" != "1" ]]; then
         info "Installing Atelier host integrations (skip if host CLI is missing)..."
@@ -834,48 +1195,43 @@ main() {
     fi
 
     if [[ "$STACK_STARTED" == "1" || "$stack_expected" == "1" ]]; then
-        echo "  Visualization stack is running:"
-        echo "    frontend: http://localhost:3125"
-        echo "    service:  http://localhost:8787"
-        echo ""
+        info "Visualization stack is running:"
+        info "  frontend: http://localhost:3125"
+        info "  service:  http://localhost:8787"
     fi
-    echo "  Commands:"
-    echo "    atelier --version           - Check core CLI version"
-    echo "    atelier-mcp --version       - Check MCP server version"
-    echo "    atelier background status   - View background service status"
-    echo "    atelier stack start         - Start production API and frontend (requires npm)"
-    echo "    atelier stack stop          - Stop the visualization stack"
-    echo "    atelier stack logs          - View stack logs"
-    echo "    atelier status              - Show one-line status of the active reasoning run"
-    echo "    atelier import              - Import agent sessions from all available history sources (CLI, VS Code, etc.)"
-    echo ""
-    echo "  Docker sidecars (available with --advanced, require Docker):"
-    echo "    atelier letta up/down       - Start/stop the Letta memory server container"
-    echo "    atelier openmemory up/down  - Start/stop the OpenMemory MCP container"
-    echo "    atelier letta status        - Check Letta health"
-    echo "    atelier openmemory status   - Check OpenMemory container status"
+
+    step_start "What's next"
+    info "atelier --version           — check core CLI version"
+    info "atelier-mcp --version       — check MCP server version"
+    info "atelier background status   — view background service status"
+    info "atelier status              — show active reasoning run"
+    info "atelier import              — import agent sessions from history"
+    info ""
+    info "Docker sidecars (--advanced, require Docker):"
+    info "  atelier letta up/down/status/reset"
+    info "  atelier openmemory up/down/status/logs"
     if [[ "$ATELIER_ADVANCED" != "1" ]]; then
-        echo ""
-        echo "  Tip: re-run with --advanced to install Letta + OpenMemory Docker sidecars."
+        info "Tip: re-run with --advanced to install Letta + OpenMemory sidecars."
     fi
-    echo ""
-    echo "  Memory sidecar (Docker, opt-in via --advanced --memory <backend>):"
+    info ""
+    info "Memory sidecar:"
     case "$selected_memory" in
-        letta) echo "    ACTIVE: Letta - atelier letta up/down/status/reset" ;;
-        openmemory) echo "    ACTIVE: OpenMemory - atelier openmemory up/down/status/logs" ;;
+        letta)      info "  ACTIVE: Letta — atelier letta up/down/status/reset" ;;
+        openmemory) info "  ACTIVE: OpenMemory — atelier openmemory up/down/status/logs" ;;
         *)
-            echo "    None selected."
-            echo "      --advanced --memory letta"
-            echo "      --advanced --memory openmemory"
+            info "  None selected.  Use --advanced --memory letta|openmemory"
             ;;
     esac
-    echo ""
-    echo "  Zoekt code-search sidecar (Docker, opt-in via --zoekt):"
+    info ""
+    info "Zoekt:"
+    info "  atelier zoekt install / index . / search 'text' / serve"
+    info "  Zoekt Docker sidecar:"
     if [[ "$selected_zoekt" == "1" ]]; then
-        echo "    ACTIVE - atelier zoekt up/down/status/reindex/reset"
+        info "    ACTIVE — atelier zoekt up/down/status/reindex/reset"
     else
-        echo "    Not enabled. Re-run with --zoekt."
+        info "    Not enabled (Docker unavailable)."
     fi
+    step_done
 
     print_final_report
     if [[ ${#ERRORS[@]} -gt 0 ]]; then
@@ -885,6 +1241,7 @@ main() {
     else
         info "Installation complete."
     fi
+    printf "%b└%b\n\n" "$C_PURPLE" "$C_RESET"
 
     return "$FINAL_EXIT_CODE"
 }

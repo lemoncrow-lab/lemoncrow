@@ -1069,7 +1069,13 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
 
     impact = _result(_call("code", {"op": "impact", "repo_root": str(tmp_path), "path": "a.py"}))
     assert "b.py" in impact["direct_importers"]
+    assert impact["target_type"] == "file"
     assert impact["provenance"] == "local"
+
+    symbol_impact = _result(_call("code", {"op": "impact", "repo_root": str(tmp_path), "query": "alpha"}))
+    assert symbol_impact["target_type"] == "symbol"
+    assert symbol_impact["target"]["type"] == "symbol"
+    assert any(item["file_path"] == "b.py" for item in symbol_impact["affected_files"])
 
 
 def test_code_context_mcp_routes_scip_and_invalidates_cache(store_root: Path, tmp_path: Path) -> None:
@@ -1124,7 +1130,7 @@ def test_code_context_search_surface_supports_snippet_scope_and_glob(store_root:
 
     assert payload["cache_hit"] is False
     assert payload["provenance"] == "local"
-    assert payload["provenance_breakdown"] == {"local": len(payload["items"])}
+    assert "provenance_breakdown" not in payload
     assert payload["items"][0]["file_path"] == "src/orders.py"
     assert (
         payload["items"][0]["snippet"] == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"

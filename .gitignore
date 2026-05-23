@@ -66,6 +66,7 @@ coverage.xml
 
 # OpenCode
 .opencode/
+.serena/
 
 # Gemini CLI
 .gemini/

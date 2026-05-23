@@ -34,11 +34,11 @@ from atelier.core.capabilities.monitors.suite import (
 __all__ = [
     "DEFAULT_WEIGHTS",
     "FIRE_THRESHOLD",
-    "MonitorResult",
-    "evaluate_all",
     "DifficultyFSM",
     "FSMState",
+    "MonitorResult",
     "advance_many",
+    "evaluate_all",
     "make_signals_fn",
     "score_step",
 ]

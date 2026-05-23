@@ -5480,6 +5480,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                 snap: dict[str, Any] = json.loads(f.read_text(encoding="utf-8"))
                 report = build_report(snap, root)
                 payload = _build_session_payload(report)
+                payload["updated_at"] = datetime.fromtimestamp(f.stat().st_mtime, tz=UTC).isoformat()
                 results.append(payload)
                 seen_session_ids.add(payload["session_id"])
             except Exception:
@@ -5489,11 +5490,28 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             sid = trace.session_id or trace.id
             if sid in seen_session_ids:
                 continue
-            results.append(_build_imported_session_payload(sid, trace, store_inst))
+            payload = _build_imported_session_payload(sid, trace, store_inst)
+            payload["updated_at"] = trace.created_at.isoformat()
+            results.append(payload)
             seen_session_ids.add(sid)
             if len(results) >= limit:
                 break
-        results.sort(key=lambda item: str(item.get("started_at") or ""), reverse=True)
+        def _session_sort_key(item: dict[str, Any]) -> tuple[float, float, float]:
+            def _ts(value: Any) -> float:
+                if not value:
+                    return 0.0
+                with contextlib.suppress(TypeError, ValueError):
+                    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                    return parsed.timestamp()
+                return 0.0
+
+            return (
+                _ts(item.get("ended_at")),
+                _ts(item.get("updated_at")),
+                _ts(item.get("started_at")),
+            )
+
+        results.sort(key=_session_sort_key, reverse=True)
         if len(results) > limit:
             results = results[:limit]
         return results

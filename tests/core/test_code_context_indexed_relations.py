@@ -60,6 +60,48 @@ def test_native_python_pattern_search_without_ast_grep(tmp_path: Path) -> None:
     assert "mcp_tool" in str(result)
 
 
+def test_native_python_pattern_search_supports_call_def_and_class_shapes(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "patterns.py").write_text(
+        "from somewhere import benchmark\n\n"
+        "@benchmark(tag='x')\n"
+        "def run_job(payload: dict[str, object]) -> None:\n"
+        "    helper(payload)\n"
+        "    client.helper(payload)\n\n"
+        "class Worker(BaseWorker):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    engine = CodeContextEngine(tmp_path)
+    engine.tool_index(include_globs=["src/**/*.py"], budget_tokens=2000)
+
+    decorator_matches = engine.tool_pattern(pattern="@benchmark($$$)", language="python", limit=10, budget_tokens=1000)
+    def_matches = engine.tool_pattern(pattern="def run_job(...)", language="python", limit=10, budget_tokens=1000)
+    class_matches = engine.tool_pattern(pattern="class Worker(...)", language="python", limit=10, budget_tokens=1000)
+    call_matches = engine.tool_pattern(pattern="helper($$$)", language="python", limit=10, budget_tokens=1000)
+
+    assert decorator_matches["total_matches"] == 1
+    assert decorator_matches["matches"][0]["captures"] == {"decorator": "benchmark"}
+
+    assert def_matches["total_matches"] == 1
+    assert def_matches["matches"][0]["captures"] == {"name": "run_job"}
+
+    assert class_matches["total_matches"] == 1
+    assert class_matches["matches"][0]["captures"] == {"name": "Worker"}
+
+    assert call_matches["total_matches"] == 2
+    assert [match["line"] for match in call_matches["matches"]] == sorted(match["line"] for match in call_matches["matches"])
+    assert set(call_matches["matches"][0]) <= {
+        "file_path",
+        "line",
+        "column",
+        "end_line",
+        "end_column",
+        "snippet",
+        "captures",
+    }
+
+
 def test_src_layout_import_impact(tmp_path: Path) -> None:
     (tmp_path / "src" / "atelier" / "core").mkdir(parents=True)
     (tmp_path / "src" / "atelier" / "core" / "__init__.py").write_text("", encoding="utf-8")
@@ -76,3 +118,20 @@ def test_src_layout_import_impact(tmp_path: Path) -> None:
     engine.tool_index(include_globs=["src/**/*.py"], budget_tokens=2000)
     impact = engine.tool_impact("src/atelier/core/bash_exec.py", budget_tokens=1000)
     assert "gateway.py" in str(impact)
+    assert impact["target_type"] == "file"
+    assert any(row["file_path"].endswith("gateway.py") for row in impact["affected_files"])
+
+
+def test_symbol_impact_groups_affected_files(tmp_path: Path) -> None:
+    _write_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path)
+    engine.tool_index(include_globs=["src/**/*.py"], budget_tokens=2000)
+
+    impact = engine.tool_impact(query="run_command", budget_tokens=1000)
+
+    assert impact["target_type"] == "symbol"
+    assert impact["target"]["type"] == "symbol"
+    assert impact["target"]["match_count"] >= 1
+    assert "src/pkg/server.py" in impact["direct_importers"]
+    assert any(row["file_path"] == "src/pkg/server.py" for row in impact["affected_files"])
+    assert any("reference" in row["reasons"] or "caller" in row["reasons"] for row in impact["affected_files"])

@@ -32,16 +32,19 @@ def render_tool_report(report: ToolReport) -> str:
         f"{status_color}{report.passed}/{report.total} passed{_RESET}"
     )
     lines.append(f"  {_DIM}avg savings {report.avg_savings_pct:.0f}%  "
-                 f"total tokens saved {report.total_saved_tokens:,}{_RESET}")
+                 f"total tokens saved {report.total_saved_tokens:,}  "
+                 f"effective tokens {report.total_effective_tokens:,.0f}{_RESET}")
     lines.append("")
 
     # Column headers
     col_w = 36
     lines.append(
         f"  {'op':<{col_w}} {'status':<8} {'atelier':>8} {'baseline':>9} "
-        f"{'input':>9} {'saved':>7} {'saving%':>8}  {'ms':>5}"
+        f"{'input':>9} {'saved':>7} {'saving%':>8} {'effective':>10}  {'ms':>5}"
     )
-    lines.append(f"  {'-' * col_w} {'-' * 7} {'-' * 8} {'-' * 9} {'-' * 9} {'-' * 7} {'-' * 8}  {'-' * 5}")
+    lines.append(
+        f"  {'-' * col_w} {'-' * 7} {'-' * 8} {'-' * 9} {'-' * 9} {'-' * 7} {'-' * 8} {'-' * 10}  {'-' * 5}"
+    )
 
     for r in report.results:
         status = _pass_fail(r.passed)
@@ -49,10 +52,11 @@ def render_tool_report(report: ToolReport) -> str:
         pct_str = f"{r.savings_pct:.0f}%" if r.baseline_tokens > 0 else "—"
         baseline_str = f"{r.baseline_tokens:,}" if r.baseline_tokens > 0 else "—"
         input_str = f"{r.input_file_tokens:,}" if r.input_file_tokens > 0 else "—"
+        effective_str = f"{r.effective_tokens:,.0f}"
         label = r.case.label[:col_w]
         lines.append(
             f"  {label:<{col_w}} {status}{'  ':<6} {r.atelier_tokens:>8,} {baseline_str:>9} {input_str:>9} "
-            f"{saved_str:>7} {pct_str:>8}  {r.elapsed_ms:>5.0f}"
+            f"{saved_str:>7} {pct_str:>8} {effective_str:>10}  {r.elapsed_ms:>5.0f}"
         )
         if not r.passed:
             lines.append(f"  {_RED}    └ {r.failure}{_RESET}")
@@ -71,6 +75,7 @@ def render_summary(reports: list[ToolReport]) -> str:
     total_passed = sum(r.passed for r in reports)
     total_cases = sum(r.total for r in reports)
     total_saved = sum(r.total_saved_tokens for r in reports)
+    total_effective = sum(r.total_effective_tokens for r in reports)
 
     lines.append(f"\n{_BOLD}━━ Atelier MCP Benchmark ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{_RESET}")
     for report in reports:
@@ -81,6 +86,7 @@ def render_summary(reports: list[ToolReport]) -> str:
     lines.append(f"  cases:         {total_cases}")
     lines.append(f"  passed:        {total_passed} / {total_cases}")
     lines.append(f"  tokens saved:  {total_saved:,}")
+    lines.append(f"  effective:     {total_effective:,.0f}")
     if reports:
         avg = sum(r.avg_savings_pct for r in reports) / len(reports)
         lines.append(f"  avg savings:   {avg:.0f}%")
