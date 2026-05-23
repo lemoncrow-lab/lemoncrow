@@ -7,6 +7,7 @@ import contextlib
 import fnmatch
 import hashlib
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -200,6 +201,7 @@ _STATUS_ESSENTIAL_KEYS = [
     "cache",
     "providers",
     "freshness",
+    "autosync",
     "provenance",
 ]
 _CACHE_STATUS_ESSENTIAL_KEYS = [
@@ -398,6 +400,10 @@ class CodeContextEngine:
             local_find_callees=self._find_callees_local,
         )
         self._deleted_history_search_adapter: DeletedHistorySearchAdapter | None = None
+        self._autosync_enabled = os.getenv("ATELIER_CODE_AUTOSYNC", "").strip().lower() in {"1", "true", "yes", "on"}
+        self._autosync_debounce_ms = self._parse_autosync_debounce(os.getenv("ATELIER_CODE_AUTOSYNC_DEBOUNCE_MS"))
+        self._autosync_last_event_at: str | None = None
+        self._autosync_pending_events = 0
         self._register_symbol_intel_providers()
 
     def index_repo(
@@ -1525,6 +1531,8 @@ class CodeContextEngine:
         cache_args = {
             "budget_tokens": budget_tokens,
             "index_version": self._current_index_version(),
+            "autosync_enabled": self._autosync_enabled,
+            "autosync_debounce_ms": self._autosync_debounce_ms,
         }
         hit, cached = self._cache_get("code.status", cache_args)
         if hit and cached is not None:
@@ -1589,6 +1597,7 @@ class CodeContextEngine:
                 "index_age_seconds": index_age_seconds,
                 "stale_after_seconds": stale_after_seconds,
             },
+            "autosync": self._autosync_status(),
             "provenance": _LOCAL_PROVENANCE,
         }
         packed = self._pack_single_payload(
@@ -4032,6 +4041,23 @@ class CodeContextEngine:
                 self._bump_index_version(conn)
                 return True
         return False
+
+    def _parse_autosync_debounce(self, raw_value: str | None) -> int:
+        if raw_value is None:
+            return 500
+        with contextlib.suppress(ValueError):
+            return max(50, int(raw_value))
+        return 500
+
+    def _autosync_status(self) -> dict[str, Any]:
+        return {
+            "enabled": self._autosync_enabled,
+            "state": "idle",
+            "mode": "scaffold_only",
+            "debounce_ms": self._autosync_debounce_ms,
+            "pending_events": self._autosync_pending_events,
+            "last_event_at": self._autosync_last_event_at,
+        }
 
     def _current_head_sha(self) -> str:
         from atelier.infra.code_intel.git_history import require_pygit2

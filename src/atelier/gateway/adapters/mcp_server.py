@@ -2617,7 +2617,7 @@ CODE_TOOL_INPUT_SCHEMA: dict[str, Any] = {
                 "More reliable than search-and-replace. Requires: new_name + symbol identifier."
                 "\n• `index` — Build/rebuild the SCIP symbol index. Call if search returns 'not indexed'. "
                 "Auto-triggered on first use normally; only call manually after large merges."
-                "\n• `status` — Quick index/cache/freshness diagnostics for this repo. "
+                "\n• `status` — Quick index/cache/freshness/autosync diagnostics for this repo. "
                 "Use before heavy code-intel operations if results look stale."
             ),
             "enum": [
