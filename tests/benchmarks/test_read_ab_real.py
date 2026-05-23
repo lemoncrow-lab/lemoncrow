@@ -171,13 +171,13 @@ def test_read_ab_real(fixture: Path) -> None:
     # Honest invariants only:
     assert native_chars > 0, "native read returned no bytes"
     assert atelier_chars > 0, "atelier returned no bytes"
-    assert atelier_chars <= native_chars, (
-        f"atelier returned {atelier_chars} chars vs native {native_chars} on {fixture.name}"
-    )
+    assert (
+        atelier_chars <= native_chars
+    ), f"atelier returned {atelier_chars} chars vs native {native_chars} on {fixture.name}"
     if tokens_saved > 0:
-        assert row.chars_saved > 0, (
-            f"{fixture.name}: tool reports tokens_saved={tokens_saved} but chars_saved={row.chars_saved}"
-        )
+        assert (
+            row.chars_saved > 0
+        ), f"{fixture.name}: tool reports tokens_saved={tokens_saved} but chars_saved={row.chars_saved}"
     # Reported tokens_saved (from the tool, via tiktoken now) should agree
     # with our independent tiktoken count within 10% on either side.
     if tokens_saved > 100 and row.tokens_saved_measured > 100:
@@ -208,7 +208,7 @@ def test_generic_outline_compresses_large_files(fixture: Path, tmp_path: Path) -
         pytest.xfail(f"fixture missing: {fixture}")
 
     src = fixture.read_text(encoding="utf-8")
-    # 3× concatenation, in a tmp file so we don't pollute the test corpus.
+    # 3x concatenation, in a tmp file so we don't pollute the test corpus.
     big = tmp_path / fixture.name
     big.write_text(src + "\n\n" + src + "\n\n" + src, encoding="utf-8")
 
@@ -220,12 +220,13 @@ def test_generic_outline_compresses_large_files(fixture: Path, tmp_path: Path) -
 
     # Outline must fire once files cross the threshold. Either tree-sitter
     # (when we have a per-language config) or the generic regex fallback.
-    assert mode == "outline", (
-        f"{fixture.name} (3x = {len(big.read_text())} chars) returned mode={mode}, expected outline"
-    )
-    assert isinstance(outline, dict) and outline.get("kind") in {"treesitter", "generic"}, (
-        f"{fixture.name}: expected outline kind treesitter|generic, got {outline}"
-    )
+    assert (
+        mode == "outline"
+    ), f"{fixture.name} (3x = {len(big.read_text())} chars) returned mode={mode}, expected outline"
+    assert isinstance(outline, dict) and outline.get("kind") in {
+        "treesitter",
+        "generic",
+    }, f"{fixture.name}: expected outline kind treesitter|generic, got {outline}"
     outline_kind = str(outline.get("kind") or "unknown")
 
     native_chars = len(big.read_text())
@@ -271,13 +272,9 @@ def test_calibration_file_grows() -> None:
     """
     path = _calibration_path()
     assert path.exists(), f"no calibration file at {path}"
-    rows = [
-        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
-    ]
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     read_rows = [r for r in rows if r.get("tool") == "read"]
-    assert len(read_rows) >= len(FIXTURES), (
-        f"expected >= {len(FIXTURES)} read rows, found {len(read_rows)}"
-    )
+    assert len(read_rows) >= len(FIXTURES), f"expected >= {len(FIXTURES)} read rows, found {len(read_rows)}"
 
 
 # ---------------------------------------------------------------------------
@@ -306,9 +303,9 @@ def test_read_ab_range_mode(tmp_path: Path) -> None:
     native_text = fixture.read_text(encoding="utf-8")
     total_lines = len(native_text.splitlines())
     expected_count = min(200, total_lines) - min(100, total_lines) + 1
-    assert len(delivered_lines) == expected_count, (
-        f"range 100-200 should yield {expected_count} lines, got {len(delivered_lines)}"
-    )
+    assert (
+        len(delivered_lines) == expected_count
+    ), f"range 100-200 should yield {expected_count} lines, got {len(delivered_lines)}"
 
     native_tokens = _count_tiktoken(native_text)
     atelier_tokens = _count_tiktoken(content)
@@ -363,7 +360,7 @@ def test_read_ab_cache_hit() -> None:
 
         native_tokens = _count_tiktoken(native_text)
 
-        for i, (payload, ms, hit) in enumerate([(p1, ms1, False), (p2, ms2, True)]):
+        for _, (payload, ms, hit) in enumerate([(p1, ms1, False), (p2, ms2, True)]):
             parts = [str(payload.get("content") or "")]
             outline = payload.get("outline")
             if outline:
@@ -454,9 +451,7 @@ def test_read_ab_max_lines_legacy(tmp_path: Path) -> None:
     # It is capped at max_lines via summarize_file.
     summary = str(payload.get("summary") or "")
     summary_lines = summary.replace("\n... [truncated]", "").splitlines()
-    assert len(summary_lines) <= 50, (
-        f"max_lines=50 should cap summary at 50 lines, got {len(summary_lines)}"
-    )
+    assert len(summary_lines) <= 50, f"max_lines=50 should cap summary at 50 lines, got {len(summary_lines)}"
 
     native_tokens = _count_tiktoken(native_text)
     atelier_tokens = _count_tiktoken(summary)

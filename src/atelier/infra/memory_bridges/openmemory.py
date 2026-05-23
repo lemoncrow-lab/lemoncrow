@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 from atelier.core.foundation.memory_models import (
     ArchivalPassage,
@@ -67,13 +69,26 @@ class OpenMemoryAdapter:
         finally:
             openmemory_bridge._CLIENT = previous_client
 
-    def add_memory(self, *, text: str, user_id: str, metadata: dict[str, Any], infer: bool = False) -> Any:
+    def add_memory(
+        self,
+        *,
+        text: str,
+        user_id: str,
+        metadata: dict[str, Any],
+        infer: bool = False,
+        force_rest: bool = False,
+    ) -> Any:
         tool_payload = {
             "messages": [{"role": "system", "content": text}],
             "user_id": user_id,
             "metadata": metadata,
             "infer": infer,
         }
+        if force_rest:
+            try:
+                return self._rest_add_memory(text=text, user_id=user_id, metadata=metadata, infer=infer)
+            except Exception as exc:
+                raise _sidecar_error(exc) from exc
         try:
             payload = self.client.call_tool("add_memories", tool_payload)
             if payload not in ({}, None):
@@ -90,6 +105,7 @@ class OpenMemoryAdapter:
             raise _sidecar_error(exc) from exc
 
     def search_memories(self, *, query: str, user_id: str, limit: int) -> list[dict[str, Any]]:
+        last_error: Exception | None = None
         try:
             payload = self.client.call_tool(
                 "search_memory",
@@ -109,7 +125,13 @@ class OpenMemoryAdapter:
             return rows
         if payload in ({}, None):
             try:
-                return self._rest_list_memories(user_id=user_id, limit=limit, search_query=query)
+                rows = self._rest_list_memories(user_id=user_id, limit=limit, search_query=query)
+                broad_rows = self._rest_list_memories(user_id=user_id, limit=max(limit * 20, 200))
+                merged = rows + [row for row in broad_rows if row not in rows]
+                ranked = self._rank_rows_by_query(merged, query=query, limit=max(limit * 20, 200))
+                if ranked:
+                    return ranked
+                return rows
             except Exception as exc:
                 if last_error is not None:
                     raise _sidecar_error(last_error) from exc
@@ -117,6 +139,8 @@ class OpenMemoryAdapter:
         return rows
 
     def list_memories(self, *, user_id: str, limit: int) -> list[dict[str, Any]]:
+        last_error: Exception | None = None
+        payload: dict[str, Any] | None = None
         try:
             payload = self.client.call_tool(
                 "list_memories",
@@ -161,6 +185,8 @@ class OpenMemoryAdapter:
         params: dict[str, str] = {
             "user_id": user_id,
             "size": str(page_size),
+            "sort_column": "created_at",
+            "sort_direction": "desc",
         }
         if search_query:
             params["search_query"] = search_query
@@ -197,6 +223,47 @@ class OpenMemoryAdapter:
             raise RuntimeError(str(data["error"]))
         return data
 
+    def _rank_rows_by_query(self, rows: list[dict[str, Any]], *, query: str, limit: int) -> list[dict[str, Any]]:
+        query_tokens = self._normalize_tokens(query)
+        if not query_tokens:
+            return rows[:limit]
+        ranked: list[tuple[float, dict[str, Any]]] = []
+        for row in rows:
+            text = str(row.get("content", row.get("text", row.get("memory", ""))))
+            metadata = row.get("metadata_") if isinstance(row.get("metadata_"), dict) else {}
+            haystack = f"{text} {json.dumps(metadata, ensure_ascii=False)}"
+            haystack_tokens = self._normalize_tokens(haystack)
+            if not haystack_tokens:
+                continue
+            overlap = len(query_tokens.intersection(haystack_tokens))
+            if overlap == 0:
+                continue
+            score = overlap / max(len(query_tokens), 1)
+            qnorm = " ".join(sorted(query_tokens))
+            hnorm = " ".join(sorted(haystack_tokens))
+            if qnorm and qnorm in hnorm:
+                score += 0.5
+            ranked.append((score, row))
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        return [row for _, row in ranked[:limit]]
+
+    @staticmethod
+    def _normalize_tokens(value: str) -> set[str]:
+        raw = [tok for tok in re.split(r"[^a-z0-9]+", value.lower()) if tok]
+        synonyms = {
+            "db": "database",
+            "prod": "production",
+            "case": "scenario",
+            "cases": "scenario",
+            "better": "improves",
+        }
+        normalized: set[str] = set()
+        for token in raw:
+            if len(token) <= 1 and not token.isdigit():
+                continue
+            normalized.add(synonyms.get(token, token))
+        return normalized
+
 
 class OpenMemoryMemoryStore:
     """MemoryStore implementation backed by OpenMemory as the primary."""
@@ -210,7 +277,9 @@ class OpenMemoryMemoryStore:
     ) -> None:
         self._recall_store = SqliteMemoryStore(root)
         self._adapter = adapter or OpenMemoryAdapter(client=client)
-        self._user_id = getattr(self._adapter.client, "user_id", None) or os.environ.get("ATELIER_OPENMEMORY_USER_ID", "")
+        self._user_id = getattr(self._adapter.client, "user_id", None) or os.environ.get(
+            "ATELIER_OPENMEMORY_USER_ID", ""
+        )
         self._user_id = self._user_id.strip() or os.environ.get("USER", "").strip() or "atelier"
 
     @property
@@ -234,7 +303,7 @@ class OpenMemoryMemoryStore:
                     "version": existing.version + 1 if existing.value != block.value else existing.version,
                 }
             )
-        metadata = {
+        metadata: dict[str, Any] = {
             "atelier_kind": _BLOCK_KIND,
             "atelier_agent_id": stored.agent_id,
             "atelier_block_id": stored.id,
@@ -252,7 +321,11 @@ class OpenMemoryMemoryStore:
 
     def get_block(self, agent_id: str | None, label: str, *, include_tombstoned: bool = False) -> MemoryBlock | None:
         target_agent = agent_id or "default"
-        blocks = [block for block in self.list_blocks(target_agent, include_tombstoned=True, limit=500) if block.label == label]
+        blocks = [
+            block
+            for block in self.list_blocks(target_agent, include_tombstoned=True, limit=500)
+            if block.label == label
+        ]
         if not blocks:
             return None
         block = blocks[0]
@@ -332,11 +405,13 @@ class OpenMemoryMemoryStore:
             "atelier_dedup_hash": passage.dedup_hash,
             "atelier_source": passage.source,
             "atelier_source_ref": passage.source_ref,
+            "atelier_tags": list(passage.tags),
         }
         self._adapter.add_memory(
-            text=self._serialize({"atelier_kind": _PASSAGE_KIND, "passage": passage.model_dump(mode="json")}),
+            text=passage.text,
             user_id=self._user_id,
             metadata=metadata,
+            force_rest=bool(getattr(self._adapter.client, "base_url", "") or os.environ.get("ATELIER_OPENMEMORY_URL")),
         )
         return passage.model_copy(update={"dedup_hit": False})
 
@@ -351,7 +426,7 @@ class OpenMemoryMemoryStore:
     ) -> list[ArchivalPassage]:
         target_agent = agent_id or "default"
         rows = self._adapter.search_memories(query=query, user_id=self._user_id, limit=max(top_k * 4, 20))
-        passages = self._filter_passages(rows, agent_id=target_agent, tags=tags, since=since)
+        passages = self._filter_passages(rows, agent_id=target_agent, tags=tags, since=since, preserve_order=True)
         if len(passages) < top_k:
             rows = self._adapter.list_memories(user_id=self._user_id, limit=max(top_k * 8, 200))
             passages = self._filter_passages(rows, agent_id=target_agent, tags=tags, since=since, query=query)
@@ -389,6 +464,7 @@ class OpenMemoryMemoryStore:
         tags: list[str] | None,
         since: datetime | None,
         query: str | None = None,
+        preserve_order: bool = False,
     ) -> list[ArchivalPassage]:
         passages: list[ArchivalPassage] = []
         seen: set[str] = set()
@@ -405,11 +481,14 @@ class OpenMemoryMemoryStore:
                 continue
             if query_lower and query_lower not in passage.text.lower():
                 metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+                if not metadata and isinstance(row.get("metadata_"), dict):
+                    metadata = row.get("metadata_")
                 if query_lower not in json.dumps(metadata, ensure_ascii=False).lower():
                     continue
             seen.add(passage.id)
             passages.append(passage)
-        passages.sort(key=lambda item: item.created_at, reverse=True)
+        if not preserve_order:
+            passages.sort(key=lambda item: item.created_at, reverse=True)
         return passages
 
     @staticmethod
@@ -432,11 +511,26 @@ class OpenMemoryMemoryStore:
     @staticmethod
     def _row_to_block(row: dict[str, Any], *, agent_id: str) -> MemoryBlock | None:
         payload = OpenMemoryMemoryStore._parse_payload(row)
-        if not payload or payload.get("atelier_kind") != _BLOCK_KIND:
-            return None
-        raw = payload.get("block")
-        if not isinstance(raw, dict):
-            return None
+        if payload and payload.get("atelier_kind") == _BLOCK_KIND:
+            raw = payload.get("block")
+            if not isinstance(raw, dict):
+                return None
+        else:
+            raw_metadata = row.get("metadata")
+            metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+            if not metadata:
+                raw_metadata_ = row.get("metadata_")
+                if isinstance(raw_metadata_, dict):
+                    metadata = dict(raw_metadata_)
+            if not isinstance(metadata, dict) or metadata.get("atelier_kind") != _BLOCK_KIND:
+                return None
+            raw = {
+                "id": metadata.get("atelier_block_id") or row.get("id"),
+                "agent_id": metadata.get("atelier_agent_id") or agent_id,
+                "label": metadata.get("atelier_label") or "",
+                "value": str(row.get("content", row.get("text", row.get("memory", "")))),
+                "metadata": metadata,
+            }
         metadata = dict(raw.get("metadata") or {})
         tags = list(metadata.get("tags") or [])
         if raw.get("pinned") and _PINNED_TAG not in tags:
@@ -453,12 +547,45 @@ class OpenMemoryMemoryStore:
     @staticmethod
     def _row_to_passage(row: dict[str, Any], *, agent_id: str) -> ArchivalPassage | None:
         payload = OpenMemoryMemoryStore._parse_payload(row)
-        if not payload or payload.get("atelier_kind") != _PASSAGE_KIND:
+        if payload and payload.get("atelier_kind") == _PASSAGE_KIND:
+            raw = payload.get("passage")
+            if not isinstance(raw, dict):
+                return None
+            return ArchivalPassage.model_validate({**raw, "agent_id": raw.get("agent_id") or agent_id})
+
+        raw_metadata = row.get("metadata")
+        metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+        if not metadata:
+            raw_metadata_ = row.get("metadata_")
+            if isinstance(raw_metadata_, dict):
+                metadata = dict(raw_metadata_)
+
+        if not isinstance(metadata, dict) or metadata.get("atelier_kind") != _PASSAGE_KIND:
             return None
-        raw = payload.get("passage")
-        if not isinstance(raw, dict):
-            return None
-        return ArchivalPassage.model_validate({**raw, "agent_id": raw.get("agent_id") or agent_id})
+
+        raw_created_at = row.get("created_at")
+        created_at: datetime
+        if isinstance(raw_created_at, (int, float)):
+            created_at = datetime.fromtimestamp(float(raw_created_at), tz=UTC)
+        elif isinstance(raw_created_at, str) and raw_created_at:
+            created_at = datetime.fromisoformat(raw_created_at)
+        else:
+            created_at = datetime.now(UTC)
+        tags: list[str] = []
+        if isinstance(row.get("categories"), list):
+            tags = [str(tag) for tag in row.get("categories") or []]
+        if not tags and isinstance(metadata.get("atelier_tags"), list):
+            tags = [str(tag) for tag in metadata.get("atelier_tags") or []]
+        return ArchivalPassage(
+            id=str(metadata.get("atelier_passage_id") or row.get("id") or ""),
+            agent_id=str(metadata.get("atelier_agent_id") or agent_id),
+            text=str(row.get("content", row.get("text", row.get("memory", "")))),
+            source=str(metadata.get("atelier_source", "user")),  # type: ignore[arg-type]
+            source_ref=str(metadata.get("atelier_source_ref", "")),
+            dedup_hash=str(metadata.get("atelier_dedup_hash") or row.get("id") or ""),
+            tags=tags,
+            created_at=created_at,
+        )
 
 
 __all__ = ["OpenMemoryAdapter", "OpenMemoryMemoryStore"]

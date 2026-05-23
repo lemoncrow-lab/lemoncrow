@@ -76,6 +76,33 @@ def _parse_ts(ts: str) -> datetime:
         return _utcnow()
 
 
+def _normalize_session_id(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"none", "null"}:
+        return None
+    return text
+
+
+def _extract_session_id_from_jsonl(raw_content: str) -> str | None:
+    for line in raw_content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        for key in ("sessionId", "session_id", "sessionUUID", "session_uuid"):
+            if key in event:
+                candidate = _normalize_session_id(event.get(key))
+                if candidate:
+                    return candidate
+    return None
+
+
 def find_claude_sessions(root: Path | None = None) -> Iterator[tuple[str, Path]]:
     """Yield (workspace_slug, jsonl_path) for all Claude sessions."""
     if root is not None:
@@ -213,19 +240,28 @@ class ClaudeImporter:
 
     def import_session(self, workspace_slug: str, jsonl_path: Path, *, force: bool = False) -> str | None:
         """Import a Claude session and its subagents. Returns the session ID on success."""
-        session_id = jsonl_path.stem
+        filename_session_id = jsonl_path.stem
+        actual_session_id = filename_session_id
         project_dir = jsonl_path.parent
 
-        artifact_id = f"claude-{workspace_slug}-{session_id}"
+        artifact_id = f"claude-{workspace_slug}-{filename_session_id}"
         file_mtime = datetime.fromtimestamp(jsonl_path.stat().st_mtime, tz=UTC)
         if not force:
             existing = self.store.get_raw_artifact(artifact_id)
             if existing and existing.source_file_mtime and file_mtime <= existing.source_file_mtime:
                 return None
 
+        try:
+            root_raw_content = jsonl_path.read_text(encoding="utf-8")
+        except OSError:
+            root_raw_content = ""
+        inferred_session_id = _extract_session_id_from_jsonl(root_raw_content)
+        if inferred_session_id:
+            actual_session_id = inferred_session_id
+
         # Find ALL jsonl files related to this session (including subagents)
         all_files = [jsonl_path]
-        subagent_dir = project_dir / session_id / "subagents"
+        subagent_dir = project_dir / filename_session_id / "subagents"
         if subagent_dir.is_dir():
             all_files.extend(sorted(subagent_dir.glob("*.jsonl")))
 
@@ -264,7 +300,7 @@ class ClaudeImporter:
             art = RawArtifact(
                 id=f"claude-{workspace_slug}-{f_path.stem}",
                 source="claude",
-                source_session_id=session_id,
+                source_session_id=actual_session_id,
                 kind="session.jsonl",
                 relative_path=str(rel_path),
                 content_path=f"raw/claude/{workspace_slug}/{rel_path}",
@@ -380,35 +416,37 @@ class ClaudeImporter:
 
                     usage = msg.get("usage", {}) or {}
                     m = msg.get("model") or ev.get("model")
+                    is_synthetic_model = bool(m and is_placeholder_model(m))
                     # Claude Code emits "<synthetic>" for cached/injected replies that
                     # don't trigger a billable Anthropic request. Don't let that
                     # placeholder overwrite the last real model id we saw.
                     if m and not is_placeholder_model(m):
                         model_seen = str(m)
                     resolved_model = str(m) if (m and not is_placeholder_model(m)) else model_seen
-                    usage_entry = make_llm_usage_entry(
-                        model=resolved_model,
-                        input_tokens=int(usage.get("input_tokens", 0) or 0),
-                        output_tokens=int(usage.get("output_tokens", 0) or 0),
-                        cached_input_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
-                        cache_creation_input_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
-                        thinking_tokens=int(usage.get("thinking_tokens", 0) or 0),
-                        source_type="claude.assistant",
-                        source_id=msg_id,
-                        created_at=_parse_ts(ev.get("timestamp")) if ev.get("timestamp") else None,
-                    )
-                    if usage_entry is not None:
-                        if msg_id:
-                            assistant_usage_entries[msg_id] = usage_entry
-                        else:
-                            orphan_usage_entries.append(usage_entry)
+                    if not is_synthetic_model:
+                        usage_entry = make_llm_usage_entry(
+                            model=resolved_model,
+                            input_tokens=int(usage.get("input_tokens", 0) or 0),
+                            output_tokens=int(usage.get("output_tokens", 0) or 0),
+                            cached_input_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
+                            cache_creation_input_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
+                            thinking_tokens=int(usage.get("thinking_tokens", 0) or 0),
+                            source_type="claude.assistant",
+                            source_id=msg_id,
+                            created_at=_parse_ts(ev.get("timestamp")) if ev.get("timestamp") else None,
+                        )
+                        if usage_entry is not None:
+                            if msg_id:
+                                assistant_usage_entries[msg_id] = usage_entry
+                            else:
+                                orphan_usage_entries.append(usage_entry)
                     content = msg.get("content") or []
                     calls = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
                     if calls:
-                        in_t = int(usage.get("input_tokens", 0) or 0)
-                        out_t = int(usage.get("output_tokens", 0) or 0)
-                        cr = int(usage.get("cache_read_input_tokens", 0) or 0)
-                        cw = int(usage.get("cache_creation_input_tokens", 0) or 0)
+                        in_t = 0 if is_synthetic_model else int(usage.get("input_tokens", 0) or 0)
+                        out_t = 0 if is_synthetic_model else int(usage.get("output_tokens", 0) or 0)
+                        cr = 0 if is_synthetic_model else int(usage.get("cache_read_input_tokens", 0) or 0)
+                        cw = 0 if is_synthetic_model else int(usage.get("cache_creation_input_tokens", 0) or 0)
                         eff_in = in_t + cr + cw
                         dist_in = eff_in // len(calls)
                         dist_out = out_t // len(calls)
@@ -474,7 +512,7 @@ class ClaudeImporter:
 
         trace = Trace(
             id=artifact_id,
-            session_id=session_id,
+            session_id=actual_session_id,
             agent="atelier:code",
             host="claude",
             domain="coding",
@@ -517,6 +555,6 @@ class ClaudeImporter:
         # Best-effort: snapshot current on-disk state of every edited file
         ft = [r for r in files_touched if isinstance(r, FileEditRecord)]
         if ft:
-            snapshot_edited_files(self.store, ft, session_id=session_id, source="claude")
+            snapshot_edited_files(self.store, ft, session_id=actual_session_id, source="claude")
 
         return trace.id

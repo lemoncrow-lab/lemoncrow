@@ -32,7 +32,11 @@ def resolve_ctypes(repo_root: Path) -> list[CrossLangCandidate]:
                                 ctypes_handles[target.id] = node.lineno
                             elif _is_cffi_factory(value):
                                 cffi_handles.add(target.id)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+            ):
                 handle_name = node.func.value.id
                 if handle_name in ctypes_handles and node.func.attr not in {"CDLL", "LoadLibrary", "WinDLL"}:
                     candidates.append(
@@ -79,9 +83,12 @@ def _is_ctypes_loader(node: ast.Call) -> bool:
 
 def _is_cffi_factory(node: ast.Call) -> bool:
     func = node.func
-    return (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id == "cffi" and func.attr == "FFI") or (
-        isinstance(func, ast.Name) and func.id == "FFI"
-    )
+    return (
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "cffi"
+        and func.attr == "FFI"
+    ) or (isinstance(func, ast.Name) and func.id == "FFI")
 
 
 def _literal_str(node: ast.AST) -> str | None:

@@ -2,7 +2,19 @@
 
 ## Status
 
-Proposed (2026-05-18)
+Accepted (2026-05-23)
+
+## Evidence
+
+Milestones M1–M13 delivered. Phase 6 UAT passed (2026-05-23, commit cc b40764) with:
+
+- SCIP indexer auto-fetch and `.scip` build confirmed.
+- `code op="symbol"` roundtrip ≤ 2 ms on atelier repo (see `benchmarks/code_intel/bench_cost_discipline.py` baseline).
+- Multi-repo workspace routing verified: `code op="search" repo=<name>` filters correctly.
+- Bootstrap dependency-scope isolation confirmed: external packages (`scope="external"`) excluded from scope=repo queries.
+- Plan verifier passes; `make docs-check && make check-agent-context` exit 0.
+
+Open milestones (M14–M18) tracked in [`docs/plans/active/code-intel/index.md`](../plans/active/code-intel/index.md).
 
 ## Context
 

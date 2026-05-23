@@ -81,7 +81,7 @@ def _write_fixture_repo(root: Path) -> None:
     (root / "src" / "auth.py").write_text(
         "class AuthService:\n"
         "    def verify_session(self, token: str) -> bool:\n"
-        "        \"\"\"Validate session tokens before protected operations.\"\"\"\n"
+        '        """Validate session tokens before protected operations."""\n'
         "        return token.startswith('session:')\n",
         encoding="utf-8",
     )

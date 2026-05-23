@@ -24,6 +24,7 @@ from .fuzzy_match import (
     _find_exact_normalized_candidates,
     apply_fuzzy_replace,
 )
+from .path_safety import PROTECTED_PARTS
 
 # --------------------------------------------------------------------------- #
 # Public models (plain dicts to avoid Pydantic version coupling in callers)  #
@@ -51,6 +52,8 @@ def _resolve_path(path: str, repo_root: Path) -> Path:
         p.relative_to(repo_root.resolve())
     except ValueError as exc:
         raise ValueError(f"Path escape denied: {path!r} is outside the repo root") from exc
+    if any(part in PROTECTED_PARTS for part in p.parts):
+        raise ValueError(f"Protected path denied: {path!r}")
     return p
 
 

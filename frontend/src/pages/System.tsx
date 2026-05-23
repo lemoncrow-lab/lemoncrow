@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type HostAdapter, type MCPStatus, type Skill } from "../api";
+import { api, type Agent, type HostAdapter, type MCPStatus, type Skill } from "../api";
 import { getTelemetryConfig, type TelemetryConfig } from "../lib/insightsApi";
 import {
   Alert,
@@ -20,7 +20,7 @@ function HostIcon({ id }: { id: string }) {
     codex: "/logos/hosts/codex.svg",
     opencode: "/logos/hosts/opencode.png",
     copilot: "/logos/hosts/copilot.svg",
-    gemini: "/logos/hosts/gemini.svg",
+    antigravity: "/logos/hosts/gemini.svg",
   };
 
   const ALT_MAP: Record<string, string> = {
@@ -28,7 +28,7 @@ function HostIcon({ id }: { id: string }) {
     codex: "OpenAI Codex",
     opencode: "OpenCode",
     copilot: "GitHub Copilot",
-    gemini: "Google Gemini",
+    antigravity: "Antigravity",
   };
 
   const src = SRC_MAP[id];
@@ -46,33 +46,13 @@ function HostIcon({ id }: { id: string }) {
   );
 }
 
-const HOSTS = [
-  {
-    id: "claude",
-    label: "Claude Code",
-    desc: "Full plugin: agents + skills + MCP + hooks",
-  },
-  {
-    id: "codex",
-    label: "Codex",
-    desc: "MCP config + Codex savings/update hooks",
-  },
-  {
-    id: "opencode",
-    label: "OpenCode",
-    desc: "OpenCode config + shared telemetry",
-  },
-  {
-    id: "copilot",
-    label: "Copilot",
-    desc: "MCP config + custom instructions + shared telemetry",
-  },
-  {
-    id: "gemini",
-    label: "Gemini CLI",
-    desc: ".gemini/settings.json MCP + shared telemetry",
-  },
-];
+const HOST_DESC: Record<string, string> = {
+  claude: "Full plugin: agents + skills + MCP + hooks",
+  codex: "MCP config + Codex savings/update hooks",
+  opencode: "OpenCode config + shared telemetry",
+  copilot: "MCP config + custom instructions + shared telemetry",
+  antigravity: ".antigravity/settings.json MCP + shared telemetry",
+};
 
 function HostsSection() {
   const [hosts, setHosts] = useState<HostAdapter[]>([]);
@@ -84,40 +64,43 @@ function HostsSection() {
       .catch(() => setHosts([]));
   }, []);
 
+  const activeHosts = hosts.filter((host) => host.status === "active");
+
   return (
     <section className="space-y-3">
       <h2 className="text-xs uppercase tracking-widest text-neutral-500 font-mono">
         Hosts
       </h2>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {HOSTS.map((hostMeta) => {
-          const status = hosts.find((host) => host.host_id === hostMeta.id);
-          return (
-            <Card key={hostMeta.id} className="bg-neutral-950/80 p-4">
+      {activeHosts.length === 0 ? (
+        <EmptyState
+          title="No active hosts detected"
+          description="Host cards appear after telemetry traces are recorded for a host."
+          className="p-4"
+        />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {activeHosts.map((host) => (
+            <Card key={host.host_id} className="bg-neutral-950/80 p-4">
               <div className="flex items-start gap-3">
                 <span className="shrink-0">
-                  <HostIcon id={hostMeta.id} />
+                  <HostIcon id={host.host_id} />
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="text-base font-semibold text-neutral-100">
-                      {hostMeta.label}
+                      {host.label}
                     </div>
-                    <Chip
-                      tone={status?.status === "active" ? "emerald" : "neutral"}
-                    >
-                      {status?.status ?? "not detected"}
-                    </Chip>
+                    <Chip tone="emerald">active</Chip>
                   </div>
                   <p className="mt-1 text-sm text-neutral-400">
-                    {hostMeta.desc}
+                    {host.description ?? HOST_DESC[host.host_id] ?? ""}
                   </p>
                 </div>
               </div>
             </Card>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -125,90 +108,47 @@ function HostsSection() {
 // ---------------------------------------------------------------------------
 // Agents section
 // ---------------------------------------------------------------------------
+// Agents section
+// ---------------------------------------------------------------------------
 
-interface AgentDef {
-  id: string;
-  label: string;
-  icon: string;
-  color: string;
-  description: string;
-  tools: string[];
-  mode: string;
-  file: string;
-  rules: string[];
-}
+const AGENT_ICON: Record<string, string> = {
+  code: "💜",
+  explore: "🔍",
+  review: "✅",
+  repair: "🔧",
+  research: "🔬",
+};
 
-const AGENTS: AgentDef[] = [
-  {
-    id: "code",
-    label: "atelier:code",
-    icon: "💜",
-    color: "purple",
-    description:
-      "Main coding agent. Edits, refactors, fixes bugs, and ships features. MUST use the Atelier reasoning loop on every task.",
-    tools: ["* (all tools)"],
-    mode: "Context → Implement → Trace",
-    file: "integrations/claude/plugin/agents/code.md",
-    rules: [
-      "Gather Context before starting (retrieve procedures and facts)",
-      "Implement task following knowledge; call rescue on repeated failures",
-      "Record Trace at completion with observable summary only",
-    ],
-  },
-  {
-    id: "explore",
-    label: "atelier:explore",
-    icon: "🔍",
-    color: "cyan",
-    description:
-      "Read-only repo exploration. Retrieves ReasonBlocks, reads files, runs grep/search. Never edits, never runs migrations, never executes destructive commands.",
-    tools: ["Read", "Grep", "Glob", "WebFetch", "context"],
-    mode: "Context → Read-only investigation",
-    file: "integrations/claude/plugin/agents/explore.md",
-    rules: [
-      "Call context to fetch matched ReasonBlocks and rules",
-      "Read files, run grep/glob searches — never edit",
-      "Return tight summary with ReasonBlock IDs and file/line citations",
-    ],
-  },
-  {
-    id: "review",
-    label: "atelier:review",
-    icon: "✅",
-    color: "green",
-    description:
-      "Verifier agent. Reviews finished or in-progress patches against Atelier ReasonBlocks and rubrics. Blocks known dead ends. Uses context and verify but never edits code.",
-    tools: ["Read", "Grep", "Glob", "context", "verify"],
-    mode: "Verify patch → context → rubric_gate → verdict",
-    file: "integrations/claude/plugin/agents/review.md",
-    rules: [
-      "Call context with task and changed files",
-      "Identify ReasonBlocks whose dead_ends overlap with the patch",
-      "For high-risk domains, call verify and require status != blocked",
-      "Produce verdict: pass | warn | blocked (never approve blocked)",
-    ],
-  },
-  {
-    id: "repair",
-    label: "atelier:repair",
-    icon: "🔧",
-    color: "red",
-    description:
-      "Repair specialist. Activated when a test/command/tool keeps failing the same way. Loads context, asks for rescue, applies smallest patch, and records postmortem trace.",
-    tools: ["* (all tools)"],
-    mode: "Context → Rescue → Patch → Verify → Postmortem",
-    file: "integrations/claude/plugin/agents/repair.md",
-    rules: [
-      "Retrieve Context to understand current constraints",
-      "Ask for rescue with task, error, files, recent_actions",
-      "Apply smallest patch, verify deterministically, stop after 2 failed attempts",
-      "Record postmortem Trace on completion",
-    ],
-  },
-];
+const AGENT_BG: Record<string, string> = {
+  purple: "bg-purple-700",
+  cyan: "bg-cyan-700",
+  green: "bg-green-700",
+  red: "bg-red-700",
+  blue: "bg-blue-700",
+  yellow: "bg-yellow-700",
+};
 
 function AgentsSection() {
+  const [agents, setAgents] = useState<Agent[] | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .agents()
+      .then(setAgents)
+      .catch((e) => console.error("Failed to load agents:", e));
+  }, []);
+
+  if (agents === null) {
+    return (
+      <section className="space-y-3">
+        <h2 className="text-xs uppercase tracking-widest text-neutral-500 font-mono">
+          Agents
+        </h2>
+        <p className="text-xs text-neutral-500">Loading…</p>
+      </section>
+    );
+  }
 
   return (
     <section className="space-y-3">
@@ -216,7 +156,7 @@ function AgentsSection() {
         Agents
       </h2>
       <div className="grid gap-2 sm:grid-cols-2">
-        {AGENTS.map((agent) => (
+        {agents.map((agent) => (
           <AgentCard
             key={agent.id}
             agent={agent}
@@ -231,23 +171,17 @@ function AgentsSection() {
   );
 }
 
-const AGENT_BG: Record<string, string> = {
-  purple: "bg-purple-700",
-  cyan: "bg-cyan-700",
-  green: "bg-green-700",
-  red: "bg-red-700",
-};
-
 function AgentCard({
   agent,
   expanded,
   onToggle,
 }: {
-  agent: AgentDef;
+  agent: Agent;
   expanded: boolean;
   onToggle: () => void;
 }) {
   const bg = AGENT_BG[agent.color] ?? "bg-neutral-800/40";
+  const icon = AGENT_ICON[agent.id] ?? "🤖";
   return (
     <DisclosureCard
       open={expanded}
@@ -255,7 +189,7 @@ function AgentCard({
       contentClassName="space-y-4"
       header={
         <div className="flex min-w-0 items-start gap-4">
-          <div className="mt-0.5 shrink-0 text-2xl">{agent.icon}</div>
+          <div className="mt-0.5 shrink-0 text-2xl">{icon}</div>
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex flex-wrap items-center gap-3">
               <span
@@ -269,9 +203,14 @@ function AgentCard({
                   ❯
                 </span>
                 <span className="font-bold text-neutral-200 text-sm">
-                  {agent.label}
+                  {agent.name}
                 </span>
               </span>
+              {agent.model && (
+                <Chip tone="neutral" className="normal-case tracking-normal text-[10px]">
+                  {agent.model}
+                </Chip>
+              )}
             </div>
             <p className="text-xs text-neutral-400">{agent.description}</p>
           </div>
@@ -294,25 +233,15 @@ function AgentCard({
         </div>
       </div>
 
-      {/* Rules */}
-      <div>
-        <FieldLabel className="mb-2">❯ rules</FieldLabel>
-        <ul className="space-y-1">
-          {agent.rules.map((r, i) => (
-            <li key={i} className="text-xs text-neutral-300 leading-relaxed">
-              {r}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Mode */}
-      <div>
-        <FieldLabel className="mb-2">❯ mode</FieldLabel>
-        <code className="text-[10px] bg-neutral-950 px-2 py-1 text-neutral-300 font-mono border border-neutral-700 block">
-          {agent.mode}
-        </code>
-      </div>
+      {/* Content (markdown body) */}
+      {agent.content && (
+        <div>
+          <FieldLabel className="mb-2">❯ instructions</FieldLabel>
+          <pre className="text-[10px] bg-neutral-950 px-2 py-2 text-neutral-400 font-mono border border-neutral-700 block overflow-auto max-h-48 whitespace-pre-wrap">
+            {agent.content}
+          </pre>
+        </div>
+      )}
 
       {/* Source */}
       <div className="pt-2 border-t border-neutral-800">

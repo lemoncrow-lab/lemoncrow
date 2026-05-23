@@ -7,11 +7,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-try:
-    import tomllib
-except ImportError:  # pragma: no cover
-    tomllib = None  # type: ignore[assignment]
-
+from atelier.core.environment import resolve_memory_backend
 from atelier.core.foundation.paths import default_store_root
 from atelier.infra.storage.memory_store import MemoryStore
 
@@ -58,20 +54,7 @@ def make_memory_store(root: str | Path | None, *, prefer: str | None = None) -> 
 
 
 def _memory_backend(root: Path, *, prefer: str | None) -> str:
-    env_backend = os.environ.get("ATELIER_MEMORY_BACKEND", "").strip().lower()
-    if env_backend:
-        return env_backend
-    config_path = root / "config.toml"
-    if config_path.exists() and tomllib is not None:
-        try:
-            data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-            memory = data.get("memory", {}) if isinstance(data, dict) else {}
-            backend = str(memory.get("backend", "")).strip().lower()
-            if backend:
-                return backend
-        except Exception as exc:
-            logger.warning("failed to read memory backend config from %s: %s", config_path, exc)
-    return (prefer or "sqlite").strip().lower()
+    return resolve_memory_backend(root=root, prefer=prefer)
 
 
 __all__ = ["create_store", "make_memory_store"]

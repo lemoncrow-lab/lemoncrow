@@ -6,8 +6,11 @@ import importlib
 import logging
 import os
 
+from atelier.core.environment import resolve_memory_backend
+from atelier.core.foundation.paths import default_store_root
 from atelier.infra.embeddings.base import Embedder
 from atelier.infra.embeddings.letta_embedder import LettaEmbedder
+from atelier.infra.embeddings.local import LocalEmbedder
 from atelier.infra.embeddings.null_embedder import NullEmbedder
 from atelier.infra.embeddings.openai_embedder import OpenAIEmbedder
 
@@ -32,6 +35,8 @@ def make_embedder(*, pin: str | None = None) -> Embedder:
     if chosen:
         if chosen not in _PIN_CHOICES:
             raise ValueError(f"Unknown embedder pin {chosen!r}; must be one of {sorted(_PIN_CHOICES)}")
+        if chosen == "local":
+            return LocalEmbedder()
         if chosen == "null":
             return NullEmbedder()
         if chosen == "openai":
@@ -39,22 +44,27 @@ def make_embedder(*, pin: str | None = None) -> Embedder:
         if chosen == "letta":
             return LettaEmbedder()
 
-    # Auto-detect
-    try:
-        from atelier.infra.memory_bridges.letta_adapter import LettaAdapter
+    backend = resolve_memory_backend(root=default_store_root())
+    if backend == "sqlite":
+        return LocalEmbedder()
+    if backend == "letta":
+        try:
+            from atelier.infra.memory_bridges.letta_adapter import LettaAdapter
 
-        if LettaAdapter.is_available():
-            return LettaEmbedder()
-    except Exception:
-        logger.warning(
-            "Suppressed exception at factory.py:49",
-            exc_info=True,
-        )
+            if LettaAdapter.is_available():
+                return LettaEmbedder()
+        except Exception:
+            logger.warning(
+                "Suppressed exception at factory.py:57",
+                exc_info=True,
+            )
+        return LocalEmbedder()
+    if backend == "openmemory":
+        if os.environ.get("OPENAI_API_KEY"):
+            return OpenAIEmbedder()
+        return LocalEmbedder()
 
-    if os.environ.get("OPENAI_API_KEY"):
-        return OpenAIEmbedder()
-
-    return NullEmbedder()
+    return LocalEmbedder()
 
 
 def _importable(module: str) -> bool:
@@ -67,6 +77,7 @@ def _importable(module: str) -> bool:
 
 __all__ = [
     "LettaEmbedder",
+    "LocalEmbedder",
     "NullEmbedder",
     "OpenAIEmbedder",
     "make_embedder",

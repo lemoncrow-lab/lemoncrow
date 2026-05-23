@@ -46,3 +46,9 @@ agent runs.
   — not in chat where they will be lost.
 - Every learning must have a source attribution to a trace ID or artifact path.
 - Do not fabricate learnings; extract only what is explicitly evidenced.
+
+## Code intelligence
+
+- *"If the caller already knows the symbol name, do not run a text search."*
+- *"Default to outline-first responses. Expand only on intent."*
+- *"Never edit at line numbers when the target is a named symbol."*

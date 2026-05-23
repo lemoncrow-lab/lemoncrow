@@ -116,6 +116,8 @@ class TestLoadPackagedRubrics:
                 "substantive_not_stub": True,
                 "wired_to_callsites": True,
                 "data_flow_verified_or_not_applicable": True,
+                "error_path_handled": True,
+                "cross_module_consistency_checked": True,
             },
         )
         assert res.status == "pass"

@@ -75,12 +75,14 @@ CONTROLLER_UNIT = "atelier-controller.service"
 STACK_UNIT = "atelier-stack.service"
 LETTA_UNIT = "atelier-letta.service"
 OPENMEMORY_UNIT = "atelier-openmemory.service"
+ZOEKT_UNIT = "atelier-zoekt.service"
 SYSTEMD_USER_DIR = Path.home() / ".config" / "systemd" / "user"
 LAUNCHD_USER_DIR = Path.home() / "Library" / "LaunchAgents"
 CONTROLLER_LABEL = "com.atelier.controller"
 STACK_LABEL = "com.atelier.stack"
 LETTA_LABEL = "com.atelier.letta"
 OPENMEMORY_LABEL = "com.atelier.openmemory"
+ZOEKT_LABEL = "com.atelier.zoekt"
 DEFAULT_STACK_SERVICE_HOST = "0.0.0.0"
 DEFAULT_STACK_SERVICE_PORT = 8787
 DEFAULT_STACK_FRONTEND_HOST = "0.0.0.0"
@@ -432,9 +434,7 @@ def _write_openmemory_env_files(root: Path) -> None:
     api_env = _openmemory_api_env_path(root)
     ui_env = _openmemory_ui_env_path(root)
     user_id = (
-        os.environ.get("ATELIER_OPENMEMORY_USER_ID", "").strip()
-        or os.environ.get("USER", "").strip()
-        or "atelier"
+        os.environ.get("ATELIER_OPENMEMORY_USER_ID", "").strip() or os.environ.get("USER", "").strip() or "atelier"
     )
     api_url = os.environ.get("ATELIER_OPENMEMORY_URL", "http://127.0.0.1:8765").strip() or "http://127.0.0.1:8765"
     openai_api_key = os.environ.get("ATELIER_OPENMEMORY_OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", "")).strip()
@@ -456,9 +456,7 @@ def _run_openmemory_make(root: Path, *args: str) -> None:
     workdir = _openmemory_workdir(root)
     env = {**os.environ}
     user_id = (
-        os.environ.get("ATELIER_OPENMEMORY_USER_ID", "").strip()
-        or os.environ.get("USER", "").strip()
-        or "atelier"
+        os.environ.get("ATELIER_OPENMEMORY_USER_ID", "").strip() or os.environ.get("USER", "").strip() or "atelier"
     )
     env["USER"] = user_id
     env["NEXT_PUBLIC_API_URL"] = os.environ.get("ATELIER_OPENMEMORY_URL", "http://127.0.0.1:8765")
@@ -3229,6 +3227,7 @@ def route_status_cmd(ctx: click.Context, as_json: bool) -> None:
     click.echo(f"Lesson-driven recommendations: {payload['lesson_application_count']}")
     click.echo(f"Cost-cap triggers: {payload['cost_cap_trigger_count']}")
 
+
 @route_group.command("decide")
 @click.option("--goal", "user_goal", required=True, help="User goal/task summary.")
 @click.option("--repo-root", default=".", show_default=True)
@@ -3850,12 +3849,7 @@ def letta_group() -> None:
 
 @letta_group.command("up")
 def letta_up() -> None:
-    """Start the Letta Docker Compose stack.
-
-    For a Docker-free alternative, use:
-      atelier background install --with-letta
-    which registers 'letta server' as a systemd/launchd service.
-    """
+    """Start the Letta memory server Docker Compose stack."""
     _run_compose(["up", "-d"])
 
 
@@ -3947,6 +3941,101 @@ def openmemory_logs(ctx: click.Context, follow: bool) -> None:
     if follow:
         cmd.append("-f")
     subprocess.run(cmd, cwd=workdir, check=False)
+
+
+@cli.group("zoekt")
+def zoekt_group() -> None:
+    """Manage the persistent Zoekt code-search sidecar (Docker)."""
+
+
+def _zoekt_workspace_prefix(repo_root: Path) -> str:
+    return f"atelier-zoekt-{sha256(str(repo_root.resolve()).encode('utf-8')).hexdigest()[:12]}-"
+
+
+@zoekt_group.command("up")
+@click.pass_context
+def zoekt_up(ctx: click.Context) -> None:
+    """Start the persistent Zoekt search container for the current repo."""
+    from atelier.infra.code_intel.zoekt.binary import discover_zoekt_binary
+    from atelier.infra.code_intel.zoekt.server import get_zoekt_server
+
+    repo_root = Path(_project_root())
+    resolution = discover_zoekt_binary(repo_root)
+    if not resolution.available:
+        raise click.ClickException(f"Zoekt runtime unavailable: {resolution.reason}")
+    server = get_zoekt_server(repo_root, resolution=resolution)
+    handle = server.ensure_started()
+    click.echo(f"Zoekt started: {handle}")
+
+
+@zoekt_group.command("down")
+@click.pass_context
+def zoekt_down(ctx: click.Context) -> None:
+    """Stop the persistent Zoekt container for the current repo."""
+    from atelier.infra.code_intel.zoekt.server import get_zoekt_server
+
+    repo_root = Path(_project_root())
+    server = get_zoekt_server(repo_root)
+    server.stop()
+    click.echo("Zoekt stopped.")
+
+
+@zoekt_group.command("status")
+@click.pass_context
+def zoekt_status(ctx: click.Context) -> None:
+    """Show Zoekt container status for this repo."""
+    repo_root = Path(_project_root())
+    prefix = _zoekt_workspace_prefix(repo_root)
+    subprocess.run(["docker", "ps", "-a", "--filter", f"name={prefix}"], check=False)
+
+
+@zoekt_group.command("reindex")
+@click.pass_context
+def zoekt_reindex(ctx: click.Context) -> None:
+    """Trigger a fresh index run inside the running Zoekt container."""
+    repo_root = Path(_project_root())
+    prefix = _zoekt_workspace_prefix(repo_root)
+    result = subprocess.run(
+        ["docker", "ps", "--filter", f"name={prefix}", "--format", "{{.Names}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not names:
+        raise click.ClickException("Zoekt is not running. Start it with: atelier zoekt up")
+    for name in names:
+        subprocess.run(
+            ["docker", "exec", name, "sh", "-lc", "zoekt-index -index /data/index /input >/dev/null || true"],
+            check=False,
+        )
+    click.echo("Zoekt reindex completed.")
+
+
+@zoekt_group.command("reset")
+@click.option("--yes", is_flag=True, help="Confirm removal of Zoekt runtime data.")
+@click.pass_context
+def zoekt_reset(ctx: click.Context, yes: bool) -> None:
+    """Stop Zoekt and remove runtime state for this repository."""
+    if not yes:
+        raise click.ClickException("Pass --yes to confirm index cleanup.")
+    repo_root = Path(_project_root())
+    prefix = _zoekt_workspace_prefix(repo_root)
+    result = subprocess.run(
+        ["docker", "ps", "-aq", "--filter", f"name={prefix}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    container_ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if container_ids:
+        subprocess.run(["docker", "rm", "-f", *container_ids], check=False)
+    from atelier.core.foundation.paths import default_store_root
+
+    workspace_hash = sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:12]
+    runtime_root = default_store_root() / "workspaces" / workspace_hash / "zoekt"
+    shutil.rmtree(runtime_root, ignore_errors=True)
+    click.echo("Zoekt state removed.")
 
 
 @cli.command("consolidate")
@@ -5415,7 +5504,9 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
                 rid = d.get("session_id")
                 cost = float(d.get("cost_saved_usd", 0.0) or 0.0)
                 lever = str(d.get("lever") or d.get("tool_name") or "")
-                bucket = "routing" if "routing" in lever.lower() else "compaction" if "compact" in lever.lower() else "other"
+                bucket = (
+                    "routing" if "routing" in lever.lower() else "compaction" if "compact" in lever.lower() else "other"
+                )
                 if rid:
                     savings_map[rid] = savings_map.get(rid, 0.0) + cost
                     if bucket == "routing":
@@ -5612,7 +5703,7 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
         status = d.get("status") or "?"
         files_n = len(d.get("files_touched", []) or [])
         tools_n = int(d.get("tool_call_count", 0) or d.get("tool_count", 0) or len(d.get("tools_called", [])))
-        errs_n = len(d.get("errors_seen", []) or [])
+        # errs_n intentionally unused; kept for debugging access
         age_str = _age(d.get("updated_at") or d.get("created_at") or "")
         dur_str = _dur(d.get("created_at", ""), d.get("updated_at", ""))
 
@@ -6552,7 +6643,12 @@ def benchmark_publish(
 
 
 def _register_swe_benchmark_group() -> None:
-    from benchmarks.swe.run_swe_bench import swe as swe_benchmark_group
+    try:
+        from benchmarks.swe.run_swe_bench import swe as swe_benchmark_group
+    except ModuleNotFoundError:
+        # Keep CLI startup resilient when benchmark modules are not present
+        # in the runtime environment (e.g. partial installs/services).
+        return
 
     benchmark_group.add_command(swe_benchmark_group)
 
@@ -6965,24 +7061,29 @@ def background_group() -> None:
 
 @background_group.command("install")
 @click.option("--with-stack", is_flag=True, help="Also install the visualization stack service.")
-@click.option("--with-letta", is_flag=True, help="Also install the native Letta memory server service.")
-@click.option("--with-openmemory", is_flag=True, help="Also install the OpenMemory MCP service.")
+@click.option("--with-letta", is_flag=True, help="Also install the Letta memory server (Docker-based) service.")
+@click.option("--with-openmemory", is_flag=True, help="Also install the OpenMemory MCP (Docker-based) service.")
+@click.option("--with-zoekt", is_flag=True, help="Also install the Zoekt code-search (Docker-based) service.")
 @click.pass_context
-def background_install(ctx: click.Context, with_stack: bool, with_letta: bool, with_openmemory: bool) -> None:
+def background_install(
+    ctx: click.Context, with_stack: bool, with_letta: bool, with_openmemory: bool, with_zoekt: bool
+) -> None:
     """Install Atelier services as background units."""
     root = ctx.obj["root"]
     project_root = _project_root()
     atelier_bin = shutil.which("atelier") or str(Path(sys.argv[0]).resolve())
 
-    if with_letta:
-        _letta_bin = shutil.which("letta")
-        if not _letta_bin:
-            click.echo(
-                "Warning: 'letta' CLI not found on PATH. "
-                "Install it with: uv sync --extra memory-server  (or pip install letta)\n"
-                "The Letta service unit will still be created but will fail until 'letta' is available."
-            )
-            _letta_bin = "letta"
+    if with_letta and not shutil.which("docker"):
+        click.echo(
+            "Warning: 'docker' not found on PATH. "
+            "The Letta service unit will be created but will fail until Docker is available."
+        )
+
+    if with_zoekt and not shutil.which("docker"):
+        click.echo(
+            "Warning: 'docker' not found on PATH. "
+            "The Zoekt service unit will be created but will fail until Docker is available."
+        )
 
     if with_openmemory:
         _ensure_openmemory_service_env(root)
@@ -7046,13 +7147,17 @@ WantedBy=default.target
 
         if with_letta:
             letta_content = f"""[Unit]
-Description=Atelier Letta Memory Server
-After=network.target
+Description=Atelier Letta Memory Server (Docker)
+After=network.target docker.service
+Wants=docker.service
 
 [Service]
-Type=simple
-ExecStart={_letta_bin} server
-Restart=always
+Type=oneshot
+RemainAfterExit=yes
+ExecStart={atelier_bin} --root {root} letta up
+ExecStop={atelier_bin} --root {root} letta down
+WorkingDirectory={project_root}
+Environment=ATELIER_ROOT={root}
 Environment=PYTHONUNBUFFERED=1
 
 [Install]
@@ -7060,6 +7165,27 @@ WantedBy=default.target
 """
             (SYSTEMD_USER_DIR / LETTA_UNIT).write_text(letta_content, encoding="utf-8")
             click.echo(f"Installed {LETTA_UNIT}")
+
+        if with_zoekt:
+            zoekt_content = f"""[Unit]
+Description=Atelier Zoekt Code Search (Docker)
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart={atelier_bin} --root {root} zoekt up
+ExecStop={atelier_bin} --root {root} zoekt down
+WorkingDirectory={project_root}
+Environment=ATELIER_ROOT={root}
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
+"""
+            (SYSTEMD_USER_DIR / ZOEKT_UNIT).write_text(zoekt_content, encoding="utf-8")
+            click.echo(f"Installed {ZOEKT_UNIT}")
 
         if with_openmemory:
             openmemory_content = f"""[Unit]
@@ -7091,6 +7217,14 @@ WantedBy=default.target
             subprocess.run(["systemctl", "--user", "enable", "--now", LETTA_UNIT], check=True)
         if with_openmemory:
             subprocess.run(["systemctl", "--user", "enable", "--now", OPENMEMORY_UNIT], check=True)
+        if with_zoekt:
+            result = subprocess.run(["systemctl", "--user", "enable", "--now", ZOEKT_UNIT], check=False)
+            if result.returncode != 0:
+                click.echo(
+                    f"Warning: {ZOEKT_UNIT} did not start cleanly - "
+                    "run 'journalctl --user -xeu atelier-zoekt.service' for details",
+                    err=True,
+                )
 
     elif _is_macos():
         LAUNCHD_USER_DIR.mkdir(parents=True, exist_ok=True)
@@ -7178,15 +7312,26 @@ WantedBy=default.target
     <string>{LETTA_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{_letta_bin}</string>
-        <string>server</string>
+        <string>{atelier_bin}</string>
+        <string>--root</string>
+        <string>{root}</string>
+        <string>letta</string>
+        <string>up</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <false/>
+    <key>WorkingDirectory</key>
+    <string>{project_root}</string>
+    <key>StandardOutPath</key>
+    <string>{Path(root) / "letta" / "letta.log"}</string>
+    <key>StandardErrorPath</key>
+    <string>{Path(root) / "letta" / "letta.log"}</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <key>ATELIER_ROOT</key>
+        <string>{root}</string>
         <key>PYTHONUNBUFFERED</key>
         <string>1</string>
     </dict>
@@ -7195,6 +7340,40 @@ WantedBy=default.target
 """
             (LAUNCHD_USER_DIR / f"{LETTA_LABEL}.plist").write_text(letta_plist, encoding="utf-8")
             click.echo(f"Installed {LETTA_LABEL}.plist")
+
+        if with_zoekt:
+            zoekt_plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{ZOEKT_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{atelier_bin}</string>
+        <string>--root</string>
+        <string>{root}</string>
+        <string>zoekt</string>
+        <string>up</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>WorkingDirectory</key>
+    <string>{project_root}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>ATELIER_ROOT</key>
+        <string>{root}</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+</dict>
+</plist>
+"""
+            (LAUNCHD_USER_DIR / f"{ZOEKT_LABEL}.plist").write_text(zoekt_plist, encoding="utf-8")
+            click.echo(f"Installed {ZOEKT_LABEL}.plist")
 
         if with_openmemory:
             openmemory_plist = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -7243,6 +7422,8 @@ WantedBy=default.target
             subprocess.run(["launchctl", "load", str(LAUNCHD_USER_DIR / f"{LETTA_LABEL}.plist")], check=False)
         if with_openmemory:
             subprocess.run(["launchctl", "load", str(LAUNCHD_USER_DIR / f"{OPENMEMORY_LABEL}.plist")], check=False)
+        if with_zoekt:
+            subprocess.run(["launchctl", "load", str(LAUNCHD_USER_DIR / f"{ZOEKT_LABEL}.plist")], check=False)
 
     else:
         raise click.ClickException(f"Unsupported platform for background services: {sys.platform}")
@@ -7255,7 +7436,7 @@ WantedBy=default.target
 def background_uninstall(ctx: click.Context) -> None:
     """Stop and remove Atelier background units."""
     if _is_linux():
-        for unit in [CONTROLLER_UNIT, STACK_UNIT, LETTA_UNIT, OPENMEMORY_UNIT]:
+        for unit in [CONTROLLER_UNIT, STACK_UNIT, LETTA_UNIT, OPENMEMORY_UNIT, ZOEKT_UNIT]:
             path = SYSTEMD_USER_DIR / unit
             if path.exists():
                 subprocess.run(["systemctl", "--user", "disable", "--now", unit], check=False)
@@ -7264,7 +7445,7 @@ def background_uninstall(ctx: click.Context) -> None:
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
 
     elif _is_macos():
-        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL]:
+        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL, ZOEKT_LABEL]:
             plist = LAUNCHD_USER_DIR / f"{label}.plist"
             if plist.exists():
                 subprocess.run(["launchctl", "unload", str(plist)], check=False)
@@ -7288,12 +7469,16 @@ def background_status(ctx: click.Context) -> None:
             units.append(LETTA_UNIT)
         if (SYSTEMD_USER_DIR / OPENMEMORY_UNIT).exists():
             units.append(OPENMEMORY_UNIT)
+        if (SYSTEMD_USER_DIR / ZOEKT_UNIT).exists():
+            units.append(ZOEKT_UNIT)
+        if (SYSTEMD_USER_DIR / ZOEKT_UNIT).exists():
+            units.append(ZOEKT_UNIT)
         for unit in units:
             click.echo(f"--- {unit} ---")
             subprocess.run(["systemctl", "--user", "status", unit, "--no-pager"], check=False)
             click.echo("")
     elif _is_macos():
-        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL]:
+        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL, ZOEKT_LABEL]:
             if (LAUNCHD_USER_DIR / f"{label}.plist").exists():
                 click.echo(f"--- {label} ---")
                 subprocess.run(["launchctl", "list", label], check=False)
@@ -7319,7 +7504,7 @@ def background_restart(ctx: click.Context) -> None:
             click.echo(f"Restarted {unit}")
     elif _is_macos():
         uid = os.getuid()
-        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL]:
+        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL, ZOEKT_LABEL]:
             if (LAUNCHD_USER_DIR / f"{label}.plist").exists():
                 subprocess.run(["launchctl", "kickstart", "-k", f"gui/{uid}/{label}"], check=False)
                 click.echo(f"Restarted {label}")
@@ -7341,18 +7526,21 @@ def systemd_alias_group() -> None:
 @click.option("--with-stack", is_flag=True)
 @click.option("--with-letta", is_flag=True)
 @click.option("--with-openmemory", is_flag=True)
+@click.option("--with-zoekt", is_flag=True)
 @click.pass_context
 def systemd_install_alias(
     ctx: click.Context,
     with_stack: bool,
     with_letta: bool,
     with_openmemory: bool,
+    with_zoekt: bool,
 ) -> None:
     ctx.invoke(
         background_install,
         with_stack=with_stack,
         with_letta=with_letta,
         with_openmemory=with_openmemory,
+        with_zoekt=with_zoekt,
     )
 
 
@@ -7380,14 +7568,14 @@ def systemd_restart_alias(ctx: click.Context) -> None:
 
 
 @cli.command("logs")
-@click.argument("service", type=click.Choice(["stack", "controller", "letta", "openmemory"]))
+@click.argument("service", type=click.Choice(["stack", "controller", "letta", "openmemory", "zoekt"]))
 @click.option("-f", "--follow", is_flag=True, help="Follow log output.")
 @click.option("-n", "--lines", default=80, show_default=True, type=int, help="Number of lines to show.")
 @click.pass_context
 def logs_cmd(ctx: click.Context, service: str, follow: bool, lines: int) -> None:
     """Show logs for an Atelier service.
 
-    SERVICE is one of: stack, controller, letta, openmemory.
+    SERVICE is one of: stack, controller, letta, openmemory, zoekt.
 
     On Linux with systemd units installed, uses journalctl to read
     the service unit logs (which contain everything the process wrote
@@ -7401,6 +7589,7 @@ def logs_cmd(ctx: click.Context, service: str, follow: bool, lines: int) -> None
         "controller": CONTROLLER_UNIT,
         "letta": LETTA_UNIT,
         "openmemory": OPENMEMORY_UNIT,
+        "zoekt": ZOEKT_UNIT,
     }
     unit = unit_map[service]
 
@@ -7426,6 +7615,8 @@ def logs_cmd(ctx: click.Context, service: str, follow: bool, lines: int) -> None
         return
     elif service == "openmemory":
         log_path = _openmemory_log_path(root)
+    elif service == "zoekt":
+        log_path = Path(root) / "zoekt" / "zoekt.log"
     else:
         # unreachable given the Choice validator
         raise click.ClickException(f"unknown service: {service}")
@@ -8097,7 +8288,12 @@ def memory_share_cmd(ctx: click.Context, agent_id: str, label: str, as_json: boo
             details={"agent_id": agent_id, "label": label, "block_id": stored.id},
         )
     )
-    payload = {"id": stored.id, "label": stored.label, "scope": stored.metadata.get("scope"), "workspace_id": workspace.id}
+    payload = {
+        "id": stored.id,
+        "label": stored.label,
+        "scope": stored.metadata.get("scope"),
+        "workspace_id": workspace.id,
+    }
     if as_json:
         _emit(payload, as_json=True)
         return
@@ -8368,7 +8564,9 @@ def audit_verify_cmd(ctx: click.Context, bundle_dir: Path, as_json: bool) -> Non
     if payload["valid"]:
         click.echo(f"verified {bundle_dir}")
         return
-    raise click.ClickException(f"bundle verification failed: {', '.join(payload['tampered_files']) or 'signature mismatch'}")
+    raise click.ClickException(
+        f"bundle verification failed: {', '.join(payload['tampered_files']) or 'signature mismatch'}"
+    )
 
 
 # --------------------------------------------------------------------------- #

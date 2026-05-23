@@ -48,19 +48,14 @@ def test_mcp_route_decide_returns_decision(mcp_env: Path) -> None:
         "route",
         {
             "op": "decide",
-            "user_goal": "Summarize docs updates",
-            "repo_root": ".",
+            "task": "Summarize docs updates",
             "task_type": "docs",
-            "risk_level": "low",
-            "changed_files": ["README.md"],
-            "step_type": "plan",
-            "step_index": 0,
-            "evidence_summary": {"confidence": 0.95, "estimated_input_tokens": 120},
+            "budget": "cheap",
         },
     )
     payload = _result(resp)
 
-    assert payload["step_type"] == "plan"
-    assert payload["risk_level"] == "low"
-    assert payload["tier"] in {"cheap", "mid", "premium", "deterministic"}
-    assert "reason" in payload
+    assert "model" in payload
+    assert "tier" in payload
+    assert "rationale" in payload
+    assert "can_spawn" in payload

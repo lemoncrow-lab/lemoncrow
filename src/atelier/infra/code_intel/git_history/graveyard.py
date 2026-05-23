@@ -15,8 +15,7 @@ class SymbolGraveyard:
         self._init_schema()
 
     def _init_schema(self) -> None:
-        self._connection.execute(
-            """
+        self._connection.execute("""
             CREATE TABLE IF NOT EXISTS symbol_graveyard (
                 id INTEGER PRIMARY KEY,
                 symbol_name TEXT NOT NULL,
@@ -31,8 +30,7 @@ class SymbolGraveyard:
                 signature_hash TEXT,
                 UNIQUE(symbol_name, file_path, deleted_at_sha)
             )
-            """
-        )
+            """)
         self._connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_symbol_graveyard_query "
             "ON symbol_graveyard(symbol_name, qualified_name, file_path, deleted_at_ts)"
@@ -109,9 +107,7 @@ class SymbolGraveyard:
                 signature_hash
             FROM symbol_graveyard
             WHERE
-            """
-            + " AND ".join(filters)
-            + " ORDER BY deleted_at_ts DESC, deleted_at_sha DESC, symbol_name ASC",
+            """ + " AND ".join(filters) + " ORDER BY deleted_at_ts DESC, deleted_at_sha DESC, symbol_name ASC",
             params,
         ).fetchall()
         return [GraveyardEntry(*row) for row in rows]

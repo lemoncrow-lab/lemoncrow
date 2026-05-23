@@ -2,6 +2,7 @@
 
 See docs/plans/active/commercial-wedge/W2-counterfactual.md for the full spec.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,23 +16,52 @@ from atelier.core.capabilities.counterfactual.pricing import CandidateModel
 # Tools that only read — safe to run on cheap/flash models.
 _READ_TOOLS: frozenset[str] = frozenset(
     {
-        "Read", "Glob", "Grep", "WebFetch", "WebSearch",
-        "mcp__atelier__read", "mcp__atelier__search", "mcp__atelier__context",
-        "mcp__atelier__memory", "mcp__atelier__compact", "mcp__atelier__route",
-        "atelier_smart_read", "atelier_smart_search", "atelier_get_reasoning_context",
-        "search", "read", "context", "compact", "route",
+        "Read",
+        "Glob",
+        "Grep",
+        "WebFetch",
+        "WebSearch",
+        "mcp__atelier__read",
+        "mcp__atelier__search",
+        "mcp__atelier__context",
+        "mcp__atelier__memory",
+        "mcp__atelier__compact",
+        "mcp__atelier__route",
+        "atelier_smart_read",
+        "atelier_smart_search",
+        "atelier_get_reasoning_context",
+        "search",
+        "read",
+        "context",
+        "compact",
+        "route",
     }
 )
 
 # Tools that mutate — keep on high-tier models.
 _EDIT_TOOLS: frozenset[str] = frozenset(
     {
-        "Edit", "Write", "Bash", "NotebookEdit",
-        "mcp__atelier__edit", "mcp__atelier__shell", "mcp__atelier__sql",
-        "mcp__atelier__code", "mcp__atelier__trace", "mcp__atelier__verify",
+        "Edit",
+        "Write",
+        "Bash",
+        "NotebookEdit",
+        "mcp__atelier__edit",
+        "mcp__atelier__shell",
+        "mcp__atelier__sql",
+        "mcp__atelier__code",
+        "mcp__atelier__trace",
+        "mcp__atelier__verify",
         "mcp__atelier__rescue",
-        "atelier_smart_edit", "atelier_shell", "atelier_sql",
-        "edit", "shell", "sql", "code", "trace", "verify", "rescue",
+        "atelier_smart_edit",
+        "atelier_shell",
+        "atelier_sql",
+        "edit",
+        "shell",
+        "sql",
+        "code",
+        "trace",
+        "verify",
+        "rescue",
     }
 )
 
@@ -49,9 +79,10 @@ def classify_turn_kind(tool_name: str) -> str:
 # Turn requirements
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class TurnRequirements:
-    turn_kind: str          # "read" | "edit" | "agent"
+    turn_kind: str  # "read" | "edit" | "agent"
     requires_tool_use: bool
     min_context_window: int = 0
 
@@ -71,9 +102,7 @@ def supports_turn(candidate: CandidateModel, requirements: TurnRequirements) -> 
     """Return True if *candidate* can satisfy *requirements*."""
     if requirements.requires_tool_use and not candidate.supports_tool_use:
         return False
-    if requirements.min_context_window > candidate.context_window:
-        return False
-    return True
+    return requirements.min_context_window <= candidate.context_window
 
 
 __all__ = [

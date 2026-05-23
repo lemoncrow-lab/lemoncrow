@@ -23,6 +23,9 @@ class EventScore:
     event: dict[str, Any]
     score: float
     reason: str = ""
+    keystone_protected: bool = (
+        False  # True if a keystone span prevented this event from being dropped
+    )
 
 
 @dataclass

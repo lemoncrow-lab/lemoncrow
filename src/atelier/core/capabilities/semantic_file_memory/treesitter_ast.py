@@ -350,9 +350,7 @@ def _signature_slice(source: bytes, node: Any, body_kinds: frozenset[str]) -> by
     return source[start:end].rstrip()
 
 
-def _extract_member_signatures(
-    container: Any, source: bytes, cfg: LangCfg, indent: str = "    "
-) -> list[bytes]:
+def _extract_member_signatures(container: Any, source: bytes, cfg: LangCfg, indent: str = "    ") -> list[bytes]:
     """Walk into a container and collect signature lines for its members."""
     out: list[bytes] = []
     # Find the body child (class_body, declaration_list, etc.) and iterate its children.

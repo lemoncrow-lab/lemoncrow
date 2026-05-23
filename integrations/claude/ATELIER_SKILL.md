@@ -28,7 +28,7 @@ You have these tools via the `atelier` MCP server:
 
 ```python
 # Before a task - get relevant ReasonBlock context
-task(task="...", domain="...", tools=[...])
+context(task="...", domain="...", tools=[...])
 
 # On repeated failure - get rescue procedure
 rescue(task="...", error="...", domain="...")

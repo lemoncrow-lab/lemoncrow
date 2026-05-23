@@ -24,7 +24,25 @@ BOOTSTRAP_BLOCK_TYPES = (
     "language-mix",
 )
 _ENTRYPOINT_FILE_PARTS = ("main", "app", "cli", "server", "index")
-_ENTRYPOINT_SYMBOL_NAMES = {"app", "bootstrap", "cli", "create_app", "main", "run", "serve", "server"}
+_ENTRYPOINT_SYMBOL_NAMES = {
+    "app",
+    "bootstrap",
+    "cli",
+    "create_app",
+    "main",
+    "run",
+    "serve",
+    "server",
+}
+_BOOTSTRAP_IGNORED_PARTS = {
+    ".claude",
+    ".git",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    "dist",
+    "build",
+}
 
 
 class BootstrapBlockPlan(BaseModel):
@@ -225,7 +243,7 @@ def persist_bootstrap_plan(
 
 
 def _render_architecture_sketch(repo_map: dict[str, Any], files: dict[str, list[dict[str, Any]]]) -> str:
-    ranked_files = [str(item) for item in repo_map.get("ranked_files", [])]
+    ranked_files = [str(item) for item in repo_map.get("ranked_files", []) if _bootstrap_path_allowed(str(item))]
     lines = ["ranked files:"]
     for file_path in ranked_files[:8]:
         lines.append(f"- {file_path}")
@@ -240,9 +258,11 @@ def _render_architecture_sketch(repo_map: dict[str, Any], files: dict[str, list[
 
 
 def _render_entry_points(ranked_files: list[str], files: dict[str, list[dict[str, Any]]]) -> str:
-    order = {path: index for index, path in enumerate(ranked_files)}
+    filtered_ranked = [path for path in ranked_files if _bootstrap_path_allowed(path)]
+    filtered_files = {path: items for path, items in files.items() if _bootstrap_path_allowed(path)}
+    order = {path: index for index, path in enumerate(filtered_ranked)}
     entries: list[tuple[int, str, int, str]] = []
-    for file_path, items in files.items():
+    for file_path, items in filtered_files.items():
         basename = Path(file_path).stem.lower()
         for item in items:
             name = str(item.get("name", ""))
@@ -257,8 +277,8 @@ def _render_entry_points(ranked_files: list[str], files: dict[str, list[dict[str
                     )
                 )
     if not entries:
-        for file_path in sorted(files)[:3]:
-            for item in files[file_path][:1]:
+        for file_path in sorted(filtered_files)[:3]:
+            for item in filtered_files[file_path][:1]:
                 entries.append(
                     (
                         order.get(file_path, len(order) + 1),
@@ -272,9 +292,11 @@ def _render_entry_points(ranked_files: list[str], files: dict[str, list[dict[str
 
 
 def _render_hot_symbols(ranked_files: list[str], files: dict[str, list[dict[str, Any]]]) -> str:
-    order = {path: index for index, path in enumerate(ranked_files)}
+    filtered_ranked = [path for path in ranked_files if _bootstrap_path_allowed(path)]
+    filtered_files = {path: items for path, items in files.items() if _bootstrap_path_allowed(path)}
+    order = {path: index for index, path in enumerate(filtered_ranked)}
     selected: list[tuple[int, str, int, str]] = []
-    for file_path, items in files.items():
+    for file_path, items in filtered_files.items():
         for item in items:
             selected.append(
                 (
@@ -292,7 +314,7 @@ def _render_language_mix(repo_root: Path, repo_id: str) -> str:
     files = iter_source_files(repo_root)
     languages = Counter((detect_language(path) or "unknown") for path in files)
     scip = ScipIndexer(repo_root, repo_id)
-    artifacts = [path.name for path in scip.discover_artifacts()]
+    artifacts = [artifact.path.name for artifact in scip.discover_artifacts()]
     binaries = sorted(scip.available_binaries())
     lines = ["languages:"]
     for language, count in sorted(languages.items(), key=lambda item: (-item[1], item[0])):
@@ -321,6 +343,11 @@ def _is_entry_point(*, file_path: str, basename: str, name: str) -> bool:
     if any(part in file_path.lower().split("/")[-1] for part in _ENTRYPOINT_FILE_PARTS):
         return True
     return lowered_name in _ENTRYPOINT_SYMBOL_NAMES
+
+
+def _bootstrap_path_allowed(path_text: str) -> bool:
+    parts = [part for part in Path(path_text).parts if part not in {"", "."}]
+    return all(part not in _BOOTSTRAP_IGNORED_PARTS for part in parts)
 
 
 __all__ = [

@@ -27,8 +27,8 @@ def test_detect_configured_vendors_uses_supported_env_aliases() -> None:
 
     with mock.patch("shutil.which", return_value=None):
         assert detect_configured_vendors({"ANTHROPIC_API_KEY": "a", "GEMINI_API_KEY": "g"}) == (
-        "anthropic",
-        "google",
+            "anthropic",
+            "google",
         )
 
 

@@ -436,7 +436,11 @@ def _load_session_savings(session_id: str) -> dict:  # type: ignore[type-arg]
     }
 
 
-def _format_stats(stats: dict, savings: dict | None = None) -> str:  # type: ignore[type-arg]
+def _format_stats(
+    stats: dict,  # type: ignore[type-arg]
+    savings: dict | None = None,  # type: ignore[type-arg]
+    real_cost: bool = False,
+) -> str:
     total = stats["total_tokens"]
     inp = stats["input_tokens"]
     out = stats["output_tokens"]
@@ -447,10 +451,11 @@ def _format_stats(stats: dict, savings: dict | None = None) -> str:  # type: ign
     top = sorted(stats["tools_used"].items(), key=lambda x: -x[1])[:4]
     tools_str = " · ".join(f"{n}×{c}" for n, c in top) if top else "none"  # noqa: RUF001
 
+    cost_prefix = "cost: " if real_cost else "est. cost: ~"
     lines = [
         f"tool calls: {calls}",
         f"tokens: {inp:,} in / {out:,} out  ({total:,} total)",
-        f"est. cost: ~${cost:.4f}",
+        f"{cost_prefix}${cost:.4f}",
         f"top tools: {tools_str}",
     ]
 
@@ -463,6 +468,42 @@ def _format_stats(stats: dict, savings: dict | None = None) -> str:  # type: ign
         lines.append(f"savings: {' · '.join(parts)}")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Auto-record helper
+# ---------------------------------------------------------------------------
+
+
+def _auto_record(session_id: str, stats: dict | None) -> None:  # type: ignore[type-arg]
+    """Call `atelier runs record` silently so the ledger stays complete."""
+    import subprocess
+
+    if not session_id:
+        return
+    total_in = (stats or {}).get("input_tokens", 0)
+    total_out = (stats or {}).get("output_tokens", 0)
+    cost = (stats or {}).get("est_cost_usd", 0.0)
+    tool_calls = (stats or {}).get("tool_calls", 0)
+    trace = {
+        "agent": "claude-code",
+        "domain": "session",
+        "task": "session-auto-record",
+        "status": "success",
+        "session_id": session_id,
+        "output_summary": f"tokens: {total_in}in/{total_out}out  cost: ~${cost:.4f}  tools: {tool_calls}",
+    }
+
+    atelier_bin = os.environ.get("ATELIER_BIN") or str(Path.home() / ".local" / "bin" / "atelier")
+    with contextlib.suppress(Exception):
+        subprocess.run(
+            [atelier_bin, "runs", "record", "--input", "-"],
+            input=json.dumps(trace),
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +520,16 @@ def main() -> int:
     session_id: str = payload.get("session_id", "") or ""
     transcript_path: str = payload.get("transcript_path", "") or ""
     stats = _read_transcript_stats(transcript_path)
+    payload_cost: float = float(payload.get("total_cost_usd") or payload.get("total_cost") or 0.0)
+    if not payload_cost and session_id:
+        with contextlib.suppress(Exception):
+            cost_file = _atelier_root() / "session_costs" / f"{session_id}.txt"
+            if cost_file.is_file():
+                payload_cost = float(cost_file.read_text("utf-8").strip())
+    real_cost = False
+    if stats is not None and payload_cost > 0:
+        stats["est_cost_usd"] = payload_cost
+        real_cost = True
 
     # ── Always write token/cost summary to RunLedger (fail-open) ─────────────
     if stats and stats.get("total_tokens", 0) > 0:
@@ -499,10 +550,12 @@ def main() -> int:
         if savings and savings.get("total", 0.0) <= 0:
             savings = None
 
-    # ── Smart detection: discussion vs task session ──────────────────────────
-    # If no code-editing tools were used, this was a discussion or exploration
-    # session. Do not require a trace — exit silently.
+    # ── Always show stats (discussion and task sessions alike) ───────────────
+    # If no code-editing tools were used, show stats but skip the trace reminder.
     if not _is_task_session(stats):
+        if stats and stats["total_tokens"] > 0:
+            summary = _format_stats(stats, savings, real_cost=real_cost)
+            print(json.dumps({"systemMessage": f"Session stats:\n{summary}"}))
         return 0
 
     # ── Code work happened: check if trace was recorded ──────────────────────
@@ -511,24 +564,15 @@ def main() -> int:
         # Note: hookSpecificOutput is NOT valid for Stop hooks (only PreToolUse,
         # PostToolUse, UserPromptSubmit, PostToolBatch support it).
         if stats and stats["total_tokens"] > 0:
-            summary = _format_stats(stats, savings)
+            summary = _format_stats(stats, savings, real_cost=real_cost)
             print(json.dumps({"systemMessage": f"Atelier session complete.\n{summary}"}))
         return 0
 
-    # ── Code work done but no trace — surface a non-blocking system message ──
-    # Stop hooks only accept "block" as a `decision` value; "ask" is not valid
-    # and would silently no-op. Use `systemMessage` for a visible warning.
-    msg = (
-        "Atelier: no run was recorded this session. "
-        "Call `record` with the observable summary "
-        "(files_touched, commands_run, errors_seen, diff_summary, "
-        "validation_results, status) before stopping."
-    )
-
+    # ── Code work done but no trace — auto-record and show stats ─────────────
+    _auto_record(session_id, stats)
     if stats and stats["total_tokens"] > 0:
-        msg += f"\n\nSession stats:\n{_format_stats(stats, savings)}"
-
-    print(json.dumps({"systemMessage": msg}))
+        summary = _format_stats(stats, savings, real_cost=real_cost)
+        print(json.dumps({"systemMessage": f"Atelier: session auto-recorded.\n{summary}"}))
     return 0
 
 

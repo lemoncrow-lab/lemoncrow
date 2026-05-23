@@ -2,6 +2,7 @@
 
 See docs/plans/active/commercial-wedge/W2-counterfactual.md for the full spec.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ from dataclasses import dataclass
 class ModelPricing:
     """Per-million-token prices for a model."""
 
-    input: float   # USD per million input tokens
+    input: float  # USD per million input tokens
     output: float  # USD per million output tokens
 
     def cost_usd(self, *, input_tokens: int, output_tokens: int) -> float:

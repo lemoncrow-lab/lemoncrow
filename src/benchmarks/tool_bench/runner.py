@@ -1,4 +1,5 @@
 """Core benchmark runner: builtin baseline vs atelier MCP per host."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # ---------------------------------------------------------------------------
 # Config
@@ -97,7 +98,23 @@ def _mcp_call(tool: str, args: dict[str, Any], host: str, timeout: int = 30) -> 
 
 
 def _structured(d: dict[str, Any]) -> dict[str, Any]:
-    return d.get("result", {}).get("structuredContent", {}) or {}
+    result = d.get("result", {})
+    structured = result.get("structuredContent")
+    if isinstance(structured, dict):
+        return structured
+    content = result.get("content")
+    if isinstance(content, list) and content:
+        first = content[0]
+        if isinstance(first, dict):
+            text = first.get("text")
+            if isinstance(text, str):
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    return {}
+                if isinstance(parsed, dict):
+                    return parsed
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +155,41 @@ def _builtin_grep(pattern: str, path: str) -> tuple[str, float]:
     return r.stdout, time.perf_counter() - t0
 
 
+def _builtin_grep_direct(args: dict[str, Any]) -> tuple[str, float]:
+    """Run rg directly matching the atelier grep tool args."""
+    pattern = str(args.get("content_regex", ""))
+    path = str(args.get("file_path", "."))
+    globs: list[str] = args.get("file_glob_patterns") or []
+    output_mode = str(args.get("output_mode") or "file_paths_with_content")
+    ignore_case = bool(args.get("ignore_case"))
+    multiline = bool(args.get("multiline"))
+    lines_before = int(args.get("lines_before") or 0)
+    lines_after = int(args.get("lines_after") or 0)
+
+    cmd = ["rg", "--no-heading", "--color", "never"]
+    if output_mode == "file_paths_only":
+        cmd.append("--files-with-matches")
+    elif output_mode == "file_paths_with_match_count":
+        cmd.append("--count")
+    else:
+        cmd.append("-n")
+    if ignore_case:
+        cmd.append("-i")
+    if multiline:
+        cmd.append("--multiline")
+    if lines_before:
+        cmd += ["-B", str(lines_before)]
+    if lines_after:
+        cmd += ["-A", str(lines_after)]
+    for g in globs:
+        cmd += ["--glob", g]
+    cmd += [pattern, path]
+
+    t0 = time.perf_counter()
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    return r.stdout, time.perf_counter() - t0
+
+
 # ---------------------------------------------------------------------------
 # Per-tool benchmarkers
 # ---------------------------------------------------------------------------
@@ -147,7 +199,9 @@ def bench_read(
     hosts: tuple[str, ...],
 ) -> list[ToolResult]:
     results: list[ToolResult] = []
-    path = args["path"]
+    path = str(args.get("file_path") or args.get("path") or "")
+    if not path:
+        raise ValueError("read benchmark case requires file_path")
 
     # Builtin baseline
     b_text, b_t = _builtin_read(path)
@@ -171,9 +225,14 @@ def bench_read(
         if "error" in d and "result" not in d:
             results.append(
                 ToolResult(
-                    label=label, tool="read", variant=host,
-                    correct=False, chars_out=0, tokens_est=0,
-                    elapsed_ms=a_t * 1000, error=str(d.get("error", "")),
+                    label=label,
+                    tool="read",
+                    variant=host,
+                    correct=False,
+                    chars_out=0,
+                    tokens_est=0,
+                    elapsed_ms=a_t * 1000,
+                    error=str(d.get("error", "")),
                 )
             )
             continue
@@ -193,7 +252,9 @@ def bench_read(
         saving_pct = 100.0 * saving_chars / max(b_chars, 1)
         results.append(
             ToolResult(
-                label=label, tool="read", variant=host,
+                label=label,
+                tool="read",
+                variant=host,
                 correct=correct,
                 chars_out=a_chars,
                 tokens_est=a_chars // 4,
@@ -218,51 +279,83 @@ def bench_shell(
     hosts: tuple[str, ...],
 ) -> list[ToolResult]:
     results: list[ToolResult] = []
-    cmd = args["command"]
-    cwd = args.get("cwd")
+    bench_expect = cast(dict[str, Any], args.get("_expect") or {})
+    call_args = {k: v for k, v in args.items() if k != "_expect"}
+    cmd = call_args["command"]
+    cwd = call_args.get("cwd")
 
     b_out, b_t = _builtin_shell(cmd, cwd)
     b_lines = len(b_out.splitlines())
     b_chars = len(b_out)
     results.append(
         ToolResult(
-            label=label, tool="shell", variant="builtin",
-            correct=True, chars_out=b_chars, tokens_est=b_chars // 4,
+            label=label,
+            tool="shell",
+            variant="builtin",
+            correct=True,
+            chars_out=b_chars,
+            tokens_est=b_chars // 4,
             elapsed_ms=b_t * 1000,
         )
     )
 
     for host in hosts:
-        d, a_t = _mcp_call("shell", args, host)
+        d, a_t = _mcp_call("shell", call_args, host)
         sc = _structured(d)
         if "error" in d and "result" not in d:
             results.append(
                 ToolResult(
-                    label=label, tool="shell", variant=host,
-                    correct=False, chars_out=0, tokens_est=0,
-                    elapsed_ms=a_t * 1000, error=str(d.get("error", "")),
+                    label=label,
+                    tool="shell",
+                    variant=host,
+                    correct=False,
+                    chars_out=0,
+                    tokens_est=0,
+                    elapsed_ms=a_t * 1000,
+                    error=str(d.get("error", "")),
                 )
             )
             continue
 
-        a_out = sc.get("stdout", "") or sc.get("output", "") or str(sc)
+        a_out = sc.get("stdout", "") or sc.get("stderr", "") or sc.get("output", "") or ""
         a_chars = len(a_out)
         a_lines = len(a_out.splitlines())
         first_token = b_out.strip().split("\n")[0].strip() if b_out.strip() else ""
-        correct = bool(first_token) and first_token in a_out
-        max_lines = int(args.get("max_lines", 200))
+        rewritten = bool(sc.get("rewritten", False))
+        rewrite_target = str(sc.get("rewrite_target") or "")
+        exit_code = int(sc.get("exit_code", 0)) if isinstance(sc.get("exit_code"), int | float) else 0
+
+        if bench_expect:
+            expected_rewritten = bench_expect.get("rewritten")
+            expected_target = str(bench_expect.get("rewrite_target") or "")
+            expected_exit = bench_expect.get("exit_code")
+            rewritten_ok = expected_rewritten is None or bool(expected_rewritten) == rewritten
+            target_ok = not expected_target or rewrite_target == expected_target
+            exit_ok = expected_exit is None or int(expected_exit) == exit_code
+            correct = rewritten_ok and target_ok and exit_ok
+        else:
+            correct = bool(first_token) and first_token in a_out
+
+        max_lines = int(call_args.get("max_lines", 200))
         truncated = b_lines > max_lines and a_lines <= max_lines
 
         results.append(
             ToolResult(
-                label=label, tool="shell", variant=host,
-                correct=correct, chars_out=a_chars, tokens_est=a_chars // 4,
+                label=label,
+                tool="shell",
+                variant=host,
+                correct=correct,
+                chars_out=a_chars,
+                tokens_est=a_chars // 4,
                 elapsed_ms=a_t * 1000,
                 extra={
                     "baseline_lines": b_lines,
                     "atelier_lines": a_lines,
                     "truncated": truncated,
                     "ansi_stripped": True,
+                    "rewritten": rewritten,
+                    "rewrite_target": rewrite_target,
+                    "exit_code": exit_code,
                 },
             )
         )
@@ -276,15 +369,19 @@ def bench_search(
 ) -> list[ToolResult]:
     results: list[ToolResult] = []
     pattern = args.get("content_regex") or args.get("query", "")
-    path = args.get("path", ".")
+    path = str(args.get("file_path") or args.get("path") or ".")
 
     b_out, b_t = _builtin_grep(pattern, path)
     b_lines = len(b_out.splitlines())
     b_chars = len(b_out)
     results.append(
         ToolResult(
-            label=label, tool="search", variant="builtin",
-            correct=b_lines > 0, chars_out=b_chars, tokens_est=b_chars // 4,
+            label=label,
+            tool="search",
+            variant="builtin",
+            correct=b_lines > 0,
+            chars_out=b_chars,
+            tokens_est=b_chars // 4,
             elapsed_ms=b_t * 1000,
             extra={"match_lines": b_lines},
         )
@@ -296,26 +393,42 @@ def bench_search(
         if "error" in d and "result" not in d:
             results.append(
                 ToolResult(
-                    label=label, tool="search", variant=host,
-                    correct=False, chars_out=0, tokens_est=0,
-                    elapsed_ms=a_t * 1000, error=str(d.get("error", "")),
+                    label=label,
+                    tool="search",
+                    variant=host,
+                    correct=False,
+                    chars_out=0,
+                    tokens_est=0,
+                    elapsed_ms=a_t * 1000,
+                    error=str(d.get("error", "")),
                 )
             )
             continue
 
-        meta = sc.get("_meta", {})
-        file_hits = int(meta.get("fileMatchCount") or 0)
-        content_blocks = sc.get("content", [])
-        result_blocks = max(len(content_blocks) - 1, 0)  # block[0] is header
-        a_chars = sum(len(b.get("text", "")) for b in content_blocks)
+        matches = [item for item in sc.get("matches", []) if isinstance(item, dict)]
+        if matches:
+            file_hits = len(matches)
+            result_blocks = len(matches)
+            a_chars = len(json.dumps(matches, ensure_ascii=False))
+        else:
+            # Backward-compat for older search payload shape.
+            meta = sc.get("_meta", {})
+            file_hits = int(meta.get("fileMatchCount") or 0)
+            content_blocks = [b for b in sc.get("content", []) if isinstance(b, dict)]
+            result_blocks = max(len(content_blocks) - 1, 0)  # block[0] is header
+            a_chars = sum(len(str(b.get("text", ""))) for b in content_blocks)
         correct = file_hits > 0 and b_lines > 0
 
         saving_chars = b_chars - a_chars
         saving_pct = 100.0 * saving_chars / max(b_chars, 1)
         results.append(
             ToolResult(
-                label=label, tool="search", variant=host,
-                correct=correct, chars_out=a_chars, tokens_est=a_chars // 4,
+                label=label,
+                tool="search",
+                variant=host,
+                correct=correct,
+                chars_out=a_chars,
+                tokens_est=a_chars // 4,
                 elapsed_ms=a_t * 1000,
                 extra={
                     "file_hits": file_hits,
@@ -331,13 +444,84 @@ def bench_search(
     return results
 
 
+def bench_grep(
+    label: str,
+    args: dict[str, Any],
+    hosts: tuple[str, ...],
+) -> list[ToolResult]:
+    results: list[ToolResult] = []
+
+    b_out, b_t = _builtin_grep_direct(args)
+    b_chars = len(b_out)
+    b_lines = len([line for line in b_out.splitlines() if line.strip()])
+    pattern = str(args.get("content_regex", ""))
+    results.append(
+        ToolResult(
+            label=label,
+            tool="grep",
+            variant="builtin",
+            correct=b_lines > 0,
+            chars_out=b_chars,
+            tokens_est=b_chars // 4,
+            elapsed_ms=b_t * 1000,
+            extra={"match_lines": b_lines},
+        )
+    )
+
+    for host in hosts:
+        d, a_t = _mcp_call("grep", args, host)
+        sc = _structured(d)
+        if "error" in d and "result" not in d:
+            results.append(
+                ToolResult(
+                    label=label,
+                    tool="grep",
+                    variant=host,
+                    correct=False,
+                    chars_out=0,
+                    tokens_est=0,
+                    elapsed_ms=a_t * 1000,
+                    error=str(d.get("error", "")),
+                )
+            )
+            continue
+
+        a_raw = json.dumps(sc, ensure_ascii=False)
+        a_chars = len(a_raw)
+        # Correctness: pattern or file match count present in output
+        meta = sc.get("_meta", {})
+        file_match_count = int(meta.get("fileMatchCount") or 0)
+        correct = (file_match_count > 0 or pattern.replace(r"^\s+", "").replace("^", "") in a_raw) and b_lines > 0
+
+        saving_chars = b_chars - a_chars
+        saving_pct = 100.0 * saving_chars / max(b_chars, 1)
+        results.append(
+            ToolResult(
+                label=label,
+                tool="grep",
+                variant=host,
+                correct=correct,
+                chars_out=a_chars,
+                tokens_est=a_chars // 4,
+                elapsed_ms=a_t * 1000,
+                extra={
+                    "file_match_count": file_match_count,
+                    "baseline_lines": b_lines,
+                    "saving_chars": saving_chars,
+                    "saving_pct": saving_pct,
+                },
+            )
+        )
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Top-level runner
 # ---------------------------------------------------------------------------
 def run_benchmark(
     tools: tuple[str, ...] = ("read", "shell", "search"),
     hosts: tuple[str, ...] = HOSTS,
-    cases_override: dict[str, list[tuple[str, dict]]] | None = None,
+    cases_override: dict[str, list[tuple[str, dict[str, Any]]]] | None = None,
 ) -> BenchReport:
     from .cases import ALL_CASES
 
@@ -348,6 +532,7 @@ def run_benchmark(
         "read": bench_read,
         "shell": bench_shell,
         "search": bench_search,
+        "grep": bench_grep,
     }
 
     for tool in tools:

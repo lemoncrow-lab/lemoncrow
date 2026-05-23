@@ -27,6 +27,12 @@ Severity = Literal["low", "medium", "high"]
 ConsolidationKind = Literal["duplicate_cluster", "stale_candidate", "low_confidence"]
 ConsolidationAction = Literal["merge", "deprecate", "delete"]
 
+# E-trace tier: mirrors the ReasonBlocks.com three-tier injection model.
+#   e3 — universal standing rules, always injected first, independent of score
+#   e2 — failure-mode patterns, retrieved by relevance (default for all blocks)
+#   e1 — instance-level procedures, only injected when errors/failure signals present
+BlockTier = Literal["e1", "e2", "e3"]
+
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
@@ -75,6 +81,7 @@ class ReasonBlock(BaseModel):
     when_not_to_apply: str = ""
 
     status: BlockStatus = "active"
+    tier: BlockTier = "e2"
     usage_count: int = 0
     success_count: int = 0
     failure_count: int = 0

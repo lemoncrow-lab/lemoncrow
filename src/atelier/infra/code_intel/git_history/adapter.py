@@ -137,7 +137,9 @@ class DeletedHistorySearchAdapter:
                 str(getattr(commit.author, "email", "") or "").lower(),
                 str(getattr(commit.author, "name", "") or "").lower(),
             )
-            if touched_by_filter is not None and all(touched_by_filter not in haystack for haystack in author_haystacks):
+            if touched_by_filter is not None and all(
+                touched_by_filter not in haystack for haystack in author_haystacks
+            ):
                 continue
             changed.update(self._commit_changed_files(repo, commit))
         frozen = frozenset(path for path in changed if path)
@@ -215,9 +217,7 @@ class DeletedHistorySearchAdapter:
                 signature_hash
             FROM symbol_graveyard
             WHERE
-            """
-            + " AND ".join(filters)
-            + " ORDER BY deleted_at_ts DESC, deleted_at_sha DESC, symbol_name ASC LIMIT ?",
+            """ + " AND ".join(filters) + " ORDER BY deleted_at_ts DESC, deleted_at_sha DESC, symbol_name ASC LIMIT ?",
             params,
         ).fetchall()
         return list(rows)
@@ -256,9 +256,7 @@ class DeletedHistorySearchAdapter:
                 rename_target,
                 signature_hash
             FROM symbol_graveyard
-            """
-            + where_clause
-            + " ORDER BY deleted_at_ts DESC, deleted_at_sha DESC, symbol_name ASC",
+            """ + where_clause + " ORDER BY deleted_at_ts DESC, deleted_at_sha DESC, symbol_name ASC",
             params,
         ).fetchall()
         return list(rows)

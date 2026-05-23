@@ -36,4 +36,3 @@ def test_summarize_workspace_usage_rolls_up_by_user(tmp_path: Path) -> None:
     assert payload["session_count"] == 2
     assert payload["total_cost_usd"] == 1.75
     assert {row["user_id"] for row in payload["users"]} == {"admin@example.com", "member@example.com"}
-

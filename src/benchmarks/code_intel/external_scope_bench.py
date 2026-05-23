@@ -90,7 +90,7 @@ def _write_external_scip_fixture(repo_root: Path) -> None:
                 "kind": "function",
                 "signature": "def get(url: str) -> str:",
                 "start_byte": 0,
-                "end_byte": len("def get(url: str) -> str:\n    return url\n".encode("utf-8")),
+                "end_byte": len(b"def get(url: str) -> str:\n    return url\n"),
                 "start_line": 1,
                 "end_line": 2,
                 "content_hash": "c" * 64,

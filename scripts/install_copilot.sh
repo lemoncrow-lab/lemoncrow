@@ -55,14 +55,16 @@ if $WORKSPACE_SET; then
     VSCODE_DIR="${WORKSPACE}/.vscode"
     MCP_JSON="${VSCODE_DIR}/mcp.json"
     INSTRUCTIONS="${WORKSPACE}/.github/copilot-instructions.md"
-    CHATMODE_DEST="${WORKSPACE}/.github/chatmodes/atelier.chatmode.md"
+    CHATMODE_DEST_DIR="${WORKSPACE}/.github/chatmodes"
+    CHATMODE_VERIFY="${CHATMODE_DEST_DIR}/atelier.chatmode.md"
     TASKS_DEST="${WORKSPACE}/.vscode/tasks.json"
 else
     INSTALL_SCOPE="global"
     VSCODE_DIR="${VSCODE_USER_DIR}"
     MCP_JSON="${VSCODE_DIR}/mcp.json"
     INSTRUCTIONS="${HOME}/.copilot/instructions/atelier.instructions.md"
-    CHATMODE_DEST=""
+    CHATMODE_DEST_DIR=""
+    CHATMODE_VERIFY=""
     TASKS_DEST="${VSCODE_USER_DIR}/tasks.json"
 fi
 
@@ -137,8 +139,8 @@ if $PRINT_ONLY; then
     echo "   (contents of ${ATELIER_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.atelier.md)"
     if $WORKSPACE_SET; then
         echo ""
-        echo "3. Copy Copilot chat mode to ${CHATMODE_DEST}:"
-        echo "   (contents of ${ATELIER_REPO}/integrations/copilot/chatmodes/atelier.chatmode.md)"
+        echo "3. Copy Copilot chat modes to ${CHATMODE_DEST_DIR}:"
+        echo "   (contents of ${ATELIER_REPO}/integrations/copilot/chatmodes/*.chatmode.md)"
     fi
     echo ""
     echo "Tasks target: ${TASKS_DEST}"
@@ -227,18 +229,22 @@ else
 fi
 
 # ---- install workspace Copilot chat mode -----------------------------------
-CHATMODE_SRC="${ATELIER_REPO}/integrations/copilot/chatmodes/atelier.chatmode.md"
+CHATMODE_SRC_DIR="${ATELIER_REPO}/integrations/copilot/chatmodes"
 if $WORKSPACE_SET; then
-    if [ -f "$CHATMODE_SRC" ]; then
-        run "mkdir -p '$(dirname "$CHATMODE_DEST")'"
-        if [ -f "$CHATMODE_DEST" ]; then
-            info "$CHATMODE_DEST already exists - not overwriting"
-        else
-            run "cp '$CHATMODE_SRC' '$CHATMODE_DEST'"
-            info "created chat mode: $CHATMODE_DEST"
-        fi
+    if compgen -G "${CHATMODE_SRC_DIR}/*.chatmode.md" > /dev/null; then
+        run "mkdir -p '$CHATMODE_DEST_DIR'"
+        for src in "$CHATMODE_SRC_DIR"/*.chatmode.md; do
+            base="$(basename "$src")"
+            dest="${CHATMODE_DEST_DIR}/${base}"
+            if [ -f "$dest" ]; then
+                info "$dest already exists - not overwriting"
+            else
+                run "cp '$src' '$dest'"
+                info "created chat mode: $dest"
+            fi
+        done
     else
-        warn "chat mode source missing: $CHATMODE_SRC"
+        warn "chat mode sources missing: ${CHATMODE_SRC_DIR}/*.chatmode.md"
     fi
 else
     info "global chat mode install skipped; use --workspace DIR for project chat modes"
@@ -330,10 +336,10 @@ else
 fi
 
 if $WORKSPACE_SET; then
-    if [ -f "$CHATMODE_DEST" ]; then
-        vpass "Copilot chat mode installed: $CHATMODE_DEST"
+    if [ -f "$CHATMODE_VERIFY" ]; then
+        vpass "Copilot chat modes installed in: $CHATMODE_DEST_DIR"
     else
-        vfail "Copilot chat mode missing: $CHATMODE_DEST"
+        vfail "Copilot baseline chat mode missing: $CHATMODE_VERIFY"
     fi
 else
     vpass "global install does not write project chat mode"

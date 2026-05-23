@@ -58,6 +58,7 @@ DO_COPILOT=false
 DO_ANTIGRAVITY=false
 EXPLICIT=false
 PASSTHROUGH=()
+CLAUDE_EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -75,6 +76,14 @@ while [[ $# -gt 0 ]]; do
             fi
             PASSTHROUGH+=("$1" "$2")
             shift
+            ;;
+        --claude-project)
+            if [ $# -ge 2 ] && [[ "$2" != --* ]]; then
+                CLAUDE_EXTRA_ARGS+=("--project" "$2")
+                shift
+            else
+                CLAUDE_EXTRA_ARGS+=("--project")
+            fi
             ;;
         *) print_message "$C_RED" "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -274,7 +283,11 @@ run_installer() {
     print_message "$C_CYAN" "──────────────────────────────────────────"
     output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-${host}.XXXXXX")"
     set +e
-    bash "$script" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1 | stream_colored_output "$output_file"
+    if [[ "$host" == "claude" ]]; then
+        bash "$script" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" "${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}" 2>&1 | stream_colored_output "$output_file"
+    else
+        bash "$script" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1 | stream_colored_output "$output_file"
+    fi
     ret=${PIPESTATUS[0]}
     set -e
     output="$(cat "$output_file")"

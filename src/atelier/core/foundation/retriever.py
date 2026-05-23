@@ -360,14 +360,27 @@ def retrieve(
     use_vector_weights: bool | None = None,
     dedup: bool = True,
     token_budget: int | None = _DEFAULT_TOKEN_BUDGET,
+    monitor_composite: float = 0.0,
+    fsm_skip_etraces: bool = False,
 ) -> list[ScoredBlock]:
     """Return top-N relevant ReasonBlocks for a task context.
+
+    Applies three-tier injection order modelled on the ReasonBlocks.com E-trace
+    system:
+      E3 (tier="e3") — universal standing rules always prepended first.
+      E2 (tier="e2") — relevance-scored failure-mode patterns (default tier).
+      E1 (tier="e1") — instance-level procedures only injected when the
+                        monitor composite score exceeds 0.15 or ctx.errors
+                        are present (mirrors the RB two-condition E1 gate).
+
+    The entire E-trace pipeline (E1/E2) is skipped when ``fsm_skip_etraces``
+    is True (FSM FAST state) — only E3 universal blocks are returned.
 
     Args:
         store: The backing store.
         ctx: The current task context.
-        limit: Maximum number of results.
-        min_score: Minimum score to include a block.
+        limit: Maximum number of results (E3 blocks are extra, not counted here).
+        min_score: Minimum relevance score for E2/E1 blocks.
         include_deprecated: Include deprecated blocks.
         vector_scores: Mapping of block_id -> cosine similarity score.
             Pass pre-computed scores from a vector search; they will be
@@ -377,6 +390,12 @@ def retrieve(
             and procedure text, keeping the highest-ranked block.
         token_budget: Greedy-pack compact rendered blocks under this token
             budget. Pass None to disable budget packing.
+        monitor_composite: Weighted composite from trajectory monitor evaluation
+            (0-1). E1 is allowed when this exceeds 0.15 even if ctx.errors is
+            empty. Mirrors the ReasonBlocks.com E1 gate threshold.
+        fsm_skip_etraces: When True (FSM FAST state) skip the entire E-trace
+            pipeline — only E3 universal blocks are returned. Monitor evaluation
+            still runs on the caller side; this flag only gates retrieval.
     """
     candidates: list[ReasonBlock] = []
 
@@ -389,6 +408,10 @@ def retrieve(
     #    can match even if FTS misses them.
     if ctx.domain:
         candidates.extend(store.list_blocks(domain=ctx.domain))
+
+    # 3. Always load E3 (universal) blocks across all domains — they are
+    #    standing rules that apply regardless of domain match.
+    candidates.extend(store.list_blocks(status="active"))
 
     # Deduplicate by id while preserving order.
     seen: set[str] = set()
@@ -403,6 +426,26 @@ def retrieve(
         seen.add(b.id)
         unique.append(b)
 
+    # Partition E3 blocks first (always injected).
+    e3_blocks: list[ReasonBlock] = [b for b in unique if b.tier == "e3"]
+    e3_scored = [ScoredBlock(block=b, score=1.0, breakdown={"tier": 1.0}) for b in e3_blocks]
+
+    # When FSM is in FAST state, skip the entire E-trace pipeline (E1/E2).
+    # Monitors still evaluated on the caller side; only retrieval is gated.
+    if fsm_skip_etraces:
+        return e3_scored
+
+    # Gate E1 blocks: allow when monitor composite > 0.15 (RB gate threshold)
+    # OR when ctx.errors are present — same two-condition gate as RB.
+    e1_allowed = monitor_composite > 0.15 or bool(ctx.errors)
+    filtered: list[ReasonBlock] = []
+    for b in unique:
+        if b.tier == "e3":
+            continue  # already handled above
+        if b.tier == "e1" and not e1_allowed:
+            continue  # E1 gated: neither monitor signal nor errors present
+        filtered.append(b)
+
     scored = [
         score_block(
             b,
@@ -410,15 +453,18 @@ def retrieve(
             vector_score=(vector_scores or {}).get(b.id),
             use_vector_weights=use_vector_weights,
         )
-        for b in unique
+        for b in filtered
     ]
     scored = [s for s in scored if s.score >= min_score]
     scored.sort(key=lambda s: s.score, reverse=True)
     if dedup:
         scored = deduplicate_scored_blocks(scored)
-    return pack_by_reasonblock_token_budget(
+    e2_e1_results = pack_by_reasonblock_token_budget(
         scored,
         lambda item: item.block,
         limit=limit,
         token_budget=token_budget,
     )
+
+    # Prepend E3 blocks (always injected, not subject to limit or min_score).
+    return e3_scored + e2_e1_results

@@ -133,7 +133,13 @@ class CrossVendorRouteAdvisor:
             "risk_class": config.risk_class,
             "recommendation_count": route_event_count,
             "estimated_savings_usd": round(estimated_savings, 6),
-            "active_lesson_count": len([lesson for lesson in lesson_store.list_lessons() if lesson.is_active_at(datetime.now(UTC), scope=lesson.scope)]),
+            "active_lesson_count": len(
+                [
+                    lesson
+                    for lesson in lesson_store.list_lessons()
+                    if lesson.is_active_at(datetime.now(UTC), scope=lesson.scope)
+                ]
+            ),
             "lesson_application_count": lesson_application_count,
             "cost_cap_trigger_count": cost_cap_trigger_count,
         }

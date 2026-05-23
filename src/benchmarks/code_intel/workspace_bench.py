@@ -67,8 +67,7 @@ def _write_workspace_repo(root: Path, *, module_name: str) -> None:
     (root / "src").mkdir(parents=True, exist_ok=True)
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "src" / "config.py").write_text(
-        "class SharedConfig:\n"
-        f"    SOURCE = '{module_name}'\n",
+        "class SharedConfig:\n" f"    SOURCE = '{module_name}'\n",
         encoding="utf-8",
     )
 

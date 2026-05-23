@@ -281,7 +281,9 @@ def emit_typed_lesson_candidate(
         recurring = [
             outcome
             for outcome in outcomes
-            if outcome.get("recommended_vendor") and outcome.get("recommended_model") and not outcome.get("recommendation_followed")
+            if outcome.get("recommended_vendor")
+            and outcome.get("recommended_model")
+            and not outcome.get("recommendation_followed")
         ]
         if len(recurring) < min_occurrences:
             return None

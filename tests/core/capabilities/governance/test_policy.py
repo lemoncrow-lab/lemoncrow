@@ -3,7 +3,14 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from atelier.core.capabilities.governance import GovernancePolicy, RedactionRule, load_policy, redact_record, record_within_retention, save_policy
+from atelier.core.capabilities.governance import (
+    GovernancePolicy,
+    RedactionRule,
+    load_policy,
+    record_within_retention,
+    redact_record,
+    save_policy,
+)
 
 
 def test_policy_redacts_and_filters_by_retention(tmp_path: Path) -> None:
@@ -20,4 +27,3 @@ def test_policy_redacts_and_filters_by_retention(tmp_path: Path) -> None:
     assert loaded.retention_days["memory"] == 1
     assert record_within_retention(old_record, record_type="memory", policy=loaded) is False
     assert redact_record(new_record, loaded)["content"] == "[MASKED] token"
-

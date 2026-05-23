@@ -14,25 +14,19 @@ def _write_cross_lang_repo(root: Path) -> None:
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "plugins" / "__init__.py").write_text("", encoding="utf-8")
     (root / "plugins" / "worker.py").write_text(
-        "def plugin_entry() -> str:\n"
-        "    return 'worker'\n",
+        "def plugin_entry() -> str:\n" "    return 'worker'\n",
         encoding="utf-8",
     )
     (root / "scripts" / "worker.py").write_text(
-        "def main() -> int:\n"
-        "    return 1\n",
+        "def main() -> int:\n" "    return 1\n",
         encoding="utf-8",
     )
     (root / "src" / "local_worker.py").write_text(
-        "from scripts.worker import main\n\n"
-        "def call_local() -> int:\n"
-        "    return main()\n",
+        "from scripts.worker import main\n\n" "def call_local() -> int:\n" "    return main()\n",
         encoding="utf-8",
     )
     (root / "native" / "worker.c").write_text(
-        "int foo_compute(int value) {\n"
-        "    return value;\n"
-        "}\n",
+        "int foo_compute(int value) {\n" "    return value;\n" "}\n",
         encoding="utf-8",
     )
     (root / "src" / "ffi_user.py").write_text(

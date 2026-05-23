@@ -101,13 +101,13 @@ def test_cli_letta_commands_route_to_compose(monkeypatch: pytest.MonkeyPatch) ->
     runner = CliRunner()
 
     up = runner.invoke(cli, ["letta", "up"])
-    logs = runner.invoke(cli, ["letta", "logs", "-f"])
+    down = runner.invoke(cli, ["letta", "down"])
     reset = runner.invoke(cli, ["letta", "reset", "--yes"])
 
     assert up.exit_code == 0, up.output
-    assert logs.exit_code == 0, logs.output
+    assert down.exit_code == 0, down.output
     assert reset.exit_code == 0, reset.output
-    assert calls == [["up", "-d"], ["logs", "-f"], ["down", "-v"]]
+    assert calls == [["up", "-d"], ["down"], ["down", "-v"]]
 
 
 def test_cli_letta_reset_requires_confirmation() -> None:

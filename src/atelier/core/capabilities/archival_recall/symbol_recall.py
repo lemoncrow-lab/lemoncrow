@@ -203,10 +203,14 @@ class SymbolRecallCapability:
         patterns = self._symbol_patterns(symbol)
         passages: list[ArchivalPassage] = []
         for current_agent_id in self._agent_ids(agent_id):
-            passages.extend(self._memory_store.search_passages(current_agent_id, query, top_k=max(top_k * 5, 10), since=since))
+            passages.extend(
+                self._memory_store.search_passages(current_agent_id, query, top_k=max(top_k * 5, 10), since=since)
+            )
         deduped = {passage.id: passage for passage in passages}.values()
         tagged = [passage for passage in deduped if f"symbol:{symbol_id}" in passage.tags]
-        matched = tagged or [passage for passage in deduped if any(pattern.search(passage.text) for pattern in patterns)]
+        matched = tagged or [
+            passage for passage in deduped if any(pattern.search(passage.text) for pattern in patterns)
+        ]
         return [
             {
                 "item_type": "passage",
@@ -223,7 +227,9 @@ class SymbolRecallCapability:
         patterns = self._symbol_patterns(symbol)
         file_path = str(symbol["file_path"])
         traces = self._trace_store.list_traces(since=since, limit=50)
-        matched = [trace for trace in traces if self._trace_matches_symbol(trace, file_path=file_path, patterns=patterns)]
+        matched = [
+            trace for trace in traces if self._trace_matches_symbol(trace, file_path=file_path, patterns=patterns)
+        ]
         return [
             {
                 "id": trace.id,

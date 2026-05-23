@@ -6,18 +6,20 @@ import pytest
 
 from atelier.infra.embeddings.base import Embedder
 from atelier.infra.embeddings.factory import make_embedder
+from atelier.infra.embeddings.local import LocalEmbedder
 from atelier.infra.embeddings.null_embedder import NullEmbedder
 from atelier.infra.embeddings.openai_embedder import OpenAIEmbedder
 
 
 def test_make_embedder_returns_local_in_stripped_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without OPENAI_API_KEY and Letta, default to the offline local embedder."""
+    """Without explicit pins, sqlite memory backend defaults to local embeddings."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ATELIER_LETTA_URL", raising=False)
     monkeypatch.delenv("ATELIER_EMBEDDER", raising=False)
+    monkeypatch.delenv("ATELIER_MEMORY_BACKEND", raising=False)
 
     e = make_embedder()
-    assert isinstance(e, NullEmbedder)
+    assert isinstance(e, LocalEmbedder)
     assert isinstance(e, Embedder)
 
 

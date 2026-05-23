@@ -13,13 +13,17 @@ Confidence formula:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from atelier.core.foundation.models import (
     CommandRecord,
     FileEditRecord,
     ReasonBlock,
+    ToolCall,
     Trace,
+    ValidationResult,
     slugify,
 )
 
@@ -29,6 +33,35 @@ class CandidateBlock:
     block: ReasonBlock
     confidence: float
     reasons: list[str]
+
+
+_TRIGGER_STOPWORDS = {
+    "with",
+    "from",
+    "into",
+    "this",
+    "that",
+    "when",
+    "where",
+    "what",
+    "your",
+    "have",
+    "been",
+    "will",
+    "does",
+    "just",
+}
+_COMMAND_WRAPPER_TOKENS = {
+    "uv",
+    "run",
+    "python",
+    "python3",
+    "env",
+    "bash",
+    "sh",
+    "time",
+    "nohup",
+}
 
 
 def extract_candidate(trace: Trace) -> CandidateBlock:
@@ -81,26 +114,48 @@ def _derive_situation(trace: Trace) -> str:
 
 
 def _derive_triggers(trace: Trace) -> list[str]:
-    triggers: list[str] = []
-    for word in trace.task.split():
-        if len(word) > 3 and word.isalpha():
-            triggers.append(word.lower())
-    return list(dict.fromkeys(triggers))[:10]
+    parts: list[str] = [trace.task, *trace.errors_seen]
+    parts.extend(_trace_file_path(item) for item in trace.files_touched)
+    parts.extend(_trace_tool_name(item) for item in trace.tools_called)
+    parts.extend(_trace_command_text(item) for item in trace.commands_run)
+    blob = " ".join(part for part in parts if part)
+    blob = re.sub(r"([a-z])([A-Z])", r"\1 \2", blob)
+    tokens = re.findall(r"[a-z0-9_./-]+", blob.lower())
+    filtered: list[str] = []
+    for token in tokens:
+        for piece in re.split(r"[^a-z0-9]+", token):
+            if len(piece) < 3 or piece in _TRIGGER_STOPWORDS:
+                continue
+            filtered.append(piece)
+    return list(dict.fromkeys(filtered))[:16]
 
 
 def _derive_file_patterns(trace: Trace) -> list[str]:
     out: list[str] = []
     for f in trace.files_touched:
         path = _trace_file_path(f)
+        if not path:
+            continue
         parts = path.split("/")
         pattern = "/".join(parts[:-1]) + "/**" if len(parts) >= 2 else parts[0]
         if pattern not in out:
             out.append(pattern)
-    return out[:8]
+        file_path = "/".join(parts)
+        if file_path not in out:
+            out.append(file_path)
+    return out[:12]
 
 
 def _derive_tool_patterns(trace: Trace) -> list[str]:
-    return list(dict.fromkeys(t.name for t in trace.tools_called))[:8]
+    patterns = [item.name for item in trace.tools_called if item.name]
+    for command in trace.commands_run:
+        text = _trace_command_text(command).strip()
+        if not text:
+            continue
+        exe = _infer_command_tool(text)
+        if exe:
+            patterns.append(exe)
+    return list(dict.fromkeys(patterns))[:12]
 
 
 def _derive_dead_ends(trace: Trace) -> list[str]:
@@ -116,10 +171,18 @@ def _derive_procedure(trace: Trace) -> list[str]:
     if trace.diff_summary:
         steps.append(f"Apply change: {trace.diff_summary}")
     for cmd in trace.commands_run:
-        steps.append(f"Run: {_trace_command_text(cmd)}")
+        cmd_text = _trace_command_text(cmd).strip()
+        if not cmd_text:
+            continue
+        suffix = ""
+        if isinstance(cmd, CommandRecord) and cmd.exit_code is not None:
+            suffix = f" (exit {cmd.exit_code})"
+        steps.append(f"Run: {cmd_text}{suffix}")
+    for validation in trace.validation_results:
+        steps.append(f"Verify: {_trace_validation_text(validation)}")
     if trace.output_summary:
         steps.append(f"Confirm: {trace.output_summary}")
-    return steps[:8]
+    return list(dict.fromkeys(steps))[:10]
 
 
 def _trace_file_path(item: str | FileEditRecord) -> str:
@@ -128,6 +191,28 @@ def _trace_file_path(item: str | FileEditRecord) -> str:
 
 def _trace_command_text(item: str | CommandRecord) -> str:
     return item if isinstance(item, str) else item.command
+
+
+def _trace_tool_name(item: ToolCall) -> str:
+    return item.name
+
+
+def _trace_validation_text(item: ValidationResult) -> str:
+    state = "passed" if item.passed else "failed"
+    detail = f" ({item.detail})" if item.detail else ""
+    return f"{item.name} {state}{detail}"
+
+
+def _infer_command_tool(command: str) -> str:
+    tokens = [token for token in re.split(r"\s+", command.strip()) if token]
+    for token in tokens:
+        base = Path(token).name
+        if not base or base.startswith("-"):
+            continue
+        if base in _COMMAND_WRAPPER_TOKENS:
+            continue
+        return base
+    return ""
 
 
 def _derive_verification(trace: Trace) -> list[str]:

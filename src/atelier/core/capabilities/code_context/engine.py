@@ -7,10 +7,12 @@ import contextlib
 import fnmatch
 import hashlib
 import json
+import os
 import re
 import shutil
 import sqlite3
 import subprocess
+import time
 from bisect import bisect_right
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -26,7 +28,9 @@ from atelier.core.capabilities.code_context.budget import (
 from atelier.core.capabilities.code_context.cache import RetrievalCache
 from atelier.core.capabilities.code_context.call_graph import (
     CallGraphDirection,
+    CallGraphEdge,
     CallGraphNode,
+    CallGraphTraversalResult,
     build_call_graph_payload,
     traverse_call_graph,
 )
@@ -36,12 +40,14 @@ from atelier.core.capabilities.code_context.embedding import (
     resolve_search_mode,
     semantic_candidate_limit,
 )
-from atelier.core.capabilities.code_context.intel_store import SymbolIntelStore
+from atelier.core.capabilities.code_context.intel_store import ProviderHealth, SymbolIntelStore
 from atelier.core.capabilities.code_context.models import (
     ContextPack,
     CrossLangReference,
     ImpactResult,
+    IndexedFileRecord,
     IndexStats,
+    RouteRecord,
     SymbolRecord,
     TextMatch,
     UsageReference,
@@ -71,6 +77,22 @@ _JS_IMPORT_RE = re.compile(
 )
 _RUST_MOD_RE = re.compile(r"^\s*(?:pub\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", re.M)
 _GO_IMPORT_RE = re.compile(r"^\s*import\s+(?:\((.*?)\)|\"([^\"]+)\")", re.M | re.S)
+_FASTAPI_DECORATOR_RE = re.compile(
+    r"^\s*@(?P<router>[A-Za-z_][A-Za-z0-9_]*)\.(?P<verb>get|post|put|patch|delete|options|head|trace|websocket)\(\s*['\"](?P<route>[^'\"]+)['\"]"
+)
+_FASTAPI_API_ROUTE_RE = re.compile(
+    r"^\s*@(?P<router>[A-Za-z_][A-Za-z0-9_]*)\.api_route\(\s*['\"](?P<route>[^'\"]+)['\"](?P<rest>.*)\)\s*$"
+)
+_FLASK_ROUTE_RE = re.compile(
+    r"^\s*@(?P<router>[A-Za-z_][A-Za-z0-9_]*)\.route\(\s*['\"](?P<route>[^'\"]+)['\"](?P<rest>.*)\)\s*$"
+)
+_DJANGO_PATH_RE = re.compile(
+    r"^\s*(?:re_)?path\(\s*['\"](?P<route>[^'\"]+)['\"]\s*,\s*(?P<handler>[A-Za-z_][A-Za-z0-9_\.]*)"
+)
+_EXPRESS_ROUTE_RE = re.compile(
+    r"(?P<router>app|router)\.(?P<verb>get|post|put|patch|delete|options|head|all|use)\(\s*[`'\"](?P<route>[^`'\"]+)[`'\"]\s*(?:,\s*(?P<handler>[A-Za-z_$][A-Za-z0-9_$.]*))?"
+)
+_METHOD_LITERAL_RE = re.compile(r"['\"](?P<method>GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|TRACE|CONNECT)['\"]", re.I)
 _LOCAL_PROVENANCE = "local"
 _SEARCH_ESSENTIAL_KEYS = [
     "symbol_id",
@@ -85,7 +107,16 @@ _SEARCH_ESSENTIAL_KEYS = [
     "origin",
     "provenance",
 ]
-_SEARCH_OPTIONAL_KEYS = ["snippet", "doc_summary", "score", "repo_id", "content_hash", "parent_symbol", "start_byte", "end_byte"]
+_SEARCH_OPTIONAL_KEYS = [
+    "snippet",
+    "doc_summary",
+    "score",
+    "repo_id",
+    "content_hash",
+    "parent_symbol",
+    "start_byte",
+    "end_byte",
+]
 _DELETED_SEARCH_ESSENTIAL_KEYS = [
     *_SEARCH_ESSENTIAL_KEYS,
     "deleted_at",
@@ -99,6 +130,10 @@ _DELETED_SEARCH_OPTIONAL_KEYS = [
     "matched_on",
 ]
 _OUTLINE_ESSENTIAL_KEYS = ["file_path", "name", "qualified_name", "kind", "signature", "line_start", "line_end"]
+_FILES_ESSENTIAL_KEYS = ["file_path"]
+_FILES_OPTIONAL_KEYS = ["top_symbols", "symbol_count", "language"]
+_ROUTES_ESSENTIAL_KEYS = ["framework", "method", "route", "file_path", "line", "provenance"]
+_ROUTES_OPTIONAL_KEYS = ["handler", "router", "language"]
 _SYMBOL_ESSENTIAL_KEYS = [
     "symbol_id",
     "symbol_name",
@@ -141,12 +176,44 @@ _CONTEXT_ESSENTIAL_KEYS = [
     "content",
     "provenance",
 ]
+_EXPLORE_ESSENTIAL_KEYS = [
+    "query",
+    "repo_id",
+    "entry_points",
+    "files",
+    "relationships",
+    "additional_relevant_files",
+    "truncated",
+    "provenance",
+]
+_EXPLORE_OPTIONAL_KEYS = ["relationships", "files", "additional_relevant_files"]
 _IMPACT_ESSENTIAL_KEYS = ["file_path", "direct_importers", "affected_tests", "risk_level", "provenance"]
 _USAGES_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column", "provenance"]
 _USAGES_OPTIONAL_KEYS = ["snippet", "caller", "edge_kind", "confidence"]
 _PATTERN_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column", "captures"]
 _PATTERN_OPTIONAL_KEYS = ["snippet"]
-_CACHE_STATUS_ESSENTIAL_KEYS = ["repo_id", "index_version", "entry_count", "entries_by_tool", "total_bytes", "max_bytes"]
+_STATUS_ESSENTIAL_KEYS = [
+    "repo_id",
+    "repo_root",
+    "db_path",
+    "index_version",
+    "index",
+    "cache",
+    "providers",
+    "provider_freshness",
+    "warnings",
+    "freshness",
+    "autosync",
+    "provenance",
+]
+_CACHE_STATUS_ESSENTIAL_KEYS = [
+    "repo_id",
+    "index_version",
+    "entry_count",
+    "entries_by_tool",
+    "total_bytes",
+    "max_bytes",
+]
 _CACHE_INVALIDATE_ESSENTIAL_KEYS = ["repo_id", "index_version", "invalidated_entries", "entries_by_tool", "scope"]
 _CALL_GRAPH_ESSENTIAL_KEYS = ["target", "direction", "depth", "related", "edges", "data_status", "provenance"]
 _CALL_GRAPH_OPTIONAL_KEYS = ["related_count", "edge_count", "truncated", "message", "snapshot"]
@@ -165,9 +232,15 @@ _BLAME_ESSENTIAL_KEYS = [
     "provenance",
 ]
 _BLAME_OPTIONAL_KEYS = ["index_sha", "head_sha", "last_modified", "last_commit_summary", "hunks", "churn"]
+_OVERFLOW_SPILL_MIN_EXCESS_TOKENS = 128
+_OVERFLOW_SPILL_MIN_REDUCTION_TOKENS = 256
 DeletedHistoryItem = dict[str, Any]
 _CACHE_TOOL_ALIASES = {
     "all": None,
+    "explore": "code.explore",
+    "files": "code.files",
+    "status": "code.status",
+    "routes": "code.routes",
     "search": "code.search",
     "symbol": "code.symbol",
     "outline": "code.outline",
@@ -329,6 +402,10 @@ class CodeContextEngine:
             local_find_callees=self._find_callees_local,
         )
         self._deleted_history_search_adapter: DeletedHistorySearchAdapter | None = None
+        self._autosync_enabled = os.getenv("ATELIER_CODE_AUTOSYNC", "").strip().lower() in {"1", "true", "yes", "on"}
+        self._autosync_debounce_ms = self._parse_autosync_debounce(os.getenv("ATELIER_CODE_AUTOSYNC_DEBOUNCE_MS"))
+        self._autosync_last_event_at: str | None = None
+        self._autosync_pending_events = 0
         self._register_symbol_intel_providers()
 
     def index_repo(
@@ -578,7 +655,15 @@ class CodeContextEngine:
                     "provenance": "blame",
                 },
                 budget_tokens=budget_tokens,
-                essential_keys=["error", "hint", "symbol_name", "qualified_name", "file_path", "freshness", "provenance"],
+                essential_keys=[
+                    "error",
+                    "hint",
+                    "symbol_name",
+                    "qualified_name",
+                    "file_path",
+                    "freshness",
+                    "provenance",
+                ],
                 optional_keys_in_drop_order=["index_sha", "head_sha"],
             )
             self._cache_set("code.blame", cache_args, payload)
@@ -652,11 +737,7 @@ class CodeContextEngine:
         sym: dict[str, Any]
 
         positional_lookup = (
-            file_path is not None
-            and line is not None
-            and not symbol_id
-            and not qualified_name
-            and not symbol_name
+            file_path is not None and line is not None and not symbol_id and not qualified_name and not symbol_name
         )
         if positional_lookup:
             normalized = self._normalize_file_arg(file_path)  # type: ignore[arg-type]
@@ -754,7 +835,9 @@ class CodeContextEngine:
         refs: list[CrossLangReference] = []
         for edge in self._cross_lang_store().query_by_source_symbol(symbol_id):
             refs.append(self._symbol_cross_lang_ref(edge, direction="outgoing"))
-        for edge in self._cross_lang_store().query_by_target_symbol(tgt_symbol_id=symbol_id, tgt_symbol_name=symbol_name):
+        for edge in self._cross_lang_store().query_by_target_symbol(
+            tgt_symbol_id=symbol_id, tgt_symbol_name=symbol_name
+        ):
             refs.append(self._symbol_cross_lang_ref(edge, direction="incoming"))
         if not refs:
             return payload
@@ -867,6 +950,331 @@ class CodeContextEngine:
             build_payload=build_payload,
         )
         self._cache_set("code.outline", cache_args, payload)
+        return payload
+
+    def tool_files(
+        self,
+        *,
+        path: str | None = None,
+        pattern: str | None = None,
+        format: Literal["tree", "flat", "grouped"] = "tree",
+        include_metadata: bool = True,
+        max_depth: int | None = None,
+        budget_tokens: int = 4000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        if max_depth is not None and max_depth < 0:
+            raise ValueError("max_depth must be >= 0")
+        normalized_path = self._normalize_files_path(path)
+        normalized_pattern = (pattern or "").strip() or None
+        cache_args = {
+            "path": normalized_path,
+            "pattern": normalized_pattern,
+            "format": format,
+            "include_metadata": include_metadata,
+            "max_depth": max_depth,
+            "budget_tokens": budget_tokens,
+        }
+        hit, cached = self._cache_get("code.files", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+
+        items = self._indexed_file_records(path=normalized_path, pattern=normalized_pattern, max_depth=max_depth)
+        essential_keys = list(_FILES_ESSENTIAL_KEYS)
+        if format == "grouped":
+            essential_keys.append("language")
+        optional_keys = _FILES_OPTIONAL_KEYS if include_metadata else []
+        full_payload = self._build_files_payload(
+            items,
+            path=normalized_path,
+            pattern=normalized_pattern,
+            format=format,
+            include_metadata=include_metadata,
+            truncated=False,
+        )
+        full_total_tokens = self._compute_total_tokens({**full_payload, "tokens_saved": 0})
+
+        def build_payload(packed_items: list[dict[str, Any]]) -> dict[str, Any]:
+            return self._finalize_packed_payload(
+                self._build_files_payload(
+                    packed_items,
+                    path=normalized_path,
+                    pattern=normalized_pattern,
+                    format=format,
+                    include_metadata=include_metadata,
+                    truncated=len(packed_items) < len(items),
+                ),
+                full_total_tokens=full_total_tokens,
+            )
+
+        packed = self._fit_items_to_budget(
+            items,
+            budget_tokens=budget_tokens,
+            essential_keys=essential_keys,
+            optional_keys_in_drop_order=optional_keys,
+            build_payload=build_payload,
+        )
+        payload = self._maybe_attach_overflow_metadata(
+            packed_payload=packed,
+            full_payload=full_payload,
+            full_total_tokens=full_total_tokens,
+            budget_tokens=budget_tokens,
+        )
+        self._cache_set("code.files", cache_args, payload)
+        return payload
+
+    def tool_explore(
+        self,
+        query: str,
+        *,
+        seed_files: list[str] | None = None,
+        max_files: int = 8,
+        max_symbols: int = 30,
+        include_source: bool = True,
+        include_relationships: bool = True,
+        line_numbers: bool = True,
+        depth: int = 1,
+        budget_tokens: int = 12000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+
+        bounded_max_symbols = max(1, min(max_symbols, 30))
+        bounded_max_files = max(1, min(max_files, 8))
+        bounded_depth = max(1, depth)
+        normalized_seeds = [self._normalize_file_arg(seed) for seed in seed_files or []]
+        seed_set = set(normalized_seeds)
+        cache_args = {
+            "query": query,
+            "seed_files": normalized_seeds,
+            "max_files": bounded_max_files,
+            "max_symbols": bounded_max_symbols,
+            "include_source": include_source,
+            "include_relationships": include_relationships,
+            "line_numbers": line_numbers,
+            "depth": bounded_depth,
+            "budget_tokens": budget_tokens,
+        }
+        hit, cached = self._cache_get("code.explore", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+
+        raw_symbols = self.search_symbols(
+            query,
+            limit=bounded_max_symbols,
+            snippet="none",
+            auto_index=False,
+        )
+        ranked_symbols = sorted(
+            raw_symbols,
+            key=lambda record: (
+                0 if record.file_path in seed_set else 1,
+                -(record.score or 0.0),
+                record.file_path,
+                record.start_line,
+            ),
+        )
+        selected_symbols = ranked_symbols[:bounded_max_symbols]
+        selected_files: list[str] = []
+        by_file: dict[str, list[SymbolRecord]] = {}
+        for symbol in selected_symbols:
+            by_file.setdefault(symbol.file_path, []).append(symbol)
+            if symbol.file_path not in selected_files:
+                selected_files.append(symbol.file_path)
+        selected_files = selected_files[:bounded_max_files]
+        trimmed_symbols = [symbol for symbol in selected_symbols if symbol.file_path in set(selected_files)]
+        trimmed_by_file: dict[str, list[SymbolRecord]] = {}
+        for symbol in trimmed_symbols:
+            trimmed_by_file.setdefault(symbol.file_path, []).append(symbol)
+
+        entry_points = [
+            {
+                "symbol_id": symbol.symbol_id,
+                "symbol_name": symbol.symbol_name,
+                "qualified_name": symbol.qualified_name,
+                "file_path": symbol.file_path,
+                "kind": symbol.kind,
+                "start_line": symbol.start_line,
+                "end_line": symbol.end_line,
+                "score": symbol.score,
+                "provenance": symbol.provenance,
+            }
+            for symbol in trimmed_symbols
+        ]
+
+        files_payload: list[dict[str, Any]] = []
+        for file_path in selected_files:
+            symbols = trimmed_by_file.get(file_path, [])
+            file_entry: dict[str, Any] = {
+                "file_path": file_path,
+                "language": symbols[0].language if symbols else "unknown",
+                "symbols": [
+                    {
+                        "symbol_id": symbol.symbol_id,
+                        "symbol_name": symbol.symbol_name,
+                        "qualified_name": symbol.qualified_name,
+                        "kind": symbol.kind,
+                        "start_line": symbol.start_line,
+                        "end_line": symbol.end_line,
+                        "provenance": symbol.provenance,
+                    }
+                    for symbol in symbols
+                ],
+            }
+            if include_source:
+                sections = [
+                    self._source_section_for_symbol(symbol, line_numbers=line_numbers)
+                    for symbol in symbols
+                ]
+                merged_sections = self._merge_nearby_source_sections(sections)
+                file_entry["source_sections"] = merged_sections
+            files_payload.append(file_entry)
+
+        relationships: dict[str, list[dict[str, Any]]] = {"callers": [], "callees": [], "usages": []}
+        if include_relationships:
+            for symbol in trimmed_symbols[:3]:
+                callers = self.tool_callers(
+                    symbol_id=symbol.symbol_id,
+                    depth=bounded_depth,
+                    limit=20,
+                    budget_tokens=max(600, budget_tokens // 6),
+                    auto_index=False,
+                )
+                if "error" not in callers:
+                    relationships["callers"].append(
+                        {
+                            "symbol_id": symbol.symbol_id,
+                            "symbol_name": symbol.symbol_name,
+                            "related": callers.get("related", []),
+                            "edges": callers.get("edges", []),
+                        }
+                    )
+                callees = self.tool_callees(
+                    symbol_id=symbol.symbol_id,
+                    depth=bounded_depth,
+                    limit=20,
+                    budget_tokens=max(600, budget_tokens // 6),
+                    auto_index=False,
+                )
+                if "error" not in callees:
+                    relationships["callees"].append(
+                        {
+                            "symbol_id": symbol.symbol_id,
+                            "symbol_name": symbol.symbol_name,
+                            "related": callees.get("related", []),
+                            "edges": callees.get("edges", []),
+                        }
+                    )
+                references = self.find_references(
+                    symbol_id=symbol.symbol_id,
+                    group_by="none",
+                    snippet_lines=0,
+                    limit=20,
+                    auto_index=False,
+                    budget_tokens=max(600, budget_tokens // 6),
+                )
+                if "error" not in references:
+                    refs_payload = references.get("references", [])
+                    if isinstance(refs_payload, list):
+                        relationships["usages"].append(
+                            {
+                                "symbol_id": symbol.symbol_id,
+                                "symbol_name": symbol.symbol_name,
+                                "references": refs_payload,
+                            }
+                        )
+
+        additional_relevant_files = [
+            symbol.file_path
+            for symbol in ranked_symbols
+            if symbol.file_path not in set(selected_files)
+        ][:20]
+        full_payload = {
+            "query": query,
+            "repo_id": self.repo_id,
+            "entry_points": entry_points,
+            "files": files_payload,
+            "relationships": relationships,
+            "additional_relevant_files": additional_relevant_files,
+            "truncated": len(selected_symbols) > len(trimmed_symbols),
+            "cache_hit": False,
+            "provenance": _LOCAL_PROVENANCE,
+        }
+        packed = self._pack_single_payload(
+            full_payload,
+            budget_tokens=budget_tokens,
+            essential_keys=_EXPLORE_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=_EXPLORE_OPTIONAL_KEYS,
+        )
+        self._cache_set("code.explore", cache_args, packed)
+        return packed
+
+    def tool_routes(
+        self,
+        *,
+        file_glob: str | None = None,
+        language: str | None = None,
+        limit: int = 200,
+        budget_tokens: int = 4000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        normalized_language = language.lower().strip() if isinstance(language, str) and language.strip() else None
+        cache_args = {
+            "file_glob": file_glob,
+            "language": normalized_language,
+            "limit": limit,
+            "budget_tokens": budget_tokens,
+        }
+        hit, cached = self._cache_get("code.routes", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+
+        routes, source_truncated = self._indexed_route_records(
+            file_glob=file_glob,
+            language=normalized_language,
+            limit=max(1, limit),
+        )
+        full_payload = self._build_routes_payload(
+            routes,
+            file_glob=file_glob,
+            language=normalized_language,
+            truncated=source_truncated,
+        )
+        full_total_tokens = self._compute_total_tokens({**full_payload, "tokens_saved": 0})
+
+        def build_payload(packed_items: list[dict[str, Any]]) -> dict[str, Any]:
+            return self._finalize_packed_payload(
+                self._build_routes_payload(
+                    packed_items,
+                    file_glob=file_glob,
+                    language=normalized_language,
+                    truncated=source_truncated or len(packed_items) < len(routes),
+                ),
+                full_total_tokens=full_total_tokens,
+            )
+
+        packed = self._fit_items_to_budget(
+            routes,
+            budget_tokens=budget_tokens,
+            essential_keys=_ROUTES_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=_ROUTES_OPTIONAL_KEYS,
+            build_payload=build_payload,
+        )
+        payload = self._maybe_attach_overflow_metadata(
+            packed_payload=packed,
+            full_payload=full_payload,
+            full_total_tokens=full_total_tokens,
+            budget_tokens=budget_tokens,
+        )
+        self._cache_set("code.routes", cache_args, payload)
         return payload
 
     def tool_context(
@@ -1113,6 +1521,145 @@ class CodeContextEngine:
             self._reindex_files(rewrite_result.files_changed)
         return self._pack_pattern_rewrite(rewrite_result, budget_tokens=budget_tokens)
 
+    def tool_status(
+        self,
+        *,
+        budget_tokens: int = 2000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        cache_args = {
+            "budget_tokens": budget_tokens,
+            "index_version": self._current_index_version(),
+            "autosync_enabled": self._autosync_enabled,
+            "autosync_debounce_ms": self._autosync_debounce_ms,
+            "head_sha": self._safe_current_head_sha(),
+        }
+        hit, cached = self._cache_get("code.status", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+        index_stats = self._index_snapshot()
+        cache_stats = self._cache.stats(
+            repo_id=self.repo_id,
+            index_version=self._current_index_version(),
+            tool_name=None,
+        )
+        stale_after_seconds = 86_400
+        files_indexed = int(index_stats.get("files_indexed", 0) or 0)
+        index_age_seconds = index_stats.get("index_age_seconds")
+        if files_indexed <= 0:
+            freshness_status = "empty"
+            freshness_reason = "no indexed files"
+        elif isinstance(index_age_seconds, int) and index_age_seconds > stale_after_seconds:
+            freshness_status = "stale"
+            freshness_reason = "index older than stale threshold"
+        else:
+            freshness_status = "fresh"
+            freshness_reason = "index within freshness threshold"
+
+        provider_thresholds = {
+            "required_health_status": "ok",
+            "require_index_head_match_for_scip": True,
+        }
+        head_sha = self._safe_current_head_sha()
+        warnings: list[dict[str, Any]] = []
+        provider_counts = {"ok": 0, "degraded": 0, "unhealthy": 0}
+        providers: list[dict[str, Any]] = []
+        for provider in self.intel_store.providers:
+            provider_name = str(getattr(provider, "name", provider.__class__.__name__.lower()))
+            entry: dict[str, Any] = {"name": provider_name}
+            try:
+                health = provider.health()
+            except Exception as exc:
+                health = ProviderHealth(status="unhealthy", reason=str(exc))
+            if isinstance(health, ProviderHealth):
+                entry["status"] = health.status
+                entry["ok"] = health.ok
+                if health.reason:
+                    entry["reason"] = health.reason
+            else:
+                ok = bool(health)
+                entry["status"] = "ok" if ok else "unhealthy"
+                entry["ok"] = ok
+            provider_status = str(entry.get("status") or "unhealthy")
+            if provider_status in provider_counts:
+                provider_counts[provider_status] += 1
+            if provider_status != "ok":
+                warnings.append(
+                    {
+                        "code": "provider_health_not_ok",
+                        "level": "warning",
+                        "provider": provider_name,
+                        "message": f"provider '{provider_name}' health is {provider_status}",
+                    }
+                )
+            index_sha_fn = getattr(provider, "index_sha", None)
+            if callable(index_sha_fn):
+                with contextlib.suppress(Exception):
+                    index_sha = index_sha_fn()
+                    if index_sha:
+                        entry["index_sha"] = str(index_sha)
+            if provider_name == "scip":
+                if head_sha is not None:
+                    entry["head_sha"] = head_sha
+                index_sha = entry.get("index_sha")
+                if isinstance(index_sha, str) and head_sha:
+                    if index_sha == head_sha:
+                        entry["freshness"] = "fresh"
+                    else:
+                        entry["freshness"] = "stale"
+                        warnings.append(
+                            {
+                                "code": "provider_index_stale",
+                                "level": "warning",
+                                "provider": provider_name,
+                                "message": "SCIP index SHA does not match HEAD; reindex recommended.",
+                            }
+                        )
+                else:
+                    entry["freshness"] = "unknown"
+            else:
+                entry["freshness"] = "unknown"
+            providers.append(entry)
+
+        payload = {
+            "repo_id": self.repo_id,
+            "repo_root": str(self.repo_root),
+            "db_path": str(self.db_path),
+            "index_version": self._current_index_version(),
+            "index": index_stats,
+            "cache": cache_stats,
+            "providers": providers,
+            "provider_freshness": {
+                "thresholds": provider_thresholds,
+                "summary": {
+                    **provider_counts,
+                    "total": sum(provider_counts.values()),
+                },
+            },
+            "warnings": warnings,
+            "freshness": {
+                "status": freshness_status,
+                "reason": freshness_reason,
+                "indexed": files_indexed > 0,
+                "last_indexed_at": index_stats.get("last_indexed_at"),
+                "index_age_seconds": index_age_seconds,
+                "stale_after_seconds": stale_after_seconds,
+            },
+            "autosync": self._autosync_status(),
+            "provenance": _LOCAL_PROVENANCE,
+        }
+        packed = self._pack_single_payload(
+            payload,
+            budget_tokens=budget_tokens,
+            essential_keys=_STATUS_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=[],
+        )
+        self._cache_set("code.status", cache_args, packed)
+        return packed
+
     def tool_cache_status(
         self,
         *,
@@ -1260,11 +1807,8 @@ class CodeContextEngine:
                     else self._semantic_ranker.reciprocal_rank_fuse(lexical_hits, semantic_hits, limit=limit)
                 )
         if file_glob:
-            hits = [hit for hit in hits if Path(hit.file_path).match(file_glob)]
-        return [
-            self._attach_snippet(symbol, snippet=snippet, snippet_lines=snippet_lines)
-            for symbol in hits[:limit]
-        ]
+            hits = [hit for hit in hits if fnmatch.fnmatch(hit.file_path, file_glob)]
+        return [self._attach_snippet(symbol, snippet=snippet, snippet_lines=snippet_lines) for symbol in hits[:limit]]
 
     def _search_symbols_local(
         self,
@@ -1614,7 +2158,7 @@ class CodeContextEngine:
         ]
         items = [self._usage_item(reference, snippet_lines=snippet_lines) for reference in ordered_references]
         if file_glob:
-            items = [item for item in items if Path(str(item["file_path"])).match(file_glob)]
+            items = [item for item in items if fnmatch.fnmatch(str(item["file_path"]), file_glob)]
         full_payload = self._build_usages_payload(
             target=target,
             items=items,
@@ -1648,7 +2192,9 @@ class CodeContextEngine:
         if not symbol_id:
             return []
         refs: list[UsageReference] = []
-        for edge in self._cross_lang_store().query_by_target_symbol(tgt_symbol_id=symbol_id, tgt_symbol_name=symbol_name):
+        for edge in self._cross_lang_store().query_by_target_symbol(
+            tgt_symbol_id=symbol_id, tgt_symbol_name=symbol_name
+        ):
             refs.append(
                 UsageReference(
                     file_path=edge.src_file_path,
@@ -1730,6 +2276,13 @@ class CodeContextEngine:
             snapshot=snapshot,
             lookup_neighbors=lambda current_symbol_id: lookup(symbol_id=current_symbol_id),
         )
+        if traversal.data_status == "unavailable" and direction == "callers":
+            fallback = self._fallback_callers_from_references(
+                target=target,
+                limit=limit,
+            )
+            if fallback.data_status == "available":
+                traversal = fallback
         payload = build_call_graph_payload(
             target,
             direction=direction,
@@ -2212,6 +2765,82 @@ class CodeContextEngine:
         data = (self.repo_root / rel).read_bytes()
         return data[start_byte:end_byte].decode("utf-8", errors="replace")
 
+    def _source_section_for_symbol(
+        self,
+        symbol: SymbolRecord | dict[str, Any],
+        *,
+        line_numbers: bool = True,
+    ) -> dict[str, Any]:
+        payload = symbol.model_dump(mode="json") if isinstance(symbol, SymbolRecord) else symbol
+        file_path = str(payload["file_path"])
+        start_line = int(payload["start_line"])
+        end_line = int(payload["end_line"])
+        source = self._read_file_slice(file_path, int(payload["start_byte"]), int(payload["end_byte"]))
+        lines = source.splitlines()
+        if line_numbers:
+            numbered = [f"{start_line + idx}\t{line}" for idx, line in enumerate(lines)]
+            content = "\n".join(numbered)
+        else:
+            content = source
+        return {
+            "file_path": file_path,
+            "start_line": start_line,
+            "end_line": end_line,
+            "symbol_id": payload["symbol_id"],
+            "symbol_name": payload["symbol_name"],
+            "qualified_name": payload["qualified_name"],
+            "line_numbers": line_numbers,
+            "content": content,
+        }
+
+    def _merge_nearby_source_sections(
+        self,
+        sections: list[dict[str, Any]],
+        *,
+        gap_lines: int = 4,
+    ) -> list[dict[str, Any]]:
+        if not sections:
+            return []
+        ordered = sorted(sections, key=lambda item: (str(item["file_path"]), int(item["start_line"]), int(item["end_line"])))
+        merged: list[dict[str, Any]] = [dict(ordered[0])]
+        for section in ordered[1:]:
+            current = merged[-1]
+            same_file = str(current["file_path"]) == str(section["file_path"])
+            near_or_overlap = int(section["start_line"]) <= int(current["end_line"]) + max(0, gap_lines)
+            if same_file and near_or_overlap:
+                line_numbers = bool(current.get("line_numbers", True))
+                current["start_line"] = min(int(current["start_line"]), int(section["start_line"]))
+                current["end_line"] = max(int(current["end_line"]), int(section["end_line"]))
+                current["content"] = self._render_source_section(
+                    str(current["file_path"]),
+                    start_line=int(current["start_line"]),
+                    end_line=int(current["end_line"]),
+                    line_numbers=line_numbers,
+                )
+                continue
+            merged.append(dict(section))
+        for section in merged:
+            section.pop("line_numbers", None)
+        return merged
+
+    def _render_source_section(
+        self,
+        file_path: str,
+        *,
+        start_line: int,
+        end_line: int,
+        line_numbers: bool,
+    ) -> str:
+        lines = self._read_file(file_path).splitlines()
+        if not lines:
+            return ""
+        start_idx = max(0, start_line - 1)
+        end_idx = min(len(lines), max(start_idx, end_line))
+        segment = lines[start_idx:end_idx]
+        if line_numbers:
+            return "\n".join(f"{start_line + idx}\t{line}" for idx, line in enumerate(segment))
+        return "\n".join(segment)
+
     def _usage_item(self, reference: UsageReference, *, snippet_lines: int) -> dict[str, Any]:
         payload = reference.model_dump(mode="json", exclude_none=True)
         if snippet_lines > 0 and "snippet" not in payload:
@@ -2292,7 +2921,7 @@ class CodeContextEngine:
         kind: str | None,
         language: str | None,
         file_glob: str | None,
-        ) -> dict[str, Any]:
+    ) -> dict[str, Any]:
         if symbol_id or qualified_name or (symbol_name and file_path):
             try:
                 return self.get_symbol(
@@ -2311,9 +2940,7 @@ class CodeContextEngine:
                 }
         target_query = query or qualified_name or symbol_name
         if not target_query:
-            raise ValueError(
-                f"query, symbol_id, qualified_name, or symbol_name is required for code {operation_name}"
-            )
+            raise ValueError(f"query, symbol_id, qualified_name, or symbol_name is required for code {operation_name}")
         candidates = self.search_symbols(
             target_query,
             limit=20,
@@ -2326,10 +2953,7 @@ class CodeContextEngine:
         exact = [
             candidate
             for candidate in candidates
-            if (
-                candidate.qualified_name == target_query
-                or candidate.symbol_name == target_query
-            )
+            if (candidate.qualified_name == target_query or candidate.symbol_name == target_query)
             and (file_path is None or candidate.file_path == file_path)
         ]
         matches = exact or candidates
@@ -2431,6 +3055,117 @@ class CodeContextEngine:
         del symbol_id, qualified_name, file_path, symbol_name
         return None
 
+    def _fallback_callers_from_references(
+        self,
+        *,
+        target: dict[str, Any],
+        limit: int,
+    ) -> CallGraphTraversalResult:
+        target_symbol_id = str(target["symbol_id"])
+        target_file = str(target["file_path"])
+        target_start = int(target["start_line"])
+        target_end = int(target["end_line"])
+        references = self.intel_store.find_references(
+            symbol_id=target_symbol_id,
+            qualified_name=str(target["qualified_name"]),
+            file_path=target_file,
+            symbol_name=str(target["symbol_name"]),
+        )
+        references = sorted(
+            [*references, *self._cross_lang_usage_references(target)],
+            key=lambda item: (item.file_path, item.line, item.column, item.provenance),
+        )
+        nodes_by_id: dict[str, CallGraphNode] = {}
+        edges: list[CallGraphEdge] = []
+        seen_edges: set[tuple[str, str, int]] = set()
+        truncated = False
+        for reference in references:
+            if reference.file_path == target_file and target_start <= reference.line <= target_end:
+                continue
+            node = self._caller_node_from_reference(reference, target_symbol_id=target_symbol_id)
+            if node is None:
+                continue
+            if node.symbol_id not in nodes_by_id:
+                if len(nodes_by_id) >= limit:
+                    truncated = True
+                    continue
+                nodes_by_id[node.symbol_id] = node
+            edge_key = (node.symbol_id, target_symbol_id, 1)
+            if edge_key not in seen_edges:
+                seen_edges.add(edge_key)
+                edges.append(
+                    CallGraphEdge(
+                        caller_symbol_id=node.symbol_id,
+                        callee_symbol_id=target_symbol_id,
+                        depth=1,
+                    )
+                )
+        ordered_nodes = sorted(nodes_by_id.values(), key=lambda item: (item.file_path, item.start_line, item.symbol_id))
+        ordered_edges = sorted(edges, key=lambda item: (item.depth, item.caller_symbol_id, item.callee_symbol_id))
+        if not ordered_edges:
+            return CallGraphTraversalResult(
+                nodes=[],
+                edges=[],
+                truncated=False,
+                data_status="unavailable",
+                message="routed call edge data is unavailable",
+                snapshot=None,
+            )
+        return CallGraphTraversalResult(
+            nodes=ordered_nodes,
+            edges=ordered_edges,
+            truncated=truncated,
+            data_status="available",
+            message="fallback caller graph derived from symbol references",
+            snapshot=None,
+        )
+
+    def _caller_node_from_reference(
+        self,
+        reference: UsageReference,
+        *,
+        target_symbol_id: str,
+    ) -> CallGraphNode | None:
+        normalized_file = self._normalize_file_arg(reference.file_path)
+        with self._connect() as conn:
+            self._init_schema(conn)
+            row = conn.execute(
+                """
+                SELECT *, NULL AS score FROM symbols
+                WHERE repo_id = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
+                ORDER BY (end_line - start_line) ASC, start_line DESC
+                LIMIT 1
+                """,
+                (self.repo_id, normalized_file, reference.line, reference.line),
+            ).fetchone()
+        if row is not None:
+            symbol = _row_to_symbol(row)
+            if symbol.symbol_id == target_symbol_id:
+                return None
+            return CallGraphNode(
+                symbol_id=symbol.symbol_id,
+                symbol_name=symbol.symbol_name,
+                qualified_name=symbol.qualified_name,
+                file_path=symbol.file_path,
+                kind=symbol.kind,
+                start_line=symbol.start_line,
+                end_line=symbol.end_line,
+                provenance=reference.provenance or symbol.provenance,
+            )
+        synthetic_seed = f"{normalized_file}:{reference.line}:{reference.column}:{reference.caller or ''}"
+        synthetic_id = f"ref::{hashlib.sha1(synthetic_seed.encode('utf-8')).hexdigest()[:16]}"
+        fallback_name = reference.caller or f"{Path(normalized_file).name}:{reference.line}"
+        return CallGraphNode(
+            symbol_id=synthetic_id,
+            symbol_name=fallback_name,
+            qualified_name=fallback_name,
+            file_path=normalized_file,
+            kind="reference",
+            start_line=reference.line,
+            end_line=reference.end_line,
+            provenance=reference.provenance or "treesitter",
+        )
+
     def _find_callees_local(
         self,
         *,
@@ -2494,6 +3229,39 @@ class CodeContextEngine:
             self._init_schema(conn)
             row = conn.execute("SELECT value FROM engine_state WHERE key = 'index_version'").fetchone()
         return int(row["value"]) if row is not None else 0
+
+    def _index_snapshot(self) -> dict[str, Any]:
+        with self._connect() as conn:
+            self._init_schema(conn)
+            file_count_row = conn.execute("SELECT COUNT(*) AS count FROM files WHERE repo_id = ?", (self.repo_id,)).fetchone()
+            symbol_count_row = conn.execute(
+                "SELECT COUNT(*) AS count FROM symbols WHERE repo_id = ?",
+                (self.repo_id,),
+            ).fetchone()
+            import_count_row = conn.execute(
+                "SELECT COUNT(*) AS count FROM imports WHERE repo_id = ?",
+                (self.repo_id,),
+            ).fetchone()
+            indexed_at_row = conn.execute(
+                "SELECT MAX(indexed_at) AS indexed_at FROM files WHERE repo_id = ?",
+                (self.repo_id,),
+            ).fetchone()
+        files_indexed = int(file_count_row["count"]) if file_count_row is not None else 0
+        symbols_indexed = int(symbol_count_row["count"]) if symbol_count_row is not None else 0
+        imports_indexed = int(import_count_row["count"]) if import_count_row is not None else 0
+        last_indexed_at = str(indexed_at_row["indexed_at"]) if indexed_at_row and indexed_at_row["indexed_at"] else None
+        index_age_seconds: int | None = None
+        if last_indexed_at:
+            with contextlib.suppress(ValueError):
+                parsed = datetime.fromisoformat(last_indexed_at.replace("Z", "+00:00"))
+                index_age_seconds = max(0, int((datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds()))
+        return {
+            "files_indexed": files_indexed,
+            "symbols_indexed": symbols_indexed,
+            "imports_indexed": imports_indexed,
+            "last_indexed_at": last_indexed_at,
+            "index_age_seconds": index_age_seconds,
+        }
 
     def _bump_index_version(self, conn: sqlite3.Connection) -> int:
         row = conn.execute("SELECT value FROM engine_state WHERE key = 'index_version'").fetchone()
@@ -2660,12 +3428,18 @@ class CodeContextEngine:
                 full_total_tokens=full_total_tokens,
             )
 
-        return self._fit_items_to_budget(
+        packed = self._fit_items_to_budget(
             items,
             budget_tokens=budget_tokens,
             essential_keys=essential_keys,
             optional_keys_in_drop_order=optional_keys_in_drop_order,
             build_payload=build_payload,
+        )
+        return self._maybe_attach_overflow_metadata(
+            packed_payload=packed,
+            full_payload=full_payload,
+            full_total_tokens=full_total_tokens,
+            budget_tokens=budget_tokens,
         )
 
     def _pack_pattern_matches(
@@ -2699,12 +3473,18 @@ class CodeContextEngine:
                 full_total_tokens=full_total_tokens,
             )
 
-        return self._fit_items_to_budget(
+        packed = self._fit_items_to_budget(
             items,
             budget_tokens=budget_tokens,
             essential_keys=_PATTERN_ESSENTIAL_KEYS,
             optional_keys_in_drop_order=_PATTERN_OPTIONAL_KEYS,
             build_payload=build_payload,
+        )
+        return self._maybe_attach_overflow_metadata(
+            packed_payload=packed,
+            full_payload=full_payload,
+            full_total_tokens=full_total_tokens,
+            budget_tokens=budget_tokens,
         )
 
     def _pack_pattern_rewrite(
@@ -2748,7 +3528,7 @@ class CodeContextEngine:
                 base_tokens_saved=base_tokens_saved,
             )
 
-        return self._fit_items_to_budget(
+        packed = self._fit_items_to_budget(
             [full_payload],
             budget_tokens=budget_tokens,
             essential_keys=[*essential_keys, "cache_hit", "tokens_saved", "provenance"],
@@ -2756,6 +3536,63 @@ class CodeContextEngine:
             build_payload=build_payload,
             enforce_protected_top_rank=False,
         )
+        return self._maybe_attach_overflow_metadata(
+            packed_payload=packed,
+            full_payload=full_payload,
+            full_total_tokens=full_total_tokens,
+            budget_tokens=budget_tokens,
+            base_tokens_saved=base_tokens_saved,
+        )
+
+    def _maybe_attach_overflow_metadata(
+        self,
+        *,
+        packed_payload: dict[str, Any],
+        full_payload: dict[str, Any],
+        full_total_tokens: int,
+        budget_tokens: int,
+        base_tokens_saved: int = 0,
+    ) -> dict[str, Any]:
+        if full_total_tokens <= budget_tokens:
+            return packed_payload
+        if "error" in packed_payload:
+            return packed_payload
+        overflow_tokens = full_total_tokens - budget_tokens
+        if overflow_tokens < _OVERFLOW_SPILL_MIN_EXCESS_TOKENS:
+            return packed_payload
+        packed_total_tokens = int(packed_payload.get("total_tokens", self._compute_total_tokens(packed_payload)))
+        reduction_tokens = max(0, full_total_tokens - packed_total_tokens)
+        if reduction_tokens < _OVERFLOW_SPILL_MIN_REDUCTION_TOKENS:
+            return packed_payload
+        overflow_meta = self._write_overflow_artifact(full_payload, full_total_tokens=full_total_tokens)
+        with_meta = dict(packed_payload)
+        with_meta["overflow"] = overflow_meta
+        finalized = self._finalize_packed_payload(
+            with_meta,
+            full_total_tokens=full_total_tokens,
+            base_tokens_saved=max(base_tokens_saved, int(packed_payload.get("tokens_saved", 0) or 0)),
+        )
+        if finalized.get("total_tokens", 0) > budget_tokens:
+            return packed_payload
+        return finalized
+
+    def _write_overflow_artifact(self, payload: dict[str, Any], *, full_total_tokens: int) -> dict[str, Any]:
+        artifact_root = default_store_root() / "overflow" / "code"
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        canonical = _canonical_json(payload)
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+        filename = f"{self.repo_id}-{int(time.time() * 1000)}-{digest}.json"
+        artifact_path = artifact_root / filename
+        artifact_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+        artifact_bytes = artifact_path.stat().st_size
+        return {
+            "spilled": True,
+            "reason": "budget_exceeded",
+            "full_total_tokens": full_total_tokens,
+            "artifact_path": str(artifact_path),
+            "artifact_format": "json",
+            "artifact_bytes": artifact_bytes,
+        }
 
     def _mark_cache_hit(self, payload: dict[str, Any]) -> dict[str, Any]:
         cached = cast(dict[str, Any], json.loads(_canonical_json(payload)))
@@ -2824,6 +3661,383 @@ class CodeContextEngine:
             grouped.setdefault(file_path, []).append({k: v for k, v in item.items() if k != "file_path"})
         return grouped
 
+    def _normalize_files_path(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = self._normalize_file_arg(value).strip().strip("/")
+        if normalized in {"", "."}:
+            return None
+        return normalized
+
+    def _matches_files_filters(
+        self,
+        file_path: str,
+        *,
+        path: str | None,
+        pattern: str | None,
+        max_depth: int | None,
+    ) -> bool:
+        if path and file_path != path and not file_path.startswith(f"{path}/"):
+            return False
+        if pattern and not fnmatch.fnmatch(file_path, pattern):
+            return False
+        if max_depth is None:
+            return True
+        if path and file_path == path:
+            relative = ""
+        elif path and file_path.startswith(f"{path}/"):
+            relative = file_path[len(path) + 1 :]
+        else:
+            relative = file_path
+        depth = relative.count("/") if relative else 0
+        return depth <= max_depth
+
+    def _indexed_file_records(
+        self,
+        *,
+        path: str | None,
+        pattern: str | None,
+        max_depth: int | None,
+    ) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            self._init_schema(conn)
+            file_rows = conn.execute(
+                """
+                SELECT file_path, language
+                FROM files
+                WHERE repo_id = ?
+                ORDER BY file_path
+                """,
+                (self.repo_id,),
+            ).fetchall()
+            symbol_count_rows = conn.execute(
+                """
+                SELECT file_path, COUNT(*) AS symbol_count
+                FROM symbols
+                WHERE repo_id = ?
+                GROUP BY file_path
+                """,
+                (self.repo_id,),
+            ).fetchall()
+            top_symbol_rows = conn.execute(
+                """
+                SELECT file_path, symbol_name
+                FROM (
+                    SELECT
+                        file_path,
+                        symbol_name,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY file_path
+                            ORDER BY start_line, symbol_name
+                        ) AS row_no
+                    FROM symbols
+                    WHERE repo_id = ?
+                )
+                WHERE row_no <= 3
+                ORDER BY file_path, row_no
+                """,
+                (self.repo_id,),
+            ).fetchall()
+        symbol_counts = {str(row["file_path"]): int(row["symbol_count"]) for row in symbol_count_rows}
+        top_symbols: dict[str, list[str]] = {}
+        for row in top_symbol_rows:
+            file_path = str(row["file_path"])
+            top_symbols.setdefault(file_path, []).append(str(row["symbol_name"]))
+
+        records: list[dict[str, Any]] = []
+        for row in file_rows:
+            file_path = str(row["file_path"])
+            if not self._matches_files_filters(file_path, path=path, pattern=pattern, max_depth=max_depth):
+                continue
+            record = IndexedFileRecord(
+                file_path=file_path,
+                language=str(row["language"] or "unknown"),
+                symbol_count=symbol_counts.get(file_path, 0),
+                top_symbols=top_symbols.get(file_path, []),
+            )
+            records.append(record.model_dump(mode="json", exclude_none=True))
+        return records
+
+    def _indexed_route_records(
+        self,
+        *,
+        file_glob: str | None,
+        language: str | None,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], bool]:
+        candidates = self._indexed_file_records(path=None, pattern=file_glob, max_depth=None)
+        allowed_languages = {"python", "javascript", "typescript"}
+        if language is not None and language not in allowed_languages:
+            return [], False
+        routes: list[dict[str, Any]] = []
+        truncated = False
+        for candidate in candidates:
+            file_path = str(candidate.get("file_path") or "")
+            file_language = str(candidate.get("language") or "unknown").lower()
+            if file_language not in allowed_languages:
+                continue
+            if language is not None and file_language != language:
+                continue
+            for route in self._extract_routes_from_file(file_path=file_path, language=file_language):
+                routes.append(route)
+                if len(routes) >= limit:
+                    truncated = True
+                    break
+            if truncated:
+                break
+        routes.sort(key=lambda item: (str(item.get("file_path")), int(item.get("line", 0)), str(item.get("route"))))
+        return routes[:limit], truncated
+
+    def _extract_routes_from_file(
+        self,
+        *,
+        file_path: str,
+        language: str,
+    ) -> list[dict[str, Any]]:
+        with contextlib.suppress(OSError, UnicodeDecodeError):
+            source = self._resolve_inside_repo(file_path).read_text(encoding="utf-8", errors="replace")
+            lines = source.splitlines()
+            records: list[RouteRecord] = []
+            if language == "python":
+                records.extend(self._extract_python_routes(file_path=file_path, lines=lines))
+            elif language in {"javascript", "typescript"}:
+                records.extend(self._extract_js_routes(file_path=file_path, lines=lines, language=language))
+            return [record.model_dump(mode="json", exclude_none=True) for record in records]
+        return []
+
+    def _extract_python_routes(self, *, file_path: str, lines: list[str]) -> list[RouteRecord]:
+        records: list[RouteRecord] = []
+        for index, line in enumerate(lines, start=1):
+            fastapi_match = _FASTAPI_DECORATOR_RE.search(line)
+            if fastapi_match:
+                method = fastapi_match.group("verb").upper()
+                if method == "WEBSOCKET":
+                    method = "WS"
+                records.append(
+                    RouteRecord(
+                        framework="fastapi",
+                        method=method,
+                        route=fastapi_match.group("route"),
+                        file_path=file_path,
+                        line=index,
+                        language="python",
+                        handler=self._next_python_def_name(lines, index),
+                        router=fastapi_match.group("router"),
+                        provenance=_LOCAL_PROVENANCE,
+                    )
+                )
+                continue
+            fastapi_api_route_match = _FASTAPI_API_ROUTE_RE.search(line)
+            if fastapi_api_route_match:
+                route = fastapi_api_route_match.group("route")
+                methods = self._parse_methods(fastapi_api_route_match.group("rest"))
+                for method in methods:
+                    records.append(
+                        RouteRecord(
+                            framework="fastapi",
+                            method=method,
+                            route=route,
+                            file_path=file_path,
+                            line=index,
+                            language="python",
+                            handler=self._next_python_def_name(lines, index),
+                            router=fastapi_api_route_match.group("router"),
+                            provenance=_LOCAL_PROVENANCE,
+                        )
+                    )
+                continue
+            flask_match = _FLASK_ROUTE_RE.search(line)
+            if flask_match:
+                route = flask_match.group("route")
+                methods = self._parse_methods(flask_match.group("rest"))
+                for method in methods:
+                    records.append(
+                        RouteRecord(
+                            framework="flask",
+                            method=method,
+                            route=route,
+                            file_path=file_path,
+                            line=index,
+                            language="python",
+                            handler=self._next_python_def_name(lines, index),
+                            router=flask_match.group("router"),
+                            provenance=_LOCAL_PROVENANCE,
+                        )
+                    )
+                continue
+            django_match = _DJANGO_PATH_RE.search(line)
+            if django_match:
+                records.append(
+                    RouteRecord(
+                        framework="django",
+                        method="ANY",
+                        route=django_match.group("route"),
+                        file_path=file_path,
+                        line=index,
+                        language="python",
+                        handler=django_match.group("handler"),
+                        provenance=_LOCAL_PROVENANCE,
+                    )
+                )
+        return records
+
+    def _extract_js_routes(self, *, file_path: str, lines: list[str], language: str) -> list[RouteRecord]:
+        records: list[RouteRecord] = []
+        for index, line in enumerate(lines, start=1):
+            match = _EXPRESS_ROUTE_RE.search(line)
+            if not match:
+                continue
+            verb = match.group("verb").upper()
+            method = "ANY" if verb in {"ALL", "USE"} else verb
+            records.append(
+                RouteRecord(
+                    framework="express",
+                    method=method,
+                    route=match.group("route"),
+                    file_path=file_path,
+                    line=index,
+                    language=language,
+                    handler=match.group("handler"),
+                    router=match.group("router"),
+                    provenance=_LOCAL_PROVENANCE,
+                )
+            )
+        return records
+
+    def _next_python_def_name(self, lines: list[str], decorator_line: int) -> str | None:
+        for line in lines[decorator_line:]:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("@"):
+                continue
+            match = re.match(r"^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", stripped)
+            if match:
+                return match.group(1)
+            break
+        return None
+
+    def _parse_methods(self, value: str | None) -> list[str]:
+        if not value:
+            return ["GET"]
+        methods = [match.group("method").upper() for match in _METHOD_LITERAL_RE.finditer(value)]
+        return methods or ["GET"]
+
+    def _files_flat(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        include_metadata: bool,
+    ) -> list[dict[str, Any]]:
+        flat: list[dict[str, Any]] = []
+        for item in items:
+            entry: dict[str, Any] = {"file_path": str(item["file_path"])}
+            if include_metadata:
+                entry["language"] = str(item.get("language") or "unknown")
+                entry["symbol_count"] = int(item.get("symbol_count") or 0)
+                entry["top_symbols"] = list(item.get("top_symbols") or [])
+            flat.append(entry)
+        return flat
+
+    def _files_grouped(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        include_metadata: bool,
+    ) -> dict[str, list[dict[str, Any]]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            language = str(item.get("language") or "unknown")
+            entry: dict[str, Any] = {"file_path": str(item["file_path"])}
+            if include_metadata:
+                entry["language"] = language
+                entry["symbol_count"] = int(item.get("symbol_count") or 0)
+                entry["top_symbols"] = list(item.get("top_symbols") or [])
+            grouped.setdefault(language, []).append(entry)
+        return grouped
+
+    def _files_tree(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        include_metadata: bool,
+    ) -> dict[str, Any]:
+        tree: dict[str, Any] = {}
+        for item in items:
+            parts = str(item["file_path"]).split("/")
+            cursor: dict[str, Any] = tree
+            for segment in parts[:-1]:
+                child = cursor.get(segment)
+                if not isinstance(child, dict):
+                    child = {}
+                    cursor[segment] = child
+                cursor = child
+            file_name = parts[-1]
+            if include_metadata:
+                cursor[file_name] = {
+                    "language": str(item.get("language") or "unknown"),
+                    "symbol_count": int(item.get("symbol_count") or 0),
+                }
+            else:
+                cursor[file_name] = {}
+        return tree
+
+    def _format_files_payload(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        format: Literal["tree", "flat", "grouped"],
+        include_metadata: bool,
+    ) -> list[dict[str, Any]] | dict[str, Any]:
+        if format == "flat":
+            return self._files_flat(items, include_metadata=include_metadata)
+        if format == "grouped":
+            return self._files_grouped(items, include_metadata=include_metadata)
+        return self._files_tree(items, include_metadata=include_metadata)
+
+    def _build_files_payload(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        path: str | None,
+        pattern: str | None,
+        format: Literal["tree", "flat", "grouped"],
+        include_metadata: bool,
+        truncated: bool,
+    ) -> dict[str, Any]:
+        return {
+            "repo_id": self.repo_id,
+            "repo_root": str(self.repo_root),
+            "path": path,
+            "pattern": pattern,
+            "format": format,
+            "file_count": len(items),
+            "files": self._format_files_payload(items, format=format, include_metadata=include_metadata),
+            "truncated": truncated,
+            "cache_hit": False,
+            "provenance": _LOCAL_PROVENANCE,
+        }
+
+    def _build_routes_payload(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        file_glob: str | None,
+        language: str | None,
+        truncated: bool,
+    ) -> dict[str, Any]:
+        return {
+            "repo_id": self.repo_id,
+            "repo_root": str(self.repo_root),
+            "file_glob": file_glob,
+            "language": language,
+            "route_count": len(items),
+            "routes": items,
+            "truncated": truncated,
+            "cache_hit": False,
+            "provenance": _LOCAL_PROVENANCE,
+        }
+
     def _file_mtime_ns(self, file_path: str) -> int | None:
         path = self._resolve_inside_repo(file_path)
         with contextlib.suppress(OSError):
@@ -2879,12 +4093,34 @@ class CodeContextEngine:
                 return True
         return False
 
+    def _parse_autosync_debounce(self, raw_value: str | None) -> int:
+        if raw_value is None:
+            return 500
+        with contextlib.suppress(ValueError):
+            return max(50, int(raw_value))
+        return 500
+
+    def _autosync_status(self) -> dict[str, Any]:
+        return {
+            "enabled": self._autosync_enabled,
+            "state": "idle",
+            "mode": "scaffold_only",
+            "debounce_ms": self._autosync_debounce_ms,
+            "pending_events": self._autosync_pending_events,
+            "last_event_at": self._autosync_last_event_at,
+        }
+
     def _current_head_sha(self) -> str:
         from atelier.infra.code_intel.git_history import require_pygit2
 
         pygit2 = require_pygit2()
         repo = pygit2.Repository(str(self.repo_root))
         return str(repo.revparse_single("HEAD").id)
+
+    def _safe_current_head_sha(self) -> str | None:
+        with contextlib.suppress(Exception):
+            return self._current_head_sha()
+        return None
 
     def _deleted_history_adapter(self) -> DeletedHistorySearchAdapter:
         if self._deleted_history_search_adapter is None:

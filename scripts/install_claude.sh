@@ -6,10 +6,14 @@
 #   2. Installs/updates atelier@atelier.
 #   3. Global mode: registers MCP with Claude's user scope.
 #   4. Workspace mode (--workspace DIR): writes project-local .mcp.json and settings.
+#   5. Project enforcement (--project DIR): writes permissions.deny + allow into DIR/.claude/settings.json
+#      so Claude Code hard-blocks native Read/Grep in favour of atelier MCP equivalents.
+#      In global mode without --project, asks interactively when running in a git repo.
 # Options:
 #   --dry-run        Print what would happen, touch nothing
 #   --print-only     Print config snippets for manual install, touch nothing
 #   --workspace DIR  Install project-local artifacts into DIR instead of global user config
+#   --project [DIR]  Configure per-project enforcement (default DIR: current directory)
 #   --strict         Exit nonzero if 'claude' CLI not on PATH
 
 set -euo pipefail
@@ -28,6 +32,8 @@ PRINT_ONLY=false
 STRICT=false
 WORKSPACE=""
 WORKSPACE_SET=false
+PROJECT_ENFORCE=""      # path to project dir to write enforcement deny list, empty = don't
+PROJECT_ENFORCE_SET=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -42,6 +48,17 @@ while [[ $# -gt 0 ]]; do
             WORKSPACE="$2"
             WORKSPACE_SET=true
             shift
+            ;;
+        --project)
+            # Explicitly configure enforcement for a project directory.
+            # Without a value, defaults to the current directory.
+            if [[ $# -ge 2 && "$2" != --* ]]; then
+                PROJECT_ENFORCE="$2"
+                shift
+            else
+                PROJECT_ENFORCE="$(pwd)"
+            fi
+            PROJECT_ENFORCE_SET=true
             ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -65,6 +82,64 @@ CLAUDE_LOCAL_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.local.json"
 info()  { echo "[atelier:claude] $*"; }
 warn()  { echo "[atelier:claude] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
+
+# --------------------------------------------------------------------------- #
+# configure_project_enforcement DIR
+#   Writes permissions.deny + scoped allow into DIR/.claude/settings.json.
+# --------------------------------------------------------------------------- #
+configure_project_enforcement() {
+    local dir="$1"
+    local proj_settings_dir="${dir}/.claude"
+    local proj_settings="${proj_settings_dir}/settings.json"
+
+    if $DRY_RUN; then
+        echo "  [dry-run] configure_project_enforcement: write deny+allow → ${proj_settings}"
+        return
+    fi
+
+    mkdir -p "${proj_settings_dir}"
+    [[ -f "${proj_settings}" ]] || echo "{}" > "${proj_settings}"
+
+    python3 - <<PYEOF
+import json
+from pathlib import Path
+
+DENY_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write"]
+ATELIER_MCP_TOOLS = [
+    "mcp__atelier__code", "mcp__atelier__compact", "mcp__atelier__context",
+    "mcp__atelier__edit", "mcp__atelier__memory", "mcp__atelier__read",
+    "mcp__atelier__rescue", "mcp__atelier__route", "mcp__atelier__search",
+    "mcp__atelier__shell", "mcp__atelier__sql", "mcp__atelier__trace",
+    "mcp__atelier__verify",
+]
+BASH_ALLOWS = [
+    "Bash(uv run pytest *)", "Bash(uv run python *)", "Bash(uv run mypy *)",
+    "Bash(uv run ruff *)", "Bash(uv run atelier *)", "Bash(uv run uvicorn *)",
+    "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)", "Bash(uv lock *)",
+    "Bash(npm run *)", "Bash(npm install *)", "Bash(make *)",
+    "Bash(docker-compose *)", "Bash(docker compose *)",
+    "Bash(curl *)", "Bash(wget *)", "Bash(cp *)", "Bash(mv *)",
+    "Bash(mkdir *)", "Bash(touch *)", "Bash(chmod *)",
+]
+
+path = Path("${proj_settings}")
+data = json.loads(path.read_text(encoding="utf-8") or "{}")
+
+perms = data.setdefault("permissions", {})
+deny = perms.setdefault("deny", [])
+for t in DENY_TOOLS:
+    if t not in deny:
+        deny.append(t)
+
+allow = perms.setdefault("allow", [])
+for t in ATELIER_MCP_TOOLS + BASH_ALLOWS:
+    if t not in allow:
+        allow.append(t)
+
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+print(f"[atelier:claude] project enforcement written → {path}")
+PYEOF
+}
 
 
 # ---- resolve install profile ------------------------------------------------
@@ -283,6 +358,10 @@ path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
 print("[atelier:claude] CLAUDE_WORKSPACE_ROOT written to ${CLAUDE_LOCAL_SETTINGS}")
 PYEOF
     fi
+
+    # Workspace installs always get project-level enforcement.
+    info "Writing project enforcement (permissions.deny + scoped allows) for workspace: ${WORKSPACE}"
+    configure_project_enforcement "${WORKSPACE}"
 fi
 
 # ---- Claude hook settings ---------------------------------------------------
@@ -409,7 +488,38 @@ if $DRY_RUN; then
     exit 0
 fi
 
+# ---- per-project enforcement -----------------------------------------------
+# --project DIR was given: configure non-interactively.
+# Otherwise: offer an interactive prompt when:
+#   - not in workspace mode (workspace already enforced above)
+#   - running in a terminal (stdin is a tty)
+#   - current directory is inside a git repo
+if ! $WORKSPACE_SET; then
+    if $PROJECT_ENFORCE_SET; then
+        if [[ -d "$PROJECT_ENFORCE" ]]; then
+            PROJECT_ENFORCE="$(cd "$PROJECT_ENFORCE" && pwd)"
+        fi
+        info "Configuring enforcement for project: ${PROJECT_ENFORCE}"
+        configure_project_enforcement "${PROJECT_ENFORCE}"
+    elif ! $DRY_RUN && [[ -t 0 ]] && git -C "$(pwd)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        PROJ_ROOT="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null || pwd)"
+        echo ""
+        printf "[atelier:claude] Enable atelier enforcement for '%s'? [y/N] " "$(basename "$PROJ_ROOT")"
+        read -r yn </dev/tty || yn="n"
+        case "${yn}" in
+            [Yy]*)
+                configure_project_enforcement "${PROJ_ROOT}"
+                ;;
+            *)
+                info "Skipped project enforcement. Run later with:"
+                info "  bash ${ATELIER_REPO}/scripts/install_claude.sh --project ${PROJ_ROOT}"
+                ;;
+        esac
+    fi
+fi
+
 info "Done. Start Claude Code in your workspace. Skills and agents are available."
 info "  /atelier:status  - show run ledger"
 info "  /atelier:context - show task context"
 info "  Agents: atelier:code, atelier:explore, atelier:review, atelier:repair"
+info "  Project enforcement: bash scripts/install_claude.sh --project [DIR]"

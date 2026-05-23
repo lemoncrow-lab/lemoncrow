@@ -38,6 +38,13 @@ def test_search_blocks_uses_fts(store: ContextStore) -> None:
     assert any(b.id == "b1" for b in results)
 
 
+def test_search_blocks_tokenizes_multi_term_query(store: ContextStore) -> None:
+    store.upsert_block(_block(bid="b1", title="Shopify product handle"))
+    store.upsert_block(_block(bid="b2", title="Tracker classification"))
+    results = store.search_blocks("shop product")
+    assert any(b.id == "b1" for b in results)
+
+
 def test_list_filters_quarantined_and_deprecated(store: ContextStore) -> None:
     store.upsert_block(_block(bid="active", title="A"))
     store.upsert_block(_block(bid="dep", title="B"))

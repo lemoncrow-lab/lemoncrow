@@ -653,8 +653,7 @@ class ContextStore:
     def search_blocks(self, query: str, *, limit: int = 20) -> list[ReasonBlock]:
         if not query.strip():
             return self.list_blocks()[:limit]
-        # Use FTS5 MATCH with safe quoting (escape internal double quotes).
-        safe = query.replace('"', '""')
+        fts_query = self._build_reasonblock_search_query(query)
         sql = (
             "SELECT r.payload FROM reasonblocks_fts f "
             "JOIN reasonblocks r ON r.id = f.id "
@@ -663,8 +662,30 @@ class ContextStore:
             "ORDER BY rank LIMIT ?"
         )
         with self._connect() as conn:
-            rows = conn.execute(sql, (f'"{safe}"', limit)).fetchall()
+            rows = conn.execute(sql, (fts_query, limit)).fetchall()
         return [ReasonBlock.model_validate_json(r["payload"]) for r in rows]
+
+    def _build_reasonblock_search_query(self, query: str) -> str:
+        """Build a robust FTS5 query for reasonblocks.
+
+        ReasonBlock retrieval should prefer recall over overly strict phrase
+        matching, so this expands input into prefix terms joined by AND.
+        """
+        clauses: list[str] = []
+        for phrase, token in re.findall(r'"([^"]+)"|(\S+)', query):
+            term = (phrase or token).strip().lower()
+            if not term:
+                continue
+            if phrase:
+                escaped = term.replace('"', '""')
+                clauses.append(f'"{escaped}"')
+                continue
+            pieces = [piece for piece in re.split(r"[^0-9a-z_]+", term) if piece]
+            clauses.extend(f"{piece}*" for piece in pieces)
+        if clauses:
+            return " AND ".join(clauses)
+        escaped = query.strip().replace('"', '""')
+        return f'"{escaped}"'
 
     def update_block_status(self, block_id: str, status: BlockStatus) -> bool:
         with self._connect() as conn, closing(conn.cursor()) as cur:

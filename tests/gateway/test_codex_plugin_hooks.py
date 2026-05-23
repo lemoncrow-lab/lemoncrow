@@ -9,9 +9,9 @@ from typing import Any
 
 import pytest
 
-pytestmark = pytest.mark.slow  # Each test spawns a real Python subprocess (~2s each)
-
 from atelier.infra.runtime.run_ledger import RunLedger
+
+pytestmark = pytest.mark.slow  # Each test spawns a real Python subprocess (~2s each)
 
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS = ROOT / "integrations" / "codex" / "hooks"

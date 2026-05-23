@@ -42,9 +42,7 @@ def _write_fixture_repo(root: Path) -> None:
         encoding="utf-8",
     )
     (root / "src" / "worker.py").write_text(
-        "import requests\n\n"
-        "def sync(url: str) -> object:\n"
-        "    return requests.get(url)\n",
+        "import requests\n\n" "def sync(url: str) -> object:\n" "    return requests.get(url)\n",
         encoding="utf-8",
     )
 

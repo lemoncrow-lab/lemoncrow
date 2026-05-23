@@ -71,7 +71,12 @@ def _apply_silence() -> None:
 _apply_silence()
 
 
-def init_otel(*, endpoint: str = "http://localhost:4318", service_version: str = "0.1.0") -> bool:
+def init_otel(
+    *,
+    endpoint: str = "http://localhost:4318",
+    service_version: str = "0.1.0",
+    headers: dict[str, str] | None = None,
+) -> bool:
     global logger, _PROVIDER, _last_check_failed_at
     import time as _time
 
@@ -122,7 +127,7 @@ def init_otel(*, endpoint: str = "http://localhost:4318", service_version: str =
     provider = LoggerProvider(resource=resource, shutdown_on_exit=False)
     provider.add_log_record_processor(
         BatchLogRecordProcessor(
-            OTLPLogExporter(endpoint=_logs_endpoint(endpoint), timeout=2),
+            OTLPLogExporter(endpoint=_logs_endpoint(endpoint), timeout=2, headers=headers),
             schedule_delay_millis=1000,
             export_timeout_millis=2000,
         )

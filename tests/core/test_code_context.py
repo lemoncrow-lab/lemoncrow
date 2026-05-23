@@ -7,6 +7,8 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from atelier.core.capabilities.code_context import CodeContextEngine
 from atelier.core.capabilities.code_context.budget import BudgetPacker
 from atelier.infra.code_intel.astgrep import PatternMatch, PatternSearchResult
@@ -43,18 +45,18 @@ def _write_semantic_fixture_repo(root: Path) -> None:
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "src" / "auth.py").write_text(
         "def issue_access_token(user_id: str) -> str:\n"
-        "    \"\"\"Create a login session token for an authenticated user.\"\"\"\n"
+        '    """Create a login session token for an authenticated user."""\n'
         "    session_token = f'session:{user_id}'\n"
         "    return session_token\n"
         "\n"
         "def revoke_access_token(token: str) -> None:\n"
-        "    \"\"\"Invalidate a session token after logout.\"\"\"\n"
+        '    """Invalidate a session token after logout."""\n'
         "    return None\n",
         encoding="utf-8",
     )
     (root / "src" / "audit.py").write_text(
         "def create_login_history_for_authenticated_user(user_id: str) -> dict[str, str]:\n"
-        "    \"\"\"Record login history entries for audit review.\"\"\"\n"
+        '    """Record login history entries for audit review."""\n'
         "    return {'user_id': user_id}\n",
         encoding="utf-8",
     )
@@ -64,27 +66,19 @@ def _write_call_graph_fixture_repo(root: Path) -> None:
     (root / "src").mkdir(parents=True, exist_ok=True)
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "src" / "app.py").write_text(
-        "from src.alpha import alpha\n\n"
-        "def handle() -> int:\n"
-        "    return alpha()\n",
+        "from src.alpha import alpha\n\n" "def handle() -> int:\n" "    return alpha()\n",
         encoding="utf-8",
     )
     (root / "src" / "alpha.py").write_text(
-        "from src.beta import beta\n\n"
-        "def alpha() -> int:\n"
-        "    return beta()\n",
+        "from src.beta import beta\n\n" "def alpha() -> int:\n" "    return beta()\n",
         encoding="utf-8",
     )
     (root / "src" / "beta.py").write_text(
-        "from src.gamma import gamma\n\n"
-        "def beta() -> int:\n"
-        "    return gamma()\n",
+        "from src.gamma import gamma\n\n" "def beta() -> int:\n" "    return gamma()\n",
         encoding="utf-8",
     )
     (root / "src" / "gamma.py").write_text(
-        "from src.alpha import alpha\n\n"
-        "def gamma() -> int:\n"
-        "    return alpha()\n",
+        "from src.alpha import alpha\n\n" "def gamma() -> int:\n" "    return alpha()\n",
         encoding="utf-8",
     )
 
@@ -96,6 +90,7 @@ def _write_call_graph_scip_fixture(engine: CodeContextEngine, *, include_call_gr
         "version": 1,
         "repo_id": engine.repo_id,
         "language": "python",
+        "index_sha": "0000000000000000000000000000000000000000",
         "symbols": [],
     }
     symbol_specs = [
@@ -236,19 +231,15 @@ def _write_cross_lang_fixture_repo(root: Path) -> None:
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "plugins" / "__init__.py").write_text("", encoding="utf-8")
     (root / "plugins" / "worker.py").write_text(
-        "def plugin_entry() -> str:\n"
-        "    return 'worker'\n",
+        "def plugin_entry() -> str:\n" "    return 'worker'\n",
         encoding="utf-8",
     )
     (root / "scripts" / "worker.py").write_text(
-        "def main() -> int:\n"
-        "    return 1\n",
+        "def main() -> int:\n" "    return 1\n",
         encoding="utf-8",
     )
     (root / "src" / "local_worker.py").write_text(
-        "from scripts.worker import main\n\n"
-        "def call_local() -> int:\n"
-        "    return main()\n",
+        "from scripts.worker import main\n\n" "def call_local() -> int:\n" "    return main()\n",
         encoding="utf-8",
     )
     (root / "src" / "bootstrap.py").write_text(
@@ -309,9 +300,7 @@ def _init_git_fixture_repo(repo_root: Path) -> None:
 def _write_deleted_history_fixture(repo_root: Path) -> str:
     _init_git_fixture_repo(repo_root)
     (repo_root / "legacy.py").write_text(
-        "class LegacyCheckout:\n"
-        "    def process(self) -> int:\n"
-        "        return 1\n",
+        "class LegacyCheckout:\n" "    def process(self) -> int:\n" "        return 1\n",
         encoding="utf-8",
     )
     _commit_all(repo_root, "add legacy symbol", author_date="2024-01-01T00:00:00+00:00")
@@ -327,17 +316,13 @@ def _write_deleted_history_fixture(repo_root: Path) -> str:
 def _write_rename_history_fixture(repo_root: Path) -> str:
     _init_git_fixture_repo(repo_root)
     (repo_root / "legacy.py").write_text(
-        "class LegacyCheckout:\n"
-        "    def process(self) -> int:\n"
-        "        return 1\n",
+        "class LegacyCheckout:\n" "    def process(self) -> int:\n" "        return 1\n",
         encoding="utf-8",
     )
     _commit_all(repo_root, "add legacy symbol", author_date="2024-01-01T00:00:00+00:00")
     _git(["mv", "legacy.py", "modern.py"], repo_root)
     (repo_root / "modern.py").write_text(
-        "class ModernCheckout:\n"
-        "    def process(self) -> int:\n"
-        "        return 2\n",
+        "class ModernCheckout:\n" "    def process(self) -> int:\n" "        return 2\n",
         encoding="utf-8",
     )
     return _commit_all(
@@ -353,9 +338,7 @@ def _write_blame_fixture(repo_root: Path) -> tuple[str, str]:
     now = datetime.now(tz=UTC)
     service_path = repo_root / "service.py"
     service_path.write_text(
-        "def risk_score() -> int:\n"
-        "    value = 1\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 1\n" "    return value\n",
         encoding="utf-8",
     )
     _commit_all(
@@ -366,9 +349,7 @@ def _write_blame_fixture(repo_root: Path) -> tuple[str, str]:
         author_date=(now - timedelta(days=240)).isoformat(),
     )
     service_path.write_text(
-        "def risk_score() -> int:\n"
-        "    value = 3\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 3\n" "    return value\n",
         encoding="utf-8",
     )
     indexed_sha = _commit_all(
@@ -379,9 +360,7 @@ def _write_blame_fixture(repo_root: Path) -> tuple[str, str]:
         author_date=(now - timedelta(days=30)).isoformat(),
     )
     service_path.write_text(
-        "def risk_score() -> int:\n"
-        "    value = 5\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 5\n" "    return value\n",
         encoding="utf-8",
     )
     head_sha = _commit_all(
@@ -439,8 +418,7 @@ def _write_scip_fixture_for_symbol(
 def _write_live_temporal_fixture(repo_root: Path) -> None:
     _init_git_fixture_repo(repo_root)
     (repo_root / "archived.py").write_text(
-        "def archived_worker() -> int:\n"
-        "    return 1\n",
+        "def archived_worker() -> int:\n" "    return 1\n",
         encoding="utf-8",
     )
     _commit_all(
@@ -451,8 +429,7 @@ def _write_live_temporal_fixture(repo_root: Path) -> None:
         author_date="2025-01-01T00:00:00+00:00",
     )
     (repo_root / "recent.py").write_text(
-        "def active_worker() -> int:\n"
-        "    return 2\n",
+        "def active_worker() -> int:\n" "    return 2\n",
         encoding="utf-8",
     )
     _commit_all(
@@ -593,7 +570,9 @@ def test_tool_search_deleted_scope_applies_temporal_and_touched_by_filters_and_w
         limit=5,
         budget_tokens=4000,
     )
-    unfiltered = engine.tool_search("LegacyCheckout", scope="deleted", touched_by="history@example.com", limit=5, budget_tokens=4000)
+    unfiltered = engine.tool_search(
+        "LegacyCheckout", scope="deleted", touched_by="history@example.com", limit=5, budget_tokens=4000
+    )
     additive = engine.tool_search(
         "LegacyCheckout",
         scope="deleted",
@@ -610,13 +589,17 @@ def test_tool_search_deleted_scope_applies_temporal_and_touched_by_filters_and_w
     assert additive["items"][0]["last_author"] == "history@example.com"
 
 
-def test_tool_search_deleted_scope_dispatches_via_git_history_adapter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tool_search_deleted_scope_dispatches_via_git_history_adapter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _write_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
 
     from atelier.infra.code_intel.git_history.adapter import DeletedHistorySearchAdapter
 
-    def fake_search(self: object, query: str, *, limit: int, since_ts: int | None, touched_by: str | None, language: str | None) -> list[dict[str, object]]:
+    def fake_search(
+        self: object, query: str, *, limit: int, since_ts: int | None, touched_by: str | None, language: str | None
+    ) -> list[dict[str, object]]:
         _ = (self, query, limit, since_ts, touched_by, language)
         return [
             {
@@ -903,7 +886,7 @@ def test_tool_callers_and_callees_traverse_depth_and_handle_cycles(tmp_path: Pat
     assert all(edge["depth"] in {1, 2} for edge in callees["edges"])
 
 
-def test_tool_callers_returns_structured_unavailable_when_call_graph_data_is_missing(tmp_path: Path) -> None:
+def test_tool_callers_falls_back_to_reference_graph_when_call_graph_data_is_missing(tmp_path: Path) -> None:
     _write_call_graph_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
     engine.index_repo()
@@ -912,9 +895,10 @@ def test_tool_callers_returns_structured_unavailable_when_call_graph_data_is_mis
     payload = engine.tool_callers(query="alpha", budget_tokens=4000)
 
     assert payload["target"]["qualified_name"] == "alpha"
-    assert payload["data_status"] == "unavailable"
-    assert payload["related"] == []
-    assert payload["edges"] == []
+    assert payload["data_status"] == "available"
+    assert payload["edge_count"] >= 1
+    assert payload["related_count"] >= 1
+    assert "fallback" in str(payload.get("message", "")).lower()
     assert payload["provenance"] == "scip"
 
 
@@ -1036,6 +1020,176 @@ def test_retrieval_cache_diagnostics_hide_payloads_and_invalidate_one_tool(
     assert cached_symbol["cache_hit"] is True
 
 
+def test_tool_files_supports_tree_flat_grouped_filters(tmp_path: Path) -> None:
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+
+    flat = engine.tool_files(
+        path="src",
+        pattern="src/*.py",
+        format="flat",
+        include_metadata=True,
+        budget_tokens=4000,
+    )
+    grouped = engine.tool_files(path="src", format="grouped", max_depth=0, budget_tokens=4000)
+    grouped_no_metadata = engine.tool_files(
+        path="src",
+        format="grouped",
+        include_metadata=False,
+        max_depth=0,
+        budget_tokens=4000,
+    )
+    tree = engine.tool_files(path="src", format="tree", include_metadata=False, budget_tokens=4000)
+
+    assert flat["path"] == "src"
+    assert flat["pattern"] == "src/*.py"
+    assert flat["format"] == "flat"
+    assert flat["file_count"] == 3
+    assert flat["truncated"] is False
+    assert isinstance(flat["files"], list)
+    assert flat["files"][0]["file_path"].startswith("src/")
+    assert "language" in flat["files"][0]
+    assert "symbol_count" in flat["files"][0]
+    assert "top_symbols" in flat["files"][0]
+
+    assert grouped["format"] == "grouped"
+    assert "python" in grouped["files"]
+    assert len(grouped["files"]["python"]) == 3
+    assert "python" in grouped_no_metadata["files"]
+    assert "language" not in grouped_no_metadata["files"]["python"][0]
+
+    assert tree["format"] == "tree"
+    assert "src" in tree["files"]
+    assert tree["files"]["src"]["orders.py"] == {}
+
+
+def test_tool_files_respects_budget_and_sets_truncated(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    for index in range(40):
+        (src / f"mod_{index}.py").write_text(
+            f"def fn_{index}() -> int:\n    return {index}\n",
+            encoding="utf-8",
+        )
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+
+    payload = engine.tool_files(format="flat", include_metadata=True, budget_tokens=360)
+
+    assert payload["total_tokens"] <= 360
+    assert payload["truncated"] is True
+    assert payload["file_count"] < 40
+    assert payload["files"]
+
+
+def test_tool_explore_returns_grouped_sources_and_entry_points(tmp_path: Path) -> None:
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+
+    payload = engine.tool_explore(
+        "OrderService",
+        max_files=4,
+        max_symbols=12,
+        include_source=True,
+        include_relationships=True,
+        line_numbers=True,
+        budget_tokens=6000,
+    )
+
+    assert payload["query"] == "OrderService"
+    assert payload["entry_points"]
+    assert payload["files"]
+    assert payload["files"][0]["file_path"].startswith("src/")
+    if payload["files"][0].get("source_sections"):
+        first_content = payload["files"][0]["source_sections"][0]["content"]
+        assert "\t" in first_content
+    assert payload["relationships"]["callers"] is not None
+    assert payload["relationships"]["callees"] is not None
+    assert payload["relationships"]["usages"] is not None
+
+
+def test_tool_routes_extracts_framework_endpoints(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "api.py").write_text(
+        "from fastapi import FastAPI, APIRouter\n\n"
+        "app = FastAPI()\n"
+        "router = APIRouter()\n\n"
+        "@app.get('/health')\n"
+        "def health() -> dict[str, bool]:\n"
+        "    return {'ok': True}\n\n"
+        "@router.post('/orders')\n"
+        "def create_order() -> dict[str, str]:\n"
+        "    return {'status': 'created'}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "urls.py").write_text(
+        "from django.urls import path\n"
+        "from . import views\n\n"
+        "urlpatterns = [\n"
+        "    path('admin/', views.admin),\n"
+        "]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "server.ts").write_text(
+        "import express from 'express';\n"
+        "const app = express();\n"
+        "function pingHandler() { return 'pong'; }\n"
+        "app.get('/ping', pingHandler);\n",
+        encoding="utf-8",
+    )
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+
+    payload = engine.tool_routes(limit=20, budget_tokens=4000)
+
+    assert payload["route_count"] >= 3
+    routes = payload["routes"]
+    assert any(route["framework"] == "fastapi" and route["method"] == "GET" and route["route"] == "/health" for route in routes)
+    assert any(route["framework"] == "express" and route["route"] == "/ping" for route in routes)
+    assert any(route["framework"] == "django" and route["route"] == "admin/" for route in routes)
+
+
+def test_tool_explore_respects_budget_and_keeps_identity_fields(tmp_path: Path) -> None:
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+
+    payload = engine.tool_explore(
+        "OrderService",
+        include_source=True,
+        include_relationships=True,
+        budget_tokens=320,
+    )
+
+    assert payload["total_tokens"] <= 320
+    assert "entry_points" in payload
+    if payload["entry_points"]:
+        assert "symbol_id" in payload["entry_points"][0]
+        assert "symbol_name" in payload["entry_points"][0]
+        assert "file_path" in payload["entry_points"][0]
+
+
+def test_tool_status_reports_index_cache_and_freshness(tmp_path: Path) -> None:
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+
+    payload = engine.tool_status(budget_tokens=4000)
+    cached = engine.tool_status(budget_tokens=4000)
+
+    assert payload["repo_id"] == engine.repo_id
+    assert payload["repo_root"] == str(tmp_path.resolve())
+    assert payload["db_path"] == str((tmp_path / "code.sqlite").resolve())
+    assert payload["index_version"] >= 1
+    assert payload["index"]["files_indexed"] >= 1
+    assert payload["index"]["symbols_indexed"] >= 1
+    assert payload["freshness"]["status"] in {"fresh", "stale", "empty"}
+    assert "providers" in payload
+    assert payload["provider_freshness"]["thresholds"]["required_health_status"] == "ok"
+    assert "summary" in payload["provider_freshness"]
+    assert isinstance(payload["warnings"], list)
+    assert payload["autosync"]["state"] == "idle"
+    assert payload["autosync"]["mode"] == "scaffold_only"
+    assert "entry_count" in payload["cache"]
+    assert cached["cache_hit"] is True
+
+
 def test_low_token_defaults_stay_lighter_for_search_and_pattern(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1051,10 +1205,7 @@ def test_low_token_defaults_stay_lighter_for_search_and_pattern(
         encoding="utf-8",
     )
     (tmp_path / "src" / "http.py").write_text(
-        "\n".join(
-            f"def fetch_{index}(url: str) -> object:\n    return requests.get(url)\n"
-            for index in range(30)
-        ),
+        "\n".join(f"def fetch_{index}(url: str) -> object:\n    return requests.get(url)\n" for index in range(30)),
         encoding="utf-8",
     )
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
@@ -1094,3 +1245,25 @@ def test_low_token_defaults_stay_lighter_for_search_and_pattern(
     pattern_heavy = engine.tool_pattern(pattern="requests.get($URL)", limit=100, budget_tokens=4000)
 
     assert pattern_default["total_tokens"] < pattern_heavy["total_tokens"]
+
+
+def test_tiny_budget_overflow_does_not_attach_spill_metadata(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "orders.py").write_text(
+        "class OrderService:\n"
+        "    def calculate_total(self, items: list[int]) -> int:\n"
+        "        return sum(items)\n"
+        "\n"
+        "class OrderServiceFactory:\n"
+        "    def build(self) -> OrderService:\n"
+        "        return OrderService()\n",
+        encoding="utf-8",
+    )
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+
+    full_payload = engine.tool_search("OrderService", limit=5, snippet="full", budget_tokens=4000)
+    near_budget = max(1, int(full_payload["total_tokens"]) - 1)
+    near_payload = engine.tool_search("OrderService", limit=5, snippet="full", budget_tokens=near_budget)
+
+    assert near_payload["total_tokens"] <= near_budget
+    assert "overflow" not in near_payload

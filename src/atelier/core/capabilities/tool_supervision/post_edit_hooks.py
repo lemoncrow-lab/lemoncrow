@@ -2,6 +2,7 @@
 
 Called automatically after every successful tool_smart_edit unless post_edit_hooks=False.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,6 +11,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
 from atelier.core.capabilities.tool_supervision.bash_exec import run_command
 
 # -- language detection -------------------------------------------------------
@@ -33,6 +35,7 @@ def _detect_language(path: str) -> str:
 
 # -- tool detection -----------------------------------------------------------
 
+
 def _has(tool: str) -> bool:
     # Check the current Python interpreter's bin directory first.
     # This finds tools installed as project dev dependencies (e.g. ruff from
@@ -45,6 +48,7 @@ def _has(tool: str) -> bool:
 
 # -- command builders ---------------------------------------------------------
 
+
 def _format_cmds(language: str, paths: list[str]) -> list[list[str]]:
     """Return list of commands to format the given files."""
     if not paths:
@@ -55,9 +59,8 @@ def _format_cmds(language: str, paths: list[str]) -> list[list[str]]:
     elif language in ("typescript", "javascript"):
         if _has("prettier"):
             return [["prettier", "--write", "--log-level", "warn", *paths]]
-    elif language == "rust":
-        if _has("rustfmt"):
-            return [["rustfmt", *paths]]
+    elif language == "rust" and _has("rustfmt"):
+        return [["rustfmt", *paths]]
     return []
 
 
@@ -67,9 +70,8 @@ def _import_cmds(language: str, paths: list[str]) -> list[list[str]]:
     if language == "python":
         if _has("ruff"):
             return [["ruff", "check", "--fix", "--select", "I,F401", "--quiet", *paths]]
-    elif language in ("typescript", "javascript"):
-        if _has("eslint"):
-            return [["eslint", "--fix", "--rule", "{import/order: error}", *paths]]
+    elif language in ("typescript", "javascript") and _has("eslint"):
+        return [["eslint", "--fix", "--rule", "{import/order: error}", *paths]]
     return []
 
 
@@ -82,10 +84,9 @@ def _lint_fix_cmds(language: str, paths: list[str], _repo_root: Path) -> list[li
     elif language in ("typescript", "javascript"):
         if _has("eslint"):
             return [["eslint", "--fix", *paths]]
-    elif language == "rust":
+    elif language == "rust" and _has("cargo"):
         # cargo fix requires the workspace root, not individual files
-        if _has("cargo"):
-            return [["cargo", "fix", "--allow-dirty", "--allow-staged"]]
+        return [["cargo", "fix", "--allow-dirty", "--allow-staged"]]
     return []
 
 
@@ -101,13 +102,13 @@ def _diagnostic_cmds(language: str, paths: list[str], repo_root: Path) -> list[t
         tsconfig = repo_root / "tsconfig.json"
         if _has("tsc") and tsconfig.exists():
             cmds.append(("tsc", ["tsc", "--noEmit", "--pretty", "false"]))
-    elif language == "rust":
-        if _has("cargo"):
-            cmds.append(("cargo_clippy", ["cargo", "clippy", "--message-format", "json", "--quiet"]))
+    elif language == "rust" and _has("cargo"):
+        cmds.append(("cargo_clippy", ["cargo", "clippy", "--message-format", "json", "--quiet"]))
     return cmds
 
 
 # -- diagnostic parsers -------------------------------------------------------
+
 
 @dataclass
 class DiagnosticItem:
@@ -129,35 +130,42 @@ def _parse_ruff_json(stdout: str, source: str = "ruff") -> list[DiagnosticItem]:
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
-        result.append(DiagnosticItem(
-            file=str(item.get("filename") or item.get("file") or ""),
-            line=item.get("location", {}).get("row"),
-            col=item.get("location", {}).get("column"),
-            severity=str(item.get("message", "")).lower() if "error" in str(item.get("code", "")).lower() else "warning",
-            message=str(item.get("message") or ""),
-            code=str(item.get("code") or ""),
-            source=source,
-        ))
+        result.append(
+            DiagnosticItem(
+                file=str(item.get("filename") or item.get("file") or ""),
+                line=item.get("location", {}).get("row"),
+                col=item.get("location", {}).get("column"),
+                severity=(
+                    str(item.get("message", "")).lower() if "error" in str(item.get("code", "")).lower() else "warning"
+                ),
+                message=str(item.get("message") or ""),
+                code=str(item.get("code") or ""),
+                source=source,
+            )
+        )
     return result
 
 
 def _parse_tsc_output(stdout: str) -> list[DiagnosticItem]:
     """Parse tsc --pretty false output: file(line,col): error TS1234: message"""
     import re
+
     pattern = re.compile(r"^(.+?)\((\d+),(\d+)\): (error|warning|info) (TS\d+): (.+)$")
     result = []
     for line in stdout.splitlines():
         m = pattern.match(line.strip())
         if m:
-            result.append(DiagnosticItem(
-                file=m.group(1),
-                line=int(m.group(2)),
-                col=int(m.group(3)),
-                severity=m.group(4),
-                message=m.group(6),
-                code=m.group(5),
-                source="tsc",
-            ))
+            result.append(
+                DiagnosticItem(
+                    file=m.group(1),
+                    line=int(m.group(2)),
+                    col=int(m.group(3)),
+                    severity=m.group(4),
+                    message=m.group(6),
+                    code=m.group(5),
+                    source="tsc",
+                )
+            )
     return result
 
 
@@ -181,19 +189,22 @@ def _parse_cargo_clippy_json(stdout: str) -> list[DiagnosticItem]:
         spans = inner.get("spans") or []
         primary = next((s for s in spans if isinstance(s, dict) and s.get("is_primary")), spans[0] if spans else None)
         if primary and isinstance(primary, dict):
-            result.append(DiagnosticItem(
-                file=str(primary.get("file_name") or ""),
-                line=primary.get("line_start"),
-                col=primary.get("column_start"),
-                severity=level,
-                message=text,
-                code=code or None,
-                source="cargo_clippy",
-            ))
+            result.append(
+                DiagnosticItem(
+                    file=str(primary.get("file_name") or ""),
+                    line=primary.get("line_start"),
+                    col=primary.get("column_start"),
+                    severity=level,
+                    message=text,
+                    code=code or None,
+                    source="cargo_clippy",
+                )
+            )
     return result
 
 
 # -- hook config and result ---------------------------------------------------
+
 
 @dataclass
 class HookConfig:
@@ -215,6 +226,7 @@ class HookResult:
 
 
 # -- main runner --------------------------------------------------------------
+
 
 def run_post_edit_hooks(
     touched_paths: list[str],

@@ -5,12 +5,13 @@ Atelier tools are **not optional wrappers**. They are the reason this repo exist
 | Instead of | Use | Why | Measured |
 |---|---|---|---|
 | `Read(file)` | `mcp__atelier__read` | outline-first; large files return structure without bytes | **Measured token savings (cl100k_base) from `tests/benchmarks/test_read_ab_real.py`:** Ruby 97.2%, C++ 94.4%, Python 85.6%, Markdown 84.5%, TypeScript 74.0%, Shell 69.9%, Scala 50.6%. Current C/C#/Go/Java/Kotlin/PHP/Rust/Swift fixtures still hit full-read fallback (0%) at their base sizes. |
+| recursive `find` / `glob` inventory loops | `mcp__atelier__code op=files` | indexed file tree/list/grouped view without filesystem scanning | **Fixture A/B (`tests/benchmarks/test_code_files_ab_real.py`):** 1,908 → 517 tokens (72.9% fewer; 1,391 tokens saved) for a nested Python repo inventory flow. |
 | `Bash(grep ...)` / `Bash(rg ...)` | `mcp__atelier__grep` | regex/glob/type-filter search with token-budgeted output shaping | A/B harness in `tests/benchmarks/test_search_ab_real.py`; summarize measured deltas after calibration sweep |
 | manual grep + read + rank workflow | `mcp__atelier__search` | ranked query search plus repo-map construction | A/B harness in `tests/benchmarks/test_search_ab_real.py`; summarize measured deltas after calibration sweep |
 | `Bash(grep ...)` for symbols | `mcp__atelier__code op=search` | SCIP-indexed; no subprocess | _pending A/B_ |
 | `Bash(anything)` | `mcp__atelier__shell` | ANSI-stripped + line-truncated output | _pending A/B_ |
 | `Edit(...)` / `Write(...)` | `mcp__atelier__edit` | atomic multi-file with snapshot/rollback | _pending A/B_ |
-| raw file reading for symbols | `mcp__atelier__code op=symbol/usages/hover` | precomputed graph | _pending A/B_ |
+| chaining search + symbol + callers/callees + read | `mcp__atelier__code op=explore` | grouped source + relationships in one budgeted call | **Fixture A/B (`tests/benchmarks/test_code_explore_ab_real.py`):** 3,510 → 1,927 tokens (45.1% fewer; 1,583 tokens saved) for an auth/login exploration flow. |
 
 > Every "X% saved" claim in this row must cite a real A/B test under `tests/benchmarks/`. If the test isn't there, the cell reads `_pending A/B_`. No exceptions.
 >

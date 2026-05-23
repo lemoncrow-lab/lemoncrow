@@ -92,6 +92,11 @@ def posthog_host() -> str:
     return os.environ.get("ATELIER_POSTHOG_HOST", "https://us.i.posthog.com")
 
 
+def posthog_otlp_url() -> str:
+    """Direct OTLP ingest endpoint on PostHog - no local collector required."""
+    return posthog_host().rstrip("/") + "/i/v0/otlp"
+
+
 def _bool(value: Any, default: bool) -> bool:
     if isinstance(value, bool):
         return value

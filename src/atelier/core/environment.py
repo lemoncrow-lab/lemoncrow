@@ -9,23 +9,24 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from pathlib import Path
+
+try:
+    import tomllib
+except ImportError:  # pragma: no cover
+    tomllib = None  # type: ignore[assignment]
 
 DEV_MODE_ENV_VAR = "ATELIER_DEV_MODE"
+MEMORY_BACKEND_ENV_VAR = "ATELIER_MEMORY_BACKEND"
 TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 INSTALL_PROFILES = frozenset({"stable", "dev"})
+MEMORY_BACKENDS = frozenset({"sqlite", "letta", "openmemory"})
 
-STABLE_LLM_TOOLS = frozenset({"compact", "route", "trace"})
+STABLE_LLM_TOOLS = frozenset({"compact", "context", "trace", "memory", "read", "grep", "search", "route", "edit", "sql", "shell"})
 DEV_LLM_TOOLS = frozenset(
     {
         "code",
-        "context",
-        "edit",
-        "memory",
-        "read",
         "rescue",
-        "search",
-        "shell",
-        "sql",
         "verify",
     }
 )
@@ -106,3 +107,39 @@ def install_profile_warning(profile: str | None = None, env: Mapping[str, str] |
             f"{DEV_MODE_ENV_VAR}=1 is set."
         )
     return None
+
+
+def resolve_memory_backend(
+    *,
+    root: str | Path | None = None,
+    prefer: str | None = None,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    values = os.environ if env is None else env
+
+    env_backend = values.get(MEMORY_BACKEND_ENV_VAR, "").strip().lower()
+    if env_backend:
+        return _validated_memory_backend(env_backend)
+
+    if root is not None and tomllib is not None:
+        config_path = Path(root) / "config.toml"
+        if config_path.exists():
+            try:
+                data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+                memory = data.get("memory", {}) if isinstance(data, dict) else {}
+                config_backend = str(memory.get("backend", "")).strip().lower()
+                if config_backend:
+                    return _validated_memory_backend(config_backend)
+            except Exception:
+                # Keep runtime robust; invalid config falls back to defaults.
+                pass
+
+    fallback = (prefer or "sqlite").strip().lower()
+    return _validated_memory_backend(fallback)
+
+
+def _validated_memory_backend(value: str) -> str:
+    if value not in MEMORY_BACKENDS:
+        allowed = ", ".join(sorted(MEMORY_BACKENDS))
+        raise ValueError(f"memory backend must be one of: {allowed}")
+    return value

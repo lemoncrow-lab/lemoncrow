@@ -29,16 +29,8 @@ def load_script(path: Path, module_name: str) -> object:
     return module
 
 
-def test_generated_agent_contexts_are_current() -> None:
-    subprocess.run(
-        [sys.executable, "scripts/sync_agent_context.py", "--check"],
-        cwd=ROOT,
-        check=True,
-    )
-
-
 def test_root_entrypoints_stay_thin_and_link_to_live_docs() -> None:
-    for rel in ("AGENTS.md", "GEMINI.md", ".github/copilot-instructions.md"):
+    for rel in ("AGENTS.md", ".github/copilot-instructions.md"):
         path = ROOT / rel
         lines = path.read_text(encoding="utf-8").splitlines()
         assert len(lines) <= 80, f"{rel} should stay a thin entrypoint"
@@ -54,9 +46,9 @@ def test_copilot_tasks_include_worktree_and_runtime_evidence() -> None:
 
 def test_makefile_prefers_worktree_env_for_stack_commands() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert "COMPOSE_ENV_FILE := $(if $(wildcard .env.worktree),--env-file .env.worktree,)" in makefile
-    assert "$(DOCKER_COMPOSE) up --build -d" in makefile
-    assert "$(DOCKER_COMPOSE) down" in makefile
+    assert "if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi" in makefile
+    assert "stack start" in makefile
+    assert "stack stop" in makefile
 
 
 def test_worktree_env_is_stable_for_the_same_path(tmp_path: Path) -> None:

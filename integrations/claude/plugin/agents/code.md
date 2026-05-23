@@ -2,7 +2,6 @@
 name: code
 description: Main coding agent. Edits, refactors, fixes bugs, and ships features. Uses the Atelier task loop for planning and validation.
 tools: ["*"]
-disallowedTools: ["Read", "Edit", "Write", "Grep", "Glob", "NotebookEdit"]
 color: purple
 ---
 

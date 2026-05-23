@@ -1,6 +1,8 @@
 """Rich terminal + JSON report for the tool benchmark."""
+
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from collections import defaultdict
@@ -25,7 +27,7 @@ def _ms(ms: float) -> str:
     return f"{ms:.0f}ms"
 
 
-def _saving(extra: dict) -> str:
+def _saving(extra: dict[str, Any]) -> str:
     pct = extra.get("saving_pct", 0)
     chars = extra.get("saving_chars", 0)
     if pct > 0:
@@ -62,6 +64,13 @@ def _extra_info(r: ToolResult) -> str:
             parts.append(f"budget={bt}")
         if ex.get("ranked"):
             parts.append("ranked✓")
+    elif r.tool == "grep":
+        fmc = ex.get("file_match_count", 0)
+        bl = ex.get("baseline_lines", 0)
+        if fmc:
+            parts.append(f"{fmc}files")
+        if bl:
+            parts.append(f"base={bl}ln")
     return "  ".join(parts)
 
 
@@ -132,8 +141,8 @@ def print_report(report: BenchReport, *, show_per_host: bool = True) -> None:
                 ta = total_a_by_host.get(v, 0)
                 saving_pct = 100.0 * (1 - ta / total_b) if total_b > 0 else 0
                 c, n = correct_by_host.get(v, (0, 0))
-                avg_ms = (
-                    sum(r.elapsed_ms for r in rows if r.variant == v) / max(1, len([r for r in rows if r.variant == v]))
+                avg_ms = sum(r.elapsed_ms for r in rows if r.variant == v) / max(
+                    1, len([r for r in rows if r.variant == v])
                 )
                 print(
                     f"  \033[35m{v:<12}\033[0m: {ta:,} chars  "
@@ -147,7 +156,7 @@ def print_report(report: BenchReport, *, show_per_host: bool = True) -> None:
 # ---------------------------------------------------------------------------
 def print_savings_table(report: BenchReport) -> None:
     print(f"\n\033[1;35m{'='*76}\033[0m")
-    print(f"\033[1;35m  SAVINGS & CORRECTNESS SUMMARY\033[0m")
+    print("\033[1;35m  SAVINGS & CORRECTNESS SUMMARY\033[0m")
     print(f"\033[1;35m{'='*76}\033[0m\n")
 
     variants = [v for v in HOSTS_ORDERED if v != "builtin" and any(r.variant == v for r in report.results)]
@@ -175,11 +184,7 @@ def print_savings_table(report: BenchReport) -> None:
             n = len(v_rows)
             saving_pct = 100.0 * (1 - a_total / max(b_total, 1)) if b_total > 0 else 0
             avg_ms = sum(r.elapsed_ms for r in v_rows) / max(n, 1)
-            cell = (
-                f"\033[32m{saving_pct:+.0f}%\033[0m chars  "
-                f"{correct}/{n} correct  "
-                f"avg {_ms(avg_ms)}"
-            )
+            cell = f"\033[32m{saving_pct:+.0f}%\033[0m chars  " f"{correct}/{n} correct  " f"avg {_ms(avg_ms)}"
             line += f"  {cell:<{host_w + 20}}"
 
             totals[v]["chars_saved"] += b_total - a_total
@@ -214,8 +219,10 @@ def print_savings_table(report: BenchReport) -> None:
         1, sum(1 for r in report.results if r.variant != "builtin")
     )
     overhead = a_avg - b_avg
-    print(f"\n  \033[2mstdio spawn overhead: ~{_ms(overhead)} per call "
-          f"(disappears in persistent in-process mode)\033[0m")
+    print(
+        f"\n  \033[2mstdio spawn overhead: ~{_ms(overhead)} per call "
+        f"(disappears in persistent in-process mode)\033[0m"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -232,17 +239,18 @@ def print_enforcement_gap(settings_path: Path | None = None) -> None:
     project_settings_path = Path(__file__).resolve().parents[3] / ".claude" / "settings.json"
 
     print(f"\n\033[1;35m{'='*76}\033[0m")
-    print(f"\033[1;35m  TOOL ENFORCEMENT AUDIT\033[0m")
+    print("\033[1;35m  TOOL ENFORCEMENT AUDIT\033[0m")
     print(f"\033[1;35m{'='*76}\033[0m\n")
 
     hook_map: dict[str, str] = {}
     denied: set[str] = set()
 
-    def _load_settings(path: Path) -> dict:
+    def _load_settings(path: Path) -> dict[str, Any]:
         if not path.exists():
             return {}
         try:
-            return _json.loads(path.read_text())
+            result: dict[str, Any] = _json.loads(path.read_text())
+            return result
         except Exception:
             return {}
 
@@ -262,6 +270,7 @@ def print_enforcement_gap(settings_path: Path | None = None) -> None:
     # Collect denied tools from the installed plugin's agent.md frontmatter
     # (this is the wozcode/atelier-style enforcement)
     import re as _re
+
     for agent_path in (
         Path.home() / ".claude/plugins/cache/atelier/atelier/0.1.0/agents/code.md",
         Path.home() / ".atelier/claude-plugin-stable/agents/code.md",
@@ -270,7 +279,7 @@ def print_enforcement_gap(settings_path: Path | None = None) -> None:
             try:
                 head = agent_path.read_text(encoding="utf-8").split("---", 2)
                 fm = head[1] if len(head) >= 3 else ""
-                m = _re.search(r'disallowedTools:\s*\[([^\]]*)\]', fm)
+                m = _re.search(r"disallowedTools:\s*\[([^\]]*)\]", fm)
                 if m:
                     for raw in m.group(1).split(","):
                         t = raw.strip().strip('"').strip("'")
@@ -280,18 +289,7 @@ def print_enforcement_gap(settings_path: Path | None = None) -> None:
             except Exception:
                 pass
 
-    # PostToolUse missed-savings hooks
-    post_hooks: set[str] = set()
-    for hook in (global_cfg.get("hooks") or {}).get("PostToolUse") or []:
-        m = hook.get("matcher", "")
-        cmds = [h.get("command", "") for h in (hook.get("hooks") or [])]
-        if any("record_missed_saving" in c for c in cmds):
-            for tool in m.split("|"):
-                post_hooks.add(tool.strip())
-
-    src_label = f"{settings_path}" + (
-        f"\n  project: {project_settings_path}" if project_settings_path.exists() else ""
-    )
+    src_label = f"{settings_path}" + (f"\n  project: {project_settings_path}" if project_settings_path.exists() else "")
     print(f"  \033[2mReading: global: {src_label}\033[0m\n")
 
     tools_need_redirect = {
@@ -307,7 +305,6 @@ def print_enforcement_gap(settings_path: Path | None = None) -> None:
     for native, preferred in tools_need_redirect.items():
         hooked = any(native in m or m in native for m in hook_map)
         is_denied = native in denied
-        post_tracked = native in post_hooks
 
         if is_denied:
             print(f"  \033[32m✓ {native:<8}\033[0m \033[1mdenied\033[0m (hard block)")
@@ -341,7 +338,9 @@ def print_savings_events(atelier_root: Path | None = None) -> None:
     print(f"\033[1;35m{'='*76}\033[0m\n")
 
     if not eventsfile.exists():
-        print("  \033[33m⚠ No live_savings_events.jsonl found — atelier tools haven't been called in this session yet.\033[0m")
+        print(
+            "  \033[33m⚠ No live_savings_events.jsonl found — atelier tools haven't been called in this session yet.\033[0m"
+        )
         return
 
     lines = eventsfile.read_text().splitlines()
@@ -366,16 +365,16 @@ def print_savings_events(atelier_root: Path | None = None) -> None:
             total_cost += cost
             total_calls += 1
             tok_str = f"{tok//1000}k" if tok >= 1000 else str(tok)
-            print(f"  {ts}  \033[35m{tool:<20}\033[0m lever={lever:<20}  tok_saved={tok_str:<6}  cost_saved=${cost:.4f}")
+            print(
+                f"  {ts}  \033[35m{tool:<20}\033[0m lever={lever:<20}  tok_saved={tok_str:<6}  cost_saved=${cost:.4f}"
+            )
         except Exception:
             print(f"  \033[2m{line[:80]}\033[0m")
 
     all_events = []
     for line in lines:
-        try:
+        with contextlib.suppress(Exception):
             all_events.append(json.loads(line))
-        except Exception:
-            pass
 
     total_all_tokens = sum(int(e.get("tokens_saved") or e.get("live_tokens_saved") or 0) for e in all_events)
     total_all_cost = sum(float(e.get("cost_saved_usd") or 0) for e in all_events)
@@ -386,35 +385,37 @@ def print_savings_events(atelier_root: Path | None = None) -> None:
 # Statusline preview
 # ---------------------------------------------------------------------------
 def print_statusline_preview(atelier_root: Path | None = None) -> None:
-    from pathlib import Path as _Path
     import subprocess as _sp
+    from pathlib import Path as _Path
 
     if atelier_root is None:
         atelier_root = _Path.home() / ".atelier"
 
     script = _Path(__file__).resolve().parents[3] / "integrations" / "claude" / "plugin" / "scripts" / "statusline.sh"
     print(f"\n\033[1;35m{'='*76}\033[0m")
-    print(f"\033[1;35m  STATUSLINE PREVIEW\033[0m")
+    print("\033[1;35m  STATUSLINE PREVIEW\033[0m")
     print(f"\033[1;35m{'='*76}\033[0m\n")
 
     if not script.exists():
         print(f"  \033[33m⚠ statusline.sh not found at {script}\033[0m")
         return
 
-    fake_input = json.dumps({
-        "model": {"display_name": "claude-sonnet-4-5", "id": "claude-sonnet-4-5"},
-        "context_window": {
-            "used_percentage": 12.5,
-            "current_usage": {
-                "input_tokens": 8000,
-                "output_tokens": 1200,
-                "cache_read_input_tokens": 5000,
-                "cache_creation_input_tokens": 200,
+    fake_input = json.dumps(
+        {
+            "model": {"display_name": "claude-sonnet-4-5", "id": "claude-sonnet-4-5"},
+            "context_window": {
+                "used_percentage": 12.5,
+                "current_usage": {
+                    "input_tokens": 8000,
+                    "output_tokens": 1200,
+                    "cache_read_input_tokens": 5000,
+                    "cache_creation_input_tokens": 200,
+                },
             },
-        },
-        "cost": {"total_cost_usd": 0.0423, "total_duration_ms": 95000},
-        "session_id": "bench-preview",
-    })
+            "cost": {"total_cost_usd": 0.0423, "total_duration_ms": 95000},
+            "session_id": "bench-preview",
+        }
+    )
     env = {
         **os.environ,
         "ATELIER_ROOT": str(atelier_root),
@@ -423,7 +424,11 @@ def print_statusline_preview(atelier_root: Path | None = None) -> None:
     try:
         r = _sp.run(
             ["bash", str(script)],
-            input=fake_input, capture_output=True, text=True, timeout=10, env=env,
+            input=fake_input,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=env,
         )
         out = r.stdout.strip()
         err = r.stderr.strip()

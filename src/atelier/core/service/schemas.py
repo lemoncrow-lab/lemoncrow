@@ -40,6 +40,7 @@ class ContextResponse(_Strict):
     tokens_saved_vs_naive: int | None = None
     recalled_passages: list[dict[str, str | float]] = Field(default_factory=list)
     tokens_breakdown: dict[str, int] | None = None
+    bootstrap: dict[str, Any] | None = None
 
 
 # ---- /v1/reasoning/rescue --------------------------------------------------

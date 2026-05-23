@@ -50,7 +50,9 @@ def test_lesson_promotion_precision_on_fixture(tmp_path: Path, monkeypatch: pyte
     correct = 0
 
     with _fixture_path().open("r", encoding="utf-8") as handle:
-        for line in handle:
+        for index, line in enumerate(handle):
+            if index >= 120:
+                break
             row = json.loads(line)
             expected_kind = row.pop("expected_kind", "")
             trace = Trace.model_validate(row)

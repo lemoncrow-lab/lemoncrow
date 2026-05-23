@@ -1,0 +1,11 @@
+id: rubric-project-knowledge-sync
+domain: coding
+triggers: []
+forbidden_phrases: []
+required_checks:
+- knowledge_synced
+block_if_missing:
+- knowledge_synced
+warning_checks: []
+escalation_conditions: []
+related_blocks: []

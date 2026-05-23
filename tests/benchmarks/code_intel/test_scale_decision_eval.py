@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-import atelier.core.service.usage_sync  # noqa: F401
+import pytest
+pytestmark = pytest.mark.slow
 
+import atelier.core.service.usage_sync  # noqa: F401
 from benchmarks.code_intel.scale_decision_eval import (
     evaluate_default_candidates,
     render_checkpoint_appendix,
@@ -35,10 +37,7 @@ def test_scale_decision_eval_emits_repo_specific_phase5_answers() -> None:
 
     assert decision.search_scope == "search"
     assert decision.result_shape == "text"
-    assert (
-        decision.lifecycle_owner
-        == "session-scoped search backend supervisor owned by the MCP/runtime layer"
-    )
+    assert decision.lifecycle_owner == "session-scoped search backend supervisor owned by the MCP/runtime layer"
     assert decision.selected_option_id == "option-a"
 
 
@@ -69,9 +68,7 @@ def test_scale_decision_eval_memo_states_explicit_repo_default_outcome() -> None
     assert "**Selected approach:** Proceed with Zoekt standalone for `search` workloads only" in memo
     assert "- `search_scope`: `search`" in memo
     assert "- `result_shape`: `text`" in memo
-    assert (
-        "- `lifecycle_owner`: `session-scoped search backend supervisor owned by the MCP/runtime layer`" in memo
-    )
+    assert "- `lifecycle_owner`: `session-scoped search backend supervisor owned by the MCP/runtime layer`" in memo
 
 
 def test_scale_decision_eval_memo_calls_out_whether_05_02_needs_replanning() -> None:

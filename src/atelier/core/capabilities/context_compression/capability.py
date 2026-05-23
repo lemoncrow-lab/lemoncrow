@@ -36,6 +36,7 @@ class ContextCompressionCapability:
         ledger: RunLedger,
         *,
         token_budget: int = 8000,
+        task: str = "",
     ) -> CompressionResult:
         """
         Compress the ledger's context and return a full provenance record.
@@ -43,6 +44,8 @@ class ContextCompressionCapability:
         Args:
             ledger:       The run ledger to compress.
             token_budget: Maximum allowed tokens after compression.
+            task:         Optional task description for task-conditioned scoring.
+                          Events whose summaries overlap with task terms score higher.
         """
         raw_events: list[Any] = []
         with contextlib.suppress(Exception):
@@ -65,7 +68,7 @@ class ContextCompressionCapability:
         ]
 
         # Step 2: Score remaining events
-        scored = score_events(events_deduped)
+        scored = score_events(events_deduped, task=task)
         scored.sort(key=lambda x: x.score, reverse=True)
 
         # Step 3: Greedy token-budget selection (keep highest-scoring until budget used)
@@ -113,6 +116,7 @@ class ContextCompressionCapability:
         *,
         token_budget: int = 8000,
         agent_id: str = "atelier",
+        task: str = "",
     ) -> CompressionResult:
         """Like ``compress_with_provenance`` but also:
 
@@ -122,7 +126,7 @@ class ContextCompressionCapability:
 
         The original ``compress_with_provenance`` is unchanged.
         """
-        result = self.compress_with_provenance(ledger, token_budget=token_budget)
+        result = self.compress_with_provenance(ledger, token_budget=token_budget, task=task)
 
         raw_events: list[Any] = []
         with contextlib.suppress(Exception):
@@ -131,7 +135,7 @@ class ContextCompressionCapability:
 
         # Re-derive the dropped event dicts (same order as compress_with_provenance)
         _events_deduped, dropped_raw = deduplicate_tool_outputs(events)
-        scored = score_events(_events_deduped)
+        scored = score_events(_events_deduped, task=task)
         scored.sort(key=lambda x: x.score, reverse=True)
         budget_chars = token_budget * _CHARS_PER_TOKEN
         used = 0

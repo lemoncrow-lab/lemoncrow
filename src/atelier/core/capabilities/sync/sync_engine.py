@@ -86,9 +86,9 @@ def init_sync(
         "account_id": config.account_id,
         "descriptor": backend_impl.descriptor(),
         "keyring_cached": False,
-        "warning": "Passphrase caching is unavailable because keyring is not installed."
-        if _keyring_missing()
-        else None,
+        "warning": (
+            "Passphrase caching is unavailable because keyring is not installed." if _keyring_missing() else None
+        ),
     }
 
 
@@ -329,7 +329,9 @@ def _keyring_missing() -> bool:
 def _pending_uploads(root: Path, backend: SyncBackend) -> int:
     local = collect_sync_entities(root)
     remote = backend.load_index()
-    return sum(1 for key, entity in local.items() if remote.get(key) is None or remote[key].content_hash != entity.content_hash)
+    return sum(
+        1 for key, entity in local.items() if remote.get(key) is None or remote[key].content_hash != entity.content_hash
+    )
 
 
 def _count_kinds(entities: dict[str, SyncEntity], keys: list[str]) -> dict[str, int]:

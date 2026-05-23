@@ -73,6 +73,10 @@ coverage.xml
 # Github copilot workspace backups
 .github/copilot-instructions.md.atelier-backup.*
 
+# Github Copilot instructions (locally managed)
+copilot-instructions.md
+.github/copilot-instructions.md
+
 # VSCode test
 .vscode-test/
 

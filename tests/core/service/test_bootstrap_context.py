@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
-
 from atelier.core.service.bootstrap_context import (
+    _render_architecture_sketch,
     build_bootstrap_plan,
     expected_bootstrap_labels,
     list_bootstrap_blocks,
     persist_bootstrap_plan,
 )
+from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 
 def _write_fixture_repo(root: Path) -> None:
@@ -26,20 +26,15 @@ def _write_fixture_repo(root: Path) -> None:
         encoding="utf-8",
     )
     (root / "src" / "worker.py").write_text(
-        "def run_worker() -> str:\n"
-        "    return 'worker'\n",
+        "def run_worker() -> str:\n" "    return 'worker'\n",
         encoding="utf-8",
     )
     (root / "scripts" / "cli.py").write_text(
-        "from src.app import main\n\n"
-        "def cli() -> str:\n"
-        "    return main()\n",
+        "from src.app import main\n\n" "def cli() -> str:\n" "    return main()\n",
         encoding="utf-8",
     )
     (root / "web" / "index.ts").write_text(
-        "export function bootstrapApp(): string {\n"
-        "  return 'ready';\n"
-        "}\n",
+        "export function bootstrapApp(): string {\n" "  return 'ready';\n" "}\n",
         encoding="utf-8",
     )
 
@@ -105,3 +100,17 @@ def test_partial_bootstrap_metadata_allows_retry_without_rewriting_completed_blo
     assert completed_block.version == original_version
     assert first_label in result.reused_labels
     assert len(list_bootstrap_blocks(memory_store, plan.repo_id)) == 4
+
+
+def test_architecture_sketch_filters_non_project_paths() -> None:
+    rendered = _render_architecture_sketch(
+        {
+            "ranked_files": [
+                ".claude/worktrees/agent-x/src/hidden.py",
+                "src/atelier/core/runtime/engine.py",
+            ]
+        },
+        {},
+    )
+    assert "src/atelier/core/runtime/engine.py" in rendered
+    assert ".claude/worktrees" not in rendered

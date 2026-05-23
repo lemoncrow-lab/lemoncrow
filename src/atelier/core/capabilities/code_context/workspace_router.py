@@ -6,7 +6,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from atelier.core.capabilities.code_context.workspace_config import WorkspaceConfig, load_workspace_config
+from atelier.core.capabilities.code_context.workspace_config import (
+    WorkspaceConfig,
+    load_workspace_config,
+)
 
 
 class UnsupportedWorkspaceOperationError(ValueError):

@@ -69,4 +69,3 @@ def test_export_bundle_redacts_and_verifies_then_detects_tampering(tmp_path: Pat
     tampered = verify_audit_bundle(root, bundle_dir=bundle_dir)
     assert tampered["valid"] is False
     assert "README.txt" in tampered["tampered_files"]
-

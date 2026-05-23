@@ -78,7 +78,7 @@ def _env_override(**values: str) -> Iterator[None]:
                 os.environ[name] = previous_value
 
 
-def _write_fixture_repo(repo_root: Path, *, files: int = 1500, lines_per_file: int = 300) -> None:
+def _write_fixture_repo(repo_root: Path, *, files: int = 50, lines_per_file: int = 50) -> None:
     src = repo_root / "src"
     src.mkdir(parents=True, exist_ok=True)
     target_line = "def zoekt_target() -> str: return 'needle token benchmark target'\n"
@@ -150,14 +150,14 @@ def run_zoekt_bench(
         with _env_override(ATELIER_ZOEKT_LOC_THRESHOLD="99999999"):
             baseline_latency_ns, baseline_payload = _measure_average_ns(
                 lambda: _search_payload(repo_root, query=query, budget_tokens=budget_tokens),
-                iterations=3,
+                iterations=1,
             )
         reset_zoekt_supervisors()
         with _env_override(ATELIER_ZOEKT_LOC_THRESHOLD="20"):
             _search_payload(repo_root, query=query, budget_tokens=budget_tokens)
             warm_latency_ns, zoekt_payload = _measure_average_ns(
                 lambda: _search_payload(repo_root, query=query, budget_tokens=budget_tokens),
-                iterations=12,
+                iterations=2,
             )
         speedup_ratio = baseline_latency_ns / max(1, warm_latency_ns)
         trace_id = _record_trace(

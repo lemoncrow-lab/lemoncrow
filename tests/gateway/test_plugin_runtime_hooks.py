@@ -9,8 +9,6 @@ from typing import Any
 
 import pytest
 
-pytestmark = pytest.mark.slow  # Each test spawns a real Python subprocess (~2s each)
-
 from atelier.core.capabilities.plugin_runtime import (
     aggregate_session_stats,
     apply_session_start_files,
@@ -21,6 +19,8 @@ from atelier.core.capabilities.plugin_runtime import (
     update_session_stats,
     write_plugin_setting,
 )
+
+pytestmark = pytest.mark.slow  # Each test spawns a real Python subprocess (~2s each)
 
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS = ROOT / "integrations" / "claude" / "plugin" / "hooks"
@@ -128,15 +128,9 @@ def test_session_telemetry_tracks_usage_compaction_and_subagents(tmp_path: Path)
             "now_ms": 1000,
         },
     )
-    update_session_stats(
-        root, {"hook_event_name": "PreCompact", "session_id": "s1", "now_ms": 2000}
-    )
-    update_session_stats(
-        root, {"hook_event_name": "PostCompact", "session_id": "s1", "now_ms": 2750}
-    )
-    update_session_stats(
-        root, {"hook_event_name": "SubagentStop", "session_id": "s1", "now_ms": 3000}
-    )
+    update_session_stats(root, {"hook_event_name": "PreCompact", "session_id": "s1", "now_ms": 2000})
+    update_session_stats(root, {"hook_event_name": "PostCompact", "session_id": "s1", "now_ms": 2750})
+    update_session_stats(root, {"hook_event_name": "SubagentStop", "session_id": "s1", "now_ms": 3000})
 
     stats = json.loads((root / "session_stats" / "s1.json").read_text(encoding="utf-8"))
     assert stats["usage"]["input_tokens"] == 16
@@ -188,9 +182,7 @@ def test_session_start_bootstrap_applies_settings_auth_and_always_load(tmp_path:
         payload={"session_id": "s1"},
     )
 
-    assert result["host_settings"]["statusLine"]["command"].endswith(
-        "/plugin/scripts/statusline.sh"
-    )
+    assert result["host_settings"]["statusLine"]["command"].endswith("/plugin/scripts/statusline.sh")
     assert result["host_settings"]["atelier"]["spinnerVerbs"]
     assert result["host_settings"]["atelier"]["attribution"]["source"] == "Atelier"
     assert result["mcp_json"]["mcpServers"]["atelier"]["alwaysLoad"] is False
@@ -255,9 +247,7 @@ def test_apply_session_start_files_mutates_host_settings_and_plugin_mcp(tmp_path
     )
     write_plugin_setting(root, "alwaysLoadTools", True)
 
-    apply_session_start_files(
-        root, plugin_root, config_dir=config_dir, payload={"session_id": "s2"}
-    )
+    apply_session_start_files(root, plugin_root, config_dir=config_dir, payload={"session_id": "s2"})
 
     settings = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
     mcp_json = json.loads((plugin_root / ".mcp.json").read_text(encoding="utf-8"))
@@ -446,16 +436,11 @@ def test_statusline_shows_routing_savings(tmp_path: Path) -> None:
 
 
 def test_status_line_priority_and_weighted_rotation() -> None:
+    assert status_line_choose_message(update_flag={"fromVersion": "1", "toVersion": "2"})["message_family"] == "update"
     assert (
-        status_line_choose_message(update_flag={"fromVersion": "1", "toVersion": "2"})[
+        status_line_choose_message(auth_present=False, update_flag={"fromVersion": "1", "toVersion": "2"})[
             "message_family"
         ]
-        == "update"
-    )
-    assert (
-        status_line_choose_message(
-            auth_present=False, update_flag={"fromVersion": "1", "toVersion": "2"}
-        )["message_family"]
         == "login"
     )
     assert status_line_choose_message(auth_present=False)["message_family"] == "login"

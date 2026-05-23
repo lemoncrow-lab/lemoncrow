@@ -236,4 +236,3 @@ class TeamWorkspaceManager:
         secret = secrets.token_hex(32)
         path.write_text(secret, encoding="utf-8")
         return secret
-

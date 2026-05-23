@@ -40,4 +40,3 @@ def finish_google_oidc(code: str, *, state: str, email: str, hosted_domain: str 
     if hosted_domain:
         payload["hosted_domain"] = hosted_domain
     return payload
-

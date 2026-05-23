@@ -116,7 +116,7 @@ def cmd_run(config_path: str, out_override: str | None) -> None:
 @swe.command("evaluate")
 @click.option("--run-dir", "run_dir", required=True, type=click.Path(exists=True, file_okay=False))
 @click.option("--mode", default=None, help="Evaluate a single mode; default: every predictions_*.jsonl")
-@click.option("--mock/--official", default=False, help="Force the dependency-free mock evaluator")
+@click.option("--mock/--official", default=False, help="Use dependency-free mock evaluator (testing only)")
 def cmd_evaluate(run_dir: str, mode: str | None, mock: bool) -> None:
     """Run the official SWE-bench evaluator on the predictions files."""
     rd = Path(run_dir)
@@ -130,7 +130,11 @@ def cmd_evaluate(run_dir: str, mode: str | None, mock: bool) -> None:
         raise click.ClickException(f"no predictions_*.jsonl in {rd}")
 
     if not mock and not ensure_dependency_or_print():
-        mock = True
+        raise click.ClickException(
+            "Official SWE-bench evaluator is required. "
+            "Install it with `uv pip install swebench` and re-run, "
+            "or pass `--mock` for test-only local checks."
+        )
 
     out: dict[str, Any] = {}
     if mock:

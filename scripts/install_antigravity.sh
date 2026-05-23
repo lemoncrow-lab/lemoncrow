@@ -9,7 +9,7 @@
 #   --dry-run        Print what would happen, touch nothing
 #   --print-only     Print exact manual steps, touch nothing
 #   --workspace DIR  Install project-local artifacts into DIR instead of user config
-#   --strict         Exit nonzero if neither 'antigravity' nor 'agy' is on PATH
+#   --strict         Exit nonzero if antigravity/agy absent or --add-mcp fails
 
 set -euo pipefail
 
@@ -173,7 +173,13 @@ else
 fi
 
 if ! $WORKSPACE_SET && [[ -n "$ANTIGRAVITY_BIN" ]] && ! $DRY_RUN; then
-    antigravity --add-mcp "$ADD_MCP_JSON" >/dev/null 2>&1 || warn "antigravity --add-mcp failed; user mcp.json was still written"
+    if ! ADD_MCP_OUTPUT=$(antigravity --add-mcp "$ADD_MCP_JSON" 2>&1); then
+        if $STRICT; then
+            echo "[atelier:antigravity] ERROR: antigravity --add-mcp failed: $ADD_MCP_OUTPUT" >&2
+            exit 1
+        fi
+        warn "antigravity --add-mcp failed: $ADD_MCP_OUTPUT (user mcp.json was still written)"
+    fi
 fi
 
 info "Running post-install verification..."

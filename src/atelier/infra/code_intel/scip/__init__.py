@@ -12,15 +12,15 @@ from atelier.infra.code_intel.scip.reader import ScipArtifactError, ScipArtifact
 from atelier.infra.code_intel.scip.watcher import ScipArtifactWatcher
 
 __all__ = [
+    "DiscoveredScipArtifact",
     "ScipArtifactError",
     "ScipArtifactReader",
     "ScipArtifactWatcher",
     "ScipIndexer",
     "ScipSymbolIntelProvider",
-    "DiscoveredScipArtifact",
     "classify_scip_artifact",
-    "discover_external_scip_artifacts",
     "default_scip_cache_root",
+    "discover_external_scip_artifacts",
     "discover_scip_binaries",
     "discover_scip_binary",
 ]

@@ -8,15 +8,19 @@ input=$(cat)
 PLUGIN_LABEL="atelier"
 
 if command -v jq >/dev/null 2>&1; then
-  MODEL=$(printf '%s' "$input" | jq -r '.model.display_name // .model.id // "claude"' 2>/dev/null)
-  PCT=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // 0' 2>/dev/null)
-  COST=$(printf '%s' "$input" | jq -r '.cost.total_cost_usd // 0' 2>/dev/null)
-  DUR_MS=$(printf '%s' "$input" | jq -r '.cost.total_duration_ms // 0' 2>/dev/null)
-  IN_TOK=$(printf '%s' "$input" | jq -r '.context_window.current_usage.input_tokens // 0' 2>/dev/null)
-  OUT_TOK=$(printf '%s' "$input" | jq -r '.context_window.current_usage.output_tokens // 0' 2>/dev/null)
-  CACHE_R=$(printf '%s' "$input" | jq -r '.context_window.current_usage.cache_read_input_tokens // 0' 2>/dev/null)
-  CACHE_W=$(printf '%s' "$input" | jq -r '.context_window.current_usage.cache_creation_input_tokens // 0' 2>/dev/null)
-  SESSION_ID=$(printf '%s' "$input" | jq -r '.session_id // ""' 2>/dev/null)
+  read -r MODEL PCT COST DUR_MS IN_TOK OUT_TOK CACHE_R CACHE_W SESSION_ID <<<"$(printf '%s' "$input" | jq -r '
+    [
+      (.model.display_name // .model.id // "claude"),
+      (.context_window.used_percentage // 0),
+      (.cost.total_cost_usd // 0),
+      (.cost.total_duration_ms // 0),
+      (.context_window.current_usage.input_tokens // 0),
+      (.context_window.current_usage.output_tokens // 0),
+      (.context_window.current_usage.cache_read_input_tokens // 0),
+      (.context_window.current_usage.cache_creation_input_tokens // 0),
+      (.session_id // "")
+    ] | @tsv
+  ' 2>/dev/null)"
 else
   read_field() {
     python3 -c "
@@ -124,7 +128,7 @@ if session_id:
       ctx_saved = int(savings.get("tokens_saved", 0) or 0)
     except Exception:
       pass
-  if root is not None:
+  if root is not None and smart_calls == 0 and ctx_saved == 0 and saved_usd <= 0 and routing_saved_usd <= 0:
     live = load_live_savings_summary(root, session_id=session_id)
     smart_calls = max(smart_calls, int(live.get("calls_saved", 0) or 0))
     ctx_saved = max(ctx_saved, int(live.get("tokens_saved", 0) or 0))
@@ -174,6 +178,15 @@ EOF
 [ -z "$SAVED_CTX" ] && SAVED_CTX="0"
 [ -z "$SAVED_CALLS" ] && SAVED_CALLS="0"
 [ -z "$ROUTING_USD" ] && ROUTING_USD="\$0.000"
+
+# Persist real API cost so the Stop hook can use it instead of estimating.
+# The Stop hook payload from Claude Code never includes the total cost, so we
+# cache it here (written after every assistant turn) and read it there.
+if [ -n "${SESSION_ID:-}" ] && [ "${COST:-0}" != "0" ]; then
+  _COST_DIR="${ATELIER_STATUS_ROOT}/session_costs"
+  mkdir -p "$_COST_DIR" 2>/dev/null
+  printf '%s' "$COST" > "${_COST_DIR}/${SESSION_ID}.txt" 2>/dev/null || true
+fi
 
 if [ -n "${ATELIER_NO_COLOR:-}" ]; then
   C_BRAND=""; C_PIPE=""; C_DIM=""; C_GREEN=""; C_RESET=""

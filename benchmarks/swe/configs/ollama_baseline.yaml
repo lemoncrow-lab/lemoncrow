@@ -1,0 +1,19 @@
+# Baseline: mini-SWE-agent → Ollama qwen3.6 direct (no compression)
+# Inherit everything from the standard swebench.yaml and override model only.
+agent:
+  step_limit: 40
+  cost_limit: 0.
+
+environment:
+  environment_class: docker
+  cwd: "/testbed"
+  timeout: 120
+
+model:
+  model_name: "openai/qwen3.6:27b"
+  cost_tracking: "ignore_errors"
+  model_kwargs:
+    temperature: 0.0
+    drop_params: true
+    api_base: "http://localhost:11434/v1"
+    api_key: "ollama"

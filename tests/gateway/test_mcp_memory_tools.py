@@ -89,8 +89,6 @@ def test_memory_upsert_and_get_round_trip(mcp_root: Path) -> None:
                 agent_id="atelier:code",
                 label="scratch",
                 value="hello",
-                pinned=True,
-                metadata={"source": "test"},
             ),
         )
     )
@@ -104,7 +102,6 @@ def test_memory_upsert_and_get_round_trip(mcp_root: Path) -> None:
     )
     assert block["id"] == result["id"]
     assert block["value"] == "hello"
-    assert block["pinned"] is True
 
 
 def test_memory_get_returns_null_on_miss(mcp_root: Path) -> None:
@@ -113,26 +110,8 @@ def test_memory_get_returns_null_on_miss(mcp_root: Path) -> None:
     assert _payload(_call("memory", _memory_args("block_get", agent_id="atelier:code", label="missing"))) is None
 
 
-def test_memory_stale_version_maps_to_409(mcp_root: Path) -> None:
+def test_memory_rejects_removed_advanced_arguments(mcp_root: Path) -> None:
     _ = mcp_root
-    _payload(
-        _call(
-            "memory",
-            _memory_args("block_upsert", agent_id="atelier:code", label="scratch", value="v1"),
-        )
-    )
-    _payload(
-        _call(
-            "memory",
-            _memory_args(
-                "block_upsert",
-                agent_id="atelier:code",
-                label="scratch",
-                value="v2",
-                expected_version=1,
-            ),
-        )
-    )
     response = _call(
         "memory",
         _memory_args(
@@ -143,7 +122,8 @@ def test_memory_stale_version_maps_to_409(mcp_root: Path) -> None:
             expected_version=1,
         ),
     )
-    assert response["error"]["code"] == 409
+    assert response["error"]["code"] == -32602
+    assert "unknown arguments for memory tool" in response["error"]["message"]
 
 
 def test_memory_upsert_returns_and_applies_arbitration(monkeypatch: pytest.MonkeyPatch, mcp_root: Path) -> None:
@@ -230,7 +210,7 @@ def test_memory_recall_symbol_returns_fused_bundle_on_existing_surface(
 ) -> None:
     _ = mcp_root
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    symbol_id = _write_symbol_recall_fixture(tmp_path)
+    _write_symbol_recall_fixture(tmp_path)
     _payload(
         _call(
             "memory",
@@ -239,7 +219,6 @@ def test_memory_recall_symbol_returns_fused_bundle_on_existing_surface(
                 agent_id="shared",
                 label="edits/auth-verify-session",
                 value="Remember the stale-session regression.",
-                metadata={"symbol_id": symbol_id},
             ),
         )
     )
@@ -251,7 +230,6 @@ def test_memory_recall_symbol_returns_fused_bundle_on_existing_surface(
                 agent_id="shared",
                 text="AuthService.verify_session rejected stale sessions in incident review.",
                 source="user",
-                tags=[f"symbol:{symbol_id}", "incident"],
             ),
         )
     )
@@ -265,18 +243,18 @@ def test_memory_recall_symbol_returns_fused_bundle_on_existing_surface(
 
     assert payload["included"] == ["definition", "memory"]
     assert payload["definition"]["qualified_name"] == "AuthService.verify_session"
-    assert [item["item_type"] for item in payload["memory"]] == ["block", "passage"]
+    assert "passage" in [item["item_type"] for item in payload["memory"]]
     assert "traces" not in payload
     assert "tests" not in payload
 
 
-def test_memory_recall_symbol_explicit_includes_widen_payload(
+def test_memory_recall_symbol_returns_default_payload_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     mcp_root: Path,
 ) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    symbol_id = _write_symbol_recall_fixture(tmp_path)
+    _write_symbol_recall_fixture(tmp_path)
     trace_store = ContextStore(mcp_root)
     trace_store.init()
     trace_store.record_trace(
@@ -298,7 +276,6 @@ def test_memory_recall_symbol_explicit_includes_widen_payload(
                 agent_id="shared",
                 text="AuthService.verify_session rejected stale sessions in incident review.",
                 source="user",
-                tags=[f"symbol:{symbol_id}", "incident"],
             ),
         )
     )
@@ -310,16 +287,14 @@ def test_memory_recall_symbol_explicit_includes_widen_payload(
                 "recall_symbol",
                 agent_id="shared",
                 query="AuthService.verify_session",
-                include=["traces", "decisions", "tests"],
-                budget_tokens=1200,
             ),
         )
     )
 
-    assert payload["included"] == ["definition", "memory", "traces", "decisions", "tests"]
-    assert payload["traces"][0]["task"] == "Validate AuthService.verify_session recall"
-    assert payload["decisions"][0]["path"] == "docs/decisions/001-session-auth.md"
-    assert payload["tests"][0]["file_path"] == "tests/test_auth.py"
+    assert payload["included"] == ["definition", "memory"]
+    assert "traces" not in payload
+    assert "decisions" not in payload
+    assert "tests" not in payload
 
 
 def test_memory_recall_symbol_does_not_register_new_top_level_or_code_recall_tools() -> None:

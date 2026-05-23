@@ -35,7 +35,9 @@ def test_cross_lang_edge_store_upserts_uniquely_by_source_target_and_kind(tmp_pa
     store.upsert_edges(
         [
             edge,
-            edge.model_copy(update={"confidence": 0.85, "tgt_symbol_id": "c:foo_compute", "tgt_file_path": "native/foo.c"}),
+            edge.model_copy(
+                update={"confidence": 0.85, "tgt_symbol_id": "c:foo_compute", "tgt_file_path": "native/foo.c"}
+            ),
         ]
     )
 

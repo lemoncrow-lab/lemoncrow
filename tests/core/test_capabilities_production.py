@@ -944,8 +944,10 @@ def test_pricing_cursor_agent_auto() -> None:
 
 def test_pricing_yaml_overrides(tmp_path: Path) -> None:
     import os
+
     import yaml
-    from atelier.core.capabilities.pricing import get_model_pricing, _load_pricing_table
+
+    from atelier.core.capabilities.pricing import _load_pricing_table, get_model_pricing
 
     # Point ATELIER_ROOT to tmp_path
     old_root = os.environ.get("ATELIER_ROOT")

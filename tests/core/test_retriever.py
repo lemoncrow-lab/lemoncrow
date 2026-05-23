@@ -61,3 +61,59 @@ def test_retrieve_excludes_deprecated_and_quarantined(store: ContextStore) -> No
     ids = {s.block.id for s in retrieve(store, ctx)}
     assert "keep" in ids
     assert "dep" not in ids and "qua" not in ids
+
+
+# --------------------------------------------------------------------------- #
+# Block tiering: E3 / E2 / E1                                                  #
+# --------------------------------------------------------------------------- #
+
+
+def _tiered_block(bid: str, tier: str, **kw: object) -> ReasonBlock:
+    return ReasonBlock(
+        id=bid,
+        title=f"{tier}-block",
+        domain="coding",
+        situation="ctx",
+        procedure=["do"],
+        tier=tier,  # type: ignore[arg-type]
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+def test_e3_blocks_always_prepended(store: ContextStore) -> None:
+    """E3 blocks come first regardless of relevance score."""
+    store.upsert_block(_tiered_block("e3-rule", "e3", triggers=["universal"]))
+    store.upsert_block(_block("e2-a", domain="coding", triggers=["alpha"]))
+    ctx = TaskContext(task="alpha task", domain="coding")
+    scored = retrieve(store, ctx, limit=5)
+    ids = [s.block.id for s in scored]
+    assert "e3-rule" in ids
+    # E3 block must appear before any E2 block
+    assert ids.index("e3-rule") < ids.index("e2-a")
+
+
+def test_e1_blocks_gated_by_errors(store: ContextStore) -> None:
+    """E1 blocks are injected only when ctx.errors is non-empty."""
+    store.upsert_block(_tiered_block("e1-proc", "e1", triggers=["bug"]))
+    store.upsert_block(_block("e2-b", domain="coding", triggers=["bug"]))
+
+    # Without errors: E1 should be absent
+    ctx_clean = TaskContext(task="bug fix", domain="coding")
+    ids_clean = {s.block.id for s in retrieve(store, ctx_clean, limit=10)}
+    assert "e1-proc" not in ids_clean
+    assert "e2-b" in ids_clean
+
+    # With errors: E1 should be present
+    ctx_err = TaskContext(task="bug fix", domain="coding", errors=["TypeError: NoneType"])
+    ids_err = {s.block.id for s in retrieve(store, ctx_err, limit=10)}
+    assert "e1-proc" in ids_err
+
+
+def test_e3_score_is_1(store: ContextStore) -> None:
+    """E3 blocks get score=1.0 so they sort first in downstream processing."""
+    store.upsert_block(_tiered_block("e3-x", "e3"))
+    ctx = TaskContext(task="anything", domain="coding")
+    scored = retrieve(store, ctx, limit=10)
+    e3_entries = [s for s in scored if s.block.id == "e3-x"]
+    assert e3_entries, "E3 block should appear in results"
+    assert e3_entries[0].score == 1.0

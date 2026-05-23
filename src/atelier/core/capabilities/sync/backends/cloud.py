@@ -14,7 +14,9 @@ class CloudAccessError(SyncBackendError):
 class CloudSyncBackend(DirectorySyncBackend):
     backend_name = "cloud"
 
-    def __init__(self, *, remote_root: Path | None = None, api_url: str | None = None, account_id: str = "default") -> None:
+    def __init__(
+        self, *, remote_root: Path | None = None, api_url: str | None = None, account_id: str = "default"
+    ) -> None:
         if remote_root is not None:
             super().__init__(
                 remote_root=remote_root / account_id / "cloud",

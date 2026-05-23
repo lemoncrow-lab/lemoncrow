@@ -28,7 +28,6 @@ def test_cli_memory_upsert_and_get_round_trip(tmp_path: Path) -> None:
                     "agent_id": "atelier:code",
                     "label": "scratch",
                     "value": "hello",
-                    "pinned": True,
                 }
             ),
             "--json",
@@ -56,7 +55,6 @@ def test_cli_memory_upsert_and_get_round_trip(tmp_path: Path) -> None:
     block = json.loads(get.output)
     assert block["id"] == payload["id"]
     assert block["value"] == "hello"
-    assert block["pinned"] is True
 
 
 def test_cli_memory_upsert_reads_value_from_file(tmp_path: Path) -> None:

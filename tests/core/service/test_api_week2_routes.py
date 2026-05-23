@@ -467,6 +467,37 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 # ---------------------------------------------------------------------------
 
 
+
+
+def test_reasoning_context_accepts_runtime_bootstrap_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+
+    from atelier.core.service.api import create_app
+
+    class FakeRuntime:
+        def __init__(self, root: Path) -> None:
+            self.root = root
+
+        def get_context(self, **_: Any) -> dict[str, Any]:
+            return {
+                "context": "Use the bootstrap map first.",
+                "tokens_used": 7,
+                "bootstrap": {"status": "cold", "repo_hash": "abc123", "blocks": []},
+            }
+
+    monkeypatch.setattr("atelier.gateway.adapters.runtime.ContextRuntime", FakeRuntime)
+    client = TestClient(create_app(store_root=str(tmp_path)), raise_server_exceptions=True)
+
+    resp = client.post("/v1/reasoning/context", json={"task": "review edit"})
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["context"] == "Use the bootstrap map first."
+    assert payload["bootstrap"] == {"status": "cold", "repo_hash": "abc123", "blocks": []}
+
 class TestListSessions:
     def test_returns_list(self, client: TestClient) -> None:
         resp = client.get("/v1/sessions")

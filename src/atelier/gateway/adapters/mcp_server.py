@@ -12,7 +12,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
+import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -54,7 +56,7 @@ COMPACT_ADVISORY_THRESHOLD = 60.0
 AUTO_COMPACT_THRESHOLD = 80.0
 HANDOVER_THRESHOLD = 95.0
 AUTO_COMPACT_MIN_TURNS = 15
-# Bypass the min-turns gate when utilisation already exceeds this level -
+# Bypass the min-turns gate when utilisation already exceeds this level —
 # a few very large turns can fill the window just as fast as many small ones.
 AUTO_COMPACT_HIGH_UTIL_OVERRIDE = 90.0
 
@@ -88,7 +90,9 @@ def _tool_mode(spec: dict[str, Any]) -> str:
 
 
 def mcp_tool(
-    name: str | None = None, description: str | None = None
+    name: str | None = None,
+    description: str | None = None,
+    input_schema: dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[[dict[str, Any]], Any]]:
     """Decorator to register a tool and auto-derive its MCP schema."""
 
@@ -96,15 +100,13 @@ def mcp_tool(
         func: Callable[..., Any],
     ) -> Callable[[dict[str, Any]], Any]:
         tool_name = name or func.__name__.removeprefix("tool_")
-        # Use the first line of the docstring as the description
-        tool_description = description or (func.__doc__ or "").strip().split("\n")[0]
+        # Use the full docstring as the description so agents see all op detail.
+        tool_description = description or (func.__doc__ or "").strip()
 
         sig = inspect.signature(func)
         fields = {}
         for param_name, param in sig.parameters.items():
-            annotation = (
-                param.annotation if param.annotation is not inspect.Parameter.empty else Any
-            )
+            annotation = param.annotation if param.annotation is not inspect.Parameter.empty else Any
             default = param.default if param.default is not inspect.Parameter.empty else ...
             fields[param_name] = (
                 annotation,
@@ -136,7 +138,7 @@ def mcp_tool(
             "name": tool_name,
             "handler": handler_wrapper,
             "description": tool_description,
-            "inputSchema": schema,
+            "inputSchema": input_schema or schema,
         }
         return handler_wrapper
 
@@ -154,6 +156,8 @@ _product_session_started_at: float | None = None
 _last_plan_hash_by_session: dict[str, str] = {}
 _last_plan_by_session: dict[str, dict[str, Any]] = {}
 _last_blocked_plan_hash_by_session: dict[str, str] = {}
+_client_sampling_supported: bool = False
+_sampling_seq: int = 0
 
 
 def _service_backed_state() -> bool:
@@ -488,6 +492,26 @@ def _run_worker_tick_safe(root: Path) -> None:
         )
 
 
+_last_worker_spawn_time: float = 0.0
+_WORKER_SPAWN_THROTTLE_SECS: float = 30.0
+
+
+def _spawn_worker_if_idle(root: Path) -> None:
+    """Spawn a worker thread at most once per throttle window to avoid thread storms."""
+    import time
+
+    global _last_worker_spawn_time
+    now = time.monotonic()
+    if now - _last_worker_spawn_time < _WORKER_SPAWN_THROTTLE_SECS:
+        return
+    _last_worker_spawn_time = now
+    threading.Thread(
+        target=_run_worker_tick_safe,
+        args=(root,),
+        daemon=True,
+    ).start()
+
+
 _runtime_cache: ContextRuntime | None = None
 _context_budget_recorder: Any = None
 
@@ -502,6 +526,7 @@ def _runtime() -> ContextRuntime:
 def _reset_runtime_cache_for_testing() -> None:
     global _current_ledger, _realtime_ctx, _product_session_id, _product_session_started_at
     global _runtime_cache, _remote_client, _context_budget_recorder
+    global _last_worker_spawn_time
     _current_ledger = None
     _realtime_ctx = None
     _product_session_id = None
@@ -509,6 +534,7 @@ def _reset_runtime_cache_for_testing() -> None:
     _runtime_cache = None
     _remote_client = None
     _context_budget_recorder = None
+    _last_worker_spawn_time = 0.0
     _last_plan_hash_by_session.clear()
     _last_plan_by_session.clear()
     _last_blocked_plan_hash_by_session.clear()
@@ -697,14 +723,11 @@ def _bootstrap_context_status(root: Path) -> dict[str, Any]:
         if isinstance(job.get("payload"), dict) and job["payload"].get("repo_id") == repo_id
     ]
     queued = False
-    active_job = next(
-        (job for job in jobs if job["status"] in {"pending", "running", "failed"}), None
-    )
-    blocking_job = next(
-        (job for job in jobs if job["status"] in {"pending", "running", "failed", "dead"}), None
-    )
+    # Only block re-queueing if there is an already-active (pending or running) job.
+    # Failed/dead jobs should not permanently prevent retrying bootstrap.
+    active_job = next((job for job in jobs if job["status"] in {"pending", "running"}), None)
     job_id: str | None = None
-    if state != "warm" and blocking_job is None:
+    if state != "warm" and active_job is None:
         job_id = store.enqueue_job(
             JOB_BOOTSTRAP_CONTEXT,
             {"repo_root": str(repo_root), "repo_id": repo_id},
@@ -733,7 +756,29 @@ def tool_get_context(
     agent_id: str | None = None,
     recall: bool = True,
 ) -> dict[str, Any]:
-    """[DEV] Record task context and retrieve relevant ReasonBlocks for the task."""
+    """Record task context and retrieve relevant ReasonBlocks for the task.
+
+    Call this at the start of every task to seed your context with prior
+    procedures, bootstrap repo knowledge, and per-agent memory.
+
+    Args:
+        task:         Current task description (required). Drives block retrieval ranking.
+        domain:       Optional domain tag (e.g. "python", "infra") to narrow retrieval.
+        files:        File paths relevant to the task — boosts blocks associated with those files.
+        tools:        Tools you plan to use — helps rank procedure blocks that match.
+        errors:       Recent error messages — triggers rescue-mode block retrieval.
+        max_blocks:   Maximum number of ReasonBlocks to inject (default 5).
+        token_budget: Token cap for injected procedures (default 2000). Pass None for unlimited.
+        dedup:        Deduplicate near-identical blocks before returning (default True).
+        agent_id:     When set, loads per-agent archival memory passages via recall.
+        recall:       Set False to skip archival memory recall entirely (default True).
+
+    Returns a dict with:
+        context:            Full context string ready to prepend to your prompt.
+        bootstrap:          Repo bootstrap status (status, repo_id, queued, missing_labels).
+        recalled_passages:  Per-agent memory passages (empty list when agent_id is None).
+        tokens_breakdown:   Token counts by source (reasonblocks / bootstrap / memory / total).
+    """
     if errors is None:
         errors = []
     if tools is None:
@@ -763,181 +808,356 @@ def tool_get_context(
         },
     )
 
-    if stub := _check_dev_mode("context"):
-        return {"context": stub}
-
-    with contextlib.suppress(Exception):
-        scored = rt.core_runtime.context_reuse.retrieve(
+    bootstrap = _bootstrap_context_status(_atelier_root())
+    # Keep workspace resolution consistent between this MCP adapter and the
+    # core runtime path resolver so bootstrap status and injected bootstrap
+    # context are derived from the same repository.
+    workspace_root = str(_workspace_root().resolve())
+    previous_workspace_root = os.environ.get("ATELIER_WORKSPACE_ROOT")
+    os.environ["ATELIER_WORKSPACE_ROOT"] = workspace_root
+    try:
+        payload = rt.get_context(
             task=task,
             domain=domain,
             files=files,
             tools=tools,
             errors=errors,
-            limit=max_blocks,
+            max_blocks=max_blocks,
             token_budget=token_budget,
             dedup=dedup,
+            agent_id=agent_id,
+            recall=recall,
         )
-        _emit_reasonblock_retrieved(scored, domain)
-
-    bootstrap = _bootstrap_context_status(_atelier_root())
-    payload = rt.get_context(
-        task=task,
-        domain=domain,
-        files=files,
-        tools=tools,
-        errors=errors,
-        max_blocks=max_blocks,
-        token_budget=token_budget,
-        dedup=dedup,
-        agent_id=agent_id,
-        recall=recall,
-    )
-    result = payload if isinstance(payload, dict) else {"context": payload}
+    finally:
+        if previous_workspace_root is None:
+            os.environ.pop("ATELIER_WORKSPACE_ROOT", None)
+        else:
+            os.environ["ATELIER_WORKSPACE_ROOT"] = previous_workspace_root
+    result: dict[str, Any] = payload if isinstance(payload, dict) else {"context": payload}
     if bootstrap["status"] != "warm":
-        import threading
-
-        threading.Thread(
-            target=_run_worker_tick_safe,
-            args=(_atelier_root(),),
-            daemon=True,
-        ).start()
+        _spawn_worker_if_idle(_atelier_root())
     result["bootstrap"] = bootstrap
     return result
 
 
-@mcp_tool(name="route")
+
+_TASK_TYPE_TO_ADVISOR_TOOL: dict[str, str] = {
+    "debug": "shell",
+    "feature": "edit",
+    "refactor": "edit",
+    "test": "context",
+    "explain": "search",
+    "review": "read",
+    "docs": "compact",
+    "ops": "shell",
+}
+
+_TIER_PRIORITY: dict[str, int] = {"cheap": 0, "medium": 1, "high": 2, "expensive": 2}
+
+
+def _get_available_models() -> list[dict[str, Any]]:
+    """Return models the current session can access, ordered cheapest-first."""
+    from atelier.core.capabilities.counterfactual.pricing import _DEFAULT_CANDIDATES
+    from atelier.core.capabilities.cross_vendor_routing.configuration import (
+        detect_configured_vendors,
+    )
+
+    configured = set(detect_configured_vendors())
+    return [
+        {"vendor": c.vendor, "model_id": c.model_id, "tier": c.tier}
+        for c in _DEFAULT_CANDIDATES
+        if c.vendor in configured
+    ]
+
+
+def _sampling_invoke(prompt: str, model_hint: str, max_tokens: int) -> dict[str, Any]:
+    """Send a sampling/createMessage request to the MCP client and return its response."""
+    global _sampling_seq
+    if not _client_sampling_supported:
+        return {
+            "sampling_supported": False,
+            "error": (
+                "Host does not support MCP sampling. Use the host agent's native sub-agent "
+                "mechanism (e.g. Claude Code's Task tool) with model='" + model_hint + "'."
+            ),
+            "prompt": prompt,
+            "model_hint": model_hint,
+        }
+    _sampling_seq += 1
+    req_id = f"samp-{_sampling_seq}"
+    request = {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "method": "sampling/createMessage",
+        "params": {
+            "messages": [{"role": "user", "content": {"type": "text", "text": prompt}}],
+            "modelPreferences": {
+                "hints": [{"name": model_hint}] if model_hint else [],
+                "costPriority": 0.3,
+                "speedPriority": 0.3,
+                "intelligencePriority": 0.4,
+            },
+            "maxTokens": max_tokens,
+            "includeContext": "none",
+        },
+    }
+    sys.stdout.write(json.dumps(request, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+    for raw_line in sys.stdin:
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        try:
+            msg = json.loads(raw_line)
+        except json.JSONDecodeError:
+            return {"sampling_supported": True, "error": "invalid sampling response from host", "model_used": None}
+        if msg.get("id") != req_id:
+            # Unexpected message — process inline and keep waiting
+            inline_resp = _handle(msg)
+            if inline_resp is not None:
+                sys.stdout.write(json.dumps(inline_resp, ensure_ascii=False) + "\n")
+                sys.stdout.flush()
+            continue
+        if "error" in msg:
+            return {
+                "sampling_supported": True,
+                "error": msg["error"].get("message", "sampling failed"),
+                "model_used": None,
+            }
+        result = msg.get("result", {})
+        content = result.get("content", {})
+        text = content.get("text", "") if isinstance(content, dict) else str(content)
+        return {
+            "sampling_supported": True,
+            "model_used": result.get("model", model_hint),
+            "response": text,
+            "stop_reason": result.get("stopReason", "end_turn"),
+        }
+    return {"sampling_supported": True, "error": "stdin closed before sampling response", "model_used": None}
+
+
+
+def _spawn_subprocess(prompt: str, model: str) -> dict[str, Any] | None:
+    """Run a real agentic task via claude/codex CLI subprocess.
+
+    Returns a result dict on success/error, or None if no supported CLI is found.
+    The spawned process is a full agentic loop with tool access — not a single LLM call.
+    """
+    import subprocess as _sp
+
+    for cli_name in ("claude", "codex"):
+        cli = shutil.which(cli_name)
+        if not cli:
+            continue
+        # -p (print mode): full agentic loop, exits when done; json output for structured parsing
+        cmd = [cli, "-p", prompt, "--model", model, "--output-format", "json", "--no-session-persistence"]
+        try:
+            result = _sp.run(cmd, capture_output=True, text=True, timeout=300)
+        except _sp.TimeoutExpired:
+            return {"spawn_method": "cli_subprocess", "error": "timeout: subprocess exceeded 300s", "model_used": model}
+        except Exception as exc:
+            return {"spawn_method": "cli_subprocess", "error": str(exc), "model_used": model}
+
+        if result.returncode == 0:
+            try:
+                data = json.loads(result.stdout)
+                return {
+                    "spawn_method": "cli_subprocess",
+                    "model_used": data.get("model", model),
+                    "response": data.get("result", result.stdout),
+                    "stop_reason": data.get("stop_reason", "end_turn"),
+                    "cost_usd": data.get("cost_usd"),
+                    "num_turns": data.get("num_turns", 1),
+                }
+            except json.JSONDecodeError:
+                return {
+                    "spawn_method": "cli_subprocess",
+                    "model_used": model,
+                    "response": result.stdout.strip(),
+                    "stop_reason": "end_turn",
+                }
+        else:
+            return {
+                "spawn_method": "cli_subprocess",
+                "error": f"CLI exited {result.returncode}: {result.stderr[:500]}",
+                "model_used": model,
+            }
+
+    return None  # No supported CLI available
+
+
+@mcp_tool(
+    name="route",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "op": {
+                "type": "string",
+                "enum": ["decide", "spawn"],
+                "description": (
+                    "decide: pick the best model for an upcoming task — returns model ID, tier, "
+                    "available models, and whether the host can spawn. "
+                    "spawn: delegate a task to a cheaper model subagent. Returns spawn_directive with "
+                    "exact native tool parameters. If handled=true the MCP server already ran it; "
+                    "if handled=false YOU must call your native Agent/task tool with spawn_directive immediately."
+                ),
+            },
+            "task": {
+                "type": "string",
+                "description": "(decide) describe what you are about to do so the router can pick the right model.",
+            },
+            "task_type": {
+                "type": "string",
+                "enum": ["debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"],
+                "default": "feature",
+                "description": "(decide) task category — used to calibrate expected model complexity.",
+            },
+            "budget": {
+                "type": "string",
+                "enum": ["cheap", "balanced", "best"],
+                "default": "balanced",
+                "description": "(decide) cost preference: cheap=lowest cost, balanced=smart default, best=highest quality.",
+            },
+            "prompt": {
+                "type": "string",
+                "description": "(spawn) full task prompt to run on the chosen model.",
+            },
+            "model": {
+                "type": "string",
+                "description": "(spawn) model ID to use (e.g. 'claude-haiku-4-5', from a prior decide call).",
+            },
+        },
+        "required": ["op"],
+    },
+)
 def tool_route(
-    op: Literal["decide", "verify", "recommend"],
-    user_goal: str = "",
-    repo_root: str = ".",
-    tool_name: str = "",
-    task_text: str = "",
-    session_state: dict[str, Any] | None = None,
-    actual_vendor: str | None = None,
-    task_type: Literal[
-        "debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"
-    ] = "feature",
-    risk_level: Literal["low", "medium", "high"] = "medium",
-    changed_files: list[str] | None = None,
-    domain: str | None = None,
-    step_type: Literal[
-        "classify",
-        "compress",
-        "retrieve",
-        "plan",
-        "edit",
-        "debug",
-        "verify",
-        "summarize",
-        "lesson_extract",
-    ] = "plan",
-    step_index: int = 0,
-    evidence_summary: dict[str, Any] | None = None,
-    route_decision_id: str | None = None,
-    validation_results: list[dict[str, Any]] | None = None,
-    rubric_status: Literal["not_run", "pass", "warn", "fail"] = "not_run",
-    required_verifiers: list[str] | None = None,
-    protected_file_match: bool = False,
-    repeated_failure_signatures: list[str] | None = None,
-    diff_line_count: int = 0,
-    human_accepted: bool | None = None,
-    benchmark_accepted: bool | None = None,
+    op: Literal["decide", "spawn"] = "decide",
+    # --- decide params ---
+    task: str = "",
+    task_type: Literal["debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"] = "feature",
+    budget: Literal["cheap", "balanced", "best"] = "balanced",
+    # --- spawn params ---
+    prompt: str = "",
+    model: str = "",
 ) -> dict[str, Any]:
-    """Route op-dispatch: op=decide computes a route; op=verify checks the outcome."""
-    rt = _runtime()
+    """Route op-dispatch: op=decide picks a model; op=spawn runs a task on that model."""
     led = _get_ledger()
 
-    if changed_files is None:
-        changed_files = []
-    if validation_results is None:
-        validation_results = []
-    if required_verifiers is None:
-        required_verifiers = []
-    if repeated_failure_signatures is None:
-        repeated_failure_signatures = []
-    if evidence_summary is None:
-        evidence_summary = {}
-
-    if op == "recommend":
-        led.record_tool_call(
-            "route",
-            {
-                "op": op,
-                "tool_name": tool_name,
-                "actual_vendor": actual_vendor,
-            },
-        )
-        if session_state is None:
-            session_state = _model_recommendation_state(led, {})
-        from atelier.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
-
-        advisor = CrossVendorRouteAdvisor(_atelier_root())
-        return advisor.recommend(
-            tool_name=tool_name,
-            task_text=task_text or user_goal,
-            session_state=session_state,
-            actual_vendor=actual_vendor,
-        )
-
+    # --- op=decide: pick the best model for an upcoming task ---
     if op == "decide":
-        led.record_tool_call(
-            "route",
-            {
-                "op": op,
-                "task_type": task_type,
-                "risk_level": risk_level,
-                "changed_files": changed_files,
-                "domain": domain,
-                "step_type": step_type,
-                "step_index": step_index,
-            },
-        )
-        decision = rt.route_decide(
-            user_goal=user_goal,
-            repo_root=repo_root,
-            task_type=task_type,
-            risk_level=risk_level,
-            changed_files=changed_files,
-            domain=domain,
-            step_type=step_type,
-            step_index=step_index,
-            session_id=led.session_id,
-            evidence_summary=evidence_summary,
-            ledger=led,
-        )
-        return to_jsonable(decision)
+        led.record_tool_call("route", {"op": op, "task_type": task_type, "budget": budget})
+        available = _get_available_models()
+        host_model = os.environ.get("ATELIER_MODEL", "")
+        can_spawn = bool(shutil.which("claude") or shutil.which("codex")) or _client_sampling_supported
 
-    if route_decision_id is None:
-        raise ValueError("route_decision_id is required when op='verify'")
-    led.record_tool_call(
-        "route",
-        {
-            "op": op,
-            "route_decision_id": route_decision_id,
-            "changed_files": changed_files,
-            "rubric_status": rubric_status,
-            "required_verifiers": required_verifiers,
-            "protected_file_match": protected_file_match,
-            "repeated_failure_signatures": repeated_failure_signatures,
-            "diff_line_count": diff_line_count,
-            "human_accepted": human_accepted,
-            "benchmark_accepted": benchmark_accepted,
-        },
-    )
-    envelope = rt.core_runtime.quality_router.verify(
-        route_decision_id=route_decision_id,
-        session_id=led.session_id,
-        changed_files=changed_files,
-        validation_results=validation_results,
-        rubric_status=rubric_status,
-        required_verifiers=required_verifiers,
-        protected_file_match=protected_file_match,
-        repeated_failure_signatures=repeated_failure_signatures,
-        diff_line_count=diff_line_count,
-        human_accepted=human_accepted,
-        benchmark_accepted=benchmark_accepted,
-    )
-    return to_jsonable(envelope)
+        # Try cross-vendor advisor for a cost-and-quality-aware recommendation
+        chosen_model = ""
+        tier = ""
+        rationale = ""
+        try:
+            from atelier.core.capabilities.cross_vendor_routing.advisor import (
+                CrossVendorRouteAdvisor,
+            )
+
+            advisor = CrossVendorRouteAdvisor(_atelier_root())
+            advisor_tool = _TASK_TYPE_TO_ADVISOR_TOOL.get(task_type, "edit")
+            rec = advisor.recommend(
+                tool_name=advisor_tool,
+                task_text=task,
+                session_state=_model_recommendation_state(led, {}),
+            )
+            chosen_model = rec.get("model", "")
+            tier = rec.get("tier", "")
+            rationale = rec.get("reason", "")
+        except Exception:
+            pass
+
+        # Apply budget override on top of advisor recommendation
+        if budget == "cheap" and available:
+            cheap_models = [m for m in available if m["tier"] == "cheap"]
+            if cheap_models:
+                chosen_model = cheap_models[0]["model_id"]
+                tier = "cheap"
+                rationale = "cheapest available model selected per budget=cheap"
+        elif budget == "best" and available:
+            expensive_models = sorted(
+                available,
+                key=lambda m: _TIER_PRIORITY.get(m["tier"], 0),
+                reverse=True,
+            )
+            if expensive_models:
+                chosen_model = expensive_models[0]["model_id"]
+                tier = expensive_models[0]["tier"]
+                rationale = "highest-capability available model selected per budget=best"
+
+        # Final fallback: pick cheapest available model
+        if not chosen_model and available:
+            chosen_model = available[0]["model_id"]
+            tier = available[0]["tier"]
+            rationale = "fallback: cheapest configured model"
+
+        return {
+            "model": chosen_model,
+            "tier": tier,
+            "rationale": rationale,
+            "available_models": available,
+            "host_model": host_model,
+            "can_spawn": can_spawn,
+            "_summary": {
+                "recommended": chosen_model,
+                "recommended_route": tier or chosen_model or "local edit",
+                "budget": budget,
+                "required_validation": [],
+                "risk": "unknown",
+                "can_spawn": can_spawn,
+            },
+        }
+
+    # --- op=spawn: delegate a task to a cheaper model subagent ---
+    if op == "spawn":
+        led.record_tool_call("route", {"op": op, "model": model})
+        effective_model = model or "claude-haiku-4-5"
+
+        # Prepend Atelier context bootstrap so the subagent self-initialises
+        bootstrapped_prompt = (
+            f'Start by calling `mcp__atelier__context` with task="{prompt[:120]}" '
+            f"to load relevant Atelier context, then proceed.\n\n{prompt}"
+        )
+
+        # spawn_directive: canonical parameters for the host's native spawn tool.
+        # Claude Code → Agent(agent_type=..., model=..., prompt=...)
+        # Copilot CLI  → task(agent_type=..., model=..., prompt=...)
+        # Codex        → Task(prompt=..., model=...)
+        spawn_directive = {
+            "agent_type": "general-purpose",
+            "model": effective_model,
+            "prompt": bootstrapped_prompt,
+            "run_in_background": False,
+        }
+
+        # Fast-path: if a compatible CLI is available let the MCP server run it
+        # directly (useful in CI / non-interactive pipelines).
+        cli_result = _spawn_subprocess(prompt=prompt, model=effective_model)
+        if cli_result is not None and "error" not in cli_result:
+            cli_result["handled"] = True
+            cli_result["spawn_directive"] = spawn_directive
+            return cli_result
+
+        # Primary path: return spawn_directive for the host agent to execute natively.
+        # The calling agent MUST call its native Agent/Task/task tool with these params.
+        return {
+            "handled": False,
+            "spawn_directive": spawn_directive,
+            "model": effective_model,
+            "message": (
+                "SPAWN_REQUIRED: call your native spawn tool immediately with spawn_directive. "
+                "Claude Code → Agent(agent_type=..., model=..., prompt=...). "
+                "Copilot CLI → task(agent_type=..., prompt=...). "
+                "Do NOT inline the work — delegate it to a cheaper subagent."
+            ),
+        }
+
+    raise ValueError(f"unknown op: {op!r}; supported ops: decide, spawn")
 
 
 @mcp_tool(name="rescue")
@@ -1153,12 +1373,7 @@ def tool_record_trace(
     # Derive host label from agent string and environment
     def _derive_host(a: str) -> str:
         al = a.lower()
-        if (
-            "antigravity" in al
-            or "agy" in al
-            or os.environ.get("ANTIGRAVITY_CLI")
-            or os.environ.get("AGY_CLI")
-        ):
+        if "antigravity" in al or "agy" in al or os.environ.get("ANTIGRAVITY_CLI") or os.environ.get("AGY_CLI"):
             return "antigravity"
         if "copilot" in al or os.environ.get("COPILOT_CLI"):
             return "copilot"
@@ -1285,15 +1500,18 @@ def tool_record_trace(
 
     # Kick off an immediate background consolidation tick so knowledge blocks
     # are extracted from this trace without waiting for the daemon's next cycle.
-    import threading
-
     threading.Thread(
         target=_run_worker_tick_safe,
         args=(_atelier_root(),),
         daemon=True,
     ).start()
 
+    # Stable compact receipt — always present so callers can confirm storage
+    # without parsing the full payload.
     return {
+        "ok": True,
+        "trace_id": trace.id,
+        "stored": True,
         "id": trace.id,
         "session_id": led.session_id,
         "event_recorded": bool(event_type),
@@ -1336,9 +1554,7 @@ def _compress_context(session_id: str | None = None) -> Any:
     if session_id:
         led.session_id = session_id
     rtc = _get_realtime_context()
-    state = ContextCompressor().compress(
-        led, preserve_last_n_turns=10, workspace_root=_workspace_root()
-    )
+    state = ContextCompressor().compress(led, preserve_last_n_turns=10, workspace_root=_workspace_root())
     compaction_savings = _session_compaction_savings_payload(
         led,
         state,
@@ -1396,9 +1612,7 @@ def _memory_upsert_block(
     clean_description = _redact_memory_input(description, "description")
     store = _memory_store()
     existing = store.get_block(agent_id, label)
-    version = (
-        expected_version if expected_version is not None else (existing.version if existing else 1)
-    )
+    version = expected_version if expected_version is not None else (existing.version if existing else 1)
     seed = existing or MemoryBlock(agent_id=agent_id, label=label, value=clean_value)
     block = MemoryBlock(
         id=seed.id,
@@ -1434,15 +1648,13 @@ def _memory_upsert_block(
         )
     elif decision.op == "DELETE" and target is not None:
         store.tombstone_block(target.id, deprecated_by_block_id=block.id, reason=decision.reason)
-        stored = store.upsert_block(
-            block, actor=actor or f"agent:{agent_id}", reason=decision.reason
-        )
+        stored = store.upsert_block(block, actor=actor or f"agent:{agent_id}", reason=decision.reason)
     else:
         stored = store.upsert_block(block, actor=actor or f"agent:{agent_id}")
     return {
         "id": stored.id,
         "version": stored.version,
-        "arbitration": decision.model_dump(mode="json"),
+        "arbitration": {"op": decision.op, "reason": decision.reason},
     }
 
 
@@ -1479,7 +1691,7 @@ def _memory_recall(
 ) -> dict[str, Any]:
     """Recall relevant archival memory passages."""
     since_dt = datetime.fromisoformat(since) if since else None
-    passages, recall = _archival_recall().recall(
+    passages, _ = _archival_recall().recall(
         agent_id=agent_id,
         query=query,
         top_k=top_k,
@@ -1493,50 +1705,53 @@ def _memory_recall(
                 "text": passage.text,
                 "source_ref": passage.source_ref,
                 "tags": passage.tags,
-                "legacy_stub": passage.embedding_provenance == "legacy_stub",
             }
             for passage in passages
         ],
-        "recall_id": recall.id,
     }
 
 
-@mcp_tool(name="memory")
+@mcp_tool(
+    name="memory",
+    description=(
+        "Memory op-dispatch for block storage and retrieval: "
+        "block_upsert/block_get for scoped blocks, archive/recall for passages, "
+        "recall_symbol/transcript_recall for targeted recall, summarize for session memory."
+    ),
+)
 def tool_memory(
-    op: Literal[
-        "block_upsert",
-        "block_get",
-        "archive",
-        "recall",
-        "recall_symbol",
-        "transcript_recall",
-        "summarize",
+    op: Annotated[
+        Literal[
+            "block_upsert",
+            "block_get",
+            "archive",
+            "recall",
+            "recall_symbol",
+            "transcript_recall",
+            "summarize",
+        ],
+        Field(
+            description=(
+                "Operation to execute. block_upsert requires label+value; block_get requires label; "
+                "archive requires text+source; recall/recall_symbol/transcript_recall require query; "
+                "summarize requires session_id."
+            )
+        ),
     ],
-    agent_id: str | None = None,
-    label: str | None = None,
-    value: str | None = None,
-    limit_chars: int = 8000,
-    description: str = "",
-    read_only: bool = False,
-    pinned: bool = False,
-    metadata: dict[str, Any] | None = None,
-    expected_version: int | None = None,
-    actor: str | None = None,
-    text: str | None = None,
-    source: str | None = None,
-    source_ref: str = "",
-    tags: list[str] | None = None,
-    query: str | None = None,
-    top_k: int = 5,
-    since: str | None = None,
-    include: list[Literal["definition", "memory", "traces", "decisions", "tests"]] | None = None,
-    horizon_days: int = 180,
-    budget_tokens: int = 3000,
-    session_id: str | None = None,
+    agent_id: Annotated[
+        str | None,
+        Field(description="Memory namespace for scoped blocks and archival passages. Defaults to shared namespace when not specified."),
+    ] = None,
+    label: Annotated[str | None, Field(description="Block key used by block_upsert and block_get.")] = None,
+    value: Annotated[str | None, Field(description="Block content used by block_upsert.")] = None,
+    text: Annotated[str | None, Field(description="Archival passage text used by archive.")] = None,
+    source: Annotated[str | None, Field(description="Origin label for archive, identifying who created this memory (for example: user, assistant, system).")] = None,
+    query: Annotated[str | None, Field(description="Search query used by recall, recall_symbol, and transcript_recall.")] = None,
+    top_k: Annotated[int, Field(description="Max results to return for recall and recall_symbol ops.")] = 5,
+    session_id: Annotated[str | None, Field(description="Session id used by summarize.")] = None,
+    metadata: Annotated[dict[str, Any] | None, Field(description="Optional metadata dict attached to block_upsert.")] = None,
 ) -> dict[str, Any] | None:
-    """[DEV] Memory op-dispatch: block_upsert, block_get, archive, recall, recall_symbol, transcript_recall, or summarize."""
-    if stub := _check_dev_mode("memory"):
-        return {"context": stub, "passages": [], "text": stub}
+    """Memory op-dispatch: block_upsert, block_get, archive, recall, recall_symbol, transcript_recall, or summarize."""
 
     def require(name: str, current: str | None) -> str:
         if not current:
@@ -1548,13 +1763,7 @@ def tool_memory(
             agent_id=agent_id or "shared",
             label=require("label", label),
             value=require("value", value),
-            limit_chars=limit_chars,
-            description=description,
-            read_only=read_only,
-            pinned=pinned,
             metadata=metadata,
-            expected_version=expected_version,
-            actor=actor,
         )
     if op == "block_get":
         return _memory_get_block(agent_id=agent_id, label=require("label", label))
@@ -1563,16 +1772,12 @@ def tool_memory(
             agent_id=agent_id,
             text=require("text", text),
             source=require("source", source),
-            source_ref=source_ref,
-            tags=tags,
         )
     if op == "recall":
         return _memory_recall(
             agent_id=agent_id,
             query=require("query", query),
             top_k=top_k,
-            tags=tags,
-            since=since,
         )
     if op == "recall_symbol":
         return cast(
@@ -1580,9 +1785,6 @@ def tool_memory(
             _symbol_recall().recall_symbol(
                 query=require("query", query),
                 agent_id=agent_id,
-                include=cast(list[str] | None, include),
-                horizon_days=horizon_days,
-                budget_tokens=budget_tokens,
                 top_k=top_k,
             ),
         )
@@ -1595,7 +1797,16 @@ def tool_memory(
 
 @mcp_tool(name="read")
 def tool_smart_read(
-    file_path: str,
+    file_path: Annotated[
+        str,
+        Field(
+            description=(
+                "Workspace-relative file path to read. This is the canonical "
+                "parameter; legacy callers may still send `path`."
+            ),
+            validation_alias=AliasChoices("file_path", "path"),
+        ),
+    ],
     range: str | None = None,
     expand: bool = False,
     max_lines: int | None = None,
@@ -1622,6 +1833,7 @@ def tool_smart_read(
       mode: "outline" | "range" | "full",
       cache_hit: bool,                   # served from in-memory cache (SHA-256 keyed)
       tokens_saved: int,                 # tiktoken count vs reading the full file
+      language: str,                     # detected language (python, go, typescript, ...)
       outline: {kind, language, ...},    # only when mode == "outline"
       content: str,                      # only when mode in {range, full}
       path: str,
@@ -1645,6 +1857,7 @@ def tool_smart_read(
         "content": payload.get("content"),
         "path": payload.get("path", str(target)),
         "range": payload.get("range"),
+        "language": payload.get("language"),
     }
 
 
@@ -1655,11 +1868,26 @@ def _snapshot_path(raw_path: str) -> str:
     return raw_path[: match.start()] if match else raw_path
 
 
+def _resolve_snapshot_path(raw_path: str, repo_root: Path) -> tuple[str, Path]:
+    """Return a ledger display path and workspace-resolved file path for snapshots."""
+    clean = _snapshot_path(raw_path)
+    candidate = Path(clean)
+    resolved = candidate if candidate.is_absolute() else repo_root / candidate
+    resolved = resolved.resolve()
+    root = repo_root.resolve()
+    try:
+        display = str(resolved.relative_to(root))
+    except ValueError:
+        display = str(resolved)
+    return display, resolved
+
+
 def _collect_touched_paths(
     edits: list[dict[str, Any]], *, repo_root: str | Path | None = None
-) -> list[str]:
-    """Extract the file paths referenced in a list of edit descriptors."""
-    paths: set[str] = set()
+) -> dict[str, Path]:
+    """Extract workspace-resolved file paths referenced in edit descriptors."""
+    root = Path(repo_root or Path.cwd()).resolve()
+    paths: dict[str, Path] = {}
     for edit in edits:
         raw = str(edit.get("file_path") or edit.get("path") or "")
         if not raw and str(edit.get("kind") or "") == "symbol":
@@ -1668,45 +1896,44 @@ def _collect_touched_paths(
             )
 
             with contextlib.suppress(Exception):
-                raw = preview_symbol_edit_path(edit, repo_root=repo_root)
+                raw = preview_symbol_edit_path(edit, repo_root=root)
         if raw:
-            paths.add(_snapshot_path(raw))
-    return sorted(paths)
+            display, resolved = _resolve_snapshot_path(raw, root)
+            paths[display] = resolved
+    return dict(sorted(paths.items()))
 
 
-def _snapshot_paths(paths: list[str]) -> dict[str, str | None]:
-    """Read each file's current content into a dict; None if file does not exist."""
-    snap: dict[str, str | None] = {}
-    for p in paths:
-        fp = Path(p)
+def _snapshot_paths(paths: dict[str, Path]) -> dict[str, tuple[Path, str | None]]:
+    """Read each file's current content; None means the file does not exist."""
+    snap: dict[str, tuple[Path, str | None]] = {}
+    for display, fp in paths.items():
         try:
-            snap[p] = fp.read_text(encoding="utf-8") if fp.exists() else None
+            snap[display] = (fp, fp.read_text(encoding="utf-8") if fp.exists() else None)
         except Exception:
-            snap[p] = None
+            snap[display] = (fp, None)
     return snap
 
 
 def _compute_and_record_diffs(
-    snapshots: dict[str, str | None],
+    snapshots: dict[str, tuple[Path, str | None]],
 ) -> None:
     """Compute unified diffs from *snapshots* vs current file content and record them in the ledger."""
     import difflib
 
     led = _get_ledger()
-    for path, old_content in snapshots.items():
-        fp = Path(path)
+    for path, (fp, old_content) in snapshots.items():
         try:
             new_content = fp.read_text(encoding="utf-8") if fp.exists() else None
         except Exception:
             new_content = None
         if old_content == new_content:
             continue
-        if old_content is None and new_content is None:
-            continue
+        old_lines = (old_content or "").splitlines(keepends=True)
+        new_lines = (new_content or "").splitlines(keepends=True)
         diff_lines = list(
             difflib.unified_diff(
-                (old_content or "").splitlines(keepends=True),
-                (new_content or "").splitlines(keepends=True),
+                old_lines,
+                new_lines,
                 fromfile=f"a/{path}",
                 tofile=f"b/{path}",
             )
@@ -1718,7 +1945,135 @@ def _compute_and_record_diffs(
             led.record_file_event(path=path, event="edit")
 
 
-@mcp_tool(name="edit")
+def _edit_descriptor_family(edit: dict[str, Any]) -> str:
+    is_legacy = "op" in edit and "file_path" not in edit and "cell_action" not in edit
+    return "legacy" if is_legacy else "rich"
+
+
+def _validate_edit_descriptor_families(edits: list[dict[str, Any]]) -> str:
+    if not edits:
+        raise ValueError("edits must include at least one descriptor")
+    families = {_edit_descriptor_family(edit) for edit in edits}
+    if len(families) > 1:
+        raise ValueError("cannot mix legacy op/path descriptors with rich edit descriptors in one call")
+    return families.pop()
+
+
+EDIT_TOOL_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "edits": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Homogeneous edit descriptors. Do not mix legacy op/path descriptors with rich descriptors in one call.",
+            "items": {
+                "oneOf": [
+                    {
+                        "title": "Legacy replace",
+                        "type": "object",
+                        "required": ["path", "op", "old_string", "new_string"],
+                        "properties": {
+                            "path": {"type": "string"},
+                            "op": {"const": "replace"},
+                            "old_string": {"type": "string"},
+                            "new_string": {"type": "string"},
+                            "fuzzy": {"type": "boolean"},
+                        },
+                        "additionalProperties": True,
+                    },
+                    {
+                        "title": "Legacy insert_after",
+                        "type": "object",
+                        "required": ["path", "op", "anchor", "new_string"],
+                        "properties": {
+                            "path": {"type": "string"},
+                            "op": {"const": "insert_after"},
+                            "anchor": {"type": "string"},
+                            "new_string": {"type": "string"},
+                        },
+                        "additionalProperties": True,
+                    },
+                    {
+                        "title": "Legacy replace_range",
+                        "type": "object",
+                        "required": ["path", "op", "line_start", "line_end", "new_string"],
+                        "properties": {
+                            "path": {"type": "string"},
+                            "op": {"const": "replace_range"},
+                            "line_start": {"type": "integer", "minimum": 1},
+                            "line_end": {"type": "integer", "minimum": 1},
+                            "new_string": {"type": "string"},
+                        },
+                        "additionalProperties": True,
+                    },
+                    {
+                        "title": "Rich file edit",
+                        "type": "object",
+                        "required": ["file_path", "new_string"],
+                        "properties": {
+                            "file_path": {"type": "string", "description": "Path, optionally suffixed with #line, #start-end, or #cell=N."},
+                            "old_string": {"type": "string"},
+                            "new_string": {"type": "string"},
+                            "overwrite": {"type": "boolean"},
+                        },
+                        "additionalProperties": True,
+                    },
+                    {
+                        "title": "Notebook cell edit",
+                        "type": "object",
+                        "required": ["file_path", "cell_action"],
+                        "properties": {
+                            "file_path": {"type": "string"},
+                            "cell_action": {"enum": ["insert_after", "insert_before", "delete", "move_after", "move_before"]},
+                            "cell_type": {"enum": ["code", "markdown"]},
+                            "cell_move_target": {"type": "integer"},
+                            "new_string": {"type": "string"},
+                        },
+                        "additionalProperties": True,
+                    },
+                    {
+                        "title": "Symbol edit",
+                        "type": "object",
+                        "required": ["kind"],
+                        "properties": {
+                            "kind": {"const": "symbol"},
+                            "symbol_id": {"type": "string"},
+                            "qualified_name": {"type": "string"},
+                            "symbol_name": {"type": "string"},
+                            "name": {"type": "string"},
+                            "file_path": {"type": "string"},
+                            "mode": {"enum": ["replace", "prepend", "append"]},
+                            "new_body": {"type": "string"},
+                            "preserve_signature": {"type": "boolean"},
+                        },
+                        "additionalProperties": True,
+                    },
+                ]
+            },
+        },
+        "atomic": {
+            "type": "boolean",
+            "default": True,
+            "description": "Roll back all edits if any one descriptor fails. Set false only when partial success is acceptable.",
+        },
+        "post_edit_hooks": {
+            "type": "boolean",
+            "default": True,
+            "description": "Run post-edit hooks (formatter, linter, LSP diagnostics) on touched files. Diagnostics appear in the result.",
+        },
+        "post_edit_timeout_ms": {
+            "type": "integer",
+            "default": 30000,
+            "minimum": 0,
+            "description": "Maximum total timeout for post-edit hooks in milliseconds.",
+        },
+    },
+    "required": ["edits"],
+    "additionalProperties": False,
+}
+
+
+@mcp_tool(name="edit", input_schema=EDIT_TOOL_INPUT_SCHEMA)
 def tool_smart_edit(
     edits: list[dict[str, Any]],
     atomic: bool = True,
@@ -1727,35 +2082,49 @@ def tool_smart_edit(
 ) -> dict[str, Any]:
     """Apply many mechanical edits across files in one deterministic call.
 
-    Legacy descriptors with ``op`` are routed through the deterministic batch
-    editor. Rich descriptors with ``file_path``, notebook cell operations, or
-    overwrite semantics use the native rich editor and write each touched file
-    once after sequential in-memory edits.
+    Choose the right descriptor family for each edit (all must be the same family):
+
+    Rich (preferred) — ``file_path`` required:
+      - Replace text:    {file_path, old_string, new_string}
+      - Create/overwrite:{file_path, new_string, overwrite: true}
+      - Line-scoped:     {file_path: "foo.py#10-20", old_string, new_string}
+      - Notebook cell:   {file_path, cell_action: insert_after|delete|..., new_string}
+      - Symbol:          {kind: "symbol", symbol_id|qualified_name|name, mode, new_body}
+
+    Legacy — ``path`` + ``op`` required:
+      - replace:       {path, op: "replace", old_string, new_string, fuzzy?}
+      - insert_after:  {path, op: "insert_after", anchor, new_string}
+      - replace_range: {path, op: "replace_range", line_start, line_end, new_string}
+
+    Returns: {applied, failed, rolled_back, writes?, diagnostics?, hooks?}
     """
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    repo_root = Path(workspace)
+    family = _validate_edit_descriptor_families(edits)
 
-    # Snapshot file contents before applying edits so we can compute diffs
-    paths = _collect_touched_paths(edits, repo_root=Path(workspace))
+    paths = _collect_touched_paths(edits, repo_root=repo_root)
     snapshots = _snapshot_paths(paths)
 
-    use_legacy_batch = edits and all(
-        "op" in edit and "file_path" not in edit and "cell_action" not in edit for edit in edits
-    )
-    if not use_legacy_batch:
+    if family == "rich":
         from atelier.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
-        result = apply_rich_edits(edits, atomic=atomic, repo_root=Path(workspace))
-        if not result.get("failed") and not result.get("rolled_back"):
-            _compute_and_record_diffs(snapshots)
-            if post_edit_hooks:
-                from atelier.core.capabilities.tool_supervision.post_edit_hooks import (
-                    HookConfig,
-                    run_post_edit_hooks,
-                )
+        result = apply_rich_edits(edits, atomic=atomic, repo_root=repo_root)
+    else:
+        from atelier.core.capabilities.tool_supervision.batch_edit import apply_batch_edit
 
+        result = apply_batch_edit(edits, atomic=atomic, repo_root=repo_root)
+
+    if not result.get("failed") and not result.get("rolled_back"):
+        if post_edit_hooks:
+            from atelier.core.capabilities.tool_supervision.post_edit_hooks import (
+                HookConfig,
+                run_post_edit_hooks,
+            )
+
+            try:
                 hook_result = run_post_edit_hooks(
-                    [str(p) for p in paths],
-                    repo_root=Path(workspace),
+                    [str(p) for p in paths.values()],
+                    repo_root=repo_root,
                     config=HookConfig(total_timeout_s=post_edit_timeout_ms / 1000),
                 )
                 result["diagnostics"] = [
@@ -1776,76 +2145,100 @@ def tool_smart_edit(
                     "failed_steps": hook_result.steps_failed,
                     "total_ms": hook_result.total_ms,
                 }
-        return result
-
-    from atelier.core.capabilities.tool_supervision.batch_edit import apply_batch_edit
-
-    result = apply_batch_edit(
-        edits,
-        atomic=atomic,
-        repo_root=Path(workspace),
-    )
-    if not result.get("failed") and not result.get("rolled_back"):
+            except Exception as hook_exc:
+                result["hooks"] = {"error": str(hook_exc)}
         _compute_and_record_diffs(snapshots)
-        if post_edit_hooks:
-            from atelier.core.capabilities.tool_supervision.post_edit_hooks import (
-                HookConfig,
-                run_post_edit_hooks,
-            )
-
-            hook_result = run_post_edit_hooks(
-                [str(p) for p in paths],
-                repo_root=Path(workspace),
-                config=HookConfig(total_timeout_s=post_edit_timeout_ms / 1000),
-            )
-            result["diagnostics"] = [
-                {
-                    "file": d.file,
-                    "line": d.line,
-                    "col": d.col,
-                    "severity": d.severity,
-                    "message": d.message,
-                    "code": d.code,
-                    "source": d.source,
-                }
-                for d in hook_result.diagnostics
-            ]
-            result["hooks"] = {
-                "ran": hook_result.steps_ran,
-                "skipped": hook_result.steps_skipped,
-                "failed_steps": hook_result.steps_failed,
-                "total_ms": hook_result.total_ms,
-            }
     return result
 
 
-@mcp_tool(name="sql")
+SQL_TOOL_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "action": {
+            "type": "string",
+            "enum": ["connect", "tables", "table", "lint", "query"],
+            "description": "connect: discover DB and show schema overview. tables: list all tables. table: inspect one table (needs name). lint: validate SQL without running it (needs sql). query: execute SQL (needs sql or queries[]).",
+        },
+        "name": {
+            "type": "string",
+            "description": "Table name for action=table.",
+        },
+        "sql": {
+            "type": "string",
+            "description": "SQL string for action=lint or action=query.",
+        },
+        "queries": {
+            "type": "array",
+            "description": "Batch of named queries for action=query: [{name, sql}, ...]. Prefer over repeated query calls.",
+            "items": {
+                "type": "object",
+                "required": ["sql"],
+                "properties": {
+                    "name": {"type": "string"},
+                    "sql": {"type": "string"},
+                },
+            },
+        },
+        "connection_string": {
+            "type": "string",
+            "description": "Explicit DSN (sqlite:///path, postgresql://...). Auto-discovered from DATABASE_URL env or .env if omitted.",
+        },
+        "max_rows": {
+            "type": "integer",
+            "default": 500,
+            "description": "Row cap for query results.",
+        },
+        "allow_writes": {
+            "type": "boolean",
+            "default": True,
+            "description": "Set false to reject INSERT/UPDATE/DELETE/DROP.",
+        },
+        "auto_limit": {
+            "type": "boolean",
+            "default": True,
+            "description": "Automatically append LIMIT max_rows when missing.",
+        },
+    },
+    "required": ["action"],
+    "additionalProperties": False,
+}
+
+
+@mcp_tool(name="sql", input_schema=SQL_TOOL_INPUT_SCHEMA)
 def tool_sql(
     action: str,
     name: str | list[str] | None = None,
-    prefix: str | None = None,
     sql: str | None = None,
     queries: list[dict[str, str]] | None = None,
-    schema_name: str | None = None,
     connection_string: str | None = None,
-    dialect: str | None = None,
     max_rows: int = 500,
     timeout_ms: int = 30_000,
     auto_limit: bool = True,
     allow_writes: bool = True,
 ) -> dict[str, Any]:
-    """SQL op-dispatch for connect, schema, table, lint, and bounded query batching."""
+    """SQL op-dispatch for connect, schema, table, lint, and bounded query batching.
+
+    Actions:
+      connect  — discover database and show schema overview
+      tables   — list all tables
+      table    — inspect columns and foreign keys for one table (needs name)
+      lint     — validate SQL syntax without executing (needs sql)
+      query    — execute SQL (needs sql or queries[{name,sql},...])
+
+    Connection is auto-discovered from DATABASE_URL env or .env file.
+    Pass connection_string explicitly to override.
+    """
     from atelier.core.capabilities.tool_supervision.sql_tool import sql_tool
+
+    if action == "query" and not sql and not queries:
+        return {"isError": True, "message": "action='query' requires sql or queries parameter"}
 
     return sql_tool(
         action=action,
         name=name,
-        prefix=prefix,
         sql=sql,
         queries=queries,
-        schema_name=schema_name,
         connection_string=connection_string,
-        dialect=dialect,
         max_rows=max_rows,
         timeout_ms=timeout_ms,
         auto_limit=auto_limit,
@@ -1868,8 +2261,7 @@ def _ledger_turn_count(led: RunLedger) -> int:
     turn_events = [
         event
         for event in led.events
-        if event.kind
-        in {"agent_message", "reasoning", "test_result", "command_result", "tool_result"}
+        if event.kind in {"agent_message", "reasoning", "test_result", "command_result", "tool_result"}
     ]
     if turn_events:
         return len(turn_events)
@@ -1904,14 +2296,9 @@ def _context_lifecycle_decision(led: RunLedger) -> dict[str, Any]:
     # Bypass the min-turns gate when utilisation is already very high - a small
     # number of dense turns (huge tool outputs, large file reads) can fill the
     # window just as fast as many small ones.
-    turns_gate_passed = (
-        turn_count > AUTO_COMPACT_MIN_TURNS or utilisation_pct >= AUTO_COMPACT_HIGH_UTIL_OVERRIDE
-    )
+    turns_gate_passed = turn_count > AUTO_COMPACT_MIN_TURNS or utilisation_pct >= AUTO_COMPACT_HIGH_UTIL_OVERRIDE
     should_auto_compact = (
-        not should_handover
-        and utilisation_pct >= AUTO_COMPACT_THRESHOLD
-        and turns_gate_passed
-        and boundary
+        not should_handover and utilisation_pct >= AUTO_COMPACT_THRESHOLD and turns_gate_passed and boundary
     )
     should_advise = utilisation_pct >= COMPACT_ADVISORY_THRESHOLD
 
@@ -1979,9 +2366,7 @@ def _compact_advise(session_id: str | None = None) -> dict[str, Any]:
         utilisation_pct = float(lifecycle["utilisation_pct"])
         should_compact = bool(lifecycle["should_compact"])
         should_handover = bool(lifecycle["should_handover"])
-        state = ContextCompressor().compress(
-            led, preserve_last_n_turns=10, workspace_root=_workspace_root()
-        )
+        state = ContextCompressor().compress(led, preserve_last_n_turns=10, workspace_root=_workspace_root())
         compaction_savings = _session_compaction_savings_payload(
             led,
             state,
@@ -2122,8 +2507,7 @@ def _memory_summary(session_id: str) -> dict[str, Any]:
         session_id: The run identifier to summarize.
 
     Output:
-        tokens_pre, tokens_post, summary_md, evicted_event_ids,
-        archived_passage_ids, strategy
+        tokens_pre, tokens_post, summary_md, evicted_event_ids, strategy
     """
     try:
         from atelier.core.capabilities.context_compression.capability import (
@@ -2152,7 +2536,6 @@ def _memory_summary(session_id: str) -> dict[str, Any]:
             "tokens_post": result.chars_after // 4,
             "summary_md": "\n".join(summary_lines),
             "evicted_event_ids": [d.kind for d in result.dropped],
-            "archived_passage_ids": [],
             "strategy": "tfidf",
         }
     except Exception as exc:
@@ -2180,7 +2563,304 @@ def _workspace_code_router(repo_root: str = ".") -> Any:
     )
 
 
-@mcp_tool(name="code")
+CODE_TOOL_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["op"],
+    "properties": {
+        "op": {
+            "type": "string",
+            "description": (
+                "Operation to perform. "
+                "**PREFER this tool over `grep` and `search` for all symbol-level tasks** — "
+                "results come from a SCIP index (exact, not textual) and are token-budgeted. "
+                "Use `grep` only for free-form regex on non-symbol text. "
+                "Use `search` only when you have a natural-language description and no symbol name. "
+                "\n\n**Recommended workflow (funnel strategy):**\n"
+                "1. `search` or `outline` → discover symbol names/IDs\n"
+                "2. `symbol` or `hover` → inspect a specific hit\n"
+                "3. `usages`/`callers`/`callees` → understand relationships\n"
+                "4. `pattern`/`rename` → structural changes\n"
+                "Read file content (via `read`) only as a last step — most tasks complete without it."
+                "\n\nOp reference:"
+                "\n• `search` — Find symbols by name or natural-language description. "
+                "Indexed, up to 100x faster than grep. mode='semantic' for intent-based ('parse JSON config'), "
+                "'lexical' for exact identifier match. Requires: query."
+                "\n• `symbol` — Full definition for one symbol: signature, docstring, source, file+line, "
+                "cross-language references. Use after search to inspect a hit. "
+                "Requires one of: symbol_name, qualified_name, symbol_id, path+line."
+                "\n• `hover` — Minimal type+signature at a file position. Like IDE hover. "
+                "Token-optimal when you already have path+line. Requires: path + line OR symbol name."
+                "\n• `outline` — All symbols in a file (functions, classes, methods with line ranges). "
+                "Replaces grepping for 'def ' or 'class '. path=file for one file, omit for repo summary."
+                "\n• `files` — Indexed file tree/list view with optional path/pattern filters and grouped output. "
+                "Use this before globbing the filesystem."
+                "\n• `explore` — One-call grouped source and relationships for a query. "
+                "Use it instead of chaining search → symbol → callers/callees for multi-file understanding."
+                "\n• `routes` — Framework route inventory (FastAPI/Flask/Django/Express) with method/path/handler. "
+                "Use it to discover app endpoints before tracing handlers."
+                "\n• `usages` — Every site where a symbol is referenced across the repo. "
+                "Use before refactoring to see blast radius. Grouped by file."
+                "\n• `callers` — Who calls this function (call graph, inbound edges). "
+                "depth=1 for direct callers, depth=2 for transitive. Use to trace invocation paths."
+                "\n• `callees` — What this function calls (call graph, outbound edges). "
+                "Use to understand dependencies before editing."
+                "\n• `pattern` — Structural (AST-level) find using ast-grep. Unlike regex, matches "
+                "code structure: '$F($$$ARGS)' matches any call. Add rewrite= for safe codemod. "
+                "Requires: pattern."
+                "\n• `impact` — What files break if this file changes: direct + transitive importers. "
+                "Use before large refactors. Requires: path."
+                "\n• `blame` — Who last changed this symbol and when (git blame at symbol granularity). "
+                "Requires symbol identifier."
+                "\n• `context` — Task-based context builder: given a task description, surfaces the most "
+                "relevant symbols + files. Replaces reading many files manually. Requires: task."
+                "\n• `rename` — Safe, index-backed rename across all files (rope/ts-morph/ast-grep). "
+                "More reliable than search-and-replace. Requires: new_name + symbol identifier."
+                "\n• `index` — Build/rebuild the SCIP symbol index. Call if search returns 'not indexed'. "
+                "Auto-triggered on first use normally; only call manually after large merges."
+                "\n• `status` — Quick index/cache/freshness/autosync diagnostics for this repo. "
+                "Use before heavy code-intel operations if results look stale."
+            ),
+            "enum": [
+                "index", "search", "blame", "hover", "symbol", "outline", "files", "explore", "routes", "status",
+                "context", "impact", "usages", "callers", "callees",
+                "pattern", "rename", "cache_status", "cache_invalidate",
+            ],
+        },
+        "query": {
+            "type": "string",
+            "description": (
+                "Symbol name or natural-language description. "
+                "For search: can be identifier ('MyClass'), qualified ('module.MyClass.method'), "
+                "or intent ('function that handles HTTP errors'). "
+                "For usages/callers/callees/blame: identifier to resolve."
+            ),
+        },
+        "symbol_name": {
+            "type": "string",
+            "description": (
+                "Short unqualified name, e.g. 'run_command'. "
+                "When multiple symbols share a name, returns a disambiguation list. "
+                "Use qualified_name for precision."
+            ),
+        },
+        "qualified_name": {
+            "type": "string",
+            "description": (
+                "Fully qualified name, e.g. 'atelier.core.bash_exec.run_command'. "
+                "Most precise identifier when you know the module path."
+            ),
+        },
+        "symbol_id": {
+            "type": "string",
+            "description": (
+                "Stable SCIP symbol ID from a previous search/symbol result (e.g. 'scip-python … run_command'). "
+                "Most precise — use it when available from a prior tool call."
+            ),
+        },
+        "path": {
+            "type": "string",
+            "description": (
+                "Workspace-relative file path. "
+                "Required for: outline (one file), impact, hover (positional lookup). "
+                "Optional filter for: usages, callers, callees (restrict to file), files (subtree or file)."
+            ),
+        },
+        "format": {
+            "type": "string",
+            "description": "Output shape for op='files': tree (default), flat list, or grouped by language.",
+            "enum": ["tree", "flat", "grouped"],
+            "default": "tree",
+        },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "For op='files': include language and symbol stats in file entries.",
+            "default": True,
+        },
+        "max_depth": {
+            "type": "integer",
+            "description": "For op='files': maximum directory depth relative to path filter.",
+        },
+        "max_files": {
+            "type": "integer",
+            "description": "For op='explore': max files to include in grouped output. Default 8.",
+            "default": 8,
+        },
+        "include_source": {
+            "type": "boolean",
+            "description": "For op='explore': include grouped source sections for selected symbols.",
+            "default": True,
+        },
+        "include_relationships": {
+            "type": "boolean",
+            "description": "For op='explore': include callers/callees/usages summaries.",
+            "default": True,
+        },
+        "line_numbers": {
+            "type": "boolean",
+            "description": "For op='explore': prefix returned source section lines with line numbers.",
+            "default": True,
+        },
+        "line": {
+            "type": "integer",
+            "description": "1-based line number. Required for positional hover (path + line).",
+        },
+        "col": {
+            "type": "integer",
+            "description": "1-based column number. Optional precision for positional hover.",
+        },
+        "task": {
+            "type": "string",
+            "description": "Natural-language task description for op='context'. E.g. 'add retry logic to HTTP client'.",
+        },
+        "pattern": {
+            "type": "string",
+            "description": (
+                "For op='pattern': ast-grep structural pattern. Use $VAR for single-node capture, $$$VARS for "
+                "multi-node (variadics). Example: 'console.log($MSG)' matches all console.log calls. "
+                "For op='files': optional glob filter over indexed file paths (e.g. 'src/**/*.py')."
+            ),
+        },
+        "rewrite": {
+            "type": "string",
+            "description": (
+                "ast-grep rewrite template. Use captured variables from pattern. "
+                "Combined with dry_run=false to apply codemod. Example: 'logger.info($MSG)'."
+            ),
+        },
+        "new_name": {
+            "type": "string",
+            "description": "New identifier name for op='rename'.",
+        },
+        "mode": {
+            "type": "string",
+            "description": (
+                "Search mode for op='search'. "
+                "'auto' (default): picks best mode for the query. "
+                "'lexical': exact identifier match — use for known symbol names. "
+                "'semantic': embedding-based intent match — use for descriptions. "
+                "'hybrid': both, merged results."
+            ),
+            "enum": ["auto", "lexical", "semantic", "hybrid"],
+            "default": "auto",
+        },
+        "kind": {
+            "type": "string",
+            "description": (
+                "Filter by symbol kind: 'function', 'method', 'class', 'variable', 'interface', "
+                "'type', 'module', etc. Omit to search all kinds."
+            ),
+        },
+        "language": {
+            "type": "string",
+            "description": "Filter by language: 'python', 'typescript', 'javascript', 'go', 'rust', etc.",
+        },
+        "depth": {
+            "type": "integer",
+            "description": "Call graph traversal depth for callers/callees. 1=direct only, 2=transitive. Default 1.",
+            "default": 1,
+        },
+        "limit": {
+            "type": "integer",
+            "description": "Maximum results to return. Default 20.",
+            "default": 20,
+        },
+        "snippet": {
+            "type": "string",
+            "description": (
+                "Source snippet verbosity for search results. "
+                "'none' (default): no source — smallest tokens. "
+                "'head': first N lines of body. "
+                "'full': complete source."
+            ),
+            "enum": ["none", "head", "full"],
+            "default": "none",
+        },
+        "snippet_lines": {
+            "type": "integer",
+            "description": "Lines of source to include when snippet='head'. Default 8.",
+            "default": 8,
+        },
+        "file_glob": {
+            "type": "string",
+            "description": "Glob to restrict search/pattern/usages/routes to a subtree, e.g. 'src/api/**/*.py'.",
+        },
+        "group_by": {
+            "type": "string",
+            "description": "Group usages results by 'file' (default), 'caller', or 'none' (flat list).",
+            "enum": ["file", "caller", "none"],
+            "default": "file",
+        },
+        "scope": {
+            "type": "string",
+            "description": (
+                "Symbol scope for search. "
+                "'repo' (default): live symbols in the codebase. "
+                "'external': third-party dependencies. "
+                "'deleted': symbols removed in git history (graveyard search)."
+            ),
+            "enum": ["repo", "external", "deleted"],
+            "default": "repo",
+        },
+        "since": {
+            "type": "string",
+            "description": "ISO date or relative string ('7d', '2w') to filter search to recently changed symbols.",
+        },
+        "touched_by": {
+            "type": "string",
+            "description": "Git author name/email to filter search to symbols touched by that author.",
+        },
+        "dry_run": {
+            "type": "boolean",
+            "description": "For pattern with rewrite= : true (default) previews changes, false applies them.",
+            "default": True,
+        },
+        "rename_backend": {
+            "type": "string",
+            "description": (
+                "Rename engine. 'auto' (default) picks by language: rope (Python), "
+                "ts-morph (JS/TS), ast-grep (others), naive (fallback text replace)."
+            ),
+            "enum": ["auto", "rope", "ts-morph", "ast-grep", "naive"],
+            "default": "auto",
+        },
+        "seed_files": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Starting files for op='context'. Engine expands outward to find related symbols.",
+        },
+        "max_symbols": {
+            "type": "integer",
+            "description": "Max symbols to include in context op output. Default 8.",
+            "default": 8,
+        },
+        "budget_tokens": {
+            "type": "integer",
+            "description": (
+                "Output token cap. Results are packed to fit within this budget — "
+                "optional fields dropped first, then items trimmed. "
+                "Increase if results are truncated. Default 4000."
+            ),
+            "default": 4000,
+        },
+        "include_globs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Glob patterns to include during index. Omit to index everything.",
+        },
+        "exclude_globs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Glob patterns to exclude during index. E.g. ['tests/**', '*.generated.py'].",
+        },
+        "repo": {
+            "type": "string",
+            "description": "Repo name filter for multi-repo workspaces (requires .atelier/workspace.toml). ops: search, symbol.",
+        },
+    },
+}
+
+
+@mcp_tool(name="code", input_schema=CODE_TOOL_INPUT_SCHEMA)
 def tool_code(
     op: Literal[
         "index",
@@ -2189,6 +2869,10 @@ def tool_code(
         "hover",
         "symbol",
         "outline",
+        "files",
+        "explore",
+        "routes",
+        "status",
         "context",
         "impact",
         "usages",
@@ -2223,7 +2907,14 @@ def tool_code(
     symbol_id: str | None = None,
     qualified_name: str | None = None,
     symbol_name: str | None = None,
-    file_path: str | None = None,
+    path: str | None = None,
+    format: Literal["tree", "flat", "grouped"] = "tree",
+    include_metadata: bool = True,
+    max_depth: int | None = None,
+    max_files: int = 8,
+    include_source: bool = True,
+    include_relationships: bool = True,
+    line_numbers: bool = True,
     line: int | None = None,
     col: int | None = None,
     new_name: str | None = None,
@@ -2233,20 +2924,25 @@ def tool_code(
     budget_tokens: int = 4000,
     max_symbols: int = 8,
     dry_run: bool = True,
-    cache_tool: Literal[
-        "all",
-        "search",
-        "symbol",
-        "outline",
-        "context",
-        "impact",
-        "usages",
-        "callers",
-        "callees",
-        "pattern",
-        "hover",
-    ]
-    | None = None,
+    cache_tool: (
+        Literal[
+            "all",
+            "search",
+            "symbol",
+            "outline",
+            "context",
+            "impact",
+            "usages",
+            "callers",
+            "callees",
+            "pattern",
+            "hover",
+            "explore",
+            "routes",
+            "status",
+        ]
+        | None
+    ) = None,
 ) -> dict[str, Any]:
     """Index, search, inspect, outline, pack, or analyze code context."""
     workspace_router = _workspace_code_router(repo_root)
@@ -2297,9 +2993,7 @@ def tool_code(
 
     if op == "blame":
         if not (query or symbol_id or qualified_name or symbol_name):
-            raise ValueError(
-                "query, symbol_id, qualified_name, or symbol_name is required for code blame"
-            )
+            raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code blame")
         return cast(
             dict[str, Any],
             engine.tool_blame(
@@ -2307,24 +3001,22 @@ def tool_code(
                 symbol_id=symbol_id,
                 qualified_name=qualified_name,
                 symbol_name=symbol_name,
-                file_path=file_path,
+                file_path=path,
                 include_churn=include_churn,
                 budget_tokens=budget_tokens,
             ),
         )
 
     if op == "hover":
-        if not any([symbol_id, qualified_name, symbol_name, (file_path and line is not None)]):
-            raise ValueError(
-                "symbol_id, qualified_name, symbol_name, or (file_path + line) is required for hover"
-            )
+        if not any([symbol_id, qualified_name, symbol_name, query, (path and line is not None)]):
+            raise ValueError("symbol_id, qualified_name, symbol_name, query, or (file_path + line) is required for hover")
         return cast(
             dict[str, Any],
             engine.tool_hover(
                 symbol_id=symbol_id,
                 qualified_name=qualified_name,
                 symbol_name=symbol_name or query,
-                file_path=file_path,
+                file_path=path,
                 line=line,
                 col=col,
                 budget_tokens=budget_tokens,
@@ -2341,7 +3033,7 @@ def tool_code(
                     symbol_id=symbol_id,
                     qualified_name=qualified_name,
                     symbol_name=symbol_name,
-                    file_path=file_path,
+                    file_path=path,
                     budget_tokens=budget_tokens,
                 ),
             )
@@ -2351,7 +3043,7 @@ def tool_code(
                 symbol_id=symbol_id,
                 qualified_name=qualified_name,
                 symbol_name=symbol_name,
-                file_path=file_path,
+                file_path=path,
                 budget_tokens=budget_tokens,
             ),
         )
@@ -2359,8 +3051,53 @@ def tool_code(
     if op == "outline":
         return cast(
             dict[str, Any],
-            engine.tool_outline(file_path=file_path, limit=limit, budget_tokens=budget_tokens),
+            engine.tool_outline(file_path=path, limit=limit, budget_tokens=budget_tokens),
         )
+
+    if op == "files":
+        return cast(
+            dict[str, Any],
+            engine.tool_files(
+                path=path,
+                pattern=pattern,
+                format=format,
+                include_metadata=include_metadata,
+                max_depth=max_depth,
+                budget_tokens=budget_tokens,
+            ),
+        )
+
+    if op == "explore":
+        if not query:
+            raise ValueError("query is required for code explore")
+        return cast(
+            dict[str, Any],
+            engine.tool_explore(
+                query=query,
+                seed_files=seed_files,
+                max_files=max_files,
+                max_symbols=max_symbols,
+                include_source=include_source,
+                include_relationships=include_relationships,
+                line_numbers=line_numbers,
+                depth=depth,
+                budget_tokens=budget_tokens,
+            ),
+        )
+
+    if op == "routes":
+        return cast(
+            dict[str, Any],
+            engine.tool_routes(
+                file_glob=file_glob,
+                language=language,
+                limit=limit,
+                budget_tokens=budget_tokens,
+            ),
+        )
+
+    if op == "status":
+        return cast(dict[str, Any], engine.tool_status(budget_tokens=budget_tokens))
 
     if op == "context":
         if not task:
@@ -2393,9 +3130,7 @@ def tool_code(
 
     if op == "usages":
         if not any([query, symbol_id, qualified_name, symbol_name]):
-            raise ValueError(
-                "query, symbol_id, qualified_name, or symbol_name is required for code usages"
-            )
+            raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code usages")
         return cast(
             dict[str, Any],
             engine.tool_usages(
@@ -2403,7 +3138,7 @@ def tool_code(
                 symbol_id=symbol_id,
                 qualified_name=qualified_name,
                 symbol_name=symbol_name,
-                file_path=file_path,
+                file_path=path,
                 kind=kind,
                 language=language,
                 file_glob=file_glob,
@@ -2416,9 +3151,7 @@ def tool_code(
 
     if op == "callers":
         if not any([query, symbol_id, qualified_name, symbol_name]):
-            raise ValueError(
-                "query, symbol_id, qualified_name, or symbol_name is required for code callers"
-            )
+            raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code callers")
         return cast(
             dict[str, Any],
             engine.tool_callers(
@@ -2426,7 +3159,7 @@ def tool_code(
                 symbol_id=symbol_id,
                 qualified_name=qualified_name,
                 symbol_name=symbol_name,
-                file_path=file_path,
+                file_path=path,
                 kind=kind,
                 language=language,
                 depth=depth,
@@ -2438,9 +3171,7 @@ def tool_code(
 
     if op == "callees":
         if not any([query, symbol_id, qualified_name, symbol_name]):
-            raise ValueError(
-                "query, symbol_id, qualified_name, or symbol_name is required for code callees"
-            )
+            raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code callees")
         return cast(
             dict[str, Any],
             engine.tool_callees(
@@ -2448,7 +3179,7 @@ def tool_code(
                 symbol_id=symbol_id,
                 qualified_name=qualified_name,
                 symbol_name=symbol_name,
-                file_path=file_path,
+                file_path=path,
                 kind=kind,
                 language=language,
                 depth=depth,
@@ -2462,9 +3193,7 @@ def tool_code(
         if not new_name:
             raise ValueError("new_name is required for code rename")
         if not any([query, symbol_id, qualified_name, symbol_name]):
-            raise ValueError(
-                "query, symbol_id, qualified_name, or symbol_name is required for code rename"
-            )
+            raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code rename")
         from atelier.core.capabilities.tool_supervision.rename_symbol import build_rename_edits
 
         workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
@@ -2473,7 +3202,7 @@ def tool_code(
             symbol_id=symbol_id,
             qualified_name=qualified_name,
             symbol_name=symbol_name or query,
-            file_path=file_path,
+            file_path=path,
             new_name=new_name,
             repo_root=Path(workspace),
             backend=rename_backend,
@@ -2498,7 +3227,7 @@ def tool_code(
         result["op"] = "rename"
         result["new_name"] = new_name
         result["backend"] = rename_backend
-        return cast(dict[str, Any], result)
+        return result
 
     if op == "cache_status":
         if cache_tool is None:
@@ -2516,9 +3245,12 @@ def tool_code(
             engine.tool_cache_invalidate(cache_tool=cache_tool, budget_tokens=budget_tokens),
         )
 
-    if not file_path:
-        raise ValueError("file_path is required for code impact")
-    return cast(dict[str, Any], engine.tool_impact(file_path, budget_tokens=budget_tokens))
+    if op == "impact":
+        if not path:
+            raise ValueError("path is required for code impact")
+        return cast(dict[str, Any], engine.tool_impact(path, budget_tokens=budget_tokens))
+
+    raise ValueError(f"unknown op: {op!r}")
 
 
 def _run_shell_tool(
@@ -2528,33 +3260,140 @@ def _run_shell_tool(
     max_lines: int = 200,
 ) -> dict[str, Any]:
     """Execute a shell command and return compact structured output."""
-    from atelier.core.capabilities.tool_supervision.bash_exec import run_command
+    from atelier.core.capabilities.tool_supervision.bash_exec import classify_command, run_command
+
+    def _render_grep_stdout(payload: dict[str, Any]) -> str:
+        blocks = payload.get("content", [])
+        if isinstance(blocks, list):
+            texts: list[str] = []
+            for block in blocks:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text = block.get("text")
+                    if isinstance(text, str) and text:
+                        texts.append(text)
+            if texts:
+                normalized: list[str] = []
+                for line in "\n".join(texts).splitlines():
+                    if line.startswith("@@ "):
+                        continue
+                    normalized.append(line)
+                return "\n".join(normalized)
+        matches = payload.get("matches")
+        if isinstance(matches, list):
+            return json.dumps(matches, ensure_ascii=False)
+        return json.dumps(payload, ensure_ascii=False)
 
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    effective_cwd = cwd or workspace
+    policy = classify_command(command)
+
+    if policy.action == "rewrite" and policy.rewrite_target == "read" and policy.rewrite_payload:
+        raw_file_path = str(policy.rewrite_payload.get("file_path") or "").strip()
+        if raw_file_path:
+            target_path = Path(raw_file_path)
+            if not target_path.is_absolute():
+                target_path = (Path(effective_cwd) / target_path).resolve()
+            read_handler: Callable[[dict[str, Any]], Any] = TOOLS["read"]["handler"]
+            rewritten = cast(dict[str, Any], read_handler({"path": str(target_path), "expand": True}))
+            rewritten_stdout = str(rewritten.get("content") or "")
+            return {
+                "stdout": rewritten_stdout,
+                "stderr": "",
+                "exit_code": 0,
+                "truncated": False,
+                "lines_omitted": 0,
+                "duration_ms": 0,
+                "rewrite_info": {"used_tool": "read", "reason": policy.reason},
+            }
+
+    if policy.action == "rewrite" and policy.rewrite_target == "grep" and policy.rewrite_payload:
+        import shlex
+
+        from atelier.core.capabilities.tool_supervision.native_search import SKIP_DIRS
+
+        raw_search_path = str(policy.rewrite_payload.get("file_path") or ".")
+        content_regex = cast(str | None, policy.rewrite_payload.get("content_regex"))
+        ignore_case = bool(policy.rewrite_payload.get("ignore_case", False))
+        file_type = cast(str | None, policy.rewrite_payload.get("type"))
+
+        if shutil.which("rg") and content_regex:
+            # Prefer rg: respects .gitignore, faster, adds hard-coded exclusions
+            rg_flags: list[str] = ["--no-heading", "--with-filename", "--line-number", "--color=never"]
+            if ignore_case:
+                rg_flags.append("-i")
+            if file_type:
+                rg_flags += ["--type", file_type]
+            for d in sorted(SKIP_DIRS):
+                rg_flags += ["--glob", f"!{d}"]
+            rg_cmd = shlex.join(["rg", *rg_flags, "--", content_regex, raw_search_path])
+            rg_result = run_command(rg_cmd, cwd=effective_cwd, timeout=timeout, max_lines=max_lines)
+            return {
+                "stdout": rg_result.stdout,
+                "stderr": rg_result.stderr,
+                "exit_code": rg_result.exit_code,
+                "truncated": rg_result.truncated,
+                "lines_omitted": rg_result.lines_omitted,
+                "duration_ms": rg_result.duration_ms,
+                "rewrite_info": {"used_tool": "rg", "reason": policy.reason},
+            }
+
+        # Fallback: Python native_search (no rg or no pattern — file listing)
+        resolved_search_path = Path(raw_search_path)
+        if not resolved_search_path.is_absolute():
+            resolved_search_path = (Path(effective_cwd) / resolved_search_path).resolve()
+        glob_patterns = ["**/*"] if resolved_search_path.is_dir() else None
+        grep_args: dict[str, Any] = {
+            "path": raw_search_path,
+            "content_regex": content_regex,
+            "file_glob_patterns": glob_patterns,
+            "ignore_case": ignore_case,
+            "summary": False,
+            "output_mode": cast(
+                Literal["ranked_file_map", "file_paths_with_content", "file_paths_only", "file_paths_with_match_count"],
+                policy.rewrite_payload.get("output_mode", "file_paths_with_content"),
+            ),
+        }
+        if file_type:
+            grep_args["type"] = file_type
+        grep_handler: Callable[[dict[str, Any]], Any] = TOOLS["grep"]["handler"]
+        rewritten = cast(dict[str, Any], grep_handler(grep_args))
+        rewritten_stdout = _render_grep_stdout(rewritten)
+        return {
+            "stdout": rewritten_stdout,
+            "stderr": "",
+            "exit_code": 0,
+            "truncated": False,
+            "lines_omitted": 0,
+            "duration_ms": 0,
+            "rewrite_info": {"used_tool": "grep", "reason": policy.reason},
+        }
+
     result = run_command(
         command,
-        cwd=cwd or workspace,
+        cwd=effective_cwd,
         timeout=timeout,
         max_lines=max_lines,
     )
-    return {
+    response: dict[str, Any] = {
         "stdout": result.stdout,
         "stderr": result.stderr,
         "exit_code": result.exit_code,
-        "duration_ms": result.duration_ms,
         "truncated": result.truncated,
         "lines_omitted": result.lines_omitted,
+        "duration_ms": result.duration_ms,
     }
+    if result.policy_action == "block":
+        response["blocked"] = True
+        response["blocked_reason"] = result.policy_reason
+    return response
 
 
 def _run_native_grep(
     *,
-    file_path: str,
+    path: str,
     content_regex: str | None,
     file_glob_patterns: list[str] | None,
-    output_mode: Literal[
-        "file_paths_with_content", "file_paths_only", "file_paths_with_match_count"
-    ],
+    output_mode: Literal["ranked_file_map", "file_paths_with_content", "file_paths_only", "file_paths_with_match_count"],
     lines_before: int,
     lines_after: int,
     ignore_case: bool,
@@ -2562,14 +3401,14 @@ def _run_native_grep(
     file_limit: int | None,
     lines_per_file: int | None,
     if_modified_since: str | None,
-    max_line_length: int | None,
     multiline: bool,
     summary: bool | None,
+    context_budget_tokens: int,
 ) -> dict[str, Any]:
     from atelier.core.capabilities.tool_supervision.native_search import search_workspace
 
     return search_workspace(
-        path=file_path,
+        path=path,
         content_regex=content_regex,
         file_glob_patterns=file_glob_patterns,
         output_mode=output_mode,
@@ -2580,9 +3419,10 @@ def _run_native_grep(
         file_limit=file_limit,
         lines_per_file=lines_per_file,
         if_modified_since=if_modified_since,
-        max_line_length=max_line_length,
+        max_line_length=1000,
         multiline=multiline,
         summary=summary,
+        context_budget_tokens=context_budget_tokens,
         repo_root=os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd()),
     )
 
@@ -2595,7 +3435,7 @@ def _run_native_grep(
     ),
 )
 def tool_grep(
-    file_path: Annotated[
+    path: Annotated[
         str,
         Field(
             description=(
@@ -2619,14 +3459,16 @@ def tool_grep(
         Field(description="Glob patterns that constrain candidate files, such as `src/**/*.py`."),
     ] = None,
     output_mode: Annotated[
-        Literal["file_paths_with_content", "file_paths_only", "file_paths_with_match_count"],
+        Literal["ranked_file_map", "file_paths_with_content", "file_paths_only", "file_paths_with_match_count"],
         Field(
             description=(
-                "Return matched content, only file paths, or file paths annotated with "
-                "match counts."
+                "`ranked_file_map` (default): token-budgeted pointers with line ranges and symbols — best for navigation. "
+                "`file_paths_with_content`: matched lines with context — best for reading content. "
+                "`file_paths_only`: just paths — best for listings. "
+                "`file_paths_with_match_count`: paths with hit counts — best for frequency analysis."
             )
         ),
-    ] = "file_paths_with_content",
+    ] = "ranked_file_map",
     lines_before: Annotated[
         int,
         Field(description="Number of context lines to include before each content match."),
@@ -2643,8 +3485,7 @@ def tool_grep(
         str | None,
         Field(
             description=(
-                "Language or file-type filter, such as `python`, `markdown`, or another "
-                "supported type alias."
+                "Language or file-type filter, such as `python`, `markdown`, or another " "supported type alias."
             )
         ),
     ] = None,
@@ -2654,7 +3495,7 @@ def tool_grep(
     ] = None,
     lines_per_file: Annotated[
         int | None,
-        Field(description="Cap the rendered lines per matching file."),
+        Field(description="Cap the number of matched lines rendered per file (applies to `file_paths_with_content` mode)."),
     ] = 500,
     if_modified_since: Annotated[
         str | None,
@@ -2665,28 +3506,31 @@ def tool_grep(
             )
         ),
     ] = None,
-    max_line_length: Annotated[
-        int | None,
-        Field(description="Truncate long rendered lines to this many characters."),
-    ] = 1000,
     multiline: Annotated[
         bool,
-        Field(
-            description=(
-                "Enable multiline regex matching so `.` spans newlines and `^` / `$` work "
-                "per line."
-            )
-        ),
+        Field(description=("Enable multiline regex matching so `.` spans newlines and `^` / `$` work per line.")),
     ] = False,
     summary: Annotated[
         bool | None,
         Field(
             description=(
-                "Summarize file structure instead of returning full content when the file "
-                "type supports it."
+                "Control structural summarization of matched files. "
+                "Omit (default): auto — summarizes Python/JS/TS files over 500 LOC. "
+                "`true`: always summarize (signatures and imports only). "
+                "`false`: never summarize (always return raw matched lines)."
             )
         ),
     ] = None,
+    context_budget_tokens: Annotated[
+        int,
+        Field(
+            description=(
+                "Token budget that caps output size. For `ranked_file_map` mode this limits "
+                "the number of file handles returned; for `file_paths_with_content` it caps "
+                "total rendered characters. Default 6000 is suitable for most queries."
+            )
+        ),
+    ] = 6000,
 ) -> dict[str, Any]:
     """Run grep-style search with regex, globs, type filters, and token-budgeted rendering.
 
@@ -2694,7 +3538,7 @@ def tool_grep(
     Prefer `search` for ranked natural-language lookup and repo-map construction.
     """
     return _run_native_grep(
-        file_path=file_path,
+        path=path,
         content_regex=content_regex,
         file_glob_patterns=file_glob_patterns,
         output_mode=output_mode,
@@ -2705,9 +3549,9 @@ def tool_grep(
         file_limit=file_limit,
         lines_per_file=lines_per_file,
         if_modified_since=if_modified_since,
-        max_line_length=max_line_length,
         multiline=multiline,
         summary=summary,
+        context_budget_tokens=context_budget_tokens,
     )
 
 
@@ -2718,6 +3562,51 @@ def tool_grep(
         "full-file ranked reads, or repo maps seeded from known files. Use `grep` for "
         "regex, glob, type-filter, or context-line search."
     ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Ranked search query. Required for `chunks` and `full` mode.",
+            },
+            "file_path": {
+                "type": "string",
+                "default": ".",
+                "description": (
+                    "Workspace-relative file or directory to search. This is the canonical "
+                    "search root parameter; legacy callers may still send `path`."
+                ),
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["chunks", "full", "map"],
+                "default": "chunks",
+                "description": (
+                    "`chunks` returns ranked snippets per file, `full` returns fuller file "
+                    "content up to limits, and `map` builds a repo map from `seed_files`."
+                ),
+            },
+            "max_files": {
+                "type": "integer",
+                "default": 10,
+                "description": "Maximum number of ranked files to return.",
+            },
+            "seed_files": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Seed files that bias ranking. Required when `mode='map'` because repo-map "
+                    "mode expands outward from these files."
+                ),
+            },
+            "budget_tokens": {
+                "type": "integer",
+                "default": 2000,
+                "description": "Total token budget for ranked search output or repo-map output.",
+            },
+        },
+        "required": [],
+    },
 )
 def tool_smart_search(
     query: Annotated[
@@ -2750,10 +3639,7 @@ def tool_smart_search(
     max_chars_per_file: Annotated[
         int,
         Field(
-            description=(
-                "Cap the returned characters per ranked file before the overall token "
-                "budget is applied."
-            )
+            description=("Cap the returned characters per ranked file before the overall token " "budget is applied.")
         ),
     ] = 2000,
     include_outline: Annotated[
@@ -2789,7 +3675,7 @@ def tool_smart_search(
     from atelier.core.capabilities.tool_supervision.smart_search import smart_search
 
     return smart_search(
-        query=query,
+        query=query or "",
         path=file_path,
         mode=mode,
         max_files=max_files,
@@ -2836,31 +3722,95 @@ def _compact_score(
     return {
         "complexity": complexity,
         "must_keep_count": len(must_keep),
-        "message": (f"Complexity {complexity:.2f} recorded with {len(must_keep)} must-keep hints."),
+        "message": (
+            f"Complexity {complexity:.2f} scored with {len(must_keep)} must-keep hints; "
+            "persisted to ledger for advise and session compaction."
+        ),
     }
 
 
 @mcp_tool(name="compact")
 def tool_compact(
-    op: Literal["output", "session", "advise", "score"],
-    content: str = "",
-    content_type: str = "unknown",
-    budget_tokens: int = 500,
-    recovery_hint: str | None = None,
-    session_id: str | None = None,
-    complexity: float = 0.5,
-    must_keep: list[str] | None = None,
+    op: Annotated[
+        Literal["output", "session", "advise", "score"],
+        Field(
+            description=(
+                "output: compress a single tool-output string; "
+                "session: compress the full run ledger into a compact state block; "
+                "advise: check context utilisation and return a compaction recommendation; "
+                "score: record model-assessed complexity and must-keep keywords into the ledger."
+            )
+        ),
+    ],
+    content: Annotated[
+        str,
+        Field(description="[output] The tool output string to compact."),
+    ] = "",
+    content_type: Annotated[
+        str,
+        Field(
+            description=(
+                "[output] Content type hint — one of: file, grep, bash, tool_output, unknown. "
+                "Controls which deterministic compaction strategy is used."
+            )
+        ),
+    ] = "unknown",
+    budget_tokens: Annotated[
+        int,
+        Field(description="[output] Target token budget for the compacted result."),
+    ] = 500,
+    recovery_hint: Annotated[
+        str | None,
+        Field(
+            description=(
+                "[output] How to recover the full output if needed. "
+                "Defaults to a generic re-run suggestion."
+            )
+        ),
+    ] = None,
+    session_id: Annotated[
+        str | None,
+        Field(description="[session|advise] Override the run-ledger session ID. Usually omit."),
+    ] = None,
+    complexity: Annotated[
+        float,
+        Field(
+            description=(
+                "[score] Model-assessed task complexity - float 0.0-1.0. "
+                "0 = trivial/read-only; 1.0 = deep debugging or large refactor."
+            )
+        ),
+    ] = 0.5,
+    must_keep: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "[score] Keywords or short phrases the model needs preserved verbatim across "
+                "compaction. Stored in the ledger and surfaced in subsequent advise calls."
+            )
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Compact op-dispatch: output, session, advise, or score.
 
     ops:
-      output  - compress a single tool output string
-      session - compress the full run ledger into a compact state block
-      advise  - check context utilisation and advise whether to compact
-      score   - record model-assessed complexity + must-keep keywords
+      output  - Compress a single tool output string.
+                Required: content. Optional: content_type, budget_tokens, recovery_hint.
+      session - Compress the full run ledger into a compact state block.
+                Optional: session_id (override).
+      advise  - Check context utilisation and advise whether to compact now.
+                Optional: session_id (override).
+      score   - Record model-assessed complexity + must-keep keywords into the ledger.
+                Optional: complexity (default 0.5), must_keep.
     """
     if op == "score":
-        return _compact_score(complexity=complexity, must_keep=must_keep or [])
+        result = _compact_score(complexity=complexity, must_keep=must_keep or [])
+        # Persist to ledger so subsequent advise calls can surface these hints.
+        with contextlib.suppress(Exception):
+            led = _get_ledger()
+            led.agent_settings["compact_complexity"] = result["complexity"]
+            led.agent_settings["compact_must_keep"] = must_keep or []
+        return result
     if op == "output":
         return _compact_tool_output(
             content=content,
@@ -2904,14 +3854,49 @@ _READ_TOOLS = frozenset(
 )
 
 
-@mcp_tool(name="shell")
+SHELL_TOOL_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "command": {
+            "type": "string",
+            "description": "Shell command to execute. Blocked: bash/sh/zsh/fish, rm -rf, git reset --hard, git clean -fd. Rewritten transparently: cat→read, rg/grep→grep tool.",
+        },
+        "cwd": {
+            "type": "string",
+            "description": "Working directory. Defaults to CLAUDE_WORKSPACE_ROOT.",
+        },
+        "timeout": {
+            "type": "integer",
+            "default": 30,
+            "description": "Seconds before the command is killed. Increase for slow builds.",
+        },
+        "max_lines": {
+            "type": "integer",
+            "default": 200,
+            "description": "Max output lines. Excess lines are head+tail truncated; check truncated=true in response.",
+        },
+    },
+    "required": ["command"],
+    "additionalProperties": False,
+}
+
+
+@mcp_tool(name="shell", input_schema=SHELL_TOOL_INPUT_SCHEMA)
 def tool_shell(
     command: str,
     timeout: int = 30,
     cwd: str | None = None,
     max_lines: int = 200,
 ) -> dict[str, Any]:
-    """Execute a shell command. Output is ANSI-stripped and line-truncated for token efficiency."""
+    """Execute a shell command. Output is ANSI-stripped and line-truncated for token efficiency.
+
+    Response fields: stdout, stderr, exit_code, truncated, lines_omitted, duration_ms.
+    If blocked: exit_code=-1, blocked=true, blocked_reason describes why.
+    If rewritten (cat→read, rg/grep→grep): exit_code=0, rewrite_info tells which tool ran.
+
+    Prefer Atelier read/grep/search tools directly — they are faster and cheaper.
+    Use shell only for commands that have no Atelier equivalent (git, make, uv, npm, etc.).
+    """
     return _run_shell_tool(command, timeout=timeout, cwd=cwd, max_lines=max_lines)
 
 
@@ -2930,26 +3915,19 @@ def _get_remote_client() -> Any:
 def _dispatch_remote(name: str, args: dict[str, Any]) -> dict[str, Any]:
     if _remote_client is None and not os.environ.get("ATELIER_SERVICE_URL"):
         if name == "context":
-            result = _runtime().get_context(
-                task=str(args.get("task") or ""),
-                domain=cast(str | None, args.get("domain")),
-                files=cast(list[str] | None, args.get("files")),
-                tools=cast(list[str] | None, args.get("tools")),
-                errors=cast(list[str] | None, args.get("errors")),
-                max_blocks=int(args.get("max_blocks") or 5),
-                token_budget=cast(int | None, args.get("token_budget")),
-                dedup=bool(args.get("dedup", True)),
-                include_telemetry=bool(args.get("include_telemetry", False)),
-                agent_id=cast(str | None, args.get("agent_id")),
-                recall=bool(args.get("recall", True)),
-            )
-            return result if isinstance(result, dict) else {"context": result}
+            # Route through the registered handler so bootstrap job queuing,
+            # worker spawn throttle, and session bookkeeping all execute.
+            spec = TOOLS.get("context")
+            if spec is None:
+                raise ValueError("context tool not registered")
+            handler = cast(Callable[[dict[str, Any]], dict[str, Any]], spec["handler"])
+            return handler(args)
         if name == "rescue":
             rescue_result = _runtime().rescue_failure(
                 task=str(args.get("task") or ""),
                 error=str(args.get("error") or ""),
-                files=cast(list[str] | None, args.get("files")),
-                recent_actions=cast(list[str] | None, args.get("recent_actions")),
+                files=cast(list[str], args.get("files") or []),
+                recent_actions=cast(list[str], args.get("recent_actions") or []),
                 domain=cast(str | None, args.get("domain")),
             )
             return rescue_result.model_dump()
@@ -2961,13 +3939,23 @@ def _dispatch_remote(name: str, args: dict[str, Any]) -> dict[str, Any]:
     client = _get_remote_client()
 
     if name == "context":
-        return cast(dict[str, Any], client.get_context(args))
+        context_args = dict(args)
+        context_args["files"] = cast(list[str], args.get("files") or [])
+        context_args["tools"] = cast(list[str], args.get("tools") or [])
+        context_args["errors"] = cast(list[str], args.get("errors") or [])
+        return cast(dict[str, Any], client.get_context(context_args))
     if name == "memory":
         return cast(dict[str, Any], client.memory(args))
     if name == "rescue":
         return cast(dict[str, Any], client.rescue_failure(args))
     if name in {"trace", "record"}:
-        return cast(dict[str, Any], client.record_trace(args))
+        trace_result = cast(dict[str, Any], client.record_trace(args))
+        # Normalise compact receipt fields so callers can always rely on them,
+        # regardless of which service version or mock they're talking to.
+        trace_result.setdefault("ok", True)
+        trace_result.setdefault("trace_id", trace_result.get("id") or "")
+        trace_result.setdefault("stored", True)
+        return trace_result
     if name == "verify":
         return cast(dict[str, Any], client.run_rubric_gate(args))
     raise ValueError(f"tool not supported in remote mode: {name}")
@@ -3068,9 +4056,7 @@ def _record_context_budget_for_tool(
         if tool_tokens_saved > live_tokens_saved:
             extra = tool_tokens_saved - live_tokens_saved
             live_savings = dict(live_savings)
-            live_savings["input_tokens_saved"] = (
-                int(live_savings.get("input_tokens_saved", 0) or 0) + extra
-            )
+            live_savings["input_tokens_saved"] = int(live_savings.get("input_tokens_saved", 0) or 0) + extra
             live_tokens_saved = tool_tokens_saved
         base_lever = _lever_for_tool(tool_name)
         lever, savings_metadata = _classify_read_savings(
@@ -3093,12 +4079,7 @@ def _record_context_budget_for_tool(
         if compact_tool_tokens_saved > 0 and not lever_savings:
             lever_savings[f"compact_tool_output:{lever}"] = compact_tool_tokens_saved
         elif tokens_saved > 0:
-            if (
-                tool_name
-                and tool_name != lever
-                and tool_name not in lever_savings
-                and lever == base_lever
-            ):
+            if tool_name and tool_name != lever and tool_name not in lever_savings and lever == base_lever:
                 lever_savings[tool_name] = tokens_saved
             lever_savings[lever] = max(int(lever_savings.get(lever, 0) or 0), tokens_saved)
         if tool_name:
@@ -3118,9 +4099,7 @@ def _record_context_budget_for_tool(
                 "input_tokens_saved": int(live_savings.get("input_tokens_saved", 0) or 0),
                 "output_tokens_saved": int(live_savings.get("output_tokens_saved", 0) or 0),
                 "cache_read_tokens_saved": int(live_savings.get("cache_read_tokens_saved", 0) or 0),
-                "cache_write_tokens_saved": int(
-                    live_savings.get("cache_write_tokens_saved", 0) or 0
-                ),
+                "cache_write_tokens_saved": int(live_savings.get("cache_write_tokens_saved", 0) or 0),
                 "live_tokens_saved": live_tokens_saved,
                 "tool_tokens_saved": tool_tokens_saved,
                 "tokens_saved": tokens_saved,
@@ -3133,9 +4112,7 @@ def _record_context_budget_for_tool(
 
         actual_output_tokens = int(result.get("total_tokens", 0) or 0)
         if actual_output_tokens <= 0:
-            actual_output_tokens = max(
-                0, len(json.dumps(result, ensure_ascii=False, default=str)) // 4
-            )
+            actual_output_tokens = max(0, len(json.dumps(result, ensure_ascii=False, default=str)) // 4)
 
         if compact_tool_tokens_saved > 0 and not isinstance(raw_lever_savings, dict):
             recorder.record_compact_tool_output(
@@ -3213,11 +4190,7 @@ def _session_compaction_savings_payload(
 
     tokens_after_estimate = _estimate_compacted_state_tokens(state)
     tokens_freed = max(0, int(tokens_before) - tokens_after_estimate)
-    model = (
-        _latest_cache_affinity_model(led)
-        or str(getattr(led, "model", "") or "").strip()
-        or "claude-opus-4-7"
-    )
+    model = _latest_cache_affinity_model(led) or str(getattr(led, "model", "") or "").strip() or "auto"
     cost_saved_usd = round(get_model_pricing(model).cost_usd(input_tokens=tokens_freed), 6)
     utilisation = (
         round(float(utilisation_pct), 1)
@@ -3242,9 +4215,7 @@ def _session_compaction_savings_payload(
     }
 
 
-def _emit_model_recommendation(
-    tool_name: str, args: dict[str, Any], led: RunLedger
-) -> dict[str, Any]:
+def _emit_model_recommendation(tool_name: str, args: dict[str, Any], led: RunLedger) -> dict[str, Any]:
     from atelier.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
     from atelier.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
     from atelier.core.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
@@ -3260,7 +4231,7 @@ def _emit_model_recommendation(
             task_text=_task_text_from_args(args),
             session_state=session_state,
         )
-        vs_model = recommendation["actual_model"] or "claude-opus-4-7"
+        vs_model = recommendation["actual_model"] or "auto"
         cost_saved_usd = 0.0
         if recommendation["model"] != vs_model:
             expensive_pricing = get_model_pricing(vs_model)
@@ -3285,7 +4256,7 @@ def _emit_model_recommendation(
         }
     except (RouteConfigError, NoFeasibleRouteError) as exc:
         legacy = ModelRouter().score(tool_name, _task_text_from_args(args), session_state)
-        vs_model = "claude-opus-4-7"
+        vs_model = "auto"
         cost_saved_usd = 0.0
         if legacy.model != vs_model:
             expensive_pricing = get_model_pricing(vs_model)
@@ -3339,9 +4310,7 @@ def _emit_model_recommendation(
             scored_state={
                 "turn_number": int(session_state.get("turn_number") or 0),
                 "prior_errors": len(led.errors_seen) + len(led.repeated_failures),
-                "session_phase": "execution"
-                if int(session_state.get("turn_number") or 0) > 5
-                else "exploration",
+                "session_phase": "execution" if int(session_state.get("turn_number") or 0) > 5 else "exploration",
             },
             writer=_make_outcome_writer(led),
         )
@@ -3384,6 +4353,8 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
 
     if method == "initialize":
         _emit_mcp_session_start()
+        global _client_sampling_supported
+        _client_sampling_supported = "sampling" in (params.get("capabilities") or {})
         return _ok(
             rid,
             {
@@ -3414,6 +4385,16 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
         spec = TOOLS.get(name)
         if spec is None:
             return _err(rid, -32601, f"unknown tool: {name}")
+        if name == "memory" and isinstance(args, dict):
+            properties = spec.get("inputSchema", {}).get("properties", {})
+            allowed_args = set(properties) if isinstance(properties, dict) else set()
+            unknown_args = sorted(set(args) - allowed_args)
+            if unknown_args:
+                return _err(
+                    rid,
+                    -32602,
+                    f"unknown arguments for memory tool: {', '.join(unknown_args)}",
+                )
 
         remote_routed = name in _REMOTE_TOOLS
         try:
@@ -3445,10 +4426,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
             return _ok(
                 rid,
                 {
-                    "content": [
-                        {"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}
-                    ],
-                    "structuredContent": result,
+                    "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, separators=(",", ":"))}],
                 },
             )
         except Exception as exc:
@@ -3509,14 +4487,10 @@ def serve() -> None:
 
 
 def main() -> None:
-    import threading
-
     # Phase 1: Absorb wrapper logic into atelier-mcp (zero-config)
     os.environ.setdefault("ATELIER_SERVICE_URL", "http://127.0.0.1:8787")
     os.environ.setdefault("ATELIER_WORKSPACE_ROOT", os.getcwd())
-    os.environ.setdefault(
-        "ATELIER_KNOWLEDGE_ROOT", os.path.join(os.environ["ATELIER_WORKSPACE_ROOT"], ".knowledge")
-    )
+    os.environ.setdefault("ATELIER_KNOWLEDGE_ROOT", os.path.join(os.environ["ATELIER_WORKSPACE_ROOT"], ".knowledge"))
 
     argv = sys.argv[1:]
     if "--version" in argv or "-V" in argv:

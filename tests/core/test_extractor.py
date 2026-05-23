@@ -39,3 +39,20 @@ def test_extract_high_confidence_for_validated_success() -> None:
     assert cand.confidence >= 0.85
     assert "unit" in cand.block.verification
     assert "src/foo/**" in cand.block.file_patterns
+
+
+def test_extract_derives_triggers_and_tool_patterns_from_runtime_signals() -> None:
+    trace = Trace(
+        id="t2",
+        agent="a",
+        domain="coding",
+        task="Fix context retrieval ranking for parser errors",
+        status="success",
+        files_touched=["src/atelier/core/foundation/parser.py"],
+        commands_run=["uv run pytest tests/core/test_parser.py -q"],
+    )
+    cand = extract_candidate(trace)
+    assert "parser" in cand.block.triggers
+    assert "retrieval" in cand.block.triggers
+    assert "pytest" in cand.block.tool_patterns
+    assert "src/atelier/core/foundation/parser.py" in cand.block.file_patterns

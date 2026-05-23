@@ -292,7 +292,9 @@ class LessonPromoterCapability:
             raise ValueError(f"typed lesson candidate {candidate.id} is missing typed_lesson evidence")
         lesson_payload.setdefault("id", candidate.id)
         lesson_payload.setdefault("kind", candidate.kind)
-        lesson_payload.setdefault("source_session_id", lesson_payload.get("source_session_id") or candidate.evidence.get("source_session_id"))
+        lesson_payload.setdefault(
+            "source_session_id", lesson_payload.get("source_session_id") or candidate.evidence.get("source_session_id")
+        )
         lesson_payload.setdefault("confidence", candidate.confidence)
         lesson_payload.setdefault("captured_at", candidate.created_at)
         return TypedLesson.model_validate(lesson_payload)

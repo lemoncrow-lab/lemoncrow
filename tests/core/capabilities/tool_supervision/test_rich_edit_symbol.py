@@ -10,9 +10,7 @@ from atelier.gateway.adapters.mcp_server import _memory_get_block
 def _write_symbol_fixture(root: Path) -> None:
     (root / "src").mkdir()
     (root / "src" / "service.py").write_text(
-        "class AuthService:\n"
-        "    def verify(self, token: str) -> bool:\n"
-        "        return token == 'ok'\n",
+        "class AuthService:\n" "    def verify(self, token: str) -> bool:\n" "        return token == 'ok'\n",
         encoding="utf-8",
     )
 
@@ -30,7 +28,14 @@ def test_symbol_edit_requires_disambiguation_when_name_is_ambiguous(tmp_path: Pa
     )
 
     result = apply_rich_edits(
-        [{"kind": "symbol", "name": "verify", "mode": "replace", "new_body": "def verify(token: str) -> bool:\n    return False"}],
+        [
+            {
+                "kind": "symbol",
+                "name": "verify",
+                "mode": "replace",
+                "new_body": "def verify(token: str) -> bool:\n    return False",
+            }
+        ],
         repo_root=tmp_path,
     )
 
@@ -46,14 +51,19 @@ def test_symbol_edit_stale_symbol_id_fails_without_writing(tmp_path: Path) -> No
     symbol_id = engine.search_symbols("AuthService.verify", limit=1)[0].symbol_id
     target = tmp_path / "src" / "service.py"
     target.write_text(
-        "class AuthService:\n"
-        "    def verify_token(self, token: str) -> bool:\n"
-        "        return token == 'ok'\n",
+        "class AuthService:\n" "    def verify_token(self, token: str) -> bool:\n" "        return token == 'ok'\n",
         encoding="utf-8",
     )
 
     result = apply_rich_edits(
-        [{"kind": "symbol", "symbol_id": symbol_id, "mode": "replace", "new_body": "def verify(self, token: str) -> bool:\n    return False"}],
+        [
+            {
+                "kind": "symbol",
+                "symbol_id": symbol_id,
+                "mode": "replace",
+                "new_body": "def verify(self, token: str) -> bool:\n    return False",
+            }
+        ],
         repo_root=tmp_path,
     )
 
@@ -71,10 +81,7 @@ def test_symbol_edit_reindexes_and_tags_memory_on_success(tmp_path: Path) -> Non
                 "kind": "symbol",
                 "name": "AuthService.verify",
                 "mode": "replace",
-                "new_body": (
-                    "def verify(self, token: str) -> bool:\n"
-                    "    return token.startswith('ok')"
-                ),
+                "new_body": ("def verify(self, token: str) -> bool:\n" "    return token.startswith('ok')"),
             }
         ],
         repo_root=tmp_path,

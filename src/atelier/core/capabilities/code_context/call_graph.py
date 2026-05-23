@@ -133,13 +133,17 @@ def traverse_call_graph(
     ordered_nodes = sorted(nodes_by_id.values(), key=lambda item: (item.file_path, item.start_line, item.symbol_id))
     ordered_edges = sorted(edges, key=lambda item: (item.depth, item.caller_symbol_id, item.callee_symbol_id))
     data_status: CallGraphDataStatus = "empty" if not ordered_edges else "available"
-    snapshot_payload = build_call_graph_snapshot(
-        target=target,
-        direction=direction,
-        depth=depth,
-        nodes=ordered_nodes,
-        edges=ordered_edges,
-    ) if snapshot else None
+    snapshot_payload = (
+        build_call_graph_snapshot(
+            target=target,
+            direction=direction,
+            depth=depth,
+            nodes=ordered_nodes,
+            edges=ordered_edges,
+        )
+        if snapshot
+        else None
+    )
     return CallGraphTraversalResult(
         nodes=ordered_nodes,
         edges=ordered_edges,

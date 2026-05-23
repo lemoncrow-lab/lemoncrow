@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.cross_vendor_routing.configuration import RouteConfig, save_route_config
+from atelier.core.capabilities.cross_vendor_routing.configuration import (
+    RouteConfig,
+    save_route_config,
+)
 from atelier.gateway.adapters.mcp_server import _emit_model_recommendation
 from atelier.infra.runtime import outcome_capture
 from atelier.infra.runtime.run_ledger import RunLedger

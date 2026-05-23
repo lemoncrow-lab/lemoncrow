@@ -61,6 +61,29 @@ class IndexStats(BaseModel):
     index_version: int = 0
 
 
+class IndexedFileRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_path: str
+    language: str
+    symbol_count: int = 0
+    top_symbols: list[str] | None = None
+
+
+class RouteRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    framework: str
+    method: str
+    route: str
+    file_path: str
+    line: int
+    language: str
+    handler: str | None = None
+    router: str | None = None
+    provenance: str = "local"
+
+
 class TextMatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -122,6 +145,8 @@ __all__ = [
     "CrossLangReference",
     "ImpactResult",
     "IndexStats",
+    "IndexedFileRecord",
+    "RouteRecord",
     "SymbolRecord",
     "TextMatch",
     "UsageReference",

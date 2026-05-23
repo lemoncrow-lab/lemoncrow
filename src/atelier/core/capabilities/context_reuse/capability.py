@@ -124,12 +124,19 @@ def _bm25_document_text(block: ReasonBlock) -> str:
     )
 
 
-def _fts_query_text(*, task: str, errors: list[str] | None) -> str:
-    phrases = [task.strip(), *[error.strip() for error in (errors or []) if error.strip()]]
-    phrases = [phrase for phrase in phrases if phrase]
-    if not phrases:
+def _fts_query_text(
+    *,
+    task: str,
+    errors: list[str] | None,
+    domain: str | None = None,
+    files: list[str] | None = None,
+    tools: list[str] | None = None,
+) -> str:
+    text = _retrieval_query_text(task=task, domain=domain, files=files, tools=tools, errors=errors)
+    parts = _tokenise(text)
+    if not parts:
         return ""
-    return max(phrases, key=len)
+    return " ".join(dict.fromkeys(parts))
 
 
 def _build_idf(docs: list[list[str]]) -> dict[str, float]:
@@ -474,7 +481,10 @@ class ContextReuseCapability:
         bm25_rank_trace: dict[str, int] = {bid: rank for rank, (bid, _) in enumerate(bm25_scored, start=1)}
 
         # FTS scoring (reciprocal rank from store)
-        fts_blocks = self._store.search_blocks(_fts_query_text(task=task, errors=errors), limit=max(limit * 5, 30))
+        fts_blocks = self._store.search_blocks(
+            _fts_query_text(task=task, errors=errors, domain=domain, files=files, tools=tools),
+            limit=max(limit * 5, 30),
+        )
         fts_rank: dict[str, int] = {b.id: rank for rank, b in enumerate(fts_blocks)}
         fts_rank_trace: dict[str, int] = {b.id: rank for rank, b in enumerate(fts_blocks, start=1)}
 

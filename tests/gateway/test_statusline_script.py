@@ -11,7 +11,7 @@ SCRIPT = ROOT / "integrations" / "claude" / "plugin" / "scripts" / "statusline.s
 
 def _run_statusline(root: Path, payload: dict[str, object]) -> str:
     env = os.environ.copy()
-    env.update({"ATELIER_STORE_ROOT": str(root), "ATELIER_NO_COLOR": "1"})
+    env.update({"ATELIER_ROOT": str(root), "ATELIER_STORE_ROOT": str(root), "ATELIER_NO_COLOR": "1"})
     result = subprocess.run(
         ["bash", str(SCRIPT)],
         input=json.dumps(payload),

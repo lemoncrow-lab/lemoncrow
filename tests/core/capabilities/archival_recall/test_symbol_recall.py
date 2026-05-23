@@ -33,13 +33,11 @@ def _write_fixture_repo(root: Path) -> None:
         encoding="utf-8",
     )
     (root / "docs" / "decisions" / "001-session-auth.md").write_text(
-        "# Session auth\n\n"
-        "We keep AuthService.verify_session as the validation seam for session tokens.\n",
+        "# Session auth\n\n" "We keep AuthService.verify_session as the validation seam for session tokens.\n",
         encoding="utf-8",
     )
     (root / "docs" / "decisions" / "002-basic-auth.md").write_text(
-        "# Basic auth\n\n"
-        "BasicAuth stays on header parsing and should not change session token validation.\n",
+        "# Basic auth\n\n" "BasicAuth stays on header parsing and should not change session token validation.\n",
         encoding="utf-8",
     )
 

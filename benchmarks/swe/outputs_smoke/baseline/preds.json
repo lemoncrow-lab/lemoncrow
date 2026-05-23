@@ -1,0 +1,7 @@
+{
+  "sqlfluff__sqlfluff-1625": {
+    "model_name_or_path": "openai/qwen3.6:latest",
+    "instance_id": "sqlfluff__sqlfluff-1625",
+    "model_patch": ""
+  }
+}

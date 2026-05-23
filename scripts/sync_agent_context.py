@@ -347,7 +347,9 @@ def render_claude_explore_agent(output_path: Path) -> str:
                 "name: explore",
                 "description: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits.",
                 'tools: ["Read", "Grep", "Glob", "mcp__atelier__context", "mcp__atelier__search", "mcp__atelier__read", "mcp__atelier__memory"]',
+                'disallowedTools: ["Edit", "Write", "MultiEdit", "NotebookEdit", "Agent"]',
                 "color: blue",
+                "model: haiku",
                 "---",
                 "",
                 generated_notice(output_path),
@@ -369,6 +371,7 @@ def render_claude_explore_agent(output_path: Path) -> str:
                 "## Hard rules",
                 "",
                 "- **Never edit, write, or delete files.**",
+                "- Stay within 12 tool calls per task — prioritize breadth over depth.",
                 "- Return findings even when partial — partial coverage beats silence.",
                 "- If the first search path is wrong, try an alternative before giving up.",
                 "",
@@ -420,6 +423,61 @@ def render_claude_repair_agent(output_path: Path) -> str:
                 "- Do not modify unrelated files during repair.",
                 "",
                 budget_section(),
+                "",
+                fallback_section("claude"),
+            ]
+        ).rstrip()
+        + "\n"
+    )
+
+
+def render_claude_research_agent(output_path: Path) -> str:
+    return (
+        "\n".join(
+            [
+                "---",
+                "name: research",
+                "description: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations.",
+                'tools: ["WebFetch", "WebSearch", "mcp__atelier__context", "mcp__atelier__search", "mcp__atelier__read", "mcp__atelier__memory"]',
+                "color: green",
+                "---",
+                "",
+                generated_notice(output_path),
+                "",
+                "# Atelier Research Agent",
+                "",
+                "You are the **external researcher**. Fetch, synthesise, and cite. Never edit files.",
+                "",
+                "Use this file as a thin entrypoint and follow the live docs tree:",
+                "",
+                doc_links(output_path),
+                "",
+                "## Operating loop",
+                "",
+                "1. **Context**: Call `context` with `task` and `domain` to surface any codebase-side constraints.",
+                "2. **Fetch**: Use `WebFetch` or `WebSearch` for external sources; use `mcp__atelier__search` / `mcp__atelier__read` to cross-reference the codebase.",
+                "3. **Synthesise**: Combine findings into a structured memo. Every claim must carry a URL or file:line citation.",
+                "4. **Deliver**: Return the memo. Do not wait for tools — partial coverage with citations beats silence.",
+                "",
+                "## Hard rules",
+                "",
+                "- **Never edit, write, or delete files.**",
+                "- Every factual claim must have a citation (URL or file:line).",
+                "- If a source is paywalled or unavailable, say so — do not guess.",
+                "- Prefer official docs and source code over blog posts.",
+                "",
+                "## Output format",
+                "",
+                "```",
+                "## Summary",
+                "<2-3 sentence answer>",
+                "",
+                "## Findings",
+                "- <finding> — [source](url)",
+                "",
+                "## Gaps",
+                "- <what could not be confirmed>",
+                "```",
                 "",
                 fallback_section("claude"),
             ]
@@ -522,6 +580,10 @@ def build_outputs() -> dict[Path, str]:
         ROOT
         / "integrations/claude/plugin/agents/repair.md": render_claude_repair_agent(
             ROOT / "integrations/claude/plugin/agents/repair.md"
+        ),
+        ROOT
+        / "integrations/claude/plugin/agents/research.md": render_claude_research_agent(
+            ROOT / "integrations/claude/plugin/agents/research.md"
         ),
         ROOT
         / "integrations/codex/AGENTS.atelier.md": render_host_surface(

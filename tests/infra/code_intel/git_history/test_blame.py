@@ -46,9 +46,7 @@ def _build_blame_fixture(tmp_path: Path) -> tuple[Path, str, str]:
     service_path = repo_root / "service.py"
 
     service_path.write_text(
-        "def risk_score() -> int:\n"
-        "    value = 1\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 1\n" "    return value\n",
         encoding="utf-8",
     )
     _commit(
@@ -60,9 +58,7 @@ def _build_blame_fixture(tmp_path: Path) -> tuple[Path, str, str]:
     )
 
     service_path.write_text(
-        "def risk_score() -> int:\n"
-        "    value = 3\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 3\n" "    return value\n",
         encoding="utf-8",
     )
     indexed_sha = _commit(
@@ -74,9 +70,7 @@ def _build_blame_fixture(tmp_path: Path) -> tuple[Path, str, str]:
     )
 
     service_path.write_text(
-        "def risk_score() -> int:\n"
-        "    value = 5\n"
-        "    return value\n",
+        "def risk_score() -> int:\n" "    value = 5\n" "    return value\n",
         encoding="utf-8",
     )
     head_sha = _commit(
@@ -133,10 +127,7 @@ def test_blame_annotator_reuses_typed_cached_results_for_repeated_requests(tmp_p
 def test_blame_annotator_marks_local_edits_and_stale_index_explicitly(tmp_path: Path) -> None:
     repo_root, indexed_sha, head_sha = _build_blame_fixture(tmp_path)
     (repo_root / "service.py").write_text(
-        "def risk_score() -> int:\n"
-        "    value = 5\n"
-        "    return value\n"
-        "# local note\n",
+        "def risk_score() -> int:\n" "    value = 5\n" "    return value\n" "# local note\n",
         encoding="utf-8",
     )
     annotator = BlameAnnotator(repo_root)

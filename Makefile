@@ -3,6 +3,7 @@
 PY_PATHS := src
 ATELIER_STORE ?= $(HOME)/.atelier
 ATELIER_CMD ?= uv run atelier
+TEST_PRINT_TIME ?= 0
 FORCE_ARG := $(if $(f),--force,)
 EXTERNAL_PERIODS ?= today week month
 
@@ -69,7 +70,11 @@ runtime-evidence: ## Capture runtime evidence from a local Atelier stack
 	uv run python scripts/runtime_evidence.py
 
 test: ## Run all tests
-	uv run pytest -q
+ifeq ($(TEST_PRINT_TIME),1)
+	@time bash -lc 'if uv run python -c "import xdist" >/dev/null 2>&1; then uv run pytest -q -ra --durations=0 -n auto --dist=loadfile; else uv run pytest -q -ra --durations=0; fi'
+else
+	@bash -lc 'if uv run python -c "import xdist" >/dev/null 2>&1; then uv run pytest -q -ra --durations=0 -n auto --dist=loadfile; else uv run pytest -q -ra --durations=0; fi'
+endif
 
 test-fast: ## Run fast tests: stop on first failure, skip slow/Postgres-gated tests
 	uv run pytest -q -x --ignore=tests/test_postgres_store.py --ignore=tests/test_worker_jobs.py -m "not slow"

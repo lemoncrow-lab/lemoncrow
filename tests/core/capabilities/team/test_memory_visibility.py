@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.team import TeamPermissionError, TeamWorkspaceManager, ensure_shared_memory_write, visible_memory_blocks
+from atelier.core.capabilities.team import (
+    TeamPermissionError,
+    TeamWorkspaceManager,
+    ensure_shared_memory_write,
+    visible_memory_blocks,
+)
 from atelier.core.foundation.memory_models import MemoryBlock
 from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
@@ -40,4 +45,3 @@ def test_viewer_sees_shared_memory_only(tmp_path: Path) -> None:
     assert [block.label for block in visible] == ["shared"]
     with pytest.raises(TeamPermissionError):
         ensure_shared_memory_write(manager.require_member())
-

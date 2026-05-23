@@ -1,5 +1,15 @@
 #!/bin/bash
-# Pre-push hook - Atelier validation (≤30 seconds)
+# Pre-push hook — Atelier CI-equivalent validation
+#
+# Runs all checks that GitHub Actions would run on push/PR:
+#   - make lint        (ruff check)
+#   - black --check    (formatting)
+#   - make typecheck   (mypy — strict)
+#   - make docs-check  (agent context sync + docs governance)
+#   - make test        (pytest)
+#   - pip-audit        (dependency vulnerability audit)
+#
+# Bypass with:  git push --no-verify
 
 set -e
 
@@ -9,97 +19,142 @@ cd "$REPO_ROOT"
 echo "🚀 Running pre-push checks..."
 
 CURRENT_BRANCH=$(git branch --show-current)
-REMOTE_INFO=$(git rev-parse --abbrev-ref --symbolic-full-name @{upstream} 2>/dev/null || echo "")
+REMOTE_INFO=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "")
 REMOTE_BRANCH=$(echo "$REMOTE_INFO" | sed 's/.*\///')
 
-echo "📍 Checking Pushing $CURRENT_BRANCH to $REMOTE_BRANCH"
+echo "📍 Pushing $CURRENT_BRANCH → $REMOTE_BRANCH"
 
-# Ensure the local editable install and generated wrappers are up to date.
-# Skip session import + external reports — those are slow, code-independent, and
-# covered by tests; only host integrations need to be verified at push time.
-echo "🛠️ Running make install (host integrations only)..."
-if ! ATELIER_STRICT=1 make install; then
-    echo -e "\033[1;31m❌ make install failed. Push blocked.\033[0m"
-    echo "   Fix the install error locally or use 'git push --no-verify' if you intentionally need to bypass the hook."
-    exit 1
-fi
-
-# 0. Check for unauthorized .md files (atelier-specific exclusions)
-echo "📄 Checking for unauthorized .md files..."
-# Atelier allows: docs/, docs-archive/, reports/, .knowledge/, templates/, .ruler/, .agent/, skills/, integrations/, .github/, tests/fixtures/memory/, AGENTS*, QUICK_REFERENCE*, *_README.md, SECURITY.md, SKILL.md, LICENSE.md, CHANGELOG.md, CONTRIBUTING.md, GEMINI.md
-md_files=$(git ls-files "*.md" | grep -v "^docs/" | grep -v "^docs-archive/" | grep -v "^reports/" | grep -v "^.knowledge/" | grep -v "^templates/" | grep -v "^.ruler/" | grep -v "^.agent/" | grep -v "^skills/" | grep -v "^integrations/" | grep -v "^.github/" | grep -v "^tests/fixtures/memory/" | grep -v "AGENTS" | grep -v "QUICK_REFERENCE" | grep -v "README\.md$" | grep -v "SECURITY\.md$" | grep -v "SKILL\.md$" | grep -v "_README\.md$" | grep -v "LICENSE\.md$" | grep -v "CHANGELOG\.md$" | grep -v "CONTRIBUTING\.md$" | grep -v "GEMINI\.md$" || true)
-
-if [ -n "$md_files" ]; then
-    echo -e "\033[1;31m❌ Error: Unauthorized .md files found in repository:\033[0m"
-    echo "$md_files"
-    echo ""
-    echo "Allowed: docs/, docs-archive/, reports/, .knowledge/, templates/, .ruler/, .agent/, skills/, integrations/, .github/, tests/fixtures/memory/, AGENTS*, QUICK_REFERENCE*, README.md, SECURITY.md, SKILL.md, CHANGELOG.md, CONTRIBUTING.md, GEMINI.md"
-    exit 1
-fi
-
-echo "✅ No unauthorized .md files detected."
-
-# 1. Branch protection (prevent direct pushes to protected branches)
+# ---------------------------------------------------------------------------
+# 0. Branch protection
+# ---------------------------------------------------------------------------
 PROTECTED_BRANCHES=("main" "master" "production" "staging")
 
 echo "🔍 Checking branch protection..."
 for protected in "${PROTECTED_BRANCHES[@]}"; do
     if [[ "$REMOTE_BRANCH" == "$protected" ]]; then
         echo -e "\033[1;31m❌ Direct push to protected branch '$protected' is not allowed.\033[0m"
-        echo "   Please create a pull request instead."
-        echo "   Use 'git push --no-verify' to bypass in emergencies."
+        echo "   Create a pull request instead."
+        echo "   Use 'git push --no-verify' in emergencies."
         exit 1
     fi
 done
 
-# Get changed files for pre-commit check
-DIFF_BASE=
-if git rev-parse --verify --quiet @{u} >/dev/null; then
-    DIFF_BASE=$(git rev-parse --abbrev-ref --symbolic-full-name @{u})
-elif git rev-parse --quiet origin/main >/dev/null 2>&1; then
-    DIFF_BASE="origin/main"
-else
-    DIFF_BASE=$(git rev-list --max-parents=0 HEAD | tail -n 1)
+# ---------------------------------------------------------------------------
+# 1. Unauthorized .md file check (atelier-specific)
+# ---------------------------------------------------------------------------
+echo "📄 Checking for unauthorized .md files..."
+md_files=$(git ls-files "*.md" \
+    | grep -v "^docs/" \
+    | grep -v "^docs-archive/" \
+    | grep -v "^reports/" \
+    | grep -v "^.planning/" \
+    | grep -v "^.knowledge/" \
+    | grep -v "^templates/" \
+    | grep -v "^.ruler/" \
+    | grep -v "^.agent/" \
+    | grep -v "^skills/" \
+    | grep -v "^integrations/" \
+    | grep -v "^.github/" \
+    | grep -v "^tests/fixtures/memory/" \
+    | grep -v "AGENTS" \
+    | grep -v "QUICK_REFERENCE" \
+    | grep -v "README\.md$" \
+    | grep -v "SECURITY\.md$" \
+    | grep -v "SKILL\.md$" \
+    | grep -v "_README\.md$" \
+    | grep -v "LICENSE\.md$" \
+    | grep -v "CHANGELOG\.md$" \
+    | grep -v "CONTRIBUTING\.md$" \
+    | grep -v "GEMINI\.md$" || true)
+
+if [ -n "$md_files" ]; then
+    echo -e "\033[1;31m❌ Unauthorized .md files found:\033[0m"
+    echo "$md_files"
+    echo ""
+    echo "Allowed: docs/, docs-archive/, reports/, .planning/, .knowledge/, templates/,"
+    echo "  .ruler/, .agent/, skills/, integrations/, .github/,"
+    echo "  tests/fixtures/memory/, AGENTS*, QUICK_REFERENCE*,"
+    echo "  README.md, SECURITY.md, SKILL.md,"
+    echo "  LICENSE.md, CHANGELOG.md, CONTRIBUTING.md, GEMINI.md"
+    exit 1
+fi
+echo "✅ No unauthorized .md files."
+
+# ---------------------------------------------------------------------------
+# 2. Host integration install
+# ---------------------------------------------------------------------------
+echo "🛠️  make install ..."
+if ! ATELIER_STRICT=1 make install 2>&1 | tail -5; then
+    echo -e "\033[1;31m❌ make install failed.\033[0m"
+    echo "   Fix the error or use 'git push --no-verify' to bypass."
+    exit 1
 fi
 
-CHANGED_FILES=()
-if [ -n "$DIFF_BASE" ]; then
-    mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=ACMRTUXB "$DIFF_BASE...HEAD" 2>/dev/null || true)
+# ---------------------------------------------------------------------------
+# 3. Lint (ruff check) — same as CI lint-format job
+# ---------------------------------------------------------------------------
+echo "🔍 make lint ..."
+if ! make lint 2>&1; then
+    echo -e "\033[1;31m❌ Lint failed. Run 'make format' locally and commit.\033[0m"
+    echo "   Or use 'git push --no-verify' to bypass."
+    exit 1
 fi
 
-# Validate formatting on the files being pushed (read-only, no modifications)
-if [ ${#CHANGED_FILES[@]} -gt 0 ]; then
-    # Filter Python files
-    PYTHON_FILES=()
-    for file in "${CHANGED_FILES[@]}"; do
-        if [[ "$file" == *.py ]] && [[ -f "$file" ]]; then
-            PYTHON_FILES+=("$file")
-        fi
-    done
-
-    if [ ${#PYTHON_FILES[@]} -gt 0 ]; then
-        echo "🔍 Validating Python file formatting..."
-
-        # ruff check (lint) — read-only, no --fix
-        set +e
-        uv run ruff check "${PYTHON_FILES[@]}"
-        RUFF_CHECK_EXIT=$?
-        set -e
-
-        # black --check (formatting) — read-only, no modification
-        set +e
-        uvx black --check "${PYTHON_FILES[@]}" 2>/dev/null
-        BLACK_CHECK_EXIT=$?
-        set -e
-
-        if [ $RUFF_CHECK_EXIT -ne 0 ] || [ $BLACK_CHECK_EXIT -ne 0 ]; then
-            echo -e "\033[1;31m❌ Formatting/lint issues detected in pushed files.\033[0m"
-            echo "   Please run 'git commit' (which auto-formats) or"
-            echo "   run 'uv run ruff check --fix <file>' and 'uvx black <file>' manually."
-            exit 1
-        fi
-    fi
+# ---------------------------------------------------------------------------
+# 4. Format check (black) — same as CI lint-format job
+# ---------------------------------------------------------------------------
+echo "🔍 black --check ..."
+if ! uv run black --check src tests 2>&1; then
+    echo -e "\033[1;31m❌ Formatting check failed. Run 'make format' locally.\033[0m"
+    echo "   Or use 'git push --no-verify' to bypass."
+    exit 1
 fi
 
-echo "✅ Pre-push checks passed!"
+# ---------------------------------------------------------------------------
+# 5. Type check (mypy --strict) — same as CI typecheck job
+# ---------------------------------------------------------------------------
+echo "🔍 make typecheck ..."
+if ! make typecheck 2>&1; then
+    echo -e "\033[1;31m❌ Type check failed. Fix type errors or use 'git push --no-verify' to bypass.\033[0m"
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 6. Docs governance — same as CI docs-check job
+# ---------------------------------------------------------------------------
+echo "📖 make docs-check ..."
+if ! make docs-check 2>&1; then
+    echo -e "\033[1;31m❌ Docs check failed. Run 'make docs-check' locally to diagnose.\033[0m"
+    echo "   Or use 'git push --no-verify' to bypass."
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Tests (pytest) — same as CI test job
+# ---------------------------------------------------------------------------
+echo "🧪 make test ..."
+if ! make test 2>&1; then
+    echo -e "\033[1;31m❌ Tests failed. Run 'make test' locally to diagnose.\033[0m"
+    echo "   Or use 'git push --no-verify' to bypass."
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 8. Dependency audit (pip-audit) — same as CI security job
+# ---------------------------------------------------------------------------
+echo "🔒 Dependency audit ..."
+if ! uv export --frozen --group dev --format requirements-txt --no-hashes --output-file /tmp/atelier-preaudit-requirements.txt 2>/dev/null; then
+    echo "   ⚠️  Could not export frozen requirements (uv sync --frozen may be needed)."
+    echo "      Run 'uv sync --group dev' first, or use 'git push --no-verify' to bypass."
+    exit 1
+fi
+if ! uvx pip-audit --requirement /tmp/atelier-preaudit-requirements.txt 2>&1; then
+    echo -e "\033[1;31m❌ Dependency audit found vulnerabilities.\033[0m"
+    echo "   Run 'uv sync --upgrade' or use 'git push --no-verify' to bypass."
+    exit 1
+fi
+rm -f /tmp/atelier-preaudit-requirements.txt
+
+echo ""
+echo "✅ All CI-equivalent pre-push checks passed!"
 echo "🚀 Pushing $CURRENT_BRANCH to $REMOTE_BRANCH..."

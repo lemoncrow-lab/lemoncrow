@@ -2,19 +2,19 @@
 Atelier tool benchmark CLI.
 
 Usage:
-    uv run python -m benchmarks.tool_bench
-    uv run python -m benchmarks.tool_bench --hosts claude codex
-    uv run python -m benchmarks.tool_bench --tools read shell
-    uv run python -m benchmarks.tool_bench --hosts all --tools all --out /tmp/bench.json
-    uv run python -m benchmarks.tool_bench --check-only   # enforcement + savings audit only
+    uv run python -m src.benchmarks.tool_bench
+    uv run python -m src.benchmarks.tool_bench --hosts claude codex
+    uv run python -m src.benchmarks.tool_bench --tools read shell
+    uv run python -m src.benchmarks.tool_bench --hosts all --tools all --out /tmp/bench.json
+    uv run python -m src.benchmarks.tool_bench --check-only   # enforcement + savings audit only
 """
+
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
 
-from .runner import HOSTS, run_benchmark
 from .report import (
     export_json,
     print_enforcement_gap,
@@ -23,11 +23,12 @@ from .report import (
     print_savings_table,
     print_statusline_preview,
 )
+from .runner import HOSTS, run_benchmark
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        prog="python -m benchmarks.tool_bench",
+        prog="python -m src.benchmarks.tool_bench",
         description="Measure savings + correctness: builtin vs atelier MCP across all host CLIs.",
     )
     p.add_argument(
@@ -40,9 +41,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--tools",
         nargs="+",
-        default=["read", "shell", "search"],
+        default=["read", "shell", "search", "grep"],
         metavar="TOOL",
-        help="Tools to benchmark: read shell search (default: all three)",
+        help="Tools to benchmark: read shell search grep (default: all four)",
     )
     p.add_argument(
         "--out",
@@ -71,14 +72,10 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     # Resolve hosts
-    hosts: tuple[str, ...]
-    if "all" in args.hosts:
-        hosts = HOSTS
-    else:
-        hosts = tuple(args.hosts)
+    hosts: tuple[str, ...] = HOSTS if "all" in args.hosts else tuple(args.hosts)
 
     # Resolve tools
-    tools_all = ("read", "shell", "search")
+    tools_all = ("read", "shell", "search", "grep")
     if "all" in args.tools:
         tools: tuple[str, ...] = tools_all
     else:
@@ -103,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n\033[1;35m{'='*76}\033[0m")
     print(f"\033[1;35m  RUNNING BENCHMARK: tools={list(tools)}  hosts={list(hosts)}\033[0m")
     print(f"\033[1;35m{'='*76}\033[0m")
-    print(f"  \033[2m(each atelier call spawns a new stdio process — ~2s overhead is expected)\033[0m\n")
+    print("  \033[2m(each atelier call spawns a new stdio process — ~2s overhead is expected)\033[0m\n")
 
     report = run_benchmark(tools=tools, hosts=hosts)
 

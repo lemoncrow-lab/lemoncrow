@@ -7,7 +7,7 @@ import hashlib
 import json
 import os
 import re
-from typing import Any, cast
+from typing import Any
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -73,13 +73,17 @@ def decrypt_bytes(envelope: dict[str, Any], passphrase: str, *, aad: bytes | Non
     key = _derive_key(passphrase, salt)
     aesgcm = AESGCM(key)
     try:
-        return cast(bytes, aesgcm.decrypt(nonce, ciphertext, aad))
+        return aesgcm.decrypt(nonce, ciphertext, aad)
     except InvalidTag as exc:
-        raise InvalidPassphraseError("Sync decryption failed. The passphrase is incorrect or the blob is corrupt.") from exc
+        raise InvalidPassphraseError(
+            "Sync decryption failed. The passphrase is incorrect or the blob is corrupt."
+        ) from exc
 
 
 def encrypt_json(payload: dict[str, Any], passphrase: str, *, aad: bytes | None = None) -> bytes:
-    envelope = encrypt_bytes(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8"), passphrase, aad=aad)
+    envelope = encrypt_bytes(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8"), passphrase, aad=aad
+    )
     return json.dumps(envelope, ensure_ascii=False, sort_keys=True).encode("utf-8")
 
 

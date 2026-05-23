@@ -5,9 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 from collections.abc import Callable
 from pathlib import Path
-import sqlite3
 
 from .edges import CrossLangCandidate, CrossLangEdge, CrossLangEdgeStore
 from .resolvers.ctypes_resolver import resolve_ctypes
@@ -60,7 +60,7 @@ class CrossLangRunner:
             target_file_path = self._find_c_target_file(candidate.tgt_symbol_name)
             if target_file_path is not None:
                 target_symbol_id = hashlib.sha256(
-                    f"{self.repo_id}:{target_file_path}:{candidate.tgt_symbol_name}".encode("utf-8")
+                    f"{self.repo_id}:{target_file_path}:{candidate.tgt_symbol_name}".encode()
                 ).hexdigest()[:24]
         return CrossLangEdge(
             repo_id=self.repo_id,
@@ -90,6 +90,7 @@ class CrossLangRunner:
                 """,
                 (self.repo_id, file_path, line, line),
             ).fetchone()
+        assert row is None or isinstance(row, sqlite3.Row)
         return row
 
     def _find_target_symbol(self, *, symbol_name: str, file_path: str | None, language: str) -> sqlite3.Row | None:
@@ -109,6 +110,7 @@ class CrossLangRunner:
                 """,
                 tuple(params),
             ).fetchone()
+        assert row is None or isinstance(row, sqlite3.Row)
         return row
 
     def _find_c_target_file(self, symbol_name: str) -> str | None:
@@ -124,17 +126,13 @@ class CrossLangRunner:
         payload = [edge.model_dump(mode="json") for edge in edges]
         signature = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
         with self.connection_factory() as conn:
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS engine_state (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 )
-                """
-            )
-            row = conn.execute(
-                "SELECT value FROM engine_state WHERE key = 'cross_lang_signature'"
-            ).fetchone()
+                """)
+            row = conn.execute("SELECT value FROM engine_state WHERE key = 'cross_lang_signature'").fetchone()
             previous = str(row["value"]) if row is not None else None
             conn.execute(
                 """
@@ -145,9 +143,7 @@ class CrossLangRunner:
                 (signature,),
             )
             if previous is not None and previous != signature:
-                current = conn.execute(
-                    "SELECT value FROM engine_state WHERE key = 'index_version'"
-                ).fetchone()
+                current = conn.execute("SELECT value FROM engine_state WHERE key = 'index_version'").fetchone()
                 index_version = int(current["value"]) if current is not None else 0
                 conn.execute(
                     """

@@ -7,7 +7,8 @@ import time
 from typing import Any
 
 from atelier.core.service.telemetry.config import (
-    otel_endpoint,
+    posthog_key,
+    posthog_otlp_url,
     remote_enabled,
     save_telemetry_config,
 )
@@ -24,7 +25,14 @@ def init_product_telemetry(*, service_version: str = "0.1.0") -> bool:
     try:
         from atelier.core.service.telemetry.exporters.otel import init_otel
 
-        return init_otel(endpoint=otel_endpoint(), service_version=service_version)
+        key = posthog_key()
+        if not key:
+            return False
+        return init_otel(
+            endpoint=posthog_otlp_url(),
+            service_version=service_version,
+            headers={"Authorization": f"Bearer {key}"},
+        )
     except Exception as exc:
         logger.debug("telemetry.otel_init_failed", extra={"error": str(exc)})
         return False

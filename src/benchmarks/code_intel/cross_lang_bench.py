@@ -79,19 +79,15 @@ def _write_fixture_repo(root: Path) -> None:
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "plugins" / "__init__.py").write_text("", encoding="utf-8")
     (root / "plugins" / "worker.py").write_text(
-        "def plugin_entry() -> str:\n"
-        "    return 'worker'\n",
+        "def plugin_entry() -> str:\n" "    return 'worker'\n",
         encoding="utf-8",
     )
     (root / "scripts" / "worker.py").write_text(
-        "def main() -> int:\n"
-        "    return 1\n",
+        "def main() -> int:\n" "    return 1\n",
         encoding="utf-8",
     )
     (root / "src" / "local_worker.py").write_text(
-        "from scripts.worker import main\n\n"
-        "def call_local() -> int:\n"
-        "    return main()\n",
+        "from scripts.worker import main\n\n" "def call_local() -> int:\n" "    return main()\n",
         encoding="utf-8",
     )
     (root / "src" / "bootstrap.py").write_text(
@@ -198,7 +194,9 @@ def run_cross_lang_bench(
         baseline_total_tokens=baseline_total_tokens,
         combined_total_tokens=combined_total_tokens,
         reference_count=int(usages_payload.get("reference_count", 0) or 0),
-        resolved_edge_seen=any(ref.get("edge_kind") == "subprocess" and ref.get("confidence", 0) >= 0.7 for ref in resolved_refs),
+        resolved_edge_seen=any(
+            ref.get("edge_kind") == "subprocess" and ref.get("confidence", 0) >= 0.7 for ref in resolved_refs
+        ),
         unresolved_edge_seen=any(
             ref.get("edge_kind") == "ffi_cffi" and ref.get("confidence", 1) < 0.6 and not ref.get("symbol_id")
             for ref in unresolved_refs

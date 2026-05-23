@@ -60,5 +60,5 @@ def test_apply_fuzzy_replace_picks_first_match_on_duplicate_blocks() -> None:
 
     assert "return 2" in updated
     assert line_start == 1
-    # old_string is 2 lines → spans content lines 1–2 (first block)
+    # old_string is 2 lines → spans content lines 1-2 (first block)
     assert line_end == 2

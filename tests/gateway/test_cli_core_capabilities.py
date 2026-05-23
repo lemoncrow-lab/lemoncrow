@@ -36,7 +36,7 @@ def test_search_smart_blocks(tmp_path: Path) -> None:
         root,
         "tools",
         "call",
-        "search",
+        "grep",
         "--dev",
         "--workspace",
         str(tmp_path),

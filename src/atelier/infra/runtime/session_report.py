@@ -512,8 +512,7 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
         )
     if report.cost_cap_fired_turns:
         lines.append(
-            f"  Cost cap fired: {report.cost_cap_fired_turns} turn"
-            f"{'s' if report.cost_cap_fired_turns != 1 else ''}"
+            f"  Cost cap fired: {report.cost_cap_fired_turns} turn" f"{'s' if report.cost_cap_fired_turns != 1 else ''}"
         )
 
     if report.compact_events:

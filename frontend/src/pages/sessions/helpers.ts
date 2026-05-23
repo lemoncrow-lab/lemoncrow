@@ -219,6 +219,26 @@ export function parseInspectorData(
     return acc;
   }, 0);
 
+  // --- dedupe helpers ---
+  function uniqueBy<T>(arr: T[], keyFn: (item: T, idx: number) => string): T[] {
+    const map = new Map<string, T>();
+    arr.forEach((item, idx) => {
+      const k = keyFn(item, idx);
+      const key = k === undefined || k === null || k === "" ? `__idx_${idx}` : String(k);
+      if (!map.has(key)) map.set(key, item);
+    });
+    return Array.from(map.values());
+  }
+
+  const rawSourceFiles = Array.isArray(ledger?.source_files) ? ledger.source_files : [];
+  const source_files = uniqueBy(rawSourceFiles, (f: any, idx) => f?.artifact_id ?? f?.path ?? `__idx_${idx}`);
+
+  const rawArtifacts = Array.isArray(ledger?.artifacts) ? ledger.artifacts : [];
+  const artifacts = uniqueBy(
+    rawArtifacts,
+    (a: any, idx) => (a?.id ?? a?.relative_path ?? `${a?.scope ?? ""}:${a?.relative_path ?? ""}`) || `__idx_${idx}`
+  );
+
   return {
     session_id: sessionId,
     pinned_blocks: Array.isArray(ledger?.active_reasonblocks)
@@ -231,10 +251,8 @@ export function parseInspectorData(
     source_paths: Array.isArray(ledger?.source_paths)
       ? ledger.source_paths
       : [],
-    source_files: Array.isArray(ledger?.source_files)
-      ? ledger.source_files
-      : [],
-    artifacts: Array.isArray(ledger?.artifacts) ? ledger.artifacts : [],
+    source_files,
+    artifacts,
     conversations,
   };
 }

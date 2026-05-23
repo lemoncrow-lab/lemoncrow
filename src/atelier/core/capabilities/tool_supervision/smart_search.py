@@ -228,7 +228,11 @@ def _search_with_backend(
         max_chars_per_file=max_chars_per_file,
         include_outline=include_outline,
     )
-    return search_read_to_dict(result)
+    payload = search_read_to_dict(result, include_metadata=False)
+    payload["backend"] = result.backend
+    payload["index_age_seconds"] = result.index_age_seconds
+    payload["total_tokens"] = result.total_tokens
+    return payload
 
 
 def smart_search(
@@ -250,9 +254,9 @@ def smart_search(
 
     if mode == "map":
         result = build_repo_map(repo_root, seed_files=seeds, budget_tokens=budget_tokens)
-        payload = result.model_dump(mode="json")
-        payload["mode"] = "map"
-        return payload
+        map_result = result.model_dump(mode="json")
+        map_result["mode"] = "map"
+        return map_result
 
     cache_payload = {
         "query": query,
@@ -263,19 +267,25 @@ def smart_search(
         "include_outline": include_outline,
         "seed_files": seeds,
         "budget_tokens": budget_tokens,
+        "response_schema": 2,
     }
     cache_key = _cache_key(cache_payload, search_path)
-    cache_hit = False
     if os.environ.get("ATELIER_CACHE_DISABLED") != "1":
         cache = _load_cache(repo_root)
         cached = cache.get(cache_key)
         if isinstance(cached, dict):
-            cached["cache_hit"] = True
-            return cached
+            cached_matches = [match for match in cached.get("matches", []) if isinstance(match, dict)]
+            return {
+                "matches": cached_matches[:max_files],
+                "mode": mode,
+                "backend": str(cached.get("backend") or "ripgrep"),
+                "index_age_seconds": cached.get("index_age_seconds"),
+                "cache_hit": True,
+            }
     else:
         cache = {}
 
-    payload = _search_with_backend(
+    payload: dict[str, Any] | None = _search_with_backend(
         repo_root=repo_root,
         search_path=search_path,
         query=query,
@@ -291,7 +301,7 @@ def smart_search(
             max_chars_per_file=max_chars_per_file,
             include_outline=include_outline,
         )
-        payload = search_read_to_dict(chunk_result)
+        payload = search_read_to_dict(chunk_result, include_metadata=False)
     backend = str(payload.get("backend") or "ripgrep")
     matches = [match for match in payload.get("matches", []) if isinstance(match, dict)]
     if backend == "zoekt":
@@ -305,14 +315,18 @@ def smart_search(
                     content = ""
                 full_matches.append({**match, "content": content, "snippets": []})
             matches = full_matches
-        payload["matches"] = matches[:max_files]
-        payload["mode"] = mode
-        payload["ranking"] = {"lexical": {}, "semantic": {}, "graph": {}}
-        payload["cache_hit"] = cache_hit or bool(payload.get("cache_hit", False))
+        response = {
+            "matches": matches[:max_files],
+            "mode": mode,
+            "backend": backend,
+            "index_age_seconds": payload.get("index_age_seconds"),
+            "total_tokens": payload.get("total_tokens", 0),
+            "cache_hit": False,
+        }
         if os.environ.get("ATELIER_CACHE_DISABLED") != "1":
-            cache[cache_key] = payload
+            cache[cache_key] = response
             _save_cache(repo_root, cache)
-        return payload
+        return response
     paths = [str(match.get("path", "")) for match in payload.get("matches", []) if isinstance(match, dict)]
     rel_paths = [
         str(Path(item).resolve().relative_to(repo_root)) if Path(item).resolve().is_relative_to(repo_root) else item
@@ -342,28 +356,27 @@ def smart_search(
     matches = [match for match in payload.get("matches", []) if isinstance(match, dict)]
     matches.sort(key=lambda item: (-score(item), str(item.get("path", ""))))
     if mode == "full":
-        full_matches: list[dict[str, Any]] = []
+        fm: list[dict[str, Any]] = []
         for match in matches[:max_files]:
             raw_path = str(match.get("path", ""))
             try:
                 content = Path(raw_path).read_text(encoding="utf-8", errors="replace")[:max_chars_per_file]
             except OSError:
                 content = ""
-            full_matches.append({**match, "content": content, "snippets": []})
-        matches = full_matches
-    payload["matches"] = matches[:max_files]
-    payload["mode"] = mode
-    payload["ranking"] = {
-        "lexical": fts_scores,
-        "semantic": semantic_scores,
-        "graph": graph_scores,
+            fm.append({**match, "content": content, "snippets": []})
+        matches = fm
+    response = {
+        "matches": matches[:max_files],
+        "mode": mode,
+        "backend": backend,
+        "index_age_seconds": payload.get("index_age_seconds"),
+        "cache_hit": False,
     }
-    payload["cache_hit"] = cache_hit or bool(payload.get("cache_hit", False))
 
     if os.environ.get("ATELIER_CACHE_DISABLED") != "1":
-        cache[cache_key] = payload
+        cache[cache_key] = response
         _save_cache(repo_root, cache)
-    return payload
+    return response
 
 
 __all__ = ["SearchMode", "smart_search"]

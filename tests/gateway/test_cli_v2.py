@@ -225,9 +225,10 @@ def test_savings_reports_counters(tmp_path: Path) -> None:
     assert "optimization" in payload
 
 
-def test_optimize_reports_trace_recommendations(tmp_path: Path) -> None:
+def test_optimize_reports_trace_recommendations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "a"
     _seed_optimizer_traces(root)
+    monkeypatch.setattr("atelier.gateway.adapters.cli._run_external_optimize", lambda *_args, **_kwargs: None)
 
     res = _invoke(root, "optimize", "--host", "codex", "--json")
 
@@ -239,9 +240,10 @@ def test_optimize_reports_trace_recommendations(tmp_path: Path) -> None:
     assert "low-worth-expensive-sessions" in recommendation_ids
 
 
-def test_optimize_accepts_new_registry_host_choice(tmp_path: Path) -> None:
+def test_optimize_accepts_new_registry_host_choice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "a"
     _seed_optimizer_traces(root)
+    monkeypatch.setattr("atelier.gateway.adapters.cli._run_external_optimize", lambda *_args, **_kwargs: None)
 
     res = _invoke(root, "optimize", "--host", "qwen", "--json")
 

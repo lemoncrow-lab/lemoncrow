@@ -22,7 +22,7 @@ import os
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from atelier.core.foundation.models import (
@@ -514,7 +514,7 @@ class PostgresStore:
                     "usage_count": block.usage_count,
                     "success_count": block.success_count,
                     "failure_count": block.failure_count,
-                    "metadata": "{}",
+                    "metadata": json.dumps({"tier": block.tier}),
                     "created_at": now,
                     "updated_at": now,
                 },
@@ -988,6 +988,18 @@ class PostgresStore:
 
     # ----- row mappers ----------------------------------------------------- #
 
+    @staticmethod
+    def _parse_metadata(raw: Any) -> dict[str, Any]:
+        """Parse a metadata column value (str JSON or dict) into a plain dict."""
+        if isinstance(raw, dict):
+            return raw
+        if isinstance(raw, str):
+            try:
+                return cast(dict[str, Any], json.loads(raw))
+            except (json.JSONDecodeError, ValueError):
+                return {}
+        return {}
+
     def _row_to_block(self, row: Any) -> ReasonBlock:
         """Convert a Postgres row dict/RealDictRow to a ReasonBlock."""
         d = dict(row)
@@ -1015,6 +1027,7 @@ class PostgresStore:
             usage_count=d.get("usage_count", 0),
             success_count=d.get("success_count", 0),
             failure_count=d.get("failure_count", 0),
+            tier=self._parse_metadata(d.get("metadata")).get("tier", "e2"),
         )
 
     def _row_to_trace(self, row: Any) -> Trace:

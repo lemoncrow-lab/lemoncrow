@@ -447,32 +447,42 @@ def search_read(
     )
 
 
-def search_read_to_dict(result: SearchReadResult) -> dict[str, Any]:
+def search_read_to_dict(result: SearchReadResult, *, include_metadata: bool = True) -> dict[str, Any]:
     """Serialize SearchReadResult to a JSON-safe dict."""
-    return {
-        "matches": [
-            {
-                "path": m.path,
-                "lang": m.lang,
-                "snippets": [
-                    {
-                        "line_start": s.line_start,
-                        "line_end": s.line_end,
-                        "score": s.score,
-                        "text": s.text,
-                        "byte_start": s.byte_start,
-                        "byte_end": s.byte_end,
-                    }
-                    for s in m.snippets
-                ],
-                "outline": m.outline,
-                "tokens": m.tokens,
+    matches: list[dict[str, Any]] = []
+    for match in result.matches:
+        snippets: list[dict[str, Any]] = []
+        for snippet in match.snippets:
+            entry: dict[str, Any] = {
+                "line_start": snippet.line_start,
+                "line_end": snippet.line_end,
+                "text": snippet.text,
             }
-            for m in result.matches
-        ],
-        "total_tokens": result.total_tokens,
-        "tokens_saved_vs_naive": result.tokens_saved_vs_naive,
-        "cache_hit": result.cache_hit,
-        "backend": result.backend,
-        "index_age_seconds": result.index_age_seconds,
-    }
+            if include_metadata:
+                entry["score"] = snippet.score
+                entry["byte_start"] = snippet.byte_start
+                entry["byte_end"] = snippet.byte_end
+            snippets.append(entry)
+
+        match_payload: dict[str, Any] = {
+            "path": match.path,
+            "snippets": snippets,
+        }
+        if include_metadata:
+            match_payload["lang"] = match.lang
+            match_payload["outline"] = match.outline
+            match_payload["tokens"] = match.tokens
+        matches.append(match_payload)
+
+    payload: dict[str, Any] = {"matches": matches}
+    if include_metadata:
+        payload.update(
+            {
+                "total_tokens": result.total_tokens,
+                "tokens_saved_vs_naive": result.tokens_saved_vs_naive,
+                "cache_hit": result.cache_hit,
+                "backend": result.backend,
+                "index_age_seconds": result.index_age_seconds,
+            }
+        )
+    return payload

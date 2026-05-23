@@ -27,7 +27,8 @@ def test_init_seeds_blocks_and_rubrics(tmp_path: Path) -> None:
     res = _invoke(tmp_path / "a", "init")
     assert res.exit_code == 0, res.output
     assert "seeded" in res.output
-    assert "7 rubrics" in res.output
+    assert "reasonblocks and" in res.output
+    assert "rubrics" in res.output
 
 
 def test_run_rubric_via_cli(tmp_path: Path) -> None:
@@ -189,7 +190,7 @@ def test_plugin_auth_status_share_and_settings_cli(tmp_path: Path) -> None:
     login_payload = json.loads(login.output)
     assert login_payload["auth"]["email"] == "dev@example.com"
 
-    status = _invoke(root, "status", "--json")
+    status = _invoke(root, "status", "--auth", "--json")
     assert status.exit_code == 0, status.output
     status_payload = json.loads(status.output)
     assert status_payload["authenticated"] is True
@@ -301,7 +302,10 @@ def test_background_install_writes_native_stack_unit(tmp_path: Path, monkeypatch
     monkeypatch.setattr("atelier.gateway.adapters.cli._is_linux", lambda: True)
     monkeypatch.setattr("atelier.gateway.adapters.cli._is_macos", lambda: False)
     monkeypatch.setattr("atelier.gateway.adapters.cli.SYSTEMD_USER_DIR", unit_dir)
-    monkeypatch.setattr("atelier.gateway.adapters.cli.shutil.which", lambda name: "/bin/systemctl" if name == "systemctl" else "/usr/bin/atelier")
+    monkeypatch.setattr(
+        "atelier.gateway.adapters.cli.shutil.which",
+        lambda name: "/bin/systemctl" if name == "systemctl" else "/usr/bin/atelier",
+    )
     monkeypatch.setattr(
         "atelier.gateway.adapters.cli.subprocess.run",
         lambda args, **kwargs: commands.append([str(item) for item in args]),
