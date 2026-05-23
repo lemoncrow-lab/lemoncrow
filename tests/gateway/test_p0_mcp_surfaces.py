@@ -206,6 +206,20 @@ def test_tool_code_schema_exposes_files_operation() -> None:
     assert "files" in exposed_ops
 
 
+def test_tool_code_schema_exposes_explore_operation() -> None:
+    op_schema = TOOLS["code"]["inputSchema"]["properties"]["op"]
+    exposed_ops = op_schema["enum"]
+
+    assert "explore" in exposed_ops
+
+
+def test_tool_code_schema_exposes_status_operation() -> None:
+    op_schema = TOOLS["code"]["inputSchema"]["properties"]["op"]
+    exposed_ops = op_schema["enum"]
+
+    assert "status" in exposed_ops
+
+
 def test_tool_code_search_invalidates_cache_after_reindex(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
@@ -540,6 +554,86 @@ def test_tool_code_files_dispatches_to_engine(tmp_path: Path, monkeypatch: pytes
         max_depth=2,
         budget_tokens=220,
     )
+
+
+def test_tool_code_explore_requires_query(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="query is required for code explore"):
+        tool_code({"op": "explore", "repo_root": str(tmp_path), "budget_tokens": 220})
+
+
+def test_tool_code_explore_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_engine = MagicMock()
+    fake_engine.tool_explore.return_value = {
+        "query": "OrderService",
+        "repo_id": "repo",
+        "entry_points": [{"symbol_id": "s1", "symbol_name": "OrderService"}],
+        "files": [{"file_path": "src/orders.py", "symbols": []}],
+        "relationships": {"callers": [], "callees": [], "usages": []},
+        "additional_relevant_files": [],
+        "truncated": False,
+        "cache_hit": False,
+        "provenance": "local",
+        "tokens_saved": 0,
+        "total_tokens": 100,
+    }
+    monkeypatch.setattr(
+        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        lambda repo_root=".": fake_engine,
+    )
+
+    payload = tool_code(
+        {
+            "op": "explore",
+            "repo_root": str(tmp_path),
+            "query": "OrderService",
+            "seed_files": ["src/orders.py"],
+            "max_files": 4,
+            "max_symbols": 12,
+            "include_source": True,
+            "include_relationships": True,
+            "line_numbers": True,
+            "depth": 2,
+            "budget_tokens": 600,
+        }
+    )
+
+    assert payload["query"] == "OrderService"
+    fake_engine.tool_explore.assert_called_once_with(
+        query="OrderService",
+        seed_files=["src/orders.py"],
+        max_files=4,
+        max_symbols=12,
+        include_source=True,
+        include_relationships=True,
+        line_numbers=True,
+        depth=2,
+        budget_tokens=600,
+    )
+
+
+def test_tool_code_status_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_engine = MagicMock()
+    fake_engine.tool_status.return_value = {
+        "repo_id": "repo",
+        "repo_root": str(tmp_path),
+        "index_version": 2,
+        "index": {"files_indexed": 3, "symbols_indexed": 8, "imports_indexed": 2},
+        "cache": {"entry_count": 1},
+        "freshness": "fresh",
+        "cache_hit": False,
+        "provenance": "local",
+        "tokens_saved": 0,
+        "total_tokens": 90,
+    }
+    monkeypatch.setattr(
+        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        lambda repo_root=".": fake_engine,
+    )
+
+    payload = tool_code({"op": "status", "repo_root": str(tmp_path), "budget_tokens": 220})
+
+    assert payload["freshness"] == "fresh"
+    fake_engine.tool_status.assert_called_once_with(budget_tokens=220)
 
 
 def test_tool_code_usages_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

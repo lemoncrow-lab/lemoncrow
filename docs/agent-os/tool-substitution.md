@@ -10,7 +10,7 @@ Atelier tools are **not optional wrappers**. They are the reason this repo exist
 | `Bash(grep ...)` for symbols | `mcp__atelier__code op=search` | SCIP-indexed; no subprocess | _pending A/B_ |
 | `Bash(anything)` | `mcp__atelier__shell` | ANSI-stripped + line-truncated output | _pending A/B_ |
 | `Edit(...)` / `Write(...)` | `mcp__atelier__edit` | atomic multi-file with snapshot/rollback | _pending A/B_ |
-| raw file reading for symbols | `mcp__atelier__code op=symbol/usages/hover` | precomputed graph | _pending A/B_ |
+| chaining search + symbol + callers/callees + read | `mcp__atelier__code op=explore` | grouped source + relationships in one budgeted call | _pending A/B_ |
 
 > Every "X% saved" claim in this row must cite a real A/B test under `tests/benchmarks/`. If the test isn't there, the cell reads `_pending A/B_`. No exceptions.
 >

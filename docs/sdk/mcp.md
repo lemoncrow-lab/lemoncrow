@@ -58,7 +58,7 @@ names:
 - `memory` uses an `op` field such as `block_upsert`, `block_get`, `archive`, and `recall`.
 - `compact` uses `op=output`, `op=session`, or `op=advise`.
 - `route` uses `op=decide` and `op=verify`.
-- `code` uses `op=index`, `op=search`, `op=blame`, `op=hover`, `op=symbol`, `op=outline`, `op=files`, `op=context`, `op=impact`, `op=usages`, `op=callers`, `op=callees`, `op=pattern`, `op=rename`, `op=cache_status`, or `op=cache_invalidate`.
+- `code` uses `op=index`, `op=search`, `op=blame`, `op=hover`, `op=symbol`, `op=outline`, `op=files`, `op=explore`, `op=status`, `op=context`, `op=impact`, `op=usages`, `op=callers`, `op=callees`, `op=pattern`, `op=rename`, `op=cache_status`, or `op=cache_invalidate`.
 
 ## Remote Mode Coverage
 

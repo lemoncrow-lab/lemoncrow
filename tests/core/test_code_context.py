@@ -1081,6 +1081,68 @@ def test_tool_files_respects_budget_and_sets_truncated(tmp_path: Path) -> None:
     assert payload["files"]
 
 
+def test_tool_explore_returns_grouped_sources_and_entry_points(tmp_path: Path) -> None:
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+
+    payload = engine.tool_explore(
+        "OrderService",
+        max_files=4,
+        max_symbols=12,
+        include_source=True,
+        include_relationships=True,
+        line_numbers=True,
+        budget_tokens=6000,
+    )
+
+    assert payload["query"] == "OrderService"
+    assert payload["entry_points"]
+    assert payload["files"]
+    assert payload["files"][0]["file_path"].startswith("src/")
+    if payload["files"][0].get("source_sections"):
+        first_content = payload["files"][0]["source_sections"][0]["content"]
+        assert "\t" in first_content
+    assert payload["relationships"]["callers"] is not None
+    assert payload["relationships"]["callees"] is not None
+    assert payload["relationships"]["usages"] is not None
+
+
+def test_tool_explore_respects_budget_and_keeps_identity_fields(tmp_path: Path) -> None:
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+
+    payload = engine.tool_explore(
+        "OrderService",
+        include_source=True,
+        include_relationships=True,
+        budget_tokens=320,
+    )
+
+    assert payload["total_tokens"] <= 320
+    assert "entry_points" in payload
+    if payload["entry_points"]:
+        assert "symbol_id" in payload["entry_points"][0]
+        assert "symbol_name" in payload["entry_points"][0]
+        assert "file_path" in payload["entry_points"][0]
+
+
+def test_tool_status_reports_index_cache_and_freshness(tmp_path: Path) -> None:
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+
+    payload = engine.tool_status(budget_tokens=4000)
+    cached = engine.tool_status(budget_tokens=4000)
+
+    assert payload["repo_id"] == engine.repo_id
+    assert payload["repo_root"] == str(tmp_path.resolve())
+    assert payload["index_version"] >= 1
+    assert payload["index"]["files_indexed"] >= 1
+    assert payload["index"]["symbols_indexed"] >= 1
+    assert payload["freshness"] in {"fresh", "stale", "empty"}
+    assert "entry_count" in payload["cache"]
+    assert cached["cache_hit"] is True
+
+
 def test_low_token_defaults_stay_lighter_for_search_and_pattern(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

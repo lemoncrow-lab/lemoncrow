@@ -2594,6 +2594,8 @@ CODE_TOOL_INPUT_SCHEMA: dict[str, Any] = {
                 "Replaces grepping for 'def ' or 'class '. path=file for one file, omit for repo summary."
                 "\n• `files` — Indexed file tree/list view with optional path/pattern filters and grouped output. "
                 "Use this before globbing the filesystem."
+                "\n• `explore` — One-call grouped source and relationships for a query. "
+                "Use it instead of chaining search → symbol → callers/callees for multi-file understanding."
                 "\n• `usages` — Every site where a symbol is referenced across the repo. "
                 "Use before refactoring to see blast radius. Grouped by file."
                 "\n• `callers` — Who calls this function (call graph, inbound edges). "
@@ -2613,9 +2615,11 @@ CODE_TOOL_INPUT_SCHEMA: dict[str, Any] = {
                 "More reliable than search-and-replace. Requires: new_name + symbol identifier."
                 "\n• `index` — Build/rebuild the SCIP symbol index. Call if search returns 'not indexed'. "
                 "Auto-triggered on first use normally; only call manually after large merges."
+                "\n• `status` — Quick index/cache/freshness diagnostics for this repo. "
+                "Use before heavy code-intel operations if results look stale."
             ),
             "enum": [
-                "index", "search", "blame", "hover", "symbol", "outline", "files",
+                "index", "search", "blame", "hover", "symbol", "outline", "files", "explore", "status",
                 "context", "impact", "usages", "callers", "callees",
                 "pattern", "rename", "cache_status", "cache_invalidate",
             ],
@@ -2673,6 +2677,26 @@ CODE_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "max_depth": {
             "type": "integer",
             "description": "For op='files': maximum directory depth relative to path filter.",
+        },
+        "max_files": {
+            "type": "integer",
+            "description": "For op='explore': max files to include in grouped output. Default 8.",
+            "default": 8,
+        },
+        "include_source": {
+            "type": "boolean",
+            "description": "For op='explore': include grouped source sections for selected symbols.",
+            "default": True,
+        },
+        "include_relationships": {
+            "type": "boolean",
+            "description": "For op='explore': include callers/callees/usages summaries.",
+            "default": True,
+        },
+        "line_numbers": {
+            "type": "boolean",
+            "description": "For op='explore': prefix returned source section lines with line numbers.",
+            "default": True,
         },
         "line": {
             "type": "integer",
@@ -2844,6 +2868,8 @@ def tool_code(
         "symbol",
         "outline",
         "files",
+        "explore",
+        "status",
         "context",
         "impact",
         "usages",
@@ -2882,6 +2908,10 @@ def tool_code(
     format: Literal["tree", "flat", "grouped"] = "tree",
     include_metadata: bool = True,
     max_depth: int | None = None,
+    max_files: int = 8,
+    include_source: bool = True,
+    include_relationships: bool = True,
+    line_numbers: bool = True,
     line: int | None = None,
     col: int | None = None,
     new_name: str | None = None,
@@ -2904,6 +2934,8 @@ def tool_code(
             "callees",
             "pattern",
             "hover",
+            "explore",
+            "status",
         ]
         | None
     ) = None,
@@ -3030,6 +3062,27 @@ def tool_code(
                 budget_tokens=budget_tokens,
             ),
         )
+
+    if op == "explore":
+        if not query:
+            raise ValueError("query is required for code explore")
+        return cast(
+            dict[str, Any],
+            engine.tool_explore(
+                query=query,
+                seed_files=seed_files,
+                max_files=max_files,
+                max_symbols=max_symbols,
+                include_source=include_source,
+                include_relationships=include_relationships,
+                line_numbers=line_numbers,
+                depth=depth,
+                budget_tokens=budget_tokens,
+            ),
+        )
+
+    if op == "status":
+        return cast(dict[str, Any], engine.tool_status(budget_tokens=budget_tokens))
 
     if op == "context":
         if not task:

@@ -156,11 +156,23 @@ _CONTEXT_ESSENTIAL_KEYS = [
     "content",
     "provenance",
 ]
+_EXPLORE_ESSENTIAL_KEYS = [
+    "query",
+    "repo_id",
+    "entry_points",
+    "files",
+    "relationships",
+    "additional_relevant_files",
+    "truncated",
+    "provenance",
+]
+_EXPLORE_OPTIONAL_KEYS = ["relationships", "files", "additional_relevant_files"]
 _IMPACT_ESSENTIAL_KEYS = ["file_path", "direct_importers", "affected_tests", "risk_level", "provenance"]
 _USAGES_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column", "provenance"]
 _USAGES_OPTIONAL_KEYS = ["snippet", "caller", "edge_kind", "confidence"]
 _PATTERN_ESSENTIAL_KEYS = ["file_path", "line", "column", "end_line", "end_column", "captures"]
 _PATTERN_OPTIONAL_KEYS = ["snippet"]
+_STATUS_ESSENTIAL_KEYS = ["repo_id", "repo_root", "index_version", "index", "cache", "freshness", "provenance"]
 _CACHE_STATUS_ESSENTIAL_KEYS = [
     "repo_id",
     "index_version",
@@ -192,7 +204,9 @@ _OVERFLOW_SPILL_MIN_REDUCTION_TOKENS = 256
 DeletedHistoryItem = dict[str, Any]
 _CACHE_TOOL_ALIASES = {
     "all": None,
+    "explore": "code.explore",
     "files": "code.files",
+    "status": "code.status",
     "search": "code.search",
     "symbol": "code.symbol",
     "outline": "code.outline",
@@ -974,6 +988,194 @@ class CodeContextEngine:
         self._cache_set("code.files", cache_args, payload)
         return payload
 
+    def tool_explore(
+        self,
+        query: str,
+        *,
+        seed_files: list[str] | None = None,
+        max_files: int = 8,
+        max_symbols: int = 30,
+        include_source: bool = True,
+        include_relationships: bool = True,
+        line_numbers: bool = True,
+        depth: int = 1,
+        budget_tokens: int = 12000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+
+        bounded_max_symbols = max(1, min(max_symbols, 30))
+        bounded_max_files = max(1, min(max_files, 8))
+        bounded_depth = max(1, depth)
+        normalized_seeds = [self._normalize_file_arg(seed) for seed in seed_files or []]
+        seed_set = set(normalized_seeds)
+        cache_args = {
+            "query": query,
+            "seed_files": normalized_seeds,
+            "max_files": bounded_max_files,
+            "max_symbols": bounded_max_symbols,
+            "include_source": include_source,
+            "include_relationships": include_relationships,
+            "line_numbers": line_numbers,
+            "depth": bounded_depth,
+            "budget_tokens": budget_tokens,
+        }
+        hit, cached = self._cache_get("code.explore", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+
+        raw_symbols = self.search_symbols(
+            query,
+            limit=bounded_max_symbols,
+            snippet="none",
+            auto_index=False,
+        )
+        ranked_symbols = sorted(
+            raw_symbols,
+            key=lambda record: (
+                0 if record.file_path in seed_set else 1,
+                -(record.score or 0.0),
+                record.file_path,
+                record.start_line,
+            ),
+        )
+        selected_symbols = ranked_symbols[:bounded_max_symbols]
+        selected_files: list[str] = []
+        by_file: dict[str, list[SymbolRecord]] = {}
+        for symbol in selected_symbols:
+            by_file.setdefault(symbol.file_path, []).append(symbol)
+            if symbol.file_path not in selected_files:
+                selected_files.append(symbol.file_path)
+        selected_files = selected_files[:bounded_max_files]
+        trimmed_symbols = [symbol for symbol in selected_symbols if symbol.file_path in set(selected_files)]
+        trimmed_by_file: dict[str, list[SymbolRecord]] = {}
+        for symbol in trimmed_symbols:
+            trimmed_by_file.setdefault(symbol.file_path, []).append(symbol)
+
+        entry_points = [
+            {
+                "symbol_id": symbol.symbol_id,
+                "symbol_name": symbol.symbol_name,
+                "qualified_name": symbol.qualified_name,
+                "file_path": symbol.file_path,
+                "kind": symbol.kind,
+                "start_line": symbol.start_line,
+                "end_line": symbol.end_line,
+                "score": symbol.score,
+                "provenance": symbol.provenance,
+            }
+            for symbol in trimmed_symbols
+        ]
+
+        files_payload: list[dict[str, Any]] = []
+        for file_path in selected_files:
+            symbols = trimmed_by_file.get(file_path, [])
+            file_entry: dict[str, Any] = {
+                "file_path": file_path,
+                "language": symbols[0].language if symbols else "unknown",
+                "symbols": [
+                    {
+                        "symbol_id": symbol.symbol_id,
+                        "symbol_name": symbol.symbol_name,
+                        "qualified_name": symbol.qualified_name,
+                        "kind": symbol.kind,
+                        "start_line": symbol.start_line,
+                        "end_line": symbol.end_line,
+                        "provenance": symbol.provenance,
+                    }
+                    for symbol in symbols
+                ],
+            }
+            if include_source:
+                sections = [
+                    self._source_section_for_symbol(symbol, line_numbers=line_numbers)
+                    for symbol in symbols
+                ]
+                merged_sections = self._merge_nearby_source_sections(sections)
+                file_entry["source_sections"] = merged_sections
+            files_payload.append(file_entry)
+
+        relationships: dict[str, list[dict[str, Any]]] = {"callers": [], "callees": [], "usages": []}
+        if include_relationships:
+            for symbol in trimmed_symbols[:3]:
+                callers = self.tool_callers(
+                    symbol_id=symbol.symbol_id,
+                    depth=bounded_depth,
+                    limit=20,
+                    budget_tokens=max(600, budget_tokens // 6),
+                    auto_index=False,
+                )
+                if "error" not in callers:
+                    relationships["callers"].append(
+                        {
+                            "symbol_id": symbol.symbol_id,
+                            "symbol_name": symbol.symbol_name,
+                            "related": callers.get("related", []),
+                            "edges": callers.get("edges", []),
+                        }
+                    )
+                callees = self.tool_callees(
+                    symbol_id=symbol.symbol_id,
+                    depth=bounded_depth,
+                    limit=20,
+                    budget_tokens=max(600, budget_tokens // 6),
+                    auto_index=False,
+                )
+                if "error" not in callees:
+                    relationships["callees"].append(
+                        {
+                            "symbol_id": symbol.symbol_id,
+                            "symbol_name": symbol.symbol_name,
+                            "related": callees.get("related", []),
+                            "edges": callees.get("edges", []),
+                        }
+                    )
+                references = self.find_references(
+                    symbol_id=symbol.symbol_id,
+                    group_by="none",
+                    snippet_lines=0,
+                    limit=20,
+                    auto_index=False,
+                    budget_tokens=max(600, budget_tokens // 6),
+                )
+                if "error" not in references:
+                    refs_payload = references.get("references", [])
+                    if isinstance(refs_payload, list):
+                        relationships["usages"].append(
+                            {
+                                "symbol_id": symbol.symbol_id,
+                                "symbol_name": symbol.symbol_name,
+                                "references": refs_payload,
+                            }
+                        )
+
+        additional_relevant_files = [
+            symbol.file_path
+            for symbol in ranked_symbols
+            if symbol.file_path not in set(selected_files)
+        ][:20]
+        full_payload = {
+            "query": query,
+            "repo_id": self.repo_id,
+            "entry_points": entry_points,
+            "files": files_payload,
+            "relationships": relationships,
+            "additional_relevant_files": additional_relevant_files,
+            "truncated": len(selected_symbols) > len(trimmed_symbols),
+            "cache_hit": False,
+            "provenance": _LOCAL_PROVENANCE,
+        }
+        packed = self._pack_single_payload(
+            full_payload,
+            budget_tokens=budget_tokens,
+            essential_keys=_EXPLORE_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=_EXPLORE_OPTIONAL_KEYS,
+        )
+        self._cache_set("code.explore", cache_args, packed)
+        return packed
+
     def tool_context(
         self,
         *,
@@ -1217,6 +1419,52 @@ class CodeContextEngine:
         if not dry_run and rewrite_result.files_changed:
             self._reindex_files(rewrite_result.files_changed)
         return self._pack_pattern_rewrite(rewrite_result, budget_tokens=budget_tokens)
+
+    def tool_status(
+        self,
+        *,
+        budget_tokens: int = 2000,
+        auto_index: bool = True,
+    ) -> dict[str, Any]:
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+        cache_args = {
+            "budget_tokens": budget_tokens,
+            "index_version": self._current_index_version(),
+        }
+        hit, cached = self._cache_get("code.status", cache_args)
+        if hit and cached is not None:
+            return self._mark_cache_hit(cached)
+        index_stats = self._index_snapshot()
+        cache_stats = self._cache.stats(
+            repo_id=self.repo_id,
+            index_version=self._current_index_version(),
+            tool_name=None,
+        )
+        freshness = "empty"
+        if int(index_stats.get("files_indexed", 0) or 0) > 0:
+            freshness = "fresh"
+            index_age_seconds = index_stats.get("index_age_seconds")
+            if isinstance(index_age_seconds, int) and index_age_seconds > 86_400:
+                freshness = "stale"
+        payload = {
+            "repo_id": self.repo_id,
+            "repo_root": str(self.repo_root),
+            "index_version": self._current_index_version(),
+            "index": index_stats,
+            "cache": cache_stats,
+            "freshness": freshness,
+            "provenance": _LOCAL_PROVENANCE,
+        }
+        packed = self._pack_single_payload(
+            payload,
+            budget_tokens=budget_tokens,
+            essential_keys=_STATUS_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=[],
+        )
+        self._cache_set("code.status", cache_args, packed)
+        return packed
 
     def tool_cache_status(
         self,
@@ -2323,6 +2571,82 @@ class CodeContextEngine:
         data = (self.repo_root / rel).read_bytes()
         return data[start_byte:end_byte].decode("utf-8", errors="replace")
 
+    def _source_section_for_symbol(
+        self,
+        symbol: SymbolRecord | dict[str, Any],
+        *,
+        line_numbers: bool = True,
+    ) -> dict[str, Any]:
+        payload = symbol.model_dump(mode="json") if isinstance(symbol, SymbolRecord) else symbol
+        file_path = str(payload["file_path"])
+        start_line = int(payload["start_line"])
+        end_line = int(payload["end_line"])
+        source = self._read_file_slice(file_path, int(payload["start_byte"]), int(payload["end_byte"]))
+        lines = source.splitlines()
+        if line_numbers:
+            numbered = [f"{start_line + idx}\t{line}" for idx, line in enumerate(lines)]
+            content = "\n".join(numbered)
+        else:
+            content = source
+        return {
+            "file_path": file_path,
+            "start_line": start_line,
+            "end_line": end_line,
+            "symbol_id": payload["symbol_id"],
+            "symbol_name": payload["symbol_name"],
+            "qualified_name": payload["qualified_name"],
+            "line_numbers": line_numbers,
+            "content": content,
+        }
+
+    def _merge_nearby_source_sections(
+        self,
+        sections: list[dict[str, Any]],
+        *,
+        gap_lines: int = 4,
+    ) -> list[dict[str, Any]]:
+        if not sections:
+            return []
+        ordered = sorted(sections, key=lambda item: (str(item["file_path"]), int(item["start_line"]), int(item["end_line"])))
+        merged: list[dict[str, Any]] = [dict(ordered[0])]
+        for section in ordered[1:]:
+            current = merged[-1]
+            same_file = str(current["file_path"]) == str(section["file_path"])
+            near_or_overlap = int(section["start_line"]) <= int(current["end_line"]) + max(0, gap_lines)
+            if same_file and near_or_overlap:
+                line_numbers = bool(current.get("line_numbers", True))
+                current["start_line"] = min(int(current["start_line"]), int(section["start_line"]))
+                current["end_line"] = max(int(current["end_line"]), int(section["end_line"]))
+                current["content"] = self._render_source_section(
+                    str(current["file_path"]),
+                    start_line=int(current["start_line"]),
+                    end_line=int(current["end_line"]),
+                    line_numbers=line_numbers,
+                )
+                continue
+            merged.append(dict(section))
+        for section in merged:
+            section.pop("line_numbers", None)
+        return merged
+
+    def _render_source_section(
+        self,
+        file_path: str,
+        *,
+        start_line: int,
+        end_line: int,
+        line_numbers: bool,
+    ) -> str:
+        lines = self._read_file(file_path).splitlines()
+        if not lines:
+            return ""
+        start_idx = max(0, start_line - 1)
+        end_idx = min(len(lines), max(start_idx, end_line))
+        segment = lines[start_idx:end_idx]
+        if line_numbers:
+            return "\n".join(f"{start_line + idx}\t{line}" for idx, line in enumerate(segment))
+        return "\n".join(segment)
+
     def _usage_item(self, reference: UsageReference, *, snippet_lines: int) -> dict[str, Any]:
         payload = reference.model_dump(mode="json", exclude_none=True)
         if snippet_lines > 0 and "snippet" not in payload:
@@ -2711,6 +3035,39 @@ class CodeContextEngine:
             self._init_schema(conn)
             row = conn.execute("SELECT value FROM engine_state WHERE key = 'index_version'").fetchone()
         return int(row["value"]) if row is not None else 0
+
+    def _index_snapshot(self) -> dict[str, Any]:
+        with self._connect() as conn:
+            self._init_schema(conn)
+            file_count_row = conn.execute("SELECT COUNT(*) AS count FROM files WHERE repo_id = ?", (self.repo_id,)).fetchone()
+            symbol_count_row = conn.execute(
+                "SELECT COUNT(*) AS count FROM symbols WHERE repo_id = ?",
+                (self.repo_id,),
+            ).fetchone()
+            import_count_row = conn.execute(
+                "SELECT COUNT(*) AS count FROM imports WHERE repo_id = ?",
+                (self.repo_id,),
+            ).fetchone()
+            indexed_at_row = conn.execute(
+                "SELECT MAX(indexed_at) AS indexed_at FROM files WHERE repo_id = ?",
+                (self.repo_id,),
+            ).fetchone()
+        files_indexed = int(file_count_row["count"]) if file_count_row is not None else 0
+        symbols_indexed = int(symbol_count_row["count"]) if symbol_count_row is not None else 0
+        imports_indexed = int(import_count_row["count"]) if import_count_row is not None else 0
+        last_indexed_at = str(indexed_at_row["indexed_at"]) if indexed_at_row and indexed_at_row["indexed_at"] else None
+        index_age_seconds: int | None = None
+        if last_indexed_at:
+            with contextlib.suppress(ValueError):
+                parsed = datetime.fromisoformat(last_indexed_at.replace("Z", "+00:00"))
+                index_age_seconds = max(0, int((datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds()))
+        return {
+            "files_indexed": files_indexed,
+            "symbols_indexed": symbols_indexed,
+            "imports_indexed": imports_indexed,
+            "last_indexed_at": last_indexed_at,
+            "index_age_seconds": index_age_seconds,
+        }
 
     def _bump_index_version(self, conn: sqlite3.Connection) -> int:
         row = conn.execute("SELECT value FROM engine_state WHERE key = 'index_version'").fetchone()
