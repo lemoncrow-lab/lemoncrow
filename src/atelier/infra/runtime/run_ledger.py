@@ -200,6 +200,8 @@ class RunLedger:
         lessons_used: list[str] | None = None,
         prompt: str | None = None,
         response: str | None = None,
+        stable_prefix_hash: str | None = None,
+        prefix_invalidated_reason: str = "",
     ) -> LedgerEvent:
         """Record a single LLM call with cost + lessons attribution."""
         if self.cost_tracker is None:
@@ -231,6 +233,8 @@ class RunLedger:
                 "op_key": rec.op_key,
                 "prompt": prompt,
                 "response": response,
+                "stable_prefix_hash": stable_prefix_hash or "",
+                "prefix_invalidated_reason": prefix_invalidated_reason,
             },
         )
 

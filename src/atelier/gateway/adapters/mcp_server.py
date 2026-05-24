@@ -837,6 +837,63 @@ def tool_get_context(
     if bootstrap["status"] != "warm":
         _spawn_worker_if_idle(_atelier_root())
     result["bootstrap"] = bootstrap
+
+    # Wire PrefixCachePlanner: compute static/dynamic split for this turn
+    try:
+        from atelier.core.capabilities.prefix_cache.planner import PrefixCachePlanner
+        from atelier.core.capabilities.prompt_compilation.models import (
+            BlockKind,
+            PromptBlock,
+            Stability,
+        )
+
+        context_text = result.get("context", "")
+        bootstrap_text = result.get("bootstrap", {}).get("context", "") if isinstance(result.get("bootstrap"), dict) else ""
+        _recall_count = len(result.get("recalled_passages", []))
+
+        # Build synthetic PromptBlocks from the assembled context pieces
+        blocks: list[PromptBlock] = []
+        if context_text:
+            blocks.append(
+                PromptBlock(
+                    id="context",
+                    kind=BlockKind.REASONBLOCK,
+                    stability=Stability.BRANCH,
+                    content=context_text,
+                )
+            )
+        if bootstrap_text:
+            blocks.append(
+                PromptBlock(
+                    id="bootstrap",
+                    kind=BlockKind.REPO_SUMMARY,
+                    stability=Stability.SESSION,
+                    content=bootstrap_text,
+                )
+            )
+        if task:
+            blocks.append(
+                PromptBlock(
+                    id="task",
+                    kind=BlockKind.USER_TASK,
+                    stability=Stability.TURN,
+                    content=task,
+                )
+            )
+
+        if blocks:
+            # Compare with prior hash from last llm_call event in ledger
+            prior_hash = ""
+            call_events = [e for e in led.events if e.payload.get("kind") == "llm_call"]
+            if call_events:
+                prior_hash = call_events[-1].payload.get("stable_prefix_hash", "")
+
+            planner = PrefixCachePlanner()
+            plan = planner.plan_with_history(blocks, prior_hash or None)
+            result["prefix_plan"] = plan.to_dict()
+    except Exception:
+        pass  # Never break tool_context due to prefix planning errors
+
     return result
 
 
@@ -887,7 +944,7 @@ def _compute_route_tier_for_response(tier: str, led: Any) -> str:
 
 def _prefix_cache_diagnostics_from_ledger(led: Any) -> dict[str, Any]:
     """Extract prefix cache metrics from recorded llm_call events in the ledger."""
-    call_events = [e for e in led.events if e.kind == "llm_call"]
+    call_events = [e for e in led.events if e.payload.get("kind") == "llm_call"]
     if not call_events:
         return {
             "turn_count": 0,
