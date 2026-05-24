@@ -126,9 +126,9 @@ _SEARCH_ESSENTIAL_KEYS = [
     "provenance",
 ]
 # Fields stripped from each item for repo-scope searches where they are
-# always uniform ("origin" is always "internal"; per-item "provenance" is
-# redundant with the top-level provenance field).
-_SEARCH_REPO_STRIP_ITEM_KEYS: frozenset[str] = frozenset({"origin", "provenance"})
+# always uniform or unnecessary ("origin" is always "internal"; per-item
+# "provenance" is redundant with top-level; "symbol_id" is internal only).
+_SEARCH_REPO_STRIP_ITEM_KEYS: frozenset[str] = frozenset({"origin", "provenance", "symbol_id"})
 _SEARCH_OPTIONAL_KEYS = [
     "snippet",
     "doc_summary",
@@ -291,6 +291,66 @@ _OPERATION_TOKEN_CAPS = {
     "hover": 190,
     "cache_invalidate": 35,
 }
+# Map internal field names to shortened MCP output names to reduce token bloat.
+# Applied post-processing in _short_item_keys().
+_FIELD_NAME_SHORTMAP = {
+    "file_path": "path",
+    "symbol_name": "name",
+    "qualified_name": "qname",
+    "symbol_id": "id",
+    "start_line": "line",
+    "start_byte": "start_b",
+    "end_byte": "end_b",
+    "doc_summary": "doc",
+    "deleted_at": "deleted",
+    "deleted_at_sha": "deleted_sha",
+    "last_author": "author",
+    "last_commit_msg": "msg",
+    "matched_on": "match",
+    "rename_target": "renamed_to",
+    "rename_note": "rename",
+}
+
+
+def apply_field_name_shortening(payload: dict[str, Any]) -> dict[str, Any]:
+    """Apply field-name shortening to reduce token bloat in MCP responses.
+    Maps internal names (file_path, start_line, etc.) to compact forms (path, line, etc.).
+    Applies recursively to all nested structures.
+    """
+
+    def shorten_dict(item: dict[str, Any]) -> dict[str, Any]:
+        """Recursively shorten field names in a dict."""
+        result: dict[str, Any] = {}
+        for k, v in item.items():
+            short_key = _FIELD_NAME_SHORTMAP.get(k, k)
+            if isinstance(v, dict):
+                result[short_key] = shorten_dict(v)
+            elif isinstance(v, list):
+                if v and isinstance(v[0], dict):
+                    result[short_key] = [shorten_dict(i) if isinstance(i, dict) else i for i in v]
+                else:
+                    result[short_key] = v
+            else:
+                result[short_key] = v
+        return result
+
+    # Shorten entire payload recursively, but handle snapshot specially
+    result = {}
+    for k, v in payload.items():
+        short_key = _FIELD_NAME_SHORTMAP.get(k, k)
+        if isinstance(v, dict):
+            # Don't shorten top-level snapshot dict as it has specific structure
+            if k != "snapshot":
+                result[short_key] = shorten_dict(v)
+            else:
+                result[short_key] = v
+        elif isinstance(v, list) and v and isinstance(v[0], dict):
+            result[short_key] = [shorten_dict(item) for item in v]  # type: ignore[assignment]
+        else:
+            result[short_key] = v
+    return result
+
+
 _SEARCH_SNIPPET_FORCE_COMPACT_LIMIT = 50
 
 
@@ -3333,6 +3393,11 @@ class CodeContextEngine:
         if "related" not in packed and "related" in payload:
             packed["related"] = payload["related"]
             packed["related_count"] = payload.get("related_count", len(cast(list[Any], payload["related"])))
+        if "edges" not in packed and "edges" in payload:
+            packed["edges"] = payload["edges"]
+            packed["edge_count"] = payload.get("edge_count", len(cast(list[Any], payload["edges"])))
+        # Re-apply shortening to restored fields (they bypassed _finalize_packed_payload shortening)
+        packed = apply_field_name_shortening(packed)
         if "data_status" not in packed and "data_status" in payload:
             packed["data_status"] = payload["data_status"]
         if "error" not in packed:
@@ -5297,7 +5362,7 @@ class CodeContextEngine:
             updated_tokens_saved = max(base_tokens_saved, full_total_tokens - total_tokens)
             if updated_tokens_saved == tokens_saved:
                 finalized["total_tokens"] = total_tokens
-                return finalized
+                return apply_field_name_shortening(finalized)
             tokens_saved = updated_tokens_saved
 
     def _fit_items_to_budget(

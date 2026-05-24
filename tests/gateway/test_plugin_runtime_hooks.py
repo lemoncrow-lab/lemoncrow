@@ -183,6 +183,7 @@ def test_session_start_bootstrap_applies_settings_auth_and_always_load(tmp_path:
     )
 
     assert result["host_settings"]["statusLine"]["command"].endswith("/plugin/scripts/statusline.sh")
+    assert result["host_settings"]["subagentStatusLine"]["command"].endswith("/plugin/scripts/statusline.sh")
     assert result["host_settings"]["atelier"]["spinnerVerbs"]
     assert result["host_settings"]["atelier"]["attribution"]["source"] == "Atelier"
     assert result["mcp_json"]["mcpServers"]["atelier"]["alwaysLoad"] is False
@@ -252,7 +253,27 @@ def test_apply_session_start_files_mutates_host_settings_and_plugin_mcp(tmp_path
     settings = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
     mcp_json = json.loads((plugin_root / ".mcp.json").read_text(encoding="utf-8"))
     assert settings["statusLine"]["command"].endswith("/plugin/scripts/statusline.sh")
+    assert settings["subagentStatusLine"]["command"].endswith("/plugin/scripts/statusline.sh")
     assert mcp_json["mcpServers"]["atelier"]["alwaysLoad"] is True
+
+
+def test_session_start_bootstrap_preserves_existing_statusline_command(tmp_path: Path) -> None:
+    root = tmp_path / ".atelier"
+    existing = "/custom/path/statusline.sh"
+    result = session_start_bootstrap(
+        root,
+        "/plugin",
+        host_settings={
+            "statusLine": {"type": "command", "command": existing, "padding": 1},
+            "subagentStatusLine": {"type": "command", "command": existing, "padding": 1},
+        },
+        mcp_json={"mcpServers": {"atelier": {"alwaysLoad": True}}},
+    )
+
+    assert result["host_settings"]["statusLine"]["command"] == existing
+    assert result["host_settings"]["subagentStatusLine"]["command"] == existing
+    assert result["host_settings"]["statusLine"]["padding"] == 1
+    assert result["host_settings"]["subagentStatusLine"]["padding"] == 1
 
 
 def test_savings_report_includes_lifetime_baseline_and_ab_calibration(tmp_path: Path) -> None:

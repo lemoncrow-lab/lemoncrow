@@ -1,0 +1,23 @@
+id: rubric_code_change
+domain: coding
+triggers: []
+forbidden_phrases: []
+required_checks:
+- relevant_reasonblocks_checked
+- concrete_anchor_identified
+- scoped_validation_selected
+- validation_command_run
+- unrelated_changes_preserved
+block_if_missing:
+- concrete_anchor_identified
+- validation_command_run
+warning_checks:
+- change_is_minimal
+- docs_or_comments_updated_if_needed
+- lint_clean
+- typecheck_clean
+escalation_conditions:
+- destructive_action_proposed
+- unrelated_user_changes_overwritten
+- production_secret_touched
+related_blocks: []

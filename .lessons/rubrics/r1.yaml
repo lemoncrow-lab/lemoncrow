@@ -1,0 +1,11 @@
+id: r1
+domain: coding
+triggers: []
+forbidden_phrases: []
+required_checks:
+- a
+block_if_missing:
+- a
+warning_checks: []
+escalation_conditions: []
+related_blocks: []

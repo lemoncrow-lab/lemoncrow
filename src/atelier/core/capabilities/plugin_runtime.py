@@ -608,10 +608,24 @@ def status_line_choose_message(
 
 def session_start_install_status_line(plugin_root: str, settings: dict[str, Any] | None = None) -> dict[str, Any]:
     updated = dict(settings or {})
-    updated["statusLine"] = {
-        "type": "command",
-        "command": f"{plugin_root}/scripts/statusline.sh",
-    }
+    existing = updated.get("subagentStatusLine")
+    if not isinstance(existing, dict):
+        existing = updated.get("statusLine")
+
+    command = f"{plugin_root}/scripts/statusline.sh"
+    padding: Any | None = None
+    if isinstance(existing, dict):
+        existing_command = str(existing.get("command", ""))
+        if "statusline.sh" in existing_command:
+            command = existing_command
+        padding = existing.get("padding")
+
+    status_config: dict[str, Any] = {"type": "command", "command": command}
+    if padding is not None:
+        status_config["padding"] = padding
+
+    updated["statusLine"] = dict(status_config)
+    updated["subagentStatusLine"] = dict(status_config)
     return {"settings": updated}
 
 
@@ -620,9 +634,10 @@ def apply_status_line_setting(host_settings: dict[str, Any], plugin_root: str, e
     if enabled:
         installed = session_start_install_status_line(plugin_root, updated).get("settings")
         return installed if isinstance(installed, dict) else updated
-    current = updated.get("statusLine")
-    if isinstance(current, dict) and "statusline.sh" in str(current.get("command", "")):
-        updated.pop("statusLine", None)
+    for key in ("statusLine", "subagentStatusLine"):
+        current = updated.get(key)
+        if isinstance(current, dict) and "statusline.sh" in str(current.get("command", "")):
+            updated.pop(key, None)
     return updated
 
 
