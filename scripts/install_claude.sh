@@ -167,6 +167,9 @@ else
     done
 fi
 run "cp -r '${SOURCE_PLUGIN_DIR}/hooks' '$STAGING_DIR/'"
+run "cp -r '${SOURCE_PLUGIN_DIR}/scripts' '$STAGING_DIR/'"
+run "cp -r '${SOURCE_PLUGIN_DIR}/skills' '$STAGING_DIR/'"
+run "cp '${SOURCE_PLUGIN_DIR}/settings.json' '$STAGING_DIR/'"
 run "cp '${SOURCE_PLUGIN_DIR}/.mcp.json' '$STAGING_DIR/'"
 PLUGIN_DIR="$STAGING_DIR"
 INSTALL_SOURCE_DIR="$STAGING_DIR"
@@ -462,7 +465,7 @@ PYEOF
 fi
 
 # ---- statusLine setting in ~/.claude/settings.json -------------------------
-STATUSLINE_SCRIPT="${ATELIER_REPO}/integrations/claude/plugin/scripts/statusline.sh"
+STATUSLINE_SCRIPT="${INSTALL_SOURCE_DIR}/scripts/statusline.sh"
 if $DRY_RUN; then
     echo "  [dry-run] set statusLine in ${CLAUDE_SETTINGS} → ${STATUSLINE_SCRIPT}"
 elif [ -f "${STATUSLINE_SCRIPT}" ]; then
@@ -474,9 +477,11 @@ if not path.exists():
     path.write_text("{}\n")
 data = json.loads(path.read_text(encoding="utf-8") or "{}")
 data["statusLine"] = {"type": "command", "command": "${STATUSLINE_SCRIPT}", "padding": 1}
+data["subagentStatusLine"] = {"type": "command", "command": "${STATUSLINE_SCRIPT}", "padding": 1}
 data["agent"] = "atelier:code"
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 print("[atelier:claude] statusLine set → ${STATUSLINE_SCRIPT}")
+print("[atelier:claude] subagentStatusLine set → ${STATUSLINE_SCRIPT}")
 print("[atelier:claude] default agent set → atelier-code")
 PYEOF2
 else

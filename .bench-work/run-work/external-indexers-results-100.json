@@ -1,0 +1,79 @@
+[
+  {
+    "tool": "atelier",
+    "ok": true,
+    "correctness": 1.0,
+    "median_ms": 97.05534150089079,
+    "p95_ms": 132.55908800056204,
+    "median_tokens": 241,
+    "runs": 100,
+    "error": "",
+    "sample": "{\"items\": [{\"file_path\": \"src/atelier/core/capabilities/tool_supervision/bash_exec.py\", \"kind\": \"function\", \"origin\": \"internal\", \"provenance\": \"local\", \"qualified_name\": \"classify_command\", \"signature\": \"def classify_command(command: str) -> CommandPolicyDecision:\", \"start_line\""
+  },
+  {
+    "tool": "serena",
+    "ok": true,
+    "correctness": 1.0,
+    "median_ms": 200.25125299980573,
+    "p95_ms": 215.71650600162684,
+    "median_tokens": 129,
+    "runs": 100,
+    "error": "",
+    "sample": "{\"src/atelier/gateway/adapters/mcp_server.py\": [\"  >3775:    from atelier.core.capabilities.tool_supervision.bash_exec import classify_command, run_command\", \"  >3800:    policy = classify_command(command)\"], \"src/atelier/core/capabilities/tool_supervision/bash_exec.py\": [\"  > 12"
+  },
+  {
+    "tool": "codegraph",
+    "ok": true,
+    "correctness": 1.0,
+    "median_ms": 101.88451949943556,
+    "p95_ms": 109.82325000077253,
+    "median_tokens": 616,
+    "runs": 100,
+    "error": "",
+    "sample": "[\n  {\n    \"node\": {\n      \"id\": \"function:b0a0d57bfab499e60130116ba75722ff\",\n      \"kind\": \"function\",\n      \"name\": \"classify_command\",\n      \"qualifiedName\": \"classify_command\",\n      \"filePath\": \"src/atelier/core/capabilities/tool_supervision/bash_exec.py\",\n      \"language\": \""
+  },
+  {
+    "tool": "code-index-mcp",
+    "ok": true,
+    "correctness": 1.0,
+    "median_ms": 23.402081000313046,
+    "p95_ms": 63.53888300145627,
+    "median_tokens": 1910,
+    "runs": 100,
+    "error": "",
+    "sample": "{\"results\": [{\"file\": \"./benchmarks/mcp_tools/bench_code_3way.py\", \"line\": 40, \"text\": \"        atelier_args={\\\"op\\\": \\\"symbol\\\", \\\"symbol_name\\\": \\\"classify_command\\\", \\\"budget_tokens\\\": 4000},\"}, {\"file\": \"./benchmarks/mcp_tools/bench_code_3way.py\", \"line\": 43, \"text\": \"       "
+  },
+  {
+    "tool": "cocoindex-code",
+    "ok": false,
+    "correctness": 0.0,
+    "median_ms": 0.0,
+    "p95_ms": 0.0,
+    "median_tokens": 0,
+    "runs": 0,
+    "error": "Error: Not in an initialized project directory.\nRun `ccc init` in your project root to get started.\n",
+    "sample": ""
+  },
+  {
+    "tool": "mcp-vector-search",
+    "ok": false,
+    "correctness": 0.0,
+    "median_ms": 0.0,
+    "p95_ms": 0.0,
+    "median_tokens": 0,
+    "runs": 0,
+    "error": "\u001b[31m\u001b[1mERROR\u001b[0m: \u001b[31m\u001b[1mFailed to load embedding model sentence-transformers/all-MiniLM-L6-v2: CUDA error: out of memory\nSearch for `cudaErrorMemoryAllocation' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n\u001b[0m\n\u001b[31m\u001b[1mERROR\u001b[0m: \u001b[31m\u001b[1mIndexing failed: Failed to load embedding model: CUDA error: out of memory\nSearch for `cudaErrorMemoryAllocation' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n\u001b[0m\n",
+    "sample": ""
+  },
+  {
+    "tool": "jcodemunch-mcp",
+    "ok": true,
+    "correctness": 1.0,
+    "median_ms": 2217.99806549825,
+    "p95_ms": 2704.3774150006357,
+    "median_tokens": 746,
+    "runs": 100,
+    "error": "",
+    "sample": "{\n  \"repo\": \"pankaj4u4m/atelier\",\n  \"current_head\": \"23a176cacaa7ffb74b393dddba9d9c59f21902b8\",\n  \"prior_head\": \"23a176cacaa7ffb74b393dddba9d9c59f21902b8\",\n  \"prior_session_at\": \"2026-05-24T14:45:12.883255+00:00\",\n  \"languages\": \"python, yaml, typescript, tsx\",\n  \"n_files\": 2000,"
+  }
+]
