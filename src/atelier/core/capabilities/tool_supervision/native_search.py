@@ -534,7 +534,14 @@ def _render_text_result(
         return None, 0
 
     use_summary = bool(summary)
-    if summary is None and path.suffix.lower() in {".py", ".ts", ".tsx", ".js", ".jsx"} and len(lines) > 500:
+    # When content_regex is provided, the user explicitly wants line matches.
+    # Auto-summary would discard them — skip it.
+    if (
+        summary is None
+        and regex is None
+        and path.suffix.lower() in {".py", ".ts", ".tsx", ".js", ".jsx"}
+        and len(lines) > 500
+    ):
         use_summary = True
     if use_summary:
         outline = _summarize(path, source)

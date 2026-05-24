@@ -1819,10 +1819,9 @@ def _memory_store_fact(
         raise ValueError("subject is required for memory op=store_fact")
     if not clean_fact:
         raise ValueError("fact is required for memory op=store_fact")
-    if not clean_citations:
-        raise ValueError("citations is required for memory op=store_fact")
-    if not clean_reason:
-        raise ValueError("reason is required for memory op=store_fact")
+    # citations and reason are optional — they default to empty string.
+    clean_citations = clean_citations or ""
+    clean_reason = clean_reason or ""
 
     target_agent = agent_id or "shared"
     store = _memory_store()
@@ -2062,8 +2061,8 @@ def tool_memory(
             agent_id=agent_id,
             subject=require("subject", subject),
             fact=require("fact", fact),
-            citations=require("citations", citations),
-            reason=require("reason", reason),
+            citations=citations or "",
+            reason=reason or "",
             scope=require("scope", scope),
         )
     if op == "vote_fact":

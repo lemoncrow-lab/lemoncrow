@@ -10,7 +10,8 @@ EXTERNAL_PERIODS ?= today week month
 .PHONY: help install uninstall status start restart build-host-skills sync-agent-context \
 	check-agent-context docs-check worktree-env runtime-evidence \
 	test test-fast test-cov security-test lint format-check format typecheck launch-gate verify pre-commit \
-	benchmark bench-savings bench-savings-honest proof-cost-quality demo import clean
+	benchmark bench-savings bench-savings-honest proof-cost-quality demo import clean \
+	_ensure_hooks
 
 # --------------------------------------------------------------------------- #
 # Lifecycle                                                                   #
@@ -69,14 +70,23 @@ worktree-env: ## Write a per-worktree .env file for local stack bootstraps
 runtime-evidence: ## Capture runtime evidence from a local Atelier stack
 	uv run python scripts/runtime_evidence.py
 
-test: ## Run all tests
+# Auto-configure git hooks path so .githooks/pre-commit runs on every commit.
+# Developers never need to run `git config core.hooksPath .githooks` by hand.
+_ensure_hooks:
+	@current=$$(git config core.hooksPath 2>/dev/null || echo ""); \
+	if [ "$$current" != ".githooks" ]; then \
+		git config core.hooksPath .githooks; \
+		echo "  → Configured git hooks path → .githooks"; \
+	fi
+
+test: | _ensure_hooks ## Run all tests
 ifeq ($(TEST_PRINT_TIME),1)
 	@time bash -lc 'if uv run python -c "import xdist" >/dev/null 2>&1; then uv run pytest -q -ra --durations=0 -n auto --dist=loadfile; else uv run pytest -q -ra --durations=0; fi'
 else
 	@bash -lc 'if uv run python -c "import xdist" >/dev/null 2>&1; then uv run pytest -q -ra --durations=0 -n auto --dist=loadfile; else uv run pytest -q -ra --durations=0; fi'
 endif
 
-test-fast: ## Run fast tests: stop on first failure, skip slow/Postgres-gated tests
+test-fast: | _ensure_hooks ## Run fast tests: stop on first failure, skip slow/Postgres-gated tests
 	uv run pytest -q -x --ignore=tests/test_postgres_store.py --ignore=tests/test_worker_jobs.py -m "not slow"
 
 test-cov: ## Run tests with terminal and HTML coverage reports
@@ -85,13 +95,13 @@ test-cov: ## Run tests with terminal and HTML coverage reports
 security-test: ## Run security-focused test cases
 	uv run pytest tests/gateway/test_security.py -v
 
-lint: ## Run ruff lint checks
+lint: | _ensure_hooks ## Run ruff lint checks
 	uv run ruff check $(PY_PATHS)
 
 format-check: ## Check Python formatting without rewriting files
 	uv run black --check src tests
 
-format: ## Format all code: Python (ruff+black) and frontend (prettier if available)
+format: | _ensure_hooks ## Format all code: Python (ruff+black) and frontend (prettier if available)
 	uv run ruff check --fix $(PY_PATHS)
 	uv run black $(PY_PATHS)
 	@if [ -d "frontend" ]; then \
@@ -100,18 +110,18 @@ format: ## Format all code: Python (ruff+black) and frontend (prettier if availa
 		fi; \
 	fi
 
-typecheck: ## Run mypy strict type-checking
+typecheck: | _ensure_hooks ## Run mypy strict type-checking
 	uv run mypy --strict $(PY_PATHS)
 
 launch-gate: ## Run pre-launch policy gate (set mode with LAUNCH_GATE_MODE=shadow|suggest|enforce)
 	bash scripts/launch_gate.sh --mode $${LAUNCH_GATE_MODE:-enforce}
 
-verify: lint format-check typecheck docs-check test ## Verify code, docs, runtime smoke tests, and agent integrations
+verify: | _ensure_hooks lint format-check typecheck docs-check test ## Verify code, docs, runtime smoke tests, and agent integrations
 	bash scripts/verify_atelier_service.sh
 	bash scripts/verify_atelier_postgres.sh
 	bash scripts/verify_agent_clis.sh
 
-pre-commit: format lint typecheck docs-check test ## Format, lint, typecheck, docs, and test
+pre-commit: | _ensure_hooks format lint typecheck docs-check test ## Format, lint, typecheck, docs, and test
 
 # --------------------------------------------------------------------------- #
 # Benchmarks and demos                                                        #
