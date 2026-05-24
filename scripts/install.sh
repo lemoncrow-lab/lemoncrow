@@ -1514,6 +1514,7 @@ main() {
     fi
 
     step_start "Initializing"
+    info "Index target: $ATELIER_INSTALL_DIR"
     if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
         echo "[dry-run] $atelier_cli init"
         echo "[dry-run] $atelier_cli code index --repo-root $ATELIER_INSTALL_DIR"
