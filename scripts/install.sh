@@ -218,7 +218,7 @@ spin_progress() {
         "$@" >"$_out_file" 2>&1 &
         local _pid=$!
         local _pct=0
-        local _width=20
+        local _width=24
 
         while kill -0 "$_pid" 2>/dev/null; do
             if [[ "$_pct" -lt 95 ]]; then
@@ -227,17 +227,24 @@ spin_progress() {
             local _filled=$((_pct * _width / 100))
             local _empty=$((_width - _filled))
             local _bar_fill _bar_empty
-            _bar_fill="$(printf '%*s' "$_filled" '' | tr ' ' '#')"
-            _bar_empty="$(printf '%*s' "$_empty" '' | tr ' ' '-')"
-            printf "\r%b│%b  %b▸%b  %s [%s%s] %3d%%" \
-                "$C_PURPLE" "$C_RESET" "$C_PURPLE" "$C_RESET" "$_msg" "$_bar_fill" "$_bar_empty" "$_pct"
+            _bar_fill="$(printf '%*s' "$_filled" '' | tr ' ' '█')"
+            _bar_empty="$(printf '%*s' "$_empty" '' | tr ' ' '░')"
+            printf "\r%b│%b  %b▸%b  %s  %b▕%b%b%b%b%b▏%b  %b%3d%%%b" \
+                "$C_PURPLE" "$C_RESET" "$C_PURPLE" "$C_RESET" "$_msg" \
+                "$C_DIM" "$C_RESET" "$C_CYAN" "$_bar_fill" "$C_DIM" "$_bar_empty" "$C_RESET" \
+                "$C_CYAN" "$_pct" "$C_RESET"
             sleep 0.12
         done
 
         wait "$_pid" || _ret=$?
         printf "\r\033[2K"
         if [[ $_ret -eq 0 ]]; then
-            printf "%b│%b  %b✓%b  %s [%s] 100%%\n" "$C_PURPLE" "$C_RESET" "$C_GREEN" "$C_RESET" "$_msg" "####################"
+            local _bar_done
+            _bar_done="$(printf '%*s' "$_width" '' | tr ' ' '█')"
+            printf "%b│%b  %b✓%b  %s  %b▕%b%b%b%b▏%b  %b100%%%b\n" \
+                "$C_PURPLE" "$C_RESET" "$C_GREEN" "$C_RESET" "$_msg" \
+                "$C_DIM" "$C_RESET" "$C_GREEN" "$_bar_done" "$C_DIM" "$C_RESET" \
+                "$C_GREEN" "$C_RESET"
         else
             printf "%b│%b  %b✗%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_RED" "$C_RESET" "$_msg" >&2
         fi
@@ -1358,7 +1365,7 @@ main() {
         if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
             echo "[dry-run] bash $ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh ${host_install_args[*]}"
         else
-            local host_output host_output_file host_ret stripped_host_output
+            local host_output host_output_file host_ret
             host_output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-hosts.XXXXXX")"
             set +e
             if [[ "$ATELIER_VERBOSE" == "1" ]]; then
@@ -1368,30 +1375,25 @@ main() {
                     bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]}" 2>&1 | tee "$host_output_file"
                 fi
             else
-                bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]}" >"$host_output_file" 2>&1
+                ATELIER_HOST_STATUS_STREAM=1 bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]}" 2>&1 | while IFS= read -r line; do
+                    printf "%s\n" "$line" >>"$host_output_file"
+                    if [[ "$line" =~ ^@@ATELIER_HOST_STATUS@@[[:space:]]+([A-Z]+)[[:space:]]+(.+)$ ]]; then
+                        local status="${BASH_REMATCH[1]}"
+                        local hname="${BASH_REMATCH[2]}"
+                        case "$status" in
+                            OK)      printf "%b│%b  %b✓%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_GREEN" "$C_RESET" "$hname" ;;
+                            WARN)    printf "%b│%b  %b⚠%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_YELLOW" "$C_RESET" "$hname" ;;
+                            FAILED)  printf "%b│%b  %b✗%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_RED" "$C_RESET" "$hname" ;;
+                            SKIPPED) printf "%b│%b  %b—%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_DIM" "$C_RESET" "$hname" ;;
+                        esac
+                    fi
+                done
             fi
-            host_ret=$?
+            host_ret=${PIPESTATUS[0]}
             set -e
             host_output="$(cat "$host_output_file")"
             rm -f "$host_output_file"
             collect_issues_from_output "$host_output"
-            if [[ "$ATELIER_VERBOSE" != "1" ]]; then
-                # Re-display per-host results inside the clack frame
-                stripped_host_output="$(printf "%s" "$host_output" | sed $'s/\x1b\\[[0-9;]*m//g')"
-                local line hname
-                while IFS= read -r line; do
-                    hname="$(printf "%s" "$line" | sed 's/^[[:space:]]*[A-Z]*[[:space:]]*//')"
-                    if [[ "$line" =~ ^[[:space:]]+OK[[:space:]] ]]; then
-                        printf "%b│%b  %b✓%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_GREEN" "$C_RESET" "$hname"
-                    elif [[ "$line" =~ ^[[:space:]]+WARN[[:space:]] ]]; then
-                        printf "%b│%b  %b⚠%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_YELLOW" "$C_RESET" "$hname"
-                    elif [[ "$line" =~ ^[[:space:]]+(FAILED|FAIL)[[:space:]] ]]; then
-                        printf "%b│%b  %b✗%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_RED" "$C_RESET" "$hname"
-                    elif [[ "$line" =~ ^[[:space:]]+SKIPPED[[:space:]] ]]; then
-                        printf "%b│%b  %b—%b  %s\n" "$C_PURPLE" "$C_RESET" "$C_DIM" "$C_RESET" "$hname"
-                    fi
-                done <<<"$stripped_host_output"
-            fi
             if [[ $host_ret -ne 0 ]]; then
                 ERRORS+=("One or more host integrations failed")
                 FINAL_EXIT_CODE=1

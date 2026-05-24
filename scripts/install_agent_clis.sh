@@ -250,6 +250,11 @@ stream_colored_output() {
     done
 }
 
+emit_host_status() {
+    [[ "${ATELIER_HOST_STATUS_STREAM:-0}" == "1" ]] || return 0
+    printf "@@ATELIER_HOST_STATUS@@ %s %s\n" "$1" "$2"
+}
+
 print_issue_group() {
     local title="$1"
     local color="$2"
@@ -306,12 +311,16 @@ run_installer() {
 
     if echo "$output" | grep -q "=== SKIPPED"; then
         SKIP+=("$host")
+        emit_host_status "SKIPPED" "$host (CLI not found)"
     elif [ $ret -ne 0 ]; then
         FAIL+=("$host")
+        emit_host_status "FAILED" "$host"
     elif echo "$output" | grep -q "] WARN:"; then
         WARN+=("$host")
+        emit_host_status "WARN" "$host"
     else
         PASS+=("$host")
+        emit_host_status "OK" "$host"
     fi
 }
 
@@ -333,10 +342,13 @@ if [[ " ${PASSTHROUGH[*]} " =~ "--workspace" ]]; then
     collect_issues_from_output "$UNIVERSAL_OUTPUT"
     if echo "$UNIVERSAL_OUTPUT" | grep -q "] WARN:"; then
         WARN+=("agents")
+        emit_host_status "WARN" "agents"
     elif [ $UNIVERSAL_RET -ne 0 ]; then
         FAIL+=("agents")
+        emit_host_status "FAILED" "agents"
     else
         PASS+=("agents")
+        emit_host_status "OK" "agents"
     fi
 fi
 
