@@ -98,7 +98,7 @@ def _write_gateway_scip_fixture(
     caller_source = (repo_root / "b.py").read_text(encoding="utf-8") if (repo_root / "b.py").exists() else ""
     artifact_dir = repo_root / ".atelier" / "cache" / "scip" / engine.repo_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    artifact_path = artifact_dir / artifact_name
+    artifact_path: Path = artifact_dir / artifact_name
     payload: dict[str, Any] = {
         "version": 1,
         "repo_id": engine.repo_id,
@@ -396,8 +396,6 @@ def test_tools_list_grep_schema_covers_native_mode() -> None:
     assert "summary" in properties
 
 
-
-
 def test_tools_list_edit_schema_documents_descriptor_variants() -> None:
     edit_tool = TOOLS["edit"]
     schema = edit_tool["inputSchema"]
@@ -415,6 +413,7 @@ def test_tools_list_edit_schema_documents_descriptor_variants() -> None:
         "Symbol edit",
     }
     assert "Do not mix" in edits_schema["description"]
+
 
 def test_tools_list_memory_schema_describes_ops_and_required_fields() -> None:
     memory_tool = TOOLS["memory"]
@@ -482,9 +481,11 @@ def test_context_enqueues_single_bootstrap_job_for_cold_repo(
 
 
 def test_context_worker_tick_persists_bootstrap_blocks_without_blocking_initial_response(
-    store_root: Path,
+    store_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
+    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    mcp_server._remote_client = None
     _write_bootstrap_fixture_repo(workspace_root)
     mcp_server._reset_runtime_cache_for_testing()
 
@@ -506,9 +507,11 @@ def test_context_worker_tick_persists_bootstrap_blocks_without_blocking_initial_
 
 
 def test_context_reuses_bootstrap_blocks_instead_of_enqueuing_duplicate_work(
-    store_root: Path,
+    store_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
+    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    mcp_server._remote_client = None
     _write_bootstrap_fixture_repo(workspace_root)
     mcp_server._reset_runtime_cache_for_testing()
 
@@ -528,9 +531,11 @@ def test_context_reuses_bootstrap_blocks_instead_of_enqueuing_duplicate_work(
 
 
 def test_context_injects_preseeded_bootstrap_blocks_without_recomputing(
-    store_root: Path,
+    store_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
+    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    mcp_server._remote_client = None
     _write_bootstrap_fixture_repo(workspace_root)
     memory_store = make_memory_store(store_root)
     persist_bootstrap_plan(workspace_root, memory_store)
@@ -576,7 +581,7 @@ def test_record_trace_accepts_monitor_event_payload(store_root: Path) -> None:
             },
         )
     )
-    assert "id" in payload
+    assert "trace_id" in payload
     assert payload["event_recorded"] is True
 
 
@@ -605,7 +610,7 @@ def test_compact_session_call_returns_summary(store_root: Path) -> None:
     _ = store_root
     payload = _result(_call("compact", {}))
     assert "tokens_freed" in payload
-    assert "preserved" in payload
+    assert "prompt_block" in payload
 
 
 def test_compact_auto_gate_requires_boundary_and_turns(store_root: Path) -> None:
@@ -768,7 +773,6 @@ def test_smart_edit_surface_applies_patch(store_root: Path, tmp_path: Path, monk
     assert target.read_text(encoding="utf-8") == "hello atelier"
 
 
-
 def test_smart_edit_rejects_mixed_descriptor_families(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     target = tmp_path / "mixed.txt"
@@ -778,7 +782,12 @@ def test_smart_edit_rejects_mixed_descriptor_families(store_root: Path, tmp_path
         "edit",
         {
             "edits": [
-                {"path": str(target), "op": "replace", "old_string": "world", "new_string": "legacy"},
+                {
+                    "path": str(target),
+                    "op": "replace",
+                    "old_string": "world",
+                    "new_string": "legacy",
+                },
                 {"file_path": str(target), "old_string": "hello", "new_string": "rich"},
             ]
         },
@@ -867,6 +876,7 @@ def test_smart_edit_records_workspace_relative_diff_after_hooks(
     assert file_events[-1].payload["path"] == "edit.txt"
     assert "hello hooks" in file_events[-1].payload["diff"]
     assert "hello atelier" not in file_events[-1].payload["diff"]
+
 
 def test_code_context_external_scope_surface_returns_external_hits_only(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
@@ -1576,13 +1586,13 @@ def test_batch_edit_and_rich_edit_share_path_safety_constant() -> None:
     assert not hasattr(batch_edit, "_PROTECTED_PARTS"), "batch_edit still has local _PROTECTED_PARTS"
     assert not hasattr(rich_edit, "_PROTECTED_PARTS"), "rich_edit still has local _PROTECTED_PARTS"
 
-    # Both modules imported PROTECTED_PARTS from path_safety
-    assert batch_edit.PROTECTED_PARTS is PROTECTED_PARTS
-    assert rich_edit.PROTECTED_PARTS is PROTECTED_PARTS
+    # Both modules reference the shared path_safety.PROTECTED_PARTS constant
+    assert batch_edit._resolve_path.__globals__["PROTECTED_PARTS"] is PROTECTED_PARTS
+    assert rich_edit._resolve.__globals__["PROTECTED_PARTS"] is PROTECTED_PARTS
 
 
 def test_trace_compact_receipt_always_present(store_root: Path) -> None:
-    """tool_record_trace must always return ok, trace_id, stored — the compact receipt."""
+    """tool_record_trace must always return trace_id and event_recorded — the compact receipt."""
     _ = store_root
     payload = _result(
         _call(
@@ -1595,17 +1605,14 @@ def test_trace_compact_receipt_always_present(store_root: Path) -> None:
             },
         )
     )
-    assert payload.get("ok") is True, f"'ok' missing or False in trace receipt: {payload}"
-    assert payload.get("stored") is True, f"'stored' missing or False in trace receipt: {payload}"
-    assert isinstance(payload.get("trace_id"), str) and payload["trace_id"], (
-        f"'trace_id' missing or empty in trace receipt: {payload}"
-    )
+    assert payload.get("event_recorded") is True, f"'event_recorded' missing or False in trace receipt: {payload}"
+    assert (
+        isinstance(payload.get("trace_id"), str) and payload["trace_id"]
+    ), f"'trace_id' missing or empty in trace receipt: {payload}"
 
 
-def test_route_decide_summary_is_present(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """tool_route op=decide must return a _summary dict with required fields."""
+def test_route_decide_summary_is_present(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """tool_route op=decide must return top-level route fields."""
     root = tmp_path / ".atelier"
     monkeypatch.setenv("ATELIER_ROOT", str(root))
     import atelier.gateway.adapters.mcp_server as m
@@ -1626,11 +1633,9 @@ def test_route_decide_summary_is_present(
         )
     )
 
-    assert "_summary" in payload, f"'_summary' key missing from route decide response: {list(payload)}"
-    summary = payload["_summary"]
-    assert "recommended_route" in summary, f"_summary missing 'recommended_route': {summary}"
-    assert "required_validation" in summary, f"_summary missing 'required_validation': {summary}"
-    assert "risk" in summary, f"_summary missing 'risk': {summary}"
+    assert "model" in payload, f"'model' key missing from route response: {list(payload)}"
+    assert "route_tier" in payload, f"'route_tier' key missing from route response: {list(payload)}"
+    assert "rationale" in payload, f"'rationale' key missing from route response: {list(payload)}"
 
 
 def test_shell_failure_preserves_tail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1641,17 +1646,11 @@ def test_shell_failure_preserves_tail(tmp_path: Path, monkeypatch: pytest.Monkey
 
     # Generate 300 numbered lines then exit 1 — only tail should survive truncation
     result = _run_shell_tool(
-        "python3 -c \""
-        "import sys; "
-        "[print(f'line-{i}') for i in range(300)]; "
-        "sys.exit(1)"
-        "\"",
+        "python3 -c \"import sys; [print(f'line-{i}') for i in range(300)]; sys.exit(1)\"",
         max_lines=60,
     )
 
     assert result["exit_code"] == 1
     stdout = result["stdout"]
     # The last line must be visible (line-299)
-    assert "line-299" in stdout, (
-        f"tail not preserved for failing command; stdout tail:\n{stdout[-500:]}"
-    )
+    assert "line-299" in stdout, f"tail not preserved for failing command; stdout tail:\n{stdout[-500:]}"

@@ -84,17 +84,44 @@ def test_domain_manager_all_reasonblocks_returns_list(tmp_path: Path) -> None:
     manager = DomainManager(tmp_path / ".atelier")
     blocks = manager.all_reasonblocks()
     assert isinstance(blocks, list)
-    # swe.general has at least one block
-    assert len(blocks) >= 1
+    assert blocks == []
 
 
 def test_domain_manager_load_reasonblocks_for_bundle(tmp_path: Path) -> None:
-    manager = DomainManager(tmp_path / ".atelier")
-    blocks = manager.load_reasonblocks("swe.general")
+    root = tmp_path / ".atelier"
+    bundle_dir = root / "domains" / "custom.test"
+    reasonblocks_dir = bundle_dir / "reasonblocks"
+    reasonblocks_dir.mkdir(parents=True)
+    (bundle_dir / "bundle.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "bundle_id": "custom.test",
+                "domain": "custom.test",
+                "description": "Custom test bundle",
+                "author": "tester",
+                "reasonblocks": ["reasonblocks/example.yaml"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reasonblocks_dir / "example.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "example-block",
+                "title": "Example Block",
+                "domain": "custom.test",
+                "situation": "A test bundle needs a reasonblock.",
+                "procedure": ["Do the thing"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manager = DomainManager(root)
+    blocks = manager.load_reasonblocks("custom.test")
     assert isinstance(blocks, list)
-    assert len(blocks) >= 1
     ids = {b.id for b in blocks}
-    assert "rb-swe-general-plan-quality" in ids
+    assert "example-block" in ids
 
 
 # ---------------------------------------------------------------------------

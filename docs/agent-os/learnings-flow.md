@@ -70,7 +70,7 @@ trace(
   learnings=[
     "Decision: chose X over Y because Z. Source: trace-abc123",
     "Lesson: module M has an undocumented coupling to N. Source: docs/plans/active/foo/PLAN.md",
-    "Pattern: always seed DB rubrics before sync_knowledge to allow user overrides. Source: trace-def456",
+    "Pattern: always seed DB rubrics before sync_lessons to allow user overrides. Source: trace-def456",
     "Surprise: sync took 3× longer than estimated due to mtime manifest cold start. Source: trace-def456",
   ],
   capture_sources=["<trace_id_or_plan_path>"],

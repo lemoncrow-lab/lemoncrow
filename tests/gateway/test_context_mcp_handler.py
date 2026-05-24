@@ -131,11 +131,8 @@ def test_context_calls_get_context_exactly_once(ctx_root: Path) -> None:
         call_count[0] += 1
         return original(**kwargs)
 
-    rt.get_context = counting_get_context  # type: ignore[method-assign]
-    try:
+    with patch.object(rt, "get_context", side_effect=counting_get_context):
         _call_context({"task": "implement caching layer"})
-    finally:
-        rt.get_context = original  # type: ignore[method-assign]
 
     assert call_count[0] == 1, f"get_context called {call_count[0]} times, expected exactly 1"
 
@@ -153,16 +150,14 @@ def test_context_retrieve_not_called_separately(ctx_root: Path) -> None:
         retrieve_call_count[0] += 1
         return original_retrieve(**kwargs)
 
-    rt.core_runtime.context_reuse.retrieve = counting_retrieve  # type: ignore[method-assign]
+    rt.core_runtime.context_reuse.retrieve = counting_retrieve
     try:
         _call_context({"task": "fix flaky test"})
     finally:
-        rt.core_runtime.context_reuse.retrieve = original_retrieve  # type: ignore[method-assign]
+        rt.core_runtime.context_reuse.retrieve = original_retrieve
 
     # retrieve called exactly once (inside rt.get_context), not twice
-    assert retrieve_call_count[0] == 1, (
-        f"retrieve called {retrieve_call_count[0]} times — double-retrieve regression"
-    )
+    assert retrieve_call_count[0] == 1, f"retrieve called {retrieve_call_count[0]} times — double-retrieve regression"
 
 
 # ---------------------------------------------------------------------------
@@ -247,11 +242,8 @@ def test_context_max_blocks_forwarded(ctx_root: Path) -> None:
         captured.update(kwargs)
         return original(**kwargs)
 
-    rt.get_context = capturing  # type: ignore[method-assign]
-    try:
+    with patch.object(rt, "get_context", side_effect=capturing):
         _call_context({"task": "trace a request through the system", "max_blocks": 3})
-    finally:
-        rt.get_context = original  # type: ignore[method-assign]
 
     assert captured.get("max_blocks") == 3
 
@@ -267,11 +259,8 @@ def test_context_domain_forwarded(ctx_root: Path) -> None:
         captured.update(kwargs)
         return original(**kwargs)
 
-    rt.get_context = capturing  # type: ignore[method-assign]
-    try:
+    with patch.object(rt, "get_context", side_effect=capturing):
         _call_context({"task": "fix python imports", "domain": "python"})
-    finally:
-        rt.get_context = original  # type: ignore[method-assign]
 
     assert captured.get("domain") == "python"
 
@@ -287,11 +276,8 @@ def test_context_token_budget_forwarded(ctx_root: Path) -> None:
         captured.update(kwargs)
         return original(**kwargs)
 
-    rt.get_context = capturing  # type: ignore[method-assign]
-    try:
+    with patch.object(rt, "get_context", side_effect=capturing):
         _call_context({"task": "search logs", "token_budget": 500})
-    finally:
-        rt.get_context = original  # type: ignore[method-assign]
 
     assert captured.get("token_budget") == 500
 
@@ -307,9 +293,8 @@ def test_spawn_worker_if_idle_throttled(tmp_path: Path) -> None:
 
     mcp._last_worker_spawn_time = 0.0  # Reset throttle
     spawned: list[threading.Thread] = []
-    original_thread = threading.Thread
 
-    class CapturingThread(original_thread):
+    class CapturingThread(threading.Thread):
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             spawned.append(self)
             super().__init__(*args, **kwargs)
@@ -334,9 +319,8 @@ def test_spawn_worker_if_idle_allows_after_window(tmp_path: Path) -> None:
     spawned = [0]
 
     with patch("atelier.gateway.adapters.mcp_server._run_worker_tick_safe"):
-        original_thread = threading.Thread
 
-        class CountingThread(original_thread):
+        class CountingThread(threading.Thread):
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 spawned[0] += 1
                 kwargs.setdefault("target", lambda: None)
@@ -432,11 +416,7 @@ def test_worker_run_once_known_unhandled_job_type_fails(ctx_root: Path) -> None:
     store.init()
 
     # Use a job type that is KNOWN but has no handler in default_dispatch
-    unhandled_types = [
-        t
-        for t in KNOWN_JOB_TYPES
-        if t not in {JOB_CONSOLIDATE_BLOCKS, JOB_BOOTSTRAP_CONTEXT}
-    ]
+    unhandled_types = [t for t in KNOWN_JOB_TYPES if t not in {JOB_CONSOLIDATE_BLOCKS, JOB_BOOTSTRAP_CONTEXT}]
     assert unhandled_types, "Expected at least one known-but-unhandled job type"
 
     # max_attempts=1 so the job becomes 'dead' after one failure instead of staying retryable

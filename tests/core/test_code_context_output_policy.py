@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from atelier.core.capabilities.code_context import CodeContextEngine
-from atelier.core.capabilities.code_context.output_policy import TRUNCATION_MARKER, hard_cap_chars, resolve_output_policy
+from atelier.core.capabilities.code_context.output_policy import (
+    TRUNCATION_MARKER,
+    hard_cap_chars,
+    resolve_output_policy,
+)
 
 
 def _write_fixture_repo(root: Path) -> None:
@@ -43,7 +47,12 @@ def test_tool_specific_hard_caps_are_enforced(tmp_path: Path) -> None:
     assert engine.tool_index(budget_tokens=99_999)["total_tokens"] <= 80
     assert engine.tool_cache_status(budget_tokens=99_999)["total_tokens"] <= 50
     assert engine.tool_search("OrderService", limit=20, budget_tokens=99_999)["total_tokens"] <= 300
-    assert engine.tool_symbol(qualified_name="OrderService", file_path="src/orders.py", budget_tokens=99_999)["total_tokens"] <= 300
+    assert (
+        engine.tool_symbol(qualified_name="OrderService", file_path="src/orders.py", budget_tokens=99_999)[
+            "total_tokens"
+        ]
+        <= 300
+    )
     outline_payload = engine.tool_outline(file_path="src/orders.py", budget_tokens=99_999)
     assert outline_payload.get("error") is None
     assert outline_payload["total_tokens"] <= 150

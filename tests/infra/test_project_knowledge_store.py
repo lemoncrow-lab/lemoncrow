@@ -13,27 +13,27 @@ from atelier.infra.storage.factory import create_store
 
 def _sample_block() -> ReasonBlock:
     return ReasonBlock(
-        id="rb-project-knowledge-sync",
-        title="Project knowledge sync",
+        id="rb-project-lessons-sync",
+        title="Project lessons sync",
         domain="coding",
         task_types=["implementation"],
-        triggers=["workspace knowledge present"],
-        situation="Load a tracked ReasonBlock from project knowledge.",
-        procedure=["Read markdown from the project knowledge directory", "Index it into SQLite"],
+        triggers=["workspace lessons present"],
+        situation="Load a tracked ReasonBlock from project lessons.",
+        procedure=["Read markdown from the project lessons directory", "Index it into SQLite"],
         verification=["The block is retrievable by id after init"],
     )
 
 
 def _sample_rubric() -> Rubric:
     return Rubric(
-        id="rubric-project-knowledge-sync",
+        id="rubric-project-lessons-sync",
         domain="coding",
-        required_checks=["knowledge_synced"],
-        block_if_missing=["knowledge_synced"],
+        required_checks=["lessons_synced"],
+        block_if_missing=["lessons_synced"],
     )
 
 
-def test_reasoning_store_writes_knowledge_to_project_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reasoning_store_writes_lessons_to_project_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = tmp_path / "repo"
     workspace.mkdir()
     monkeypatch.setenv("ATELIER_WORKSPACE_ROOT", str(workspace))
@@ -48,17 +48,17 @@ def test_reasoning_store_writes_knowledge_to_project_directory(tmp_path: Path, m
     store.upsert_rubric(rubric)
 
     assert store.root == store_root.resolve()
-    assert store.blocks_dir == (workspace / ".knowledge" / "blocks").resolve()
-    assert store.rubrics_dir == (workspace / ".knowledge" / "rubrics").resolve()
+    assert store.blocks_dir == (workspace / ".lessons" / "blocks").resolve()
+    assert store.rubrics_dir == (workspace / ".lessons" / "rubrics").resolve()
     assert (store.blocks_dir / f"{block.id}.md").exists()
     assert (store.rubrics_dir / f"{rubric.id}.yaml").exists()
 
 
-def test_store_init_syncs_project_knowledge_into_sqlite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_store_init_syncs_project_lessons_into_sqlite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = tmp_path / "repo"
-    knowledge_root = workspace / ".knowledge"
-    blocks_dir = knowledge_root / "blocks"
-    rubrics_dir = knowledge_root / "rubrics"
+    lessons_root = workspace / ".lessons"
+    blocks_dir = lessons_root / "blocks"
+    rubrics_dir = lessons_root / "rubrics"
     blocks_dir.mkdir(parents=True)
     rubrics_dir.mkdir(parents=True)
     monkeypatch.setenv("ATELIER_WORKSPACE_ROOT", str(workspace))
@@ -81,7 +81,7 @@ def test_store_init_syncs_project_knowledge_into_sqlite(tmp_path: Path, monkeypa
     assert stored_block.title == block.title
     assert stored_block.procedure == block.procedure
     assert stored_rubric is not None
-    assert stored_rubric.required_checks == ["knowledge_synced"]
+    assert stored_rubric.required_checks == ["lessons_synced"]
 
 
 def test_mcp_runtime_is_cached_not_recreated_per_call() -> None:
@@ -98,10 +98,10 @@ def test_mcp_runtime_is_cached_not_recreated_per_call() -> None:
     assert r1 is r2  # same object
 
 
-def test_sync_knowledge_skips_unchanged_files_on_repeat_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sync_lessons_skips_unchanged_files_on_repeat_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = tmp_path / "repo"
-    knowledge_root = workspace / ".knowledge"
-    blocks_dir = knowledge_root / "blocks"
+    lessons_root = workspace / ".lessons"
+    blocks_dir = lessons_root / "blocks"
     blocks_dir.mkdir(parents=True)
     monkeypatch.setenv("ATELIER_WORKSPACE_ROOT", str(workspace))
 
@@ -112,7 +112,7 @@ def test_sync_knowledge_skips_unchanged_files_on_repeat_call(tmp_path: Path, mon
     store.init()
 
     # First call: 1 block synced
-    result1 = store.sync_knowledge()
+    result1 = store.sync_lessons()
     assert result1["blocks"] == 0  # already imported by init()
 
     # mtime manifest was written
@@ -120,12 +120,12 @@ def test_sync_knowledge_skips_unchanged_files_on_repeat_call(tmp_path: Path, mon
     assert manifest_path.exists()
 
     # Second call with no file changes: 0 blocks synced
-    result2 = store.sync_knowledge()
+    result2 = store.sync_lessons()
     assert result2["blocks"] == 0
 
     # Touch the file to change its mtime
     (blocks_dir / f"{block.id}.md").write_text(render_block_markdown(block), encoding="utf-8")
-    result3 = store.sync_knowledge()
+    result3 = store.sync_lessons()
     assert result3["blocks"] == 1  # re-synced because mtime changed
 
     # New file is synced
@@ -137,7 +137,7 @@ def test_sync_knowledge_skips_unchanged_files_on_repeat_call(tmp_path: Path, mon
         procedure=["step 1"],
     )
     (blocks_dir / f"{block2.id}.md").write_text(render_block_markdown(block2), encoding="utf-8")
-    result4 = store.sync_knowledge()
+    result4 = store.sync_lessons()
     assert result4["blocks"] == 1  # only the new one
 
     # Verify both are in SQLite

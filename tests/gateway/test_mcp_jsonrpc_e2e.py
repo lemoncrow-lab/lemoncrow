@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from click.testing import CliRunner
@@ -56,7 +57,8 @@ def _call(name: str, args: dict[str, Any]) -> dict[str, Any]:
         }
     )
     assert response is not None
-    return cast(dict[str, Any], response)
+    assert isinstance(response, dict)
+    return response
 
 
 def _payload(response: dict[str, Any]) -> dict[str, Any]:
@@ -267,7 +269,7 @@ def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) ->
     )
 
     env = {
-        **dict(subprocess.os.environ),
+        **dict(os.environ),
         "ATELIER_ROOT": str(mcp_env / ".atelier"),
         "CLAUDE_WORKSPACE_ROOT": str(mcp_env),
         "CLAUDE_CONFIG_DIR": str(mcp_env / ".claude"),
@@ -358,7 +360,10 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
         )
     )
     assert recalled["passages"]
-    assert "checkout retry guidance" in recalled["passages"][0].get("fact", recalled["passages"][0].get("text", "")).lower()
+    assert (
+        "checkout retry guidance"
+        in recalled["passages"][0].get("fact", recalled["passages"][0].get("text", "")).lower()
+    )
 
     context = _payload(
         _call(
@@ -629,7 +634,8 @@ def test_context_route_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> Non
     )
     assert "model" in decision
     assert "tier" in decision
-    assert "can_spawn" in decision
+    assert "route_tier" in decision
+    assert "can_spawn" not in decision
 
     rubric = _payload(
         _call(
@@ -651,7 +657,8 @@ def test_context_route_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> Non
 
     compact_session = _payload(_call("compact", {}))
     assert "tokens_freed" in compact_session
-    assert "preserved" in compact_session
+    assert "prompt_block" in compact_session
+    assert "preserved" not in compact_session
 
     trace = _payload(
         _call(
@@ -671,5 +678,6 @@ def test_context_route_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> Non
             },
         )
     )
-    assert trace["id"]
-    assert trace["session_id"] == "remote-session"
+    assert trace["trace_id"]
+    assert "id" not in trace
+    assert "session_id" not in trace

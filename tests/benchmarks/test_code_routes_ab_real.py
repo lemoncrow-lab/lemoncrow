@@ -134,4 +134,3 @@ def test_code_routes_ab_real(tmp_path: Path) -> None:
     assert any(route["framework"] == "fastapi" and route["route"] == "/health" for route in payload["routes"])
     assert any(route["framework"] == "express" and route["route"] == "/ping" for route in payload["routes"])
     assert atelier_tokens < native_tokens
-

@@ -8,8 +8,8 @@ tmp_path fixture so every test is fully isolated with no real filesystem reads.
 
 from __future__ import annotations
 
-import os
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -468,11 +468,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 # ---------------------------------------------------------------------------
 
 
-
-
-def test_reasoning_context_accepts_runtime_bootstrap_payload(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_reasoning_context_accepts_runtime_bootstrap_payload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
     monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
 
@@ -498,6 +494,7 @@ def test_reasoning_context_accepts_runtime_bootstrap_payload(
     payload = resp.json()
     assert payload["context"] == "Use the bootstrap map first."
     assert payload["bootstrap"] == {"status": "cold", "repo_hash": "abc123", "blocks": []}
+
 
 class TestListSessions:
     def test_returns_list(self, client: TestClient) -> None:

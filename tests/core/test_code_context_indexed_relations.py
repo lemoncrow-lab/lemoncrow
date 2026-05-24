@@ -46,10 +46,7 @@ def test_indexed_usages_callers_and_callees(tmp_path: Path) -> None:
 def test_native_python_pattern_search_without_ast_grep(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "server.py").write_text(
-        "from somewhere import mcp_tool\n\n"
-        "@mcp_tool(name='code')\n"
-        "def tool_code() -> None:\n"
-        "    pass\n",
+        "from somewhere import mcp_tool\n\n" "@mcp_tool(name='code')\n" "def tool_code() -> None:\n" "    pass\n",
         encoding="utf-8",
     )
     engine = CodeContextEngine(tmp_path)
@@ -90,7 +87,9 @@ def test_native_python_pattern_search_supports_call_def_and_class_shapes(tmp_pat
     assert class_matches["matches"][0]["captures"] == {"name": "Worker"}
 
     assert call_matches["total_matches"] == 2
-    assert [match["line"] for match in call_matches["matches"]] == sorted(match["line"] for match in call_matches["matches"])
+    assert [match["line"] for match in call_matches["matches"]] == sorted(
+        match["line"] for match in call_matches["matches"]
+    )
     assert set(call_matches["matches"][0]) <= {
         "file_path",
         "line",
@@ -110,8 +109,7 @@ def test_src_layout_import_impact(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (tmp_path / "src" / "atelier" / "gateway.py").write_text(
-        "from atelier.core.bash_exec import run_command\n\n"
-        "def go() -> int:\n    return run_command('x')\n",
+        "from atelier.core.bash_exec import run_command\n\n" "def go() -> int:\n    return run_command('x')\n",
         encoding="utf-8",
     )
     engine = CodeContextEngine(tmp_path)

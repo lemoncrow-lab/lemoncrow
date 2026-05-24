@@ -52,9 +52,9 @@ class ServiceConfig:
         return os.environ.get("ATELIER_ROOT", str(default_store_root()))
 
     @property
-    def knowledge_root(self) -> str | None:
-        """Project-local knowledge root (usually ./.knowledge)."""
-        return os.environ.get("ATELIER_KNOWLEDGE_ROOT")
+    def lessons_root(self) -> str | None:
+        """Project-local lessons root (usually ./.lessons)."""
+        return os.environ.get("ATELIER_LESSONS_ROOT")
 
     @property
     def dev_mode(self) -> bool:
@@ -75,7 +75,7 @@ class ServiceConfig:
             "storage_backend": self.storage_backend,
             "database_url_configured": bool(self.database_url),
             "atelier_root": self.atelier_root,
-            "knowledge_root": self.knowledge_root,
+            "lessons_root": self.lessons_root,
         }
 
 

@@ -55,6 +55,12 @@ Install from a local checkout instead of GitHub:
 bash scripts/install.sh --local
 ```
 
+Install host + universal MCP artifacts into the current project (instead of user-global host config):
+
+```bash
+bash scripts/install.sh --local --workspace .
+```
+
 ## Runtime Modes After Install
 
 ### Default Runtime
@@ -204,7 +210,7 @@ atelier init
 | ------------------------ | ------------------ | ----------------------------------- |
 | `ATELIER_ROOT`           | `~/.atelier`       | Main runtime store root             |
 | `ATELIER_STORE_ROOT`     | `~/.atelier`       | Alias for `ATELIER_ROOT`            |
-| `ATELIER_KNOWLEDGE_ROOT` | workspace-relative | Optional git-tracked knowledge root |
+| `ATELIER_LESSONS_ROOT` | workspace-relative | Optional git-tracked lessons root |
 
 ### Storage
 

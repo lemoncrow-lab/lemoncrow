@@ -41,7 +41,7 @@ def test_smart_read_outline_first_for_large_python_file(tmp_path: Path, monkeypa
     lines.extend(f"value_{i} = {i}" for i in range(1, 620))
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    outline_payload = _smart_read({"file_path": str(target)})
+    outline_payload = _smart_read({"file_path": str(target), "include_meta": True})
     assert outline_payload["mode"] == "outline"
     assert isinstance(outline_payload.get("outline"), dict)
     assert outline_payload["outline"]["lang"] == "python"

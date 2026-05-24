@@ -105,15 +105,45 @@ def test_render_context_includes_deterministic_sections_and_caps() -> None:
             "budget_tokens": 4000,
             "token_count": 900,
             "entry_points": [
-                {"qualified_name": "Auth.issue_access_token", "file_path": "src/auth.py", "start_line": 10, "kind": "function"},
-                {"qualified_name": "Auth.issue_access_log", "file_path": "src/auth.py", "start_line": 20, "kind": "function"},
-                {"qualified_name": "Auth.issue_refresh_token", "file_path": "src/auth.py", "start_line": 30, "kind": "function"},
-                {"qualified_name": "Auth.issue_magic_link", "file_path": "src/auth.py", "start_line": 40, "kind": "function"},
-                {"qualified_name": "Auth.issue_api_key", "file_path": "src/auth.py", "start_line": 50, "kind": "function"},
+                {
+                    "qualified_name": "Auth.issue_access_token",
+                    "file_path": "src/auth.py",
+                    "start_line": 10,
+                    "kind": "function",
+                },
+                {
+                    "qualified_name": "Auth.issue_access_log",
+                    "file_path": "src/auth.py",
+                    "start_line": 20,
+                    "kind": "function",
+                },
+                {
+                    "qualified_name": "Auth.issue_refresh_token",
+                    "file_path": "src/auth.py",
+                    "start_line": 30,
+                    "kind": "function",
+                },
+                {
+                    "qualified_name": "Auth.issue_magic_link",
+                    "file_path": "src/auth.py",
+                    "start_line": 40,
+                    "kind": "function",
+                },
+                {
+                    "qualified_name": "Auth.issue_api_key",
+                    "file_path": "src/auth.py",
+                    "start_line": 50,
+                    "kind": "function",
+                },
                 {"qualified_name": "Auth.import_helper", "file_path": "src/auth.py", "start_line": 3, "kind": "import"},
             ],
             "related_symbols": [
-                {"qualified_name": "Session.revoke_access_token", "file_path": "src/session.py", "start_line": 11, "kind": "function"}
+                {
+                    "qualified_name": "Session.revoke_access_token",
+                    "file_path": "src/session.py",
+                    "start_line": 11,
+                    "kind": "function",
+                }
             ],
             "code_blocks": [
                 {

@@ -1,4 +1,5 @@
 """Tests for prompt_compilation.tokens (P0)."""
+
 from __future__ import annotations
 
 import pytest
@@ -28,9 +29,7 @@ class TestTiktokenUsedWhenAvailable:
 class TestCharFallbackWithin15Percent:
     """When tiktoken is absent the char/4 fallback must be within 15% of tiktoken."""
 
-    SAMPLE = (
-        "The quick brown fox jumps over the lazy dog. " * 20
-    )
+    SAMPLE = "The quick brown fox jumps over the lazy dog. " * 20
 
     def _char_fallback(self, text: str) -> int:
         return max(1, len(text) // 4)
@@ -44,7 +43,4 @@ class TestCharFallbackWithin15Percent:
         tiktoken_n = estimate_tokens(self.SAMPLE)
         fallback_n = self._char_fallback(self.SAMPLE)
         ratio = abs(tiktoken_n - fallback_n) / tiktoken_n
-        assert ratio < 0.15, (
-            f"char/4 fallback ({fallback_n}) deviates {ratio:.1%} from "
-            f"tiktoken ({tiktoken_n})"
-        )
+        assert ratio < 0.15, f"char/4 fallback ({fallback_n}) deviates {ratio:.1%} from " f"tiktoken ({tiktoken_n})"

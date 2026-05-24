@@ -25,7 +25,10 @@
 #   ATELIER_LOCAL      If set to 1, install from the current checkout in editable mode
 #   ATELIER_VERBOSE   If set to 1, show verbose installation logs (default: 0)
 #   ATELIER_STRICT     If set to 1, treat selected post-install degradations as errors
+#   ATELIER_NON_INTERACTIVE If set to 1, disable all interactive prompts
 #   ATELIER_ZOEKT_AUTO_INSTALL If set to 1, non-interactive runs install local zoekt binaries when missing (default: 1)
+#   ATELIER_INSTALL_LOG_FILE Optional install log path (default: /tmp/atelier-install.<ts>.<pid>.log)
+#   --workspace DIR    Install host/project MCP artifacts into DIR instead of user-global config
 #
 # Notes:
 #   Exactly one memory sidecar can be active at a time; the selection is
@@ -89,8 +92,10 @@ ATELIER_ZOEKT="${ATELIER_ZOEKT:-1}"                    # 1 = install persistent 
 ATELIER_LOCAL="${ATELIER_LOCAL:-0}"
 ATELIER_STRICT="${ATELIER_STRICT:-0}"
 ATELIER_VERBOSE="${ATELIER_VERBOSE:-0}"
+ATELIER_NON_INTERACTIVE="${ATELIER_NON_INTERACTIVE:-0}"
 export ATELIER_VERBOSE
 ATELIER_ZOEKT_AUTO_INSTALL="${ATELIER_ZOEKT_AUTO_INSTALL:-1}"
+ATELIER_INSTALL_LOG_FILE="${ATELIER_INSTALL_LOG_FILE:-}"
 INSTALL_ZOEKT_LOCAL=0
 STACK_STARTED=0
 PASSTHROUGH=()
@@ -106,10 +111,17 @@ HOST_SUMMARY=()
 _SPINNER_PID=""
 _SPINNER_MSG=""
 _SPINNER_ACTIVE=0
+ORIGINAL_STDOUT_IS_TTY=0
+if [[ -t 1 ]]; then
+    ORIGINAL_STDOUT_IS_TTY=1
+fi
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --all|--claude|--codex|--cursor|--opencode|--copilot|--hermes|--antigravity)
+            HOST_FLAGS+=("$1")
+            ;;
         --local) ATELIER_LOCAL=1 ;;
         --remote|--no-local) ATELIER_LOCAL=0 ;;
         --dry-run) ATELIER_DRY_RUN=1; PASSTHROUGH+=("$1") ;;
@@ -122,14 +134,35 @@ while [[ $# -gt 0 ]]; do
         --memory=*) ATELIER_MEMORY_BACKEND="${1#--memory=}" ;;
         --zoekt) ATELIER_ZOEKT=1; ATELIER_ADVANCED=1 ;;
         --strict) ATELIER_STRICT=1; PASSTHROUGH+=("$1") ;;
+        --workspace)
+            if [[ $# -lt 2 ]]; then fail "--workspace requires a directory"; fi
+            HOST_SCOPE_ARGS=(--workspace "$2")
+            shift
+            ;;
+        --workspace=*)
+            HOST_SCOPE_ARGS=(--workspace "${1#--workspace=}")
+            ;;
         --verbose) ATELIER_VERBOSE=1 ;;
+        --non-interactive) ATELIER_NON_INTERACTIVE=1 ;;
         *) PASSTHROUGH+=("$1") ;;
     esac
     shift
 done
 
+if [[ -z "$ATELIER_INSTALL_LOG_FILE" ]]; then
+    ATELIER_INSTALL_LOG_FILE="${TMPDIR:-/tmp}/atelier-install.$(date +%Y%m%dT%H%M%S).$$.log"
+fi
+
+mkdir -p "$(dirname "$ATELIER_INSTALL_LOG_FILE")" 2>/dev/null || true
+: >"$ATELIER_INSTALL_LOG_FILE" 2>/dev/null || true
+exec > >(tee -a "$ATELIER_INSTALL_LOG_FILE") 2>&1
+
 trap '[[ -n "${_SPINNER_PID:-}" ]] && { kill "${_SPINNER_PID}" 2>/dev/null; printf "\n"; } || true' EXIT INT TERM
 
+log_raw() {
+    [[ "$ATELIER_VERBOSE" == "1" ]] && return 0
+    [[ -n "$1" ]] && printf "%s\n" "$1" >>"$ATELIER_INSTALL_LOG_FILE" || true
+}
 info()    { _spinner_pause; printf "%b│%b  ◇  %s\n" "$C_FRAME" "$C_RESET" "$*"; _spinner_resume; }
 verbose() { [[ "$ATELIER_VERBOSE" == "1" ]] && info "$@" || true; }
 warn()  {
@@ -200,6 +233,7 @@ spin() {
     local _ret=0
     local _out
     _out="$("$@" 2>&1)" || _ret=$?
+    log_raw "$_out"
     if [[ $_ret -eq 0 ]]; then
         _spinner_stop ok
         if [[ "$ATELIER_VERBOSE" == "1" && -n "$_out" ]]; then
@@ -280,6 +314,7 @@ spin_tail() {
 
     local _out=""
     _out="$(cat "$_out_file" 2>/dev/null || true)"
+    log_raw "$_out"
     rm -f "$_out_file"
     if [[ $_ret -ne 0 && -n "$_out" ]]; then
         printf "%b│%b  %s\n" "$C_FRAME" "$C_RESET" "$_out"
@@ -355,6 +390,7 @@ spin_progress() {
 
     local _out=""
     _out="$(cat "$_out_file" 2>/dev/null || true)"
+    log_raw "$_out"
     rm -f "$_out_file"
 
     if [[ $_ret -eq 0 ]]; then
@@ -438,7 +474,12 @@ print_final_report() {
 }
 
 supports_interactive_selector() {
-    [[ -t 0 && -t 1 ]] || return 1
+    [[ "$ATELIER_NON_INTERACTIVE" == "1" ]] && return 1
+    if [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" ]]; then
+        [[ -t 0 ]] || return 1
+    else
+        [[ -t 0 && -t 1 ]] || return 1
+    fi
     [[ -n "${TERM:-}" && "${TERM:-}" != "dumb" ]] || return 1
     return 0
 }
@@ -563,7 +604,7 @@ render_single_select() {
         fi
     done
     _menu_line ""
-    _menu_line "  ${C_DIM}↑↓ navigate  ·  enter select${C_RESET}"
+    _menu_line "  ${C_PURPLE}↑↓${C_RESET} ${C_DIM}navigate  ·  ${C_RESET}${C_PURPLE}enter${C_RESET} ${C_DIM}select${C_RESET}"
 }
 
 interactive_single_select() {
@@ -650,7 +691,7 @@ render_multi_select() {
     done
     _menu_line ""
     local count_badge="${C_DIM}(${selected_count}/${#options[@]})${C_RESET}"
-    _menu_line "  ${C_DIM}space toggle  ·  a all  ·  enter confirm${C_RESET}  ${count_badge}"
+    _menu_line "  ${C_PURPLE}space${C_RESET} ${C_DIM}toggle  ·  ${C_RESET}${C_PURPLE}a${C_RESET} ${C_DIM}all  ·  ${C_RESET}${C_PURPLE}enter${C_RESET} ${C_DIM}confirm${C_RESET}  ${count_badge}"
 }
 
 interactive_multi_select() {
@@ -722,6 +763,7 @@ interactive_multi_select() {
 }
 
 prompt_memory_selection() {
+    [[ "$ATELIER_NON_INTERACTIVE" == "1" ]] && return 0
     [[ -t 0 ]] || return 0
     [[ -n "$ATELIER_MEMORY_BACKEND" || "$ATELIER_ADVANCED" == "1" ]] && return 0
 
@@ -736,10 +778,10 @@ prompt_memory_selection() {
             "openmemory (Docker)"
     else
         echo ""
-        printf "%b[atelier-install]%b Choose a memory backend:\n" "$C_BOLD" "$C_RESET"
-        printf "  0) SQLite      - local, no Docker needed (default)\n"
-        printf "  1) letta       - Letta memory server (Docker)\n"
-        printf "  2) openmemory  - OpenMemory MCP server (Docker + OpenAI key or ollama)\n"
+        printf "◇  Choose memory backend:\n"
+        printf "│  0) SQLite      - local, no Docker needed (default)\n"
+        printf "│  1) letta       - Letta memory server (Docker)\n"
+        printf "│  2) openmemory  - OpenMemory MCP server (Docker + OpenAI key or ollama)\n"
         printf "Choice [0/1/2, default: 0]: "
         local choice
         read -r choice </dev/tty
@@ -783,11 +825,14 @@ has_flag() {
 }
 
 contains_any_host_flag() {
+    [[ ${#HOST_FLAGS[@]} -gt 0 ]] && return 0
     has_flag "--all" && return 0
     has_flag "--claude" && return 0
     has_flag "--codex" && return 0
+    has_flag "--cursor" && return 0
     has_flag "--opencode" && return 0
     has_flag "--copilot" && return 0
+    has_flag "--hermes" && return 0
     has_flag "--antigravity" && return 0
     return 1
 }
@@ -884,10 +929,11 @@ join_with_comma_space() {
 }
 
 host_wizard() {
-    [[ -t 0 && -t 1 ]] || return 0
+    [[ "$ATELIER_NON_INTERACTIVE" == "1" ]] && return 0
+    [[ -t 0 ]] || return 0
     [[ "$ATELIER_NO_HOSTS" == "1" ]] && return 0
     contains_any_host_flag && return 0
-    has_flag "--workspace" && return 0
+    [[ ${#HOST_SCOPE_ARGS[@]} -gt 0 ]] && return 0
 
     detect_hosts
 
@@ -921,13 +967,14 @@ host_wizard() {
             [[ ${#HOST_FLAGS[@]} -gt 0 ]] || ATELIER_NO_HOSTS=1
         fi
     else
-        printf "│  1) %s\n" "${HOST_CHOICES[0]}"
-        printf "│  2) %s\n" "${HOST_CHOICES[1]}"
-        printf "│  3) %s\n" "${HOST_CHOICES[2]}"
-        printf "│  4) %s\n" "${HOST_CHOICES[3]}"
-        printf "│  5) %s\n" "${HOST_CHOICES[4]}"
-        printf "│  6) %s\n" "${HOST_CHOICES[5]}"
-        printf "│  7) %s\n" "${HOST_CHOICES[6]}"
+        echo "◇  Which agents should Atelier configure?"
+        printf "│  1) %s\n" "${HOST_SUMMARY[0]}"
+        printf "│  2) %s\n" "${HOST_SUMMARY[1]}"
+        printf "│  3) %s\n" "${HOST_SUMMARY[2]}"
+        printf "│  4) %s\n" "${HOST_SUMMARY[3]}"
+        printf "│  5) %s\n" "${HOST_SUMMARY[4]}"
+        printf "│  6) %s\n" "${HOST_SUMMARY[5]}"
+        printf "│  7) %s\n" "${HOST_SUMMARY[6]}"
         printf "│  a) All (default)\n"
         printf "│\n"
         printf "Choice [a]: "
@@ -1446,11 +1493,44 @@ main() {
         if [[ ${#HOST_EXTRA_ARGS[@]} -gt 0 ]]; then
             host_install_args+=("${HOST_EXTRA_ARGS[@]}")
         fi
+        local project_workspace=""
+        if [[ "${ATELIER_LOCAL}" == "1" ]]; then
+            local local_repo_root=""
+            if local_repo_root="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null)"; then
+                project_workspace="$local_repo_root"
+            fi
+        fi
+        if [[ -z "$project_workspace" ]] && host_scope_is_workspace; then
+            local idx
+            for idx in "${!HOST_SCOPE_ARGS[@]}"; do
+                if [[ "${HOST_SCOPE_ARGS[$idx]}" == "--workspace" ]]; then
+                    if [[ $((idx + 1)) -lt ${#HOST_SCOPE_ARGS[@]} ]]; then
+                        project_workspace="${HOST_SCOPE_ARGS[$((idx + 1))]}"
+                    fi
+                    break
+                fi
+            done
+        fi
+        if [[ -n "$project_workspace" ]]; then
+            local agents_install_args=(--workspace "$project_workspace")
+            has_flag "--dry-run" && agents_install_args+=(--dry-run)
+            has_flag "--print-only" && agents_install_args+=(--print-only)
+            if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+                echo "[dry-run] bash $ATELIER_INSTALL_DIR/scripts/install_agents.sh ${agents_install_args[*]}"
+            else
+                if [[ "$ATELIER_VERBOSE" == "1" ]]; then
+                    bash "$ATELIER_INSTALL_DIR/scripts/install_agents.sh" "${agents_install_args[@]}"
+                else
+                    bash "$ATELIER_INSTALL_DIR/scripts/install_agents.sh" "${agents_install_args[@]}" >>"$ATELIER_INSTALL_LOG_FILE" 2>&1
+                fi
+            fi
+        fi
         if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
             echo "[dry-run] bash $ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh ${host_install_args[*]}"
         else
             local host_output host_output_file host_ret
-            host_output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-hosts.XXXXXX")"
+            host_output_file="${TMPDIR:-/tmp}/atelier-hosts.$(date +%Y%m%dT%H%M%S).$$.log"
+            : >"$host_output_file" 2>/dev/null || host_output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-hosts.XXXXXX")"
             set +e
             if [[ "$ATELIER_VERBOSE" == "1" ]]; then
                 if [[ -n "$C_RESET" ]]; then
@@ -1526,15 +1606,17 @@ main() {
             fi
             set -e
             host_output="$(cat "$host_output_file")"
-            rm -f "$host_output_file"
             collect_issues_from_output "$host_output"
+            if [[ -f "$host_output_file" ]] && [[ ${#WARNINGS[@]} -gt 0 || ${#ERRORS[@]} -gt 0 ]]; then
+                info "Host integration log: $host_output_file"
+            fi
             if [[ $host_ret -ne 0 ]]; then                ERRORS+=("One or more host integrations failed")
                 FINAL_EXIT_CODE=1
             fi
         fi
         # Persist host detection results for the local service/UI surfaces
         if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
-            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write >/dev/null 2>&1 \
+            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write >>"$ATELIER_INSTALL_LOG_FILE" 2>&1 \
                 || degrade "Failed to persist host detection status"
         fi
         step_done
@@ -1543,7 +1625,7 @@ main() {
         info "Skipped (ATELIER_NO_HOSTS=1)"
         # Still persist current detection state even when skipping install
         if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
-            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write >/dev/null 2>&1 \
+            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write >>"$ATELIER_INSTALL_LOG_FILE" 2>&1 \
                 || degrade "Failed to persist host detection status"
         fi
         step_done
@@ -1598,7 +1680,7 @@ main() {
             if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
                 echo "[dry-run] $ATELIER_BIN_DIR/atelier background install ${background_args[*]}"
             else
-                "$ATELIER_BIN_DIR/atelier" background install "${background_args[@]}" >/dev/null
+                "$ATELIER_BIN_DIR/atelier" background install "${background_args[@]}" >>"$ATELIER_INSTALL_LOG_FILE" 2>&1
             fi
         else
             verbose "Starting Atelier background service controller (loose process)..."
@@ -1607,7 +1689,7 @@ main() {
             else
                 "$ATELIER_BIN_DIR/atelier" servicectl start \
                     --interval-seconds "$ATELIER_SERVICECTL_INTERVAL_SECONDS" \
-                    --maintenance-interval-seconds "$ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS" >/dev/null
+                    --maintenance-interval-seconds "$ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS" >>"$ATELIER_INSTALL_LOG_FILE" 2>&1
             fi
 
             if [[ "$stack_available" == "1" ]]; then
@@ -1637,20 +1719,18 @@ main() {
         info "${C_BOLD}${C_RED}Completed with errors.${C_RESET}"
     elif [[ ${#WARNINGS[@]} -gt 0 ]]; then
         info "${C_BOLD}${C_YELLOW}Completed with warnings.${C_RESET}"
-    else
-        info "Installation complete."
     fi
     printf "%b└%b\n\n" "$C_FRAME" "$C_RESET"
-
-    if [[ "$STACK_STARTED" == "1" || "$stack_expected" == "1" ]]; then
-        info "Visualization stack is running:"
-        info "  frontend: ${C_PURPLE}http://localhost:3125${C_RESET}"
-        info "  service:  ${C_PURPLE}http://localhost:8787${C_RESET}"
-    fi
 
     printf "  %b┌─────────────────────────────────────────────────────────┐%b\n" "$C_PURPLE" "$C_RESET"
     printf "  %b│  %s │%b\n" "$C_PURPLE" "$completion_title_line" "$C_RESET"
     printf "  %b└─────────────────────────────────────────────────────────┘%b\n\n" "$C_PURPLE" "$C_RESET"
+
+    if [[ "$STACK_STARTED" == "1" || "$stack_expected" == "1" ]]; then
+        printf "%b📊 Visualization stack:%b\n" "$C_PURPLE" "$C_RESET"
+        printf "  frontend: %bhttp://localhost:3125%b\n" "$C_PURPLE" "$C_RESET"
+        printf "  service:  %bhttp://localhost:8787%b\n\n" "$C_PURPLE" "$C_RESET"
+    fi
     local code_display="$ATELIER_INSTALL_DIR"
     code_display="${code_display/#$HOME/~}"
     printf "%b📁 Your files:%b\n\n" "$C_PURPLE" "$C_RESET"
@@ -1663,6 +1743,9 @@ main() {
     printf "   %batelier%b memory recall       Search memory\n" "$C_PURPLE" "$C_RESET"
     printf "   %batelier%b code index          Index current repository\n" "$C_PURPLE" "$C_RESET"
     printf "   %batelier%b stack status        Check frontend/service status\n\n" "$C_PURPLE" "$C_RESET"
+    if [[ ${#WARNINGS[@]} -gt 0 || ${#ERRORS[@]} -gt 0 ]]; then
+        printf "   installer log: %s\n\n" "$ATELIER_INSTALL_LOG_FILE"
+    fi
     printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
     if [[ ":$PATH:" != *":$ATELIER_BIN_DIR:"* ]]; then
         printf "⚡ Reload your shell to use 'atelier' command.\n"

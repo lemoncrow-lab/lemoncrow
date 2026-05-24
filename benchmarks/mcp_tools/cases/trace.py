@@ -1,27 +1,15 @@
-"""Benchmark cases for the `trace` MCP tool.
-
-Covers 2 scenarios: success trace and partial trace with errors.
-
-Baseline estimates:
-  - success: agent manually writes structured trace as JSON to context (~200 tokens)
-  - partial_with_errors: longer trace with error list + summary (~400 tokens)
-"""
+"""Benchmark cases for the `trace` MCP tool."""
 
 from __future__ import annotations
-
-from typing import Any
 
 from benchmarks.mcp_tools.harness import BenchCase
 
 
-def _assert_trace(result: dict[str, Any]) -> None:
-    assert "ok" in result, "trace response must have 'ok'"
-    assert result["ok"] is True, f"trace 'ok' must be True, got {result['ok']}"
+def _assert_trace(result: dict[str, object]) -> None:
     assert "trace_id" in result, "trace response must have 'trace_id'"
-    assert isinstance(result["trace_id"], str), "'trace_id' must be a string"
-    assert len(result["trace_id"]) > 0, "'trace_id' must be non-empty"
-    assert "stored" in result, "trace response must have 'stored'"
-    assert "session_id" in result, "trace response must have 'session_id'"
+    assert "event_recorded" in result, "trace response must have 'event_recorded'"
+    assert isinstance(result["trace_id"], str), "'trace_id' must be string"
+    assert isinstance(result["event_recorded"], bool), "'event_recorded' must be bool"
 
 
 TRACE_CASES: list[BenchCase] = [
@@ -36,9 +24,8 @@ TRACE_CASES: list[BenchCase] = [
             "output_summary": "All 8 cases passed with avg 82% savings.",
             "learnings": ["memory.archive requires source in allowed literals"],
         },
-        assert_keys=["ok", "trace_id", "stored", "session_id"],
+        assert_keys=["trace_id", "event_recorded"],
         custom_assert=_assert_trace,
-        # baseline = agent writes full trace payload + context summary manually
         baseline_tokens=2600,
     ),
     BenchCase(
@@ -55,9 +42,8 @@ TRACE_CASES: list[BenchCase] = [
                 {"name": "correctness", "passed": True, "detail": "5/5 route cases pass"},
             ],
         },
-        assert_keys=["ok", "trace_id", "stored"],
+        assert_keys=["trace_id", "event_recorded"],
         custom_assert=_assert_trace,
-        # baseline = agent manually writes longer trace with errors + context payload
         baseline_tokens=2600,
     ),
 ]

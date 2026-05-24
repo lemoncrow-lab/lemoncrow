@@ -6,8 +6,7 @@ description: >
   across code generation, debugging, and refactoring tasks.
 author: Beseam
 
-reasonblocks:
-  - reasonblocks/general_coding.yaml
+reasonblocks: []
 
 rubrics: []
 environments: []

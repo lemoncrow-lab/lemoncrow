@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
@@ -21,7 +21,8 @@ def _call(name: str, args: dict[str, Any]) -> dict[str, Any]:
         }
     )
     assert response is not None
-    return cast(dict[str, Any], response)
+    assert isinstance(response, dict)
+    return response
 
 
 def _payload(response: dict[str, Any]) -> Any:
@@ -90,7 +91,7 @@ def test_memory_store_fact_and_vote_fact_round_trip(mcp_root: Path) -> None:
     )
     assert stored["fact"] == "Prefer Atelier memory over host memory by default."
     assert stored["scope"] == "user"
-    assert stored["votes"] == {"upvote": 0, "downvote": 0}
+    assert "votes" not in stored
 
     voted = _payload(
         _call(
@@ -105,7 +106,8 @@ def test_memory_store_fact_and_vote_fact_round_trip(mcp_root: Path) -> None:
             ),
         )
     )
-    assert voted["votes"] == {"upvote": 1, "downvote": 0}
+    assert voted["direction"] == "upvote"
+    assert "votes" not in voted
 
     stored_again = _payload(
         _call(
@@ -121,7 +123,8 @@ def test_memory_store_fact_and_vote_fact_round_trip(mcp_root: Path) -> None:
             ),
         )
     )
-    assert stored_again["votes"] == {"upvote": 1, "downvote": 0}
+    assert stored_again["id"] == stored["id"]
+    assert "votes" not in stored_again
 
 
 def test_memory_recall_returns_passage_list_shape(mcp_root: Path) -> None:

@@ -12,16 +12,14 @@ Tests:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from atelier.sdk.middleware import AtelierMiddleware
-
 
 # ---------------------------------------------------------------------------
 # AtelierMiddleware
 # ---------------------------------------------------------------------------
+
 
 class TestAtelierMiddleware:
     def test_init(self) -> None:
@@ -52,12 +50,14 @@ class TestAtelierMiddleware:
 
     def test_langchain_returns_middleware(self) -> None:
         from atelier.sdk.langchain_middleware import LangChainMiddleware
+
         mw = AtelierMiddleware(agent_name="test", task="test")
         lc = mw.langchain()
         assert isinstance(lc, LangChainMiddleware)
 
     def test_openai_hooks_returns_hooks(self) -> None:
         from atelier.sdk.openai_hooks import OpenAIAgentsHooks
+
         mw = AtelierMiddleware(agent_name="test", task="test")
         hooks = mw.openai_hooks()
         assert isinstance(hooks, OpenAIAgentsHooks)
@@ -80,10 +80,12 @@ class TestAtelierMiddleware:
 # LangChainMiddleware
 # ---------------------------------------------------------------------------
 
+
 class TestLangChainMiddleware:
     def _make(self) -> Any:
-        from atelier.sdk.langchain_middleware import LangChainMiddleware
         from atelier.infra.runtime.run_ledger import RunLedger
+        from atelier.sdk.langchain_middleware import LangChainMiddleware
+
         ledger = RunLedger(agent="test", task="test task")
         return LangChainMiddleware(ledger), ledger
 
@@ -97,13 +99,19 @@ class TestLangChainMiddleware:
         handler.on_llm_start({}, ["hello"], run_id="run1")
 
         mock_response = MagicMock()
-        mock_response.generations = [[MagicMock(generation_info={
-            "usage": {
-                "input_tokens": 500,
-                "output_tokens": 100,
-                "cache_read_input_tokens": 200,
-            }
-        })]]
+        mock_response.generations = [
+            [
+                MagicMock(
+                    generation_info={
+                        "usage": {
+                            "input_tokens": 500,
+                            "output_tokens": 100,
+                            "cache_read_input_tokens": 200,
+                        }
+                    }
+                )
+            ]
+        ]
         mock_response.llm_output = {"model_name": "claude-haiku-4-5"}
         handler.on_llm_end(mock_response, run_id="run1")
 
@@ -142,8 +150,11 @@ class TestLangChainMiddleware:
             handler.on_llm_start({}, [], run_id=f"r{i}")
             handler.on_llm_end(mock_resp, run_id=f"r{i}")
 
-        alerts = [e for e in ledger.events if e.kind == "watchdog_alert"
-                  and e.payload.get("event_type") == "PREFIX_CACHE_MISS"]
+        alerts = [
+            e
+            for e in ledger.events
+            if e.kind == "watchdog_alert" and e.payload.get("event_type") == "PREFIX_CACHE_MISS"
+        ]
         assert len(alerts) >= 1
 
 
@@ -151,15 +162,17 @@ class TestLangChainMiddleware:
 # OpenAIAgentsHooks
 # ---------------------------------------------------------------------------
 
+
 class TestOpenAIAgentsHooks:
     def _make(self) -> Any:
-        from atelier.sdk.openai_hooks import OpenAIAgentsHooks
         from atelier.infra.runtime.run_ledger import RunLedger
+        from atelier.sdk.openai_hooks import OpenAIAgentsHooks
+
         ledger = RunLedger(agent="test", task="test task")
         return OpenAIAgentsHooks(ledger), ledger
 
     def test_on_tool_start_sync_records_tool(self) -> None:
-        hooks, ledger = self._make()
+        hooks, _ledger = self._make()
         mock_tool = MagicMock()
         mock_tool.name = "bash"
         hooks.on_tool_start_sync(None, None, mock_tool)
@@ -187,8 +200,9 @@ class TestOpenAIAgentsHooks:
         assert len(agent_events) == 1
 
     def test_context_manager(self) -> None:
-        from atelier.sdk.openai_hooks import OpenAIAgentsHooks
         from atelier.infra.runtime.run_ledger import RunLedger
+        from atelier.sdk.openai_hooks import OpenAIAgentsHooks
+
         ledger = RunLedger(agent="test", task="test")
         with OpenAIAgentsHooks(ledger) as hooks:
             assert hooks._ledger.status == "running"
@@ -199,10 +213,12 @@ class TestOpenAIAgentsHooks:
 # make_atelier_tools / dispatch
 # ---------------------------------------------------------------------------
 
+
 class TestAtelierAnthropicTools:
     def _make(self) -> Any:
-        from atelier.sdk.anthropic_tools import make_atelier_tools
         from atelier.infra.runtime.run_ledger import RunLedger
+        from atelier.sdk.anthropic_tools import make_atelier_tools
+
         ledger = RunLedger(agent="test", task="anthropic task")
         tool_specs, dispatch = make_atelier_tools(ledger)
         return tool_specs, dispatch, ledger
@@ -248,13 +264,17 @@ class TestAtelierAnthropicTools:
             mock_response.content = [tool_block]
             dispatch(mock_response)
 
-        alerts = [e for e in ledger.events if e.kind == "watchdog_alert"
-                  and e.payload.get("event_type") == "REPEATED_TOOL_CALL"]
+        alerts = [
+            e
+            for e in ledger.events
+            if e.kind == "watchdog_alert" and e.payload.get("event_type") == "REPEATED_TOOL_CALL"
+        ]
         assert len(alerts) >= 1
 
     def test_without_telemetry_tool(self) -> None:
-        from atelier.sdk.anthropic_tools import make_atelier_tools
         from atelier.infra.runtime.run_ledger import RunLedger
+        from atelier.sdk.anthropic_tools import make_atelier_tools
+
         ledger = RunLedger(agent="test", task="test")
         tool_specs, _ = make_atelier_tools(ledger, include_telemetry_tool=False)
         assert all(t["name"] != "atelier_session_status" for t in tool_specs)
@@ -264,9 +284,11 @@ class TestAtelierAnthropicTools:
 # RunLedger.record_call with stable_prefix_hash
 # ---------------------------------------------------------------------------
 
+
 class TestRunLedgerPrefixHash:
     def test_record_call_stores_prefix_hash(self) -> None:
         from atelier.infra.runtime.run_ledger import RunLedger
+
         ledger = RunLedger(agent="test", task="test")
         ledger.record_call(
             operation="chat",
@@ -284,6 +306,7 @@ class TestRunLedgerPrefixHash:
 
     def test_record_call_stores_invalidation_reason(self) -> None:
         from atelier.infra.runtime.run_ledger import RunLedger
+
         ledger = RunLedger(agent="test", task="test")
         ledger.record_call(
             operation="chat",
@@ -300,6 +323,7 @@ class TestRunLedgerPrefixHash:
 # ---------------------------------------------------------------------------
 # GeminiADKMiddleware
 # ---------------------------------------------------------------------------
+
 
 class TestGeminiADKMiddleware:
     def _make(self) -> Any:
@@ -349,20 +373,17 @@ class TestGeminiADKMiddleware:
 # adapters/__init__.py exports
 # ---------------------------------------------------------------------------
 
+
 class TestAdaptersExports:
     def test_exports_all_public_symbols(self) -> None:
         from atelier.gateway.adapters import (
-            AdapterDecision,
-            AdapterMode,
-            AgentAdapter,
             AtelierMiddleware,
             GeminiADKMiddleware,
             LangChainMiddleware,
-            LangGraphAdapter,
-            LangGraphConfig,
             OpenAIAgentsHooks,
             make_atelier_tools,
         )
+
         # All imports must resolve
         assert AtelierMiddleware is not None
         assert GeminiADKMiddleware is not None

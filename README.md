@@ -1,4 +1,4 @@
-# Atelier — Open-Source Context Runtime
+# Atelier — Open-Source Context Runtime for Coding Agents
 
 <p align="center">
   <a href="https://github.com/atelier-runtime/atelier/stargazers"><img src="https://img.shields.io/github/stars/atelier-runtime/atelier?style=for-the-badge" alt="GitHub stars" /></a>
@@ -21,47 +21,22 @@
   <a href="https://github.com/atelier-runtime/atelier"><img src="https://img.shields.io/badge/Open%20Source-%E2%9D%A4-red?style=for-the-badge" alt="Open source" /></a>
 </p>
 
-**Reusable engineering judgment for AI-assisted coding.**
+**MCP server + SDK middleware that gives every coding agent shared procedures, failure rescue, loop detection, cost tracking, and cross-vendor routing — across Claude Code, Codex, Copilot, LangChain, OpenAI SDK, Gemini ADK, and any MCP host.**
 
-Make your best engineers’ judgment available to junior engineers and AI agents.
-
-Atelier helps teams ship the same context runtime everywhere: on the command line, inside agent hosts through MCP, and with a detached background agents.
-
-The runtime separates **Passive Tracking** (enabled by default) from **Active Context** (requires Development Mode).
-
-![Atelier Overview dashboard](docs/assets/screenshots/overview.png)
-
-## Passive Tracking (Production Ready)
-
-- **Sessions & Ledger** — track every agent run and execution state
-- **Expense Tracking** — aggregate token usage and estimated costs across all hosts
-- **Traces** — record observable execution history (files, commands, errors)
-- **Tools & Agents** — central registry of available capabilities and personas
-
-![Cost & efficiency analytics across hosts, models, and tools](docs/assets/screenshots/analytics.png)
-
-## Active Context (Development Mode)
-
-_Enable with `ATELIER_DEV_MODE=1`_
-
-- **Context** — retrieve and inject known procedures (ReasonBlocks) into agent context
-- **Watchdogs** (formerly Monitors) — detect execution pathologies (loops, thrashing) and suggest rescues
-- **Rubric verification** — gate agent outputs against domain-specific safety checks
-- **Context Optimization** — smart tool selection and token-reduction
-- **Failure rescue** — surface targeted rescue procedures for recurring failures
+Atelier ships the same context runtime everywhere: CLI, MCP (for all major agent hosts), and background services. It captures what your best engineers know as reusable procedures (ReasonBlocks), learns from recurring failures, validates outputs against domain-specific rubrics, and plugs into any agent host through MCP.
 
 ## Install in One Command
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pankaj4u4m/atelier/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/atelier-runtime/atelier/main/scripts/install.sh | bash
 ```
 
-The installer does four things by default:
+The installer:
 
-- installs `atelier` and `atelier-mcp` as user-level console commands in `~/.local/bin`
+- installs `atelier` (CLI) and `atelier-mcp` (MCP server) as user-level commands in `~/.local/bin`
 - initializes the runtime store under `~/.atelier`
-- starts the detached `servicectl` background loop
-- attempts to start the optional visualization stack when npm is available and `ATELIER_NO_STACK=1` is not set
+- starts the detached `servicectl` background loop (systemd on Linux, launchd on macOS)
+- optionally starts the visualization stack when npm is available
 - installs supported host integrations when the host CLI is found on `PATH`
 
 Check the installed runtime:
@@ -72,40 +47,48 @@ atelier-mcp --version
 atelier background status
 ```
 
-→ User install guide: [docs/installation.md](docs/installation.md)
-
 ## What Runs After Install
 
-The installed product gives you **CLI + MCP + Background Services**.
+The installed product gives you **CLI + MCP + Background Services**. No HTTP server is required for core functionality.
 
-Atelier automatically registers itself with your OS background manager (**systemd** on Linux, **launchd** on macOS). This ensures it starts on boot and restarts automatically if it crashes.
+- `atelier ...` — full CLI for context, traces, rubrics, memory, and runtime management
+- `atelier-mcp` — MCP stdio server for agent host integration
+- `atelier background ...` — manages OS-level background services (controller + stack)
+- `atelier stack ...` — manages the optional API + frontend processes manually
 
-- `atelier ...` works with no HTTP server.
-- `atelier-mcp` works with no HTTP server.
-- `atelier background ...` manages the OS-level services (controller + stack).
-- `atelier stack ...` manages the optional API + frontend processes manually.
+Telemetry is on by default; disable with `atelier telemetry off` or `ATELIER_TELEMETRY=0`.
 
-Pure CLI mode still emits Atelier telemetry events unless you disable it with `atelier telemetry off` or `ATELIER_TELEMETRY=0`.
+## Capabilities
 
-## Daily Use
+### Context Reuse
 
-Atelier follows a simple **3-step process** for reliable coding:
-
-1. **Context**: Retrieve procedures and facts before starting.
-2. **Implement**: Execute the task (with optional rescue/route).
-3. **Record**: Record the outcome once done.
-
-Passive tracking works automatically. Active context features require `ATELIER_DEV_MODE=1`.
+Retrieve known procedures (ReasonBlocks) before or during a task. Blocks are ranked by BM25 + optional vector similarity against the task description, domain, and error context.
 
 ```bash
-# Fetch context for an agent task (Requires Dev Mode)
 atelier tools call context --dev --args '{
-  "task": "Fix generated output that drifts back after refresh",
-  "domain": "source.truth",
-  "files": ["src/content/generate.py"]
+  "task": "Configure HTTPS for staging",
+  "domain": "infra",
+  "files": ["deploy/nginx.conf"]
 }' --json
+```
 
-# Verify required checks after a task completes (Requires Dev Mode)
+### Failure Rescue
+
+Record every task outcome as a trace. When the same error pattern appears again, surface targeted rescue procedures from past failures.
+
+```bash
+atelier tools call rescue --dev --args '{
+  "task": "Deploy to staging",
+  "error": "certificate expired",
+  "domain": "infra"
+}' --json
+```
+
+### Rubric Verification
+
+Define domain-specific safety checks (rubrics) that gate outputs before and after high-risk work — state changes, config mutations, rollbacks.
+
+```bash
 atelier tools call verify --dev --args '{
   "rubric_id": "rubric_state_change_safety",
   "checks": {
@@ -116,44 +99,142 @@ atelier tools call verify --dev --args '{
 }' --json
 ```
 
-Common runtime commands:
+### Model Routing
+
+Route tasks to the right model based on complexity, cost budget, and available vendors. Includes cross-vendor routing advisor, counterfactual pricing simulation, and quality-aware policy evaluation.
 
 ```bash
-atelier background status
-atelier worker list
-atelier runs list
-atelier tools call search --dev --args '{"query":"read after write verification"}' --json
+atelier tools call route --args '{
+  "task": "Refactor the auth middleware",
+  "task_type": "refactor",
+  "budget": "balanced"
+}' --json
 ```
 
-## Pre-Launch Gate
+### Memory & Recall
 
-Use the launch-gate policy before first release and on release branches:
+- **Archival recall** — per-agent memory passages with embedding search
+- **Semantic file memory** — indexed file content search via tree-sitter AST parsing
+- **Symbol recall** — SCIP-indexed symbol search across the workspace
+- **Cross-vendor memory** — adapters for Claude, Codex CLI, and Gemini memory systems
 
-```bash
-export ATELIER_LAUNCH_SEED="release-seed"
-export ATELIER_LAUNCH_FROZEN_TIME="2025-01-01T00:00:00Z"
-export ATELIER_LAUNCH_ISOLATED_ROOT="/tmp/atelier-launch"
-export ATELIER_LAUNCH_ISOLATED_DB="/tmp/atelier-launch/atelier.db"
-make launch-gate
+### Loop Detection & Watchdogs
+
+Detect execution pathologies — thrashing, second-guessing, repeated failures — and suggest rescues before the agent burns context budget.
+
+### Tool Supervision
+
+Cached reads, memoized searches, injection-guarded grep, smart search, batch editing with rollback, shell command inspection, and symbol-level rename across the workspace.
+
+### Context Compression
+
+Summarise long-running agent ledgers into compact reusable state, reducing context window pressure.
+
+### Lesson Promotion
+
+Surface recurrent patterns as actionable lessons. Supports automated PR creation, cost-cap bindings, and route-preference tuning from observed behavior.
+
+### Background Processing
+
+- **Session import** — parse agent host sessions from 18 supported hosts: antigravity, claude, codex, copilot, crush, cursor, cursor-agent, droid, gemini, goose, kilo-code, kiro, omp, openclaw, opencode, pi, qwen, roo-code
+- **ReasonBlock consolidation** — deduplicate and merge related procedures
+- **Auto-update** — periodic git pull + dependency sync, with automatic service restart
+- **External analytics** — cost and efficiency reporting across periods (today, week, month)
+
+### Governance & Audit
+
+Policy enforcement, SSO-ready workspace management, role-based access control, proof gates, and audit export for compliance.
+
+## Supported Agent Hosts
+
+Atelier integrates with every major agent host through MCP. Configs live in `src/atelier/gateway/hosts/configs/`.
+
+| Host         | Config             | Integration Type                     |
+| ------------ | ------------------ | ------------------------------------ |
+| Claude Code  | `claude.yaml`      | MCP + skills + agents + plugin hooks |
+| Codex CLI    | `codex.yaml`       | MCP + AGENTS.md + hooks              |
+| Copilot      | `copilot.yaml`     | MCP + instructions                   |
+| opencode     | `opencode.yaml`    | MCP + Agent                          |
+| Antigravity  | `antigravity.yaml` | MCP                                  |
+| Cursor IDE   | `cursor.yaml`      | MCP                                  |
+| Hermes Agent | `hermes.yaml`      | MCP                                  |
+
+Per-host install guides:
+
+- [Claude Code](docs/hosts/claude-code-install.md)
+- [Codex CLI](docs/hosts/codex-install.md)
+- [Copilot](docs/hosts/copilot-install.md)
+- [opencode](docs/hosts/opencode-install.md)
+- [Antigravity](docs/hosts/antigravity-install.md)
+- [Cursor](docs/hosts/cursor-install.md)
+- [Hermes](docs/hosts/hermes-install.md)
+
+→ Full host overview: [docs/hosts/all-agent-clis.md](docs/hosts/all-agent-clis.md)
+
+## Language Support
+
+Atelier's code intelligence engine indexes files across all languages. Support levels vary by language:
+
+### Code Intelligence (symbols, imports, call graph)
+
+| Language   | Extensions            | Symbol Extraction | Import Resolution | Route Extraction | Call Edges |
+| ---------- | --------------------- | ----------------- | ----------------- | ---------------- | ---------- |
+| Python     | `.py`                 | AST-based         | Full              | Yes              | Yes        |
+| JavaScript | `.js`, `.jsx`, `.mjs` | Regex             | Regex             | Yes              | —          |
+| TypeScript | `.ts`, `.tsx`         | Regex             | Regex             | Yes              | —          |
+| Go         | `.go`                 | Regex             | Regex             | —                | —          |
+| Rust       | `.rs`                 | Regex             | Regex             | —                | —          |
+
+All other languages receive a generic structural outline (column-0 declarations and signatures) for code-context operations.
+
+### Semantic File Memory Outlining (tree-sitter AST)
+
+| Language                            | Outline Support                                 |
+| ----------------------------------- | ----------------------------------------------- |
+| Python                              | AST-based (full function/class body extraction) |
+| TypeScript, JavaScript              | AST-based (full)                                |
+| Kotlin, Go, Rust, Java, Ruby        | Tree-sitter-based outline                       |
+| C, C++, C#, PHP, Swift, Scala, Bash | Tree-sitter-based outline                       |
+
+Files in any language can be indexed, searched with grep, and read with outline mode — the difference is only in how deeply the AST is analysed for code intelligence operations.
+
+## Architecture
+
+```text
+Agent Host (Claude Code / Codex / Copilot / opencode / Antigravity / Cursor / Hermes)
+        |
+        |  MCP stdio  (or CLI / Python SDK)
+        v
+Atelier Runtime
+|- Context Reuse        (ReasonBlock store — SQLite + FTS5, optional pgvector)
+|- Failure Rescue       (trace recording → failure clustering → rescue procedures)
+|- Rubric Verification  (domain-specific gate rules)
+|- Run Ledger           (per-session execution state)
+|- Model Routing        (cross-vendor advisor, counterfactual pricing)
+|- Memory & Recall      (archival, semantic file, symbol, cross-vendor adapters)
+|- Loop Detection       (watchdogs, pathology FSM)
+|- Tool Supervision     (cached read, smart search, batch edit, shell inspect)
+|- Context Compression  (ledger summarisation)
+|- Lesson Promotion     (learning from traces, PR bot, cost-cap bindings)
+|- Session Import       (parse host sessions → structured traces)
+|- Governance           (policy, RBAC, proof gates, audit)
+        |
+        |- Background Services (servicectl controller + optional UI stack)
+        |- Local SQLite (default) or PostgreSQL (optional, ATELIER_DATABASE_URL)
 ```
 
-Modes:
+### Storage Layout
 
-- `LAUNCH_GATE_MODE=enforce` (default) blocks on policy violations.
-- `LAUNCH_GATE_MODE=shadow` reports violations without failing.
-- `LAUNCH_GATE_MODE=suggest` reports advisory guidance.
-
-Break-glass is allowed only with explicit TTL:
-
-```bash
-BREAK_GLASS=1 BREAK_GLASS_TTL_HOURS=4 make launch-gate
-```
-
-→ Installed quickstart: [docs/quickstart.md](docs/quickstart.md)
+| Path                        | Contents                                               |
+| --------------------------- | ------------------------------------------------------ |
+| `~/.atelier/atelier.db`     | SQLite store for blocks, traces, rubrics, jobs, memory |
+| `<workspace>/.lessons/blocks/*.md` | Markdown mirror of ReasonBlocks |
+| `~/.atelier/traces/*.json`  | JSON mirror of recorded traces                         |
+| `<workspace>/.lessons/rubrics/*.yaml` | YAML mirror of rubrics |
 
 ## Optional UI Stack
 
-The UI is optional. The installer registers it as a background service by default when npm is available. You can manage it alongside the controller:
+The frontend provides a dashboard for analytics, sessions, traces, memory, savings, and system health.
 
 ```bash
 # View logs for the visualization stack
@@ -168,66 +249,84 @@ Then open:
 - frontend: [http://localhost:3125](http://localhost:3125)
 - service API: [http://localhost:8787](http://localhost:8787)
 
-## Background Processing & Auto-Update
+Pages cover: Overview, Sessions, Session Detail, Analytics, Savings, Blocks, Memory, Rubrics, Failures, Optimizations, Plans, Reports, Watchdogs, External, Telemetry, Learnings, Insights, Outcomes, Runtime, System (20+ pages).
 
-Atelier includes an offline processing controller that runs as a background service. It handles session imports, maintenance jobs, and **automatic code updates**.
+## Python SDK
 
-The controller periodically checks your git repository for updates. When found, it automatically pulls the latest code, syncs dependencies, and restarts the services.
+Atelier ships two SDK surfaces for different integration patterns:
 
-```bash
-# Check service health and auto-update status
-atelier background status
+### Drop-in middleware (four frameworks, one ledger)
 
-# View background logs (from journald/launchd)
-atelier background logs controller
+`AtelierMiddleware` wraps Atelier's watchdogs, loop detection, cost tracking, and
+prefix-cache diagnostics behind a single class — no matter which agent framework
+you use:
 
-# Manually trigger a restart
-atelier background restart
+```python
+from atelier.sdk import AtelierMiddleware
+
+mw = AtelierMiddleware(agent_name="bugfixer", task="Refactor auth module")
+
+# LangChain — drop-in callback handler
+agent = create_agent(model=ChatAnthropic(...), callbacks=[mw.langchain()])
+
+# OpenAI Agents SDK — lifecycle hooks
+Runner.run_sync(agent, input="Refactor auth", hooks=mw.openai_hooks())
+
+# Raw Anthropic API — tool specs + dispatch
+# Pass tool_specs to client.messages.create(), call dispatch(response) after each call
+tool_specs, dispatch = mw.anthropic_tools()
+
+# Gemini ADK — lifecycle hooks
+gemini_hooks = mw.gemini_adk()
+gemini_hooks.on_tool_start("read_file")
 ```
 
-You can also queue and process work manually:
+All four surfaces share a single `RunLedger`, so cost, loops, prefix-cache metrics,
+and watchdog events are unified across the session.
 
-```bash
-atelier worker enqueue consolidate_reasonblocks
-atelier worker run-once
-atelier worker list
+### Direct client API
+
+```python
+from atelier.sdk import AtelierClient
+
+client = AtelierClient.local()
+
+context = client.get_context(task="Apply config update", domain="state.change")
+rescue = client.rescue_failure(task="Apply config update", error="cert expired")
 ```
 
-## Connect an Agent Host
+→ Full SDK reference: [docs/sdk/python.md](docs/sdk/python.md)
 
-The installer already attempts host integration when the relevant CLI is present. If you want to review or customize host setup, use the per-host docs:
+## Safety
 
-- Claude Code: MCP + skills + agents — [docs/hosts/claude-code-install.md](docs/hosts/claude-code-install.md)
-- Codex CLI: MCP + AGENTS.md — [docs/hosts/codex-install.md](docs/hosts/codex-install.md)
-- Copilot: MCP + instructions — [docs/hosts/copilot-install.md](docs/hosts/copilot-install.md)
-- opencode: MCP — [docs/hosts/opencode-install.md](docs/hosts/opencode-install.md)
-- Antigravity: MCP — [docs/hosts/antigravity-install.md](docs/hosts/antigravity-install.md)
-
-→ Full host overview: [docs/hosts/all-agent-clis.md](docs/hosts/all-agent-clis.md)
-
-## What Atelier Provides
-
-- **Context reuse**: retrieve and inject known procedures before or during complex tasks
-- **Semantic memory**: FTS + optional vector search over procedures and traces
-- **Loop detection**: detect thrashing, second-guessing, and repeated failures
-- **Tool supervision**: cached reads, memoized searches, injection-guarded grep
-- **Context compression**: summarise long-running ledgers into reusable state
-- **Rubric verification**: enforce required checks before and after risky work
-- **Failure rescue**: surface targeted recovery procedures from recurring failures
+- No chain-of-thought storage — only observable fields (commands, errors, summaries)
+- Redaction applied before trace persistence
+- API keys and host tokens never written to the store
+- Hooks remain opt-in for host integrations
 
 ## Docs by Audience
 
-- End users: [docs/installation.md](docs/installation.md), [docs/quickstart.md](docs/quickstart.md), [docs/troubleshooting.md](docs/troubleshooting.md)
-- Integrators: [docs/hosts/](docs/hosts/), [docs/sdk/mcp.md](docs/sdk/mcp.md), [docs/sdk/python.md](docs/sdk/python.md)
-- Contributors: [docs/engineering/contributing.md](docs/engineering/contributing.md)
-
-Deeper maintainer history, internal design notes, benchmark history, and legacy integration material now live under `docs-archive/` rather than the primary docs tree.
+- **End users**: [installation.md](docs/installation.md), [quickstart.md](docs/quickstart.md), [troubleshooting.md](docs/troubleshooting.md)
+- **Integrators**: [hosts/](docs/hosts/), [sdk/mcp.md](docs/sdk/mcp.md), [sdk/python.md](docs/sdk/python.md)
+- **Contributors**: [engineering/contributing.md](docs/engineering/contributing.md)
 
 → Full documentation index: [docs/README.md](docs/README.md)
 
-## For Developers and Contributors
+## Repository Layout
 
-If you are working from a source checkout instead of the installed product:
+| Path            | Purpose                                                          |
+| --------------- | ---------------------------------------------------------------- |
+| `src/atelier/`  | Runtime, CLI, MCP server, core capabilities, gateway, storage    |
+| `tests/`        | pytest suite                                                     |
+| `docs/`         | User, integration, and engineering documentation                 |
+| `integrations/` | Host adapter configs and install/verify scripts                  |
+| `frontend/`     | Optional React + Vite visualization stack (20+ pages)            |
+| `benchmarks/`   | MCP tool efficiency benchmarks (reads, grep, edit, search, etc.) |
+| `docs-site/`    | Docusaurus documentation site config                             |
+| `scripts/`      | Install, uninstall, hook scripts, and utilities                  |
+| `examples/`     | SDK usage examples                                               |
+
+## For Developers and Contributors
 
 ```bash
 cd atelier
@@ -236,90 +335,11 @@ atelier init
 make verify
 ```
 
-Developer-focused references:
-
 - CLI reference: [docs/cli.md](docs/cli.md)
 - MCP reference: [docs/sdk/mcp.md](docs/sdk/mcp.md)
 - Contributing guide: [docs/engineering/contributing.md](docs/engineering/contributing.md)
 
-Archived maintainer references are preserved under `docs-archive/engineering/` and `docs-archive/architecture/`.
-
-## Python SDK
-
-```python
-from atelier.sdk import AtelierClient
-
-client = AtelierClient.local()
-
-context = client.get_context(
-    task="Apply a live config update",
-    domain="state.change",
-)
-
-rescue = client.rescue_failure(
-    task="Apply a live config update",
-    error="Known dead end triggered",
-)
-```
-
-→ SDK reference: [docs/sdk/python.md](docs/sdk/python.md)
-
-## Architecture and Storage
-
-Atelier is a context runtime, not an agent framework and not a general-purpose vector database.
-
-```text
-Agent Host (Claude Code / Codex / Copilot / opencode / Antigravity)
-        |
-        |  MCP stdio  (or CLI / Python SDK)
-        v
-Atelier Runtime
-|- ReasonBlock store   (SQLite + FTS5, optional pgvector)
-|- Rubric gates        (domain-specific verification rules)
-|- Run ledger          (per-session execution state)
-|- Failure clusters    (recurring error signatures -> rescue procedures)
-|- Context compressor  (ledger summarisation)
-`- Tool cache          (read / search / edit)
-        |
-        |- Local SQLite (default)
-        `- PostgreSQL   (optional, ATELIER_DATABASE_URL)
-```
-
-Default storage layout:
-
-| Path                      | Contents                                           |
-| ------------------------- | -------------------------------------------------- |
-| `.atelier/atelier.db`     | SQLite store for blocks, traces, rubrics, and jobs |
-| `.atelier/blocks/*.md`    | Markdown mirror of ReasonBlocks                    |
-| `.atelier/traces/*.json`  | JSON mirror of recorded traces                     |
-| `.atelier/rubrics/*.yaml` | YAML mirror of rubrics                             |
-
-→ Full storage and environment reference: [docs/installation.md](docs/installation.md)
-
-## Safety
-
-- No chain-of-thought storage — only observable fields like commands, errors, and summaries
-- Redaction is applied before trace persistence
-- API keys and host tokens are not written to the store
-- Hooks remain opt-in for host integrations
-
-→ Archived security details: `docs-archive/engineering/security.md`
-
-## Benchmarks and Repository Layout
-
-Benchmarks, engineering internals, and repo structure live below the user journey on purpose.
-
-- Benchmarks archive: `docs-archive/benchmarks/`
-- Engineering internals archive: `docs-archive/engineering/`
-- Contributor quick reference: [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
-
-| Path            | Purpose                                                    |
-| --------------- | ---------------------------------------------------------- |
-| `src/atelier/`  | Runtime, CLI, MCP server, service, store, and capabilities |
-| `tests/`        | pytest suite                                               |
-| `docs/`         | user, integration, and engineering documentation           |
-| `integrations/` | host adapter configs and install/verify scripts            |
-| `frontend/`     | optional React + Vite visualization stack                  |
+Archived maintainer references live in `docs-archive/`.
 
 ## Star History
 

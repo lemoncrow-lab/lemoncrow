@@ -1,4 +1,4 @@
-"""Path helpers for separating runtime state from Git-tracked knowledge."""
+"""Path helpers for separating runtime state from Git-tracked lessons."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 DEFAULT_STORE_DIRNAME = ".atelier"
-DEFAULT_KNOWLEDGE_DIRNAME = ".knowledge"
+DEFAULT_LESSONS_DIRNAME = ".lessons"
 
 
 def default_store_root() -> Path:
@@ -29,7 +29,7 @@ _HOST_WORKSPACE_ENV_VARS = (
 
 
 def resolve_workspace_root(root: Path | str | None = None) -> Path:
-    """Resolve the active workspace root used for project-local knowledge.
+    """Resolve the active workspace root used for project-local lessons.
 
     Precedence:
     1. ``ATELIER_WORKSPACE_ROOT`` — explicit, authoritative
@@ -48,22 +48,22 @@ def resolve_workspace_root(root: Path | str | None = None) -> Path:
     return Path.cwd().resolve()
 
 
-def resolve_knowledge_root(root: Path | str | None = None, knowledge_root: Path | str | None = None) -> Path:
-    """Resolve the Git-tracked knowledge root.
+def resolve_lessons_root(root: Path | str | None = None, lessons_root: Path | str | None = None) -> Path:
+    """Resolve the Git-tracked lessons root.
 
     Precedence:
     1. Explicit constructor argument
-    2. ATELIER_KNOWLEDGE_ROOT
-    3. <workspace>/.knowledge
+    2. ATELIER_LESSONS_ROOT
+    3. <workspace>/.lessons
     """
-    if knowledge_root is not None:
-        return Path(knowledge_root).expanduser().resolve()
+    if lessons_root is not None:
+        return Path(lessons_root).expanduser().resolve()
 
-    configured = os.environ.get("ATELIER_KNOWLEDGE_ROOT", "").strip()
+    configured = os.environ.get("ATELIER_LESSONS_ROOT", "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
 
-    return (resolve_workspace_root(root) / DEFAULT_KNOWLEDGE_DIRNAME).resolve()
+    return (resolve_workspace_root(root) / DEFAULT_LESSONS_DIRNAME).resolve()
 
 
 def resolve_session_state_path(workspace_root: Path | str | None = None) -> Path:
@@ -93,7 +93,7 @@ def _derive_workspace_root(root: Path | str | None) -> Path | None:
     if "workspaces" in candidate.parts:
         return None
 
-    if candidate.name in {DEFAULT_STORE_DIRNAME, DEFAULT_KNOWLEDGE_DIRNAME}:
+    if candidate.name in {DEFAULT_STORE_DIRNAME, DEFAULT_LESSONS_DIRNAME}:
         return candidate.parent
     if candidate.parent != candidate:
         return candidate.parent
@@ -101,10 +101,10 @@ def _derive_workspace_root(root: Path | str | None) -> Path | None:
 
 
 __all__ = [
-    "DEFAULT_KNOWLEDGE_DIRNAME",
+    "DEFAULT_LESSONS_DIRNAME",
     "DEFAULT_STORE_DIRNAME",
     "default_store_root",
-    "resolve_knowledge_root",
+    "resolve_lessons_root",
     "resolve_session_state_path",
     "resolve_workspace_root",
 ]

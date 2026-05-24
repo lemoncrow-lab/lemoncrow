@@ -5,6 +5,7 @@ from __future__ import annotations
 import difflib
 import json
 import time
+from collections.abc import Generator
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -53,7 +54,7 @@ def _count_tiktoken(text: str) -> int:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolate_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / ".atelier-runtime"))
     _reset_runtime_cache_for_testing()
     yield
@@ -65,11 +66,7 @@ def test_edit_ab_real(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     src = tmp_path / "src"
     src.mkdir(parents=True, exist_ok=True)
     target = src / "app.py"
-    before = (
-        "VALUE = 1\n"
-        "def run() -> int:\n"
-        "    return VALUE\n"
-    )
+    before = "VALUE = 1\n" "def run() -> int:\n" "    return VALUE\n"
     target.write_text(before, encoding="utf-8")
     after = before.replace("VALUE = 1", "VALUE = 2")
 

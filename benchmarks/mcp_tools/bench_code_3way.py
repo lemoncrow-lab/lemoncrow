@@ -1,4 +1,4 @@
-"""3-way code benchmark: Atelier vs Serena vs code-index-mcp."""
+"""3-way code benchmark: Atelier vs Serena vs CodeGraph."""
 
 from __future__ import annotations
 
@@ -83,7 +83,13 @@ CASES: list[Case] = [
     ),
     Case(
         name="search",
-        atelier_args={"op": "search", "query": "classify_command", "mode": "lexical", "limit": 20, "budget_tokens": 4000},
+        atelier_args={
+            "op": "search",
+            "query": "classify_command",
+            "mode": "lexical",
+            "limit": 20,
+            "budget_tokens": 4000,
+        },
         serena_tool="search_for_pattern",
         serena_params={
             "substring_pattern": "classify_command",
@@ -137,7 +143,9 @@ class SerenaClient:
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=180) as res:
-            return res.read().decode("utf-8", errors="replace")
+            body = res.read()
+            assert isinstance(body, bytes)
+            return body.decode("utf-8", errors="replace")
 
     def stop(self) -> None:
         if self._proc is None:
@@ -153,9 +161,9 @@ class CodeIndexClient:
     def __init__(self, repo_root: Path, code_index_repo: Path) -> None:
         self._repo_root = repo_root
         self._code_index_repo = code_index_repo
-        self._ctx = None
-        self._search_service = None
-        self._code_intel_service = None
+        self._ctx: Any | None = None
+        self._search_service: Any | None = None
+        self._code_intel_service: Any | None = None
 
     def start(self) -> None:
         src_path = self._code_index_repo / "src"
@@ -164,13 +172,13 @@ class CodeIndexClient:
         if str(src_path) not in sys.path:
             sys.path.insert(0, str(src_path))
 
-        from mcp.server.fastmcp import Context
         from code_index_mcp.project_settings import ProjectSettings
         from code_index_mcp.server import CodeIndexerContext, _BootstrapRequestContext, mcp
         from code_index_mcp.services.code_intelligence_service import CodeIntelligenceService
         from code_index_mcp.services.index_management_service import IndexManagementService
         from code_index_mcp.services.project_management_service import ProjectManagementService
         from code_index_mcp.services.search_service import SearchService
+        from mcp.server.fastmcp import Context
 
         lifespan = CodeIndexerContext(base_path="", settings=ProjectSettings("", skip_load=True))
         self._ctx = Context(request_context=_BootstrapRequestContext(lifespan), fastmcp=mcp)
@@ -182,7 +190,7 @@ class CodeIndexClient:
     def run(self, kind: str, params: dict[str, Any]) -> dict[str, Any]:
         if kind == "search":
             assert self._search_service is not None
-            return self._search_service.search_code(
+            result = self._search_service.search_code(
                 pattern=params["pattern"],
                 regex=params.get("regex", False),
                 file_pattern=params.get("file_pattern"),
@@ -190,9 +198,13 @@ class CodeIndexClient:
                 context_lines=params.get("context_lines", 0),
                 case_sensitive=params.get("case_sensitive", True),
             )
+            assert isinstance(result, dict)
+            return result
         if kind == "summary":
             assert self._code_intel_service is not None
-            return self._code_intel_service.analyze_file(params["file_path"])
+            result = self._code_intel_service.analyze_file(params["file_path"])
+            assert isinstance(result, dict)
+            return result
         raise ValueError(f"unknown code-index kind: {kind}")
 
 
@@ -219,26 +231,33 @@ def render_cell(stats: Stats) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="3-way code benchmark")
+    parser = argparse.ArgumentParser(description="3-way code benchmark (Atelier / Serena / CodeGraph)")
     parser.add_argument("--iterations", type=int, default=10)
     parser.add_argument("--serena-port", type=int, default=8041)
     parser.add_argument("--serena-project", default="atelier")
-    parser.add_argument("--code-index-repo", default="/tmp/code-index-mcp-bench")
+    parser.add_argument(
+        "--codegraph-repo",
+        "--code-index-repo",
+        dest="codegraph_repo",
+        default="/tmp/code-index-mcp-bench",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[2]
-    if not Path(args.code_index_repo).exists():
-        raise SystemExit(f"Missing code-index-mcp repo at {args.code_index_repo}. Clone it first.")
+    if not Path(args.codegraph_repo).exists():
+        raise SystemExit(
+            f"Missing CodeGraph repo at {args.codegraph_repo}. Clone code-index-mcp (CodeGraph backend) first."
+        )
 
     from atelier.gateway.adapters.mcp_server import tool_code
 
     serena = SerenaClient(port=args.serena_port, project_name=args.serena_project)
-    code_index = CodeIndexClient(repo_root=repo_root, code_index_repo=Path(args.code_index_repo))
+    code_index = CodeIndexClient(repo_root=repo_root, code_index_repo=Path(args.codegraph_repo))
     serena.start()
     code_index.start()
 
     try:
-        print("| Case | Atelier | Serena | code-index-mcp |")
+        print("| Case | Atelier | Serena | CodeGraph |")
         print("|---|---:|---:|---:|")
         for case in CASES:
             a_times: list[float] = []

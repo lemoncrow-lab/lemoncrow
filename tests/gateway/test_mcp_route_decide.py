@@ -57,4 +57,5 @@ def test_mcp_route_decide_returns_decision(mcp_env: Path) -> None:
     assert "model" in payload
     assert "tier" in payload
     assert "rationale" in payload
-    assert "can_spawn" in payload
+    assert "route_tier" in payload
+    assert "can_spawn" not in payload

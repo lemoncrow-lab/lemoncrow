@@ -1,7 +1,7 @@
 """Parse ReasonBlocks from human-readable Markdown.
 
 Complements renderer.py to enable bidirectional sync between the Git-tracked
-knowledge directory and the local SQLite index.
+lessons directory and the local SQLite index.
 """
 
 from __future__ import annotations

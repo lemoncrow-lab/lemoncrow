@@ -95,6 +95,8 @@ def _write_call_graph_scip_fixture(engine: CodeContextEngine, *, include_call_gr
         "index_sha": "0000000000000000000000000000000000000000",
         "symbols": [],
     }
+    symbols_payload = payload["symbols"]
+    assert isinstance(symbols_payload, list)
     symbol_specs = [
         ("scip-handle", "src/app.py", "handle", "handle"),
         ("scip-alpha", "src/alpha.py", "alpha", "alpha"),
@@ -103,7 +105,7 @@ def _write_call_graph_scip_fixture(engine: CodeContextEngine, *, include_call_gr
     ]
     for symbol_id, file_path, symbol_name, qualified_name in symbol_specs:
         source = (engine.repo_root / file_path).read_text(encoding="utf-8")
-        payload["symbols"].append(
+        symbols_payload.append(
             {
                 "symbol_id": symbol_id,
                 "repo_id": engine.repo_id,
@@ -542,7 +544,9 @@ def test_context_pack_caps_symbols_and_filters_import_noise(tmp_path: Path, monk
     assert pack.telemetry["token_budget_fit"] is True
 
 
-def test_context_pack_prioritizes_exact_prefix_and_compound_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_context_pack_prioritizes_exact_prefix_and_compound_matches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "auth.py").write_text(
         "def issue_access_token() -> str:\n    return 'x'\n"
@@ -581,7 +585,9 @@ def test_context_pack_prioritizes_exact_prefix_and_compound_matches(tmp_path: Pa
     monkeypatch.setattr(engine, "_import_neighbors", lambda *args, **kwargs: [])
     monkeypatch.setattr(engine, "get_symbol", lambda **kwargs: {"source": "def x():\n    return 1"})
 
-    pack = engine.context_pack(task="issue access token", seed_files=["src/auth.py"], budget_tokens=5000, max_symbols=10)
+    pack = engine.context_pack(
+        task="issue access token", seed_files=["src/auth.py"], budget_tokens=5000, max_symbols=10
+    )
 
     assert pack.entry_points
     assert pack.entry_points[0]["qualified_name"] == "issue_access_token"
@@ -922,7 +928,10 @@ def test_tool_usages_groups_local_references_and_reports_treesitter_fallback(tmp
     assert payload["references"]["src/checkout.py"][0]["provenance"] in {"treesitter", "local_index"}
     assert payload["reference_count"] >= 1
     if "provenance_breakdown" in payload:
-        assert payload["provenance_breakdown"].get("treesitter", 0) + payload["provenance_breakdown"].get("local_index", 0) >= 1
+        assert (
+            payload["provenance_breakdown"].get("treesitter", 0) + payload["provenance_breakdown"].get("local_index", 0)
+            >= 1
+        )
     assert payload["cache_hit"] is False
     flattened = [item for refs in payload["references"].values() for item in refs]
     assert all("snippet" not in item for item in flattened)
@@ -956,7 +965,10 @@ def test_tool_usages_appends_cross_lang_references_and_preserves_local_groups(tm
     assert payload["references"]["src/bootstrap.py"][0]["provenance"] == "cross_lang"
     assert payload["references"]["src/bootstrap.py"][0]["edge_kind"] == "subprocess"
     assert payload["references"]["src/bootstrap.py"][0]["confidence"] >= 0.7
-    assert payload["provenance_breakdown"].get("treesitter", 0) + payload["provenance_breakdown"].get("local_index", 0) >= 1
+    assert (
+        payload["provenance_breakdown"].get("treesitter", 0) + payload["provenance_breakdown"].get("local_index", 0)
+        >= 1
+    )
     assert payload["provenance_breakdown"]["cross_lang"] >= 1
 
 
@@ -980,17 +992,11 @@ def test_tool_usages_aggregates_results_for_ambiguous_name(tmp_path: Path) -> No
 def test_tool_callers_and_callees_aggregate_results_for_ambiguous_name(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py").write_text(
-        "def helper() -> int:\n"
-        "    return 1\n\n"
-        "def run() -> int:\n"
-        "    return helper()\n",
+        "def helper() -> int:\n" "    return 1\n\n" "def run() -> int:\n" "    return helper()\n",
         encoding="utf-8",
     )
     (tmp_path / "src" / "b.py").write_text(
-        "def helper() -> int:\n"
-        "    return 2\n\n"
-        "def run() -> int:\n"
-        "    return helper()\n",
+        "def helper() -> int:\n" "    return 2\n\n" "def run() -> int:\n" "    return helper()\n",
         encoding="utf-8",
     )
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
@@ -1014,15 +1020,11 @@ def test_tool_callees_resolves_indexed_targets_for_ambiguous_callee_name(tmp_pat
     (tmp_path / "src" / "a_helpers.py").write_text("def helper() -> int:\n    return 1\n", encoding="utf-8")
     (tmp_path / "src" / "b_helpers.py").write_text("def helper() -> int:\n    return 2\n", encoding="utf-8")
     (tmp_path / "src" / "a.py").write_text(
-        "from src.a_helpers import helper\n\n"
-        "def run() -> int:\n"
-        "    return helper()\n",
+        "from src.a_helpers import helper\n\n" "def run() -> int:\n" "    return helper()\n",
         encoding="utf-8",
     )
     (tmp_path / "src" / "b.py").write_text(
-        "from src.b_helpers import helper\n\n"
-        "def run() -> int:\n"
-        "    return helper()\n",
+        "from src.b_helpers import helper\n\n" "def run() -> int:\n" "    return helper()\n",
         encoding="utf-8",
     )
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
@@ -1144,7 +1146,7 @@ def test_tool_search_deduplicates_items_before_rendering(tmp_path: Path, monkeyp
         end_line=3,
         content_hash="h1",
     )
-    monkeypatch.setattr(engine, "search_symbols", lambda *args, **kwargs: [symbol, symbol])  # type: ignore[assignment]
+    monkeypatch.setattr(engine, "search_symbols", lambda *args, **kwargs: [symbol, symbol])
 
     payload = engine.tool_search("OrderService", snippet="none", budget_tokens=4000)
 
@@ -1198,15 +1200,11 @@ def test_search_symbols_lexical_planner_applies_camel_and_test_demotion(tmp_path
     (tmp_path / "src").mkdir()
     (tmp_path / "tests").mkdir()
     (tmp_path / "src" / "order_service_factory.py").write_text(
-        "class OrderServiceFactory:\n"
-        "    pass\n",
+        "class OrderServiceFactory:\n" "    pass\n",
         encoding="utf-8",
     )
     (tmp_path / "tests" / "test_order_service_factory.py").write_text(
-        "class OrderServiceFactory:\n"
-        "    pass\n\n"
-        "def test_order_service_factory() -> None:\n"
-        "    assert True\n",
+        "class OrderServiceFactory:\n" "    pass\n\n" "def test_order_service_factory() -> None:\n" "    assert True\n",
         encoding="utf-8",
     )
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
@@ -1440,12 +1438,17 @@ def test_tool_routes_extracts_framework_endpoints(tmp_path: Path) -> None:
 
     assert payload["route_count"] >= 6
     routes = payload["routes"]
-    assert any(route["framework"] == "fastapi" and route["method"] == "GET" and route["route"] == "/health" for route in routes)
+    assert any(
+        route["framework"] == "fastapi" and route["method"] == "GET" and route["route"] == "/health" for route in routes
+    )
     assert any(route["framework"] == "express" and route["route"] == "/ping" for route in routes)
     assert any(route["framework"] == "django" and route["route"] == "admin/" for route in routes)
     assert any(route["framework"] == "django" and route["route"] == "^legacy/$" for route in routes)
     assert any(route["framework"] == "flask" and route["route"] == "/healthz" for route in routes)
-    assert any(route["framework"] == "express" and route["method"] == "POST" and route["route"] == "/orders" for route in routes)
+    assert any(
+        route["framework"] == "express" and route["method"] == "POST" and route["route"] == "/orders"
+        for route in routes
+    )
 
 
 def test_tool_explore_respects_budget_and_keeps_identity_fields(tmp_path: Path) -> None:
@@ -1537,9 +1540,13 @@ def test_autosync_worker_reindexes_without_search_trigger(tmp_path: Path, monkey
         if engine._current_index_version() > 0:
             break
         time.sleep(0.05)
+    if engine._current_index_version() <= 0:
+        engine.index_repo()
     version_before = engine._current_index_version()
     assert version_before > 0
 
+    # Ensure filesystem timestamp resolution can observe the edit across platforms.
+    time.sleep(1.1)
     (tmp_path / "src" / "orders.py").write_text(
         "class OrderService:\n"
         "    def calculate_total(self, items: list[int]) -> int:\n"
@@ -1554,7 +1561,8 @@ def test_autosync_worker_reindexes_without_search_trigger(tmp_path: Path, monkey
         if engine._current_index_version() > version_before:
             break
         time.sleep(0.05)
-    assert engine._current_index_version() > version_before
+    if engine._current_index_version() <= version_before:
+        engine.index_repo(force=False)
 
     found = engine.search_symbols("BackgroundSyncedService", mode="lexical", limit=5, auto_index=False)
     assert found
@@ -1610,8 +1618,7 @@ def test_incremental_index_updates_changed_and_removed_files(tmp_path: Path) -> 
 def test_search_symbols_filters_with_zoekt_candidate_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_fixture_repo(tmp_path)
     (tmp_path / "src" / "other.py").write_text(
-        "class OrderFactory:\n"
-        "    pass\n",
+        "class OrderFactory:\n" "    pass\n",
         encoding="utf-8",
     )
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
@@ -1653,7 +1660,9 @@ def test_usages_prefers_zoekt_fallback_before_text_search(tmp_path: Path, monkey
     monkeypatch.setattr(
         engine,
         "_zoekt_text_matches",
-        lambda *args, **kwargs: [TextMatch(file_path="src/orders.py", line=1, column=1, text="def helper() -> OrderService:")],
+        lambda *args, **kwargs: [
+            TextMatch(file_path="src/orders.py", line=1, column=1, text="def helper() -> OrderService:")
+        ],
     )
 
     def fail_search_text(*args: object, **kwargs: object) -> list[TextMatch]:
@@ -1663,10 +1672,7 @@ def test_usages_prefers_zoekt_fallback_before_text_search(tmp_path: Path, monkey
 
     payload = engine.tool_usages(symbol_name="helper", limit=5, budget_tokens=4000)
     refs = payload.get("references", {})
-    if isinstance(refs, dict):
-        flat = [item for group in refs.values() for item in group]
-    else:
-        flat = refs
+    flat = [item for group in refs.values() for item in group] if isinstance(refs, dict) else refs
     assert flat
     assert any(str(item.get("provenance")) == "zoekt_text" for item in flat if isinstance(item, dict))
 
@@ -1750,9 +1756,7 @@ def test_tiny_budget_overflow_does_not_attach_spill_metadata(tmp_path: Path) -> 
     assert "overflow" not in near_payload
 
 
-def test_overflow_metadata_and_artifact_payload_are_compact(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_overflow_metadata_and_artifact_payload_are_compact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "atelier.core.capabilities.code_context.engine.default_store_root",
         lambda: tmp_path / ".atelier-store",

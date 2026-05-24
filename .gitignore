@@ -271,3 +271,7 @@ exports/
 # -----------------------
 # END Master Aggregated Rules (Global Union)
 # -----------------------
+.cursor/
+
+# MCP Vector Search index directory
+.mcp-vector-search/

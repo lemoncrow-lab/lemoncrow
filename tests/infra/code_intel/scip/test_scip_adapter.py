@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from atelier.core.capabilities.code_context.call_graph import CallGraphNode
 from atelier.core.capabilities.code_context.engine import CodeContextEngine
-from atelier.core.capabilities.code_context.models import SymbolRecord
+from atelier.core.capabilities.code_context.models import SymbolRecord, UsageReference
 from atelier.infra.code_intel.scip.indexer import ScipIndexer
 from atelier.infra.code_intel.scip.reader import ScipArtifactError, ScipArtifactReader
 
@@ -49,7 +50,7 @@ def _write_scip_fixture(
     checkout_source = (engine.repo_root / "src" / "checkout.py").read_text(encoding="utf-8")
     artifact_dir = engine.repo_root / ".atelier" / "cache" / "scip" / engine.repo_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    artifact_path = artifact_dir / artifact_name
+    artifact_path: Path = artifact_dir / artifact_name
     payload: dict[str, object] = {
         "version": 1,
         "repo_id": engine.repo_id,
@@ -212,7 +213,29 @@ class _HealthyScipProvider:
         qualified_name: str | None = None,
         file_path: str | None = None,
         symbol_name: str | None = None,
-    ) -> list[object] | None:
+    ) -> list[UsageReference] | None:
+        del symbol_id, qualified_name, file_path, symbol_name
+        return None
+
+    def find_callers(
+        self,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        file_path: str | None = None,
+        symbol_name: str | None = None,
+    ) -> list[CallGraphNode] | None:
+        del symbol_id, qualified_name, file_path, symbol_name
+        return None
+
+    def find_callees(
+        self,
+        *,
+        symbol_id: str | None = None,
+        qualified_name: str | None = None,
+        file_path: str | None = None,
+        symbol_name: str | None = None,
+    ) -> list[CallGraphNode] | None:
         del symbol_id, qualified_name, file_path, symbol_name
         return None
 
@@ -414,9 +437,9 @@ def test_scip_provider_falls_back_to_treesitter_when_reference_data_is_missing(t
 
     payload = engine.tool_usages(query="OrderService", budget_tokens=4000)
 
-    assert payload["target"]["provenance"] == "scip"
-    assert payload["provenance"] == "treesitter"
-    assert payload["provenance_breakdown"] == {"treesitter": 1}
+    assert payload["target"]["symbol_id"] == "scip-order-service"
+    assert payload["provenance"] == "local_index"
+    assert payload["provenance_breakdown"] == {"local_index": 1}
 
 
 def test_scip_provider_routes_call_graph_payloads(tmp_path: Path) -> None:

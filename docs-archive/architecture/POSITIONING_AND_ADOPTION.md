@@ -70,7 +70,7 @@ V3 shipped the technical surfaces that deliver on the positioning above. **The a
 gap is operational, not technical.** Three frictions block real-world rollout:
 
 1. **Empty-block-store problem.** A new user runs `atelier init` and gets an empty
-   `./.knowledge/blocks/` directory. They have to author institutional knowledge from a blank
+   `./.lessons/blocks/` directory. They have to author institutional knowledge from a blank
    page. Most quit before writing the third block.
 2. **Existing-docs gap.** Companies have `STYLE.md`, `CONTRIBUTING.md`, exported Confluence
    pages full of procedural rules. None of it is in a form Atelier can use. Re-authoring it
@@ -89,7 +89,7 @@ boundary-safe.
 Per the V3 audit on 2026-05-05, all 8 V3 packets and 4 V3.1 packets are implemented in
 code. Specifically, these surfaces are live:
 
-- ReasonBlock store with versioned, retrievable blocks (`./.knowledge/blocks/*.md`).
+- ReasonBlock store with versioned, retrievable blocks (`./.lessons/blocks/*.md`).
 - MCP tools: `task`, `route`, `verify`, `rescue`, `trace`, `memory`,
   `read`, `search`, `edit`, `sql`, `compact`, `code`, and `shell`.
 - Governance workflows such as lesson and consolidation review remain CLI surfaces.
@@ -240,7 +240,7 @@ No autonomous mutation of the ReasonBlock store.
 
 ### 5.3 — Starter ReasonBlock packs (`atelier init --stack`)
 
-**Why.** New users staring at an empty `./.knowledge/blocks/` directory don't know what a
+**Why.** New users staring at an empty `./.lessons/blocks/` directory don't know what a
 ReasonBlock looks like for their stack. Templates remove the blank-page problem.
 
 **What to build.**
@@ -256,7 +256,7 @@ ReasonBlock looks like for their stack. Templates remove the blank-page problem.
   - `python-django/`, `rails/`, `go-stdlib/`, … — defer until requested.
 - **CLI flag:** extend the existing `atelier init` command with `--stack STACK` (and
   `--list-stacks`). On `init --stack python-fastapi`, copy the matching templates to the
-  user's `./.knowledge/blocks/` directory, prefixed with `template_` so the user can rename or
+  user's `./.lessons/blocks/` directory, prefixed with `template_` so the user can rename or
   delete without confusion.
 - **Manifest:** each stack folder contains a `manifest.toml` with `name`, `description`,
   `version`, `blocks: list[&#123;file, title, summary&#125;]`. `--list-stacks` reads these
@@ -269,7 +269,7 @@ ReasonBlock looks like for their stack. Templates remove the blank-page problem.
 
 **Acceptance.**
 
-- `atelier init --stack python-fastapi` produces a populated `./.knowledge/blocks/` in under a
+- `atelier init --stack python-fastapi` produces a populated `./.lessons/blocks/` in under a
   second.
 - Every shipped template parses cleanly under V3's ReasonBlock validation.
 - Templates are commented to make their adaptation obvious (TODO markers where users will

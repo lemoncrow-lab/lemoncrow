@@ -220,7 +220,7 @@ Expected: a `tools/list` response containing all V1 + V2 tools.
 | Variable                 | Default                      | Description                                   |
 | ------------------------ | ---------------------------- | --------------------------------------------- |
 | `ATELIER_ROOT`           | `~/.atelier`                 | Trace/history store root                      |
-| `ATELIER_KNOWLEDGE_ROOT` | `$WORKSPACE_ROOT/.knowledge` | Optional override for Git-tracked knowledge   |
+| `ATELIER_LESSONS_ROOT` | `$WORKSPACE_ROOT/.lessons` | Optional override for Git-tracked knowledge   |
 | `ATELIER_WORKSPACE_ROOT` | `.`                          | Workspace root (for relative path resolution) |
 | `ATELIER_MCP_MODE`       | `local`                      | `local` or `remote`                           |
 | `ATELIER_SERVICE_URL`    | `http://localhost:8787`      | Remote service URL (when mode=remote)         |

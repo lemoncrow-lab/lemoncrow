@@ -103,7 +103,7 @@ format-check: ## Check Python formatting without rewriting files
 
 format: | _ensure_hooks ## Format all code: Python (ruff+black) and frontend (prettier if available)
 	uv run ruff check --fix $(PY_PATHS)
-	uv run black $(PY_PATHS)
+	uv run black src tests
 	@if [ -d "frontend" ]; then \
 		if [ -f "frontend/package.json" ] && grep -q "prettier" frontend/package.json 2>/dev/null; then \
 			cd frontend && npx prettier --write "src/**/*.{ts,tsx,js,jsx,json,css,md}" 2>/dev/null || true; \

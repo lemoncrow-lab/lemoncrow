@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from importlib import resources
 from pathlib import Path
 
 import pytest
-import yaml
 
 from atelier.core.foundation.models import ReasonBlock
 from atelier.core.foundation.renderer import render_block_for_agent
@@ -18,17 +16,35 @@ TASK = "live state change resolved from url slug verification drift"
 def seeded_store(tmp_path: Path) -> ContextStore:
     store = ContextStore(tmp_path / "atelier")
     store.init()
-    blocks_dir = resources.files("atelier") / "infra" / "seed_blocks"
-    loaded: dict[str, ReasonBlock] = {}
-    for path in blocks_dir.iterdir():
-        if not path.name.endswith(".yaml"):
-            continue
-        data = yaml.safe_load(Path(str(path)).read_text(encoding="utf-8"))
-        block = ReasonBlock.model_validate(data)
-        loaded[block.id] = block
-        store.upsert_block(block)
-
-    source = loaded["canonical-identifier-over-display-name"]
+    source = ReasonBlock(
+        id="canonical-identifier-over-display-name",
+        title="Canonical Identifier Over Display Name",
+        domain="state.change",
+        task_types=["integration_change", "data_write", "rollback"],
+        triggers=["slug", "handle", "title", "url"],
+        tool_patterns=["api.write", "db.write"],
+        situation=(
+            "Human-readable labels such as titles, URLs, paths, and display names can "
+            "drift. Mutations and rollbacks should target a stable canonical identifier."
+        ),
+        dead_ends=[
+            "resolve target from url slug alone",
+            "use display name as stable identity",
+        ],
+        procedure=[
+            "Resolve the target through its canonical stable identifier.",
+            "Record that identifier before the write.",
+            "Use the same identifier for the mutation and the readback.",
+        ],
+        verification=[
+            "A canonical identifier was recorded before the write.",
+            "The same identifier was used for readback.",
+        ],
+        failure_signals=["wrong target updated", "ambiguous match set"],
+        required_rubrics=["rubric_state_change_safety"],
+        when_not_to_apply="Pure read-only exploration where no state mutation or rollback will happen.",
+    )
+    store.upsert_block(source)
     for idx in range(6):
         clone = source.model_copy(
             update={

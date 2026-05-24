@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-pytestmark = pytest.mark.slow
-
 import json
 from pathlib import Path
 
+import pytest
+
 from benchmarks.code_intel.cross_lang_bench import run_cross_lang_bench
+
+pytestmark = pytest.mark.slow
 
 
 def test_cross_lang_bench_is_json_serializable_and_records_trace(tmp_path: Path) -> None:

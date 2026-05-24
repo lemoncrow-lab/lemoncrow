@@ -4,14 +4,15 @@ import importlib.util
 import sys
 import types
 from pathlib import Path
+from types import ModuleType
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _load_module(name: str, path: Path):
+def _load_module(name: str, path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
     assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
@@ -60,9 +61,9 @@ def test_code_matrix_quality_floor_is_enforced() -> None:
     sys.modules.pop("benchmarks", None)
 
     assert CODE_CASES, "code benchmark matrix must not be empty"
-    assert all(case.quality_score >= 0.6 for case in CODE_CASES), (
-        "all code benchmark cases must keep quality_score at or above 0.6"
-    )
+    assert all(
+        case.quality_score >= 0.6 for case in CODE_CASES
+    ), "all code benchmark cases must keep quality_score at or above 0.6"
 
 
 def test_effective_tokens_use_quality_floor() -> None:

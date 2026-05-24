@@ -40,7 +40,7 @@ from atelier.core.foundation.models import (
     coerce_trace_json,
     to_jsonable,
 )
-from atelier.core.foundation.paths import resolve_knowledge_root
+from atelier.core.foundation.paths import resolve_lessons_root
 
 logger = logging.getLogger(__name__)
 
@@ -281,13 +281,13 @@ class ContextStore:
     so they can be reviewed in PRs without running tools.
     """
 
-    def __init__(self, root: Path | str, knowledge_root: Path | str | None = None) -> None:
+    def __init__(self, root: Path | str, lessons_root: Path | str | None = None) -> None:
         self.root = Path(root).resolve()
         self.db_path = self.root / "atelier.db"
 
-        # Knowledge (blocks/rubrics) is project-local by default for Git tracking.
+        # Lessons (blocks/rubrics) are project-local by default for Git tracking.
         # History (traces/raw) stays in the primary root.
-        _k_root = resolve_knowledge_root(self.root, knowledge_root)
+        _k_root = resolve_lessons_root(self.root, lessons_root)
         self.blocks_dir = _k_root / "blocks"
         self.rubrics_dir = _k_root / "rubrics"
 
@@ -376,10 +376,10 @@ class ContextStore:
                     conn.execute(ddl)
             self._apply_v2_migrations(conn)
             self.verify_v2_schema(conn)
-        # Seed packaged rubrics and sync user knowledge outside the schema
+        # Seed packaged rubrics and sync user lessons outside the schema
         # migration connection so each upsert gets its own committed transaction.
         self._seed_packaged_rubrics()
-        self.sync_knowledge()
+        self.sync_lessons()
         self._initialized = True
 
     def _connect(self) -> sqlite3.Connection:
@@ -722,7 +722,7 @@ class ContextStore:
                     (block_id,),
                 )
 
-    def sync_knowledge(self) -> dict[str, int]:
+    def sync_lessons(self) -> dict[str, int]:
         """Sync blocks and rubrics from the filesystem to the database.
 
         Uses a file-mtime manifest stored alongside the SQLite DB so that
@@ -750,7 +750,7 @@ class ContextStore:
                     self.upsert_block(block, write_markdown=False)
                     results["blocks"] += 1
                 except Exception as exc:
-                    logger.warning("failed to sync knowledge block from %s: %s", path, exc)
+                    logger.warning("failed to sync lessons block from %s: %s", path, exc)
                     continue
 
             self._save_sync_manifest("blocks", fresh)
@@ -774,7 +774,7 @@ class ContextStore:
                     self.upsert_rubric(rubric, write_yaml=False)
                     results["rubrics"] += 1
                 except Exception as exc:
-                    logger.warning("failed to sync knowledge rubric from %s: %s", path, exc)
+                    logger.warning("failed to sync lessons rubric from %s: %s", path, exc)
                     continue
 
             self._save_sync_manifest("rubrics", fresh_rubrics)
@@ -784,7 +784,7 @@ class ContextStore:
     def _seed_packaged_rubrics(self) -> None:
         """Upsert rubrics shipped with the package into the DB.
 
-        Called once per ``init()`` before ``sync_knowledge()`` so packaged
+        Called once per ``init()`` before ``sync_lessons()`` so packaged
         rubrics are always available.  User-managed rubrics (synced from
         ``self.rubrics_dir``) are written afterward and will override any
         packaged rubric with the same ``id``.
@@ -799,7 +799,7 @@ class ContextStore:
 
     def _sync_manifest_path(self, kind: str) -> Path:
         """Return path to the incremental-sync manifest for *kind*."""
-        return self.root / f".knowledge_sync_{kind}.json"
+        return self.root / f".lessons_sync_{kind}.json"
 
     def _load_sync_manifest(self, kind: str) -> dict[str, int]:
         path = self._sync_manifest_path(kind)

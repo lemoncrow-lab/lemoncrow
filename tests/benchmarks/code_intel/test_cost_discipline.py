@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import pytest
-pytestmark = pytest.mark.slow
-
 import json
 from pathlib import Path
 
-from benchmarks.code_intel.cost_discipline import run_cost_discipline_bench
+import pytest
+
 from atelier.gateway.adapters.mcp_server import tool_code
+from benchmarks.code_intel.cost_discipline import run_cost_discipline_bench
+
+pytestmark = pytest.mark.slow
 
 
 def test_cost_discipline_bench_is_json_serializable(tmp_path: Path) -> None:
@@ -71,15 +72,58 @@ def test_phase10_token_caps_matrix(tmp_path: Path) -> None:
     payloads = {
         "cache_status": {"op": "cache_status", "repo_root": str(repo), "budget_tokens": 99_999},
         "index": {"op": "index", "repo_root": str(repo), "include_globs": ["src/**/*.py"], "budget_tokens": 99_999},
-        "search": {"op": "search", "repo_root": str(repo), "query": "run_command", "limit": 10, "budget_tokens": 99_999},
-        "symbol": {"op": "symbol", "repo_root": str(repo), "symbol_name": "run_command", "file_path": "src/pkg/worker.py", "budget_tokens": 99_999},
+        "search": {
+            "op": "search",
+            "repo_root": str(repo),
+            "query": "run_command",
+            "limit": 10,
+            "budget_tokens": 99_999,
+        },
+        "symbol": {
+            "op": "symbol",
+            "repo_root": str(repo),
+            "symbol_name": "run_command",
+            "file_path": "src/pkg/worker.py",
+            "budget_tokens": 99_999,
+        },
         "outline": {"op": "outline", "repo_root": str(repo), "path": "src/pkg/worker.py", "budget_tokens": 99_999},
-        "pattern": {"op": "pattern", "repo_root": str(repo), "pattern": "run_command($$$)", "language": "python", "budget_tokens": 99_999},
-        "callers": {"op": "callers", "repo_root": str(repo), "symbol_name": "run_command", "path": "src/pkg/worker.py", "budget_tokens": 99_999},
-        "callees": {"op": "callees", "repo_root": str(repo), "symbol_name": "classify_command", "path": "src/pkg/worker.py", "budget_tokens": 99_999},
-        "usages": {"op": "usages", "repo_root": str(repo), "symbol_name": "run_command", "path": "src/pkg/worker.py", "group_by": "none", "budget_tokens": 99_999},
+        "pattern": {
+            "op": "pattern",
+            "repo_root": str(repo),
+            "pattern": "run_command($$$)",
+            "language": "python",
+            "budget_tokens": 99_999,
+        },
+        "callers": {
+            "op": "callers",
+            "repo_root": str(repo),
+            "symbol_name": "run_command",
+            "path": "src/pkg/worker.py",
+            "budget_tokens": 99_999,
+        },
+        "callees": {
+            "op": "callees",
+            "repo_root": str(repo),
+            "symbol_name": "classify_command",
+            "path": "src/pkg/worker.py",
+            "budget_tokens": 99_999,
+        },
+        "usages": {
+            "op": "usages",
+            "repo_root": str(repo),
+            "symbol_name": "run_command",
+            "path": "src/pkg/worker.py",
+            "group_by": "none",
+            "budget_tokens": 99_999,
+        },
         "impact": {"op": "impact", "repo_root": str(repo), "path": "src/pkg/worker.py", "budget_tokens": 99_999},
-        "context": {"op": "context", "repo_root": str(repo), "task": "trace run_command usage", "max_symbols": 8, "budget_tokens": 99_999},
+        "context": {
+            "op": "context",
+            "repo_root": str(repo),
+            "task": "trace run_command usage",
+            "max_symbols": 8,
+            "budget_tokens": 99_999,
+        },
     }
 
     for operation, request in payloads.items():

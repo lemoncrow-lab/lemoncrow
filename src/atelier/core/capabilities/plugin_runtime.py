@@ -13,7 +13,6 @@ import json
 import logging
 import os
 import re
-import tempfile
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
@@ -676,109 +675,8 @@ def rewrite_mcp_always_load(
     return {"mcp_json": updated, "changed": changed}
 
 
-_REAL_COMMANDS = {
-    "git",
-    "docker",
-    "python",
-    "python3",
-    "node",
-    "npm",
-    "pnpm",
-    "yarn",
-    "make",
-    "pytest",
-    "uv",
-    "curl",
-    "wget",
-    "ssh",
-    "scp",
-    "tar",
-    "unzip",
-    "zip",
-    "jq",
-}
-_BUILD_COMMANDS = {"npm", "pnpm", "yarn", "make", "pytest", "cargo", "go", "uv"}
-_READ_COMMANDS = {"cat", "sed", "grep", "rg", "find", "ls", "awk", "head", "tail", "less", "more"}
+# SQL commands list — used by detect_bash_sql for analytics counting.
 _SQL_COMMANDS = {"psql", "pg_dump", "pg_restore", "mysql", "sqlite3"}
-
-
-def _first_commands(command: str) -> list[str]:
-    sanitized = re.sub(r"`[^`]*`|\$\([^)]*\)", "", command)
-    segments = re.split(r"&&|\|\||;|\n", sanitized)
-    firsts: list[str] = []
-    for segment in segments:
-        left = segment.split("|", 1)[0].strip()
-        if not left:
-            continue
-        firsts.append(left.split()[0])
-    return firsts
-
-
-def classify_bash(command: str, tool_names: dict[str, str] | None = None) -> dict[str, Any]:
-    tool_names = tool_names or {
-        "search": "mcp__plugin_atelier_atelier__search",
-        "edit": "mcp__plugin_atelier_atelier__edit",
-        "sql": "mcp__plugin_atelier_atelier__sql",
-    }
-    firsts = _first_commands(command)
-    if not firsts:
-        return {"no_output": True}
-    if firsts[0] in _BUILD_COMMANDS and re.search(r"\b(build|test|pytest|check|lint)\b", command):
-        return {"no_output": True, "reason": "build/test allowlist"}
-    if firsts[0] in _REAL_COMMANDS and firsts[0] not in _READ_COMMANDS:
-        return {"no_output": True, "reason": "real command skip list"}
-    target_tool = None
-    if re.search(r">|\bsed\s+-i\b|writeFileSync", command):
-        target_tool = "edit"
-    elif any(first in _SQL_COMMANDS for first in firsts):
-        target_tool = "sql"
-    elif any(first in _READ_COMMANDS for first in firsts):
-        target_tool = "search"
-    if not target_tool:
-        return {"no_output": True}
-    target_name = tool_names[target_tool]
-    return {
-        "decision": "allow",
-        "target_tool": target_tool,
-        "additional_context": f"use {target_name} for this kind of operation in subsequent calls.",
-    }
-
-
-def edit_nudge(
-    *,
-    state_before: dict[str, Any] | None = None,
-    now: int | None = None,
-    payload: dict[str, Any],
-    window_ms: int = 30_000,
-) -> dict[str, Any]:
-    edits = (payload.get("tool_input") or {}).get("edits") or []
-    if len(edits) != 1:
-        return {"no_output": True, "state_unchanged": True}
-    now_ms = int(now if now is not None else datetime.now().timestamp() * 1000)
-    recent = []
-    for edit in (state_before or {}).get("edits", []):
-        if edit.get("time_delta_ms") is not None:
-            delta = int(edit.get("time_delta_ms", window_ms + 1))
-        elif edit.get("at") is not None:
-            delta = now_ms - int(edit.get("at", 0))
-        else:
-            delta = window_ms + 1
-        if delta <= window_ms:
-            recent.append(edit)
-    one = edits[0]
-    recent.append({"at": now_ms, "file": one.get("file_path") or one.get("path") or one.get("file")})
-    result = {
-        "state_path": str(Path(tempfile.gettempdir()) / "atelier-edit-state.json"),
-        "state_after": {"edits": recent},
-        "state_after_count": len(recent),
-    }
-    if len(recent) >= 2:
-        result["stdout"] = {
-            "additionalContext": f"You've made {len(recent)} individual Edit calls in the last 30s. Batch related edits in one call when possible."
-        }
-    else:
-        result["no_output"] = True
-    return result
 
 
 def session_start(settings: dict[str, Any], plugin_root: str) -> dict[str, Any]:
@@ -862,6 +760,11 @@ def apply_session_start_files(
 
 
 def update_notification(current_version: str, flag: dict[str, Any] | None) -> dict[str, Any]:
+    """Check for available update; return hook metadata for the plugin system.
+
+    Returns the version info for the plugin system to record/stash — does NOT
+    inject any text into the LLM's context.
+    """
     if not flag:
         return {"no_output": True}
     to_version = str(flag.get("toVersion") or "")
@@ -872,8 +775,6 @@ def update_notification(current_version: str, flag: dict[str, Any] | None) -> di
     return {
         "stdout": {
             "hookSpecificOutput": {"hookEventName": "SessionStart"},
-            "additionalContext": f"Atelier v{to_version} is available. Use the update skill or CLI update flow when convenient.",
-            "message": f"Atelier v{to_version} available",
         }
     }
 

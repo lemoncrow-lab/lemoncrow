@@ -1,37 +1,35 @@
 """Benchmark cases for the `search` MCP tool.
 
-Covers 2 modes: chunks and full.
-
-Baseline estimates:
-  - chunks: agent reads multiple candidate files to find relevant code (~8000 tokens)
-  - full: agent opens several full files to answer a semantic query (~12000 tokens)
+Covers 2 modes: chunks and map.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
 from benchmarks.mcp_tools.harness import BenchCase
 
 
-def _assert_search(result: dict[str, Any]) -> None:
-    assert "backend" in result, "search response must have 'backend'"
-    assert "cache_hit" in result, "search response must have 'cache_hit'"
-    assert "matches" in result, "search response must have 'matches'"
+def _assert_search(result: dict[str, object]) -> None:
     assert "mode" in result, "search response must have 'mode'"
+
+
+def _assert_search_chunks(result: dict[str, object]) -> None:
+    _assert_search(result)
+    assert "backend" in result, "chunks response must have 'backend'"
+    assert "cache_hit" in result, "chunks response must have 'cache_hit'"
+    assert "matches" in result, "chunks response must have 'matches'"
     assert isinstance(result["matches"], list), "'matches' must be a list"
     assert isinstance(result["backend"], str), "'backend' must be a string"
     assert isinstance(result["cache_hit"], bool), "'cache_hit' must be bool"
-
-
-def _assert_search_chunks(result: dict[str, Any]) -> None:
-    _assert_search(result)
     assert result["mode"] == "chunks", f"expected 'chunks' mode, got {result['mode']!r}"
 
 
-def _assert_search_full(result: dict[str, Any]) -> None:
+def _assert_search_map(result: dict[str, object]) -> None:
     _assert_search(result)
-    assert result["mode"] == "full", f"expected 'full' mode, got {result['mode']!r}"
+    assert "outline" in result, "map response must have 'outline'"
+    assert "ranked_files" in result, "map response must have 'ranked_files'"
+    assert "token_count" in result, "map response must have 'token_count'"
+    assert "budget_tokens" in result, "map response must have 'budget_tokens'"
+    assert result["mode"] == "map", f"expected 'map' mode, got {result['mode']!r}"
 
 
 SEARCH_CASES: list[BenchCase] = [
@@ -42,6 +40,7 @@ SEARCH_CASES: list[BenchCase] = [
             "query": "get_context bootstrap repo warm status",
             "mode": "chunks",
             "max_files": 3,
+            "include_meta": True,
         },
         assert_keys=["backend", "cache_hit", "matches", "mode"],
         custom_assert=_assert_search_chunks,
@@ -50,15 +49,20 @@ SEARCH_CASES: list[BenchCase] = [
     ),
     BenchCase(
         op="search",
-        label="search/full",
+        label="search/map",
         args={
             "query": "smart search backend ripgrep zoekt selection",
-            "mode": "full",
+            "mode": "map",
             "max_files": 2,
+            "seed_files": [
+                "src/atelier/gateway/adapters/mcp_server.py",
+                "src/atelier/core/capabilities/tool_supervision/native_search.py",
+            ],
+            "include_meta": True,
         },
-        assert_keys=["backend", "cache_hit", "matches", "mode"],
-        custom_assert=_assert_search_full,
-        # baseline = agent opens full files to answer semantic query (~12000 tokens)
+        assert_keys=["outline", "ranked_files", "token_count", "budget_tokens", "mode"],
+        custom_assert=_assert_search_map,
+        # baseline = agent opens several files to answer semantic query
         baseline_tokens=12000,
     ),
 ]

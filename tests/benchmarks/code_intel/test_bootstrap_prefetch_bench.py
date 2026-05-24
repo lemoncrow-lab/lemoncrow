@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-pytestmark = pytest.mark.slow
-
 import json
 from pathlib import Path
 
+import pytest
+
 from benchmarks.code_intel.bootstrap_prefetch_bench import run_bootstrap_prefetch_bench
+
+pytestmark = pytest.mark.slow
 
 
 def test_bootstrap_prefetch_bench_is_json_serializable_and_records_trace(tmp_path: Path) -> None:

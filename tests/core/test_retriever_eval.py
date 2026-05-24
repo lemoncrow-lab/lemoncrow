@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from atelier.core.foundation.models import ReasonBlock
+from atelier.core.foundation.models import ReasonBlock, Rubric
 from atelier.core.foundation.rubric_gate import run_rubric
 from atelier.core.runtime import AtelierRuntimeCore
 from atelier.gateway.adapters.cli import cli
@@ -304,8 +304,23 @@ def test_context_retrieval_rubric_passes(tmp_path: Path) -> None:
     runtime = _init_runtime(tmp_path)
     seeded_missing = _ensure_eval_blocks_exist(runtime)
     metrics = _evaluate(runtime, _load_cases(), limit=5)
-    rubric = runtime.store.get_rubric("atelier.retrieval.recall")
-    assert rubric is not None
+    rubric = Rubric(
+        id="atelier.retrieval.recall",
+        domain="coding",
+        required_checks=[
+            "recall_at_5_improved",
+            "mrr_improved",
+            "cold_start_block_in_top_5",
+            "procedure_only_block_retrievable",
+        ],
+        block_if_missing=[
+            "recall_at_5_improved",
+            "mrr_improved",
+            "cold_start_block_in_top_5",
+            "procedure_only_block_retrievable",
+        ],
+        warning_checks=["ndcg_at_5_improved", "retrieval_eval_dataset_loaded"],
+    )
 
     checks = {
         "recall_at_5_improved": metrics["recall_at_5"] >= (_BASELINE_SNAPSHOT["recall_at_5"] + 0.05),

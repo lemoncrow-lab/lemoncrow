@@ -22,7 +22,7 @@ The SQLite backend is intentionally the default. Zero infrastructure, zero confi
 └── raw/
   └── ...             # Redacted raw artifacts
 
-./.knowledge/
+./.lessons/
 ├── blocks/
 │   ├── concrete-anchor-before-edit.md
 │   ├── read-after-write-verification.md
@@ -49,11 +49,11 @@ Tables in `atelier.db`:
 
 ### Markdown Mirrors
 
-Every ReasonBlock is mirrored to `./.knowledge/blocks/<id>.md` on upsert (when `write_markdown=True`, which is the default via CLI/MCP). This means blocks can be reviewed in git diffs like any other file.
+Every ReasonBlock is mirrored to `./.lessons/blocks/<id>.md` on upsert (when `write_markdown=True`, which is the default via CLI/MCP). This means blocks can be reviewed in git diffs like any other file.
 
-Similarly, rubrics are mirrored to `./.knowledge/rubrics/<id>.yaml` and traces to `~/.atelier/traces/<id>.json`.
+Similarly, rubrics are mirrored to `./.lessons/rubrics/<id>.yaml` and traces to `~/.atelier/traces/<id>.json`.
 
-Knowledge mirrors are the Git-tracked source of truth for blocks and rubrics. On `store.init()`, Atelier syncs `./.knowledge` back into the SQLite index automatically for retrieval. Trace JSON mirrors under `~/.atelier` remain runtime artifacts.
+Knowledge mirrors are the Git-tracked source of truth for blocks and rubrics. On `store.init()`, Atelier syncs `./.lessons` back into the SQLite index automatically for retrieval. Trace JSON mirrors under `~/.atelier` remain runtime artifacts.
 
 ## PostgreSQL (Optional)
 
@@ -145,7 +145,7 @@ pg_dump atelier > atelier_backup.sql
 | Variable                        | Default                      | Description                |
 | ------------------------------- | ---------------------------- | -------------------------- |
 | `ATELIER_ROOT`                  | `~/.atelier`                 | Trace/history store root   |
-| `ATELIER_KNOWLEDGE_ROOT`        | `$WORKSPACE_ROOT/.knowledge` | Git-tracked knowledge root |
+| `ATELIER_LESSONS_ROOT`        | `$WORKSPACE_ROOT/.lessons` | Git-tracked knowledge root |
 | `ATELIER_STORAGE_BACKEND`       | `sqlite`                     | `sqlite` or `postgres`     |
 | `ATELIER_DATABASE_URL`          | `""`                         | PostgreSQL DSN             |
 | `ATELIER_VECTOR_SEARCH_ENABLED` | `false`                      | Enable pgvector            |

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-pytestmark = pytest.mark.slow
 
 import atelier.core.service.usage_sync  # noqa: F401
 from benchmarks.code_intel.scale_decision_eval import (
@@ -11,6 +10,8 @@ from benchmarks.code_intel.scale_decision_eval import (
     render_checkpoint_appendix,
     select_recommended_candidate,
 )
+
+pytestmark = pytest.mark.slow
 
 
 def test_scale_decision_eval_scores_candidates_and_verdicts_deterministically() -> None:

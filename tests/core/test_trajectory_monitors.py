@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from atelier.core.capabilities.monitors.suite import (
     DEFAULT_WEIGHTS,
     MonitorResult,
@@ -15,7 +13,6 @@ from atelier.core.capabilities.monitors.suite import (
     _verification_skip,
     evaluate_all,
 )
-
 
 # --------------------------------------------------------------------------- #
 # semantic_loop                                                                #

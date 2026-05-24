@@ -195,7 +195,8 @@ def test_remote_record_trace_same_shape(service_mode: None, monkeypatch: pytest.
     )
     assert "result" in resp
     payload = json.loads(resp["result"]["content"][0]["text"])
-    assert "id" in payload
+    assert payload["trace_id"] == "trace-abc-123"
+    assert payload["event_recorded"] is False
 
 
 def test_remote_routed_tools_do_not_create_local_runtime_state(
@@ -262,10 +263,13 @@ def test_remote_mode_live_service_round_trip(
         memory = _call_tool(
             "memory",
             {
-                "op": "block_upsert",
+                "op": "store_fact",
                 "agent_id": "codex",
-                "label": "deploy-note",
-                "value": "Use remote service storage.",
+                "subject": "deploy-note",
+                "fact": "Use remote service storage.",
+                "citations": "integration test",
+                "reason": "Verify remote mode memory routing.",
+                "scope": "repository",
             },
         )
         memory_payload = json.loads(memory["result"]["content"][0]["text"])
@@ -297,9 +301,9 @@ def test_remote_mode_live_service_round_trip(
             {"agent": "codex", "domain": "coding", "task": "remote e2e", "status": "success"},
         )
         trace_payload = json.loads(trace["result"]["content"][0]["text"])
-        assert trace_payload["id"]
+        assert trace_payload["trace_id"]
 
-    stored = SQLiteStore(root).get_trace(trace_payload["id"])
+    stored = SQLiteStore(root).get_trace(trace_payload["trace_id"])
     assert stored is not None
     assert stored.task == "remote e2e"
 

@@ -50,6 +50,7 @@ def mcp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 # ── op=decide ───────────────────────────────────────────────────────────────
 
+
 def test_mcp_route_decide_returns_model_and_metadata(mcp_env: Path) -> None:
     resp = _call(
         "route",
@@ -60,12 +61,11 @@ def test_mcp_route_decide_returns_model_and_metadata(mcp_env: Path) -> None:
     assert "model" in payload
     assert "tier" in payload
     assert "rationale" in payload
-    assert "available_models" in payload
-    assert isinstance(payload["available_models"], list)
-    assert "can_spawn" in payload
-    assert "host_model" in payload
-    assert "_summary" in payload
-    assert payload["_summary"]["recommended"] == payload["model"]
+    assert "route_tier" in payload
+    assert "available_models" not in payload
+    assert "can_spawn" not in payload
+    assert "host_model" not in payload
+    assert "_summary" not in payload
 
 
 def test_mcp_route_decide_budget_cheap_picks_cheapest(mcp_env: Path) -> None:
@@ -91,9 +91,7 @@ def test_mcp_route_decide_budget_best_picks_powerful(mcp_env: Path) -> None:
     assert payload["tier"] in ("high", "expensive", "medium", "cheap")  # just must return valid tier
 
 
-def test_mcp_route_decide_no_route_config_falls_back(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_mcp_route_decide_no_route_config_falls_back(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".atelier"
     monkeypatch.setenv("ATELIER_ROOT", str(root))
     monkeypatch.setenv("ATELIER_MODEL", "claude-haiku-4-5")
@@ -108,7 +106,7 @@ def test_mcp_route_decide_no_route_config_falls_back(
     payload = _result(resp)
 
     assert "model" in payload
-    assert "available_models" in payload
+    assert "available_models" not in payload
 
 
 def test_mcp_route_schema_exposes_only_decide() -> None:

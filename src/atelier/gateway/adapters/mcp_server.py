@@ -1163,8 +1163,6 @@ def tool_route(
 
     led.record_tool_call("route", {"task_type": task_type, "budget": budget})
     available = _get_available_models()
-    host_model = os.environ.get("ATELIER_MODEL", "")
-    can_spawn = bool(shutil.which("claude") or shutil.which("codex")) or _client_sampling_supported
 
     # Try cross-vendor advisor for a cost-and-quality-aware recommendation
     chosen_model = ""
@@ -1215,26 +1213,11 @@ def tool_route(
     # Emit route_tier using the semantic 5-tier model
     route_tier = _compute_route_tier_for_response(tier, led)
 
-    # Prefix cache diagnostics from session ledger
-    prefix_cache = _prefix_cache_diagnostics_from_ledger(led)
-
     return {
         "model": chosen_model,
         "tier": tier,
         "route_tier": route_tier,
         "rationale": rationale,
-        "available_models": available,
-        "host_model": host_model,
-        "can_spawn": can_spawn,
-        "prefix_cache": prefix_cache,
-        "_summary": {
-            "recommended": chosen_model,
-            "recommended_route": route_tier or tier or chosen_model or "local edit",
-            "budget": budget,
-            "required_validation": [],
-            "risk": "unknown",
-            "can_spawn": can_spawn,
-        },
     }
 
 
@@ -1593,16 +1576,10 @@ def tool_record_trace(
         daemon=True,
     ).start()
 
-    # Stable compact receipt — always present so callers can confirm storage
-    # without parsing the full payload.
+    # Stable compact receipt.
     return {
-        "ok": True,
         "trace_id": trace.id,
-        "stored": True,
-        "id": trace.id,
-        "session_id": led.session_id,
         "event_recorded": bool(event_type),
-        "realtime_context": rtc.snapshot(),
     }
 
 
@@ -1640,7 +1617,6 @@ def _compress_context(session_id: str | None = None) -> Any:
     led = _get_ledger()
     if session_id:
         led.session_id = session_id
-    rtc = _get_realtime_context()
     state = ContextCompressor().compress(led, preserve_last_n_turns=10, workspace_root=_workspace_root())
     compaction_savings = _session_compaction_savings_payload(
         led,
@@ -1666,15 +1642,7 @@ def _compress_context(session_id: str | None = None) -> Any:
         )
 
     return {
-        "preserved": {
-            "latest_error": state.error_fingerprints[-1] if state.error_fingerprints else None,
-            "active_rubrics": led.active_rubrics,
-            "active_reasonblocks": led.active_reasonblocks,
-            "recent_turns": state.recent_turns,
-            "claude_md_hash": state.claude_md_hash,
-        },
         "prompt_block": state.to_prompt_block(),
-        "realtime": rtc.snapshot(),
         "tokens_before": int(compaction_savings["tokens_before"]),
         "tokens_after_estimate": int(compaction_savings["tokens_after_estimate"]),
         "tokens_freed": int(compaction_savings["tokens_freed"]),
@@ -1860,14 +1828,11 @@ def _memory_store_fact(
         )
         return {
             "id": upsert["id"],
-            "label": label,
-            "agent_id": target_agent,
             "subject": clean_subject,
             "fact": clean_fact,
             "scope": clean_scope,
             "citations": clean_citations,
             "reason": clean_reason,
-            "votes": {"upvote": 0, "downvote": 0},
         }
 
     metadata = dict(existing.metadata or {})
@@ -1897,14 +1862,11 @@ def _memory_store_fact(
     )
     return {
         "id": updated["id"],
-        "label": existing.label,
-        "agent_id": existing.agent_id,
         "subject": clean_subject,
         "fact": clean_fact,
         "scope": clean_scope,
         "citations": clean_citations,
         "reason": clean_reason,
-        "votes": metadata["votes"],
     }
 
 
@@ -1981,13 +1943,10 @@ def _memory_vote_fact(
     )
     return {
         "id": updated["id"],
-        "label": match.label,
-        "agent_id": match.agent_id,
         "fact": clean_fact,
         "scope": metadata.get("scope", ""),
         "direction": clean_direction,
         "reason": clean_reason,
-        "votes": metadata["votes"],
     }
 
 
@@ -2149,7 +2108,7 @@ def tool_smart_read(
             "mode": "directory",
             "path": str(target),
             "entries": [(e + "/" if (target / e).is_dir() else e) for e in entries],
-            "directive": (
+            "message": (
                 "This is a directory, not a file. "
                 "Use `atelier_code op=files` to list indexed code files, "
                 "or `atelier_grep` with `file_glob_patterns` to list non-code files."
@@ -2416,7 +2375,7 @@ def tool_smart_edit(
       - insert_after:  {path, op: "insert_after", anchor, new_string}
       - replace_range: {path, op: "replace_range", line_start, line_end, new_string}
 
-    Returns: {applied, failed, rolled_back, writes?, diagnostics?, hooks?}
+    Returns: {applied, failed, rolled_back, writes?}
     """
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     repo_root = Path(workspace)
@@ -2468,6 +2427,8 @@ def tool_smart_edit(
             except Exception as hook_exc:
                 result["hooks"] = {"error": str(hook_exc)}
         _compute_and_record_diffs(snapshots)
+    result.pop("diagnostics", None)
+    result.pop("hooks", None)
     return result
 
 
@@ -3855,46 +3816,14 @@ def _run_shell_tool(
                 "truncated": False,
                 "lines_omitted": 0,
                 "duration_ms": 0,
-                "rewrite_info": {"used_tool": "read", "reason": policy.reason},
             }
 
     if policy.action == "rewrite" and policy.rewrite_target == "grep" and policy.rewrite_payload:
-        import shlex
-
-        from atelier.core.capabilities.tool_supervision.native_search import SKIP_DIRS
-
         raw_search_path = str(policy.rewrite_payload.get("file_path") or ".")
         content_regex = cast(str | None, policy.rewrite_payload.get("content_regex"))
         ignore_case = bool(policy.rewrite_payload.get("ignore_case", False))
         file_type = cast(str | None, policy.rewrite_payload.get("type"))
 
-        if shutil.which("rg") and content_regex:
-            # Prefer rg: respects .gitignore, faster, adds hard-coded exclusions
-            rg_flags: list[str] = [
-                "--no-heading",
-                "--with-filename",
-                "--line-number",
-                "--color=never",
-            ]
-            if ignore_case:
-                rg_flags.append("-i")
-            if file_type:
-                rg_flags += ["--type", file_type]
-            for d in sorted(SKIP_DIRS):
-                rg_flags += ["--glob", f"!{d}"]
-            rg_cmd = shlex.join(["rg", *rg_flags, "--", content_regex, raw_search_path])
-            rg_result = run_command(rg_cmd, cwd=effective_cwd, timeout=timeout, max_lines=max_lines)
-            return {
-                "stdout": rg_result.stdout,
-                "stderr": rg_result.stderr,
-                "exit_code": rg_result.exit_code,
-                "truncated": rg_result.truncated,
-                "lines_omitted": rg_result.lines_omitted,
-                "duration_ms": rg_result.duration_ms,
-                "rewrite_info": {"used_tool": "rg", "reason": policy.reason},
-            }
-
-        # Fallback: Python native_search (no rg or no pattern — file listing)
         resolved_search_path = Path(raw_search_path)
         if not resolved_search_path.is_absolute():
             resolved_search_path = (Path(effective_cwd) / resolved_search_path).resolve()
@@ -3927,7 +3856,6 @@ def _run_shell_tool(
             "truncated": False,
             "lines_omitted": 0,
             "duration_ms": 0,
-            "rewrite_info": {"used_tool": "grep", "reason": policy.reason},
         }
 
     result = run_command(
@@ -4460,12 +4388,9 @@ def _dispatch_remote(name: str, args: dict[str, Any]) -> dict[str, Any]:
         return cast(dict[str, Any], client.rescue_failure(args))
     if name in {"trace", "record"}:
         trace_result = cast(dict[str, Any], client.record_trace(args))
-        # Normalise compact receipt fields so callers can always rely on them,
-        # regardless of which service version or mock they're talking to.
-        trace_result.setdefault("ok", True)
-        trace_result.setdefault("trace_id", trace_result.get("id") or "")
-        trace_result.setdefault("stored", True)
-        return trace_result
+        trace_id = str(trace_result.get("trace_id") or trace_result.get("id") or "")
+        event_recorded = bool(trace_result.get("event_recorded"))
+        return {"trace_id": trace_id, "event_recorded": event_recorded}
     if name == "verify":
         return cast(dict[str, Any], client.run_rubric_gate(args))
     raise ValueError(f"tool not supported in remote mode: {name}")
@@ -4933,6 +4858,9 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
                         writer=_make_outcome_writer(led),
                     )
 
+            if isinstance(result, dict):
+                result = _clean_tool_result(result, name)
+
             return _ok(
                 rid,
                 {
@@ -4960,6 +4888,31 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
             return _err(rid, _tool_error_code(exc), str(exc))
 
     return _err(rid, -32601, f"unknown method: {method}")
+
+
+def _strip_nulls(value: Any) -> Any:
+    """Recursively remove None and "" values from response values.
+
+    Strips:
+      - None values
+      - empty string values ""
+
+    Keeps:
+      - empty lists [] and dicts {} (semantic — "no items" is info)
+      - numeric 0 / 0.0 (meaningful)
+      - False (meaningful)
+    """
+    if isinstance(value, dict):
+        return {k: _strip_nulls(v) for k, v in value.items() if v is not None and v != ""}
+    if isinstance(value, list):
+        return [_strip_nulls(item) for item in value]
+    return value
+
+
+def _clean_tool_result(result: dict[str, Any], tool_name: str) -> dict[str, Any]:
+    """Apply final response normalization before serialization."""
+    _ = tool_name
+    return cast(dict[str, Any], _strip_nulls(result))
 
 
 def _ok(rid: Any, result: dict[str, Any]) -> dict[str, Any]:
@@ -5028,7 +4981,7 @@ def main() -> None:
     # Phase 1: Absorb wrapper logic into atelier-mcp (zero-config)
     os.environ.setdefault("ATELIER_SERVICE_URL", "http://127.0.0.1:8787")
     os.environ.setdefault("ATELIER_WORKSPACE_ROOT", os.getcwd())
-    os.environ.setdefault("ATELIER_KNOWLEDGE_ROOT", os.path.join(os.environ["ATELIER_WORKSPACE_ROOT"], ".knowledge"))
+    os.environ.setdefault("ATELIER_LESSONS_ROOT", os.path.join(os.environ["ATELIER_WORKSPACE_ROOT"], ".lessons"))
 
     argv = sys.argv[1:]
     if "--version" in argv or "-V" in argv:

@@ -17,10 +17,10 @@ import pytest
 from atelier.gateway.adapters import mcp_server
 from atelier.gateway.adapters.cli import cli
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _seed_store(root: Path) -> None:
     from click.testing import CliRunner
@@ -41,9 +41,11 @@ def _call(name: str, args: dict[str, Any]) -> dict[str, Any]:
     return resp
 
 
-def _result(resp: dict[str, Any]) -> Any:
+def _result(resp: dict[str, Any]) -> dict[str, Any]:
     assert "result" in resp, resp
-    return json.loads(resp["result"]["content"][0]["text"])
+    payload = json.loads(resp["result"]["content"][0]["text"])
+    assert isinstance(payload, dict)
+    return payload
 
 
 def _edit(args: dict[str, Any]) -> dict[str, Any]:
@@ -54,6 +56,7 @@ def _edit(args: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Fixture
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -73,6 +76,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 # ---------------------------------------------------------------------------
 # #1  Rich descriptor family
 # ---------------------------------------------------------------------------
+
 
 def test_rich_replace_basic(workspace: Path) -> None:
     """Rich replace updates text and returns an applied hunk."""
@@ -135,12 +139,14 @@ def test_rich_multi_file_batch_all_applied(workspace: Path) -> None:
     f1.write_text("alpha\n", encoding="utf-8")
     f2.write_text("beta\n", encoding="utf-8")
 
-    payload = _edit({
-        "edits": [
-            {"file_path": "a.py", "old_string": "alpha", "new_string": "ALPHA"},
-            {"file_path": "b.py", "old_string": "beta", "new_string": "BETA"},
-        ]
-    })
+    payload = _edit(
+        {
+            "edits": [
+                {"file_path": "a.py", "old_string": "alpha", "new_string": "ALPHA"},
+                {"file_path": "b.py", "old_string": "beta", "new_string": "BETA"},
+            ]
+        }
+    )
 
     assert payload["failed"] == []
     assert len(payload["applied"]) == 2
@@ -153,13 +159,15 @@ def test_rich_multi_file_atomic_rollback(workspace: Path) -> None:
     f1 = workspace / "r1.py"
     f1.write_text("original\n", encoding="utf-8")
 
-    payload = _edit({
-        "atomic": True,
-        "edits": [
-            {"file_path": "r1.py", "old_string": "original", "new_string": "changed"},
-            {"file_path": "r1.py", "old_string": "does-not-exist", "new_string": "x"},
-        ],
-    })
+    payload = _edit(
+        {
+            "atomic": True,
+            "edits": [
+                {"file_path": "r1.py", "old_string": "original", "new_string": "changed"},
+                {"file_path": "r1.py", "old_string": "does-not-exist", "new_string": "x"},
+            ],
+        }
+    )
 
     assert payload["rolled_back"] is True
     assert f1.read_text(encoding="utf-8") == "original\n"
@@ -170,13 +178,15 @@ def test_rich_non_atomic_partial_success(workspace: Path) -> None:
     f = workspace / "partial.py"
     f.write_text("keep this\nbad target here\n", encoding="utf-8")
 
-    payload = _edit({
-        "atomic": False,
-        "edits": [
-            {"file_path": "partial.py", "old_string": "keep this", "new_string": "KEPT"},
-            {"file_path": "partial.py", "old_string": "no such string", "new_string": "x"},
-        ],
-    })
+    payload = _edit(
+        {
+            "atomic": False,
+            "edits": [
+                {"file_path": "partial.py", "old_string": "keep this", "new_string": "KEPT"},
+                {"file_path": "partial.py", "old_string": "no such string", "new_string": "x"},
+            ],
+        }
+    )
 
     assert payload["rolled_back"] is False
     assert len(payload["applied"]) >= 1
@@ -188,14 +198,13 @@ def test_rich_non_atomic_partial_success(workspace: Path) -> None:
 # #2  Legacy descriptor family
 # ---------------------------------------------------------------------------
 
+
 def test_legacy_replace_through_handler(workspace: Path) -> None:
     """Legacy op=replace dispatches to apply_batch_edit."""
     f = workspace / "legacy.txt"
     f.write_text("foo bar\n", encoding="utf-8")
 
-    payload = _edit({
-        "edits": [{"path": str(f), "op": "replace", "old_string": "foo", "new_string": "baz"}]
-    })
+    payload = _edit({"edits": [{"path": str(f), "op": "replace", "old_string": "foo", "new_string": "baz"}]})
 
     assert payload["failed"] == []
     assert f.read_text(encoding="utf-8") == "baz bar\n"
@@ -206,9 +215,7 @@ def test_legacy_insert_after(workspace: Path) -> None:
     f = workspace / "insert.txt"
     f.write_text("line1\nline2\nline3\n", encoding="utf-8")
 
-    payload = _edit({
-        "edits": [{"path": str(f), "op": "insert_after", "anchor": "line1", "new_string": "line1b"}]
-    })
+    payload = _edit({"edits": [{"path": str(f), "op": "insert_after", "anchor": "line1", "new_string": "line1b"}]})
 
     assert payload["failed"] == []
     text = f.read_text(encoding="utf-8")
@@ -223,9 +230,9 @@ def test_legacy_replace_range(workspace: Path) -> None:
     f = workspace / "range.txt"
     f.write_text("aaa\nbbb\nccc\nddd\n", encoding="utf-8")
 
-    payload = _edit({
-        "edits": [{"path": str(f), "op": "replace_range", "line_start": 2, "line_end": 3, "new_string": "REPLACED"}]
-    })
+    payload = _edit(
+        {"edits": [{"path": str(f), "op": "replace_range", "line_start": 2, "line_end": 3, "new_string": "REPLACED"}]}
+    )
 
     assert payload["failed"] == []
     text = f.read_text(encoding="utf-8")
@@ -241,9 +248,9 @@ def test_legacy_fuzzy_replace(workspace: Path) -> None:
     f = workspace / "fuzzy.py"
     f.write_text("def f():\n    x = 1\n    return x\n", encoding="utf-8")
 
-    payload = _edit({
-        "edits": [{"path": str(f), "op": "replace", "old_string": "x = 1", "new_string": "x = 42", "fuzzy": True}]
-    })
+    payload = _edit(
+        {"edits": [{"path": str(f), "op": "replace", "old_string": "x = 1", "new_string": "x = 42", "fuzzy": True}]}
+    )
 
     assert payload["failed"] == []
     assert "x = 42" in f.read_text(encoding="utf-8")
@@ -253,27 +260,36 @@ def test_legacy_fuzzy_replace(workspace: Path) -> None:
 # #3  Notebook cell edits
 # ---------------------------------------------------------------------------
 
+
 def test_notebook_cell_insert_through_handler(workspace: Path) -> None:
     """Notebook cell_action=insert_after adds a new cell via MCP."""
     nb_path = workspace / "nb.ipynb"
     nb_path.write_text(
-        json.dumps({
-            "cells": [{"cell_type": "code", "metadata": {}, "source": "x = 1", "outputs": [], "execution_count": None}],
-            "metadata": {},
-            "nbformat": 4,
-            "nbformat_minor": 5,
-        }),
+        json.dumps(
+            {
+                "cells": [
+                    {"cell_type": "code", "metadata": {}, "source": "x = 1", "outputs": [], "execution_count": None}
+                ],
+                "metadata": {},
+                "nbformat": 4,
+                "nbformat_minor": 5,
+            }
+        ),
         encoding="utf-8",
     )
 
-    payload = _edit({
-        "edits": [{
-            "file_path": "nb.ipynb#cell=0",
-            "cell_action": "insert_after",
-            "cell_type": "markdown",
-            "new_string": "# heading",
-        }]
-    })
+    payload = _edit(
+        {
+            "edits": [
+                {
+                    "file_path": "nb.ipynb#cell=0",
+                    "cell_action": "insert_after",
+                    "cell_type": "markdown",
+                    "new_string": "# heading",
+                }
+            ]
+        }
+    )
 
     assert payload["failed"] == []
     notebook = json.loads(nb_path.read_text(encoding="utf-8"))
@@ -286,26 +302,26 @@ def test_notebook_cell_overwrite_clears_outputs(workspace: Path) -> None:
     """Overwriting a notebook cell via #cell=N resets its outputs."""
     nb_path = workspace / "out.ipynb"
     nb_path.write_text(
-        json.dumps({
-            "cells": [
-                {
-                    "cell_type": "code",
-                    "metadata": {},
-                    "source": "print(1)",
-                    "outputs": [{"output_type": "stream", "text": "1\n"}],
-                    "execution_count": 3,
-                }
-            ],
-            "metadata": {},
-            "nbformat": 4,
-            "nbformat_minor": 5,
-        }),
+        json.dumps(
+            {
+                "cells": [
+                    {
+                        "cell_type": "code",
+                        "metadata": {},
+                        "source": "print(1)",
+                        "outputs": [{"output_type": "stream", "text": "1\n"}],
+                        "execution_count": 3,
+                    }
+                ],
+                "metadata": {},
+                "nbformat": 4,
+                "nbformat_minor": 5,
+            }
+        ),
         encoding="utf-8",
     )
 
-    payload = _edit({
-        "edits": [{"file_path": "out.ipynb#cell=0", "overwrite": True, "new_string": "print(2)"}]
-    })
+    payload = _edit({"edits": [{"file_path": "out.ipynb#cell=0", "overwrite": True, "new_string": "print(2)"}]})
 
     assert payload["failed"] == []
     notebook = json.loads(nb_path.read_text(encoding="utf-8"))
@@ -318,15 +334,18 @@ def test_notebook_cell_overwrite_clears_outputs(workspace: Path) -> None:
 # #4  post_edit_hooks behaviour
 # ---------------------------------------------------------------------------
 
+
 def test_post_edit_hooks_false_no_diagnostics_key(workspace: Path) -> None:
     """With post_edit_hooks=False the result has no diagnostics/hooks keys."""
     f = workspace / "nohook.py"
     f.write_text("x = 1\n", encoding="utf-8")
 
-    payload = _edit({
-        "post_edit_hooks": False,
-        "edits": [{"file_path": "nohook.py", "old_string": "x = 1", "new_string": "x = 2"}],
-    })
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [{"file_path": "nohook.py", "old_string": "x = 1", "new_string": "x = 2"}],
+        }
+    )
 
     assert payload["failed"] == []
     assert "diagnostics" not in payload
@@ -338,10 +357,12 @@ def test_post_edit_hooks_false_diff_still_recorded(workspace: Path) -> None:
     f = workspace / "difftest.py"
     f.write_text("before\n", encoding="utf-8")
 
-    _edit({
-        "post_edit_hooks": False,
-        "edits": [{"file_path": "difftest.py", "old_string": "before", "new_string": "after"}],
-    })
+    _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [{"file_path": "difftest.py", "old_string": "before", "new_string": "after"}],
+        }
+    )
 
     led = mcp_server._get_ledger()
     file_events = [e for e in led.events if e.kind == "file_edit"]
@@ -363,17 +384,19 @@ def test_hook_exception_does_not_fail_successful_edit(workspace: Path, monkeypat
         exploding_hooks,
     )
 
-    payload = _edit({
-        "post_edit_hooks": True,
-        "edits": [{"file_path": "hookcrash.py", "old_string": "old", "new_string": "new"}],
-    })
+    payload = _edit(
+        {
+            "post_edit_hooks": True,
+            "edits": [{"file_path": "hookcrash.py", "old_string": "old", "new_string": "new"}],
+        }
+    )
 
-    # Edit must succeed; the hook error is surfaced in result["hooks"]["error"]
+    # Edit must succeed even when post-edit hooks crash.
+    # Hook diagnostics are intentionally stripped from MCP payload.
     assert payload["failed"] == []
     assert payload["rolled_back"] is False
     assert f.read_text(encoding="utf-8") == "new\n"
-    assert "error" in payload.get("hooks", {})
-    assert "hook toolchain not found" in payload["hooks"]["error"]
+    assert "hooks" not in payload
 
 
 def test_hook_exception_diff_still_recorded(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -386,10 +409,12 @@ def test_hook_exception_diff_still_recorded(workspace: Path, monkeypatch: pytest
         lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
-    _edit({
-        "post_edit_hooks": True,
-        "edits": [{"file_path": "hookdiff.py", "old_string": "original", "new_string": "modified"}],
-    })
+    _edit(
+        {
+            "post_edit_hooks": True,
+            "edits": [{"file_path": "hookdiff.py", "old_string": "original", "new_string": "modified"}],
+        }
+    )
 
     led = mcp_server._get_ledger()
     file_events = [e for e in led.events if e.kind == "file_edit" and e.payload.get("path") == "hookdiff.py"]
@@ -401,13 +426,12 @@ def test_hook_exception_diff_still_recorded(workspace: Path, monkeypatch: pytest
 # #5  Edge cases and validation
 # ---------------------------------------------------------------------------
 
+
 def test_empty_edits_returns_error(workspace: Path) -> None:
     """An empty edits array is a protocol error."""
     resp = _call("edit", {"edits": []})
     # Either a JSON-RPC error or a result with failed containing the message
-    has_error = "error" in resp or (
-        "result" in resp and _result(resp).get("failed")
-    )
+    has_error = "error" in resp or ("result" in resp and _result(resp).get("failed"))
     assert has_error
 
 
@@ -416,12 +440,15 @@ def test_mixed_families_rejected(workspace: Path) -> None:
     f = workspace / "mixed.txt"
     f.write_text("hello\n", encoding="utf-8")
 
-    resp = _call("edit", {
-        "edits": [
-            {"path": str(f), "op": "replace", "old_string": "hello", "new_string": "legacy"},
-            {"file_path": str(f), "old_string": "hello", "new_string": "rich"},
-        ]
-    })
+    resp = _call(
+        "edit",
+        {
+            "edits": [
+                {"path": str(f), "op": "replace", "old_string": "hello", "new_string": "legacy"},
+                {"file_path": str(f), "old_string": "hello", "new_string": "rich"},
+            ]
+        },
+    )
 
     assert "error" in resp
     assert "cannot mix" in resp["error"]["message"].lower()
@@ -430,9 +457,7 @@ def test_mixed_families_rejected(workspace: Path) -> None:
 
 def test_rich_path_escape_rejected(workspace: Path) -> None:
     """A path that escapes the repo root is blocked by path safety."""
-    payload = _edit({
-        "edits": [{"file_path": "../../../etc/passwd", "old_string": "root", "new_string": "hacked"}]
-    })
+    payload = _edit({"edits": [{"file_path": "../../../etc/passwd", "old_string": "root", "new_string": "hacked"}]})
     assert payload["rolled_back"] is True
     assert payload["failed"]
 
@@ -442,9 +467,7 @@ def test_legacy_unknown_op_reported_as_failure(workspace: Path) -> None:
     f = workspace / "unknown.txt"
     f.write_text("original\n", encoding="utf-8")
 
-    payload = _edit({
-        "edits": [{"path": str(f), "op": "delete_line", "old_string": "original", "new_string": ""}]
-    })
+    payload = _edit({"edits": [{"path": str(f), "op": "delete_line", "old_string": "original", "new_string": ""}]})
 
     assert payload["failed"]
     assert f.read_text(encoding="utf-8") == "original\n"
@@ -454,6 +477,7 @@ def test_legacy_unknown_op_reported_as_failure(workspace: Path) -> None:
 # #6  Ledger diff recording (multi-file)
 # ---------------------------------------------------------------------------
 
+
 def test_diff_recorded_per_file_multi_edit(workspace: Path) -> None:
     """Each touched file gets its own file_edit event in the ledger."""
     f1 = workspace / "m1.py"
@@ -461,13 +485,15 @@ def test_diff_recorded_per_file_multi_edit(workspace: Path) -> None:
     f1.write_text("alpha\n", encoding="utf-8")
     f2.write_text("beta\n", encoding="utf-8")
 
-    _edit({
-        "post_edit_hooks": False,
-        "edits": [
-            {"file_path": "m1.py", "old_string": "alpha", "new_string": "ALPHA"},
-            {"file_path": "m2.py", "old_string": "beta", "new_string": "BETA"},
-        ],
-    })
+    _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [
+                {"file_path": "m1.py", "old_string": "alpha", "new_string": "ALPHA"},
+                {"file_path": "m2.py", "old_string": "beta", "new_string": "BETA"},
+            ],
+        }
+    )
 
     led = mcp_server._get_ledger()
     file_events = [e for e in led.events if e.kind == "file_edit"]
@@ -479,6 +505,7 @@ def test_diff_recorded_per_file_multi_edit(workspace: Path) -> None:
 # ---------------------------------------------------------------------------
 # #7  Schema contract
 # ---------------------------------------------------------------------------
+
 
 def test_schema_top_level_params_have_descriptions() -> None:
     """atomic, post_edit_hooks, post_edit_timeout_ms must each have a description."""

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-pytestmark = pytest.mark.slow
-
 import json
 from pathlib import Path
 
+import pytest
+
 from benchmarks.code_intel.symbol_edit_bench import run_symbol_edit_bench
+
+pytestmark = pytest.mark.slow
 
 
 def test_symbol_edit_bench_is_json_serializable(tmp_path: Path) -> None:

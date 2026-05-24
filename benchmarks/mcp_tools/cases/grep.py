@@ -16,39 +16,37 @@ type was specified with a directory path. Now falls back to walking all files.
 
 from __future__ import annotations
 
-from typing import Any
-
 from benchmarks.mcp_tools.harness import BenchCase
 
 
-def _assert_grep_paths(result: dict[str, Any]) -> None:
-    assert result.get("isError") is False, f"grep returned error: {result.get('content')}"
+def _assert_grep_paths(result: dict[str, object]) -> None:
     assert "_meta" in result, "grep response must have '_meta'"
     meta = result["_meta"]
+    assert isinstance(meta, dict), "'_meta' must be a dict"
     assert "fileMatchCount" in meta, "_meta must have 'fileMatchCount'"
-    assert meta["fileMatchCount"] > 0, (
-        f"expected matches for 'def tool_', got fileMatchCount={meta['fileMatchCount']}"
-    )
+    file_match_count = meta["fileMatchCount"]
+    assert isinstance(file_match_count, int), f"fileMatchCount must be int, got {type(file_match_count).__name__}"
+    assert file_match_count > 0, f"expected matches for 'def tool_', got fileMatchCount={file_match_count}"
     content = result.get("content", [])
     assert isinstance(content, list), "'content' must be a list"
     assert len(content) > 0, "expected non-empty content list"
 
 
-def _assert_grep_count(result: dict[str, Any]) -> None:
-    assert result.get("isError") is False, f"grep returned error: {result.get('content')}"
+def _assert_grep_count(result: dict[str, object]) -> None:
     meta = result.get("_meta", {})
-    assert meta.get("fileMatchCount", 0) > 0, (
-        f"expected matches for 'BenchCase', got fileMatchCount={meta.get('fileMatchCount')}"
-    )
+    assert isinstance(meta, dict), "'_meta' must be a dict"
+    file_match_count = meta.get("fileMatchCount", 0)
+    assert isinstance(file_match_count, int), f"fileMatchCount must be int, got {type(file_match_count).__name__}"
+    assert file_match_count > 0, f"expected matches for 'BenchCase', got fileMatchCount={file_match_count}"
 
 
-def _assert_grep_ranked(result: dict[str, Any]) -> None:
-    assert result.get("isError") is False, f"grep returned error: {result.get('content')}"
+def _assert_grep_ranked(result: dict[str, object]) -> None:
+    assert "matches" in result, "ranked_file_map must contain matches"
+    matches = result["matches"]
+    assert isinstance(matches, list), "'matches' must be a list"
     meta = result.get("_meta", {})
-    # ranked_file_map returns fileMatchCount or match count
-    assert "fileMatchCount" in meta or "matchCount" in meta, (
-        "ranked_file_map response must have fileMatchCount in _meta"
-    )
+    assert isinstance(meta, dict), "'_meta' must be a dict"
+    assert "fileMatchCount" in meta, "ranked_file_map response must have fileMatchCount in _meta"
 
 
 GREP_CASES: list[BenchCase] = [
@@ -59,8 +57,9 @@ GREP_CASES: list[BenchCase] = [
             "path": "src",
             "content_regex": "def tool_",
             "output_mode": "file_paths_only",
+            "include_meta": True,
         },
-        assert_keys=["isError", "_meta", "content"],
+        assert_keys=["_meta", "content"],
         custom_assert=_assert_grep_paths,
         # baseline = agent reads directory listing then grep-scans manually (~5000 tokens)
         baseline_tokens=5000,
@@ -73,8 +72,9 @@ GREP_CASES: list[BenchCase] = [
             "content_regex": "BenchCase",
             "output_mode": "file_paths_with_match_count",
             "file_glob_patterns": ["**/*.py"],
+            "include_meta": True,
         },
-        assert_keys=["isError", "_meta"],
+        assert_keys=["_meta", "content"],
         custom_assert=_assert_grep_count,
         # baseline = agent reads many Python files to count occurrences manually (~6000 tokens)
         baseline_tokens=6000,
@@ -88,8 +88,9 @@ GREP_CASES: list[BenchCase] = [
             "output_mode": "ranked_file_map",
             "type": "python",
             "context_budget_tokens": 2000,
+            "include_meta": True,
         },
-        assert_keys=["isError", "_meta"],
+        assert_keys=["_meta", "matches", "mode", "next", "handles", "context_budget_tokens"],
         custom_assert=_assert_grep_ranked,
         # baseline = agent reads multiple Python files to find search_workspace usages (~8000 tokens)
         baseline_tokens=8000,

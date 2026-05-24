@@ -257,23 +257,6 @@ def test_codex_hooks_bundle_exists() -> None:
         assert (hooks_dir / script).exists(), f"integrations/codex/hooks/{script} must exist"
 
 
-@pytest.mark.skip(reason="Marketplace file missing from repo root")
-def test_codex_repo_marketplace_exists() -> None:
-    marketplace = ATELIER_ROOT / ".agents" / "plugins" / "marketplace.json"
-    assert marketplace.exists(), ".agents/plugins/marketplace.json must exist for Codex repo-marketplace installs"
-
-
-@pytest.mark.skip(reason="Marketplace file missing from repo root")
-def test_codex_repo_marketplace_points_to_plugin() -> None:
-    marketplace = ATELIER_ROOT / ".agents" / "plugins" / "marketplace.json"
-    data = json.loads(marketplace.read_text())
-    plugins = data.get("plugins", [])
-    assert any(
-        plugin.get("name") == "atelier" and plugin.get("source", {}).get("path") == "./integrations/codex/plugin"
-        for plugin in plugins
-    ), "repo marketplace must expose the Codex plugin at ./integrations/codex/plugin"
-
-
 # ---------------------------------------------------------------------------
 # 9. Codex AGENTS.atelier.md
 # ---------------------------------------------------------------------------

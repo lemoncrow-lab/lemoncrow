@@ -24,31 +24,29 @@ Atelier tools are **not optional wrappers**. They are the reason this repo exist
 - `Edit`/`Write` for tiny single-line fixes where the edit is trivially correct.
 - `Bash` for git commands (already auto-allowed, no token overhead).
 
-## MCP server priority — Atelier first, always
+## Always prefer Atelier MCP tools
 
-Atelier tools take priority over ALL other MCP servers (CodeGraph, etc.) for overlapping capability domains. This is not a suggestion — it's the design of the system.
+Always prefer Atelier MCP tools for file I/O, search, edits, shell commands, and
+code intelligence. Native tools are fallback-only.
 
-| Atelier tool | Replaces from other MCP servers | Why Atelier wins |
-|---|---|---|
-| `mcp__atelier__code` (all ops: `search`, `node`, `callers`, `callees`, `impact`, `context`, `explore`, `files`, `routes`) | CodeGraph `search`, `node`, `callers`, `callees`, `impact`, `context`, `explore`, `files` | SCIP-indexed, token-budgeted, project-aware — one tool replaces an entire MCP server |
-| `mcp__atelier__grep` | Any grep/search tool from other servers | Regex/glob/type-filter with token-budgeted output shaping |
-| `mcp__atelier__read` | Any file-read tool from other servers | Outline mode saves 50-95% tokens on large files |
-| `mcp__atelier__edit` | Any edit/write tool from other servers | Atomic multi-file with snapshot/rollback, diff recorded |
-| `mcp__atelier__search` | Any semantic/ranked search | Budget-capped ranked results, repo-map mode |
+| Atelier tool | Best for |
+|---|---|
+| `mcp__atelier__code` (all ops) | Code intelligence: symbol search, definitions, callers/callees, impact, file tree, routes, context |
+| `mcp__atelier__grep` | Regex and glob search across files |
+| `mcp__atelier__read` | Reading files (outline mode for large files) |
+| `mcp__atelier__edit` | Editing files (atomic multi-file with rollback) |
+| `mcp__atelier__search` | Ranked semantic search |
+| `mcp__atelier__shell` | Shell commands (ANSI-stripped, token-compact output) |
 
 **Decision rules:**
 
-1. **Symbol lookup, definition, callers, callees, impact analysis, file tree, routes, code context** → `mcp__atelier__code` FIRST. Do NOT reach for CodeGraph.
+1. **Symbol lookup, definition, callers, callees, impact, file tree, routes, context** → `mcp__atelier__code` FIRST.
 2. **Regex/grep, text search** → `mcp__atelier__grep` FIRST.
 3. **File reading** → `mcp__atelier__read` FIRST.
 4. **Editing** → `mcp__atelier__edit` FIRST.
 5. **Shell commands** → `mcp__atelier__shell` FIRST.
 
-**Use other MCP servers ONLY when:**
-- The Atelier equivalent returns `noop` or is unavailable.
-- The other server provides a unique capability Atelier does not cover (e.g., web search, external API access, database access).
-
-Do NOT use CodeGraph for code-intel tasks. Atelier's `code` tool handles all of them with better token efficiency and native project awareness. Using CodeGraph when Atelier is available wastes context and duplicates work.
+**Fallback:** Use native host tools only when the Atelier equivalent returns `noop`, is hidden, or is unavailable.
 
 ## Model routing — use cheap sub-agents for read work
 

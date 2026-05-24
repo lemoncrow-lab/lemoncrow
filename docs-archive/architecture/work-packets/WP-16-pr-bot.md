@@ -14,7 +14,7 @@ status: done
 
 Lemma's pitch is auto-PR for proposed fixes. We mirror that for ReasonBlock changes: when a
 `LessonCandidate` is approved, an opt-in bot opens a PR adding the new block markdown under
-`./.knowledge/blocks/` so the team can review on GitHub.
+`./.lessons/blocks/` so the team can review on GitHub.
 
 This is **opt-in** and runs only when `ATELIER_LESSON_PR_BOT_ENABLED=true` and a `GITHUB_TOKEN`
 is present. CI must pass in both modes.
@@ -42,7 +42,7 @@ is present. CI must pass in both modes.
 1. PR bot uses `gh` CLI (already required for the project; do **not** add new Python deps).
 2. On approval:
 
-- Write the new/updated block to `./.knowledge/blocks/<id>.md` exactly as `extract_reasonblock`
+- Write the new/updated block to `./.lessons/blocks/<id>.md` exactly as `extract_reasonblock`
   would.
 - `git add` only that file.
 - Create a branch `atelier/lesson/<lesson_id>`.

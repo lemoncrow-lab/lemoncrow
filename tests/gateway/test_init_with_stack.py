@@ -12,8 +12,8 @@ def test_init_with_stack_copies_templates(tmp_path: Path) -> None:
     result = CliRunner().invoke(cli, ["--root", str(root), "init", "--stack", "python-fastapi"])
 
     assert result.exit_code == 0, result.output
-    # Knowledge is project-local by default in .knowledge/
-    blocks_dir = tmp_path / ".knowledge" / "blocks"
+    # Lessons are project-local by default in .lessons/
+    blocks_dir = tmp_path / ".lessons" / "blocks"
     copied = sorted(blocks_dir.glob("template_*.md"))
     assert len(copied) == 8
     assert any(path.name == "template_pydantic-api-boundaries.md" for path in copied)

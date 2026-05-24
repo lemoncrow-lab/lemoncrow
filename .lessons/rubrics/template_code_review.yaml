@@ -1,0 +1,25 @@
+id: template_code_review
+domain: coding.review
+triggers:
+  - review
+  - code review
+forbidden_phrases: []
+required_checks:
+  - all_findings_severity_classified
+  - all_blockers_have_file_line
+  - all_blockers_have_fix_snippet
+  - verification_ladder_applied
+  - skipped_vs_clean_correctly_distinguished
+block_if_missing:
+  - all_findings_severity_classified
+  - all_blockers_have_file_line
+  - all_blockers_have_fix_snippet
+warning_checks:
+  - no_style_preferences_as_blockers
+  - cross_file_impact_assessed
+  - performance_only_flagged_when_correctness_risk
+escalation_conditions:
+  - secret_or_credential_in_code
+  - authentication_bypass_detected
+  - data_loss_risk_identified
+related_blocks: []

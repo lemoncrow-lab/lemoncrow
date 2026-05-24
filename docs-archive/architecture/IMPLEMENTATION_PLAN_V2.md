@@ -100,7 +100,7 @@ premium model tier.
 
 | Store           | What it holds                                                   | Authority      | Mirrored on disk?                         |
 | --------------- | --------------------------------------------------------------- | -------------- | ----------------------------------------- |
-| **ReasonBlock** | "**what to do**" — procedures, dead ends, rubrics, environments | reviewable PR  | Yes — `./.knowledge/blocks/*.md`          |
+| **ReasonBlock** | "**what to do**" — procedures, dead ends, rubrics, environments | reviewable PR  | Yes — `./.lessons/blocks/*.md`          |
 | **Memory**      | "**what is true**" — agent state, project facts, session recall | editable in UI | Yes — `.atelier/memory/blocks/*.md` (NEW) |
 
 **They never overlap.** A ReasonBlock can reference a memory block (via `requires_memory: [<id>]`),

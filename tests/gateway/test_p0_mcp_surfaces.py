@@ -837,7 +837,13 @@ def test_tool_code_impact_rendered_shape_groups_lists(tmp_path: Path, monkeypatc
     )
 
     payload = tool_code(
-        {"op": "impact", "repo_root": str(tmp_path), "path": "src/orders.py", "budget_tokens": 220, "render_compact": True}
+        {
+            "op": "impact",
+            "repo_root": str(tmp_path),
+            "path": "src/orders.py",
+            "budget_tokens": 220,
+            "render_compact": True,
+        }
     )
 
     assert "rendered" in payload

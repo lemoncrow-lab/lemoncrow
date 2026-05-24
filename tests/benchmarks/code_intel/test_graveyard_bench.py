@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-pytestmark = pytest.mark.slow
-
 import json
 from pathlib import Path
 
+import pytest
+
 from benchmarks.code_intel.graveyard_bench import run_graveyard_bench
+
+pytestmark = pytest.mark.slow
 
 
 def test_graveyard_bench_smoke(tmp_path: Path) -> None:

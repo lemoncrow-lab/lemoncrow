@@ -53,7 +53,7 @@ Atelier is a **reasoning/procedure/runtime layer**. It sits between an AI agent 
                          │
           ┌──────────────┼──────────────┐
           ▼              ▼              ▼
-    ~/.atelier/db      ./.knowledge/blocks/   ~/.atelier/traces/
+    ~/.atelier/db      ./.lessons/blocks/   ~/.atelier/traces/
     (SQLite index)     (*.md source)          (*.json mirrors)
 ```
 
@@ -75,7 +75,7 @@ class ReasonBlock:
     updated_at: datetime
 ```
 
-Blocks are stored in SQLite AND mirrored to `./.knowledge/blocks/*.md` for human review in PRs.
+Blocks are stored in SQLite AND mirrored to `./.lessons/blocks/*.md` for human review in PRs.
 
 ### Rubric
 

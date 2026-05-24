@@ -50,25 +50,18 @@ def store(tmp_path: Path) -> ContextStore:
 
 @pytest.fixture()
 def seeded_runtime(tmp_path: Path) -> Iterator[ContextRuntime]:
-    """Runtime backed by the bundled seed blocks + rubrics."""
-    from importlib import resources
-
     import yaml
 
-    from atelier.core.foundation.models import ReasonBlock, Rubric
+    from atelier.core.foundation.models import Rubric
+    from atelier.core.foundation.parser import parse_block_markdown
     from atelier.gateway.adapters.runtime import ContextRuntime
 
     rt = ContextRuntime(root=tmp_path / "atelier")
-    blocks_dir = resources.files("atelier") / "infra" / "seed_blocks"
-    rubrics_dir = resources.files("atelier") / "core" / "rubrics"
-    for p in blocks_dir.iterdir():
-        if not p.name.endswith(".yaml"):
-            continue
-        data = yaml.safe_load(Path(str(p)).read_text(encoding="utf-8"))
-        rt.store.upsert_block(ReasonBlock.model_validate(data))
-    for p in rubrics_dir.iterdir():
-        if not p.name.endswith(".yaml"):
-            continue
-        data = yaml.safe_load(Path(str(p)).read_text(encoding="utf-8"))
-        rt.store.upsert_rubric(Rubric.model_validate(data))
+    lessons_root = Path(__file__).resolve().parents[1] / ".lessons"
+    blocks_dir = lessons_root / "blocks"
+    rubrics_dir = lessons_root / "rubrics"
+    for p in sorted(blocks_dir.glob("template_*.md")):
+        rt.store.upsert_block(parse_block_markdown(p.read_text(encoding="utf-8")))
+    for p in sorted(rubrics_dir.glob("template_*.yaml")):
+        rt.store.upsert_rubric(Rubric.model_validate(yaml.safe_load(p.read_text(encoding="utf-8"))))
     yield rt

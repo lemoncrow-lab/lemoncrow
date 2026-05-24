@@ -1,0 +1,72 @@
+[
+  {
+    "tool": "atelier",
+    "ok": true,
+    "median_ms": 6522.541955499037,
+    "p95_ms": 114.07842699918547,
+    "median_tokens": 241,
+    "runs": 2,
+    "error": "",
+    "sample": "{\"items\": [{\"file_path\": \"src/atelier/core/capabilities/tool_supervision/bash_exec.py\", \"kind\": \"function\", \"origin\": \"internal\", \"provenance\": \"local\", \"qualified_name\": \"classify_command\", \"signature\": \"def classify_command(command: str) -> CommandPolicyDecision:\", \"start_line\""
+  },
+  {
+    "tool": "serena",
+    "ok": true,
+    "median_ms": 579.0632755015395,
+    "p95_ms": 212.6995380021981,
+    "median_tokens": 129,
+    "runs": 2,
+    "error": "",
+    "sample": "{\"src/atelier/gateway/adapters/mcp_server.py\": [\"  >3775:    from atelier.core.capabilities.tool_supervision.bash_exec import classify_command, run_command\", \"  >3800:    policy = classify_command(command)\"], \"src/atelier/core/capabilities/tool_supervision/bash_exec.py\": [\"  > 12"
+  },
+  {
+    "tool": "codegraph",
+    "ok": true,
+    "median_ms": 102.04394900029001,
+    "p95_ms": 100.22060800110921,
+    "median_tokens": 616,
+    "runs": 2,
+    "error": "",
+    "sample": "[\n  {\n    \"node\": {\n      \"id\": \"function:b0a0d57bfab499e60130116ba75722ff\",\n      \"kind\": \"function\",\n      \"name\": \"classify_command\",\n      \"qualifiedName\": \"classify_command\",\n      \"filePath\": \"src/atelier/core/capabilities/tool_supervision/bash_exec.py\",\n      \"language\": \""
+  },
+  {
+    "tool": "code-index-mcp",
+    "ok": true,
+    "median_ms": 24.18171049976081,
+    "p95_ms": 23.42830099951243,
+    "median_tokens": 1910,
+    "runs": 2,
+    "error": "",
+    "sample": "{\"results\": [{\"file\": \"./benchmarks/mcp_tools/bench_code_3way.py\", \"line\": 40, \"text\": \"        atelier_args={\\\"op\\\": \\\"symbol\\\", \\\"symbol_name\\\": \\\"classify_command\\\", \\\"budget_tokens\\\": 4000},\"}, {\"file\": \"./benchmarks/mcp_tools/bench_code_3way.py\", \"line\": 43, \"text\": \"       "
+  },
+  {
+    "tool": "cocoindex-code",
+    "ok": false,
+    "median_ms": 0.0,
+    "p95_ms": 0.0,
+    "median_tokens": 0,
+    "runs": 0,
+    "error": "Error: Not in an initialized project directory.\nRun `ccc init` in your project root to get started.\n",
+    "sample": ""
+  },
+  {
+    "tool": "mcp-vector-search",
+    "ok": true,
+    "median_ms": 6966.937453502396,
+    "p95_ms": 6847.004481001932,
+    "median_tokens": 17,
+    "runs": 2,
+    "error": "",
+    "sample": "Tip: Run 'mvs daemon start' for 150x faster search.\n[]\n"
+  },
+  {
+    "tool": "jcodemunch-mcp",
+    "ok": true,
+    "median_ms": 1656.7254144993058,
+    "p95_ms": 1647.2812079991854,
+    "median_tokens": 699,
+    "runs": 2,
+    "error": "",
+    "sample": "{\n  \"repo\": \"pankaj4u4m/atelier\",\n  \"current_head\": \"2a25e5cc64c5e58c4495bec315b5f95adc3e2308\",\n  \"prior_head\": \"2a25e5cc64c5e58c4495bec315b5f95adc3e2308\",\n  \"prior_session_at\": \"2026-05-24T14:15:05.189587+00:00\",\n  \"languages\": \"python, yaml, typescript, tsx\",\n  \"n_files\": 2000,"
+  }
+]

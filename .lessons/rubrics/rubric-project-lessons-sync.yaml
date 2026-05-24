@@ -1,0 +1,11 @@
+id: rubric-project-lessons-sync
+domain: coding
+triggers: []
+forbidden_phrases: []
+required_checks:
+- lessons_synced
+block_if_missing:
+- lessons_synced
+warning_checks: []
+escalation_conditions: []
+related_blocks: []

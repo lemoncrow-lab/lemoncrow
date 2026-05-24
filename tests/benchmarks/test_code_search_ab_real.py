@@ -56,9 +56,7 @@ def _write_fixture_repo(root: Path) -> None:
     src.mkdir(parents=True, exist_ok=True)
     for idx in range(1, 11):
         (src / f"module_{idx}.py").write_text(
-            f"class Service{idx}:\n"
-            "    def run(self) -> int:\n"
-            f"        return {idx}\n",
+            f"class Service{idx}:\n" "    def run(self) -> int:\n" f"        return {idx}\n",
             encoding="utf-8",
         )
     (src / "orders.py").write_text(

@@ -151,8 +151,12 @@ def test_symbol_search_planner_handles_typo_fuzzy_without_displacing_exact(tmp_p
     repo_root = tmp_path / "planner_repo"
     _write_fixture_repo(repo_root)
 
-    exact = tool_code({"op": "search", "repo_root": str(repo_root), "query": "OrderService", "limit": 5, "mode": "lexical"})
-    fuzzy = tool_code({"op": "search", "repo_root": str(repo_root), "query": "OrdreServce", "limit": 5, "mode": "lexical"})
+    exact = tool_code(
+        {"op": "search", "repo_root": str(repo_root), "query": "OrderService", "limit": 5, "mode": "lexical"}
+    )
+    fuzzy = tool_code(
+        {"op": "search", "repo_root": str(repo_root), "query": "OrdreServce", "limit": 5, "mode": "lexical"}
+    )
 
     assert exact["items"]
     assert exact["items"][0]["symbol_name"] == "OrderService"

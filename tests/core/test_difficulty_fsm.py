@@ -20,13 +20,12 @@ from atelier.core.capabilities.monitors.fsm import (
     score_step,
 )
 
-
 # --------------------------------------------------------------------------- #
 # score_step                                                                   #
 # --------------------------------------------------------------------------- #
 
 
-def test_score_step_range():
+def test_score_step_range() -> None:
     for text in [
         "",
         "The fix is done.",
@@ -37,18 +36,18 @@ def test_score_step_range():
         assert 0.0 <= s <= 1.0, f"score out of range for: {text!r}"
 
 
-def test_score_step_empty_text_is_neutral():
+def test_score_step_empty_text_is_neutral() -> None:
     s = score_step("")
     assert s == 0.5
 
 
-def test_score_step_heavy_errors_score_higher():
+def test_score_step_heavy_errors_score_higher() -> None:
     clean = "Successfully updated the auth module and all tests pass."
     noisy = "Error: exception raised. Bug in handler. Crash: null pointer. Failed again."
     assert score_step(noisy) > score_step(clean)
 
 
-def test_score_step_hedging_increases_score():
+def test_score_step_hedging_increases_score() -> None:
     certain = "The root cause is the missing null check in line 42."
     hedgy = "Maybe possibly the issue might be unclear. Not sure what it could be."
     assert score_step(hedgy) > score_step(certain)
@@ -59,7 +58,7 @@ def test_score_step_hedging_increases_score():
 # --------------------------------------------------------------------------- #
 
 
-def test_first_transition_always_normal():
+def test_first_transition_always_normal() -> None:
     fsm = DifficultyFSM()
     assert fsm.current_state == FSMState.INIT
     state = fsm.transition(0.1)
@@ -71,7 +70,7 @@ def test_first_transition_always_normal():
 # --------------------------------------------------------------------------- #
 
 
-def test_normal_to_fast_after_fast_window():
+def test_normal_to_fast_after_fast_window() -> None:
     fsm = DifficultyFSM(fast_threshold=0.2, fast_window=3)
     fsm.transition(0.5)  # INIT → NORMAL
     for _ in range(3):
@@ -79,7 +78,7 @@ def test_normal_to_fast_after_fast_window():
     assert fsm.current_state == FSMState.FAST
 
 
-def test_normal_stays_normal_if_not_enough_easy_steps():
+def test_normal_stays_normal_if_not_enough_easy_steps() -> None:
     fsm = DifficultyFSM(fast_threshold=0.2, fast_window=4)
     fsm.transition(0.5)  # NORMAL
     for _ in range(3):  # one short of fast_window=4
@@ -92,7 +91,7 @@ def test_normal_stays_normal_if_not_enough_easy_steps():
 # --------------------------------------------------------------------------- #
 
 
-def test_normal_to_slow_after_slow_window():
+def test_normal_to_slow_after_slow_window() -> None:
     fsm = DifficultyFSM(slow_threshold=0.6, slow_window=3)
     fsm.transition(0.5)  # NORMAL
     for _ in range(3):
@@ -100,7 +99,7 @@ def test_normal_to_slow_after_slow_window():
     assert fsm.current_state == FSMState.SLOW
 
 
-def test_normal_stays_normal_if_not_enough_hard_steps():
+def test_normal_stays_normal_if_not_enough_hard_steps() -> None:
     fsm = DifficultyFSM(slow_threshold=0.6, slow_window=4)
     fsm.transition(0.5)  # NORMAL
     for _ in range(3):
@@ -113,18 +112,18 @@ def test_normal_stays_normal_if_not_enough_hard_steps():
 # --------------------------------------------------------------------------- #
 
 
-def test_fast_returns_to_normal_above_hysteresis():
+def test_fast_returns_to_normal_above_hysteresis() -> None:
     fsm = DifficultyFSM(fast_threshold=0.2, hysteresis_margin=0.1, fast_window=3)
     fsm.transition(0.5)  # NORMAL
     for _ in range(3):
         fsm.transition(0.05)  # → FAST
     assert fsm.current_state == FSMState.FAST
     # Score > fast_threshold + margin = 0.3
-    fsm.transition(0.35)
-    assert fsm.current_state == FSMState.NORMAL
+    state = fsm.transition(0.35)
+    assert state == FSMState.NORMAL
 
 
-def test_fast_stays_fast_below_hysteresis():
+def test_fast_stays_fast_below_hysteresis() -> None:
     fsm = DifficultyFSM(fast_threshold=0.2, hysteresis_margin=0.1, fast_window=3)
     fsm.transition(0.5)
     for _ in range(3):
@@ -140,18 +139,18 @@ def test_fast_stays_fast_below_hysteresis():
 # --------------------------------------------------------------------------- #
 
 
-def test_slow_returns_to_normal_below_hysteresis():
+def test_slow_returns_to_normal_below_hysteresis() -> None:
     fsm = DifficultyFSM(slow_threshold=0.6, hysteresis_margin=0.1, slow_window=3)
     fsm.transition(0.5)
     for _ in range(3):
         fsm.transition(0.8)
     assert fsm.current_state == FSMState.SLOW
     # Score < slow_threshold - margin = 0.5
-    fsm.transition(0.4)
-    assert fsm.current_state == FSMState.NORMAL
+    state = fsm.transition(0.4)
+    assert state == FSMState.NORMAL
 
 
-def test_slow_stays_slow_above_hysteresis():
+def test_slow_stays_slow_above_hysteresis() -> None:
     fsm = DifficultyFSM(slow_threshold=0.6, hysteresis_margin=0.1, slow_window=3)
     fsm.transition(0.5)
     for _ in range(3):
@@ -167,24 +166,30 @@ def test_slow_stays_slow_above_hysteresis():
 # --------------------------------------------------------------------------- #
 
 
-def test_slow_to_skip_after_skip_window():
+def test_slow_to_skip_after_skip_window() -> None:
     fsm = DifficultyFSM(
-        slow_threshold=0.6, slow_window=3,
-        skip_threshold=0.85, skip_window=5,
+        slow_threshold=0.6,
+        slow_window=3,
+        skip_threshold=0.85,
+        skip_window=5,
     )
     fsm.transition(0.5)  # NORMAL
     for _ in range(3):
         fsm.transition(0.8)  # → SLOW
     assert fsm.current_state == FSMState.SLOW
+    state = FSMState.SLOW
     for _ in range(5):
-        fsm.transition(0.9)  # very hard → SKIP
-    assert fsm.current_state == FSMState.SKIP
+        state = fsm.transition(0.9)  # very hard → SKIP
+    assert state == FSMState.SKIP
 
 
-def test_skip_returns_to_normal_below_hysteresis():
+def test_skip_returns_to_normal_below_hysteresis() -> None:
     fsm = DifficultyFSM(
-        slow_threshold=0.6, slow_window=3, hysteresis_margin=0.1,
-        skip_threshold=0.85, skip_window=5,
+        slow_threshold=0.6,
+        slow_window=3,
+        hysteresis_margin=0.1,
+        skip_threshold=0.85,
+        skip_window=5,
     )
     fsm.transition(0.5)
     for _ in range(3):
@@ -193,8 +198,8 @@ def test_skip_returns_to_normal_below_hysteresis():
         fsm.transition(0.9)
     assert fsm.current_state == FSMState.SKIP
     # Drop below 0.5
-    fsm.transition(0.3)
-    assert fsm.current_state == FSMState.NORMAL
+    state = fsm.transition(0.3)
+    assert state == FSMState.NORMAL
 
 
 # --------------------------------------------------------------------------- #
@@ -202,7 +207,7 @@ def test_skip_returns_to_normal_below_hysteresis():
 # --------------------------------------------------------------------------- #
 
 
-def test_skip_etraces_only_in_fast():
+def test_skip_etraces_only_in_fast() -> None:
     fsm = DifficultyFSM(fast_window=3, fast_threshold=0.2)
     assert not fsm.skip_etraces  # INIT
     fsm.transition(0.5)
@@ -210,11 +215,12 @@ def test_skip_etraces_only_in_fast():
     for _ in range(3):
         fsm.transition(0.05)
     assert fsm.skip_etraces  # FAST
-    fsm.transition(0.9)
+    state = fsm.transition(0.9)
+    assert state == FSMState.NORMAL
     assert not fsm.skip_etraces  # back to NORMAL
 
 
-def test_monitor_cooldown_steps():
+def test_monitor_cooldown_steps() -> None:
     fsm = DifficultyFSM(fast_window=3, fast_threshold=0.2, slow_window=3, slow_threshold=0.6)
     assert fsm.monitor_cooldown_steps == 1  # INIT
 
@@ -236,13 +242,13 @@ def test_monitor_cooldown_steps():
 # --------------------------------------------------------------------------- #
 
 
-def test_advance_many_empty_steps():
+def test_advance_many_empty_steps() -> None:
     fsm = DifficultyFSM()
     state = advance_many(fsm, [])
     assert state == FSMState.INIT
 
 
-def test_advance_many_processes_all_steps():
+def test_advance_many_processes_all_steps() -> None:
     fsm = DifficultyFSM()
     steps = ["Fix it.", "Done."]
     advance_many(fsm, steps)
@@ -254,7 +260,7 @@ def test_advance_many_processes_all_steps():
 # --------------------------------------------------------------------------- #
 
 
-def test_reset_clears_history_and_state():
+def test_reset_clears_history_and_state() -> None:
     fsm = DifficultyFSM()
     fsm.transition(0.5)
     fsm.transition(0.8)
@@ -263,7 +269,7 @@ def test_reset_clears_history_and_state():
     assert fsm.history == []
 
 
-def test_summary_keys():
+def test_summary_keys() -> None:
     fsm = DifficultyFSM()
     fsm.transition(0.4)
     s = fsm.summary()
@@ -274,7 +280,7 @@ def test_summary_keys():
     assert s["skip_etraces"] is False
 
 
-def test_summary_initial_state():
+def test_summary_initial_state() -> None:
     fsm = DifficultyFSM()
     s = fsm.summary()
     assert s["state"] == "INIT"

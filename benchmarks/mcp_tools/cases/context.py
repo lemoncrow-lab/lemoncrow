@@ -22,9 +22,13 @@ def _assert_context(result: dict[str, Any]) -> None:
     bootstrap = result["bootstrap"]
     assert isinstance(bootstrap, dict), "'bootstrap' must be a dict"
     assert "status" in bootstrap, "'bootstrap' must have 'status'"
-    assert bootstrap["status"] in ("warm", "warming", "cold", "indexing", "error"), (
-        f"unexpected bootstrap status: {bootstrap['status']}"
-    )
+    assert bootstrap["status"] in (
+        "warm",
+        "warming",
+        "cold",
+        "indexing",
+        "error",
+    ), f"unexpected bootstrap status: {bootstrap['status']}"
 
 
 def _assert_context_with_files(result: dict[str, Any]) -> None:
@@ -46,7 +50,7 @@ CONTEXT_CASES: list[BenchCase] = [
         assert_keys=["context", "bootstrap"],
         custom_assert=_assert_context,
         # baseline = agent reads several source files manually to gather context
-        baseline_tokens=3000,
+        baseline_tokens=5000,
     ),
     BenchCase(
         op="get_context",

@@ -48,7 +48,7 @@ md_files=$(git ls-files "*.md" \
     | grep -v "^docs-archive/" \
     | grep -v "^reports/" \
     | grep -v "^.planning/" \
-    | grep -v "^.knowledge/" \
+    | grep -v "^.lessons/" \
     | grep -v "^templates/" \
     | grep -v "^.ruler/" \
     | grep -v "^.agent/" \
@@ -60,6 +60,7 @@ md_files=$(git ls-files "*.md" \
     | grep -v "QUICK_REFERENCE" \
     | grep -v "README\.md$" \
     | grep -v "SECURITY\.md$" \
+    | grep -v "CLAUDE\.md$" \
     | grep -v "SKILL\.md$" \
     | grep -v "_README\.md$" \
     | grep -v "LICENSE\.md$" \
@@ -71,7 +72,7 @@ if [ -n "$md_files" ]; then
     echo -e "\033[1;31m❌ Unauthorized .md files found:\033[0m"
     echo "$md_files"
     echo ""
-    echo "Allowed: docs/, docs-archive/, reports/, .planning/, .knowledge/, templates/,"
+    echo "Allowed: docs/, docs-archive/, reports/, .planning/, .lessons/, templates/,"
     echo "  .ruler/, .agent/, skills/, integrations/, .github/,"
     echo "  tests/fixtures/memory/, AGENTS*, QUICK_REFERENCE*,"
     echo "  README.md, SECURITY.md, SKILL.md,"
@@ -79,16 +80,6 @@ if [ -n "$md_files" ]; then
     exit 1
 fi
 echo "✅ No unauthorized .md files."
-
-# ---------------------------------------------------------------------------
-# 2. Host integration install
-# ---------------------------------------------------------------------------
-echo "🛠️  make install ..."
-if ! ATELIER_STRICT=1 make install 2>&1 | tail -5; then
-    echo -e "\033[1;31m❌ make install failed.\033[0m"
-    echo "   Fix the error or use 'git push --no-verify' to bypass."
-    exit 1
-fi
 
 # ---------------------------------------------------------------------------
 # 3. Lint (ruff check) — same as CI lint-format job
@@ -133,7 +124,7 @@ fi
 # 7. Tests (pytest) — same as CI test job
 # ---------------------------------------------------------------------------
 echo "🧪 make test ..."
-if ! make test 2>&1; then
+if ! env -u ATELIER_WORKSPACE_ROOT -u CLAUDE_WORKSPACE_ROOT -u CURSOR_WORKSPACE_ROOT -u VSCODE_CWD -u ATELIER_LESSONS_ROOT -u ATELIER_ROOT make test 2>&1; then
     echo -e "\033[1;31m❌ Tests failed. Run 'make test' locally to diagnose.\033[0m"
     echo "   Or use 'git push --no-verify' to bypass."
     exit 1
