@@ -219,6 +219,12 @@ spin_progress() {
         local _pid=$!
         local _pct=0
         local _width=24
+        local _fill_char="█"
+        local _empty_char="░"
+        if [[ "${LC_ALL:-${LANG:-}}" != *"UTF-8"* && "${LC_ALL:-${LANG:-}}" != *"utf8"* ]]; then
+            _fill_char="="
+            _empty_char="-"
+        fi
 
         while kill -0 "$_pid" 2>/dev/null; do
             if [[ "$_pct" -lt 95 ]]; then
@@ -227,8 +233,11 @@ spin_progress() {
             local _filled=$((_pct * _width / 100))
             local _empty=$((_width - _filled))
             local _bar_fill _bar_empty
-            _bar_fill="$(printf '%*s' "$_filled" '' | tr ' ' '█')"
-            _bar_empty="$(printf '%*s' "$_empty" '' | tr ' ' '░')"
+            _bar_fill=""
+            _bar_empty=""
+            local _i
+            for ((_i = 0; _i < _filled; _i++)); do _bar_fill+="${_fill_char}"; done
+            for ((_i = 0; _i < _empty; _i++)); do _bar_empty+="${_empty_char}"; done
             printf "\r%b│%b  %b▸%b  %s  %b▕%b%b%b%b%b▏%b  %b%3d%%%b" \
                 "$C_PURPLE" "$C_RESET" "$C_PURPLE" "$C_RESET" "$_msg" \
                 "$C_DIM" "$C_RESET" "$C_CYAN" "$_bar_fill" "$C_DIM" "$_bar_empty" "$C_RESET" \
@@ -240,7 +249,9 @@ spin_progress() {
         printf "\r\033[2K"
         if [[ $_ret -eq 0 ]]; then
             local _bar_done
-            _bar_done="$(printf '%*s' "$_width" '' | tr ' ' '█')"
+            _bar_done=""
+            local _i
+            for ((_i = 0; _i < _width; _i++)); do _bar_done+="${_fill_char}"; done
             printf "%b│%b  %b✓%b  %s  %b▕%b%b%b%b▏%b  %b100%%%b\n" \
                 "$C_PURPLE" "$C_RESET" "$C_GREEN" "$C_RESET" "$_msg" \
                 "$C_DIM" "$C_RESET" "$C_GREEN" "$_bar_done" "$C_DIM" "$C_RESET" \
@@ -944,6 +955,91 @@ host_wizard() {
     fi
 }
 
+host_scope_is_workspace() {
+    local idx
+    for idx in "${!HOST_SCOPE_ARGS[@]}"; do
+        if [[ "${HOST_SCOPE_ARGS[$idx]}" == "--workspace" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+print_host_install_targets() {
+    local scope_label workspace_root
+    workspace_root="$(pwd)"
+    if host_scope_is_workspace; then
+        scope_label="local (project)"
+    else
+        scope_label="global (user)"
+    fi
+    info "Scope: ${scope_label}"
+    if host_scope_is_workspace; then
+        info "Project root: ${workspace_root}"
+    fi
+
+    local include_claude=0 include_codex=0 include_opencode=0 include_copilot=0 include_antigravity=0
+    if [[ ${#HOST_FLAGS[@]} -eq 0 ]]; then
+        include_claude=1
+        include_codex=1
+        include_opencode=1
+        include_copilot=1
+        include_antigravity=1
+    else
+        local flag
+        for flag in "${HOST_FLAGS[@]}"; do
+            case "$flag" in
+                --all)
+                    include_claude=1; include_codex=1; include_opencode=1; include_copilot=1; include_antigravity=1
+                    ;;
+                --claude) include_claude=1 ;;
+                --codex) include_codex=1 ;;
+                --opencode) include_opencode=1 ;;
+                --copilot) include_copilot=1 ;;
+                --antigravity) include_antigravity=1 ;;
+            esac
+        done
+    fi
+
+    local xdg_config_home
+    xdg_config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+    if [[ "$include_claude" == "1" ]]; then
+        if host_scope_is_workspace; then
+            info "claude       → ${workspace_root}/.mcp.json, ${workspace_root}/.claude/settings.json"
+        else
+            info "claude       → ${HOME}/.claude.json, ${HOME}/.claude/settings.json"
+        fi
+    fi
+    if [[ "$include_codex" == "1" ]]; then
+        if host_scope_is_workspace; then
+            info "codex        → ${workspace_root}/.codex/"
+        else
+            info "codex        → ${HOME}/.codex/"
+        fi
+    fi
+    if [[ "$include_opencode" == "1" ]]; then
+        if host_scope_is_workspace; then
+            info "opencode     → ${workspace_root}/opencode.json"
+        else
+            info "opencode     → ${xdg_config_home}/opencode/opencode.json"
+        fi
+    fi
+    if [[ "$include_copilot" == "1" ]]; then
+        if host_scope_is_workspace; then
+            info "copilot      → ${workspace_root}/.vscode/mcp.json"
+        else
+            info "copilot      → ${xdg_config_home}/Code/User/mcp.json"
+        fi
+    fi
+    if [[ "$include_antigravity" == "1" ]]; then
+        if host_scope_is_workspace; then
+            info "antigravity  → ${workspace_root}/.vscode/mcp.json"
+        else
+            info "antigravity  → ${xdg_config_home}/Antigravity/User/mcp.json"
+        fi
+    fi
+}
+
 ensure_local_zoekt_runtime() {
     # Kept for legacy --zoekt-auto-install flag path; prefer install_local_zoekt_if_selected
     local atelier_cli="$1"
@@ -1343,7 +1439,8 @@ main() {
     fi
 
     if [[ "$ATELIER_NO_HOSTS" != "1" ]]; then
-        verbose "Installing Atelier host integrations (skip if host CLI is missing)..."
+        step_start "Installing host integrations"
+        print_host_install_targets
         local host_install_args=()
         local passthrough
         for passthrough in "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"; do
@@ -1404,13 +1501,16 @@ main() {
             bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write >/dev/null 2>&1 \
                 || degrade "Failed to persist host detection status"
         fi
+        step_done
     else
-        verbose "Skipping host integrations because ATELIER_NO_HOSTS=1"
+        step_start "Installing host integrations"
+        info "Skipped (ATELIER_NO_HOSTS=1)"
         # Still persist current detection state even when skipping install
         if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
             bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write >/dev/null 2>&1 \
                 || degrade "Failed to persist host detection status"
         fi
+        step_done
     fi
 
     step_start "Initializing"
