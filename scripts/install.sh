@@ -1513,19 +1513,40 @@ main() {
         step_done
     fi
 
+    local index_target=""
+    local repo_root=""
+    local index_skipped=0
+    if repo_root="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null)"; then
+        index_target="$repo_root"
+    elif [[ "$ATELIER_LOCAL" == "1" ]]; then
+        index_target="$ATELIER_INSTALL_DIR"
+    fi
+
     step_start "Initializing"
-    info "Index target: $ATELIER_INSTALL_DIR"
+    if [[ -n "$index_target" ]]; then
+        info "Index target: $index_target"
+    else
+        info "Index target: not detected (no git repository in current directory)"
+    fi
     if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
         echo "[dry-run] $atelier_cli init"
-        echo "[dry-run] $atelier_cli code index --repo-root $ATELIER_INSTALL_DIR"
+        if [[ -n "$index_target" ]]; then
+            echo "[dry-run] $atelier_cli code index --repo-root $index_target"
+        else
+            echo "[dry-run] skip code index (run inside a git repo)"
+        fi
     else
         spin "Initializing runtime store" "$atelier_cli" init
-        if ! spin_progress "Bootstrapping code index" "$atelier_cli" code index --repo-root "$ATELIER_INSTALL_DIR"; then
-            degrade "Initial code indexing failed; Atelier will continue and autosync will retry."
+        if [[ -n "$index_target" ]]; then
+            if ! spin_progress "Bootstrapping code index" "$atelier_cli" code index --repo-root "$index_target"; then
+                degrade "Initial code indexing failed; Atelier will continue and autosync will retry."
+            fi
+        else
+            index_skipped=1
+            info "Skipped code indexing (no git repository detected)."
         fi
     fi
     step_done
-
     if [[ "$ATELIER_NO_SERVICECTL" != "1" ]]; then
         if command -v systemctl >/dev/null 2>&1 || [[ "$(uname -s)" == "Darwin" ]]; then
             verbose "Registering Atelier services with background manager..."
@@ -1580,6 +1601,9 @@ main() {
     step_start "What's next"
     info "atelier status              — view active reasoning run"
     info "atelier import              — import past agent sessions"
+    if [[ "$index_skipped" == "1" ]]; then
+        info "cd /path/to/repo && atelier code index --repo-root .  — index a git repository"
+    fi
     case "$selected_memory" in
         letta)      info "atelier letta status        — Letta memory sidecar" ;;
         openmemory) info "atelier openmemory status   — OpenMemory sidecar" ;;
