@@ -296,11 +296,8 @@ _OPERATION_TOKEN_CAPS = {
 _FIELD_NAME_SHORTMAP = {
     "file_path": "path",
     "symbol_name": "name",
-    "qualified_name": "qname",
     "symbol_id": "id",
     "start_line": "line",
-    "start_byte": "start_b",
-    "end_byte": "end_b",
     "doc_summary": "doc",
     "deleted_at": "deleted",
     "deleted_at_sha": "deleted_sha",

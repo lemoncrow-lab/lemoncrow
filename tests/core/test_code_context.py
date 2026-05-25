@@ -761,7 +761,7 @@ def test_tool_blame_returns_ownership_metadata_with_optional_churn(tmp_path: Pat
     without_churn = engine.tool_blame(query="risk_score", include_churn=False, budget_tokens=4000)
 
     assert payload["name"] == "risk_score"
-    assert payload["qname"] == "risk_score"
+    assert payload["qualified_name"] == "risk_score"
     assert payload["author"] == "carol@example.com"
     assert payload["last_commit_sha"] == head_sha
     assert payload["freshness"] == "fresh"
@@ -843,7 +843,7 @@ def test_budget_packer_drops_optional_keys_first() -> None:
         {
             "id": f"sym-{index}",
             "name": f"Symbol{index}",
-            "qname": f"pkg.Symbol{index}",
+            "qualified_name": f"pkg.Symbol{index}",
             "path": f"src/mod_{index}.py",
             "kind": "function",
             "signature": f"def symbol_{index}(value: str) -> str",
@@ -862,7 +862,7 @@ def test_budget_packer_drops_optional_keys_first() -> None:
         essential_keys=[
             "id",
             "name",
-            "qname",
+            "qualified_name",
             "path",
             "kind",
             "signature",
@@ -925,7 +925,7 @@ def test_tool_usages_groups_local_references_and_reports_treesitter_fallback(tmp
 
     payload = engine.tool_usages(query="OrderService", budget_tokens=4000)
 
-    assert payload["target"]["qname"] == "OrderService"
+    assert payload["target"]["qualified_name"] == "OrderService"
     assert payload["group_by"] == "file"
     assert payload["references"]["src/checkout.py"][0]["provenance"] in {"treesitter", "local_index"}
     assert payload["reference_count"] >= 1
@@ -947,7 +947,7 @@ def test_tool_symbol_adds_cross_lang_refs_without_dropping_existing_symbol_field
 
     payload = engine.tool_symbol(qualified_name="load_plugin", file_path="src/bootstrap.py", budget_tokens=4000)
 
-    assert payload["qname"] == "load_plugin"
+    assert payload["qualified_name"] == "load_plugin"
     assert payload["name"] == "load_plugin"
     assert payload["source"]
     assert payload["cross_lang_refs"][0]["edge_kind"] == "dynamic_import"
@@ -962,7 +962,7 @@ def test_tool_usages_appends_cross_lang_references_and_preserves_local_groups(tm
 
     payload = engine.tool_usages(symbol_name="main", file_path="scripts/worker.py", budget_tokens=4000)
 
-    assert payload["target"]["qname"] == "main"
+    assert payload["target"]["qualified_name"] == "main"
     assert payload["references"]["src/local_worker.py"][0]["provenance"] in {"treesitter", "local_index"}
     assert payload["references"]["src/bootstrap.py"][0]["provenance"] == "cross_lang"
     assert payload["references"]["src/bootstrap.py"][0]["edge_kind"] == "subprocess"
@@ -1049,14 +1049,14 @@ def test_tool_callers_and_callees_traverse_depth_and_handle_cycles(tmp_path: Pat
     callers = engine.tool_callers(query="beta", depth=2, budget_tokens=4000)
     callees = engine.tool_callees(query="handle", depth=2, budget_tokens=4000)
 
-    assert callers["target"]["qname"] == "beta"
+    assert callers["target"]["qualified_name"] == "beta"
     assert callers["depth"] == 2
     assert callers["data_status"] == "available"
-    assert {item["qname"] for item in callers["related"]} == {"alpha", "gamma", "handle"}
+    assert {item["qualified_name"] for item in callers["related"]} == {"alpha", "gamma", "handle"}
     assert callers["edge_count"] == 3
     assert callers["provenance"] == "scip"
-    assert callees["target"]["qname"] == "handle"
-    assert {item["qname"] for item in callees["related"]} == {"alpha", "beta"}
+    assert callees["target"]["qualified_name"] == "handle"
+    assert {item["qualified_name"] for item in callees["related"]} == {"alpha", "beta"}
     assert all(edge["depth"] in {1, 2} for edge in callees["edges"])
 
 
@@ -1068,7 +1068,7 @@ def test_tool_callers_falls_back_to_reference_graph_when_call_graph_data_is_miss
 
     payload = engine.tool_callers(query="alpha", budget_tokens=4000)
 
-    assert payload["target"]["qname"] == "alpha"
+    assert payload["target"]["qualified_name"] == "alpha"
     assert payload["data_status"] == "available"
     assert payload["edge_count"] >= 1
     assert payload["related_count"] >= 1
