@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from benchmarks.mcp_tools._env import configure_benchmark_runtime
 from benchmarks.mcp_tools.cases.route import ROUTE_CASES
 from benchmarks.mcp_tools.harness import BenchCase, CaseResult, ToolReport, run_case
 from benchmarks.mcp_tools.reporter import render_summary
@@ -24,7 +25,7 @@ ROUTE_CASES_LOCAL = ROUTE_CASES
 
 
 def _setup_env(root: Path) -> None:
-    os.environ["ATELIER_ROOT"] = str(root / ".atelier")
+    configure_benchmark_runtime(root)
     os.environ["ATELIER_MODEL"] = "claude-sonnet-4.6"
     os.environ["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY", "test-anthropic-key")
     os.environ["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY", "test-openai-key")

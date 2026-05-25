@@ -6,12 +6,12 @@ Run:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from benchmarks.mcp_tools._env import configure_benchmark_runtime
 from benchmarks.mcp_tools.cases.search import SEARCH_CASES
 from benchmarks.mcp_tools.harness import BenchCase, CaseResult, ToolReport, run_case
 from benchmarks.mcp_tools.reporter import render_summary
@@ -20,9 +20,7 @@ from benchmarks.mcp_tools.reporter import render_summary
 @pytest.fixture(scope="session")
 def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("bench_search")
-    os.environ["CLAUDE_WORKSPACE_ROOT"] = str(Path.cwd())
-    os.environ["ATELIER_MEM_ROOT"] = str(root / "mem")
-    return root
+    return configure_benchmark_runtime(root, workspace_root=Path.cwd())
 
 
 @pytest.fixture(scope="session")
@@ -68,6 +66,6 @@ def test_search_op_saves_tokens(case: BenchCase, search_bench_results: list[Case
     result = _find(search_bench_results, case.label)
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
-    assert result.atelier_tokens < case.baseline_tokens, (
-        f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"
-    )
+    assert (
+        result.atelier_tokens < case.baseline_tokens
+    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"

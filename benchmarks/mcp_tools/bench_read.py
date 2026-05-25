@@ -8,12 +8,12 @@ CLAUDE_WORKSPACE_ROOT is set to the repo root so relative paths resolve correctl
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from benchmarks.mcp_tools._env import configure_benchmark_runtime
 from benchmarks.mcp_tools.cases.read import READ_CASES
 from benchmarks.mcp_tools.harness import BenchCase, CaseResult, ToolReport, run_case
 from benchmarks.mcp_tools.reporter import render_summary
@@ -23,9 +23,7 @@ from benchmarks.mcp_tools.reporter import render_summary
 def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("bench_read")
     # Point workspace to the actual repo so relative file paths work
-    os.environ["CLAUDE_WORKSPACE_ROOT"] = str(Path.cwd())
-    os.environ["ATELIER_MEM_ROOT"] = str(root / "mem")
-    return root
+    return configure_benchmark_runtime(root, workspace_root=Path.cwd())
 
 
 @pytest.fixture(scope="session")
@@ -71,6 +69,6 @@ def test_read_op_saves_tokens(case: BenchCase, read_bench_results: list[CaseResu
     result = _find(read_bench_results, case.label)
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
-    assert result.atelier_tokens < case.baseline_tokens, (
-        f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"
-    )
+    assert (
+        result.atelier_tokens < case.baseline_tokens
+    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"

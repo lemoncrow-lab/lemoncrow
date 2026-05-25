@@ -11,16 +11,15 @@ placeholders in case args before running.
 from __future__ import annotations
 
 import copy
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from benchmarks.mcp_tools._env import configure_benchmark_runtime
 from benchmarks.mcp_tools.cases.shell import SHELL_CASES
 from benchmarks.mcp_tools.harness import BenchCase, CaseResult, ToolReport, run_case
 from benchmarks.mcp_tools.reporter import render_summary
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -40,13 +39,13 @@ def shell_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "# module with needle_token\ndef needle_token():\n    return 42\n",
         encoding="utf-8",
     )
-    os.environ["CLAUDE_WORKSPACE_ROOT"] = str(root)
-    return root
+    return configure_benchmark_runtime(root)
 
 
 @pytest.fixture(scope="session")
 def shell_tool_fn() -> Any:
     from atelier.gateway.adapters.mcp_server import tool_shell
+
     return tool_shell
 
 
@@ -122,6 +121,6 @@ def test_shell_op_saves_tokens(case: BenchCase, shell_bench_results: list[CaseRe
     result = _find(shell_bench_results, case.label)
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
-    assert result.atelier_tokens < case.baseline_tokens, (
-        f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"
-    )
+    assert (
+        result.atelier_tokens < case.baseline_tokens
+    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"

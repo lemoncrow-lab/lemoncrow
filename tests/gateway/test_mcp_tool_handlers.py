@@ -372,16 +372,16 @@ def test_tools_list_each_entry_has_schema() -> None:
         assert isinstance(tool.get("inputSchema"), dict)
 
 
-def test_tools_list_search_schema_prefers_file_path_and_documents_modes() -> None:
+def test_tools_list_search_schema_prefers_path_and_documents_modes() -> None:
     search_tool = TOOLS["search"]
     properties = search_tool["inputSchema"]["properties"]
 
     assert "query" in search_tool["description"]
     assert "grep" in search_tool["description"]
-    assert "file_path" in properties
-    assert "path" not in properties
+    assert "path" in properties
+    assert "file_path" not in properties
     assert "content_regex" not in properties
-    assert "legacy callers may still send `path`" in properties["file_path"]["description"]
+    assert properties["path"]["description"] == "Workspace-relative file or directory to search."
     assert "repo map" in properties["mode"]["description"].lower()
 
 
@@ -390,8 +390,8 @@ def test_tools_list_grep_schema_covers_native_mode() -> None:
     properties = grep_tool["inputSchema"]["properties"]
 
     assert "regex" in grep_tool["description"].lower()
-    assert "file_path" in properties
-    assert "path" not in properties
+    assert "path" in properties
+    assert "file_path" not in properties
     assert "content_regex" in properties
     assert "summary" in properties
 

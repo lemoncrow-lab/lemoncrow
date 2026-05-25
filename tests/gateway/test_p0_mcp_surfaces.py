@@ -73,16 +73,16 @@ def test_mcp_search_adds_backend_metadata_for_large_repo(tmp_path: Path, monkeyp
     assert "total_tokens" in result
 
 
-def test_search_tool_schema_prefers_file_path_and_documents_ranked_contract() -> None:
+def test_search_tool_schema_prefers_path_and_documents_ranked_contract() -> None:
     search_tool = TOOLS["search"]
     properties = search_tool["inputSchema"]["properties"]
 
     assert "query" in search_tool["description"]
     assert "grep" in search_tool["description"]
-    assert "file_path" in properties
-    assert "path" not in properties
+    assert "path" in properties
+    assert "file_path" not in properties
     assert "content_regex" not in properties
-    assert "canonical search root" in properties["file_path"]["description"]
+    assert properties["path"]["description"] == "Workspace-relative file or directory to search."
     assert "repo map" in properties["mode"]["description"].lower()
     assert "mode='map'" in properties["seed_files"]["description"]
 
@@ -93,14 +93,14 @@ def test_grep_tool_schema_covers_native_contract() -> None:
 
     assert "regex" in grep_tool["description"].lower()
     assert "context lines" in grep_tool["description"].lower()
-    assert "file_path" in properties
-    assert "path" not in properties
+    assert "path" in properties
+    assert "file_path" not in properties
     assert "timestamp from the previous result header" in properties["if_modified_since"]["description"].lower()
     assert "summarize" in properties["summary"]["description"].lower()
     assert "max_line_length" not in properties
 
 
-def test_grep_tool_accepts_legacy_path_alias(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_grep_tool_accepts_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     target = tmp_path / "sample.py"
     target.write_text("needle\\n", encoding="utf-8")

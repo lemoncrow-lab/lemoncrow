@@ -23,7 +23,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
-from pydantic import AliasChoices, Field, create_model
+from pydantic import Field, create_model
 
 from atelier import __version__ as atelier_version
 from atelier.core.capabilities.archival_recall import ArchivalRecallCapability
@@ -2072,14 +2072,10 @@ def tool_memory(
 
 @mcp_tool(name="read")
 def tool_smart_read(
-    file_path: Annotated[
+    path: Annotated[
         str,
         Field(
-            description=(
-                "Workspace-relative file path to read. This is the canonical "
-                "parameter; legacy callers may still send `path`."
-            ),
-            validation_alias=AliasChoices("file_path", "path"),
+            description="Workspace-relative file path to read.",
         ),
     ],
     range: str | None = None,
@@ -2117,9 +2113,9 @@ def tool_smart_read(
       range: str,                        # only when mode == "range"
     }
     """
-    target_path = file_path
+    target_path = path
     if not target_path:
-        raise ValueError("provide file_path")
+        raise ValueError("provide path")
     if max_lines is not None and range is None and not expand:
         payload = cast(dict[str, Any], _core_runtime().smart_read(target_path, max_lines=max_lines))
         if include_meta:
@@ -3970,11 +3966,7 @@ def tool_grep(
     path: Annotated[
         str,
         Field(
-            description=(
-                "Workspace-relative file or directory to search. This is the canonical "
-                "search root parameter; legacy callers may still send `path`."
-            ),
-            validation_alias=AliasChoices("file_path", "path"),
+            description=("Workspace-relative file or directory to search."),
         ),
     ] = ".",
     content_regex: Annotated[
@@ -4113,13 +4105,10 @@ def tool_grep(
                 "type": "string",
                 "description": "Ranked search query. Required for `chunks` and `full` mode.",
             },
-            "file_path": {
+            "path": {
                 "type": "string",
                 "default": ".",
-                "description": (
-                    "Workspace-relative file or directory to search. This is the canonical "
-                    "search root parameter; legacy callers may still send `path`."
-                ),
+                "description": "Workspace-relative file or directory to search.",
             },
             "mode": {
                 "type": "string",
@@ -4161,14 +4150,10 @@ def tool_smart_search(
         str | None,
         Field(description="Ranked search query. Required for `chunks` mode."),
     ] = None,
-    file_path: Annotated[
+    path: Annotated[
         str,
         Field(
-            description=(
-                "Workspace-relative file or directory to search. This is the canonical "
-                "search root parameter; legacy callers may still send `path`."
-            ),
-            validation_alias=AliasChoices("file_path", "path"),
+            description="Workspace-relative file or directory to search.",
         ),
     ] = ".",
     mode: Annotated[
@@ -4225,7 +4210,7 @@ def tool_smart_search(
 
     payload = smart_search(
         query=query or "",
-        path=file_path,
+        path=path,
         mode=mode,
         max_files=max_files,
         max_chars_per_file=max_chars_per_file,

@@ -405,9 +405,11 @@ spin_progress() {
 }
 
 print_installer_header() {
-    local script_root
+    local script_root=""
     local display_version="0.1.0"
-    script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+        script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    fi
     if [[ -f "$script_root/pyproject.toml" ]]; then
         local parsed
         parsed="$(sed -n 's/^version = "\(.*\)"/\1/p' "$script_root/pyproject.toml" | head -n 1)"
@@ -440,27 +442,37 @@ collect_issues_from_output() {
     done <<<"$output"
 }
 
+# bash 3.2 compatible linear array membership check (no associative arrays)
+_in_array() {
+    local needle="$1"
+    shift
+    local item
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
 print_issue_group() {
     local title="$1"
     local color="$2"
     shift 2
     local entries=("$@")
-    local -A counted=()
-    local -A printed=()
+    local -a unique_entries=()
     local entry
     local count=0
 
     for entry in "${entries[@]+"${entries[@]}"}"; do
-        [[ -n "$entry" && -z "${counted[$entry]+x}" ]] || continue
-        counted["$entry"]=1
-        count=$((count + 1))
+        [[ -n "$entry" ]] || continue
+        if ! _in_array "$entry" "${unique_entries[@]+"${unique_entries[@]}"}"; then
+            unique_entries+=("$entry")
+            count=$((count + 1))
+        fi
     done
 
     [[ $count -gt 0 ]] || return 0
     printf "%b│%b  %b%s (%d)%b\n" "$C_FRAME" "$C_RESET" "$color" "$title" "$count" "$C_RESET"
-    for entry in "${entries[@]+"${entries[@]}"}"; do
-        [[ -n "$entry" && -z "${printed[$entry]+x}" ]] || continue
-        printed["$entry"]=1
+    for entry in "${unique_entries[@]+"${unique_entries[@]}"}"; do
         printf "%b│%b    %b-%b %s\n" "$C_FRAME" "$C_RESET" "$color" "$C_RESET" "$entry"
     done
 }
