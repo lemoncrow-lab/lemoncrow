@@ -235,6 +235,28 @@ def _search_with_backend(
     return payload
 
 
+def _naive_bytes_for_matches(matches: list[dict[str, Any]]) -> int:
+    """Sum the full source size for each matched file (what a naive agent would read)."""
+    total = 0
+    for match in matches:
+        raw = str(match.get("path", ""))
+        if not raw:
+            continue
+        try:
+            total += Path(raw).stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _rendered_bytes_for_matches(matches: list[dict[str, Any]]) -> int:
+    """Approximate bytes returned to the agent: JSON-serialize the matches."""
+    try:
+        return len(json.dumps(matches, ensure_ascii=False))
+    except (TypeError, ValueError):
+        return 0
+
+
 def smart_search(
     *,
     query: str,
@@ -281,6 +303,7 @@ def smart_search(
                 "backend": str(cached.get("backend") or "ripgrep"),
                 "index_age_seconds": cached.get("index_age_seconds"),
                 "cache_hit": True,
+                "tokens_saved": int(cached.get("tokens_saved", 0) or 0),
             }
     else:
         cache = {}
@@ -315,13 +338,17 @@ def smart_search(
                     content = ""
                 full_matches.append({**match, "content": content, "snippets": []})
             matches = full_matches
+        zoekt_matches = matches[:max_files]
+        zoekt_naive = _naive_bytes_for_matches(zoekt_matches)
+        zoekt_rendered = _rendered_bytes_for_matches(zoekt_matches)
         response = {
-            "matches": matches[:max_files],
+            "matches": zoekt_matches,
             "mode": mode,
             "backend": backend,
             "index_age_seconds": payload.get("index_age_seconds"),
             "total_tokens": payload.get("total_tokens", 0),
             "cache_hit": False,
+            "tokens_saved": max(0, (zoekt_naive - zoekt_rendered) // 4),
         }
         if os.environ.get("ATELIER_CACHE_DISABLED") != "1":
             cache[cache_key] = response
@@ -365,12 +392,16 @@ def smart_search(
                 content = ""
             fm.append({**match, "content": content, "snippets": []})
         matches = fm
+    final_matches = matches[:max_files]
+    final_naive = _naive_bytes_for_matches(final_matches)
+    final_rendered = _rendered_bytes_for_matches(final_matches)
     response = {
-        "matches": matches[:max_files],
+        "matches": final_matches,
         "mode": mode,
         "backend": backend,
         "index_age_seconds": payload.get("index_age_seconds"),
         "cache_hit": False,
+        "tokens_saved": max(0, (final_naive - final_rendered) // 4),
     }
 
     if os.environ.get("ATELIER_CACHE_DISABLED") != "1":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import contextlib
 import json
 import mimetypes
 import os
@@ -592,6 +593,10 @@ def search_workspace(
             "content": [{"type": "text", "text": "Provide content_regex, file_glob_patterns, or type"}],
         }
 
+    # Track naive vs rendered bytes to compute tokens_saved. Naive = sum of
+    # full source bytes we touched (what a non-Atelier agent would read);
+    # rendered = bytes actually returned. ~4 bytes/token.
+    naive_bytes = 0
     root = _repo_root(repo_root)
     base_spec = _parse_pattern(path)
     base = _safe_resolve(root, base_spec.pattern or ".")
@@ -624,6 +629,7 @@ def search_workspace(
                 if candidate.suffix.lower() in _PDF_SUFFIXES
                 else candidate.read_text(encoding="utf-8", errors="replace")
             )
+            naive_bytes += len(source)
             lines = source.splitlines()
             if spec.graph_mode == "imports":
                 imports = _imports_for(candidate, source)
@@ -684,6 +690,7 @@ def search_workspace(
                 "mode": "ranked_file_map",
                 "matches": [],
                 "next": [],
+                "tokens_saved": naive_bytes // 4,
             }
             if include_metadata:
                 payload["_meta"] = {"fileMatchCount": 0, "capChars": cap_chars}
@@ -726,6 +733,13 @@ def search_workspace(
                 next_actions.append(f"read {item.file}#{start}-{end}")
             if item.symbols:
                 next_actions.append(f"read {item.file}#{item.symbols[0]}")
+        rendered_bytes = sum(
+            len(item.get("file", ""))
+            + sum(len(r) for r in item.get("ranges", []))
+            + sum(len(s) for s in item.get("symbols", []))
+            + len(item.get("why", ""))
+            for item in matches_payload
+        )
         payload = {
             "mode": "ranked_file_map",
             "matches": matches_payload,
@@ -734,6 +748,7 @@ def search_workspace(
             "handles": {
                 k: {"file": v[0], "range": f"{v[1][0]}-{v[1][1]}" if v[1] else None} for k, v in handles.items()
             },
+            "tokens_saved": max(0, (naive_bytes - rendered_bytes) // 4),
         }
         if include_metadata:
             payload["_meta"] = {"fileMatchCount": len(matches_payload), "capChars": cap_chars}
@@ -752,6 +767,8 @@ def search_workspace(
             continue
         if not _is_text_file(candidate) and suffix not in _PDF_SUFFIXES:
             continue
+        with contextlib.suppress(OSError):
+            naive_bytes += candidate.stat().st_size
         if spec.graph_mode == "imported_by":
             imported = _imported_by_for(root, candidate, candidates)
             rel = str(candidate.relative_to(root)) if candidate.is_relative_to(root) else str(candidate)
@@ -791,7 +808,10 @@ def search_workspace(
         total_chars += len(text)
         blocks.append({"type": "text", "text": text})
 
-    response: dict[str, Any] = {"content": blocks}
+    response: dict[str, Any] = {
+        "content": blocks,
+        "tokens_saved": max(0, (naive_bytes - total_chars) // 4),
+    }
     if include_metadata:
         response["_meta"] = {"fileMatchCount": file_match_count, "capChars": effective_cap_chars}
     inline_chars_budget = max(1000, context_budget_tokens) * INLINE_CHARS_PER_TOKEN
@@ -826,6 +846,9 @@ def search_workspace(
                 "bytes": spill_path.stat().st_size,
                 "preview": preview,
             },
+            # Spilled response: the agent reads only the stub, so savings are
+            # naive read cost minus the stub preview length.
+            "tokens_saved": max(0, (naive_bytes - len(preview)) // 4),
         }
         if include_metadata:
             response["_meta"] = {

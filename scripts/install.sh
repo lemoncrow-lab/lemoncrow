@@ -192,7 +192,7 @@ degrade() {
 }
 
 _spinner_run() {
-    [[ -t 1 && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]] || return 0
+    [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]] || return 0
     local _frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
     (
         local _i=0
@@ -257,7 +257,7 @@ spin_tail() {
     "$@" >"$_out_file" 2>&1 &
     local _pid=$!
 
-    if [[ -t 1 && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]]; then
+    if [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]]; then
         local _frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
         local _fi=0
         local _printed_lines=0
@@ -330,7 +330,7 @@ spin_progress() {
     local _out_file
     _out_file="$(mktemp "${TMPDIR:-/tmp}/atelier-progress.XXXXXX")"
 
-    if [[ -t 1 && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]]; then
+    if [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]]; then
         "$@" >"$_out_file" 2>&1 &
         local _pid=$!
         local _pct=0

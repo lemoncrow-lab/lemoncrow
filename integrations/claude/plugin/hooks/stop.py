@@ -525,9 +525,16 @@ def _format_stats(
     # cache line — cW (cache write, expensive at ~$6.25/M for Opus) and cR
     # (cache read, cheap at $0.50/M) get equal billing prominence so users
     # see the real cost structure at a glance.
+    # "input processed" = new uncached input + tokens written to cache this
+    # session. Anthropic's `input_tokens` field only counts the non-cached
+    # delta per turn, which collapses to near-zero on cache-friendly sessions
+    # and confuses readers. cW is also "new input the model processed"; only
+    # cR is recycled content. So we surface (in+cW) as the meaningful
+    # cumulative input figure and keep the raw breakdown for transparency.
+    fresh_in = inp + cache_write
     lines = [
         f"tool calls: {calls}",
-        f"tokens: {_fmt_tok(inp)} in / {_fmt_tok(cache_write)} cW / {_fmt_tok(cache_read)} cR / {_fmt_tok(out)} out  ({_fmt_tok(total)} total)",
+        f"tokens: {_fmt_tok(fresh_in)} input ({_fmt_tok(inp)} new + {_fmt_tok(cache_write)} cW) / {_fmt_tok(cache_read)} cR / {_fmt_tok(out)} out  ({_fmt_tok(total)} total)",
         f"{cost_prefix}${cost:.4f}",
     ]
 

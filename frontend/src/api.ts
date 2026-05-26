@@ -1136,6 +1136,7 @@ export interface DashboardTopSession {
   input_tokens: number;
   output_tokens: number;
   cached_tokens: number;
+  atelier_savings_usd?: number;
 }
 
 export interface DashboardTool {
@@ -1227,6 +1228,8 @@ export interface AnalyticsDashboard {
     total_cost: number;
     projected_monthly_cost: number;
     total_sessions: number;
+    total_atelier_savings_usd?: number;
+    savings_pct?: number;
   };
   daily: DashboardDaily[];
   hourly: DashboardDaily[];

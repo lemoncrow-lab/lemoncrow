@@ -18,7 +18,8 @@ This file is a thin entrypoint. The live source of truth lives in the linked doc
 
 1. **Context** — call `mcp__atelier__context` with `task`, `files`, `domain` before touching any file.
 2. **Implement** — use Atelier tools for ALL file I/O and shell ops (see [Tool substitution](docs/agent-os/tool-substitution.md)). Use `route` to get model recommendations before expensive steps. Use `rescue` on repeated failures.
-3. **Record** — call `mcp__atelier__trace` at completion.
+3. **Verify** — run `make pre-commit` before concluding. The git pre-commit hook at `.githooks/pre-commit` runs `ruff` and `mypy` on staged files.
+4. **Record** — call `mcp__atelier__trace` at completion.
 
 ## Tool substitution — mandatory
 

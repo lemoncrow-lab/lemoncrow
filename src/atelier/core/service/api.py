@@ -3842,6 +3842,23 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             reverse=True,
         )
 
+        from atelier.infra.runtime.session_report import read_total_savings_from_events
+
+        _atelier_root = Path(cfg.atelier_root)
+
+        # Per-session Atelier savings — sum routing/compaction events keyed
+        # by session_id. Display savings (content[].saved) live in the host
+        # transcript and aren't aggregated here.
+        _session_savings: dict[str, float] = {}
+        for _s in dashboard_sessions:
+            _sk = str(_s.get("session_key") or _s["id"])
+            if _sk in _session_savings:
+                continue
+            try:
+                _session_savings[_sk] = read_total_savings_from_events(_sk, _atelier_root)
+            except Exception:
+                _session_savings[_sk] = 0.0
+
         top_sessions_clean = [
             {
                 "id": s.get("session_key") or s["id"],
@@ -3853,6 +3870,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                 "input_tokens": s["input_tokens"],
                 "output_tokens": s["output_tokens"],
                 "cached_tokens": s["cached_tokens"],
+                "atelier_savings_usd": _session_savings.get(str(s.get("session_key") or s["id"]), 0.0),
             }
             for s in sorted(dashboard_sessions, key=lambda x: x["cost"], reverse=True)[:20]
         ]
@@ -3906,14 +3924,19 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                 bucket[name]["input_tokens"] += tin
                 bucket[name]["output_tokens"] += tout
 
+        _total_savings = round(sum(_session_savings.values()), 6)
+        _total_cost_window = round(sum(float(session["cost"]) for session in dashboard_sessions), 6)
+
         return {
             "summary": {
-                "total_cost": round(sum(float(session["cost"]) for session in dashboard_sessions), 6),
+                "total_cost": _total_cost_window,
                 "projected_monthly_cost": round(
-                    sum(float(session["cost"]) for session in dashboard_sessions) * (30 / max(days, 1)),
+                    _total_cost_window * (30 / max(days, 1)),
                     6,
                 ),
                 "total_sessions": len(dashboard_sessions),
+                "total_atelier_savings_usd": _total_savings,
+                "savings_pct": (round(_total_savings / _total_cost_window * 100, 2) if _total_cost_window > 0 else 0.0),
             },
             "daily": daily_list,
             "hourly": hourly_list,

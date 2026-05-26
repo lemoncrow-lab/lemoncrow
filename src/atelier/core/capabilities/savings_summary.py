@@ -369,19 +369,23 @@ class SavingsSummary:
     status_text: str = ""
 
 
-def _read_claude_session_savings(session_id: str, atelier_root: Path) -> tuple[int, int]:
-    """Return ``(tokens_saved, calls_saved)`` from the Claude session savings JSONL.
+def _read_claude_session_savings(session_id: str, atelier_root: Path) -> tuple[int, int, float]:
+    """Return ``(tokens_saved, calls_saved, usd_saved)`` from the Claude session savings JSONL.
 
-    Written by the MCP dispatcher to ``session_stats/claude/<session_id>.jsonl``
-    (one append-only row per tool call with non-zero savings).
+    Each row is priced at the model stored in the row (set by the MCP server at write time).
+    Rows without a model field fall back to 0 USD — caller prices them via weighted average.
     """
     if not session_id:
-        return 0, 0
+        return 0, 0, 0.0
     path = atelier_root / "session_stats" / "claude" / f"{session_id}.jsonl"
     if not path.exists():
-        return 0, 0
+        return 0, 0, 0.0
+    from atelier.core.capabilities.pricing import get_model_pricing
+
     tokens_total = 0
     calls_total = 0
+    usd_total = 0.0
+    unpriced_tokens = 0
     try:
         for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
             raw = raw.strip()
@@ -391,11 +395,22 @@ def _read_claude_session_savings(session_id: str, atelier_root: Path) -> tuple[i
                 ev = json.loads(raw)
             except Exception:
                 continue
-            tokens_total += max(0, int(ev.get("tokens") or 0))
-            calls_total += max(0, int(ev.get("calls") or 0))
+            t = max(0, int(ev.get("tokens") or 0))
+            c = max(0, int(ev.get("calls") or 0))
+            tokens_total += t
+            calls_total += c
+            model_raw = str(ev.get("model") or "").strip()
+            if model_raw and t > 0:
+                pricing = get_model_pricing(resolve_model_id(model_raw))
+                if pricing is not None and pricing.known and pricing.input > 0:
+                    usd_total += pricing.input / 1_000_000 * t
+                else:
+                    unpriced_tokens += t
+            else:
+                unpriced_tokens += t
     except OSError:
         pass
-    return tokens_total, calls_total
+    return tokens_total, calls_total, usd_total
 
 
 def _resolve_workspace_session_id(workspace: str | None, root_path: Path) -> str:
@@ -450,13 +465,13 @@ def compute_savings_summary(
         root_path = Path(env_root) if env_root else Path.home() / ".atelier"
 
     # --- savings rows (primary source) ---
-    tokens, calls = _read_claude_session_savings(session_id, root_path) if session_id else (0, 0)
+    tokens, calls, row_usd = _read_claude_session_savings(session_id, root_path) if session_id else (0, 0, 0.0)
 
     # Fallback: subagent sessions have no sidecar — use parent session from workspace.
     if tokens == 0 and calls == 0 and workspace:
         ws_session_id = _resolve_workspace_session_id(workspace, root_path)
         if ws_session_id and ws_session_id != session_id:
-            tokens, calls = _read_claude_session_savings(ws_session_id, root_path)
+            tokens, calls, row_usd = _read_claude_session_savings(ws_session_id, root_path)
             if tokens > 0 or calls > 0:
                 session_id = ws_session_id  # use the found session for transcript lookup too
 
@@ -471,30 +486,33 @@ def compute_savings_summary(
         result.total_tokens = stats.total_tokens
 
     # --- price the saved tokens ---
+    # row_usd is already priced per-row (each row stored its model at write time).
+    # For any tokens we couldn't price per-row (old rows with no model field, or
+    # unknown models), fall back to weighted average from the transcript.
     if result.ctx_saved > 0:
-        try:
-            from atelier.core.capabilities.pricing import get_model_pricing
+        if row_usd > 0:
+            result.saved_usd = row_usd
+        else:
+            # Old rows (no model field) — use weighted average from transcript
+            try:
+                from atelier.core.capabilities.pricing import get_model_pricing
 
-            rate: float | None = None
-            if stats is not None:
-                rate = stats.savings_input_rate()
-            if rate is None:
-                for mid in (
-                    os.environ.get("ATELIER_STATUS_MODEL") or "",
-                    os.environ.get("ATELIER_MODEL") or "",
-                    stats.last_model if stats else "",
-                    "claude-sonnet-4-5",
-                ):
-                    if not mid:
-                        continue
-                    pricing = get_model_pricing(resolve_model_id(mid))
-                    if pricing is not None and pricing.known and pricing.input > 0:
-                        rate = pricing.input / 1_000_000
-                        break
-            if rate and rate > 0:
-                result.saved_usd = rate * result.ctx_saved
-        except Exception:
-            pass
+                rate: float | None = stats.savings_input_rate() if stats is not None else None
+                if rate is None:
+                    for mid in (
+                        stats.last_model if stats else "",
+                        "claude-sonnet-4-5",
+                    ):
+                        if not mid:
+                            continue
+                        pricing = get_model_pricing(resolve_model_id(mid))
+                        if pricing is not None and pricing.known and pricing.input > 0:
+                            rate = pricing.input / 1_000_000
+                            break
+                if rate and rate > 0:
+                    result.saved_usd = rate * result.ctx_saved
+            except Exception:
+                pass
 
     return result
 

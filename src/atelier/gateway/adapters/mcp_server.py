@@ -16,6 +16,7 @@ import shutil
 import sys
 import threading
 import time
+import uuid as _uuid_mod
 from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import wraps
@@ -159,6 +160,13 @@ _last_blocked_plan_hash_by_session: dict[str, str] = {}
 _client_sampling_supported: bool = False
 _sampling_seq: int = 0
 
+# Atelier-internal MCP process identity — generated once at import, never changes.
+# SessionStart hook finds this file and writes the Claude session UUID + model into it.
+# _get_claude_session_id() reads it once then caches in _cached_claude_session_id.
+_MCP_ID: str = f"atelier-mcp-{_uuid_mod.uuid4().hex[:16]}"
+_cached_claude_session_id: str = ""
+_cached_mcp_model: str = ""
+
 
 def _service_backed_state() -> bool:
     return True
@@ -169,7 +177,7 @@ def _detect_agent() -> str:
 
     Checks, in order:
     1. ATELIER_AGENT env var (explicit override - any host can set this)
-    2. CLAUDE_SESSION_ID -> "claude"
+    2. CLAUDE_CODE -> "claude"
     3. ANTIGRAVITY_SESSION_ID or AGY_SESSION_ID -> "antigravity"
     4. CODEX_SESSION_ID -> "codex"
     5. OPENCODE_SESSION_ID -> "opencode"
@@ -178,7 +186,7 @@ def _detect_agent() -> str:
     explicit = os.environ.get("ATELIER_AGENT", "").strip()
     if explicit:
         return explicit
-    if os.environ.get("CLAUDE_SESSION_ID") or os.environ.get("CLAUDE_CODE"):
+    if os.environ.get("CLAUDE_CODE"):
         return "claude"
     if (
         os.environ.get("ANTIGRAVITY_SESSION_ID")
@@ -229,6 +237,7 @@ def _emit_mcp_session_start() -> None:
     global _product_session_started_at
     if _product_session_started_at is not None:
         return
+    _register_mcp_session()  # register Atelier MCP ID so SessionStart hook can find us
     from importlib.metadata import PackageNotFoundError, version
 
     from atelier.core.foundation.identity import get_anon_id, platform_payload
@@ -561,6 +570,123 @@ def _append_live_savings_event(event: dict[str, Any]) -> None:
         handle.write(json.dumps(event, sort_keys=True) + "\n")
 
 
+def _workspace_savings_path() -> Path:
+    """Side log for per-session savings on Copilot CLI and other non-Claude hosts."""
+    import hashlib
+
+    workspace = str(Path(os.environ.get("ATELIER_WORKSPACE_ROOT") or os.getcwd()).resolve())
+    h = hashlib.sha256(workspace.encode()).hexdigest()[:12]
+    return _atelier_root() / "workspaces" / h / "session_savings.jsonl"
+
+
+def _mcp_session_file() -> Path:
+    """Path to this MCP process's registration file.
+
+    Written at startup; SessionStart hook writes claude_session_id + model into it.
+    """
+    return _atelier_root() / "mcp_sessions" / f"{_MCP_ID}.json"
+
+
+def _register_mcp_session() -> None:
+    """Create this MCP process's registration file if it doesn't exist yet."""
+    f = _mcp_session_file()
+    if f.exists():
+        return
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        ws = str(Path(os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()).resolve())
+        import hashlib as _hl2
+
+        data = {
+            "atelier_mcp_id": _MCP_ID,
+            "pid": os.getpid(),
+            "workspace": ws,
+            "workspace_hash": _hl2.sha256(ws.encode()).hexdigest()[:12],
+            "started_at": datetime.utcnow().isoformat(),
+            "claude_session_id": "",
+            "model": "",
+        }
+        f.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _get_claude_session_id() -> str:
+    """Return the Claude Code session UUID.
+
+    Reads the MCP registration file once (populated by SessionStart hook),
+    caches the result in _cached_claude_session_id for all subsequent calls.
+    Falls back to the product session UUID if not yet populated.
+    """
+    global _cached_claude_session_id, _cached_mcp_model
+    if _cached_claude_session_id:
+        return _cached_claude_session_id
+    try:
+        f = _mcp_session_file()
+        if f.is_file():
+            data = json.loads(f.read_text(encoding="utf-8"))
+            sid = str(data.get("claude_session_id") or "").strip()
+            if sid:
+                _cached_claude_session_id = sid
+                _cached_mcp_model = str(data.get("model") or "").strip()
+                return sid
+    except Exception:
+        pass
+    return _get_product_session_id()
+
+
+def _get_mcp_model() -> str:
+    """Return the model string last written by SessionStart, or empty string."""
+    global _cached_mcp_model
+    if not _cached_claude_session_id:
+        # Try to populate both caches via session file read.
+        _get_claude_session_id()
+    # Re-read model on each call — SessionStart may fire again on resume/compact
+    # with a different model (user switched mid-session).
+    try:
+        f = _mcp_session_file()
+        if f.is_file():
+            data = json.loads(f.read_text(encoding="utf-8"))
+            _cached_mcp_model = str(data.get("model") or "").strip()
+    except Exception:
+        pass
+    return _cached_mcp_model
+
+
+def _append_savings(tool_name: str, tokens_saved: int, calls_saved: int) -> None:
+    """Write per-call savings to the appropriate host sidecar.
+
+    Rows include the current model so compute_savings_summary can price
+    each row individually (Opus tokens at Opus rate, Sonnet at Sonnet rate).
+    """
+    if tokens_saved <= 0 and calls_saved <= 0:
+        return
+    _register_mcp_session()
+    try:
+        if _detect_agent() == "claude":
+            session_id = _get_claude_session_id()
+            path = _atelier_root() / "session_stats" / "claude" / f"{session_id}.jsonl"
+        else:
+            path = _workspace_savings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entry: dict[str, Any] = {
+            "tool": tool_name,
+            "tokens": int(tokens_saved),
+            "calls": int(calls_saved),
+            "model": _get_mcp_model(),
+            "ts": datetime.utcnow().isoformat(),
+        }
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+
+
+def _append_workspace_savings(tool_name: str, tokens_saved: int, calls_saved: int) -> None:
+    """Backward-compat shim — delegates to _append_savings."""
+    _append_savings(tool_name, tokens_saved, calls_saved)
+
+
 def _smart_state_path() -> Path:
     return _atelier_root() / "smart_state.json"
 
@@ -723,15 +849,6 @@ def _workspace_root() -> Path:
 # budget recorder without polluting the LLM-facing response dict.
 _tool_call_tokens_saved: threading.local = threading.local()
 _tool_call_rendered_text: threading.local = threading.local()
-
-
-def _read_host_session_id() -> str:
-    """Return the Claude session ID for this MCP server process.
-
-    Claude Code spawns a fresh MCP server subprocess per session and sets
-    CLAUDE_SESSION_ID in the env. Empty string if unavailable.
-    """
-    return os.environ.get("CLAUDE_SESSION_ID", "").strip()
 
 
 def _bootstrap_context_status(root: Path) -> dict[str, Any]:
@@ -1564,7 +1681,7 @@ def tool_record_trace(
     raw_artifacts: list[str] = []
     if capture_files:
         source_session_id = (
-            os.environ.get("CLAUDE_SESSION_ID")
+            _get_product_session_id()
             or os.environ.get("CODEX_SESSION_ID")
             or os.environ.get("OPENCODE_SESSION_ID")
             or "unknown"
@@ -3170,9 +3287,18 @@ SYMBOLS_TOOL_INPUT_SCHEMA: dict[str, Any] = {
                 "or a description ('function that handles HTTP errors') for semantic search."
             ),
         },
-        "symbol_name": {"type": "string", "description": "Short unqualified symbol name (internal, prefer query)."},
-        "qualified_name": {"type": "string", "description": "Fully qualified dotted path (internal)."},
-        "symbol_id": {"type": "string", "description": "Stable SCIP symbol ID from a prior result (internal)."},
+        "symbol_name": {
+            "type": "string",
+            "description": "Short unqualified symbol name (internal, prefer query).",
+        },
+        "qualified_name": {
+            "type": "string",
+            "description": "Fully qualified dotted path (internal).",
+        },
+        "symbol_id": {
+            "type": "string",
+            "description": "Stable SCIP symbol ID from a prior result (internal).",
+        },
         "mode": {
             "type": "string",
             "enum": ["auto", "lexical", "semantic", "hybrid"],
@@ -3183,7 +3309,10 @@ SYMBOLS_TOOL_INPUT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": "Filter by symbol kind: 'function', 'method', 'class', 'variable', etc.",
         },
-        "language": {"type": "string", "description": "Filter by language: 'python', 'typescript', etc."},
+        "language": {
+            "type": "string",
+            "description": "Filter by language: 'python', 'typescript', etc.",
+        },
         "limit": {"type": "integer", "default": 20, "description": "Maximum results to return."},
         "snippet": {
             "type": "string",
@@ -3191,15 +3320,25 @@ SYMBOLS_TOOL_INPUT_SCHEMA: dict[str, Any] = {
             "default": "none",
             "description": "Source snippet in results: 'none' (smallest), 'head' (first N lines), 'full'.",
         },
-        "snippet_lines": {"type": "integer", "default": 8, "description": "Lines when snippet='head'."},
-        "file_glob": {"type": "string", "description": "Restrict to a subtree, e.g. 'src/api/**/*.py'."},
+        "snippet_lines": {
+            "type": "integer",
+            "default": 8,
+            "description": "Lines when snippet='head'.",
+        },
+        "file_glob": {
+            "type": "string",
+            "description": "Restrict to a subtree, e.g. 'src/api/**/*.py'.",
+        },
         "scope": {
             "type": "string",
             "enum": ["repo", "external", "deleted"],
             "default": "repo",
             "description": "'repo': live symbols. 'external': dependencies. 'deleted': git graveyard.",
         },
-        "since": {"type": "string", "description": "ISO date or relative ('7d') to filter to recently changed."},
+        "since": {
+            "type": "string",
+            "description": "ISO date or relative ('7d') to filter to recently changed.",
+        },
     },
 }
 
@@ -4056,7 +4195,7 @@ def tool_grep(
     Use this tool when you already know the pattern, file globs, or file types you want.
     Prefer `search` for ranked natural-language lookup and repo-map construction.
     """
-    return _run_native_grep(
+    payload = _run_native_grep(
         path=path,
         content_regex=content_regex,
         file_glob_patterns=file_glob_patterns,
@@ -4073,6 +4212,12 @@ def tool_grep(
         context_budget_tokens=context_budget_tokens,
         include_meta=include_meta,
     )
+    # Plumb savings via thread-local (read by _extract_tokens_saved) and
+    # strip from the LLM-facing payload to keep responses clean.
+    ts = int(payload.pop("tokens_saved", 0) or 0)
+    if ts > 0:
+        _tool_call_tokens_saved.value = ts
+    return payload
 
 
 @mcp_tool(
@@ -4202,6 +4347,10 @@ def tool_smart_search(
         seed_files=seed_files,
         budget_tokens=budget_tokens,
     )
+    # Plumb savings via thread-local and strip from the LLM-facing payload.
+    ts = int(payload.pop("tokens_saved", 0) or 0)
+    if ts > 0:
+        _tool_call_tokens_saved.value = ts
     if include_meta:
         return payload
     payload.pop("cache_hit", None)
@@ -4891,6 +5040,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
                         "tokens": int(saved_tokens),
                         "calls": int(saved_calls),
                     }
+                    _append_workspace_savings(name, saved_tokens, saved_calls)
 
             return _ok(rid, {"content": [content_item]})
         except Exception as exc:
