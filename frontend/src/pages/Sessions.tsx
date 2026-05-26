@@ -304,18 +304,32 @@ export default function Sessions() {
                   const isActive = id === sid;
                   const summary = sessionsMap?.get(sid);
                   const sessionModel = resolveSessionModel(summary, t);
-                  const inputTokens = preferNonZeroMetric(
+                  // "Input" = bytes the model freshly processed = new
+                  // input + cache_write. Anthropic's raw input_tokens
+                  // excludes cW even though cW is also new input the
+                  // model paid to ingest. Mirrors the stop-hook formatter.
+                  const newIn = preferNonZeroMetric(
                     summary?.input_tokens,
                     t.input_tokens
                   );
+                  const cacheWrite = preferNonZeroMetric(
+                    summary?.cache_write_tokens,
+                    t.cache_creation_input_tokens
+                  );
+                  const inputTokens = newIn + cacheWrite;
                   const outputTokens = preferNonZeroMetric(
                     summary?.output_tokens,
                     t.output_tokens
                   );
-                  const cacheTokens = preferNonZeroMetric(
+                  const cacheRead = preferNonZeroMetric(
                     summary?.cached_input_tokens,
                     t.cached_input_tokens
                   );
+                  // Show cR / cW so users see both cache categories.
+                  const cacheLabel =
+                    cacheWrite > 0
+                      ? `${fmtTok(cacheRead)} / ${fmtTok(cacheWrite)}`
+                      : fmtTok(cacheRead);
                   const host = extractHost(t);
                   const hostTextClass =
                     HOST_COLORS[host]?.split(" ")[1] || "text-neutral-500";
@@ -417,7 +431,7 @@ export default function Sessions() {
                               fmtTok(outputTokens),
                               "text-neutral-400",
                             ],
-                            ["Cache", fmtTok(cacheTokens), "text-neutral-400"],
+                            ["Cache", cacheLabel, "text-neutral-400"],
                             [
                               "Turns",
                               summary ? String(summary.total_turns) : "—",

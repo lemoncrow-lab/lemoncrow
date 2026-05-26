@@ -51,13 +51,13 @@ if $WORKSPACE_SET; then
     INSTALL_SCOPE="workspace"
     MCP_FILE="${WORKSPACE}/.cursor/mcp.json"
     RULES_DIR="${WORKSPACE}/.cursor/rules"
-    RULES_FILE="${RULES_DIR}/atelier.mdc"
 else
     INSTALL_SCOPE="global"
     MCP_FILE="${HOME}/.cursor/mcp.json"
     RULES_DIR=""
-    RULES_FILE=""
 fi
+
+CURSOR_RULES_SRC_DIR="${ATELIER_REPO}/integrations/cursor/rules"
 
 info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:cursor] $*" || true; }
 warn()  { echo "[atelier:cursor] WARN: $*" >&2; }
@@ -100,16 +100,9 @@ if $PRINT_ONLY; then
     echo "$MCP_ENTRY"
     if $WORKSPACE_SET; then
         echo ""
-        echo "Create rules file at ${RULES_FILE}:"
-        echo "---"
-        echo "description: Atelier reasoning context usage guide — when to use which tool"
-        echo "alwaysApply: true"
-        echo "---"
-        echo ""
-        echo "Use Atelier's \`context\` tool at the start of every task to retrieve"
-        echo "relevant reasoning blocks. After completing a task, record a trace"
-        echo "with the \`trace\` tool. On repeated failures, use the \`rescue\` tool"
-        echo "to get recovery hints."
+        echo "Copy workspace rules into ${RULES_DIR}:"
+        echo "  - ${CURSOR_RULES_SRC_DIR}/coding-guidelines.mdc"
+        echo "  - ${CURSOR_RULES_SRC_DIR}/tool-selection.mdc"
     fi
     exit 0
 fi
@@ -165,27 +158,21 @@ else
     fi
 fi
 
-# ---- write rules file (workspace only) --------------------------------------
+# ---- write rules files (workspace only) -------------------------------------
 if $WORKSPACE_SET; then
-    RULES_CONTENT=$(cat <<RULES
----
-description: Atelier reasoning context usage guide — when to use which tool
-alwaysApply: true
----
-
-Use Atelier's \`context\` tool at the start of every task to retrieve relevant
-reasoning blocks. After completing a task, record a trace with the \`trace\` tool.
-On repeated failures, use the \`rescue\` tool to get recovery hints.
-Prefer Atelier tools over native \`Read\`, \`Grep\`, and \`Bash\` for code insight.
-RULES
-)
-
     if $DRY_RUN; then
-        echo "  [dry-run] create $RULES_FILE"
+        echo "  [dry-run] copy Cursor rules into $RULES_DIR"
     else
         run "mkdir -p '$RULES_DIR'"
-        echo "$RULES_CONTENT" > "$RULES_FILE"
-        info "created $RULES_FILE"
+        if compgen -G "${CURSOR_RULES_SRC_DIR}/*.mdc" > /dev/null; then
+            for src in "${CURSOR_RULES_SRC_DIR}"/*.mdc; do
+                dest="${RULES_DIR}/$(basename "$src")"
+                run "cp '$src' '$dest'"
+                info "installed rule -> $dest"
+            done
+        else
+            warn "no Cursor rule sources found in ${CURSOR_RULES_SRC_DIR}"
+        fi
     fi
 fi
 
@@ -222,11 +209,11 @@ else
     vfail "Cursor MCP config not found: $MCP_FILE"
 fi
 
-if $WORKSPACE_SET && [ -n "$RULES_FILE" ]; then
-    if [ -f "$RULES_FILE" ]; then
-        vpass "Cursor rules file created: $RULES_FILE"
+if $WORKSPACE_SET; then
+    if compgen -G "${RULES_DIR}/*.mdc" > /dev/null; then
+        vpass "Cursor rules installed under $RULES_DIR"
     else
-        vfail "Cursor rules file missing: $RULES_FILE"
+        vfail "Cursor rules missing under $RULES_DIR"
     fi
 fi
 

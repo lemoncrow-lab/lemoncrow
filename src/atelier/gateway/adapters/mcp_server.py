@@ -755,8 +755,11 @@ def _append_savings(tool_name: str, tokens_saved: int, calls_saved: int, rid: st
         path.parent.mkdir(parents=True, exist_ok=True)
         entry: dict[str, Any] = {
             "tool": tool_name,
-            "tokens_saved": int(tokens_saved),
-            "calls_saved": int(calls_saved),
+            # Field names match the in-response `saved: {tokens, calls}` shape.
+            # The file lives under session_stats/<host>/ so "savings" is implicit
+            # from context — no need to suffix the keys.
+            "tokens": int(tokens_saved),
+            "calls": int(calls_saved),
             "model": model,
             "ts": ts,
         }
@@ -4634,17 +4637,14 @@ def tool_shell(
     timeout: int = 30,
     cwd: str | None = None,
     max_lines: int = 200,
-) -> dict[str, Any]:
-    """Execute a shell command. Output is ANSI-stripped and line-truncated for token efficiency.
-
-    Response fields: stdout, stderr, exit_code, truncated, lines_omitted, duration_ms.
-    If blocked: exit_code=-1, blocked=true, blocked_reason describes why.
-    If rewritten (cat→read, rg/grep→grep): exit_code=0, rewrite_info tells which tool ran.
+) -> str:
+    """Execute a shell command and return compact text output.
 
     Prefer Atelier read/grep/search tools directly — they are faster and cheaper.
     Use shell only for commands that have no Atelier equivalent (git, make, uv, npm, etc.).
     """
-    return _run_shell_tool(command, timeout=timeout, cwd=cwd, max_lines=max_lines)
+    result = _run_shell_tool(command, timeout=timeout, cwd=cwd, max_lines=max_lines)
+    return _render_shell_text(result)
 
 
 _remote_client: Any = None
@@ -5178,6 +5178,8 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
             response_text: str
             if rendered_text:
                 response_text = rendered_text
+            elif isinstance(result, str):
+                response_text = result
             else:
                 response_text = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
 

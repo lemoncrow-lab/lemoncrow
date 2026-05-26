@@ -81,6 +81,136 @@ _MODEL_FIELD_KEYS = (
 # ---------------------------------------------------------------------------
 
 
+# Atelier MCP tools are exposed under several prefix variants depending on how
+# the host loads them: plain stdio (``mcp__atelier__<tool>``), the Claude Code
+# plugin marketplace (``mcp__plugin_atelier_atelier__<tool>``), or other host
+# wrappers. We match on the ``__<basename>`` suffix — the basename is the
+# actual MCP tool name the server registers.
+_ATELIER_MCP_TOOL_PREFIXES: tuple[str, ...] = (
+    "mcp__atelier__",
+    "mcp__plugin_atelier_atelier__",
+)
+
+
+def _is_atelier_mcp_tool(name: str) -> bool:
+    name = (name or "").strip()
+    return any(name.startswith(p) for p in _ATELIER_MCP_TOOL_PREFIXES)
+
+
+def _extract_claude_session_id(content: str) -> str:
+    """First sessionId seen in a Claude JSONL transcript (or empty)."""
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        sid = ev.get("sessionId")
+        if isinstance(sid, str) and sid.strip():
+            return sid.strip()
+    return ""
+
+
+def _normalize_tool_basename(name: str) -> str:
+    """Return the bare MCP tool name (post-prefix), lowercased.
+
+    Examples:
+        ``mcp__atelier__grep``                       → ``grep``
+        ``mcp__plugin_atelier_atelier__shell``       → ``shell``
+        ``edit``                                     → ``edit``
+    """
+    base = (name or "").strip()
+    for prefix in _ATELIER_MCP_TOOL_PREFIXES:
+        if base.startswith(prefix):
+            base = base[len(prefix) :]
+            break
+    return base.lower()
+
+
+def attach_atelier_sidecar_savings(turns: list[dict[str, Any]], session_id: str, atelier_root: Path) -> None:
+    """Attach per-call Atelier savings to Atelier MCP tool turns.
+
+    Claude Code drops unknown fields off MCP ``content[]`` items when it
+    persists the transcript, so the in-response ``saved`` block doesn't
+    survive to disk.  The MCP server's host sidecar
+    (``session_stats/<host>/<session_id>.jsonl``) does survive, and its rows
+    are appended in the order tools were called.  We pair each Atelier MCP
+    tool turn against the next matching sidecar row, by tool name.
+
+    Mutates *turns* in place.  Safe to call when the sidecar is absent.
+    """
+    if not session_id:
+        return
+    stats_dir = atelier_root / "session_stats"
+    if not stats_dir.is_dir():
+        return
+
+    # Collect sidecar rows from any host directory that contains a matching file
+    # (Claude UUIDs are unique enough that we don't need to scope by host).
+    sidecar_rows: list[dict[str, Any]] = []
+    for host_dir in sorted(stats_dir.iterdir()):
+        if not host_dir.is_dir():
+            continue
+        sidecar = host_dir / f"{session_id}.jsonl"
+        if not sidecar.is_file():
+            continue
+        try:
+            for line in sidecar.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    sidecar_rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        except OSError:
+            continue
+    if not sidecar_rows:
+        return
+
+    # Index by tool name, preserving insertion order so we can pop FIFO.
+    by_tool: dict[str, list[dict[str, Any]]] = {}
+    for row in sidecar_rows:
+        key = _normalize_tool_basename(str(row.get("tool") or ""))
+        if not key:
+            continue
+        by_tool.setdefault(key, []).append(row)
+
+    from atelier.core.capabilities.pricing import get_model_pricing
+    from atelier.core.capabilities.savings_summary import resolve_model_id
+
+    for turn in turns:
+        name = str(turn.get("tool_name") or "").strip()
+        if not _is_atelier_mcp_tool(name):
+            continue
+        key = _normalize_tool_basename(name)
+        queue = by_tool.get(key)
+        if not queue:
+            continue
+        row = queue.pop(0)
+        tokens = max(0, int(row.get("tokens") or row.get("tokens_saved") or 0))
+        calls = max(0, int(row.get("calls") or row.get("calls_saved") or 0))
+        # Per-row sanity cap: a single tool call cannot save more than the
+        # full Anthropic context window. Anything larger is pre-fce2110
+        # inflated data and must not surface.
+        if tokens > 2_000_000:
+            continue
+        if tokens == 0 and calls == 0:
+            continue
+        # Pre-price the row at its captured model's input rate so the
+        # frontend shows a USD figure next to the cost without needing to
+        # know about pricing. Same rate the statusline uses.
+        usd = 0.0
+        model = str(row.get("model") or "").strip()
+        if tokens > 0 and model:
+            pricing = get_model_pricing(resolve_model_id(model))
+            if pricing is not None and pricing.known and pricing.input > 0:
+                usd = round(pricing.input / 1_000_000 * tokens, 6)
+        turn["saved"] = {"tokens": tokens, "calls": calls, "usd": usd}
+
+
 def parse_session_turns(content: str, source: str) -> list[dict[str, Any]]:
     """Parse raw JSONL *content* for *source* into a list of turn dicts."""
     if source == "claude":
@@ -1064,6 +1194,7 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                 elif bt == "tool_use":
                     name = block.get("name", "unknown")
                     inp = block.get("input") or {}
+                    tool_use_id = str(block.get("id") or "").strip() or None
                     lowered_name = str(name).lower()
                     todos = _extract_todos(inp)
                     if todos:
@@ -1148,6 +1279,9 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                             raw=ev,
                             path=file_path_str,
                             diff=diff_str,
+                            tool_name=name,
+                            arguments=inp,
+                            tool_use_id=tool_use_id,
                         )
                     )
 

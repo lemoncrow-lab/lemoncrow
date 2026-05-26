@@ -82,9 +82,6 @@ fmt_tok() {
   fi
   }
 
-CACHE_F=$(fmt_tok "${CACHE_R:-0}")
-CACHE_WF=$(fmt_tok "${CACHE_W:-0}")
-
 ATELIER_STATUS_ROOT="${ATELIER_ROOT:-${ATELIER_STORE_ROOT:-${HOME}/.atelier}}"
 export ATELIER_STATUS_ROOT
 # savings_summary.py reads ATELIER_ROOT (not ATELIER_STATUS_ROOT) — keep them in sync
@@ -108,19 +105,25 @@ fi
 if [ -z "${SAVED_LINE:-}" ]; then
   SAVED_LINE=$(uv run --quiet atelier savings --line 2>/dev/null)
 fi
-IFS='|' read -r SAVED_USD SAVED_CTX SAVED_CALLS STATUS_TEXT ROUTING_USD SESSION_BASE_COST CUMULATIVE_TOK <<EOF
-$SAVED_LINE
-EOF
-[ -z "$SAVED_USD" ] && SAVED_USD="\$0.000"
-[ -z "$SAVED_CTX" ] && SAVED_CTX="0"
-[ -z "$SAVED_CALLS" ] && SAVED_CALLS="0"
-[ -z "$ROUTING_USD" ] && ROUTING_USD="\$0.000"
-[ -z "$SESSION_BASE_COST" ] && SESSION_BASE_COST="0"
-[ -z "$CUMULATIVE_TOK" ] && CUMULATIVE_TOK="0"
-
+# Older installed CLIs emit the pre-I/C/O 7-field format. Retry through the
+# local project entrypoint so statusline development picks up the new fields
+# before the global binary is upgraded.
+SAVED_FIELD_COUNT=$(printf '%s' "${SAVED_LINE:-}" | awk -F'|' '{print NF}' 2>/dev/null || echo 0)
+if [ "${SAVED_FIELD_COUNT:-0}" -lt 10 ] 2>/dev/null; then
+  SAVED_LINE=$(uv run --quiet atelier savings --line 2>/dev/null)
+fi
+IFS='|' read -r SAVED_USD SAVED_CTX SAVED_CALLS STATUS_TEXT ROUTING_USD SESSION_BASE_COST CUMULATIVE_TOK DISPLAY_IN_TOK DISPLAY_CACHE_TOK DISPLAY_OUT_TOK <<<"${SAVED_LINE:-}"
+[ -z "${SAVED_USD:-}" ] && SAVED_USD="\$0.000"
+[ -z "${SAVED_CTX:-}" ] && SAVED_CTX="0"
+[ -z "${SAVED_CALLS:-}" ] && SAVED_CALLS="0"
+[ -z "${ROUTING_USD:-}" ] && ROUTING_USD="\$0.000"
+[ -z "${SESSION_BASE_COST:-}" ] && SESSION_BASE_COST="0"
+[ -z "${CUMULATIVE_TOK:-}" ] && CUMULATIVE_TOK="0"
+[ -z "${DISPLAY_IN_TOK:-}" ] && DISPLAY_IN_TOK="0"
+[ -z "${DISPLAY_CACHE_TOK:-}" ] && DISPLAY_CACHE_TOK="0"
+[ -z "${DISPLAY_OUT_TOK:-}" ] && DISPLAY_OUT_TOK="0"
 # Cost = max(transcript-derived, live Claude cost). Both are cumulative; we
 # trust whichever is larger so the very first frame of a resumed session
-# (before Claude reports cost) still shows the transcript total.
 TOTAL_COST=$(awk "BEGIN { a=${SESSION_BASE_COST:-0}; b=${COST:-0}; printf \"%.3f\", (a>b?a:b) }" 2>/dev/null || echo "0")
 COST_FMT=$(printf '$%.3f' "$TOTAL_COST" 2>/dev/null || echo "\$0.000")
 
@@ -137,23 +140,23 @@ fi
 SEP="${C_DIM}·${C_RESET}"
 PIPE="${C_PIPE}|${C_RESET}"
 
-# Build cache write segment only when non-zero (new tokens written to cache)
-if [ "${CACHE_W:-0}" -gt 0 ] 2>/dev/null; then
-  CACHE_NEW_SEG="+${CACHE_WF}"
-else
-  CACHE_NEW_SEG=""
-fi
+# Prefer transcript-derived cumulative buckets when available. Claude's live
+# context_window snapshot can be turn-local and regularly understates the true
+# session totals, especially on cache-heavy sessions.
+LIVE_DISPLAY_IN=$(( ${IN_TOK:-0} + ${CACHE_W:-0} ))
+LIVE_DISPLAY_CACHE=${CACHE_R:-0}
+LIVE_DISPLAY_OUT=${OUT_TOK:-0}
 
-# Cumulative session tokens (in+out+cR+cW) from the transcript walk.
-# Falls back to current-window only when the transcript hasn't been read yet.
-WINDOW_TOK=$(( ${IN_TOK:-0} + ${OUT_TOK:-0} + ${CACHE_R:-0} + ${CACHE_W:-0} ))
-if [ "${CUMULATIVE_TOK:-0}" -gt "$WINDOW_TOK" ] 2>/dev/null; then
-  TOTAL_TOK=$CUMULATIVE_TOK
+if [ "${DISPLAY_IN_TOK:-0}" -gt 0 ] 2>/dev/null || [ "${DISPLAY_CACHE_TOK:-0}" -gt 0 ] 2>/dev/null || [ "${DISPLAY_OUT_TOK:-0}" -gt 0 ] 2>/dev/null; then
+  TOK_IN_F=$(fmt_tok "${DISPLAY_IN_TOK:-0}")
+  TOK_CACHE_F=$(fmt_tok "${DISPLAY_CACHE_TOK:-0}")
+  TOK_OUT_F=$(fmt_tok "${DISPLAY_OUT_TOK:-0}")
 else
-  TOTAL_TOK=$WINDOW_TOK
+  TOK_IN_F=$(fmt_tok "${LIVE_DISPLAY_IN:-0}")
+  TOK_CACHE_F=$(fmt_tok "${LIVE_DISPLAY_CACHE:-0}")
+  TOK_OUT_F=$(fmt_tok "${LIVE_DISPLAY_OUT:-0}")
 fi
-TOTAL_TOK_F=$(fmt_tok "$TOTAL_TOK")
-
+TOK_DISPLAY="I: ${TOK_IN_F} C: ${TOK_CACHE_F} O: ${TOK_OUT_F}"
 # Calls-saved counter intentionally not shown in the statusline.
 SAVED_CALLS_SEG=""
 if [ -n "${STATUS_TEXT:-}" ]; then
@@ -168,11 +171,10 @@ else
   ROUTING_SEG=""
 fi
 
-printf '%s%s%s %s %s%s ctx %s%% cache %s%s %s %s(%s) ↓ %s%s(%s)%s%s %s %dm%02ds\n' \
+printf '%s%s%s %s %s%s ctx %s%% %s %s(%s) ↓ %s%s(%s)%s%s %s %dm%02ds\n' \
   "$C_BRAND" "$PLUGIN_LABEL" "$C_RESET" \
   "$PIPE" "$MODEL" "$STATUS_SEG" "$PCT_INT" \
-  "$CACHE_F" "$CACHE_NEW_SEG" \
-  "$PIPE" "$COST_FMT" "$TOTAL_TOK_F" \
+  "$PIPE" "$COST_FMT" "$TOK_DISPLAY" \
   "$C_GREEN" "$SAVED_USD" "$SAVED_CTX" "$C_RESET" \
   "$ROUTING_SEG" \
   "$PIPE" "$MINS" "$SECS"

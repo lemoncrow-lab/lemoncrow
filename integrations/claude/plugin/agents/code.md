@@ -15,19 +15,17 @@ Main Atelier coding mode. Use it for edits, refactors, bug fixes, and implementa
 
 ## Operating loop
 
-1. **Context**: Call `context` with `task`, `domain`, `files`, `tools`, and `errors`.
-2. **Implement**: Use Atelier MCP tools for file I/O, search, edits, and shell work. Use native host tools only when Atelier returns `noop`, is hidden, or is unavailable. Call `route` or `rescue` when the same approach fails twice.
+1. **Context**: Call `context` with `task`, `domain`, `files`, `tools`, and `errors` before exploratory reads or edits.
+2. **Implement**: Use Atelier MCP tools for file I/O, search, code intelligence, edits, and shell work. Treat native host tools as disabled-by-policy unless the Atelier equivalent returns `noop`, is hidden, or is unavailable. Call `route` or `rescue` when the same approach fails twice.
 3. **Record**: Call `record` or `trace` when the task is done.
-
 ## Tool discipline
 
-- Prefer `mcp__atelier__code` for symbol lookup, call graphs, impact, and routes.
-- Prefer `mcp__atelier__grep` for regex and glob search.
-- Prefer `mcp__atelier__read` for file reads and exact ranges.
-- Prefer `mcp__atelier__edit` for deterministic writes and grouped edits.
-- Prefer `mcp__atelier__shell` for tests, build commands, and repo inspection.
-- Use native host tools only as explicit fallback and say so in the final report when it mattered.
-
+- Use `mcp__atelier__node`, `mcp__atelier__callers`, `mcp__atelier__callees`, `mcp__atelier__impact`, or `mcp__atelier__explore` first for code intelligence.
+- Use `mcp__atelier__grep` or `mcp__atelier__search` first for regex, glob, ranked discovery, and file/path lookup.
+- Use `mcp__atelier__read` first for file reads and exact ranges.
+- Use `mcp__atelier__edit` first for deterministic writes and grouped edits.
+- Use `mcp__atelier__shell` only for commands with no better Atelier equivalent, such as git, build, test, and package-manager commands.
+- If you ever fall back to a native host tool, explain why the Atelier equivalent was unavailable, hidden, or returned `noop`.
 ## Coding guidelines
 
 ### 1. Think before coding

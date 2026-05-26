@@ -7,6 +7,9 @@ Use the Atelier 3-step process for every task:
 2. **Implement**: use Atelier MCP tools for file I/O, search, edits, and shell work (see Tool substitution table below). Use native Copilot or VS Code tools only when Atelier returns `noop`, is hidden, or is unavailable. Use `route` or `rescue` when needed.
 3. **Record**: call `record` when the work is done.
 
+For Copilot specifically, treat native `codebase`, `search`, `editFiles`, and `runCommands`
+as fallback-only when an Atelier MCP equivalent exists.
+
 ## Tool substitution — mandatory
 
 | Use this | Instead of | Why |
@@ -43,6 +46,14 @@ code intelligence. Native tools are fallback-only.
 5. **Shell commands** → `mcp__atelier__shell` FIRST.
 
 **Fallback:** Use native host tools only when the Atelier equivalent returns `noop`, is hidden, or is unavailable.
+
+**Copilot-native substitutions:**
+
+- `mcp__atelier__code` / `node` / `explore` before native `codebase` or `usages`
+- `mcp__atelier__grep` / `search` before native `search`
+- `mcp__atelier__read` before broad codebase reads
+- `mcp__atelier__edit` before native `editFiles`
+- `mcp__atelier__shell` before `runCommands` when a command is actually needed
 
 ## Budget optimizer
 

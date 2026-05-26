@@ -51,6 +51,7 @@ make verify
 
 - opencode connects to the local Atelier HTTP service via the MCP stdio wrapper
 - Workspace Atelier agent profile is installed at `.opencode/agents/atelier.md`
+- The installer sets `default_agent` to `atelier` even when the config already exists
 - With `ATELIER_DEV_MODE=1`, opencode can actively use `context`, `route`, `rescue`, `verify`, `memory`, `read`, `edit`, `sql`, `search`, `compact`, `shell`, and the `atelier_code_*` helpers
 - `trace` remains the stable observable recording surface
 

@@ -81,7 +81,7 @@ def test_statusline_reads_session_savings(tmp_path: Path) -> None:
     sidecar = tmp_path / "session_stats" / "claude"
     sidecar.mkdir(parents=True)
     (sidecar / "s1.jsonl").write_text(
-        json.dumps({"tool": "search", "tokens_saved": 12_000, "calls_saved": 4}) + "\n",
+        json.dumps({"tool": "search", "tokens": 12_000, "calls": 4}) + "\n",
         encoding="utf-8",
     )
 
@@ -105,7 +105,7 @@ def test_statusline_prices_fallback_savings_from_claude_transcript_model_mix(
     sidecar = tmp_path / "session_stats" / "claude"
     sidecar.mkdir(parents=True)
     (sidecar / "s1.jsonl").write_text(
-        json.dumps({"tool": "search", "tokens_saved": 12_000, "calls_saved": 4}) + "\n",
+        json.dumps({"tool": "search", "tokens": 12_000, "calls": 4}) + "\n",
         encoding="utf-8",
     )
     home = tmp_path / "home"
@@ -172,7 +172,7 @@ def test_statusline_falls_back_to_workspace_session_state(tmp_path: Path) -> Non
     sidecar = tmp_path / "session_stats" / "claude"
     sidecar.mkdir(parents=True)
     (sidecar / "s1.jsonl").write_text(
-        json.dumps({"tool": "search", "tokens_saved": 12_000, "calls_saved": 4}) + "\n",
+        json.dumps({"tool": "search", "tokens": 12_000, "calls": 4}) + "\n",
         encoding="utf-8",
     )
     (tmp_path / "auth.json").write_text(json.dumps({"authenticated": True}), encoding="utf-8")
@@ -190,7 +190,7 @@ def test_statusline_ignores_lifetime_savings_files(tmp_path: Path) -> None:
     sidecar = tmp_path / "session_stats" / "claude"
     sidecar.mkdir(parents=True)
     (sidecar / "s1.jsonl").write_text(
-        json.dumps({"tool": "search", "tokens_saved": 2_000, "calls_saved": 2}) + "\n",
+        json.dumps({"tool": "search", "tokens": 2_000, "calls": 2}) + "\n",
         encoding="utf-8",
     )
     # Lifetime / global files should NOT be summed into session savings.

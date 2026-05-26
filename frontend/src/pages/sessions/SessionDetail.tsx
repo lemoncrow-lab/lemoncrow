@@ -31,13 +31,18 @@ function HeaderStat({
   label,
   value,
   tone,
+  title,
 }: {
   label: string;
   value: string;
   tone?: "amber" | "emerald" | "violet";
+  title?: string;
 }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3 border border-neutral-800/40 bg-black/15 px-2.5 py-1.5 transition-colors hover:bg-neutral-800/20 group">
+    <div
+      className="flex min-w-0 items-center justify-between gap-3 border border-neutral-800/40 bg-black/15 px-2.5 py-1.5 transition-colors hover:bg-neutral-800/20 group"
+      title={title}
+    >
       <div className="truncate text-[8px] text-neutral-400 uppercase font-black tracking-[0.18em] group-hover:text-neutral-500 transition-colors">
         {label}
       </div>
@@ -428,13 +433,30 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               label="Input"
               value={
                 report || trace || inspectorData
-                  ? fmtTok(
-                      report?.input_tokens ??
+                  ? (() => {
+                      // "Input" = bytes the model freshly processed this
+                      // session = new input + cache writes. Anthropic's
+                      // raw `input_tokens` excludes cW even though cW is
+                      // also new input the model paid to ingest. Mirrors
+                      // the stop-hook formatter so live and post-session
+                      // numbers match.
+                      const newIn =
+                        report?.input_tokens ??
                         trace?.input_tokens ??
                         inspectorData?.tokens_pre ??
-                        0
-                    )
+                        0;
+                      const cw =
+                        report?.cache_write_tokens ??
+                        trace?.cache_creation_input_tokens ??
+                        0;
+                      return fmtTok(newIn + cw);
+                    })()
                   : "—"
+              }
+              title={
+                report
+                  ? `${fmtTok(report.input_tokens)} new + ${fmtTok(report.cache_write_tokens)} cache-write`
+                  : undefined
               }
             />
             <HeaderStat
@@ -454,12 +476,25 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               label="Cache"
               value={
                 report || trace
-                  ? fmtTok(
-                      report?.cache_read_tokens ??
+                  ? (() => {
+                      const cr =
+                        report?.cache_read_tokens ??
                         trace?.cached_input_tokens ??
-                        0
-                    )
+                        0;
+                      const cw =
+                        report?.cache_write_tokens ??
+                        trace?.cache_creation_input_tokens ??
+                        0;
+                      return cw > 0
+                        ? `${fmtTok(cr)} / ${fmtTok(cw)}`
+                        : fmtTok(cr);
+                    })()
                   : "—"
+              }
+              title={
+                report
+                  ? `${fmtTok(report.cache_read_tokens)} cache-read · ${fmtTok(report.cache_write_tokens)} cache-write`
+                  : undefined
               }
             />
             <HeaderStat
@@ -556,7 +591,8 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                     <div className="h-px w-full bg-gradient-to-r from-neutral-800 to-transparent" />
                     <span className="text-[9px] text-neutral-500 font-mono font-bold uppercase tracking-widest flex-shrink-0">
                       {ledgerFilesTouched.length} file
-                      {ledgerFilesTouched.length !== 1 ? "s" : ""} · from session
+                      {ledgerFilesTouched.length !== 1 ? "s" : ""} · from
+                      session
                     </span>
                   </div>
                   <div className="space-y-2">
@@ -660,7 +696,8 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                           {row.tool}
                         </span>
                         <span className="text-neutral-400">
-                          {(row.tokens_saved / 1000).toFixed(1)}k tok · {fmtUsd(row.cost_saved_usd)}
+                          {(row.tokens_saved / 1000).toFixed(1)}k tok ·{" "}
+                          {fmtUsd(row.cost_saved_usd)}
                         </span>
                       </div>
                     ))}

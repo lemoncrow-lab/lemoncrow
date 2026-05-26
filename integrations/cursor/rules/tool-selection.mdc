@@ -1,0 +1,17 @@
+---
+description: Atelier-first tool selection for Cursor. Call context first and use Atelier MCP tools before Cursor native tools.
+alwaysApply: true
+---
+
+Start coding tasks with Atelier `context` using the task, domain, files, and planned tools.
+
+Prefer Atelier MCP tools over Cursor native tools:
+- Use `mcp__atelier__node`, `callers`, `callees`, `impact`, or `explore` before Cursor symbol search or broad file-reading loops.
+- Use `mcp__atelier__grep` or `search` before native `search` for repo discovery.
+- Use `mcp__atelier__read` before native `Read` or ad hoc terminal `cat`.
+- Use `mcp__atelier__edit` before native edit tools.
+- Use `mcp__atelier__shell` for commands, and keep shell usage to git, build, test, and package-manager commands when another Atelier tool does not fit.
+
+Treat Cursor native tools as fallback-only. Use them only when the Atelier equivalent is unavailable, hidden, or returns `noop`.
+
+After repeated failure, call Atelier `rescue`. When the task is complete, record a trace with Atelier `trace`.

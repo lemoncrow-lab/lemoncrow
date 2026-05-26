@@ -204,6 +204,7 @@ def _read_transcript_stats(transcript_path: str) -> dict[str, Any] | None:
 
     return {
         "tool_calls": stats.tool_calls,
+        "turns": stats.turns,
         "input_tokens": stats.input_tokens,
         "output_tokens": stats.output_tokens,
         "cache_read_tokens": stats.cache_read_tokens,
@@ -461,11 +462,13 @@ def _is_task_session(stats: dict[str, Any] | None, session_aggregate: dict[str, 
 
 
 def _load_session_savings(session_id: str) -> dict[str, Any]:
-    """Return session savings summary from the Claude transcript.
+    """Return session savings summary for the Claude session.
 
-    Single source of truth: walk ~/.claude/projects/.../<session_id>.jsonl
-    once and sum tool_result.content[].saved blocks (priced at the model
-    that issued the originating tool_use).
+    Delegates to ``compute_savings_summary`` — the same function the
+    statusline calls via ``atelier savings --line`` — so the statusline
+    figure and this stop-hook summary are always derived from the same
+    source (``session_stats/claude/<session_id>.jsonl``, priced per-row
+    at the model captured when each row was written).
     """
     zero = {
         "saved_usd": 0.0,
@@ -514,6 +517,7 @@ def _format_stats(
     cache_write = int(stats.get("cache_write_tokens", 0) or 0)
     total = inp + out + cache_read + cache_write
     calls = int(stats.get("tool_calls", 0) or 0)
+    turns = int(stats.get("turns", 0) or 0)
     cost = float(stats.get("est_cost_usd", 0.0) or 0.0)
 
     # Top tools (up to 4)
@@ -532,8 +536,11 @@ def _format_stats(
     # cR is recycled content. So we surface (in+cW) as the meaningful
     # cumulative input figure and keep the raw breakdown for transparency.
     fresh_in = inp + cache_write
+    calls_str = f"{calls} tool call{'s' if calls != 1 else ''}"
+    turns_str = f"{turns} turn{'s' if turns != 1 else ''}" if turns > 0 else ""
+    activity = " · ".join(p for p in (turns_str, calls_str) if p)
     lines = [
-        f"tool calls: {calls}",
+        activity,
         f"tokens: {_fmt_tok(fresh_in)} input ({_fmt_tok(inp)} new + {_fmt_tok(cache_write)} cW) / {_fmt_tok(cache_read)} cR / {_fmt_tok(out)} out  ({_fmt_tok(total)} total)",
         f"{cost_prefix}${cost:.4f}",
     ]

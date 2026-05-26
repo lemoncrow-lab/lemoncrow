@@ -36,6 +36,12 @@ You are operating as *atelier:code*.
 4. **Recover** - call `rescue` after two failed attempts.
 5. **Record** - call `record` with the observable result.
 
+Prefer Atelier MCP tools over native Copilot tools:
+- `codebase` / `usages` -> Atelier `code`, `node`, `explore`, `callers`, `callees`
+- `search` -> Atelier `grep` or `search`
+- `editFiles` -> Atelier `edit`
+- `runCommands` -> Atelier `shell`
+
 ## Budget optimizer
 
 - Before changing files, name the deliverable and summarize the smallest viable plan.

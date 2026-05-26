@@ -829,11 +829,34 @@ def _merge_session_start_stdout(*items: Any) -> dict[str, Any] | str:
     return output
 
 
+def _codex_session_start_tool_policy() -> dict[str, Any]:
+    return {
+        "hookSpecificOutput": {"hookEventName": "SessionStart"},
+        "message": "Atelier policy: for coding tasks call mcp__atelier__context first and use Atelier MCP tools before native Codex tools.",
+        "additionalContext": "\n".join(
+            [
+                "Codex Atelier tool policy:",
+                "- Call mcp__atelier__context before exploratory reads or edits on coding tasks.",
+                "- Use mcp__atelier__node / callers / callees / impact / explore for code intelligence before native search loops.",
+                "- Use mcp__atelier__grep or mcp__atelier__search instead of native Grep/Glob or shell rg/grep/find.",
+                "- Use mcp__atelier__read instead of native Read or shell cat/sed/head for file reads.",
+                "- Use mcp__atelier__edit instead of native Edit/Write/MultiEdit for file changes.",
+                "- Use mcp__atelier__shell only for commands without a better Atelier equivalent (git, make, uv, npm, pytest).",
+                "- Treat native Codex Read/Edit/Write/MultiEdit/Bash/Grep/Glob as disabled-by-policy unless the Atelier equivalent is hidden, unavailable, or returned noop.",
+            ]
+        ),
+    }
+
+
 def codex_update_notification(root: str | Path, *, current_version: str) -> dict[str, Any]:
     result = update_notification(current_version, _read_json(update_flag_path(root), None))
     if result.get("delete_flag"):
         update_flag_path(root).unlink(missing_ok=True)
-    stdout = _merge_session_start_stdout(result.get("stdout"), _session_optimizer_start_notice(root, host="codex"))
+    stdout = _merge_session_start_stdout(
+        result.get("stdout"),
+        _session_optimizer_start_notice(root, host="codex"),
+        _codex_session_start_tool_policy(),
+    )
     return {**result, "stdout": stdout, "optimizer": {"host": "codex"}}
 
 
@@ -865,12 +888,75 @@ def _is_atelier_tool(tool_name: str) -> bool:
     return lowered in _ATELIER_TOOL_NAMES
 
 
+def _codex_native_tool_replacement(payload: dict[str, Any]) -> tuple[str, str] | None:
+    tool_name = str(payload.get("tool_name") or "")
+    lowered = tool_name.lower().strip()
+    raw_tool_input = payload.get("tool_input")
+    tool_input: dict[str, Any] = raw_tool_input if isinstance(raw_tool_input, dict) else {}
+    command = str(tool_input.get("command") or "")
+    normalized = " ".join(command.strip().split()).lower()
+
+    if lowered == "read":
+        return ("mcp__atelier__read", "Use Atelier read for file reads and ranges.")
+    if lowered in {"edit", "write", "multiedit"}:
+        return ("mcp__atelier__edit", "Use Atelier edit for deterministic grouped writes and rollback.")
+    if lowered in {"grep", "glob"}:
+        return ("mcp__atelier__grep", "Use Atelier grep/search for text and path discovery.")
+    if lowered in {"bash", "shell", "exec_command", "run_command"}:
+        if (
+            normalized.startswith(("rg ", "grep ", "find "))
+            or " rg " in f" {normalized} "
+            or " grep " in f" {normalized} "
+        ):
+            return ("mcp__atelier__grep", "Use Atelier grep/search instead of shell rg/grep/find loops.")
+        if normalized.startswith(("cat ", "sed ", "head ", "tail ")):
+            return ("mcp__atelier__read", "Use Atelier read instead of shell file-print commands.")
+        return ("mcp__atelier__shell", "Use Atelier shell so command execution stays compact and supervised.")
+    return None
+
+
+def _codex_native_tool_nudge(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
+    replacement = _codex_native_tool_replacement(payload)
+    if replacement is None:
+        return {"no_output": True}
+    session_id = str(payload.get("session_id") or "default")
+    path = session_stats_path(root, session_id)
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except Exception:
+        state = {}
+    nudged = state.setdefault("native_tool_nudges", {}) if isinstance(state, dict) else {}
+    tool_name = str(payload.get("tool_name") or "unknown")
+    command = ""
+    if isinstance(payload.get("tool_input"), dict):
+        command = str((payload.get("tool_input") or {}).get("command") or "")
+    nudge_key = f"{tool_name.lower()}::{command.strip().lower()[:120]}"
+    if bool(nudged.get(nudge_key)):
+        return {"no_output": True}
+    nudged[nudge_key] = True
+    if isinstance(state, dict):
+        state["native_tool_nudges"] = nudged
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    replacement_tool, rationale = replacement
+    return {
+        "message": f"Atelier policy: native tool '{tool_name}' was used where {replacement_tool} should be preferred.",
+        "additionalContext": "\n".join(
+            [
+                rationale,
+                "For coding tasks, call mcp__atelier__context first if you have not already.",
+                "Keep native Codex tools as fallback only when the Atelier equivalent is hidden, unavailable, or returned noop.",
+            ]
+        ),
+    }
+
+
 def build_codex_post_tool_use_savings_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("hook_event_name") != "PostToolUse":
         return {"no_output": True}
     tool_name = str(payload.get("tool_name") or "")
     if not _is_atelier_tool(tool_name):
-        return {"no_output": True}
+        return _codex_native_tool_nudge(root, payload)
     stats = update_session_stats(root, payload)
     session_id = str(payload.get("session_id") or "default")
     from atelier.core.capabilities.savings_summary import compute_savings_summary

@@ -124,6 +124,8 @@ class TranscriptStats:
     """Parsed statistics from a Claude transcript JSONL file."""
 
     tool_calls: int = 0
+    # Distinct assistant turns (one per assistant message id with usage).
+    turns: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
@@ -137,11 +139,6 @@ class TranscriptStats:
     # Last model seen in transcript (most recent turn). Differs from `model`
     # (first seen) for resumed sessions where user switched models mid-session.
     last_model: str = ""
-    # Atelier savings extracted from tool_result.content[].saved entries.
-    # Priced per-event at the model of the assistant turn that issued the tool_use.
-    saved_tokens: int = 0
-    saved_calls: int = 0
-    saved_usd: float = 0.0
 
     @property
     def total_tokens(self) -> int:
@@ -185,6 +182,7 @@ def read_transcript_stats(transcript_path: str | Path) -> TranscriptStats | None
         return None
 
     tool_calls = 0
+    turns = 0
     input_tokens = 0
     output_tokens = 0
     cache_read_tokens = 0
@@ -195,12 +193,6 @@ def read_transcript_stats(transcript_path: str | Path) -> TranscriptStats | None
     per_model: dict[str, dict[str, int]] = {}
     seen_usage_message_ids: set[str] = set()
     seen_tool_use_ids: set[str] = set()
-    # tool_use_id -> model that issued it (for pricing tool_result savings)
-    tool_use_model: dict[str, str] = {}
-    seen_saved_tool_use_ids: set[str] = set()
-    saved_tokens_total = 0
-    saved_calls_total = 0
-    saved_usd_total = 0.0
 
     try:
         for raw in p.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -243,6 +235,9 @@ def read_transcript_stats(transcript_path: str | Path) -> TranscriptStats | None
                 output_tokens += out_t
                 cache_read_tokens += cr_t
                 cache_write_tokens += cw_t
+                # A turn = one assistant message with non-zero usage.
+                # Dedup on msg_id (same dedup as token accumulation).
+                turns += 1
 
                 turn_model = str(msg.get("model") or entry.get("model") or "").strip()
                 if is_real_model(turn_model):
@@ -255,56 +250,17 @@ def read_transcript_stats(transcript_path: str | Path) -> TranscriptStats | None
             for index, block in enumerate(msg.get("content") or []):
                 if not isinstance(block, dict):
                     continue
-                block_type = block.get("type")
-                if block_type == "tool_use":
-                    name = block.get("name") or "unknown"
-                    tool_use_id = str(block.get("id") or "").strip()
-                    if tool_use_id and last_model_id:
-                        tool_use_model[tool_use_id] = last_model_id
-                    tool_key = tool_use_id or (f"{msg_id}:{index}:{name}" if msg_id else "")
-                    if tool_key:
-                        if tool_key in seen_tool_use_ids:
-                            continue
-                        seen_tool_use_ids.add(tool_key)
-                    tools_used[name] = tools_used.get(name, 0) + 1
-                    tool_calls += 1
-                elif block_type == "tool_result":
-                    # MCP tool results carry per-call savings on each content
-                    # item: {"type":"text","text":"...","saved":{"tokens":N,"calls":M}}.
-                    # Sum across the result's content list, then price the
-                    # tokens at the model that issued the originating tool_use.
-                    tool_use_id = str(block.get("tool_use_id") or "").strip()
-                    if tool_use_id and tool_use_id in seen_saved_tool_use_ids:
+                if block.get("type") != "tool_use":
+                    continue
+                name = block.get("name") or "unknown"
+                tool_use_id = str(block.get("id") or "").strip()
+                tool_key = tool_use_id or (f"{msg_id}:{index}:{name}" if msg_id else "")
+                if tool_key:
+                    if tool_key in seen_tool_use_ids:
                         continue
-                    if tool_use_id:
-                        seen_saved_tool_use_ids.add(tool_use_id)
-                    saved_tokens_here = 0
-                    saved_calls_here = 0
-                    for content in block.get("content") or []:
-                        if not isinstance(content, dict):
-                            continue
-                        saved = content.get("saved")
-                        if not isinstance(saved, dict):
-                            continue
-                        try:
-                            saved_tokens_here += int(saved.get("tokens") or 0)
-                            saved_calls_here += int(saved.get("calls") or 0)
-                        except (TypeError, ValueError):
-                            continue
-                    if saved_tokens_here <= 0 and saved_calls_here <= 0:
-                        continue
-                    saved_tokens_total += max(0, saved_tokens_here)
-                    saved_calls_total += max(0, saved_calls_here)
-                    issuing_model = tool_use_model.get(tool_use_id) or last_model_id
-                    if issuing_model and saved_tokens_here > 0:
-                        try:
-                            from atelier.core.capabilities.pricing import get_model_pricing
-
-                            pricing = get_model_pricing(resolve_model_id(issuing_model))
-                            if pricing is not None and pricing.known and pricing.input > 0:
-                                saved_usd_total += pricing.cost_usd(input_tokens=saved_tokens_here)
-                        except Exception:
-                            pass
+                    seen_tool_use_ids.add(tool_key)
+                tools_used[name] = tools_used.get(name, 0) + 1
+                tool_calls += 1
     except Exception:
         return None
 
@@ -333,6 +289,7 @@ def read_transcript_stats(transcript_path: str | Path) -> TranscriptStats | None
 
     return TranscriptStats(
         tool_calls=tool_calls,
+        turns=turns,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cache_read_tokens=cache_read_tokens,
@@ -347,9 +304,6 @@ def read_transcript_stats(transcript_path: str | Path) -> TranscriptStats | None
         ),
         tools_used=tools_used,
         per_model={resolve_model_id(m): b for m, b in per_model.items()} if per_model else {},
-        saved_tokens=saved_tokens_total,
-        saved_calls=saved_calls_total,
-        saved_usd=round(saved_usd_total, 6),
     )
 
 
@@ -366,23 +320,30 @@ class SavingsSummary:
     routing_saved_usd: float = 0.0
     est_cost_usd: float = 0.0  # baseline cost from terminated session transcript
     total_tokens: int = 0  # cumulative session tokens (in+out+cR+cW) from transcript
+    display_input_tokens: int = 0  # cumulative fresh input = input + cache_write
+    display_cache_tokens: int = 0  # cumulative cache reads
+    display_output_tokens: int = 0  # cumulative output
     status_text: str = ""
 
 
-def _read_claude_session_savings(session_id: str, atelier_root: Path) -> tuple[int, int, float]:
-    """Return ``(tokens_saved, calls_saved, usd_saved)`` from the Claude session savings JSONL.
+def _read_claude_session_savings(session_id: str, atelier_root: Path) -> tuple[int, int, float, int]:
+    """Return ``(tokens_saved, calls_saved, usd_saved, unpriced_tokens)``.
 
-    Each row is priced at the model stored in the row (set by the MCP server at write time).
-    Rows without a model field fall back to 0 USD — caller prices them via weighted average.
+    Each row is priced at the model stored in the row (set by the MCP server
+    at write time).  Rows we can price contribute to both ``tokens_saved`` and
+    ``usd_saved``.  Rows we cannot price (missing or unknown model, or no
+    pricing entry) are returned separately via ``unpriced_tokens`` so the
+    caller can apply a single weighted fallback rate without distorting the
+    displayed (usd / tokens) ratio.
     """
     if not session_id:
-        return 0, 0, 0.0
+        return 0, 0, 0.0, 0
     path = atelier_root / "session_stats" / "claude" / f"{session_id}.jsonl"
     if not path.exists():
-        return 0, 0, 0.0
+        return 0, 0, 0.0, 0
     from atelier.core.capabilities.pricing import get_model_pricing
 
-    tokens_total = 0
+    priced_tokens = 0
     calls_total = 0
     usd_total = 0.0
     unpriced_tokens = 0
@@ -395,22 +356,30 @@ def _read_claude_session_savings(session_id: str, atelier_root: Path) -> tuple[i
                 ev = json.loads(raw)
             except Exception:
                 continue
-            t = max(0, int(ev.get("tokens_saved") or 0))
-            c = max(0, int(ev.get("calls_saved") or 0))
-            tokens_total += t
+            # Field names mirror the in-response `saved: {tokens, calls}` shape.
+            # Older rows (briefly written as tokens_saved/calls_saved) are still
+            # accepted as a fallback so historical sidecars keep working.
+            t = max(0, int(ev.get("tokens") or ev.get("tokens_saved") or 0))
+            c = max(0, int(ev.get("calls") or ev.get("calls_saved") or 0))
             calls_total += c
+            if t <= 0:
+                continue
+            # Sanity cap: a single tool call cannot save more than the full
+            # Anthropic context window (~1M tokens). Anything larger came from
+            # a pre-fce2110 inflation bug in native_search.py and must not be
+            # shown to the user — silently drop the row.
+            if t > 2_000_000:
+                continue
             model_raw = str(ev.get("model") or "").strip()
-            if model_raw and t > 0:
-                pricing = get_model_pricing(resolve_model_id(model_raw))
-                if pricing is not None and pricing.known and pricing.input > 0:
-                    usd_total += pricing.input / 1_000_000 * t
-                else:
-                    unpriced_tokens += t
+            pricing = get_model_pricing(resolve_model_id(model_raw)) if model_raw else None
+            if pricing is not None and pricing.known and pricing.input > 0:
+                priced_tokens += t
+                usd_total += pricing.input / 1_000_000 * t
             else:
                 unpriced_tokens += t
     except OSError:
         pass
-    return tokens_total, calls_total, usd_total
+    return priced_tokens, calls_total, usd_total, unpriced_tokens
 
 
 def _resolve_workspace_session_id(workspace: str | None, root_path: Path) -> str:
@@ -454,9 +423,12 @@ def compute_savings_summary(
     since Claude Code does preserve token-usage entries there.
     """
     result = SavingsSummary()
-    if not session_id and not workspace:
+    # A missing live session id means Claude has not bound this statusline frame
+    # to a concrete session yet. In that state we must not borrow savings from
+    # the workspace's previous session, or brand-new sessions appear to start
+    # with non-zero savings before the first prompt.
+    if not session_id:
         return result
-
     root_path: Path
     if atelier_root is not None:
         root_path = Path(atelier_root)
@@ -465,17 +437,18 @@ def compute_savings_summary(
         root_path = Path(env_root) if env_root else Path.home() / ".atelier"
 
     # --- savings rows (primary source) ---
-    tokens, calls, row_usd = _read_claude_session_savings(session_id, root_path) if session_id else (0, 0, 0.0)
+    priced_tokens, calls, row_usd, unpriced_tokens = (
+        _read_claude_session_savings(session_id, root_path) if session_id else (0, 0, 0.0, 0)
+    )
 
     # Fallback: subagent sessions have no sidecar — use parent session from workspace.
-    if tokens == 0 and calls == 0 and workspace:
+    if priced_tokens == 0 and unpriced_tokens == 0 and calls == 0 and workspace:
         ws_session_id = _resolve_workspace_session_id(workspace, root_path)
         if ws_session_id and ws_session_id != session_id:
-            tokens, calls, row_usd = _read_claude_session_savings(ws_session_id, root_path)
-            if tokens > 0 or calls > 0:
+            priced_tokens, calls, row_usd, unpriced_tokens = _read_claude_session_savings(ws_session_id, root_path)
+            if priced_tokens > 0 or unpriced_tokens > 0 or calls > 0:
                 session_id = ws_session_id  # use the found session for transcript lookup too
 
-    result.ctx_saved = tokens
     result.smart_calls = calls
 
     # --- cost baseline + model from transcript ---
@@ -484,35 +457,39 @@ def compute_savings_summary(
     if stats is not None:
         result.est_cost_usd = stats.est_cost_usd
         result.total_tokens = stats.total_tokens
-
-    # --- price the saved tokens ---
-    # row_usd is already priced per-row (each row stored its model at write time).
-    # For any tokens we couldn't price per-row (old rows with no model field, or
-    # unknown models), fall back to weighted average from the transcript.
-    if result.ctx_saved > 0:
-        if row_usd > 0:
-            result.saved_usd = row_usd
-        else:
-            # Old rows (no model field) — use weighted average from transcript
+        result.display_input_tokens = stats.input_tokens + stats.cache_write_tokens
+        result.display_cache_tokens = stats.cache_read_tokens
+        result.display_output_tokens = stats.output_tokens
+    # --- price unpriced tokens at the session's weighted input rate ---
+    # Per-row prices are exact (model captured at write time).  For rows that
+    # arrived without a model (older format, or before the SessionStart bridge
+    # registered one), apply the transcript's weighted input rate so the user
+    # sees a single, consistent (usd / tokens) ratio.  If we can't derive any
+    # rate, those tokens are dropped from the display entirely — never count
+    # something we can't price.
+    extra_usd = 0.0
+    extra_tokens = 0
+    if unpriced_tokens > 0:
+        rate: float | None = stats.savings_input_rate() if stats is not None else None
+        if rate is None:
             try:
                 from atelier.core.capabilities.pricing import get_model_pricing
 
-                rate: float | None = stats.savings_input_rate() if stats is not None else None
-                if rate is None:
-                    for mid in (
-                        stats.last_model if stats else "",
-                        "claude-sonnet-4-5",
-                    ):
-                        if not mid:
-                            continue
-                        pricing = get_model_pricing(resolve_model_id(mid))
-                        if pricing is not None and pricing.known and pricing.input > 0:
-                            rate = pricing.input / 1_000_000
-                            break
-                if rate and rate > 0:
-                    result.saved_usd = rate * result.ctx_saved
+                for mid in (stats.last_model if stats else "", "claude-sonnet-4-5"):
+                    if not mid:
+                        continue
+                    pricing = get_model_pricing(resolve_model_id(mid))
+                    if pricing is not None and pricing.known and pricing.input > 0:
+                        rate = pricing.input / 1_000_000
+                        break
             except Exception:
-                pass
+                rate = None
+        if rate and rate > 0:
+            extra_usd = rate * unpriced_tokens
+            extra_tokens = unpriced_tokens
+
+    result.ctx_saved = priced_tokens + extra_tokens
+    result.saved_usd = row_usd + extra_usd
 
     return result
 
@@ -565,7 +542,8 @@ def savings_line(
 ) -> str:
     """Return the pipe-delimited savings line consumed by statusline.sh.
 
-    Format: ``$<saved_usd>|<tokens_saved>|<calls_saved>|<status_text>|$<routing_saved_usd>|<est_cost_usd>|<total_tokens>``
+    Format:
+    ``$<saved_usd>|<tokens_saved>|<calls_saved>|<status_text>|$<routing_saved_usd>|<est_cost_usd>|<total_tokens>|<display_input_tokens>|<display_cache_tokens>|<display_output_tokens>``
     """
     summary = compute_savings_summary(session_id, atelier_root=atelier_root, workspace=workspace)
     summary.status_text = _resolve_status_text(atelier_root)
@@ -573,4 +551,5 @@ def savings_line(
         f"${summary.saved_usd:.3f}|{_fmt_tok(summary.ctx_saved)}|{summary.smart_calls}"
         f"|{summary.status_text}|${summary.routing_saved_usd:.3f}"
         f"|{summary.est_cost_usd:.3f}|{summary.total_tokens}"
+        f"|{summary.display_input_tokens}|{summary.display_cache_tokens}|{summary.display_output_tokens}"
     )

@@ -72,7 +72,7 @@ def test_shell_ab_real(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     t1 = time.perf_counter()
     payload = tool_shell({"command": command, "timeout": 30, "cwd": str(tmp_path), "max_lines": 120})
     atelier_ms = (time.perf_counter() - t1) * 1000.0
-    atelier_text = json.dumps(payload, sort_keys=True, default=str)
+    atelier_text = payload
 
     native_tokens = _count_tiktoken(native_text)
     atelier_tokens = _count_tiktoken(atelier_text)
@@ -90,5 +90,5 @@ def test_shell_ab_real(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     )
     _append_row(row)
 
-    assert payload["truncated"] is True
+    assert "[output truncated:" in payload
     assert atelier_tokens < native_tokens

@@ -5037,6 +5037,8 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             return conversations, source_files, artifacts
 
         from atelier.gateway.hosts.session_parsers._session_parser import (
+            _extract_claude_session_id,
+            attach_atelier_sidecar_savings,
             parse_session_turns,
         )
 
@@ -5053,6 +5055,16 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             try:
                 raw_content = store_inst.read_raw_artifact_content(artifact)
                 artifact_turns = parse_session_turns(raw_content, artifact.source)
+                # Join host sidecar (real per-call savings written by the MCP
+                # server) onto Atelier MCP tool turns. Claude Code strips the
+                # in-response `saved` block when persisting, so this is the
+                # only reliable source for per-tool savings in the UI.
+                if artifact.source == "claude":
+                    artifact_session_id = _extract_claude_session_id(raw_content)
+                    if artifact_session_id:
+                        from atelier.core.foundation.paths import default_store_root
+
+                        attach_atelier_sidecar_savings(artifact_turns, artifact_session_id, default_store_root())
                 artifact_label = "main"
                 if scope == "subagent":
                     artifact_label = (

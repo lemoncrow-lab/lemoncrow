@@ -71,8 +71,8 @@ if $PRINT_ONLY; then
     echo "Add mcp-atelier to platform_toolsets.cli:"
     echo "  platform_toolsets:"
     echo "    cli:"
-    echo "      - hermes-cli"
     echo "      - mcp-atelier"
+    echo "      - hermes-cli"
     exit 0
 fi
 
@@ -100,8 +100,8 @@ mcp_servers:
 
 platform_toolsets:
   cli:
-    - hermes-cli
     - mcp-atelier
+    - hermes-cli
 YAML
         info "created default config at $CONFIG_FILE"
     fi
@@ -138,9 +138,10 @@ config['mcp_servers']['atelier'] = {
 
 # Add toolset entry
 config.setdefault('platform_toolsets', {})
-config['platform_toolsets'].setdefault('cli', [])
-if 'mcp-atelier' not in config['platform_toolsets']['cli']:
-    config['platform_toolsets']['cli'].append('mcp-atelier')
+toolsets = config['platform_toolsets'].setdefault('cli', [])
+toolsets = [item for item in toolsets if item != 'mcp-atelier']
+toolsets.insert(0, 'mcp-atelier')
+config['platform_toolsets']['cli'] = toolsets
 
 with path.open('w', encoding='utf-8') as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)

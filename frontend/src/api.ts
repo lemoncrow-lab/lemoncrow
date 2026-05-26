@@ -153,7 +153,13 @@ export interface ConversationEntry {
   path?: string;
   diff?: string;
   tool_name?: string;
+  tool_use_id?: string;
   arguments?: unknown;
+  // Per-call Atelier savings written by the MCP server to its host sidecar.
+  // Same data the statusline aggregates — attached per-tool by the backend.
+  // `usd` is priced at the row's captured model input rate (already summed
+  // across grouped turns).
+  saved?: { tokens: number; calls: number; usd: number };
   todos?: Array<{
     content: string;
     status?: string;
@@ -969,6 +975,7 @@ export interface SessionSummary {
   input_tokens?: number;
   output_tokens?: number;
   cached_input_tokens?: number;
+  cache_write_tokens?: number;
 }
 
 export interface TopTool {

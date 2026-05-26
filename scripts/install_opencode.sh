@@ -154,7 +154,7 @@ stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 existing = json.loads(stripped) if stripped.strip() else {}
 new_entry = json.loads('''$NEW_ENTRY''')
 existing.setdefault('mcp', {}).update(new_entry['mcp'])
-existing.setdefault('default_agent', new_entry['default_agent'])
+existing['default_agent'] = new_entry['default_agent']
 existing.setdefault('permission', {}).update(new_entry['permission'])
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
 print("[atelier:opencode] merged atelier entry into $OC_FILE")
