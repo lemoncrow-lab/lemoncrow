@@ -22,6 +22,7 @@ Payload received on stdin:
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 import sys
@@ -36,8 +37,6 @@ from typing import Any
 
 
 def _session_state_path() -> Path:
-    import hashlib
-
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = hashlib.sha256(str(Path(workspace).resolve()).encode("utf-8")).hexdigest()[:12]
     root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
@@ -74,7 +73,8 @@ def _atelier_root() -> Path:
 
 
 def _active_session_id() -> str | None:
-    return _read_session_state().get("active_session_id")
+    state = _read_session_state()
+    return state.get("session_id") or state.get("active_session_id")
 
 
 def _claude_settings_path() -> Path:
@@ -185,7 +185,7 @@ def main() -> int:
     except Exception:
         return 0
 
-    session_id: str = payload.get("session_id", "") or ""
+    session_id_raw: str = payload.get("session_id", "") or ""
     source: str = payload.get("source", "startup") or "startup"
     model: str = payload.get("model", "") or ""
     cwd: str = payload.get("cwd", "") or ""
@@ -193,12 +193,14 @@ def main() -> int:
 
     try:
         # Write session_id + transcript_path to session_state so other hooks
-        # and the MCP server can find the transcript for title extraction.
-        if session_id:
+        # and the MCP server can read a one-shot session-id/model bridge.
+        if session_id_raw:
             state_update: dict[str, Any] = {
-                "session_id": session_id,
+                "session_id": session_id_raw,
                 "atelier_root": str(_atelier_root()),
             }
+            if model:
+                state_update["model"] = model
             if transcript_path:
                 state_update["transcript_path"] = transcript_path
             _write_session_state(state_update)
@@ -206,7 +208,7 @@ def main() -> int:
         if not _apply_session_bootstrap(payload):
             _initialize_session_stats(payload)
 
-        session_id = _active_session_id()
+        session_id: str | None = _active_session_id() or session_id_raw
         if not session_id:
             return 0
 

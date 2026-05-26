@@ -1,0 +1,21 @@
+id: rubric_state_change_safety
+domain: state.change
+triggers: []
+forbidden_phrases: []
+required_checks:
+- canonical_identifier_used
+- pre_change_state_captured
+- read_after_write_completed
+- observed_state_matches_intent
+block_if_missing:
+- canonical_identifier_used
+- read_after_write_completed
+- observed_state_matches_intent
+warning_checks:
+- rollback_plan_available
+- user_visible_surface_checked
+escalation_conditions:
+- target_identity_ambiguous
+- live_system_drift_detected
+- rollback_failed
+related_blocks: []

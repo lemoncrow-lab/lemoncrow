@@ -22,7 +22,7 @@ from atelier.core.foundation.redaction import (
     redact,
     redact_failure_cluster,
 )
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 # ---------------------------------------------------------------------------
 # Redaction primitives

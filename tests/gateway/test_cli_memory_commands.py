@@ -7,7 +7,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from atelier.gateway.adapters import mcp_server
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 
 def _reset_remote_mode() -> None:

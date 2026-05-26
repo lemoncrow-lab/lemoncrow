@@ -57,7 +57,7 @@ fi
 
 ATELIER_VERBOSE="${ATELIER_VERBOSE:-0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
+SKILL_BUILDER="${SCRIPT_DIR}/build_host_skills.sh"
 print_message() {
     local color="$1"
     shift
@@ -247,13 +247,53 @@ if ! $EXPLICIT; then
     DO_CLAUDE=true; DO_CODEX=true; DO_CURSOR=true; DO_OPENCODE=true; DO_COPILOT=true; DO_HERMES=true; DO_ANTIGRAVITY=true
 fi
 
+prebuild_shared_skill_bundles() {
+    local needs_skills=0
+    local spinner_started=0
+
+    if $DO_CLAUDE || $DO_CODEX || $DO_ANTIGRAVITY; then
+        needs_skills=1
+    fi
+    [[ "$needs_skills" == "1" ]] || return 0
+
+    if [[ " ${PASSTHROUGH[*]} " =~ "--dry-run" ]]; then
+        [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]] && print_frame_line "Dry run: skipping shared skill bundle generation"
+        return 0
+    fi
+
+    emit_host_status "START" "skills"
+    spinner_start "Generating shared host skill bundles"
+    if [[ -n "${_SPINNER_PID:-}" ]]; then
+        spinner_started=1
+    elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+        print_active_line "Generating shared host skill bundles"
+    fi
+
+    if bash "$SKILL_BUILDER" --host all >/dev/null; then
+        emit_host_status "OK" "skills"
+        if [[ "$spinner_started" == "1" ]]; then
+            spinner_finish ok "Generated shared host skill bundles"
+        elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+            print_frame_line "Generated shared host skill bundles"
+        fi
+        return 0
+    fi
+
+    emit_host_status "FAILED" "skills"
+    if [[ "$spinner_started" == "1" ]]; then
+        spinner_finish err "Failed to generate shared host skill bundles"
+    elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+        print_frame_line "Failed to generate shared host skill bundles"
+    fi
+    exit 1
+}
+
 PASS=()
 WARN=()
 FAIL=()
 SKIP=()
 WARNINGS=()
 ERRORS=()
-
 collect_issues_from_output() {
     local output="$1"
     local line
@@ -408,6 +448,8 @@ run_installer() {
         fi
     fi
 }
+
+prebuild_shared_skill_bundles
 
 # ── Universal agents (always run first when using --workspace) ──────────────
 if [[ " ${PASSTHROUGH[*]} " =~ "--workspace" ]]; then

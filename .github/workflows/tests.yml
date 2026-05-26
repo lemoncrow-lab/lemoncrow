@@ -154,3 +154,22 @@ jobs:
         run: |
           uv export --frozen --group dev --format requirements-txt --no-hashes --output-file requirements-audit.txt
           uvx pip-audit --requirement requirements-audit.txt
+
+  macos-install:
+    name: macOS install script (bash 3.2 compat)
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify bash version
+        run: bash --version | head -1
+
+      - name: Run install.sh syntax check with macOS bash
+        run: bash -n scripts/install.sh
+
+      - name: Run install.sh dry-run
+        run: |
+          bash scripts/install.sh --dry-run --no-hosts --no-stack --non-interactive --verbose

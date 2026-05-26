@@ -61,17 +61,11 @@ def test_explore_dev_variant_can_use_mcp_read_search() -> None:
 
 def test_plugin_skills_are_packaged_locally() -> None:
     expected = {
-        "analyze-failures",
-        "benchmark",
-        "context",
-        "evals",
-        "recall",
-        "record",
-        "rescue",
-        "savings",
-        "settings",
-        "share",
-        "status",
+        "code",
+        "explore",
+        "review",
+        "repair",
+        "research",
     }
     found = {path.parent.name for path in (PLUGIN / "skills").glob("*/SKILL.md")}
     assert expected <= found

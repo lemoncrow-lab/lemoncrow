@@ -11,16 +11,62 @@ from click.testing import CliRunner, Result
 os.environ["ATELIER_DEV_MODE"] = "1"
 
 from atelier.core.capabilities.plugin_runtime import update_session_stats
-from atelier.core.foundation.models import ReasonBlock
+from atelier.core.foundation.models import ReasonBlock, Rubric
 from atelier.core.foundation.store import ContextStore
 from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.adapters import mcp_server
+from atelier.gateway.cli import cli
 from atelier.infra.internal_llm.ollama_client import OllamaUnavailable
 
 
 def _invoke(root: Path, *args: str, input: str | None = None) -> Result:
     runner = CliRunner()
+    mcp_server._reset_runtime_cache_for_testing()
     return runner.invoke(cli, ["--root", str(root), *args], input=input)
+
+
+def _seed_state_change_rubric(root: Path) -> None:
+    ContextStore(root).upsert_rubric(
+        Rubric(
+            id="rubric_state_change_safety",
+            domain="state.change",
+            required_checks=[
+                "canonical_identifier_used",
+                "pre_change_state_captured",
+                "read_after_write_completed",
+                "observed_state_matches_intent",
+                "rollback_plan_available",
+                "user_visible_surface_checked",
+            ],
+            block_if_missing=[
+                "canonical_identifier_used",
+                "pre_change_state_captured",
+                "read_after_write_completed",
+                "observed_state_matches_intent",
+                "rollback_plan_available",
+                "user_visible_surface_checked",
+            ],
+        )
+    )
+
+
+def _seed_rescue_block(root: Path) -> None:
+    ContextStore(root).upsert_block(
+        ReasonBlock(
+            id="state-change-rescue",
+            title="Recover from wrong target update",
+            domain="state.change",
+            triggers=["wrong target updated", "Update external state"],
+            failure_signals=["wrong target updated"],
+            situation="When an external state change was applied to the wrong target.",
+            procedure=[
+                "Stop retrying the write path.",
+                "Confirm the intended target before any further state changes.",
+            ],
+            verification=["Verify the target identifier against the original request."],
+            dead_ends=["Do not repeat the mutation without checking the target."],
+        )
+    )
 
 
 def test_init_seeds_blocks_and_rubrics(tmp_path: Path) -> None:
@@ -34,6 +80,7 @@ def test_init_seeds_blocks_and_rubrics(tmp_path: Path) -> None:
 def test_run_rubric_via_cli(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _invoke(root, "init")
+    _seed_state_change_rubric(root)
     checks = {
         "canonical_identifier_used": True,
         "pre_change_state_captured": True,
@@ -60,6 +107,7 @@ def test_run_rubric_via_cli(tmp_path: Path) -> None:
 def test_run_rubric_blocks_when_required_missing(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _invoke(root, "init")
+    _seed_state_change_rubric(root)
     res = _invoke(
         root,
         "tools",
@@ -132,6 +180,7 @@ def test_record_trace_and_extract_block(tmp_path: Path) -> None:
 def test_rescue_returns_procedure(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _invoke(root, "init")
+    _seed_rescue_block(root)
     res = _invoke(
         root,
         "tools",
@@ -151,16 +200,12 @@ def test_rescue_returns_procedure(tmp_path: Path) -> None:
     assert res.exit_code == 0
     payload = json.loads(res.output)
     assert "rescue" in payload
-    assert payload["matched_blocks"]
+    assert payload["rescue"]
 
 
 def test_savings_cli_reports_session_stats(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _invoke(root, "init")
-    (root / "smart_state.json").write_text(
-        json.dumps({"savings": {"calls_avoided": 1, "tokens_saved": 500}}),
-        encoding="utf-8",
-    )
     update_session_stats(
         root,
         {
@@ -170,15 +215,30 @@ def test_savings_cli_reports_session_stats(tmp_path: Path) -> None:
             "tool_input": {"content_regex": "needle", "file_glob_patterns": ["*.py"]},
         },
     )
+    # Real measured savings come from live_savings_events.jsonl (written by
+    # MCP tool handlers at result time, priced at the model in use that turn).
+    (root / "live_savings_events.jsonl").write_text(
+        json.dumps(
+            {
+                "session_id": "s1",
+                "tool_name": "Read",
+                "lever": "structure_map",
+                "tokens_saved": 1200,
+                "cost_saved_usd": 0.0036,
+                "model": "claude-sonnet-4-5",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     res = _invoke(root, "savings", "--json")
 
     assert res.exit_code == 0, res.output
     payload = json.loads(res.output)
     assert payload["session"]["session_count"] == 1
-    assert payload["calls_avoided"] >= 2
-    assert payload["tokens_saved"] >= 500
-    assert "local estimates" in payload["local_note"]
+    assert payload["tokens_saved"] == 1200
+    assert payload["saved_usd"] == 0.0036
 
 
 def test_plugin_auth_status_share_and_settings_cli(tmp_path: Path) -> None:
@@ -273,23 +333,26 @@ def test_worker_runs_consolidation_job_on_sqlite(
 
 
 def test_stack_start_spawns_native_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    spawned: dict[str, object] = {}
+    spawned_calls: list[list[str]] = []
 
     class FakePopen:
         def __init__(self, args, **kwargs):  # type: ignore[no-untyped-def]
-            spawned["args"] = args
-            spawned["kwargs"] = kwargs
+            spawned_calls.append(list(args) if isinstance(args, (list, tuple)) else [str(args)])
             self.pid = 2468
 
-    monkeypatch.setattr("atelier.gateway.adapters.cli.subprocess.Popen", FakePopen)
-    monkeypatch.setattr("atelier.gateway.adapters.cli._pid_is_running", lambda pid: pid == 2468)
+    monkeypatch.setattr("atelier.gateway.cli.app.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("atelier.gateway.cli.app._pid_is_running", lambda pid: pid == 2468)
 
     res = _invoke(tmp_path / "a", "stack", "start", "--with-docs")
 
     assert res.exit_code == 0, res.output
-    args = spawned["args"]
-    assert isinstance(args, list)
-    assert args[-2:] == ["stack", "run"]
+    # The stack-start command spawns one supervisor process ending in ["stack", "run"].
+    # Filter to that call (other Popen calls may originate from background telemetry workers).
+    stack_run_call = next(
+        (call for call in spawned_calls if len(call) >= 2 and call[-2:] == ["stack", "run"]),
+        None,
+    )
+    assert stack_run_call is not None, f"no `stack run` supervisor spawned; saw: {spawned_calls!r}"
     assert "http://localhost:3125" in res.output
     assert "docs are no longer part of the managed stack" in res.output
 
@@ -299,15 +362,15 @@ def test_background_install_writes_native_stack_unit(tmp_path: Path, monkeypatch
     unit_dir = tmp_path / "systemd-user"
     commands: list[list[str]] = []
 
-    monkeypatch.setattr("atelier.gateway.adapters.cli._is_linux", lambda: True)
-    monkeypatch.setattr("atelier.gateway.adapters.cli._is_macos", lambda: False)
-    monkeypatch.setattr("atelier.gateway.adapters.cli.SYSTEMD_USER_DIR", unit_dir)
+    monkeypatch.setattr("atelier.gateway.cli.app._is_linux", lambda: True)
+    monkeypatch.setattr("atelier.gateway.cli.app._is_macos", lambda: False)
+    monkeypatch.setattr("atelier.gateway.cli.app.SYSTEMD_USER_DIR", unit_dir)
     monkeypatch.setattr(
-        "atelier.gateway.adapters.cli.shutil.which",
+        "atelier.gateway.cli.app.shutil.which",
         lambda name: "/bin/systemctl" if name == "systemctl" else "/usr/bin/atelier",
     )
     monkeypatch.setattr(
-        "atelier.gateway.adapters.cli.subprocess.run",
+        "atelier.gateway.cli.app.subprocess.run",
         lambda args, **kwargs: commands.append([str(item) for item in args]),
     )
 
@@ -318,7 +381,8 @@ def test_background_install_writes_native_stack_unit(tmp_path: Path, monkeypatch
     assert "docker compose" not in stack_unit
     assert "stack run" in stack_unit
     assert "stack stop" in stack_unit
-    assert any(cmd[:4] == ["systemctl", "--user", "enable", "--now"] for cmd in commands)
+    assert any(cmd[:3] == ["systemctl", "--user", "enable"] for cmd in commands)
+    assert any(cmd[:3] == ["systemctl", "--user", "restart"] for cmd in commands)
 
 
 def test_background_install_writes_openmemory_unit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -336,12 +400,12 @@ def test_background_install_writes_openmemory_unit(tmp_path: Path, monkeypatch: 
         }
         return mapping.get(name)
 
-    monkeypatch.setattr("atelier.gateway.adapters.cli._is_linux", lambda: True)
-    monkeypatch.setattr("atelier.gateway.adapters.cli._is_macos", lambda: False)
-    monkeypatch.setattr("atelier.gateway.adapters.cli.SYSTEMD_USER_DIR", unit_dir)
-    monkeypatch.setattr("atelier.gateway.adapters.cli.shutil.which", _which)
+    monkeypatch.setattr("atelier.gateway.cli.app._is_linux", lambda: True)
+    monkeypatch.setattr("atelier.gateway.cli.app._is_macos", lambda: False)
+    monkeypatch.setattr("atelier.gateway.cli.app.SYSTEMD_USER_DIR", unit_dir)
+    monkeypatch.setattr("atelier.gateway.cli.app.shutil.which", _which)
     monkeypatch.setattr(
-        "atelier.gateway.adapters.cli.subprocess.run",
+        "atelier.gateway.cli.app.subprocess.run",
         lambda args, **kwargs: commands.append([str(item) for item in args]),
     )
 
@@ -351,7 +415,8 @@ def test_background_install_writes_openmemory_unit(tmp_path: Path, monkeypatch: 
     openmemory_unit = (unit_dir / "atelier-openmemory.service").read_text(encoding="utf-8")
     assert "openmemory up" in openmemory_unit
     assert "openmemory down" in openmemory_unit
-    assert any(cmd[:4] == ["systemctl", "--user", "enable", "--now"] for cmd in commands)
+    assert any(cmd[:3] == ["systemctl", "--user", "enable"] for cmd in commands)
+    assert any(cmd[:3] == ["systemctl", "--user", "restart"] for cmd in commands)
 
 
 def test_stop_stack_processes_kills_process_groups(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -365,14 +430,19 @@ def test_stop_stack_processes_kills_process_groups(tmp_path: Path, monkeypatch: 
     killed: set[int] = set()
     killpg_calls: list[tuple[int, int]] = []
 
-    monkeypatch.setattr("atelier.gateway.adapters.cli.os.getpgid", lambda pid: pid)
-    monkeypatch.setattr(
-        "atelier.gateway.adapters.cli.os.killpg",
-        lambda pgid, sig: (killpg_calls.append((pgid, sig)), killed.add(pgid)),
-    )
-    monkeypatch.setattr("atelier.gateway.adapters.cli._pid_is_running", lambda pid: pid not in killed)
+    monkeypatch.setattr("atelier.gateway.cli.app.os.getpgid", lambda pid: pid)
 
-    from atelier.gateway.adapters.cli import _stop_stack_processes
+    def _mock_killpg(pgid: int, sig: int) -> None:
+        killpg_calls.append((pgid, sig))
+        killed.add(pgid)
+
+    monkeypatch.setattr(
+        "atelier.gateway.cli.app.os.killpg",
+        _mock_killpg,
+    )
+    monkeypatch.setattr("atelier.gateway.cli.app._pid_is_running", lambda pid: pid not in killed)
+
+    from atelier.gateway.cli.app import _stop_stack_processes
 
     payload = _stop_stack_processes(root, force=False)
 
@@ -457,8 +527,8 @@ def test_servicectl_start_writes_pidfile(tmp_path: Path, monkeypatch: pytest.Mon
             spawned["kwargs"] = kwargs
             self.pid = 4321
 
-    monkeypatch.setattr("atelier.gateway.adapters.cli.subprocess.Popen", FakePopen)
-    monkeypatch.setattr("atelier.gateway.adapters.cli._pid_is_running", lambda pid: pid == 4321)
+    monkeypatch.setattr("atelier.gateway.cli.app.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("atelier.gateway.cli.app._pid_is_running", lambda pid: pid == 4321)
 
     res = _invoke(
         root,
@@ -479,7 +549,7 @@ def test_servicectl_start_writes_pidfile(tmp_path: Path, monkeypatch: pytest.Mon
     assert payload["pid"] == 4321
     args = spawned["args"]
     assert isinstance(args, list)
-    assert "atelier.gateway.adapters.cli" in " ".join(str(item) for item in args)
+    assert "atelier.gateway.cli" in " ".join(str(item) for item in args)
     assert (root / "servicectl" / "servicectl.pid").read_text(encoding="utf-8").strip() == "4321"
 
 

@@ -23,7 +23,7 @@ bash scripts/install_cursor.sh --workspace /path/to/workspace
 | Artifact          | Global install                         | `--workspace DIR` install              |
 | ----------------- | -------------------------------------- | -------------------------------------- |
 | MCP server config | `~/.cursor/mcp.json`                   | `<workspace>/.cursor/mcp.json`         |
-| Rules (optional)  | (none — Cursor rules are project-only) | `<workspace>/.cursor/rules/atelier.mdc`|
+| Rules (optional)  | (none — Cursor rules are project-only) | `<workspace>/.cursor/rules/*.mdc`|
 
 The installer merges an `atelier` entry into the `mcpServers` key:
 
@@ -44,22 +44,20 @@ workspace root, so we inject `args` that handle workspace resolution automatical
 The `--host cursor` flag tells Atelier's MCP server which agent environment it's
 running in, enabling correct trace labeling.
 
-### Cursor Rules (`.cursor/rules/atelier.mdc`)
+### Cursor Rules (`.cursor/rules/*.mdc`)
 
 Cursor's rules system is project-scoped — there is no global equivalent. When
-installing project-locally, the installer creates a rules file that tells Cursor's
-agent to prefer Atelier's MCP tools:
+installing project-locally, the installer copies the checked-in Atelier rule set
+so Cursor's agent prefers Atelier's MCP tools and starts with `context`:
 
 ```markdown
 ---
-description: Atelier reasoning context usage guide — when to use which tool
+description: Atelier-first tool selection for Cursor. Call context first and use Atelier MCP tools before Cursor native tools.
 alwaysApply: true
 ---
 
-Use Atelier's `context` tool at the start of every task to retrieve relevant
-reasoning blocks. After completing a task, record a trace with the `trace` tool.
-On repeated failures, use the `rescue` tool to get recovery hints.
-Prefer Atelier tools over native `Read`, `Grep`, and `Bash` for code insight.
+Start coding tasks with Atelier `context` using the task, domain, files, and planned tools.
+Treat Cursor native tools as fallback-only when an Atelier equivalent exists.
 ```
 
 ---

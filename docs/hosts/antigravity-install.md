@@ -25,6 +25,10 @@ bash scripts/install_antigravity.sh --workspace /path/to/workspace
 | MCP server config | `~/.config/Antigravity/User/mcp.json`     | `<workspace>/.vscode/mcp.json` |
 | Host instructions | Existing workspace `AGENTS.md` entrypoint | same workspace entrypoint      |
 
+Global installs also copy the Atelier Antigravity plugin metadata and shared
+skills for `agy`, so Antigravity sessions get stronger Atelier-first guidance
+instead of only a bare MCP registration.
+
 The MCP config registers Atelier as a stdio server:
 
 ```json

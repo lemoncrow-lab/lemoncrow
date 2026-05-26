@@ -13,7 +13,6 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "mcp__plugin_atelier_atelier__Edit|mcp__plugin_atelier_atelier__Search|mcp__plugin_atelier_atelier__Sql|mcp__plugin_atelier_atelier__Recall",
         "hooks": [
           {
             "type": "command",
@@ -22,8 +21,7 @@
         ]
       }
     ],
-    "Stop": [
-      {
+    "Stop": [      {
         "hooks": [
           {
             "type": "command",

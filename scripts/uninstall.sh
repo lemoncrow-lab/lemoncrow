@@ -267,6 +267,45 @@ for cmd in atelier atelier-mc; do
     fi
 done
 
+# ---- remove PATH sentinel from shell profile --------------------------------
+_remove_path_sentinel() {
+    local sentinel_start="# >>> atelier path setup >>>"
+    local sentinel_end="# <<< atelier path setup <<<"
+    local profile_file shell_name
+
+    shell_name="$(basename "${SHELL:-bash}")"
+    case "$shell_name" in
+        zsh)  profile_file="${ZDOTDIR:-$HOME}/.zshrc" ;;
+        bash) profile_file="$HOME/.bashrc" ;;
+        fish) profile_file="$HOME/.config/fish/config.fish" ;;
+        *)    profile_file="$HOME/.profile" ;;
+    esac
+
+    [[ -f "$profile_file" ]] || return 0
+
+    if grep -qF "$sentinel_start" "$profile_file" 2>/dev/null; then
+        if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+            echo "[dry-run] Remove Atelier PATH block from ${profile_file}"
+            return 0
+        fi
+        local tmp_file in_block line
+        tmp_file="$(mktemp)"
+        in_block=0
+        while IFS= read -r line; do
+            if [[ "$line" == "$sentinel_start" ]]; then
+                in_block=1
+            elif [[ "$line" == "$sentinel_end" ]]; then
+                in_block=0
+            elif [[ "$in_block" == "0" ]]; then
+                printf '%s\n' "$line"
+            fi
+        done < "$profile_file" > "$tmp_file"
+        mv "$tmp_file" "$profile_file"
+        info "Removed Atelier PATH block from ${profile_file/#$HOME/~}"
+    fi
+}
+_remove_path_sentinel
+
 if [[ "$PURGE" == "1" ]]; then
     local_install_dir="${ATELIER_INSTALL_DIR:-$(install_dir_from_record)}"
     local_install_dir="${local_install_dir:-$ATELIER_DEFAULT_INSTALL_DIR}"

@@ -29,8 +29,7 @@ export function fmtDate(s: string | null | undefined): string {
 
 export function fmtDuration(secs: number): string {
   if (secs < 60) return `${Math.round(secs)}s`;
-  if (secs < 3600)
-    return `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`;
   return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
 }
 
@@ -109,6 +108,16 @@ export function groupTurns(turns: any[]): any[] {
       if (prevToolName === toolName) {
         prev.count = (prev.count || 1) + 1;
         prev.cost = (prev.cost || 0) + (turn.cost || 0);
+        // Sum per-call Atelier savings across grouped turns so the badge
+        // matches the ×N collapse the user sees.
+        if (turn.saved) {
+          const acc = prev.saved || { tokens: 0, calls: 0, usd: 0 };
+          prev.saved = {
+            tokens: (acc.tokens || 0) + (turn.saved.tokens || 0),
+            calls: (acc.calls || 0) + (turn.saved.calls || 0),
+            usd: (acc.usd || 0) + (turn.saved.usd || 0),
+          };
+        }
         if (turn.content && turn.content !== prev.content) {
           prev.content = (prev.content || "") + "\n\n---\n\n" + turn.content;
         }
@@ -224,19 +233,29 @@ export function parseInspectorData(
     const map = new Map<string, T>();
     arr.forEach((item, idx) => {
       const k = keyFn(item, idx);
-      const key = k === undefined || k === null || k === "" ? `__idx_${idx}` : String(k);
+      const key =
+        k === undefined || k === null || k === "" ? `__idx_${idx}` : String(k);
       if (!map.has(key)) map.set(key, item);
     });
     return Array.from(map.values());
   }
 
-  const rawSourceFiles = Array.isArray(ledger?.source_files) ? ledger.source_files : [];
-  const source_files = uniqueBy(rawSourceFiles, (f: any, idx) => f?.artifact_id ?? f?.path ?? `__idx_${idx}`);
+  const rawSourceFiles = Array.isArray(ledger?.source_files)
+    ? ledger.source_files
+    : [];
+  const source_files = uniqueBy(
+    rawSourceFiles,
+    (f: any, idx) => f?.artifact_id ?? f?.path ?? `__idx_${idx}`
+  );
 
   const rawArtifacts = Array.isArray(ledger?.artifacts) ? ledger.artifacts : [];
   const artifacts = uniqueBy(
     rawArtifacts,
-    (a: any, idx) => (a?.id ?? a?.relative_path ?? `${a?.scope ?? ""}:${a?.relative_path ?? ""}`) || `__idx_${idx}`
+    (a: any, idx) =>
+      (a?.id ??
+        a?.relative_path ??
+        `${a?.scope ?? ""}:${a?.relative_path ?? ""}`) ||
+      `__idx_${idx}`
   );
 
   return {

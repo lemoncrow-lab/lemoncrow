@@ -107,17 +107,17 @@ def _write_call_graph_scip_fixture(engine: CodeContextEngine, *, include_call_gr
         source = (engine.repo_root / file_path).read_text(encoding="utf-8")
         symbols_payload.append(
             {
-                "symbol_id": symbol_id,
+                "id": symbol_id,
                 "repo_id": engine.repo_id,
-                "file_path": file_path,
+                "path": file_path,
                 "language": "python",
-                "symbol_name": symbol_name,
-                "qualified_name": qualified_name,
+                "name": symbol_name,
+                "qname": qualified_name,
                 "kind": "function",
                 "signature": f"def {symbol_name}() -> int:",
-                "start_byte": source.index(f"def {symbol_name}"),
-                "end_byte": len(source.encode("utf-8")),
-                "start_line": 3,
+                "start_b": source.index(f"def {symbol_name}"),
+                "end_b": len(source.encode("utf-8")),
+                "line": 3,
                 "end_line": 4,
                 "content_hash": hashlib.sha256(source.encode("utf-8")).hexdigest(),
                 "source": source,
@@ -129,46 +129,46 @@ def _write_call_graph_scip_fixture(engine: CodeContextEngine, *, include_call_gr
             "callers": {
                 "scip-alpha": [
                     {
-                        "symbol_id": "scip-handle",
-                        "symbol_name": "handle",
-                        "qualified_name": "handle",
-                        "file_path": "src/app.py",
+                        "id": "scip-handle",
+                        "name": "handle",
+                        "qname": "handle",
+                        "path": "src/app.py",
                         "kind": "function",
-                        "start_line": 3,
+                        "line": 3,
                         "end_line": 4,
                         "provenance": "scip",
                     },
                     {
-                        "symbol_id": "scip-gamma",
-                        "symbol_name": "gamma",
-                        "qualified_name": "gamma",
-                        "file_path": "src/gamma.py",
+                        "id": "scip-gamma",
+                        "name": "gamma",
+                        "qname": "gamma",
+                        "path": "src/gamma.py",
                         "kind": "function",
-                        "start_line": 3,
+                        "line": 3,
                         "end_line": 4,
                         "provenance": "scip",
                     },
                 ],
                 "scip-beta": [
                     {
-                        "symbol_id": "scip-alpha",
-                        "symbol_name": "alpha",
-                        "qualified_name": "alpha",
-                        "file_path": "src/alpha.py",
+                        "id": "scip-alpha",
+                        "name": "alpha",
+                        "qname": "alpha",
+                        "path": "src/alpha.py",
                         "kind": "function",
-                        "start_line": 3,
+                        "line": 3,
                         "end_line": 4,
                         "provenance": "scip",
                     }
                 ],
                 "scip-gamma": [
                     {
-                        "symbol_id": "scip-beta",
-                        "symbol_name": "beta",
-                        "qualified_name": "beta",
-                        "file_path": "src/beta.py",
+                        "id": "scip-beta",
+                        "name": "beta",
+                        "qname": "beta",
+                        "path": "src/beta.py",
                         "kind": "function",
-                        "start_line": 3,
+                        "line": 3,
                         "end_line": 4,
                         "provenance": "scip",
                     }
@@ -177,48 +177,48 @@ def _write_call_graph_scip_fixture(engine: CodeContextEngine, *, include_call_gr
             "callees": {
                 "scip-handle": [
                     {
-                        "symbol_id": "scip-alpha",
-                        "symbol_name": "alpha",
-                        "qualified_name": "alpha",
-                        "file_path": "src/alpha.py",
+                        "id": "scip-alpha",
+                        "name": "alpha",
+                        "qname": "alpha",
+                        "path": "src/alpha.py",
                         "kind": "function",
-                        "start_line": 3,
+                        "line": 3,
                         "end_line": 4,
                         "provenance": "scip",
                     }
                 ],
                 "scip-alpha": [
                     {
-                        "symbol_id": "scip-beta",
-                        "symbol_name": "beta",
-                        "qualified_name": "beta",
-                        "file_path": "src/beta.py",
+                        "id": "scip-beta",
+                        "name": "beta",
+                        "qname": "beta",
+                        "path": "src/beta.py",
                         "kind": "function",
-                        "start_line": 3,
+                        "line": 3,
                         "end_line": 4,
                         "provenance": "scip",
                     }
                 ],
                 "scip-beta": [
                     {
-                        "symbol_id": "scip-gamma",
-                        "symbol_name": "gamma",
-                        "qualified_name": "gamma",
-                        "file_path": "src/gamma.py",
+                        "id": "scip-gamma",
+                        "name": "gamma",
+                        "qname": "gamma",
+                        "path": "src/gamma.py",
                         "kind": "function",
-                        "start_line": 3,
+                        "line": 3,
                         "end_line": 4,
                         "provenance": "scip",
                     }
                 ],
                 "scip-gamma": [
                     {
-                        "symbol_id": "scip-alpha",
-                        "symbol_name": "alpha",
-                        "qualified_name": "alpha",
-                        "file_path": "src/alpha.py",
+                        "id": "scip-alpha",
+                        "name": "alpha",
+                        "qname": "alpha",
+                        "path": "src/alpha.py",
                         "kind": "function",
-                        "start_line": 3,
+                        "line": 3,
                         "end_line": 4,
                         "provenance": "scip",
                     }
@@ -398,17 +398,17 @@ def _write_scip_fixture_for_symbol(
         "index_sha": index_sha,
         "symbols": [
             {
-                "symbol_id": f"scip-{symbol_name}",
+                "id": f"scip-{symbol_name}",
                 "repo_id": engine.repo_id,
-                "file_path": file_path,
+                "path": file_path,
                 "language": "python",
-                "symbol_name": symbol_name,
-                "qualified_name": qualified_name or symbol_name,
+                "name": symbol_name,
+                "qname": qualified_name or symbol_name,
                 "kind": "function",
                 "signature": f"def {symbol_name}() -> int:",
-                "start_byte": symbol_source.index(f"def {symbol_name}") if f"def {symbol_name}" in symbol_source else 0,
-                "end_byte": len(symbol_source.encode("utf-8")),
-                "start_line": 1,
+                "start_b": symbol_source.index(f"def {symbol_name}") if f"def {symbol_name}" in symbol_source else 0,
+                "end_b": len(symbol_source.encode("utf-8")),
+                "line": 1,
                 "end_line": len(symbol_source.splitlines()),
                 "content_hash": hashlib.sha256(symbol_source.encode("utf-8")).hexdigest(),
                 "source": symbol_source,
@@ -644,9 +644,9 @@ def test_tool_search_deleted_scope_returns_graveyard_items_with_provenance_and_c
 
     assert first["cache_hit"] is False
     assert first["provenance"] == "graveyard"
-    assert first["items"][0]["symbol_name"] == "LegacyCheckout"
-    assert first["items"][0]["deleted_at_sha"] == delete_sha
-    assert first["items"][0]["last_author"] == "history@example.com"
+    assert first["items"][0]["name"] == "LegacyCheckout"
+    assert first["items"][0]["deleted_sha"] == delete_sha
+    assert first["items"][0]["author"] == "history@example.com"
     assert second["cache_hit"] is True
     assert second["provenance"] == "cached"
 
@@ -659,10 +659,10 @@ def test_tool_search_deleted_scope_is_rename_aware_on_current_public_identity(tm
 
     payload = engine.tool_search("ModernCheckout", scope="deleted", limit=5, budget_tokens=4000)
 
-    assert payload["items"][0]["symbol_name"] == "LegacyCheckout"
-    assert payload["items"][0]["rename_target"] == "modern.py"
-    assert payload["items"][0]["deleted_at_sha"] == rename_sha
-    assert payload["items"][0]["rename_note"]
+    assert payload["items"][0]["name"] == "LegacyCheckout"
+    assert payload["items"][0]["renamed_to"] == "modern.py"
+    assert payload["items"][0]["deleted_sha"] == rename_sha
+    assert payload["items"][0]["rename"]
 
 
 def test_tool_search_deleted_scope_applies_temporal_and_touched_by_filters_and_widens_cache_keys(
@@ -694,9 +694,9 @@ def test_tool_search_deleted_scope_applies_temporal_and_touched_by_filters_and_w
 
     assert filtered["items"] == []
     assert unfiltered["cache_hit"] is False
-    assert unfiltered["items"][0]["last_author"] == "history@example.com"
+    assert unfiltered["items"][0]["author"] == "history@example.com"
     assert additive["cache_hit"] is False
-    assert additive["items"][0]["last_author"] == "history@example.com"
+    assert additive["items"][0]["author"] == "history@example.com"
 
 
 def test_tool_search_deleted_scope_dispatches_via_git_history_adapter(
@@ -732,7 +732,7 @@ def test_tool_search_deleted_scope_dispatches_via_git_history_adapter(
 
     payload = engine.tool_search("LegacyCheckout", scope="deleted", limit=5, budget_tokens=4000)
 
-    assert payload["items"][0]["deleted_at_sha"] == "abc123"
+    assert payload["items"][0]["deleted_sha"] == "abc123"
     assert payload["provenance"] == "graveyard"
 
 
@@ -760,9 +760,9 @@ def test_tool_blame_returns_ownership_metadata_with_optional_churn(tmp_path: Pat
     payload = engine.tool_blame(query="risk_score", budget_tokens=4000)
     without_churn = engine.tool_blame(query="risk_score", include_churn=False, budget_tokens=4000)
 
-    assert payload["symbol_name"] == "risk_score"
+    assert payload["name"] == "risk_score"
     assert payload["qualified_name"] == "risk_score"
-    assert payload["last_author"] == "carol@example.com"
+    assert payload["author"] == "carol@example.com"
     assert payload["last_commit_sha"] == head_sha
     assert payload["freshness"] == "fresh"
     assert payload["churn"]["commit_count"] == 2
@@ -785,8 +785,8 @@ def test_tool_search_repo_scope_applies_temporal_filters_after_ranking(tmp_path:
         budget_tokens=4000,
     )
 
-    assert {item["file_path"] for item in unfiltered["items"]} == {"archived.py", "recent.py"}
-    assert [item["file_path"] for item in filtered["items"]] == ["recent.py"]
+    assert {item["path"] for item in unfiltered["items"]} == {"archived.py", "recent.py"}
+    assert [item["path"] for item in filtered["items"]] == ["recent.py"]
 
 
 def test_code_context_repo_scope_excludes_external_hits_by_default(tmp_path: Path) -> None:
@@ -841,17 +841,17 @@ def test_budget_packer_drops_optional_keys_first() -> None:
     packer = BudgetPacker()
     items = [
         {
-            "symbol_id": f"sym-{index}",
-            "symbol_name": f"Symbol{index}",
+            "id": f"sym-{index}",
+            "name": f"Symbol{index}",
             "qualified_name": f"pkg.Symbol{index}",
-            "file_path": f"src/mod_{index}.py",
+            "path": f"src/mod_{index}.py",
             "kind": "function",
             "signature": f"def symbol_{index}(value: str) -> str",
-            "start_line": index + 1,
+            "line": index + 1,
             "end_line": index + 2,
             "language": "python",
             "provenance": "local",
-            "doc_summary": "summary " * 20,
+            "doc": "summary " * 20,
         }
         for index in range(10)
     ]
@@ -860,27 +860,27 @@ def test_budget_packer_drops_optional_keys_first() -> None:
         items,
         200,
         essential_keys=[
-            "symbol_id",
-            "symbol_name",
+            "id",
+            "name",
             "qualified_name",
-            "file_path",
+            "path",
             "kind",
             "signature",
-            "start_line",
+            "line",
             "end_line",
             "language",
             "provenance",
         ],
-        optional_keys_in_drop_order=["doc_summary"],
+        optional_keys_in_drop_order=["doc"],
     )
 
     assert token_count > 0
     assert len(packed) >= 3
-    assert all("doc_summary" not in item for item in packed[3:])
+    assert all("doc" not in item for item in packed[3:])
     for item in packed[:3]:
-        assert item["symbol_id"].startswith("sym-")
+        assert item["id"].startswith("sym-")
         assert "signature" in item
-        assert "file_path" in item
+        assert "path" in item
 
 
 def test_tool_search_keeps_total_tokens_within_budget(tmp_path: Path) -> None:
@@ -911,7 +911,9 @@ def test_provenance_local_default(tmp_path: Path) -> None:
     cached_search = engine.tool_search("OrderService", limit=5, budget_tokens=4000)
 
     assert search_payload["provenance"] == "local"
-    assert all(item["provenance"] == "local" for item in search_payload["items"])
+    assert all(
+        "provenance" not in item for item in search_payload["items"]
+    )  # per-item provenance stripped; top-level covers it
     assert symbol_payload["provenance"] == "local"
     assert context_payload["provenance"] == "local"
     assert cached_search["provenance"] == "cached"
@@ -946,7 +948,7 @@ def test_tool_symbol_adds_cross_lang_refs_without_dropping_existing_symbol_field
     payload = engine.tool_symbol(qualified_name="load_plugin", file_path="src/bootstrap.py", budget_tokens=4000)
 
     assert payload["qualified_name"] == "load_plugin"
-    assert payload["symbol_name"] == "load_plugin"
+    assert payload["name"] == "load_plugin"
     assert payload["source"]
     assert payload["cross_lang_refs"][0]["edge_kind"] == "dynamic_import"
     assert payload["cross_lang_refs"][0]["confidence"] >= 0.7
@@ -985,7 +987,7 @@ def test_tool_usages_aggregates_results_for_ambiguous_name(tmp_path: Path) -> No
     assert "error" not in payload
     assert payload["reference_count"] >= 2
     assert payload["ambiguity"]["merged_target_count"] == 2
-    assert {item["file_path"] for item in payload["ambiguity"]["matches"]} == {"src/a.py", "src/b.py"}
+    assert {item["path"] for item in payload["ambiguity"]["matches"]} == {"src/a.py", "src/b.py"}
     assert payload["cache_hit"] is False
 
 
@@ -1006,12 +1008,12 @@ def test_tool_callers_and_callees_aggregate_results_for_ambiguous_name(tmp_path:
 
     assert "error" not in callers
     assert callers["ambiguity"]["merged_target_count"] == 2
-    assert {item["symbol_name"] for item in callers["related"]} == {"run"}
-    assert {item["file_path"] for item in callers["related"]} == {"src/a.py", "src/b.py"}
+    assert {item["name"] for item in callers["related"]} == {"run"}
+    assert {item["path"] for item in callers["related"]} == {"src/a.py", "src/b.py"}
 
     assert "error" not in callees
     assert callees["ambiguity"]["merged_target_count"] == 2
-    assert {item["symbol_name"] for item in callees["related"]} == {"helper"}
+    assert {item["name"] for item in callees["related"]} == {"helper"}
     assert callees["edge_count"] >= 1
 
 
@@ -1033,8 +1035,8 @@ def test_tool_callees_resolves_indexed_targets_for_ambiguous_callee_name(tmp_pat
 
     assert "error" not in payload
     assert payload["ambiguity"]["merged_target_count"] == 2
-    assert {item["symbol_name"] for item in payload["related"]} == {"helper"}
-    assert {item["file_path"] for item in payload["related"]} == {"src/a_helpers.py", "src/b_helpers.py"}
+    assert {item["name"] for item in payload["related"]} == {"helper"}
+    assert {item["path"] for item in payload["related"]} == {"src/a_helpers.py", "src/b_helpers.py"}
     assert payload["edge_count"] >= 2
 
 
@@ -1105,7 +1107,7 @@ def test_tool_search_snippet_none_omits_snippets_and_keeps_exact_match_first(tmp
 
     payload = engine.tool_search("OrderService", limit=5, snippet="none", budget_tokens=4000)
 
-    assert payload["items"][0]["symbol_name"] == "OrderService"
+    assert payload["items"][0]["name"] == "OrderService"
     assert all("snippet" not in item for item in payload["items"])
     assert all("content_hash" not in item for item in payload["items"])
 
@@ -1179,7 +1181,7 @@ def test_auto_mode_keeps_identifier_queries_on_exact_lexical_order(tmp_path: Pat
 
     assert hits
     assert hits[0].symbol_name == "issue_access_token"
-    assert payload["items"][0]["symbol_name"] == "issue_access_token"
+    assert payload["items"][0]["name"] == "issue_access_token"
     assert payload["mode"] == "lexical"
 
 
@@ -1249,7 +1251,7 @@ def test_tool_search_cache_keys_are_mode_aware(tmp_path: Path) -> None:
     assert semantic_second["cache_hit"] is True
     assert lexical_first["mode"] == "lexical"
     assert semantic_first["mode"] == "semantic"
-    assert lexical_first["items"][0]["symbol_name"] != semantic_first["items"][0]["symbol_name"]
+    assert lexical_first["items"][0]["name"] != semantic_first["items"][0]["name"]
 
 
 def test_retrieval_cache_diagnostics_hide_payloads_and_invalidate_one_tool(
@@ -1329,7 +1331,7 @@ def test_tool_files_supports_tree_flat_grouped_filters(tmp_path: Path) -> None:
     assert flat["file_count"] == 3
     assert flat["truncated"] is False
     assert isinstance(flat["files"], list)
-    assert flat["files"][0]["file_path"].startswith("src/")
+    assert flat["files"][0]["path"].startswith("src/")
     assert "language" in flat["files"][0]
     assert "symbol_count" in flat["files"][0]
     assert "top_symbols" in flat["files"][0]
@@ -1380,7 +1382,7 @@ def test_tool_explore_returns_grouped_sources_and_entry_points(tmp_path: Path) -
     assert payload["query"] == "OrderService"
     assert payload["entry_points"]
     assert payload["files"]
-    assert payload["files"][0]["file_path"].startswith("src/")
+    assert payload["files"][0]["path"].startswith("src/")
     if payload["files"][0].get("source_sections"):
         first_content = payload["files"][0]["source_sections"][0]["content"]
         assert "\t" in first_content
@@ -1465,9 +1467,9 @@ def test_tool_explore_respects_budget_and_keeps_identity_fields(tmp_path: Path) 
     assert payload["total_tokens"] <= 320
     assert "entry_points" in payload
     if payload["entry_points"]:
-        assert "symbol_id" in payload["entry_points"][0]
-        assert "symbol_name" in payload["entry_points"][0]
-        assert "file_path" in payload["entry_points"][0]
+        assert "id" in payload["entry_points"][0]
+        assert "name" in payload["entry_points"][0]
+        assert "path" in payload["entry_points"][0]
 
 
 def test_tool_status_reports_index_cache_and_freshness(tmp_path: Path) -> None:
@@ -1522,7 +1524,7 @@ def test_autosync_incremental_reindex_updates_index_after_edit(tmp_path: Path, m
     status = engine.tool_status(budget_tokens=4000)
 
     assert second["items"]
-    assert second["items"][0]["symbol_name"] == "NewService"
+    assert second["items"][0]["name"] == "NewService"
     assert engine._current_index_version() > version_before
     assert status["autosync"]["enabled"] is True
     assert status["autosync"]["mode"] == "incremental"
@@ -1705,7 +1707,7 @@ def test_low_token_defaults_stay_lighter_for_search_and_pattern(
     tight = engine.tool_search("fetch_", limit=20, snippet="full", budget_tokens=320)
     assert tight["total_tokens"] <= 320
     assert tight["items"]
-    for key in ("symbol_id", "symbol_name", "file_path", "start_line", "signature"):
+    for key in ("id", "name", "path", "line", "signature"):
         assert key in tight["items"][0]
 
     monkeypatch.setattr(

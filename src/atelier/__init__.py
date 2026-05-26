@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         Rubric,
         RubricResult,
         Trace,
+        TraceLearning,
     )
 
 
@@ -34,6 +35,7 @@ _LAZY_EXPORTS = {
     "Rubric": ("atelier.core.foundation.models", "Rubric"),
     "RubricResult": ("atelier.core.foundation.models", "RubricResult"),
     "Trace": ("atelier.core.foundation.models", "Trace"),
+    "TraceLearning": ("atelier.core.foundation.models", "TraceLearning"),
 }
 
 # The canonical version is in pyproject.toml.
@@ -78,6 +80,7 @@ __all__ = [
     "Rubric",
     "RubricResult",
     "Trace",
+    "TraceLearning",
     "__version__",
     "hosts",
     "integrations",

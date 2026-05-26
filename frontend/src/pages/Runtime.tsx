@@ -1,4 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
+import { Activity, Play, TrendingUp } from "lucide-react";
 import { MetricCard, ToggleGroup } from "../components/WorkbenchUI";
 import Sessions from "./Sessions";
 import Watchdogs from "./Watchdogs";
@@ -10,26 +11,26 @@ type RuntimeSection = "operate" | "savings" | "telemetry";
 const SECTIONS: Array<{
   id: RuntimeSection;
   label: string;
-  icon: string;
+  icon: React.ElementType;
   description: string;
 }> = [
   {
     id: "operate",
     label: "Sessions + Watchdogs",
-    icon: "▶⚑",
+    icon: Play,
     description:
       "Observable execution plus guardrails and preset risk profiles.",
   },
   {
     id: "savings",
     label: "Savings",
-    icon: "₿",
+    icon: TrendingUp,
     description: "Cost, token, and time reduction evidence.",
   },
   {
     id: "telemetry",
     label: "Telemetry",
-    icon: "◎",
+    icon: Activity,
     description: "Usage analytics and privacy audit.",
   },
 ];
@@ -66,7 +67,7 @@ export default function Runtime() {
           value: item.id,
           label: (
             <span className="flex items-center gap-2">
-              <span>{item.icon}</span>
+              <item.icon size={14} />
               <span>{item.label}</span>
             </span>
           ),

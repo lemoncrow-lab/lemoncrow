@@ -112,7 +112,7 @@ def _cost_breakdown_from_calls(
         total_out_cost += pricing.cost_usd(output_tokens=out_tok)
         total_cr_cost += pricing.cost_usd(cache_read_tokens=cr_tok)
         if cw_tok:
-            total_cw_cost += pricing.cost_usd(input_tokens=cw_tok)
+            total_cw_cost += pricing.cost_usd(cache_write_tokens=cw_tok)
 
     return (
         total_in_tok,
@@ -157,6 +157,162 @@ def _read_compact_savings(session_id: str, root: Path) -> tuple[int, float]:
     except OSError:
         pass
     return count, round(total_saved, 6)
+
+
+def _read_context_compression_savings(session_id: str, root: Path) -> tuple[int, float, list[dict[str, Any]]]:
+    """Read per-tool context-compression savings for *session_id*.
+
+    Two sources, in priority order:
+      1. ``runs/<session_id>_context_savings.jsonl`` — written by the MCP
+         server keyed by the internal ledger session id; carries a
+         pre-computed ``cost_saved_usd`` per row.
+      2. ``session_stats/<host>/<session_id>.jsonl`` (the host sidecar) —
+         written keyed by the host session id (Claude UUID, Codex id, etc.).
+         No pre-priced cost field, so we price each row here at the model
+         captured at write time. This is what the statusline reads, so
+         falling back to it guarantees the frontend's session-detail
+         ``total_atelier_savings_usd`` matches what users see live.
+
+    Returns ``(call_count, total_cost_saved_usd, rows)`` where rows mirror
+    the run-ledger ``context_savings.jsonl`` shape
+    (tool, tokens_saved, calls_saved, model, cost_saved_usd, at).
+    """
+    path = _runs_dir(root) / f"{session_id}_context_savings.jsonl"
+    if path.exists():
+        count = 0
+        total_saved = 0.0
+        rows: list[dict[str, Any]] = []
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                count += 1
+                total_saved += float(ev.get("cost_saved_usd") or 0.0)
+                rows.append(ev)
+        except OSError:
+            pass
+        if count > 0:
+            return count, round(total_saved, 6), rows
+
+    # Fallback: read host sidecars keyed by host session id.
+    return _read_host_sidecar_savings(session_id, root)
+
+
+def _read_host_sidecar_savings(session_id: str, root: Path) -> tuple[int, float, list[dict[str, Any]]]:
+    """Aggregate savings from ``session_stats/<host>/<session_id>.jsonl``.
+
+    Each sidecar row is ``{tool, tokens, calls, model, ts, rid?}``. We price
+    ``tokens`` at the row's model input rate (same logic the statusline
+    uses via savings_summary.compute_savings_summary) and synthesise
+    context_savings-shaped rows so downstream renderers can treat both
+    sources uniformly.
+    """
+    from atelier.core.capabilities.pricing import get_model_pricing
+    from atelier.core.capabilities.savings_summary import resolve_model_id
+
+    stats_dir = root / "session_stats"
+    if not stats_dir.is_dir():
+        return 0, 0.0, []
+
+    # Per-row sanity cap: a single tool call cannot legitimately save more
+    # than the full Anthropic context window. Anything larger came from a
+    # pre-fce2110 inflation bug and must not leak into the display.
+    PER_ROW_CAP = 2_000_000
+
+    count = 0
+    total_saved = 0.0
+    rows: list[dict[str, Any]] = []
+    for host_dir in sorted(stats_dir.iterdir()):
+        if not host_dir.is_dir():
+            continue
+        sidecar = host_dir / f"{session_id}.jsonl"
+        if not sidecar.is_file():
+            continue
+        try:
+            for line in sidecar.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                tokens = max(0, int(ev.get("tokens") or ev.get("tokens_saved") or 0))
+                calls = max(0, int(ev.get("calls") or ev.get("calls_saved") or 0))
+                if tokens <= 0 and calls <= 0:
+                    continue
+                if tokens > PER_ROW_CAP:
+                    continue
+                model = str(ev.get("model") or "").strip()
+                cost = 0.0
+                if tokens > 0 and model:
+                    pricing = get_model_pricing(resolve_model_id(model))
+                    if pricing is not None and pricing.known and pricing.input > 0:
+                        cost = pricing.input / 1_000_000 * tokens
+                count += 1
+                total_saved += cost
+                rows.append(
+                    {
+                        "at": ev.get("ts"),
+                        "tool": ev.get("tool"),
+                        "model": model,
+                        "tokens_saved": tokens,
+                        "calls_saved": calls,
+                        "cost_saved_usd": round(cost, 6),
+                        "rid": ev.get("rid"),
+                    }
+                )
+        except OSError:
+            continue
+    return count, round(total_saved, 6), rows
+
+
+def read_total_savings_from_events(session_id: str, root: Path) -> float:
+    """Total atelier savings for *session_id* across all sources.
+
+    Aggregates three streams so trace-only sessions surface the same
+    figure the live statusline displays:
+
+      1. ``live_savings_events.jsonl`` (routing/compaction savings keyed by
+         internal Atelier session id)
+      2. ``runs/<session_id>_context_savings.jsonl`` (context-compression
+         savings keyed by ledger session id)
+      3. ``session_stats/<host>/<session_id>.jsonl`` (host sidecar keyed by
+         host UUID — the source the statusline reads)
+
+    The first source matches when the trace was recorded with an internal
+    Atelier id; the second and third match when the trace UUID is the
+    ledger/host id that the MCP server wrote at the time.
+    """
+    total = 0.0
+
+    # 1. live_savings_events.jsonl
+    path = _live_savings_path(root)
+    if path.exists():
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if ev.get("session_id") == session_id:
+                    total += float(ev.get("cost_saved_usd") or 0.0)
+        except OSError:
+            pass
+
+    # 2 + 3. context compression / host sidecar (function chooses internally)
+    _, compression_saved, _ = _read_context_compression_savings(session_id, root)
+    total += compression_saved
+
+    return round(total, 6)
 
 
 # --------------------------------------------------------------------------- #
@@ -239,6 +395,9 @@ class SessionReport:
     top_tools_by_cost: list[tuple[str, int, float]]
     routing_lesson_applications: int = 0
     cost_cap_fired_turns: int = 0
+    context_compression_savings_usd: float = 0.0
+    context_compression_tool_calls: int = 0
+    tool_savings: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
     @property
     def is_running(self) -> bool:
@@ -346,7 +505,10 @@ def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
     # --- compact savings ---
     compact_count, compact_saved = _read_compact_savings(session_id, root)
 
-    total_saved = round(routing_saved + compact_saved, 6)
+    # --- context compression savings (per-tool read/grep/search/shell) ---
+    compression_count, compression_saved, compression_rows = _read_context_compression_savings(session_id, root)
+
+    total_saved = round(routing_saved + compact_saved + compression_saved, 6)
 
     # --- per-tool breakdown ---
     top_tools = CostTracker.per_tool_cost_breakdown(raw_events)
@@ -386,6 +548,9 @@ def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
         cost_cap_fired_turns=cost_cap_fired,
         compact_events=compact_count,
         compact_savings_estimate_usd=compact_saved,
+        context_compression_savings_usd=compression_saved,
+        context_compression_tool_calls=compression_count,
+        tool_savings=compression_rows,
         total_atelier_savings_usd=total_saved,
         top_tools_by_cost=top_tools[:5],
     )

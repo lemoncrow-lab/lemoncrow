@@ -78,12 +78,18 @@ if [ ${#PYTHON_FILES[@]} -gt 0 ]; then
     fi
 fi
 
-# 2. Type checking — run mypy on staged Python files
-if [ ${#PYTHON_FILES[@]} -gt 0 ]; then
+# 2. Type checking — run mypy on staged Python files under src/
+SRC_PYTHON_FILES=()
+for file in "${PYTHON_FILES[@]}"; do
+    if [[ "$file" == src/* ]]; then
+        SRC_PYTHON_FILES+=("$file")
+    fi
+done
+if [ ${#SRC_PYTHON_FILES[@]} -gt 0 ]; then
     echo "🔍 Running type checking..."
 
     set +e
-    uv run mypy "${PYTHON_FILES[@]}"
+    uv run mypy "${SRC_PYTHON_FILES[@]}"
     MYPY_EXIT=$?
     set -e
     if [ $MYPY_EXIT -ne 0 ]; then

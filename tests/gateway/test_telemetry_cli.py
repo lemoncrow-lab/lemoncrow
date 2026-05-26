@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner, Result
 
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 
 def _invoke(root: Path, *args: str, input: str | None = None) -> Result:
@@ -15,7 +16,7 @@ def _invoke(root: Path, *args: str, input: str | None = None) -> Result:
 
 def test_telemetry_status_writes_local_event_and_show_outputs_send_payloads(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ATELIER_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
     monkeypatch.setenv("ATELIER_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
@@ -37,7 +38,7 @@ def test_telemetry_status_writes_local_event_and_show_outputs_send_payloads(
     assert set(events[0]["props"]) == {"command_name", "session_id", "anon_id"}
 
 
-def test_telemetry_toggles_and_reset_id(tmp_path: Path, monkeypatch) -> None:
+def test_telemetry_toggles_and_reset_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATELIER_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
     monkeypatch.setenv("ATELIER_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
     monkeypatch.setenv("ATELIER_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))

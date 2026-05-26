@@ -1,18 +1,34 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import {
+  Activity,
+  BarChart3,
+  Bot,
+  Brain,
+  ChevronDown,
+  ChevronUp,
+  Command,
+  Database,
+  FileText,
+  Flag,
+  Hexagon,
+  LayoutGrid,
+  Play,
+  Settings,
+  Sparkles,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
 import Overview from "./pages/Overview";
 import Sessions from "./pages/Sessions";
 import Learnings from "./pages/Learnings";
 import Savings from "./pages/Savings";
-import System from "./pages/System";
-import Insights from "./pages/Insights";
+import System, { SystemAgents, SystemHosts, SystemMcp, SystemSkills } from "./pages/System";
 import Telemetry from "./pages/Telemetry";
 import Memory from "./pages/Memory";
-import Outcomes from "./pages/Outcomes";
 import Reports from "./pages/Reports";
 import Watchdogs from "./pages/Watchdogs";
 import Analytics from "./pages/Analytics";
-import External from "./pages/External";
 import Optimizations from "./pages/Optimizations";
 import {
   acknowledgeTelemetry,
@@ -25,25 +41,35 @@ import { useTimeRange, TIME_RANGE_OPTIONS } from "./lib/TimeRangeContext";
 interface NavItem {
   to: string;
   label: string;
-  icon: string;
+  icon: React.ElementType;
   isDev?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: "/overview", label: "Overview", icon: "◫" },
-  { to: "/sessions", label: "Sessions", icon: "▶" },
-  { to: "/memory", label: "Memory", icon: "⬡" },
-  { to: "/insights", label: "Insights", icon: "✦" },
-  { to: "/outcomes", label: "Outcomes", icon: "◎" },
-  { to: "/reports", label: "Reports", icon: "📄" },
-  { to: "/savings", label: "Savings", icon: "₿", isDev: true },
-  { to: "/watchdogs", label: "Watchdogs", icon: "⚑", isDev: true },
-  { to: "/knowledge/blocks", label: "Knowledge", icon: "🧠", isDev: true },
-  { to: "/system", label: "System", icon: "⌘" },
-  { to: "/telemetry", label: "Telemetry", icon: "◎" },
-  { to: "/analytics", label: "Analytics", icon: "📊" },
-  { to: "/external", label: "External", icon: "◬" },
-  { to: "/optimizations", label: "Optimizations", icon: "⇲" },
+  { to: "/overview", label: "Overview", icon: LayoutGrid },
+  { to: "/sessions", label: "Sessions", icon: Play },
+  { to: "/memory", label: "Memory", icon: Database },
+  { to: "/analytics", label: "Analytics", icon: BarChart3 },
+  { to: "/optimizations", label: "Optimizations", icon: Zap },
+];
+
+interface MenuSection {
+  label: string;
+  to: string;
+  icon: React.ElementType;
+  isDev?: boolean;
+}
+
+const MENU_SECTIONS: MenuSection[] = [
+  { to: "/system/hosts", label: "Hosts", icon: Hexagon },
+  { to: "/system/agents", label: "Agents", icon: Bot },
+  { to: "/system/skills", label: "Skills", icon: Sparkles },
+  { to: "/system/mcp", label: "MCP", icon: Command },
+  { to: "/reports", label: "Reports", icon: FileText },
+  { to: "/telemetry", label: "Telemetry", icon: Activity },
+  { to: "/savings", label: "Savings", icon: TrendingUp, isDev: true },
+  { to: "/watchdogs", label: "Watchdogs", icon: Flag, isDev: true },
+  { to: "/knowledge/blocks", label: "Knowledge", icon: Brain, isDev: true },
 ];
 
 function TelemetryDisclosure() {
@@ -68,7 +94,7 @@ function TelemetryDisclosure() {
           <code className="ml-1 bg-black/30 px-1">ATELIER_TELEMETRY=0</code>.
         </div>
         <Button
-          variant="purple"
+          variant="accent"
           size="sm"
           onClick={() => {
             setDismissed(true);
@@ -78,6 +104,79 @@ function TelemetryDisclosure() {
           Got it
         </Button>
       </div>
+    </div>
+  );
+}
+
+function GearMenu({ devMode }: { devMode?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const visible = MENU_SECTIONS.filter((s) => !s.isDev || devMode);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={cx(
+          "inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs transition",
+          open
+            ? "border-purple-500/60 bg-purple-500/10 text-purple-400"
+            : "border-neutral-800 bg-neutral-900/40 text-neutral-400 hover:border-neutral-600 hover:text-neutral-200"
+        )}
+        aria-label="System menu"
+      >
+        <Settings size={14} />
+        <span className="hidden sm:inline">System</span>
+        <span className="text-neutral-600">
+          {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        </span>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-1 w-44 border border-neutral-800 bg-neutral-950 shadow-lg">
+          {visible.map((section) => {
+            const end =
+              section.to === "/system" || section.to.startsWith("/system/");
+            return (
+              <NavLink
+                key={section.to}
+                to={section.to}
+                end={end}
+                onClick={() => setOpen(false)}
+                className={({ isActive }) =>
+                  cx(
+                    "flex items-center gap-2 px-3 py-2 text-xs transition",
+                    isActive
+                      ? "bg-purple-500/10 text-purple-400"
+                      : "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200"
+                  )
+                }
+              >
+                <span className="w-4 flex justify-center">
+                  <section.icon size={14} />
+                </span>
+                <span>{section.label}</span>
+                {section.isDev && (
+                  <span className="ml-auto text-[8px] font-bold text-amber-500/60">
+                    DEV
+                  </span>
+                )}
+              </NavLink>
+            );
+            })}
+        </div>
+      )}
     </div>
   );
 }
@@ -102,7 +201,7 @@ export default function App() {
             </h1>
             {config?.dev_mode && <Chip tone="purple">DEV MODE</Chip>}
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 border border-neutral-800 bg-neutral-900/40 px-3 py-1.5">
               <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-500">
                 Window
@@ -125,13 +224,14 @@ export default function App() {
                 ))}
               </Select>
             </div>
+            <GearMenu devMode={config?.dev_mode} />
           </div>
         </div>
       </header>
 
       <TelemetryDisclosure />
 
-      <nav className="border-neutral-800 bg-neutral-950/70 px-6 py-4">
+      <nav className="border-neutral-800 bg-neutral-950/70 px-6 py-3">
         <div className="flex flex-wrap gap-2">
           {NAV_ITEMS.filter((item) => !item.isDev || config?.dev_mode).map(
             (item) => (
@@ -147,7 +247,7 @@ export default function App() {
                   )
                 }
               >
-                <span>{item.icon}</span>
+                <item.icon size={14} />
                 <span>{item.label}</span>
                 {item.isDev && (
                   <span className="ml-1 text-[8px] font-bold text-amber-500/60">
@@ -167,7 +267,7 @@ export default function App() {
             <Route path="/overview" element={<Overview />} />
             <Route
               path="/quickstart"
-              element={<Navigate to="/system" replace />}
+              element={<Navigate to="/system/hosts" replace />}
             />
             <Route path="/sessions" element={<Sessions />} />
             <Route path="/sessions/:id" element={<Sessions />} />
@@ -229,12 +329,16 @@ export default function App() {
               }
             />
             <Route path="/savings" element={<Savings />} />
-            <Route path="/insights" element={<Insights />} />
+            <Route path="/insights" element={<Navigate to="/overview" replace />} />
             <Route path="/telemetry" element={<Telemetry />} />
             <Route path="/memory" element={<Memory />} />
-            <Route path="/outcomes" element={<Outcomes />} />
+            <Route path="/outcomes" element={<Navigate to="/overview" replace />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/system" element={<System />} />
+            <Route path="/system/hosts" element={<SystemHosts />} />
+            <Route path="/system/agents" element={<SystemAgents />} />
+            <Route path="/system/skills" element={<SystemSkills />} />
+            <Route path="/system/mcp" element={<SystemMcp />} />
             <Route
               path="/watchdogs"
               element={
@@ -246,7 +350,7 @@ export default function App() {
               }
             />
             <Route path="/analytics" element={<Analytics />} />
-            <Route path="/external" element={<External />} />
+            <Route path="/external" element={<Navigate to="/overview" replace />} />
             <Route path="/optimizations" element={<Optimizations />} />
           </Routes>
         </div>

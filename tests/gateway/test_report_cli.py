@@ -8,7 +8,7 @@ from click.testing import CliRunner
 
 from atelier.core.foundation.models import Trace, ValidationResult
 from atelier.core.foundation.store import ContextStore
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 
 def test_report_cli_outputs_json_and_markdown(tmp_path: Path) -> None:

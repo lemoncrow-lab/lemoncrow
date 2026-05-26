@@ -8,8 +8,12 @@ input=$(cat)
 PLUGIN_LABEL="atelier"
 
 if command -v jq >/dev/null 2>&1; then
-  read -r MODEL PCT COST DUR_MS IN_TOK OUT_TOK CACHE_R CACHE_W SESSION_ID <<<"$(printf '%s' "$input" | jq -r '
+  # IFS=$'\t' so spaces in fields like model display_name (e.g. "Opus 4.7")
+  # don't cause field-shift that corrupts SESSION_ID (the trailing variable
+  # otherwise swallows all remaining whitespace + tab + real id).
+  IFS=$'\t' read -r MODEL PCT COST DUR_MS IN_TOK OUT_TOK CACHE_R CACHE_W SESSION_ID MODEL_ID <<<"$(printf '%s' "$input" | jq -r '
     [
+      # MODEL = display_name for the UI label ("Opus 4.7")
       (.model.display_name // .model.id // "claude"),
       (.context_window.used_percentage // 0),
       (.cost.total_cost_usd // 0),
@@ -18,10 +22,12 @@ if command -v jq >/dev/null 2>&1; then
       (.context_window.current_usage.output_tokens // 0),
       (.context_window.current_usage.cache_read_input_tokens // 0),
       (.context_window.current_usage.cache_creation_input_tokens // 0),
-      (.session_id // "")
+      (.session_id // ""),
+      # MODEL_ID = canonical id ("claude-opus-4-7") for pricing lookups
+      (.model.id // .model.display_name // "")
     ] | @tsv
   ' 2>/dev/null)"
-else
+  else
   read_field() {
     python3 -c "
 import json, sys
@@ -42,7 +48,8 @@ except Exception:
     print(sys.argv[3])
 " "$input" "$1" "$2"
   }
-  MODEL=$(read_field "model.display_name" "claude")
+  MODEL=$(read_field "model.display_name" "$(read_field "model.id" "claude")")
+  MODEL_ID=$(read_field "model.id" "$MODEL")
   PCT=$(read_field "context_window.used_percentage" "0")
   COST=$(read_field "cost.total_cost_usd" "0")
   DUR_MS=$(read_field "cost.total_duration_ms" "0")
@@ -57,7 +64,6 @@ PCT_INT=${PCT%%.*}
 [ -z "$PCT_INT" ] && PCT_INT=0
 DUR_MS_INT=${DUR_MS%%.*}
 [ -z "$DUR_MS_INT" ] && DUR_MS_INT=0
-COST_FMT=$(printf '$%.3f' "$COST" 2>/dev/null || echo "\$0.000")
 MINS=$(( DUR_MS_INT / 60000 ))
 SECS=$(( (DUR_MS_INT % 60000) / 1000 ))
 
@@ -76,117 +82,50 @@ fmt_tok() {
   fi
   }
 
-CACHE_F=$(fmt_tok "${CACHE_R:-0}")
-CACHE_WF=$(fmt_tok "${CACHE_W:-0}")
-
 ATELIER_STATUS_ROOT="${ATELIER_ROOT:-${ATELIER_STORE_ROOT:-${HOME}/.atelier}}"
 export ATELIER_STATUS_ROOT
-export ATELIER_STATUS_USD_PER_1K="${ATELIER_USD_PER_1K_TOKENS:-0.003}"
+# savings_summary.py reads ATELIER_ROOT (not ATELIER_STATUS_ROOT) — keep them in sync
+export ATELIER_ROOT="${ATELIER_STATUS_ROOT}"
 export ATELIER_STATUS_SESSION_ID="${SESSION_ID:-}"
-export ATELIER_STATUS_MODEL="${MODEL:-}"
+# Pass canonical model id (preferred) then display name as fallback so
+# pricing lookups hit the LiteLLM catalog even when only a display name is
+# available from Claude Code's context_window payload.
+export ATELIER_STATUS_MODEL="${MODEL_ID:-${MODEL:-}}"
+export ATELIER_STATUS_MODEL_DISPLAY="${MODEL:-}"
 ATELIER_PY="$(bash "$(dirname "${BASH_SOURCE[0]}")/_atelier_python.sh" 2>/dev/null)"
 ATELIER_PY="${ATELIER_PY:-python3}"
-SAVED_LINE=$("${ATELIER_PY}" 2>/dev/null <<'PYEOF'
-import json
-import os
-from pathlib import Path
 
-from atelier.core.capabilities.plugin_runtime import load_live_savings_summary
-
-root_env = os.environ.get("ATELIER_STATUS_ROOT") or ""
-root = Path(root_env) if root_env else None
-usd_per_1k = float(os.environ["ATELIER_STATUS_USD_PER_1K"])
-saved_usd = 0.0
-ctx_saved = 0
-smart_calls = 0
-routing_saved_usd = 0.0
-session_id = os.environ.get("ATELIER_STATUS_SESSION_ID") or ""
-status_text = ""
-
-def read_json(name: str) -> dict:
-  if root is None:
-    return {}
-  path = root / name
-  if not path.is_file():
-    return {}
-  try:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return data if isinstance(data, dict) else {}
-  except Exception:
-    return {}
-
-if session_id:
-  if root is None:
-    stats = None
-  else:
-    stats = root / "session_stats" / f"{session_id}.json"
-  if stats and stats.is_file():
-    try:
-      data = json.loads(stats.read_text(encoding="utf-8"))
-      savings = data.get("savings") or {}
-      smart_calls = int(savings.get("calls_saved", 0) or 0)
-      ctx_saved = int(savings.get("tokens_saved", 0) or 0)
-    except Exception:
-      pass
-  if root is not None and smart_calls == 0 and ctx_saved == 0 and saved_usd <= 0 and routing_saved_usd <= 0:
-    live = load_live_savings_summary(root, session_id=session_id)
-    smart_calls = max(smart_calls, int(live.get("calls_saved", 0) or 0))
-    ctx_saved = max(ctx_saved, int(live.get("tokens_saved", 0) or 0))
-    saved_usd = max(saved_usd, float(live.get("saved_usd", 0.0) or 0.0))
-    routing_saved_usd = max(routing_saved_usd, float(live.get("routing_saved_usd", 0.0) or 0.0))
-
-if saved_usd <= 0 and ctx_saved > 0:
-  # Fallback when no live event exists for this session yet.
-  # Use LiteLLM + pricing.yaml (the same path live events use) instead of the
-  # flat ATELIER_USD_PER_1K_TOKENS rate, so output/cache-read asymmetry is
-  # honored. Atelier savings are context-not-loaded, so price as input tokens.
-  try:
-    from atelier.core.capabilities.pricing import get_model_pricing
-    model_id = os.environ.get("ATELIER_STATUS_MODEL") or os.environ.get("ATELIER_MODEL") or "_default"
-    saved_usd = float(get_model_pricing(model_id).tokens_to_usd(ctx_saved, "input"))
-  except Exception:
-    saved_usd = (ctx_saved / 1000.0) * usd_per_1k
-  if saved_usd <= 0:
-    saved_usd = (ctx_saved / 1000.0) * usd_per_1k
-
-update = read_json("update.json")
-auth = read_json("auth.json")
-subscription = read_json("subscription.json")
-
-if ((not auth) or auth.get("authenticated") is False) and os.environ.get("ATELIER_HIDE_MISSING_LOGIN") != "1":
-  status_text = "login"
-elif update.get("toVersion") and update.get("toVersion") != update.get("fromVersion"):
-  status_text = f"update {update.get('toVersion')}"
-elif subscription.get("warning"):
-  status_text = str(subscription.get("message") or "subscription")[:40]
-
-def k(n: int) -> str:
-  # Mirror the bash fmt_tok: <1k literal, <1M as Nk, >=1M as N.NM.
-  if n >= 1_000_000:
-    return f"{n / 1_000_000:.1f}M"
-  if n >= 1000:
-    return f"{n // 1000}k"
-  return str(n)
-
-print(f"${saved_usd:.3f}|{k(ctx_saved)}|{smart_calls}|{status_text}|${routing_saved_usd:.3f}")
-PYEOF
-)
-IFS='|' read -r SAVED_USD SAVED_CTX SAVED_CALLS STATUS_TEXT ROUTING_USD <<EOF
-$SAVED_LINE
-EOF
-[ -z "$SAVED_USD" ] && SAVED_USD="\$0.000"
-[ -z "$SAVED_CTX" ] && SAVED_CTX="0"
-[ -z "$SAVED_CALLS" ] && SAVED_CALLS="0"
-[ -z "$ROUTING_USD" ] && ROUTING_USD="\$0.000"
-
-# Persist real API cost so the Stop hook can use it instead of estimating.
-# The Stop hook payload from Claude Code never includes the total cost, so we
-# cache it here (written after every assistant turn) and read it there.
-if [ -n "${SESSION_ID:-}" ] && [ "${COST:-0}" != "0" ]; then
-  _COST_DIR="${ATELIER_STATUS_ROOT}/session_costs"
-  mkdir -p "$_COST_DIR" 2>/dev/null
-  printf '%s' "$COST" > "${_COST_DIR}/${SESSION_ID}.txt" 2>/dev/null || true
+# Compute savings using the unified savings_summary module.
+# Derive the `atelier` CLI from the same bin dir as ATELIER_PY (avoids -m
+# failure when the package lacks __main__.py in some install layouts).
+_ATELIER_BIN="$(dirname "${ATELIER_PY}")/atelier"
+if [ -x "${_ATELIER_BIN}" ]; then
+  SAVED_LINE=$("${_ATELIER_BIN}" savings --line 2>/dev/null)
 fi
+if [ -z "${SAVED_LINE:-}" ]; then
+  SAVED_LINE=$(uv run --quiet atelier savings --line 2>/dev/null)
+fi
+# Older installed CLIs emit the pre-I/C/O 7-field format. Retry through the
+# local project entrypoint so statusline development picks up the new fields
+# before the global binary is upgraded.
+SAVED_FIELD_COUNT=$(printf '%s' "${SAVED_LINE:-}" | awk -F'|' '{print NF}' 2>/dev/null || echo 0)
+if [ "${SAVED_FIELD_COUNT:-0}" -lt 10 ] 2>/dev/null; then
+  SAVED_LINE=$(uv run --quiet atelier savings --line 2>/dev/null)
+fi
+IFS='|' read -r SAVED_USD SAVED_CTX SAVED_CALLS STATUS_TEXT ROUTING_USD SESSION_BASE_COST CUMULATIVE_TOK DISPLAY_IN_TOK DISPLAY_CACHE_TOK DISPLAY_OUT_TOK <<<"${SAVED_LINE:-}"
+[ -z "${SAVED_USD:-}" ] && SAVED_USD="\$0.000"
+[ -z "${SAVED_CTX:-}" ] && SAVED_CTX="0"
+[ -z "${SAVED_CALLS:-}" ] && SAVED_CALLS="0"
+[ -z "${ROUTING_USD:-}" ] && ROUTING_USD="\$0.000"
+[ -z "${SESSION_BASE_COST:-}" ] && SESSION_BASE_COST="0"
+[ -z "${CUMULATIVE_TOK:-}" ] && CUMULATIVE_TOK="0"
+[ -z "${DISPLAY_IN_TOK:-}" ] && DISPLAY_IN_TOK="0"
+[ -z "${DISPLAY_CACHE_TOK:-}" ] && DISPLAY_CACHE_TOK="0"
+[ -z "${DISPLAY_OUT_TOK:-}" ] && DISPLAY_OUT_TOK="0"
+# Cost = max(transcript-derived, live Claude cost). Both are cumulative; we
+# trust whichever is larger so the very first frame of a resumed session
+TOTAL_COST=$(awk "BEGIN { a=${SESSION_BASE_COST:-0}; b=${COST:-0}; printf \"%.3f\", (a>b?a:b) }" 2>/dev/null || echo "0")
+COST_FMT=$(printf '$%.3f' "$TOTAL_COST" 2>/dev/null || echo "\$0.000")
 
 if [ -n "${ATELIER_NO_COLOR:-}" ]; then
   C_BRAND=""; C_PIPE=""; C_DIM=""; C_GREEN=""; C_RESET=""
@@ -201,18 +140,24 @@ fi
 SEP="${C_DIM}·${C_RESET}"
 PIPE="${C_PIPE}|${C_RESET}"
 
-# Build cache write segment only when non-zero (new tokens written to cache)
-if [ "${CACHE_W:-0}" -gt 0 ] 2>/dev/null; then
-  CACHE_NEW_SEG="+${CACHE_WF}"
-else
-  CACHE_NEW_SEG=""
-fi
+# Prefer transcript-derived cumulative buckets when available. Claude's live
+# context_window snapshot can be turn-local and regularly understates the true
+# session totals, especially on cache-heavy sessions.
+LIVE_DISPLAY_IN=$(( ${IN_TOK:-0} + ${CACHE_W:-0} ))
+LIVE_DISPLAY_CACHE=${CACHE_R:-0}
+LIVE_DISPLAY_OUT=${OUT_TOK:-0}
 
+if [ "${DISPLAY_IN_TOK:-0}" -gt 0 ] 2>/dev/null || [ "${DISPLAY_CACHE_TOK:-0}" -gt 0 ] 2>/dev/null || [ "${DISPLAY_OUT_TOK:-0}" -gt 0 ] 2>/dev/null; then
+  TOK_IN_F=$(fmt_tok "${DISPLAY_IN_TOK:-0}")
+  TOK_CACHE_F=$(fmt_tok "${DISPLAY_CACHE_TOK:-0}")
+  TOK_OUT_F=$(fmt_tok "${DISPLAY_OUT_TOK:-0}")
+else
+  TOK_IN_F=$(fmt_tok "${LIVE_DISPLAY_IN:-0}")
+  TOK_CACHE_F=$(fmt_tok "${LIVE_DISPLAY_CACHE:-0}")
+  TOK_OUT_F=$(fmt_tok "${LIVE_DISPLAY_OUT:-0}")
+fi
+TOK_DISPLAY="I: ${TOK_IN_F} C: ${TOK_CACHE_F} O: ${TOK_OUT_F}"
 # Calls-saved counter intentionally not shown in the statusline.
-# Until the calibration store from tests/benchmarks/ feeds equivalent_calls,
-# the per-tool "calls saved" number is a guessed multiplier and showing it
-# next to a real dollar figure misleads. Tokens-saved (chars-of-context not
-# loaded) is measurable today.
 SAVED_CALLS_SEG=""
 if [ -n "${STATUS_TEXT:-}" ]; then
   STATUS_SEG=" ${SEP} ${STATUS_TEXT}"
@@ -226,11 +171,10 @@ else
   ROUTING_SEG=""
 fi
 
-printf '%s%s%s %s %s%s ctx %s%% cache %s%s %s %s ↓ %s%s(%s)%s%s %s %dm%02ds\n' \
+printf '%s%s%s %s %s%s ctx %s%% %s %s(%s) ↓ %s%s(%s)%s%s %s %dm%02ds\n' \
   "$C_BRAND" "$PLUGIN_LABEL" "$C_RESET" \
   "$PIPE" "$MODEL" "$STATUS_SEG" "$PCT_INT" \
-  "$CACHE_F" "$CACHE_NEW_SEG" \
-  "$PIPE" "$COST_FMT" \
+  "$PIPE" "$COST_FMT" "$TOK_DISPLAY" \
   "$C_GREEN" "$SAVED_USD" "$SAVED_CTX" "$C_RESET" \
   "$ROUTING_SEG" \
   "$PIPE" "$MINS" "$SECS"

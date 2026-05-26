@@ -29,5 +29,5 @@ Enabled by setting `ATELIER_LANGFUSE_ENABLED=1` (or `true`/`yes`) plus `LANGFUSE
 ## Where To Look Next
 
 - `src/atelier/infra/memory_bridges/openmemory.py`
-- `src/atelier/gateway/adapters/cli.py`
+- `src/atelier/gateway/cli/app.py`
 - `src/atelier/gateway/adapters/mcp_server.py`

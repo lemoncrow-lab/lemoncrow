@@ -245,6 +245,16 @@ def make_llm_usage_entry(
     )
 
 
+def _normalized_event_identity(event: dict[str, Any]) -> str:
+    event_type = str(event.get("type") or event.get("_type") or "")
+    event_id = str(event.get("id") or event.get("event_id") or event.get("eventId") or "").strip()
+    if not event_id:
+        message = event.get("message") or event.get("data") or {}
+        if isinstance(message, dict):
+            event_id = str(message.get("id") or message.get("messageId") or message.get("message_id") or "").strip()
+    return f"{event_type}:{event_id}" if event_id else ""
+
+
 def make_tool_usage_entry(
     *,
     tool_name: str,
@@ -498,6 +508,8 @@ def _build_trace_from_normalized_content(
     skills: list[str] = []
     synthetic_count = 0
     provider_id = ""
+    seen_event_ids: set[str] = set()
+    previous_unidentified_event = ""
 
     for line in raw_content.splitlines():
         stripped = line.strip()
@@ -507,6 +519,17 @@ def _build_trace_from_normalized_content(
             event = json.loads(stripped)
         except json.JSONDecodeError:
             continue
+
+        event_identity = _normalized_event_identity(event)
+        if event_identity:
+            if event_identity in seen_event_ids:
+                continue
+            seen_event_ids.add(event_identity)
+            previous_unidentified_event = ""
+        elif stripped == previous_unidentified_event:
+            continue
+        else:
+            previous_unidentified_event = stripped
 
         event_type = event.get("type") or event.get("_type")
         if event_type == "session":

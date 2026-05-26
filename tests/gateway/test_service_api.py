@@ -107,6 +107,24 @@ def test_mcp_status_matches_non_dev_tool_visibility(store: SQLiteStore, monkeypa
     assert "memory" in names
     assert "route" in names
     assert "shell" in names
+    symbols_tool = next(tool for tool in tools if tool["tool_name"] == "symbols")
+    enum_param_names = {item["name"] for item in symbols_tool["enum_params"]}
+    assert "mode" in enum_param_names
+
+
+def test_hosts_endpoint_lists_supported_integrations(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    app = create_app(store_root=store.root)
+    route = next(route for route in app.routes if getattr(route, "path", "") == "/hosts")
+
+    hosts = route.endpoint()
+
+    labels = {host["host_id"]: host["label"] for host in hosts}
+    assert labels["claude"] == "Claude Code"
+    assert labels["codex"] == "Codex CLI"
+    assert labels["copilot"] == "Copilot / VS Code"
+    assert labels["cursor"] == "Cursor IDE"
+    assert labels["hermes"] == "Hermes Agent (global-only)"
 
 
 # --------------------------------------------------------------------------- #
@@ -261,7 +279,7 @@ def test_trace_record_normalizes_legacy_strength_confidence(app_no_auth: TestCli
     assert trace.trace_confidence == "manual"
 
 
-def test_trace_record_ignores_mcp_only_fields(app_no_auth: TestClient, store: SQLiteStore) -> None:
+def test_trace_record_accepts_mcp_context_fields_and_learnings(app_no_auth: TestClient, store: SQLiteStore) -> None:
     resp = app_no_auth.post(
         "/v1/traces",
         json={
@@ -271,7 +289,14 @@ def test_trace_record_ignores_mcp_only_fields(app_no_auth: TestClient, store: SQ
             "status": "success",
             "trace_confidence": "high",
             "capture_files": ["src/example.py"],
-            "learnings": ["Prefer focused regressions."],
+            "learnings": [
+                "Prefer focused regressions.",
+                {
+                    "kind": "rubric",
+                    "text": "Statusline changes need cache and savings assertions.",
+                    "promote_to": "rubric",
+                },
+            ],
             "capture_sources": ["mcp"],
         },
     )
@@ -282,6 +307,12 @@ def test_trace_record_ignores_mcp_only_fields(app_no_auth: TestClient, store: SQ
     assert trace is not None
     assert trace.trace_confidence == "manual"
     assert trace.capture_sources == ["mcp"]
+    assert [learning.text for learning in trace.learnings] == [
+        "Prefer focused regressions.",
+        "Statusline changes need cache and savings assertions.",
+    ]
+    assert trace.learnings[1].kind == "next_rule"
+    assert trace.learnings[1].promote_to == "rubric"
 
 
 def test_external_analytics_endpoints_return_summary_and_detail(
@@ -1163,7 +1194,7 @@ def test_cli_service_config_command(monkeypatch: pytest.MonkeyPatch) -> None:
     """service config command prints JSON."""
     from click.testing import CliRunner
 
-    from atelier.gateway.adapters.cli import cli
+    from atelier.gateway.cli import cli
 
     monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
     runner = CliRunner()

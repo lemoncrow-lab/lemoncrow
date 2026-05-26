@@ -2,7 +2,7 @@
 # install_antigravity.sh — Install Atelier into Antigravity / agy
 #
 # What it does:
-#   Global mode: installs user-level Antigravity MCP config.
+#   Global mode: installs user-level Antigravity MCP config, plugin, and skills.
 #   Workspace mode (--workspace DIR): installs project-local Antigravity MCP config under DIR.
 #
 # Options:
@@ -47,6 +47,10 @@ if $WORKSPACE_SET; then
 fi
 
 ANTIGRAVITY_USER_DIR="${ANTIGRAVITY_USER_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/Antigravity/User}"
+AGY_GLOBAL_DIR="${HOME}/.gemini/antigravity-cli"
+AGY_PLUGIN_DIR="${AGY_GLOBAL_DIR}/plugins/atelier"
+AGY_SKILLS_DIR="${AGY_GLOBAL_DIR}/skills"
+
 if $WORKSPACE_SET; then
     INSTALL_SCOPE="workspace"
     MCP_JSON="${WORKSPACE}/.vscode/mcp.json"
@@ -194,6 +198,38 @@ if [ -f "$MCP_JSON" ] && grep -q "atelier-mcp" "$MCP_JSON" 2>/dev/null; then
     vpass "MCP config present: $MCP_JSON"
 else
     vfail "missing Atelier MCP config: $MCP_JSON"
+fi
+
+# Install plugin (global only — not applicable for workspace-scoped installs)
+PLUGIN_SRC="${ATELIER_REPO}/integrations/antigravity/plugin"
+if ! $WORKSPACE_SET && [[ -d "$PLUGIN_SRC" ]]; then
+    if $DRY_RUN; then
+        echo "  [dry-run] install plugin -> $AGY_PLUGIN_DIR"
+    else
+        run "mkdir -p '$AGY_PLUGIN_DIR'"
+        run "cp -r '${PLUGIN_SRC}/.' '$AGY_PLUGIN_DIR/'"
+        info "installed plugin -> $AGY_PLUGIN_DIR"
+    fi
+fi
+
+# Install global skills (global only)
+if ! $WORKSPACE_SET; then
+    bash "${SCRIPT_DIR}/build_host_skills.sh" --host antigravity 2>/dev/null || true
+    SKILLS_STAGING="${ATELIER_REPO}/integrations/antigravity/skills"
+    if [[ -d "$SKILLS_STAGING" ]] && compgen -G "${SKILLS_STAGING}/*/SKILL.md" > /dev/null 2>&1; then
+        if $DRY_RUN; then
+            echo "  [dry-run] install skills -> $AGY_SKILLS_DIR"
+        else
+            run "mkdir -p '$AGY_SKILLS_DIR'"
+            for skill_dir in "${SKILLS_STAGING}"/*/; do
+                [[ -f "${skill_dir}SKILL.md" ]] || continue
+                skill_name="$(basename "$skill_dir")"
+                run "mkdir -p '${AGY_SKILLS_DIR}/${skill_name}'"
+                run "cp '${skill_dir}SKILL.md' '${AGY_SKILLS_DIR}/${skill_name}/SKILL.md'"
+            done
+            info "installed skills -> $AGY_SKILLS_DIR"
+        fi
+    fi
 fi
 
 if command -v atelier-mcp &>/dev/null; then

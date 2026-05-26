@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Sparkles } from "lucide-react";
 import { api, type InsightsWindow, type InsightsSessionSummary } from "../api";
 import {
   Alert,
@@ -58,7 +59,7 @@ export default function Insights() {
 
       {isEmpty && (
         <EmptyState
-          icon="✦"
+          icon={<Sparkles size={32} />}
           title="No insights yet"
           description="Insights appear after Atelier captures session data."
         />

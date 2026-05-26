@@ -52,10 +52,10 @@ Use these instead of restating prior task context in chat.
   command execution.
 
 These are default-on Atelier augmentations for bounded, repeated context
-reads/searches. Native `Read`, shell `rg`, `grep`, and direct repository search
-remain available when exact raw output is needed. Set
-`ATELIER_CACHE_DISABLED=1` to bypass Atelier caching.
-
+reads/searches. In Codex, native `Read`, shell `rg`, `grep`, and direct
+repository search may still be host-visible, but Atelier policy treats them as
+fallback-only rather than the preferred path. Set `ATELIER_CACHE_DISABLED=1`
+to bypass Atelier caching.
 ## Hard rules (additive to workflow.md)
 
 6. Do not omit the task description when resuming a run mid-stream.

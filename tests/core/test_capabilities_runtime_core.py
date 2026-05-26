@@ -7,7 +7,7 @@ from click.testing import CliRunner
 
 from atelier.core.foundation.models import Trace
 from atelier.core.runtime import AtelierRuntimeCore
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 from atelier.infra.runtime.run_ledger import RunLedger
 
 

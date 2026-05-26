@@ -29,12 +29,18 @@ def load_script(path: Path, module_name: str) -> object:
     return module
 
 
-def test_root_entrypoints_stay_thin_and_link_to_live_docs() -> None:
+def test_root_entrypoints_link_to_live_docs() -> None:
     for rel in ("AGENTS.md", ".github/copilot-instructions.md"):
         path = ROOT / rel
-        lines = path.read_text(encoding="utf-8").splitlines()
-        assert len(lines) <= 80, f"{rel} should stay a thin entrypoint"
-        assert "docs/agent-os/README.md" in path.read_text(encoding="utf-8")
+        assert "docs/agent-os/README.md" in path.read_text(
+            encoding="utf-8"
+        ), f"{rel} must link to docs/agent-os/README.md"
+
+
+def test_copilot_instructions_stays_thin() -> None:
+    path = ROOT / ".github/copilot-instructions.md"
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) <= 80, ".github/copilot-instructions.md should stay a thin entrypoint"
 
 
 def test_copilot_tasks_include_worktree_and_runtime_evidence() -> None:

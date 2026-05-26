@@ -91,6 +91,20 @@ Generated files must never be edited directly — edit the source and regenerate
 | `AGENTS.md`, `copilot-instructions.md`, host instruction files | `docs/agent-os/*.md` | `make sync-agent-context` |
 | Plugin staging dir `~/.atelier/claude-plugin-*/` | `integrations/claude/plugin/` | `bash scripts/install_claude.sh` |
 
+## Coding Guidelines
+
+Behavioral guidelines to reduce common LLM coding mistakes. Bias toward caution over speed; use judgment for trivial tasks.
+
+**1. Think Before Coding** — state assumptions explicitly; if uncertain, ask; if multiple interpretations exist, present them; push back when a simpler approach exists.
+
+**2. Simplicity First** — minimum code that solves the problem; no speculative features, abstractions for single-use code, or error handling for impossible scenarios; if 200 lines could be 50, rewrite it.
+
+**3. Surgical Changes** — touch only what you must; don't improve adjacent code, refactor things that aren't broken, or delete unrelated dead code; match existing style; remove only the imports/variables/functions that *your* changes made unused.
+
+**4. Goal-Driven Execution** — transform tasks into verifiable goals before implementing; for multi-step work, state a brief plan with per-step verify checks; loop until verified.
+
+See [docs/agent-os/coding-guidelines.md](docs/agent-os/coding-guidelines.md) for the full reference.
+
 ## Validation by Change Surface
 
 | What changed | Minimum check |

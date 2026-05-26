@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 from atelier.infra.runtime.run_ledger import RunLedger
 
 
@@ -106,11 +106,9 @@ def test_search_returns_matches(tmp_path: Path) -> None:
                 "file_glob_patterns": ["*.md"],
             }
         ),
-        "--json",
     )
     assert res.exit_code == 0
-    results = json.loads(res.output)
-    assert isinstance(results, dict)
+    assert "shopify" in res.output
 
 
 def test_search_table_format(tmp_path: Path) -> None:
@@ -143,9 +141,27 @@ def test_search_table_format(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _seed_one_block(root: Path, block_id: str = "test-block") -> None:
+    """Seed a single block by upserting through the store directly."""
+    from atelier.core.foundation.models import ReasonBlock
+    from atelier.core.foundation.store import ContextStore
+
+    block = ReasonBlock(
+        id=block_id,
+        title="Test",
+        domain="testing",
+        situation="When running coverage tests for CLI commands",
+        triggers=["test"],
+        procedure=["step one"],
+        failure_signals=["signal"],
+    )
+    ContextStore(root).upsert_block(block, write_markdown=False)
+
+
 def test_deprecate_block(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     _invoke(root, "init")
+    _seed_one_block(root, "deprecate-target")
     blocks_res = _invoke(root, "list-blocks", "--json")
     blocks = json.loads(blocks_res.output)
     assert blocks, "need at least one block to deprecate"
@@ -174,6 +190,7 @@ def test_deprecate_unknown_block_errors(tmp_path: Path) -> None:
 def test_quarantine_block(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     _invoke(root, "init")
+    _seed_one_block(root, "quarantine-target")
     blocks = json.loads(_invoke(root, "list-blocks", "--json").output)
     block_id = blocks[0]["id"]
 
@@ -236,6 +253,9 @@ def test_ledger_reset_with_confirmation(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.skip(
+    reason="atelier init no longer ships built-in rubrics; env validate requires user-supplied rubrics (see docs/launch-readiness.md)."
+)
 def test_env_validate_known_env(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     _invoke(root, "init")
@@ -380,11 +400,9 @@ def test_search_blocks_returns_matches(tmp_path: Path) -> None:
                 "file_glob_patterns": ["*.md"],
             }
         ),
-        "--json",
     )
     assert res.exit_code == 0
-    payload = json.loads(res.output)
-    assert isinstance(payload, dict)
+    assert "shopify" in res.output
 
 
 def test_search_empty_query_returns_empty(tmp_path: Path) -> None:

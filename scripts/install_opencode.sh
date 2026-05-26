@@ -76,6 +76,9 @@ if $WORKSPACE_SET; then
     NEW_ENTRY=$(cat <<JSON
 {
   "default_agent": "atelier",
+  "permission": {
+    "atelier_*": "allow"
+  },
   "mcp": {
       "atelier": {
         "type": "local",
@@ -92,6 +95,9 @@ else
     NEW_ENTRY=$(cat <<JSON
 {
   "default_agent": "atelier",
+  "permission": {
+    "atelier_*": "allow"
+  },
   "mcp": {
     "atelier": {
       "type": "local",
@@ -148,7 +154,8 @@ stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 existing = json.loads(stripped) if stripped.strip() else {}
 new_entry = json.loads('''$NEW_ENTRY''')
 existing.setdefault('mcp', {}).update(new_entry['mcp'])
-existing.setdefault('default_agent', new_entry['default_agent'])
+existing['default_agent'] = new_entry['default_agent']
+existing.setdefault('permission', {}).update(new_entry['permission'])
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
 print("[atelier:opencode] merged atelier entry into $OC_FILE")
 PYEOF
@@ -188,6 +195,16 @@ if [ -f "$AGENT_SRC" ]; then
 else
     warn "agent source missing: $AGENT_SRC"
 fi
+
+AGENTS_SRC_DIR="${ATELIER_REPO}/integrations/opencode/agents"
+for agent_name in explore repair research review; do
+    agent_file="${AGENTS_SRC_DIR}/${agent_name}.md"
+    if [ -f "$agent_file" ]; then
+        atelier_write_managed_copy "$agent_file" "$STAGING_DIR/${agent_name}.md" "$DRY_RUN"
+        run "cp -f '$STAGING_DIR/${agent_name}.md' '$AGENT_DEST_DIR/${agent_name}.md'"
+        info "${agent_name} agent installed -> $AGENT_DEST_DIR/${agent_name}.md"
+    fi
+done
 
 if $DRY_RUN; then
     info "Dry run complete; skipped post-install verification because no files were written."

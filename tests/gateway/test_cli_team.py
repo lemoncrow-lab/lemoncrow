@@ -10,7 +10,7 @@ from click.testing import CliRunner, Result
 from atelier.core.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
 from atelier.core.capabilities.cross_vendor_memory.models import AuditEvent
 from atelier.core.foundation.memory_models import MemoryBlock
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 

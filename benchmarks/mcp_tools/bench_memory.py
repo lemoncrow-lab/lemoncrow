@@ -9,16 +9,15 @@ A session-scoped fixture runs the full benchmark and prints the report once.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from benchmarks.mcp_tools._env import configure_benchmark_runtime
 from benchmarks.mcp_tools.cases.memory import MEMORY_CASES
 from benchmarks.mcp_tools.harness import BenchCase, CaseResult, ToolReport, run_case
 from benchmarks.mcp_tools.reporter import render_summary
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -28,9 +27,7 @@ from benchmarks.mcp_tools.reporter import render_summary
 @pytest.fixture(scope="session")
 def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("bench_memory")
-    os.environ["CLAUDE_WORKSPACE_ROOT"] = str(root)
-    os.environ["ATELIER_MEM_ROOT"] = str(root / "mem")
-    return root
+    return configure_benchmark_runtime(root)
 
 
 @pytest.fixture(scope="session")
@@ -91,6 +88,5 @@ def test_memory_op_saves_tokens(
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
     assert result.atelier_tokens < case.baseline_tokens, (
-        f"[{case.label}] no savings: atelier={result.atelier_tokens} "
-        f">= baseline={case.baseline_tokens}"
+        f"[{case.label}] no savings: atelier={result.atelier_tokens} " f">= baseline={case.baseline_tokens}"
     )

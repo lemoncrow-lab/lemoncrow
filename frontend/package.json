@@ -1,6 +1,6 @@
 {
   "name": "atelier-frontend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,6 +11,7 @@
     "test": "node ./scripts/run-vitest.mjs"
   },
   "dependencies": {
+    "lucide-react": "^1.16.0",
     "posthog-js": "^1.150.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -30,7 +31,10 @@
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.6",
     "typescript": "^5.5.3",
-    "vite": "^5.3.4",
+    "vite": "^5.4.21",
     "vitest": "^2.1.5"
+  },
+  "overrides": {
+    "esbuild": "^0.25.0"
   }
 }

@@ -73,6 +73,27 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _codex_event_identity(ev: dict[str, Any]) -> str:
+    ev_type = str(ev.get("type") or ev.get("_type") or "")
+    payload_raw = ev.get("payload")
+    payload: dict[str, Any] = payload_raw if isinstance(payload_raw, dict) else {}
+    payload_type = str(payload.get("type") or "")
+    namespace = f"{ev_type}:{payload_type}" if payload_type else ev_type
+    for candidate in (ev, payload):
+        for key in ("id", "event_id", "eventId", "uuid", "message_id", "messageId", "call_id", "callId"):
+            value = str(candidate.get(key) or "").strip()
+            if value:
+                return f"{namespace}:{value}"
+    return ""
+
+
+def _codex_event_source_id(ev: dict[str, Any], raw_line: str) -> str:
+    identity = _codex_event_identity(ev)
+    if identity:
+        return identity.rsplit(":", 1)[-1]
+    return _sha256(raw_line)[:16]
+
+
 def _parse_ts(val: Any) -> datetime:
     if not val:
         return _utcnow()
@@ -410,6 +431,8 @@ class CodexImporter:
         task = "untitled codex session"
         created_at = _utcnow()
         user_prompt_tokens = 0
+        seen_event_ids: set[str] = set()
+        previous_unidentified_event = ""
 
         for line in raw_content.splitlines():
             line = line.strip()
@@ -420,7 +443,19 @@ class CodexImporter:
             except json.JSONDecodeError:
                 continue
 
+            event_identity = _codex_event_identity(ev)
+            if event_identity:
+                if event_identity in seen_event_ids:
+                    continue
+                seen_event_ids.add(event_identity)
+                previous_unidentified_event = ""
+            elif line == previous_unidentified_event:
+                continue
+            else:
+                previous_unidentified_event = line
+
             ev_type = ev.get("type", "")
+            source_id = _codex_event_source_id(ev, line)
 
             if ev_type == "session_meta":
                 payload = ev.get("payload") or {}
@@ -462,6 +497,7 @@ class CodexImporter:
                         cached_input_tokens=turn_cached,
                         cache_creation_input_tokens=turn_cache_write,
                         source_type="codex.event_msg.token_count",
+                        source_id=source_id,
                     )
                     if usage_entry is not None:
                         usage_entries.append(usage_entry)
@@ -650,6 +686,8 @@ class CodexImporter:
         user_prompt_tokens = 0
         model_seen = ""
         usage_entries = []
+        seen_event_ids: set[str] = set()
+        previous_unidentified_event = ""
 
         for line in raw_content.splitlines():
             line = line.strip()
@@ -660,7 +698,19 @@ class CodexImporter:
             except json.JSONDecodeError:
                 continue
 
+            event_identity = _codex_event_identity(ev)
+            if event_identity:
+                if event_identity in seen_event_ids:
+                    continue
+                seen_event_ids.add(event_identity)
+                previous_unidentified_event = ""
+            elif line == previous_unidentified_event:
+                continue
+            else:
+                previous_unidentified_event = line
+
             ev_type = ev.get("type")
+            source_id = _codex_event_source_id(ev, line)
 
             if not first_ts_set and ev.get("timestamp"):
                 created_at = _parse_ts(ev.get("timestamp"))
@@ -698,7 +748,7 @@ class CodexImporter:
                         cached_input_tokens=turn_cached,
                         cache_creation_input_tokens=turn_cache_write,
                         source_type="codex.flat.message",
-                        source_id=str(ev.get("id") or ""),
+                        source_id=source_id,
                         created_at=_parse_ts(ev.get("timestamp")) if ev.get("timestamp") else None,
                     )
                     if usage_entry is not None:

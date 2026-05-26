@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
+import { ExternalLink, ChevronRight, X } from "lucide-react";
 import {
   api,
   type Trace,
@@ -30,13 +31,18 @@ function HeaderStat({
   label,
   value,
   tone,
+  title,
 }: {
   label: string;
   value: string;
   tone?: "amber" | "emerald" | "violet";
+  title?: string;
 }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3 border border-neutral-800/40 bg-black/15 px-2.5 py-1.5 transition-colors hover:bg-neutral-800/20 group">
+    <div
+      className="flex min-w-0 items-center justify-between gap-3 border border-neutral-800/40 bg-black/15 px-2.5 py-1.5 transition-colors hover:bg-neutral-800/20 group"
+      title={title}
+    >
       <div className="truncate text-[8px] text-neutral-400 uppercase font-black tracking-[0.18em] group-hover:text-neutral-500 transition-colors">
         {label}
       </div>
@@ -187,7 +193,7 @@ function SidebarList({
                     className="text-[8px] text-neutral-400 hover:text-emerald-500 uppercase font-black flex items-center gap-1"
                     title="View raw content"
                   >
-                    Raw <span className="text-[9px]">⎋</span>
+                    Raw <ExternalLink size={10} />
                   </a>
                 )}
               </div>
@@ -381,7 +387,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                     rel="noreferrer"
                     className="px-3 py-1.5 border border-neutral-700 hover:border-neutral-500 hover:text-white transition-all text-[9px] font-mono text-neutral-500 uppercase tracking-widest flex items-center gap-2"
                   >
-                    <span className="text-[10px]">⎋</span>
+                    <ExternalLink size={10} />
                     Raw Link
                   </a>
                 )}
@@ -401,7 +407,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                 )}
                 title="Toggle Detailed Metrics"
               >
-                {rightPanelOpen ? "✕" : "›"}
+                {rightPanelOpen ? <X size={14} /> : <ChevronRight size={14} />}
               </button>
             </div>
           </div>
@@ -427,13 +433,30 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               label="Input"
               value={
                 report || trace || inspectorData
-                  ? fmtTok(
-                      report?.input_tokens ??
+                  ? (() => {
+                      // "Input" = bytes the model freshly processed this
+                      // session = new input + cache writes. Anthropic's
+                      // raw `input_tokens` excludes cW even though cW is
+                      // also new input the model paid to ingest. Mirrors
+                      // the stop-hook formatter so live and post-session
+                      // numbers match.
+                      const newIn =
+                        report?.input_tokens ??
                         trace?.input_tokens ??
                         inspectorData?.tokens_pre ??
-                        0
-                    )
+                        0;
+                      const cw =
+                        report?.cache_write_tokens ??
+                        trace?.cache_creation_input_tokens ??
+                        0;
+                      return fmtTok(newIn + cw);
+                    })()
                   : "—"
+              }
+              title={
+                report
+                  ? `${fmtTok(report.input_tokens)} new + ${fmtTok(report.cache_write_tokens)} cache-write`
+                  : undefined
               }
             />
             <HeaderStat
@@ -453,12 +476,25 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               label="Cache"
               value={
                 report || trace
-                  ? fmtTok(
-                      report?.cache_read_tokens ??
+                  ? (() => {
+                      const cr =
+                        report?.cache_read_tokens ??
                         trace?.cached_input_tokens ??
-                        0
-                    )
+                        0;
+                      const cw =
+                        report?.cache_write_tokens ??
+                        trace?.cache_creation_input_tokens ??
+                        0;
+                      return cw > 0
+                        ? `${fmtTok(cr)} / ${fmtTok(cw)}`
+                        : fmtTok(cr);
+                    })()
                   : "—"
+              }
+              title={
+                report
+                  ? `${fmtTok(report.cache_read_tokens)} cache-read · ${fmtTok(report.cache_write_tokens)} cache-write`
+                  : undefined
               }
             />
             <HeaderStat
@@ -555,7 +591,8 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                     <div className="h-px w-full bg-gradient-to-r from-neutral-800 to-transparent" />
                     <span className="text-[9px] text-neutral-500 font-mono font-bold uppercase tracking-widest flex-shrink-0">
                       {ledgerFilesTouched.length} file
-                      {ledgerFilesTouched.length !== 1 ? "s" : ""} · from session
+                      {ledgerFilesTouched.length !== 1 ? "s" : ""} · from
+                      session
                     </span>
                   </div>
                   <div className="space-y-2">
@@ -643,6 +680,30 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                     </div>
                   </section>
                 )}
+
+              {report?.tool_savings && report.tool_savings.length > 0 && (
+                <section className="space-y-4">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 border-b border-neutral-800 pb-2">
+                    Context Savings by Tool
+                  </h3>
+                  <div className="space-y-2">
+                    {report.tool_savings.map((row, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center justify-between text-[10px] font-mono border-b border-neutral-800/40 pb-1 last:border-0"
+                      >
+                        <span className="text-emerald-400/80 truncate pr-4">
+                          {row.tool}
+                        </span>
+                        <span className="text-neutral-400">
+                          {(row.tokens_saved / 1000).toFixed(1)}k tok ·{" "}
+                          {fmtUsd(row.cost_saved_usd)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               {report?.models_used &&
                 Object.keys(report.models_used).length > 0 && (

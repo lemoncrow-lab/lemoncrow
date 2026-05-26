@@ -123,9 +123,12 @@ _SEARCH_ESSENTIAL_KEYS = [
     "kind",
     "start_line",
     "signature",
-    "origin",
     "provenance",
 ]
+# Fields stripped from each item for repo-scope searches where they are
+# always uniform or unnecessary ("origin" is always "internal"; per-item
+# "provenance" is redundant with top-level; "symbol_id" is internal only).
+_SEARCH_REPO_STRIP_ITEM_KEYS: frozenset[str] = frozenset({"origin", "provenance", "symbol_id"})
 _SEARCH_OPTIONAL_KEYS = [
     "snippet",
     "doc_summary",
@@ -275,8 +278,8 @@ _CACHE_TOOL_ALIASES = {
 _OPERATION_TOKEN_CAPS = {
     "cache_status": 50,
     "index": 80,
-    "search": 300,
-    "symbol": 300,
+    "search": 800,
+    "symbol": 800,
     "outline": 150,
     "pattern": 800,
     "callers": 700,
@@ -288,6 +291,63 @@ _OPERATION_TOKEN_CAPS = {
     "hover": 190,
     "cache_invalidate": 35,
 }
+# Map internal field names to shortened MCP output names to reduce token bloat.
+# Applied post-processing in _short_item_keys().
+_FIELD_NAME_SHORTMAP = {
+    "file_path": "path",
+    "symbol_name": "name",
+    "symbol_id": "id",
+    "start_line": "line",
+    "doc_summary": "doc",
+    "deleted_at": "deleted",
+    "deleted_at_sha": "deleted_sha",
+    "last_author": "author",
+    "last_commit_msg": "msg",
+    "matched_on": "match",
+    "rename_target": "renamed_to",
+    "rename_note": "rename",
+}
+
+
+def apply_field_name_shortening(payload: dict[str, Any]) -> dict[str, Any]:
+    """Apply field-name shortening to reduce token bloat in MCP responses.
+    Maps internal names (file_path, start_line, etc.) to compact forms (path, line, etc.).
+    Applies recursively to all nested structures.
+    """
+
+    def shorten_dict(item: dict[str, Any]) -> dict[str, Any]:
+        """Recursively shorten field names in a dict."""
+        result: dict[str, Any] = {}
+        for k, v in item.items():
+            short_key = _FIELD_NAME_SHORTMAP.get(k, k)
+            if isinstance(v, dict):
+                result[short_key] = shorten_dict(v)
+            elif isinstance(v, list):
+                if v and isinstance(v[0], dict):
+                    result[short_key] = [shorten_dict(i) if isinstance(i, dict) else i for i in v]
+                else:
+                    result[short_key] = v
+            else:
+                result[short_key] = v
+        return result
+
+    # Shorten entire payload recursively, but handle snapshot specially
+    result = {}
+    for k, v in payload.items():
+        short_key = _FIELD_NAME_SHORTMAP.get(k, k)
+        if isinstance(v, dict):
+            # Don't shorten top-level snapshot dict as it has specific structure
+            if k != "snapshot":
+                result[short_key] = shorten_dict(v)
+            else:
+                result[short_key] = v
+        elif isinstance(v, list) and v and isinstance(v[0], dict):
+            result[short_key] = [shorten_dict(item) for item in v]  # type: ignore[assignment]
+        else:
+            result[short_key] = v
+    return result
+
+
 _SEARCH_SNIPPET_FORCE_COMPACT_LIMIT = 50
 
 
@@ -3330,6 +3390,11 @@ class CodeContextEngine:
         if "related" not in packed and "related" in payload:
             packed["related"] = payload["related"]
             packed["related_count"] = payload.get("related_count", len(cast(list[Any], payload["related"])))
+        if "edges" not in packed and "edges" in payload:
+            packed["edges"] = payload["edges"]
+            packed["edge_count"] = payload.get("edge_count", len(cast(list[Any], payload["edges"])))
+        # Re-apply shortening to restored fields (they bypassed _finalize_packed_payload shortening)
+        packed = apply_field_name_shortening(packed)
         if "data_status" not in packed and "data_status" in payload:
             packed["data_status"] = payload["data_status"]
         if "error" not in packed:
@@ -5237,7 +5302,17 @@ class CodeContextEngine:
         scope: Literal["repo", "external", "deleted"],
     ) -> list[dict[str, Any]]:
         allowed_keys = _DELETED_SEARCH_COMPACT_DEFAULT_KEYS if scope == "deleted" else _SEARCH_COMPACT_DEFAULT_KEYS
-        return [{key: value for key, value in item.items() if key in allowed_keys} for item in items]
+        compacted = [{key: value for key, value in item.items() if key in allowed_keys} for item in items]
+        if scope == "repo":
+            result: list[dict[str, Any]] = []
+            for item in compacted:
+                cleaned = {k: v for k, v in item.items() if k not in _SEARCH_REPO_STRIP_ITEM_KEYS}
+                # qualified_name adds no information when it is identical to symbol_name
+                if cleaned.get("qualified_name") == cleaned.get("symbol_name"):
+                    cleaned.pop("qualified_name", None)
+                result.append(cleaned)
+            return result
+        return compacted
 
     def _should_force_search_compaction(
         self,
@@ -5284,7 +5359,7 @@ class CodeContextEngine:
             updated_tokens_saved = max(base_tokens_saved, full_total_tokens - total_tokens)
             if updated_tokens_saved == tokens_saved:
                 finalized["total_tokens"] = total_tokens
-                return finalized
+                return apply_field_name_shortening(finalized)
             tokens_saved = updated_tokens_saved
 
     def _fit_items_to_budget(
@@ -5306,11 +5381,9 @@ class CodeContextEngine:
         protected_items = minimal_items[: min(PROTECTED_TOP_RANK, len(minimal_items))]
         protected_payload = build_payload(protected_items)
         if enforce_protected_top_rank and protected_items and protected_payload["total_tokens"] > budget_tokens:
-            return self._budget_error_payload(
-                budget_tokens=budget_tokens,
-                minimum_required_tokens=int(protected_payload["total_tokens"]),
-                provenance=str(protected_payload.get("provenance") or _LOCAL_PROVENANCE),
-            )
+            # Degrade gracefully: return the top-ranked item(s) even if over budget.
+            # A slightly over-budget result is strictly better than a hard error with 0 items.
+            return protected_payload
 
         best_payload = build_payload(minimal_items)
         if best_payload["total_tokens"] > budget_tokens:

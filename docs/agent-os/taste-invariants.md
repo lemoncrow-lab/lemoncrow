@@ -52,3 +52,46 @@ agent runs.
 - *"If the caller already knows the symbol name, do not run a text search."*
 - *"Default to outline-first responses. Expand only on intent."*
 - *"Never edit at line numbers when the target is a named symbol."*
+
+## Python string style
+
+- **Never use implicit string concatenation across source lines.** Adjacent
+  string literals are easy to misread (missing trailing spaces silently join
+  words, layout `\n` characters smuggle structure into prose) and diff badly
+  when bullets get reordered.
+- For a single sentence or paragraph, use **one string literal**. Project
+  line-length is 120 — let the literal run long rather than concatenating.
+- For content with layout (bullets, paragraphs, embedded newlines), use
+  **`textwrap.dedent("""…""")`** so the source layout matches the output.
+  Hoist to a module-level `_CONSTANT` if reused or longer than ~5 lines.
+- This applies to MCP tool descriptions, schema field descriptions, log
+  messages, and any other multi-line prose stored in Python source.
+
+Avoid:
+
+```python
+description=(
+    "Operation to perform. "
+    "\n• `search` — Find symbols by name. "
+    "\n• `node` — Full definition for one symbol."
+)
+```
+
+Prefer (layout content):
+
+```python
+from textwrap import dedent
+
+_OP_DESCRIPTION = dedent("""\
+    Operation to perform.
+
+    • `search` — Find symbols by name.
+    • `node` — Full definition for one symbol.
+""")
+```
+
+Prefer (single sentence, no layout):
+
+```python
+description = "Number of context lines to include before each content match."
+```

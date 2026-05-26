@@ -286,7 +286,7 @@ def _assert_search_semantic(result: dict[str, Any]) -> None:
         f"semantic search for 'classify shell commands' must return at least one hit, got: {result}"
     )
     for item in items:
-        fp = str(item.get("file_path", ""))
+        fp = str(item.get("path") or item.get("file_path", ""))
         assert fp.startswith("src/"), f"search results must be filtered to src/, got file_path={fp!r}"
 
 

@@ -153,9 +153,12 @@ class OpenCodeImporter:
         user_prompt_tokens = 0
         curr_tool_calls: list[tuple[str, dict[str, Any]]] = []
         usage_entries = []
+        seen_event_ids: set[str] = set()
+        previous_unidentified_event = ""
 
         for line in redacted.splitlines():
-            if not line.strip():
+            line = line.strip()
+            if not line:
                 continue
             try:
                 ev = json.loads(line)
@@ -163,6 +166,17 @@ class OpenCodeImporter:
                 continue
 
             etype = ev.get("_type")
+            event_id = str(ev.get("id") or "").strip()
+            if event_id:
+                event_identity = f"{etype}:{event_id}"
+                if event_identity in seen_event_ids:
+                    continue
+                seen_event_ids.add(event_identity)
+                previous_unidentified_event = ""
+            elif line == previous_unidentified_event:
+                continue
+            else:
+                previous_unidentified_event = line
             data = ev.get("data") or {}
 
             if etype == "message":
@@ -223,7 +237,7 @@ class OpenCodeImporter:
                         cached_input_tokens=cache_r,
                         cache_creation_input_tokens=cache_w,
                         source_type="opencode.step_finish",
-                        source_id=str(ev.get("id") or ""),
+                        source_id=event_id or _sha256(line)[:16],
                         created_at=_ms_to_dt(ev.get("time_created")),
                     )
                     if usage_entry is not None:
@@ -322,6 +336,7 @@ class OpenCodeImporter:
                         json.dumps(
                             {
                                 "_type": "part",
+                                "id": r["id"],
                                 "role": r["role"],
                                 "timestamp": r["time_created"],
                                 "data": json.loads(r["data"] or "{}"),

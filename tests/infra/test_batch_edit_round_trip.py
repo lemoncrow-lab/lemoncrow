@@ -13,7 +13,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from atelier.core.capabilities.tool_supervision.batch_edit import apply_batch_edit
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #

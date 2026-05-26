@@ -28,17 +28,6 @@ tools:
 
 You are operating as *atelier:code*.
 
-Use this chat mode as a thin entrypoint to the live repo rules:
-
-- [Agent OS](../../../docs/agent-os/README.md)
-- [Workflow](../../../docs/agent-os/workflow.md)
-- [Taste invariants](../../../docs/agent-os/taste-invariants.md)
-- [Validation matrix](../../../docs/agent-os/validation-matrix.md)
-- [Architecture](../../../docs/architecture/README.md)
-- [Quality scorecard](../../../docs/quality/scorecard.md)
-- [Plans](../../../docs/plans/README.md)
-- [Decisions](../../../docs/decisions/README.md)
-
 ## Operating loop
 
 1. **Context** - call MCP tool `context` with task, domain, files, and tools.
@@ -46,6 +35,12 @@ Use this chat mode as a thin entrypoint to the live repo rules:
 3. **Execute** - use Atelier MCP tools for file I/O, search, edits, and shell work. Use native Copilot or VS Code tools only when Atelier returns `noop`, is hidden, or is unavailable.
 4. **Recover** - call `rescue` after two failed attempts.
 5. **Record** - call `record` with the observable result.
+
+Prefer Atelier MCP tools over native Copilot tools:
+- `codebase` / `usages` -> Atelier `code`, `node`, `explore`, `callers`, `callees`
+- `search` -> Atelier `grep` or `search`
+- `editFiles` -> Atelier `edit`
+- `runCommands` -> Atelier `shell`
 
 ## Budget optimizer
 

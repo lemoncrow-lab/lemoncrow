@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
+import { AlertCircle, CheckCircle2, Info, Search, Zap } from "lucide-react";
 import {
   api,
   type GranularToolUsage,
@@ -749,6 +750,7 @@ function TopSessions({
               <th className="px-4 py-2 text-right">Output</th>
               <th className="px-4 py-2 text-right">Cache</th>
               <th className="px-4 py-2 text-right">Cost</th>
+              <th className="px-4 py-2 text-right">Saved</th>
               <th className="px-4 py-2">Rel.</th>
             </tr>
           </thead>
@@ -782,8 +784,13 @@ function TopSessions({
                 <td className="px-4 py-2 text-right font-mono text-amber-400/70">
                   {fmtM(s.cached_tokens)}
                 </td>
-                <td className="px-4 py-2 text-right font-mono text-emerald-300 font-bold">
+                <td className="px-4 py-2 text-right font-mono text-amber-300 font-bold">
                   ${fmt(s.cost)}
+                </td>
+                <td className="px-4 py-2 text-right font-mono text-emerald-300">
+                  {s.atelier_savings_usd && s.atelier_savings_usd > 0
+                    ? `$${fmt(s.atelier_savings_usd)}`
+                    : "—"}
                 </td>
                 <td className="px-4 py-2">
                   <MiniBar
@@ -922,7 +929,10 @@ function ToolTable({
 // ---- Savings Insights ------------------------------------------------------
 
 function SavingsInsights({ dashboard }: { dashboard: AnalyticsDashboard }) {
-  const { top_sessions, by_model } = dashboard;
+  const { top_sessions, by_model, summary } = dashboard;
+  const savedUsd = summary?.total_atelier_savings_usd ?? 0;
+  const savedPct = summary?.savings_pct ?? 0;
+  const totalCost = summary?.total_cost ?? 0;
 
   const highCostSessions = top_sessions.filter((s) => s.cost > 1.0);
   const noCacheSessions = top_sessions.filter(
@@ -940,13 +950,43 @@ function SavingsInsights({ dashboard }: { dashboard: AnalyticsDashboard }) {
     <div className="space-y-4">
       <section className="border border-neutral-800 bg-neutral-950/40 p-5">
         <div className="text-[11px] uppercase tracking-widest text-neutral-400 font-bold mb-4">
+          Atelier Impact
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+          <div className="border border-emerald-900/40 bg-emerald-950/20 p-3 rounded">
+            <div className="text-[10px] uppercase tracking-widest text-emerald-400/80 font-bold mb-1">
+              Total Saved
+            </div>
+            <div className="text-2xl font-bold font-mono text-emerald-300">
+              ${savedUsd.toFixed(2)}
+            </div>
+          </div>
+          <div className="border border-neutral-800 bg-neutral-950/40 p-3 rounded">
+            <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-1">
+              Spend Window
+            </div>
+            <div className="text-2xl font-bold font-mono text-amber-300">
+              ${totalCost.toFixed(2)}
+            </div>
+          </div>
+          <div className="border border-neutral-800 bg-neutral-950/40 p-3 rounded">
+            <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-1">
+              Efficiency
+            </div>
+            <div className="text-2xl font-bold font-mono text-purple-300">
+              {savedPct.toFixed(1)}%
+            </div>
+          </div>
+        </div>
+        <div className="text-[11px] uppercase tracking-widest text-neutral-400 font-bold mb-4">
           Session Analysis
         </div>
         <div className="space-y-3">
           {highCostSessions.length > 0 && (
             <div className="border border-red-900/40 bg-red-950/20 p-3 rounded">
-              <div className="text-[10px] text-red-400 font-bold uppercase mb-1">
-                🔴 {highCostSessions.length} High-Cost Session
+              <div className="text-[10px] text-red-400 font-bold uppercase mb-1 flex items-center gap-1.5">
+                <AlertCircle size={12} /> {highCostSessions.length} High-Cost
+                Session
                 {highCostSessions.length > 1 ? "s" : ""} (&gt;$1.00 each)
               </div>
               <div className="text-[10px] text-red-300/70 space-y-0.5">
@@ -966,8 +1006,8 @@ function SavingsInsights({ dashboard }: { dashboard: AnalyticsDashboard }) {
 
           {noCacheSessions.length > 0 && (
             <div className="border border-amber-900/40 bg-amber-950/20 p-3 rounded">
-              <div className="text-[10px] text-amber-400 font-bold uppercase mb-1">
-                🟡 {noCacheSessions.length} Session
+              <div className="text-[10px] text-amber-400 font-bold uppercase mb-1 flex items-center gap-1.5">
+                <Info size={12} /> {noCacheSessions.length} Session
                 {noCacheSessions.length > 1 ? "s" : ""} with Low Cache
                 Utilization
               </div>
@@ -983,8 +1023,9 @@ function SavingsInsights({ dashboard }: { dashboard: AnalyticsDashboard }) {
 
           {heavyContextSessions.length > 0 && (
             <div className="border border-purple-900/40 bg-purple-950/20 p-3 rounded">
-              <div className="text-[10px] text-purple-400 font-bold uppercase mb-1">
-                🟣 {heavyContextSessions.length} Context-Heavy Session
+              <div className="text-[10px] text-purple-400 font-bold uppercase mb-1 flex items-center gap-1.5">
+                <Zap size={12} /> {heavyContextSessions.length} Context-Heavy
+                Session
                 {heavyContextSessions.length > 1 ? "s" : ""} (&gt;500k input
                 tokens)
               </div>
@@ -1004,8 +1045,9 @@ function SavingsInsights({ dashboard }: { dashboard: AnalyticsDashboard }) {
 
           {multiModelCount > 2 && (
             <div className="border border-blue-900/40 bg-blue-950/20 p-3 rounded">
-              <div className="text-[10px] text-blue-400 font-bold uppercase mb-1">
-                🔵 {multiModelCount} Active Models — Consider Consolidation
+              <div className="text-[10px] text-blue-400 font-bold uppercase mb-1 flex items-center gap-1.5">
+                <Info size={12} /> {multiModelCount} Active Models — Consider
+                Consolidation
               </div>
               <div className="text-[10px] text-blue-300/70">
                 You're using {multiModelCount} models with non-trivial cost.
@@ -1017,9 +1059,9 @@ function SavingsInsights({ dashboard }: { dashboard: AnalyticsDashboard }) {
           {highCostSessions.length === 0 &&
             noCacheSessions.length === 0 &&
             heavyContextSessions.length === 0 && (
-              <div className="text-neutral-500 italic text-xs">
-                ✅ No significant optimization opportunities detected in this
-                period.
+              <div className="text-neutral-500 italic text-xs flex items-center gap-1.5">
+                <CheckCircle2 size={12} className="text-emerald-500" /> No
+                significant optimization opportunities detected in this period.
               </div>
             )}
         </div>
@@ -1459,15 +1501,25 @@ export default function Analytics() {
       {activeTab === "Overview" && (
         <div className="space-y-6">
           {/* Summary metrics */}
-          <section className="grid gap-4 md:grid-cols-4">
+          <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
             <MetricCard
               label="Total Estimated Cost"
               value={`$${stats.total_cost.toFixed(2)}`}
-              tone="emerald"
+              tone="amber"
             />
             <MetricCard
               label="Projected Month-End"
               value={`$${stats.estimated_monthly_cost.toFixed(2)}`}
+              tone="amber"
+            />
+            <MetricCard
+              label="Atelier Savings"
+              value={`$${(dashboard?.summary?.total_atelier_savings_usd ?? 0).toFixed(2)}`}
+              detail={
+                (dashboard?.summary?.savings_pct ?? 0) > 0
+                  ? `${(dashboard?.summary?.savings_pct ?? 0).toFixed(1)}% of spend`
+                  : undefined
+              }
               tone="emerald"
             />
             <MetricCard
@@ -1865,19 +1917,10 @@ export default function Analytics() {
                   onChange={(e) => setSearch(e.target.value)}
                   className="bg-neutral-900 border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 focus:outline-none focus:border-emerald-500 w-64 pl-8"
                 />
-                <svg
-                  className="absolute left-2.5 top-2 w-3.5 h-3.5 text-neutral-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
+                <Search
+                  size={14}
+                  className="absolute left-2.5 top-2 text-neutral-600"
+                />
               </div>
             </div>
             <div className="overflow-x-auto">

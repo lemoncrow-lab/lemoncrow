@@ -54,6 +54,7 @@ TRACE_FTS_COLUMNS = [
     "output",
     "files",
     "validations",
+    "learnings",
     "meta",
 ]
 
@@ -66,7 +67,8 @@ TRACE_FTS_SNIPPETS = [
     (6, "Summary"),
     (7, "Files"),
     (8, "Validations"),
-    (9, "Run"),
+    (9, "Learnings"),
+    (10, "Run"),
 ]
 
 TRACE_FTS_DDL = """
@@ -80,6 +82,7 @@ CREATE VIRTUAL TABLE traces_fts USING fts5(
     output,
     files,
     validations,
+    learnings,
     meta,
     tokenize = 'porter'
 )
@@ -140,6 +143,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS traces_fts USING fts5(
     output,
     files,
     validations,
+    learnings,
     meta,
     tokenize = 'porter'
 );
@@ -487,6 +491,22 @@ class ContextStore:
             )
         validations = "\n".join(validation_parts)
 
+        learning_parts = []
+        for learning in trace.learnings:
+            learning_parts.append(
+                "\n".join(
+                    part
+                    for part in [
+                        learning.kind,
+                        learning.text,
+                        learning.evidence,
+                        learning.promote_to or "",
+                    ]
+                    if part
+                )
+            )
+        learnings = "\n\n".join(learning_parts)
+
         meta = "\n".join(
             part
             for part in [
@@ -510,6 +530,7 @@ class ContextStore:
             output,
             files,
             validations,
+            learnings,
             meta,
         )
 
@@ -853,8 +874,8 @@ class ContextStore:
 
     def _update_trace_fts(self, cur: sqlite3.Cursor, trace: Trace) -> None:
         """Update the FTS5 index for a single trace."""
-        task, reasoning, tools, commands, errors, output, files, validations, meta = self._build_trace_search_document(
-            trace
+        task, reasoning, tools, commands, errors, output, files, validations, learnings, meta = (
+            self._build_trace_search_document(trace)
         )
 
         cur.execute("DELETE FROM traces_fts WHERE id = ?", (trace.id,))
@@ -870,11 +891,24 @@ class ContextStore:
                 output,
                 files,
                 validations,
+                learnings,
                 meta
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (trace.id, task, reasoning, tools, commands, errors, output, files, validations, meta),
+            (
+                trace.id,
+                task,
+                reasoning,
+                tools,
+                commands,
+                errors,
+                output,
+                files,
+                validations,
+                learnings,
+                meta,
+            ),
         )
 
     def delete_trace(self, trace_id: str) -> None:
@@ -960,10 +994,12 @@ class ContextStore:
                 "snippet(traces_fts, 6, '[[', ']]', '...', 12) as s_summary, "
                 "snippet(traces_fts, 7, '[[', ']]', '...', 12) as s_files, "
                 "snippet(traces_fts, 8, '[[', ']]', '...', 12) as s_validations, "
-                "snippet(traces_fts, 9, '[[', ']]', '...', 12) as s_run "
+                "snippet(traces_fts, 9, '[[', ']]', '...', 12) as s_learnings, "
+                "snippet(traces_fts, 10, '[[', ']]', '...', 12) as s_run "
                 "FROM traces_fts "
                 "JOIN traces t ON t.id = traces_fts.id "
                 "WHERE traces_fts MATCH ? "
+                "AND t.task != 'session-auto-record' "
             )
             params: list[Any] = [search_query]
             if domain:
@@ -997,7 +1033,7 @@ class ContextStore:
             return results
 
         # Standard filter path
-        sql = "SELECT payload FROM traces WHERE 1=1"
+        sql = "SELECT payload FROM traces WHERE task != 'session-auto-record' AND 1=1"
         params = []
         if domain:
             sql += " AND domain = ?"
@@ -1030,7 +1066,7 @@ class ContextStore:
         since: datetime | None = None,
     ) -> dict[str, Any]:
         """Return aggregate metrics for traces matching the filters."""
-        base_sql = "FROM traces WHERE 1=1"
+        base_sql = "FROM traces WHERE task != 'session-auto-record' AND 1=1"
         params: list[Any] = []
         if domain:
             base_sql += " AND domain = ?"

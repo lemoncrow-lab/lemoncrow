@@ -17,17 +17,13 @@ agents/
   explore.md           atelier:explore — read-only exploration; cyan frame
   review.md            atelier:review — plan/rubric verifier; green frame
   repair.md            atelier:repair — repeated-failure rescue; red frame
+  research.md          atelier:research — external research and citation mode
 skills/                Slash commands produced via /atelier:<name>
-  status/SKILL.md      /atelier:status
-  context/SKILL.md     /atelier:context
-  savings/SKILL.md     /atelier:savings
-  benchmark/SKILL.md   /atelier:benchmark
-  analyze-failures/    /atelier:analyze-failures
-  evals/SKILL.md       /atelier:evals
-  settings/SKILL.md    /atelier:settings
-  context/SKILL.md     /atelier:context — context retrieval and task-loop start
-  atelier-rescue/      Internal skill — rescue trigger
-  record/              Internal skill — record outcomes
+  code/SKILL.md        /atelier:code
+  explore/SKILL.md     /atelier:explore
+  review/SKILL.md      /atelier:review
+  repair/SKILL.md      /atelier:repair
+  research/SKILL.md    /atelier:research
 hooks/hooks.json       PostToolUse/PreToolUse hooks (all enabled=false by default)
 scripts/statusline.sh  Multi-line Claude status chrome; separates `atelier:code` from `atelier`
 .mcp.json              MCP server wiring via ${CLAUDE_PLUGIN_ROOT}

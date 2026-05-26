@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { HelpCircle, Circle } from "lucide-react";
 import {
   getTelemetryEvents,
   getTelemetrySchema,
@@ -70,9 +71,9 @@ function HintButton({ label, hint }: { label: string; hint: string }) {
       type="button"
       aria-label={label}
       title={hint}
-      className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-800 bg-neutral-950 text-[10px] font-mono text-neutral-500 transition hover:border-cyan-500/60 hover:text-cyan-300"
+      className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-800 bg-neutral-950 text-neutral-500 transition hover:border-cyan-500/60 hover:text-cyan-300"
     >
-      ?
+      <HelpCircle size={12} />
     </button>
   );
 }
@@ -404,13 +405,7 @@ function EventRow({
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-4 py-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <svg
-              className="mt-0.5 h-2.5 w-2.5"
-              viewBox="0 0 10 10"
-              aria-hidden="true"
-            >
-              <circle cx="5" cy="5" r="5" fill={color} />
-            </svg>
+            <Circle size={10} fill={color} stroke="none" className="mt-0.5" />
             <span className="font-mono text-xs uppercase tracking-widest text-neutral-100">
               {item.event}
             </span>

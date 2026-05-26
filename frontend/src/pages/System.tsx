@@ -1,5 +1,32 @@
 import { useEffect, useState } from "react";
-import { api, type Agent, type HostAdapter, type MCPStatus, type Skill } from "../api";
+import { Navigate, useSearchParams } from "react-router-dom";
+import {
+  Archive,
+  Bot,
+  Brain,
+  Circle,
+  Check,
+  CheckCircle,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Command,
+  HardDrive,
+  Heart,
+  Microscope,
+  Minus,
+  Plus,
+  Search,
+  Terminal,
+  Wrench,
+} from "lucide-react";
+import {
+  api,
+  type Agent,
+  type HostAdapter,
+  type MCPStatus,
+  type Skill,
+} from "../api";
 import { getTelemetryConfig, type TelemetryConfig } from "../lib/insightsApi";
 import {
   Alert,
@@ -18,9 +45,8 @@ function HostIcon({ id }: { id: string }) {
   const SRC_MAP: Record<string, string> = {
     claude: "/logos/hosts/claude.svg",
     codex: "/logos/hosts/codex.svg",
-    opencode: "/logos/hosts/opencode.png",
+    opencode: "/logos/hosts/opencode.svg",
     copilot: "/logos/hosts/copilot.svg",
-    antigravity: "/logos/hosts/gemini.svg",
   };
 
   const ALT_MAP: Record<string, string> = {
@@ -29,13 +55,27 @@ function HostIcon({ id }: { id: string }) {
     opencode: "OpenCode",
     copilot: "GitHub Copilot",
     antigravity: "Antigravity",
+    cursor: "Cursor IDE",
+    hermes: "Hermes Agent",
+  };
+
+  const INITIALS: Record<string, string> = {
+    antigravity: "AG",
+    cursor: "CU",
+    hermes: "HE",
   };
 
   const src = SRC_MAP[id];
-  if (!src) return <span className="text-xl">◌</span>;
+  if (!src) {
+    return (
+      <span className="inline-flex h-7 w-7 items-center justify-center border border-neutral-700 bg-neutral-900 text-[10px] font-bold text-neutral-300">
+        {INITIALS[id] ?? "◌"}
+      </span>
+    );
+  }
 
   return (
-    <span className="inline-flex h-7 w-7 items-center justify-center  bg-white p-1 overflow-hidden">
+    <span className="inline-flex h-7 w-7 items-center justify-center overflow-hidden bg-white p-1">
       <img
         src={src}
         alt={ALT_MAP[id] ?? id}
@@ -47,14 +87,34 @@ function HostIcon({ id }: { id: string }) {
 }
 
 const HOST_DESC: Record<string, string> = {
-  claude: "Full plugin: agents + skills + MCP + hooks",
-  codex: "MCP config + Codex savings/update hooks",
-  opencode: "OpenCode config + shared telemetry",
-  copilot: "MCP config + custom instructions + shared telemetry",
-  antigravity: ".antigravity/settings.json MCP + shared telemetry",
+  claude: "Generated AGENTS surface, MCP wrapper, and Claude plugin hooks.",
+  codex:
+    "Codex MCP registration with generated instructions and shared telemetry.",
+  opencode:
+    "OpenCode MCP config with imported session support and local agents.",
+  copilot:
+    "VS Code / Copilot MCP config with custom instructions and shared telemetry.",
+  antigravity:
+    "Antigravity MCP config plus generated AGENTS guidance and agy companion flow.",
+  cursor: "Cursor MCP config with project rules and MCP-first guidance.",
+  hermes: "Global-only Hermes MCP registration through ~/.hermes/config.yaml.",
 };
 
-function HostsSection() {
+const HOST_SCOPE_BADGES: Record<string, string> = {
+  hermes: "GLOBAL ONLY",
+};
+
+const HOST_ORDER = [
+  "claude",
+  "codex",
+  "opencode",
+  "copilot",
+  "antigravity",
+  "cursor",
+  "hermes",
+] as const;
+
+export function HostsSection() {
   const [hosts, setHosts] = useState<HostAdapter[]>([]);
 
   useEffect(() => {
@@ -64,37 +124,76 @@ function HostsSection() {
       .catch(() => setHosts([]));
   }, []);
 
-  const activeHosts = hosts.filter((host) => host.status === "active");
+  const orderedHosts = [...hosts].sort((left, right) => {
+    const leftStatus = left.status === "active" ? 0 : 1;
+    const rightStatus = right.status === "active" ? 0 : 1;
+    if (leftStatus !== rightStatus) return leftStatus - rightStatus;
+
+    const leftOrder = HOST_ORDER.indexOf(
+      left.host_id as (typeof HOST_ORDER)[number]
+    );
+    const rightOrder = HOST_ORDER.indexOf(
+      right.host_id as (typeof HOST_ORDER)[number]
+    );
+    const safeLeft = leftOrder === -1 ? Number.MAX_SAFE_INTEGER : leftOrder;
+    const safeRight = rightOrder === -1 ? Number.MAX_SAFE_INTEGER : rightOrder;
+    if (safeLeft !== safeRight) return safeLeft - safeRight;
+    return left.label.localeCompare(right.label);
+  });
 
   return (
     <section className="space-y-3">
       <h2 className="text-xs uppercase tracking-widest text-neutral-500 font-mono">
         Hosts
       </h2>
-      {activeHosts.length === 0 ? (
+      <p className="text-xs text-neutral-400">
+        Atelier can configure these host surfaces. Detected hosts are shown
+        first, but unsupported gaps are still visible so you can wire them up
+        directly.
+      </p>
+      {orderedHosts.length === 0 ? (
         <EmptyState
-          title="No active hosts detected"
-          description="Host cards appear after telemetry traces are recorded for a host."
+          title="No supported hosts found"
+          description="Host configs are loaded from Atelier's integration catalog."
           className="p-4"
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          {activeHosts.map((host) => (
+          {orderedHosts.map((host) => (
             <Card key={host.host_id} className="bg-neutral-950/80 p-4">
               <div className="flex items-start gap-3">
                 <span className="shrink-0">
                   <HostIcon id={host.host_id} />
                 </span>
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="text-base font-semibold text-neutral-100">
                       {host.label}
                     </div>
-                    <Chip tone="emerald">active</Chip>
+                    <Chip
+                      tone={host.status === "active" ? "emerald" : "neutral"}
+                    >
+                      {host.status === "active" ? "detected" : "not detected"}
+                    </Chip>
+                    {HOST_SCOPE_BADGES[host.host_id] && (
+                      <Chip tone="amber">
+                        {HOST_SCOPE_BADGES[host.host_id]}
+                      </Chip>
+                    )}
                   </div>
-                  <p className="mt-1 text-sm text-neutral-400">
+                  <p className="text-sm text-neutral-400">
                     {host.description ?? HOST_DESC[host.host_id] ?? ""}
                   </p>
+                  {host.install_command && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-mono">
+                        Install
+                      </div>
+                      <code className="block break-all border border-neutral-800 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-300">
+                        {host.install_command}
+                      </code>
+                    </div>
+                  )}
                 </div>
               </div>
             </Card>
@@ -108,15 +207,13 @@ function HostsSection() {
 // ---------------------------------------------------------------------------
 // Agents section
 // ---------------------------------------------------------------------------
-// Agents section
-// ---------------------------------------------------------------------------
 
-const AGENT_ICON: Record<string, string> = {
-  code: "💜",
-  explore: "🔍",
-  review: "✅",
-  repair: "🔧",
-  research: "🔬",
+const AGENT_ICON: Record<string, React.ElementType> = {
+  code: Heart,
+  explore: Search,
+  review: CheckCircle,
+  repair: Wrench,
+  research: Microscope,
 };
 
 const AGENT_BG: Record<string, string> = {
@@ -128,7 +225,16 @@ const AGENT_BG: Record<string, string> = {
   yellow: "bg-yellow-700",
 };
 
-function AgentsSection() {
+const AGENT_TEXT: Record<string, string> = {
+  purple: "text-purple-400",
+  cyan: "text-cyan-400",
+  green: "text-green-400",
+  red: "text-red-400",
+  blue: "text-blue-400",
+  yellow: "text-yellow-400",
+};
+
+export function AgentsSection() {
   const [agents, setAgents] = useState<Agent[] | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -181,7 +287,8 @@ function AgentCard({
   onToggle: () => void;
 }) {
   const bg = AGENT_BG[agent.color] ?? "bg-neutral-800/40";
-  const icon = AGENT_ICON[agent.id] ?? "🤖";
+  const color = AGENT_TEXT[agent.color] ?? "text-neutral-200";
+  const Icon = AGENT_ICON[agent.id] ?? Bot;
   return (
     <DisclosureCard
       open={expanded}
@@ -189,7 +296,9 @@ function AgentCard({
       contentClassName="space-y-4"
       header={
         <div className="flex min-w-0 items-start gap-4">
-          <div className="mt-0.5 shrink-0 text-2xl">{icon}</div>
+          <div className={`mt-0.5 shrink-0 ${color}`}>
+            <Icon size={24} />
+          </div>
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex flex-wrap items-center gap-3">
               <span
@@ -197,17 +306,19 @@ function AgentCard({
                   expanded ? "rotate-0" : ""
                 }`}
               >
-                <span
+                <ChevronRight
+                  size={14}
                   className={`transition-transform ${expanded ? "rotate-90" : ""}`}
-                >
-                  ❯
-                </span>
+                />
                 <span className="font-bold text-neutral-200 text-sm">
                   {agent.name}
                 </span>
               </span>
               {agent.model && (
-                <Chip tone="neutral" className="normal-case tracking-normal text-[10px]">
+                <Chip
+                  tone="neutral"
+                  className="normal-case tracking-normal text-[10px]"
+                >
                   {agent.model}
                 </Chip>
               )}
@@ -219,7 +330,9 @@ function AgentCard({
     >
       {/* Tools */}
       <div>
-        <FieldLabel className="mb-2">❯ tools</FieldLabel>
+        <FieldLabel className="mb-2">
+          <ChevronRight size={10} className="inline mr-1" /> tools
+        </FieldLabel>
         <div className="flex flex-wrap gap-1">
           {agent.tools.map((t) => (
             <Chip
@@ -236,7 +349,9 @@ function AgentCard({
       {/* Content (markdown body) */}
       {agent.content && (
         <div>
-          <FieldLabel className="mb-2">❯ instructions</FieldLabel>
+          <FieldLabel className="mb-2">
+            <ChevronRight size={10} className="inline mr-1" /> instructions
+          </FieldLabel>
           <pre className="text-[10px] bg-neutral-950 px-2 py-2 text-neutral-400 font-mono border border-neutral-700 block overflow-auto max-h-48 whitespace-pre-wrap">
             {agent.content}
           </pre>
@@ -258,7 +373,7 @@ function AgentCard({
 // Skills section
 // ---------------------------------------------------------------------------
 
-function SkillsSection() {
+export function SkillsSection() {
   const [skills, setSkills] = useState<Skill[] | null>(null);
   const [config, setConfig] = useState<TelemetryConfig | null>(null);
   const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
@@ -297,7 +412,7 @@ function SkillsSection() {
               skill={{
                 name: s.name,
                 desc: s.description,
-                icon: "✓",
+                icon: Check,
               }}
               isExpanded={expandedSkill === s.name}
               onToggle={() =>
@@ -326,7 +441,7 @@ function SkillCard({
   isExpanded,
   onToggle,
 }: {
-  skill: { name: string; desc: string; icon: string };
+  skill: { name: string; desc: string; icon: React.ElementType };
   isExpanded: boolean;
   onToggle: () => void;
 }) {
@@ -362,7 +477,9 @@ function SkillCard({
         onClick={toggle}
         className="flex items-start gap-2 w-full text-left"
       >
-        <span className="mt-0.5">{skill.icon}</span>
+        <span className="mt-0.5">
+          <skill.icon size={14} className="text-emerald-500" />
+        </span>
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-mono font-medium text-neutral-200 truncate">
             {skill.name}
@@ -372,7 +489,13 @@ function SkillCard({
           </div>
         </div>
         <span className="text-neutral-600">
-          {loading ? "..." : isExpanded ? "−" : "+"}
+          {loading ? (
+            "..."
+          ) : isExpanded ? (
+            <Minus size={14} />
+          ) : (
+            <Plus size={14} />
+          )}
         </span>
       </button>
       {isExpanded && content && (
@@ -391,60 +514,57 @@ function SkillCard({
 // ---------------------------------------------------------------------------
 
 const NS_MAP: Record<string, string> = {
-  reasoning: "brain",
-  lint: "brain",
-  route: "brain",
-  rescue: "brain",
-  verify: "brain",
-  read: "code",
-  edit: "code",
-  search: "code",
-  sql: "code",
-  code_index: "code",
-  code_search: "code",
-  code_symbol: "code",
-  code_outline: "code",
-  code_context: "code",
-  code_impact: "code",
-  shell: "shell",
-  trace: "capture",
-  memory: "storage",
-  compact: "infra",
+  context: "reasoning",
+  route: "reasoning",
+  rescue: "reasoning",
+  verify: "reasoning",
+  code: "code_intel",
+  grep: "retrieval",
+  search: "retrieval",
+  read: "file_io",
+  edit: "file_io",
+  shell: "execution",
+  sql: "execution",
+  trace: "state",
+  memory: "state",
+  compact: "state",
 };
 
-const NS_META: Record<string, { icon: string; label: string; color: string }> =
-  {
-    brain: {
-      icon: "🧠",
-      label: "brain",
-      color: "text-purple-400 border-purple-900/50 bg-purple-950/10",
-    },
-    code: {
-      icon: "⌘",
-      label: "code",
-      color: "text-cyan-300 border-cyan-900/50 bg-cyan-950/10",
-    },
-    shell: {
-      icon: ">_",
-      label: "shell",
-      color: "text-orange-300 border-orange-900/50 bg-orange-950/10",
-    },
-    capture: {
-      icon: "📇",
-      label: "capture",
-      color: "text-amber-400 border-amber-900/50 bg-amber-950/10",
-    },
-    storage: {
-      icon: "🗄️",
-      label: "storage",
-      color: "text-emerald-400 border-emerald-900/50 bg-emerald-950/10",
-    },
-    infra: {
-      icon: "⚙️",
-      label: "infra",
-      color: "text-sky-400 border-sky-900/50 bg-sky-950/10",
-    },
-  };
+const NS_META: Record<
+  string,
+  { icon: React.ElementType; label: string; color: string }
+> = {
+  reasoning: {
+    icon: Brain,
+    label: "reasoning",
+    color: "text-purple-400 border-purple-900/50 bg-purple-950/10",
+  },
+  code_intel: {
+    icon: Command,
+    label: "code intel",
+    color: "text-cyan-300 border-cyan-900/50 bg-cyan-950/10",
+  },
+  retrieval: {
+    icon: Search,
+    label: "retrieval",
+    color: "text-sky-300 border-sky-900/50 bg-sky-950/10",
+  },
+  file_io: {
+    icon: HardDrive,
+    label: "file i/o",
+    color: "text-emerald-300 border-emerald-900/50 bg-emerald-950/10",
+  },
+  execution: {
+    icon: Terminal,
+    label: "execution",
+    color: "text-orange-300 border-orange-900/50 bg-orange-950/10",
+  },
+  state: {
+    icon: Archive,
+    label: "state",
+    color: "text-amber-400 border-amber-900/50 bg-amber-950/10",
+  },
+};
 
 function canonicalName(name: string): string {
   return name.startsWith("atelier_") ? name.slice("atelier_".length) : name;
@@ -462,7 +582,17 @@ function isDevTool(tool: MCPStatus): boolean {
   return tool.is_dev === true || descriptionIndicatesDev(tool.description);
 }
 
-function ToolsSection() {
+function primaryEnumParam(tool: MCPStatus) {
+  return (
+    tool.enum_params?.find(
+      (param) => param.name === "op" || param.name === "action"
+    ) ??
+    tool.enum_params?.[0] ??
+    null
+  );
+}
+
+export function ToolsSection() {
   const [mcpTools, setMcpTools] = useState<MCPStatus[] | null>(null);
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -502,12 +632,12 @@ function ToolsSection() {
           }
 
           const nsOrder = [
-            "brain",
-            "code",
-            "shell",
-            "capture",
-            "storage",
-            "infra",
+            "reasoning",
+            "code_intel",
+            "retrieval",
+            "file_io",
+            "execution",
+            "state",
             "other",
           ];
 
@@ -520,7 +650,7 @@ function ToolsSection() {
                 .filter((ns) => groups[ns]?.length)
                 .map((ns) => {
                   const meta = NS_META[ns] ?? {
-                    icon: "•",
+                    icon: Circle,
                     label: ns,
                     color:
                       "text-neutral-400 border-neutral-800 bg-neutral-900/30",
@@ -529,7 +659,7 @@ function ToolsSection() {
                   return (
                     <div key={ns}>
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="text-sm">{meta.icon}</span>
+                        <meta.icon size={14} className="text-neutral-500" />
                         <span className="text-[10px] uppercase tracking-widest font-mono text-neutral-500">
                           {meta.label}
                         </span>
@@ -542,6 +672,7 @@ function ToolsSection() {
                           const isExpanded = expandedTool === tool.tool_name;
                           const desc = tool.description;
                           const isDev = isDevTool(tool);
+                          const primaryEnum = primaryEnumParam(tool);
                           const cleanDescription = descriptionIndicatesDev(desc)
                             ? desc!.slice("[DEV]".length).trim()
                             : desc;
@@ -563,6 +694,15 @@ function ToolsSection() {
                                 <span className="font-mono font-semibold text-neutral-200 text-xs flex-1">
                                   {tool.tool_name}
                                 </span>
+                                {primaryEnum && (
+                                  <span className="text-[8px] font-bold text-cyan-300 border border-cyan-500/30 px-1 py-0.5 mr-2">
+                                    {primaryEnum.options.length}{" "}
+                                    {primaryEnum.name}
+                                    {primaryEnum.options.length === 1
+                                      ? ""
+                                      : "s"}
+                                  </span>
+                                )}
                                 {isDev && (
                                   <span className="text-[8px] font-bold text-amber-500/60 border border-amber-500/30 px-1 py-0.5 mr-2">
                                     DEV
@@ -573,8 +713,12 @@ function ToolsSection() {
                                     PASSIVE
                                   </span>
                                 )}
-                                <span className="text-[10px] text-neutral-600">
-                                  {isExpanded ? "▲" : "▼"}
+                                <span className="text-neutral-600">
+                                  {isExpanded ? (
+                                    <ChevronUp size={14} />
+                                  ) : (
+                                    <ChevronDown size={14} />
+                                  )}
                                 </span>
                               </div>
                               {isExpanded && (
@@ -602,6 +746,49 @@ function ToolsSection() {
                                       {tool.tool_name}
                                     </code>
                                   </div>
+                                  {tool.enum_params &&
+                                    tool.enum_params.length > 0 && (
+                                      <div className="mt-4 space-y-3">
+                                        <FieldLabel className="mb-1">
+                                          <ChevronRight
+                                            size={10}
+                                            className="inline mr-1"
+                                          />{" "}
+                                          enum params
+                                        </FieldLabel>
+                                        {tool.enum_params.map((param) => (
+                                          <div
+                                            key={`${tool.tool_name}-${param.name}`}
+                                            className="space-y-2"
+                                          >
+                                            <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-neutral-500 font-mono">
+                                              <code className="border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-neutral-300 normal-case">
+                                                {param.name}
+                                              </code>
+                                              <span>
+                                                {param.options.length} values
+                                              </span>
+                                            </div>
+                                            {param.description && (
+                                              <p className="text-[10px] text-neutral-500">
+                                                {param.description}
+                                              </p>
+                                            )}
+                                            <div className="flex flex-wrap gap-1">
+                                              {param.options.map((option) => (
+                                                <Chip
+                                                  key={`${tool.tool_name}-${param.name}-${option}`}
+                                                  tone="neutral"
+                                                  className="normal-case tracking-normal"
+                                                >
+                                                  {option}
+                                                </Chip>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
                                 </div>
                               )}
                             </div>
@@ -622,13 +809,93 @@ function ToolsSection() {
 // Main System page: Host → Agents → Skills → Tools
 // ---------------------------------------------------------------------------
 
-export default function System() {
+function SystemPageFrame({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="space-y-10 text-sm">
-      <HostsSection />
-      <AgentsSection />
-      <SkillsSection />
-      <ToolsSection />
+    <div className="space-y-8 p-6 text-sm">
+      <section className="border border-neutral-800 bg-neutral-950/70 p-5">
+        <div className="space-y-2">
+          <div className="text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+            System
+          </div>
+          <h1 className="text-2xl font-semibold text-neutral-100">{title}</h1>
+          <p className="max-w-3xl text-sm text-neutral-400">{description}</p>
+        </div>
+      </section>
+      <div className="space-y-10">{children}</div>
     </div>
+  );
+}
+
+const LEGACY_TAB_ROUTES: Record<string, string> = {
+  hosts: "/system/hosts",
+  agents: "/system/agents",
+  skills: "/system/skills",
+  mcp: "/system/mcp",
+};
+
+export function SystemHosts() {
+  return (
+    <SystemPageFrame
+      title="Host adapters"
+      description="Installed host integrations and the environments where Atelier is active."
+    >
+      <HostsSection />
+    </SystemPageFrame>
+  );
+}
+
+export function SystemAgents() {
+  return (
+    <SystemPageFrame
+      title="Agent catalog"
+      description="Available built-in agents, their models, tools, and source definitions."
+    >
+      <AgentsSection />
+    </SystemPageFrame>
+  );
+}
+
+export function SystemSkills() {
+  return (
+    <SystemPageFrame
+      title="Skill catalog"
+      description="Installed skills with descriptions and expandable source content."
+    >
+      <SkillsSection />
+    </SystemPageFrame>
+  );
+}
+
+export function SystemMcp() {
+  return (
+    <SystemPageFrame
+      title="MCP tools"
+      description="Grouped stdio MCP tool availability, descriptions, and runtime mode."
+    >
+      <ToolsSection />
+    </SystemPageFrame>
+  );
+}
+
+export default function System() {
+  const [searchParams] = useSearchParams();
+  const legacyTab = searchParams.get("tab");
+  return (
+    <Navigate
+      to={
+        legacyTab && LEGACY_TAB_ROUTES[legacyTab]
+          ? LEGACY_TAB_ROUTES[legacyTab]
+          : "/system/hosts"
+      }
+      replace
+    />
   );
 }

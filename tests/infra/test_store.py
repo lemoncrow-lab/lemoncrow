@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from atelier.core.foundation.models import ReasonBlock, Rubric, Trace, ValidationResult
+from atelier.core.foundation.models import (
+    ReasonBlock,
+    Rubric,
+    Trace,
+    TraceLearning,
+    ValidationResult,
+)
 from atelier.core.foundation.store import ContextStore
 from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
 
@@ -89,6 +95,13 @@ def test_trace_search_reindexes_existing_traces(tmp_path: Path) -> None:
             files_touched=["frontend/src/pages/Traces.tsx"],
             commands_run=["pytest tests/test_timeout.py"],
             output_summary="timeout waiting for deployment worker",
+            learnings=[
+                TraceLearning(
+                    kind="next_rule",
+                    text="Workspace fallback checks must include statusline savings.",
+                    promote_to="rubric",
+                )
+            ],
             validation_results=[
                 ValidationResult(
                     name="lint",
@@ -106,12 +119,13 @@ def test_trace_search_reindexes_existing_traces(tmp_path: Path) -> None:
     reloaded = ContextStore(root)
     reloaded.init()
 
-    matches = reloaded.list_traces(query="run-123 timeout lint Traces")
+    matches = reloaded.list_traces(query="run-123 timeout lint Traces workspace fallback")
 
     assert [trace.id for trace in matches] == ["trace-search-1"]
     assert matches[0].snippets is not None
     assert any(snippet.startswith("Files:") for snippet in matches[0].snippets)
     assert any(snippet.startswith("Validations:") for snippet in matches[0].snippets)
+    assert any(snippet.startswith("Learnings:") for snippet in matches[0].snippets)
 
 
 def test_rubric_roundtrip(store: ContextStore) -> None:

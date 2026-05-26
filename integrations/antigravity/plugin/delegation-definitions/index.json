@@ -1,0 +1,9 @@
+{
+  "agents": [
+    "atelier-code",
+    "atelier-explore",
+    "atelier-repair",
+    "atelier-research",
+    "atelier-review"
+  ]
+}

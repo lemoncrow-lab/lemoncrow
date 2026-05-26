@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -99,9 +98,10 @@ def test_run_via_mcp_handle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         }
     )
     assert resp is not None
-    payload = json.loads(resp["result"]["content"][0]["text"])
-    assert payload["exit_code"] == 0
-    assert "mcp_ok" in payload["stdout"]
+    text = resp["result"]["content"][0]["text"]
+    assert isinstance(text, str)
+    assert "mcp_ok" in text
+    assert "exit_code=" not in text
 
 
 def test_run_via_mcp_rewrites_cat(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,9 +119,10 @@ def test_run_via_mcp_rewrites_cat(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         }
     )
     assert resp is not None
-    payload = json.loads(resp["result"]["content"][0]["text"])
-    assert payload["exit_code"] == 0
-    assert "rewritten" in payload["stdout"]
+    text = resp["result"]["content"][0]["text"]
+    assert isinstance(text, str)
+    assert "rewritten" in text
+    assert "exit_code=" not in text
 
 
 def test_run_via_mcp_rewrites_rg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -140,6 +141,7 @@ def test_run_via_mcp_rewrites_rg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         }
     )
     assert resp is not None
-    payload = json.loads(resp["result"]["content"][0]["text"])
-    assert payload["exit_code"] == 0
-    assert "needle" in payload["stdout"]
+    text = resp["result"]["content"][0]["text"]
+    assert isinstance(text, str)
+    assert "needle" in text
+    assert "exit_code=" not in text

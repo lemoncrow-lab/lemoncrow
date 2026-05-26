@@ -104,24 +104,22 @@ bash scripts/install_claude.sh --print-only
 Start Claude Code in your workspace and type:
 
 ```text
-/atelier:status
+/atelier:explore
 ```
 
-You should see the Atelier runtime info (run ledger, service-backed state, version).
+You should switch into the read-only Atelier explore mode and get a focused repo-mapping workflow.
 
 ## Slash Commands (Skills)
 
 All commands use the `/atelier:name` format (colon, not dash):
 
-| Command                               | Description                                             |
-| ------------------------------------- | ------------------------------------------------------- |
-| `/atelier:status [session_id]`        | Show current run ledger — plan, facts, blockers, alerts |
-| `/atelier:context <domain>`           | Show environment context for a domain                   |
-| `/atelier:savings`                    | Report savings metrics                                  |
-| `/atelier:benchmark [--apply]`        | Run eval suite (dry-run by default)                     |
-| `/atelier:analyze-failures`           | Cluster recurring failures across runs                  |
-| `/atelier:evals list\|run\|promote`   | Manage eval cases                                       |
-| `/atelier:settings [off\|shadow\|on]` | Show or change smart-tool mode                          |
+| Command             | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| `/atelier:code`     | Switch to main coding mode                     |
+| `/atelier:explore`  | Switch to read-only exploration mode           |
+| `/atelier:review`   | Switch to adversarial review mode              |
+| `/atelier:repair`   | Switch to repeated-failure repair mode         |
+| `/atelier:research` | Switch to external research mode with citations |
 
 ## Agents
 
@@ -133,6 +131,7 @@ Select from the `/agents` list in Claude Code:
 | `atelier:explore` | Read-only repo exploration                   |
 | `atelier:review`  | Verifier — plan checks + rubric gate         |
 | `atelier:repair`  | Repair specialist — rescue repeated failures |
+| `atelier:research`| External research with citations             |
 
 ## V2 Tools — Memory and Context Savings
 

@@ -15,6 +15,7 @@ from atelier.core.foundation.models import (
     Rubric,
     RubricResult,
     Trace,
+    TraceLearning,
     TraceStatus,
     ValidationResult,
     to_jsonable,
@@ -135,6 +136,7 @@ class LocalClient(AtelierClient):
         diff_summary: str = "",
         output_summary: str = "",
         validation_results: list[ValidationResult] | None = None,
+        learnings: list[str | dict[str, Any] | TraceLearning] | None = None,
     ) -> TraceRecordResult:
         trace = Trace.model_validate(
             {
@@ -150,6 +152,7 @@ class LocalClient(AtelierClient):
                 "diff_summary": diff_summary,
                 "output_summary": output_summary,
                 "validation_results": validation_results or [],
+                "learnings": learnings or [],
             }
         )
         self.store.record_trace(trace)

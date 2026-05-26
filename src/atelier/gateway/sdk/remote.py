@@ -13,6 +13,7 @@ from atelier.core.foundation.models import (
     Rubric,
     RubricResult,
     Trace,
+    TraceLearning,
     TraceStatus,
     ValidationResult,
 )
@@ -173,7 +174,11 @@ class RemoteClient(AtelierClient):
         diff_summary: str = "",
         output_summary: str = "",
         validation_results: list[ValidationResult] | None = None,
+        learnings: list[str | dict[str, Any] | TraceLearning] | None = None,
     ) -> TraceRecordResult:
+        serialized_learnings = [
+            item.model_dump(mode="json") if isinstance(item, TraceLearning) else item for item in (learnings or [])
+        ]
         payload = self._ensure_ok(
             self._client.record_trace(
                 {
@@ -188,10 +193,11 @@ class RemoteClient(AtelierClient):
                     "diff_summary": diff_summary,
                     "output_summary": output_summary,
                     "validation_results": [result.model_dump(mode="json") for result in (validation_results or [])],
+                    "learnings": serialized_learnings,
                 }
             )
         )
-        payload = {"id": str(payload.get("id") or payload.get("session_id") or "")}
+        payload = {"id": str(payload.get("id") or payload.get("trace_id") or payload.get("session_id") or "")}
         return TraceRecordResult.model_validate(payload)
 
     def analyze_failures(

@@ -1,5 +1,11 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import {
+  ArrowLeft,
+  Check,
+  ChevronRight,
+  X,
+} from "lucide-react";
 import { api, type Rubric } from "../api";
 import {
   Alert,
@@ -57,8 +63,9 @@ export default function Rubrics() {
           <Button
             onClick={() => navigate("/knowledge/rubrics")}
             size="xs"
+            icon={<ArrowLeft size={12} />}
           >
-            ← All rubrics
+            All rubrics
           </Button>
         )}
         <FieldLabel>
@@ -109,13 +116,12 @@ export default function Rubrics() {
                     <Chip tone="neutral">{r.domain}</Chip>
                     <div className="min-w-0 flex-1">
                       <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`text-neutral-500 font-mono text-xs transition-transform ${
+                        <ChevronRight
+                          size={14}
+                          className={`text-neutral-500 transition-transform ${
                             isExpanded ? "rotate-90" : ""
                           }`}
-                        >
-                          ❯
-                        </span>
+                        />
                         <h3 className="font-mono font-bold text-neutral-200">
                           {r.id}
                         </h3>
@@ -130,7 +136,9 @@ export default function Rubrics() {
               >
                     {/* ID */}
                     <div>
-                      <FieldLabel className="mb-2">ID</FieldLabel>
+                      <FieldLabel className="mb-2">
+                        <ChevronRight size={10} className="inline mr-1" /> ID
+                      </FieldLabel>
                       <code className="text-[10px] bg-neutral-950 px-2 py-1 text-neutral-500 font-mono border border-neutral-800 block break-all">
                         {r.id}
                       </code>
@@ -138,7 +146,9 @@ export default function Rubrics() {
 
                     {/* Timestamps */}
                     <div>
-                      <FieldLabel className="mb-2">❯ created</FieldLabel>
+                      <FieldLabel className="mb-2">
+                        <ChevronRight size={10} className="inline mr-1" /> created
+                      </FieldLabel>
                       <p className="text-xs text-neutral-400 font-mono">
                         {new Date(r.created_at).toLocaleString()}
                       </p>
@@ -151,16 +161,16 @@ export default function Rubrics() {
 
                     {/* Required Checks */}
                     <div>
-                      <FieldLabel className="mb-2">❯ required checks</FieldLabel>
+                      <FieldLabel className="mb-2">
+                        <ChevronRight size={10} className="inline mr-1" /> required checks
+                      </FieldLabel>
                       <ul className="space-y-1">
                         {r.required_checks.map((check, i) => (
                           <li
                             key={i}
                             className="text-[11px] text-neutral-300 leading-relaxed bg-neutral-900/40 px-2 py-1 border border-neutral-800 flex items-start gap-2"
                           >
-                            <span className="text-emerald-400 flex-shrink-0 mt-0.5">
-                              ✓
-                            </span>
+                            <Check size={14} className="text-emerald-400 flex-shrink-0 mt-0.5" />
                             <span>{check}</span>
                           </li>
                         ))}
@@ -196,9 +206,7 @@ export default function Rubrics() {
                                   key={j}
                                   className="text-[11px] text-red-300 flex items-start gap-1"
                                 >
-                                  <span className="flex-shrink-0 text-red-500 font-bold">
-                                    ✗
-                                  </span>
+                                  <X size={14} className="flex-shrink-0 text-red-500 font-bold" />
                                   <span>{f}</span>
                                 </li>
                               ))}

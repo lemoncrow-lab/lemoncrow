@@ -17,6 +17,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 _MAX_OUTPUT_BYTES = 4096  # 4 KB per stream
 
@@ -56,7 +57,8 @@ def _atelier_root() -> Path:
 
 
 def _active_session_id() -> str | None:
-    return _read_session_state().get("active_session_id")
+    state = _read_session_state()
+    return state.get("session_id") or state.get("active_session_id")
 
 
 def _cache_bash_invocation(
@@ -111,7 +113,7 @@ def _append_command_result_event(
     except Exception:
         return
 
-    events: list[dict] = data.setdefault("events", [])  # type: ignore[assignment]
+    events: list[dict[str, Any]] = data.setdefault("events", [])
 
     # Build a short summary line
     short_cmd = command.strip()[:80] + ("…" if len(command.strip()) > 80 else "")
@@ -168,8 +170,8 @@ def main() -> int:
     if tool_name != "Bash":
         return 0
 
-    tool_input: dict = payload.get("tool_input", {}) or {}  # type: ignore[assignment]
-    tool_response: dict = payload.get("tool_response", {}) or {}  # type: ignore[assignment]
+    tool_input: dict[str, Any] = payload.get("tool_input", {}) or {}
+    tool_response: dict[str, Any] = payload.get("tool_response", {}) or {}
 
     command: str = tool_input.get("command", "") or ""
     if not command:

@@ -72,8 +72,11 @@ def _extract_user_query(text: str) -> str:
 def _parse_jsonl_transcript(raw: str) -> list[tuple[str, str, list[str], str]]:
     turns: list[tuple[str, str, list[str], str]] = []
     current_user = ""
+    seen_entry_ids: set[str] = set()
+    previous_unidentified_entry = ""
     for line in raw.splitlines():
-        if not line.strip():
+        line = line.strip()
+        if not line:
             continue
         try:
             entry = json.loads(line)
@@ -81,6 +84,21 @@ def _parse_jsonl_transcript(raw: str) -> list[tuple[str, str, list[str], str]]:
             continue
         role = str(entry.get("role") or "")
         message = entry.get("message") or {}
+        if not isinstance(message, dict):
+            continue
+        message_id = ""
+        message_id = str(message.get("id") or message.get("messageId") or "").strip()
+        entry_id = str(entry.get("id") or entry.get("messageId") or message_id or "").strip()
+        if entry_id:
+            entry_key = f"{role}:{entry_id}"
+            if entry_key in seen_entry_ids:
+                continue
+            seen_entry_ids.add(entry_key)
+            previous_unidentified_entry = ""
+        elif line == previous_unidentified_entry:
+            continue
+        else:
+            previous_unidentified_entry = line
         content = message.get("content") or []
         if role == "user":
             texts = [

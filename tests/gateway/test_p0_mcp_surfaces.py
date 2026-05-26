@@ -59,7 +59,12 @@ def test_mcp_search_adds_backend_metadata_for_large_repo(tmp_path: Path, monkeyp
     monkeypatch.setattr(smart_search_mod, "get_zoekt_supervisor", lambda _root: fake_supervisor)
 
     result = tool_smart_search(
-        {"query": "needle token", "file_path": str(tmp_path), "budget_tokens": 4000, "include_meta": True}
+        {
+            "query": "needle token",
+            "file_path": str(tmp_path),
+            "budget_tokens": 4000,
+            "include_meta": True,
+        }
     )
 
     assert result["backend"] == "zoekt"
@@ -68,16 +73,16 @@ def test_mcp_search_adds_backend_metadata_for_large_repo(tmp_path: Path, monkeyp
     assert "total_tokens" in result
 
 
-def test_search_tool_schema_prefers_file_path_and_documents_ranked_contract() -> None:
+def test_search_tool_schema_prefers_path_and_documents_ranked_contract() -> None:
     search_tool = TOOLS["search"]
     properties = search_tool["inputSchema"]["properties"]
 
     assert "query" in search_tool["description"]
     assert "grep" in search_tool["description"]
-    assert "file_path" in properties
-    assert "path" not in properties
+    assert "path" in properties
+    assert "file_path" not in properties
     assert "content_regex" not in properties
-    assert "canonical search root" in properties["file_path"]["description"]
+    assert properties["path"]["description"] == "Workspace-relative file or directory to search."
     assert "repo map" in properties["mode"]["description"].lower()
     assert "mode='map'" in properties["seed_files"]["description"]
 
@@ -88,14 +93,14 @@ def test_grep_tool_schema_covers_native_contract() -> None:
 
     assert "regex" in grep_tool["description"].lower()
     assert "context lines" in grep_tool["description"].lower()
-    assert "file_path" in properties
-    assert "path" not in properties
+    assert "path" in properties
+    assert "file_path" not in properties
     assert "timestamp from the previous result header" in properties["if_modified_since"]["description"].lower()
     assert "summarize" in properties["summary"]["description"].lower()
     assert "max_line_length" not in properties
 
 
-def test_grep_tool_accepts_legacy_path_alias(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_grep_tool_accepts_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     target = tmp_path / "sample.py"
     target.write_text("needle\\n", encoding="utf-8")
@@ -232,38 +237,10 @@ def test_tool_code_search_can_attach_compact_rendered_block(tmp_path: Path, monk
     assert "class OrderService" not in payload["rendered"]
 
 
-def test_tool_code_schema_exposes_additive_repo_filter() -> None:
-    properties = TOOLS["code"]["inputSchema"]["properties"]
-
-    assert "repo" in properties
-
-
-def test_tool_code_schema_exposes_files_operation() -> None:
-    op_schema = TOOLS["code"]["inputSchema"]["properties"]["op"]
-    exposed_ops = op_schema["enum"]
-
-    assert "files" in exposed_ops
-
-
 def test_tool_code_schema_exposes_explore_operation() -> None:
-    op_schema = TOOLS["code"]["inputSchema"]["properties"]["op"]
-    exposed_ops = op_schema["enum"]
-
-    assert "explore" in exposed_ops
-
-
-def test_tool_code_schema_exposes_status_operation() -> None:
-    op_schema = TOOLS["code"]["inputSchema"]["properties"]["op"]
-    exposed_ops = op_schema["enum"]
-
-    assert "status" in exposed_ops
-
-
-def test_tool_code_schema_exposes_routes_operation() -> None:
-    op_schema = TOOLS["code"]["inputSchema"]["properties"]["op"]
-    exposed_ops = op_schema["enum"]
-
-    assert "routes" in exposed_ops
+    # `explore` is now a dedicated top-level MCP tool, not a `code` op
+    assert "explore" in TOOLS
+    assert TOOLS["explore"]["inputSchema"]["properties"]["query"]["type"] == "string"
 
 
 def test_tool_code_search_invalidates_cache_after_reindex(tmp_path: Path) -> None:
@@ -327,7 +304,7 @@ def test_tool_code_search_accepts_hardened_params(tmp_path: Path) -> None:
 
     assert payload["provenance"] == "local"
     assert "provenance_breakdown" not in payload
-    assert payload["items"][0]["file_path"] == "src/orders.py"
+    assert payload["items"][0]["path"] == "src/orders.py"
     assert (
         payload["items"][0]["snippet"] == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
     )
@@ -379,11 +356,11 @@ def test_tool_code_search_accepts_semantic_modes_additively(tmp_path: Path) -> N
     )
 
     assert semantic["mode"] == "semantic"
-    assert semantic["items"][0]["symbol_name"] == "issue_access_token"
+    assert semantic["items"][0]["name"] == "issue_access_token"
     assert hybrid_auto["mode"] == "hybrid"
-    assert hybrid_auto["items"][0]["symbol_name"] == "issue_access_token"
+    assert hybrid_auto["items"][0]["name"] == "issue_access_token"
     assert exact_auto["mode"] == "lexical"
-    assert exact_auto["items"][0]["symbol_name"] == "issue_access_token"
+    assert exact_auto["items"][0]["name"] == "issue_access_token"
 
 
 def test_tool_code_pattern_requires_pattern(tmp_path: Path) -> None:
@@ -555,52 +532,6 @@ def test_tool_code_pattern_dispatches_to_engine(tmp_path: Path, monkeypatch: pyt
     )
 
 
-def test_tool_code_files_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_engine = MagicMock()
-    fake_engine.tool_files.return_value = {
-        "repo_id": "repo",
-        "repo_root": str(tmp_path),
-        "path": "src",
-        "pattern": "*.py",
-        "format": "flat",
-        "file_count": 1,
-        "files": [{"file_path": "src/orders.py", "language": "python", "symbol_count": 2, "top_symbols": ["Order"]}],
-        "truncated": False,
-        "cache_hit": False,
-        "provenance": "local",
-        "tokens_saved": 0,
-        "total_tokens": 80,
-    }
-    monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
-        lambda repo_root=".": fake_engine,
-    )
-
-    payload = tool_code(
-        {
-            "op": "files",
-            "repo_root": str(tmp_path),
-            "path": "src",
-            "pattern": "*.py",
-            "format": "flat",
-            "include_metadata": True,
-            "max_depth": 2,
-            "budget_tokens": 220,
-        }
-    )
-
-    assert payload["format"] == "flat"
-    assert payload["file_count"] == 1
-    fake_engine.tool_files.assert_called_once_with(
-        path="src",
-        pattern="*.py",
-        format="flat",
-        include_metadata=True,
-        max_depth=2,
-        budget_tokens=220,
-    )
-
-
 def test_tool_code_explore_requires_query(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="query is required for code explore"):
         tool_code({"op": "explore", "repo_root": str(tmp_path), "budget_tokens": 220})
@@ -656,41 +587,6 @@ def test_tool_code_explore_dispatches_to_engine(tmp_path: Path, monkeypatch: pyt
     )
 
 
-def test_tool_code_status_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_engine = MagicMock()
-    fake_engine.tool_status.return_value = {
-        "repo_id": "repo",
-        "repo_root": str(tmp_path),
-        "db_path": str(tmp_path / "code.sqlite"),
-        "index_version": 2,
-        "index": {"files_indexed": 3, "symbols_indexed": 8, "imports_indexed": 2},
-        "cache": {"entry_count": 1},
-        "providers": [{"name": "scip", "status": "ok", "ok": True}],
-        "provider_freshness": {
-            "thresholds": {"required_health_status": "ok", "require_index_head_match_for_scip": True},
-            "summary": {"ok": 1, "degraded": 0, "unhealthy": 0, "total": 1},
-        },
-        "warnings": [],
-        "freshness": {"status": "fresh", "indexed": True, "stale_after_seconds": 86400},
-        "autosync": {"enabled": False, "state": "idle", "mode": "scaffold_only", "debounce_ms": 500},
-        "cache_hit": False,
-        "provenance": "local",
-        "tokens_saved": 0,
-        "total_tokens": 90,
-    }
-    monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
-        lambda repo_root=".": fake_engine,
-    )
-
-    payload = tool_code({"op": "status", "repo_root": str(tmp_path), "budget_tokens": 220})
-
-    assert payload["freshness"]["status"] == "fresh"
-    assert payload["provider_freshness"]["summary"]["ok"] == 1
-    assert payload["autosync"]["mode"] == "scaffold_only"
-    fake_engine.tool_status.assert_called_once_with(budget_tokens=220)
-
-
 def test_tool_code_callers_rendered_shape_excludes_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_engine = MagicMock()
     fake_engine.tool_callers.return_value = {
@@ -716,7 +612,13 @@ def test_tool_code_callers_rendered_shape_excludes_source(tmp_path: Path, monkey
     )
 
     payload = tool_code(
-        {"op": "callers", "repo_root": str(tmp_path), "query": "beta", "budget_tokens": 220, "render_compact": True}
+        {
+            "op": "callers",
+            "repo_root": str(tmp_path),
+            "query": "beta",
+            "budget_tokens": 220,
+            "render_compact": True,
+        }
     )
 
     assert "rendered" in payload
@@ -818,9 +720,24 @@ def test_tool_code_impact_rendered_shape_groups_lists(tmp_path: Path, monkeypatc
         "target_type": "file",
         "file_path": "src/orders.py",
         "affected_files": [
-            {"file_path": "src/api.py", "reasons": ["direct_import"], "symbols": [], "symbol_count": 0},
-            {"file_path": "src/handlers.py", "reasons": ["transitive_import"], "symbols": [], "symbol_count": 0},
-            {"file_path": "tests/test_orders.py", "reasons": ["test"], "symbols": [], "symbol_count": 0},
+            {
+                "file_path": "src/api.py",
+                "reasons": ["direct_import"],
+                "symbols": [],
+                "symbol_count": 0,
+            },
+            {
+                "file_path": "src/handlers.py",
+                "reasons": ["transitive_import"],
+                "symbols": [],
+                "symbol_count": 0,
+            },
+            {
+                "file_path": "tests/test_orders.py",
+                "reasons": ["test"],
+                "symbols": [],
+                "symbol_count": 0,
+            },
         ],
         "direct_importers": ["src/api.py"],
         "transitive_importers": ["src/handlers.py"],
@@ -850,32 +767,6 @@ def test_tool_code_impact_rendered_shape_groups_lists(tmp_path: Path, monkeypatc
     assert "- direct: 1" in payload["rendered"]
     assert "- affected_files: 3" in payload["rendered"]
     assert "tests/test_orders.py" in payload["rendered"]
-
-
-def test_tool_code_status_rendered_shape_is_compact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_engine = MagicMock()
-    fake_engine.tool_status.return_value = {
-        "repo_id": "repo",
-        "repo_root": str(tmp_path),
-        "index": {"files_indexed": 3, "symbols_indexed": 8},
-        "cache": {"entry_count": 2},
-        "freshness": {"status": "fresh"},
-        "providers": [{"name": "scip", "status": "ok"}, {"name": "ast", "status": "degraded"}],
-        "cache_hit": False,
-        "provenance": "local",
-        "tokens_saved": 0,
-        "total_tokens": 90,
-    }
-    monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
-        lambda repo_root=".": fake_engine,
-    )
-
-    payload = tool_code({"op": "status", "repo_root": str(tmp_path), "budget_tokens": 220, "render_compact": True})
-
-    assert "rendered" in payload
-    assert "index: files=3, symbols=8" in payload["rendered"]
-    assert "provider:ast=degraded" in payload["rendered"]
 
 
 def test_tool_code_index_rendered_shape_is_compact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -924,7 +815,12 @@ def test_tool_code_cache_status_rendered_shape_is_compact(tmp_path: Path, monkey
     )
 
     payload = tool_code(
-        {"op": "cache_status", "repo_root": str(tmp_path), "budget_tokens": 220, "render_compact": True}
+        {
+            "op": "cache_status",
+            "repo_root": str(tmp_path),
+            "budget_tokens": 220,
+            "render_compact": True,
+        }
     )
 
     assert "rendered" in payload
@@ -932,47 +828,6 @@ def test_tool_code_cache_status_rendered_shape_is_compact(tmp_path: Path, monkey
     assert "entries: 4" in payload["rendered"]
     assert "tools: code.search=2, code.symbol=2" in payload["rendered"]
     fake_engine.tool_cache_status.assert_called_once_with(budget_tokens=220)
-
-
-def test_tool_code_routes_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_engine = MagicMock()
-    fake_engine.tool_routes.return_value = {
-        "repo_id": "repo",
-        "repo_root": str(tmp_path),
-        "route_count": 2,
-        "routes": [
-            {"framework": "fastapi", "method": "GET", "route": "/health", "file_path": "src/api.py", "line": 4},
-            {"framework": "express", "method": "GET", "route": "/ping", "file_path": "src/server.ts", "line": 6},
-        ],
-        "truncated": False,
-        "cache_hit": False,
-        "provenance": "local",
-        "tokens_saved": 0,
-        "total_tokens": 110,
-    }
-    monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
-        lambda repo_root=".": fake_engine,
-    )
-
-    payload = tool_code(
-        {
-            "op": "routes",
-            "repo_root": str(tmp_path),
-            "file_glob": "src/**/*.py",
-            "language": "python",
-            "limit": 10,
-            "budget_tokens": 220,
-        }
-    )
-
-    assert payload["route_count"] == 2
-    fake_engine.tool_routes.assert_called_once_with(
-        file_glob="src/**/*.py",
-        language="python",
-        limit=10,
-        budget_tokens=220,
-    )
 
 
 def test_tool_code_usages_dispatches_to_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1270,8 +1125,8 @@ def test_read_budget_safe_mode_is_smaller_than_expand_mode(tmp_path: Path, monke
         encoding="utf-8",
     )
 
-    default_payload = tool_smart_read({"file_path": str(target), "max_lines": 20})
-    expanded_payload = tool_smart_read({"file_path": str(target), "expand": True})
+    default_payload = tool_smart_read({"path": str(target), "max_lines": 20})
+    expanded_payload = tool_smart_read({"path": str(target), "expand": True})
 
     assert count_tokens(json.dumps(default_payload, sort_keys=True, default=str)) < count_tokens(
         json.dumps(expanded_payload, sort_keys=True, default=str)

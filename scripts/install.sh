@@ -78,6 +78,7 @@ ATELIER_REPO_URL="${ATELIER_REPO_URL:-https://github.com/pankaj4u4m/atelier.git}
 ATELIER_REF="${ATELIER_REF:-main}"
 ATELIER_INSTALL_DIR="${ATELIER_INSTALL_DIR:-${HOME}/.local/share/atelier}"
 ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.local/bin}"
+ATELIER_NODE_DIR="${ATELIER_NODE_DIR:-${HOME}/.local/node}"
 ATELIER_TOOL_DIR="${ATELIER_TOOL_DIR:-${HOME}/.local/share/uv/tools}"
 ATELIER_INSTALL_RECORD="${ATELIER_INSTALL_RECORD:-${HOME}/.atelier/install_dir}"
 ATELIER_NO_HOSTS="${ATELIER_NO_HOSTS:-0}"
@@ -147,9 +148,9 @@ while [[ $# -gt 0 ]]; do
         *) PASSTHROUGH+=("$1") ;;
     esac
     shift
-done
+        done
 
-if [[ -z "$ATELIER_INSTALL_LOG_FILE" ]]; then
+        if [[ -z "$ATELIER_INSTALL_LOG_FILE" ]]; then
     ATELIER_INSTALL_LOG_FILE="${TMPDIR:-/tmp}/atelier-install.$(date +%Y%m%dT%H%M%S).$$.log"
 fi
 
@@ -191,7 +192,7 @@ degrade() {
 }
 
 _spinner_run() {
-    [[ -t 1 && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]] || return 0
+    [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]] || return 0
     local _frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
     (
         local _i=0
@@ -256,7 +257,7 @@ spin_tail() {
     "$@" >"$_out_file" 2>&1 &
     local _pid=$!
 
-    if [[ -t 1 && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]]; then
+    if [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]]; then
         local _frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
         local _fi=0
         local _printed_lines=0
@@ -329,7 +330,7 @@ spin_progress() {
     local _out_file
     _out_file="$(mktemp "${TMPDIR:-/tmp}/atelier-progress.XXXXXX")"
 
-    if [[ -t 1 && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]]; then
+    if [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]]; then
         "$@" >"$_out_file" 2>&1 &
         local _pid=$!
         local _pct=0
@@ -404,16 +405,32 @@ spin_progress() {
 }
 
 print_installer_header() {
-    local script_root
-    local display_version="0.1.0"
-    script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    if [[ -f "$script_root/pyproject.toml" ]]; then
-        local parsed
-        parsed="$(sed -n 's/^version = "\(.*\)"/\1/p' "$script_root/pyproject.toml" | head -n 1)"
-        if [[ -n "$parsed" ]]; then
-            display_version="$parsed"
+    local display_version=""
+
+    # Fast path: running from a local checkout — read pyproject.toml directly.
+    if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+        local script_root
+        script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
+        if [[ -f "$script_root/pyproject.toml" ]]; then
+            display_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$script_root/pyproject.toml" | head -n 1)"
         fi
     fi
+
+    # Network path: fetch pyproject.toml from the same ref being installed.
+    if [[ -z "$display_version" ]] && command -v curl >/dev/null 2>&1; then
+        local owner_repo
+        owner_repo="$(printf "%s" "$ATELIER_REPO_URL" | sed -n 's#.*github\.com/\([^/]*/[^/]*\)\.git#\1#p')"
+        if [[ -n "$owner_repo" ]]; then
+            display_version="$(
+                curl -sSL "https://raw.githubusercontent.com/${owner_repo}/${ATELIER_REF}/pyproject.toml" \
+                    2>/dev/null | sed -n 's/^version = "\(.*\)"/\1/p' | head -n 1
+            )"
+        fi
+    fi
+
+    # Last-resort fallback.
+    display_version="${display_version:-unknown}"
+
     echo ""
     printf "%b┌%b  Atelier v%s\n" "$C_FRAME" "$C_RESET" "$display_version"
     printf "%b│%b\n" "$C_FRAME" "$C_RESET"
@@ -439,27 +456,37 @@ collect_issues_from_output() {
     done <<<"$output"
 }
 
+# bash 3.2 compatible linear array membership check (no associative arrays)
+_in_array() {
+    local needle="$1"
+    shift
+    local item
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
 print_issue_group() {
     local title="$1"
     local color="$2"
     shift 2
     local entries=("$@")
-    local -A counted=()
-    local -A printed=()
+    local -a unique_entries=()
     local entry
     local count=0
 
     for entry in "${entries[@]+"${entries[@]}"}"; do
-        [[ -n "$entry" && -z "${counted[$entry]+x}" ]] || continue
-        counted["$entry"]=1
-        count=$((count + 1))
+        [[ -n "$entry" ]] || continue
+        if ! _in_array "$entry" "${unique_entries[@]+"${unique_entries[@]}"}"; then
+            unique_entries+=("$entry")
+            count=$((count + 1))
+        fi
     done
 
     [[ $count -gt 0 ]] || return 0
     printf "%b│%b  %b%s (%d)%b\n" "$C_FRAME" "$C_RESET" "$color" "$title" "$count" "$C_RESET"
-    for entry in "${entries[@]+"${entries[@]}"}"; do
-        [[ -n "$entry" && -z "${printed[$entry]+x}" ]] || continue
-        printed["$entry"]=1
+    for entry in "${unique_entries[@]+"${unique_entries[@]}"}"; do
         printf "%b│%b    %b-%b %s\n" "$C_FRAME" "$C_RESET" "$color" "$C_RESET" "$entry"
     done
 }
@@ -815,6 +842,14 @@ prompt_local_zoekt_selection() {
     fi
 }
 
+_zoekt_all_local_binaries_present() {
+    local _z
+    for _z in zoekt-git-index zoekt-index zoekt zoekt-webserver; do
+        command -v "$_z" >/dev/null 2>&1 || return 1
+    done
+    return 0
+}
+
 has_flag() {
     local needle="$1"
     local item
@@ -1085,6 +1120,10 @@ host_target_for_name() {
 
 format_host_status_label() {
     local raw_name="$1"
+    case "$raw_name" in
+        skills) printf "%s" "shared skills bundle" ; return ;;
+        agents) printf "%s" "universal agents" ; return ;;
+    esac
     local target
     target="$(host_target_for_name "$raw_name")"
     if [[ -n "$target" ]]; then
@@ -1105,6 +1144,70 @@ ensure_local_zoekt_runtime() {    # Kept for legacy --zoekt-auto-install flag pa
     done
     [[ ${#missing[@]} -eq 0 ]] && return
     warn "Local Zoekt binaries missing — run: atelier zoekt install"
+}
+
+# Install Node.js to ~/.local/node via official tarball (self-contained, no sudo)
+_install_node() {
+    local node_ver="v20.12.2"
+    local arch os_low tarball os_name
+    case "$(uname -m)" in
+        x86_64)        arch="x64" ;;
+        aarch64|arm64) arch="arm64" ;;
+        *)             arch="x64" ;;
+    esac
+    os_name="$(uname -s)"
+    os_low="$(echo "$os_name" | tr '[:upper:]' '[:lower:]')"
+    [[ "$os_low" == "darwin" ]] && os_low="darwin"
+
+    tarball="node-${node_ver}-${os_low}-${arch}.tar.gz"
+    mkdir -p "$ATELIER_NODE_DIR"
+    
+    local tmp_tar
+    tmp_tar="$(mktemp "${TMPDIR:-/tmp}/node-tarball.XXXXXX.tar.gz")"
+    curl -sSL "https://nodejs.org/dist/${node_ver}/${tarball}" -o "$tmp_tar" || return 1
+    
+    if tar --help 2>&1 | grep -q "strip-components"; then
+        tar -xzf "$tmp_tar" -C "$ATELIER_NODE_DIR" --strip-components=1 || { rm -f "$tmp_tar"; return 1; }
+    else
+        local tmp_dir
+        tmp_dir="$(mktemp -d)"
+        tar -xzf "$tmp_tar" -C "$tmp_dir" || { rm -f "$tmp_tar"; rm -rf "$tmp_dir"; return 1; }
+        mv "$tmp_dir"/node-*/* "$ATELIER_NODE_DIR/"
+        rm -rf "$tmp_dir"
+    fi
+    rm -f "$tmp_tar"
+    
+    export PATH="${ATELIER_NODE_DIR}/bin:${PATH}"
+    command -v node >/dev/null 2>&1
+    command -v npm >/dev/null 2>&1
+}
+
+install_node_if_needed() {
+    local node_user_bin="${ATELIER_NODE_DIR}/bin"
+    if [[ -x "${node_user_bin}/node" && ":$PATH:" != *":${node_user_bin}:"* ]]; then
+        export PATH="${node_user_bin}:${PATH}"
+    fi
+
+    if command -v npm >/dev/null 2>&1; then
+        verbose "Found npm: $(npm --version 2>/dev/null || echo unknown)"
+        return
+    fi
+
+    if [[ "$ATELIER_NO_STACK" == "1" ]]; then
+        return
+    fi
+
+    need_cmd curl
+    verbose "npm not found — attempting local Node.js installation..."
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] install node"
+    else
+        spin "Installing Node.js" _install_node || true
+    fi
+    
+    if [[ -x "${node_user_bin}/node" && ":$PATH:" != *":${node_user_bin}:"* ]]; then
+        export PATH="${node_user_bin}:${PATH}"
+    fi
 }
 
 # Install Go to ~/.local/go via official tarball (self-contained, no sudo)
@@ -1237,24 +1340,25 @@ prepare_repo() {
 install_console_scripts() {
     local extras="mcp,memory,smart,cloud,repo-map,api,postgres,vector,parsers,rename,telemetry"
     local package_spec="${ATELIER_INSTALL_DIR}[${extras}]"
-    local install_args=(tool install --force)
-
-    if [[ "$ATELIER_LOCAL" == "1" ]]; then
-        install_args+=(--editable)
-    fi
-    install_args+=("$package_spec")
 
     if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-        printf '[dry-run] UV_TOOL_BIN_DIR=%q UV_TOOL_DIR=%q uv' "$ATELIER_BIN_DIR" "$ATELIER_TOOL_DIR"
-        printf ' %q' "${install_args[@]}"
+        printf '[dry-run] uv tool uninstall atelier (if present)\n'
+        printf '[dry-run] UV_TOOL_BIN_DIR=%q UV_TOOL_DIR=%q uv tool install' "$ATELIER_BIN_DIR" "$ATELIER_TOOL_DIR"
+        printf ' %q' "$package_spec"
         printf '\n'
         return
     fi
 
     mkdir -p "$ATELIER_BIN_DIR" "$ATELIER_TOOL_DIR"
+    # Gracefully remove old installation first — uv tool install --force
+    # sometimes fails with "Directory not empty" on Linux when the tool
+    # is in use.  Uninstall is idempotent and avoids the atomic-swap path.
     UV_TOOL_BIN_DIR="$ATELIER_BIN_DIR" \
         UV_TOOL_DIR="$ATELIER_TOOL_DIR" \
-        uv "${install_args[@]}"
+        uv tool uninstall atelier >/dev/null 2>&1 || true
+    UV_TOOL_BIN_DIR="$ATELIER_BIN_DIR" \
+        UV_TOOL_DIR="$ATELIER_TOOL_DIR" \
+        uv tool install "$package_spec"
 
     local mcp_path="$ATELIER_BIN_DIR/atelier-mcp"
     local wrapped_path="$ATELIER_BIN_DIR/atelier-mcp.real"
@@ -1285,53 +1389,93 @@ persist_install_record() {
 }
 
 install_code_tools() {
-    # Install optional code-quality tools used by the post-edit hook pipeline and
-    # the rename backend.  All steps are best-effort: missing tools are warned about
-    # but do not abort the install.
-
+    # Install optional code-quality tools used by edit hooks and the rename backend.
+    # All steps are best-effort: missing tools are warned about but do not abort the
+    # install.
     local os_type
     os_type="$(uname -s)"
 
 
-    # prettier + eslint + ts-morph (TypeScript/JavaScript tools, require npm)
+    # eslint + ts-morph + typescript (TypeScript/JavaScript lint, type-check, and rename tools; require npm)
     if command -v npm >/dev/null 2>&1; then
-        verbose "Installing prettier (JS/TS formatter)..."
-        spin "Installing prettier" npm install -g --no-fund prettier
-        verbose "Installing eslint, ts-morph, and typescript (JS/TS linter and rename backend)..."
-        spin "Installing eslint + ts-morph" npm install -g --no-fund eslint ts-morph typescript
+        mkdir -p "$ATELIER_NODE_DIR" "$ATELIER_NODE_DIR/bin"
+        verbose "Installing eslint, ts-morph, and typescript (JS/TS lint, type-check, and rename tools)..."
+        spin "Installing eslint + ts-morph" npm install -g --prefix "$ATELIER_NODE_DIR" --no-fund eslint ts-morph typescript
     else
-        warn "npm not found — skipping prettier, eslint, and ts-morph (install Node.js 20+ to enable)"
+        warn "npm not found — skipping eslint, ts-morph, and typescript (install Node.js 20+ to enable)"
     fi
 
-    # rustfmt + cargo (Rust formatter and lint-fix backend, via rustup)
+    # Rust toolchain — only used by edit hooks for Rust file lint-fix. Optional.
     if ! command -v cargo >/dev/null 2>&1; then
-        verbose "cargo not found — installing Rust toolchain via rustup..."
-        if [[ "$os_type" == "Darwin" ]]; then
-            if command -v brew >/dev/null 2>&1; then
-                run brew install rustup
-                if [[ "$ATELIER_DRY_RUN" != "1" ]]; then
-                    rustup-init -y --no-modify-path 2>/dev/null || true
-                fi
-            else
-                warn "Homebrew not found — skipping Rust install on macOS (install from https://rustup.rs)"
-            fi
-        else
-            # Linux
-            if command -v curl >/dev/null 2>&1; then
-                if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-                    echo "[dry-run] curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-                else
-                    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path 2>/dev/null \
-                        || warn "rustup install failed — Rust post-edit hooks will be skipped"
-                fi
-            else
-                warn "curl not found — skipping Rust toolchain install"
-            fi
-        fi
+        warn "cargo not found — skipping Rust edit hooks (install from https://rustup.rs if needed)"
     else
         verbose "Found cargo: $(cargo --version 2>/dev/null || echo unknown)"
     fi
 
+}
+
+# Detect the user's shell profile file
+_detect_shell_profile() {
+    local shell_name
+    shell_name="$(basename "${SHELL:-bash}")"
+    case "$shell_name" in
+        zsh)  printf "%s" "${ZDOTDIR:-$HOME}/.zshrc" ;;
+        bash) printf "%s" "$HOME/.bashrc" ;;
+        fish) printf "%s" "$HOME/.config/fish/config.fish" ;;
+        *)    printf "%s" "$HOME/.profile" ;;
+    esac
+}
+
+# Write sentinel-guarded PATH exports to the user's shell profile.
+# Replaces on re-install instead of duplicating.
+_ensure_path_persistence() {
+    local profile_file sentinel_start sentinel_end node_user_bin
+    local tmp_input tmp_output in_block line
+
+    profile_file="$(_detect_shell_profile)"
+    sentinel_start="# >>> atelier path setup >>>"
+    sentinel_end="# <<< atelier path setup <<<"
+    node_user_bin="${ATELIER_NODE_DIR}/bin"
+
+    mkdir -p "$(dirname "$profile_file")" 2>/dev/null || true
+    touch "$profile_file"
+
+    tmp_input="$(mktemp)"
+    tmp_output="$(mktemp)"
+
+    # Build the new sentinel block
+    {
+        printf '%s\n' "$sentinel_start"
+        printf 'export PATH="%s:$PATH"\n' "$ATELIER_BIN_DIR"
+        if [[ -d "$node_user_bin" ]]; then
+            printf 'export PATH="%s:$PATH"\n' "$node_user_bin"
+        fi
+        printf '%s\n' "$sentinel_end"
+    } > "$tmp_input"
+
+    if grep -qF "$sentinel_start" "$profile_file" 2>/dev/null; then
+        # Replace existing sentinel block in-place
+        in_block=0
+        while IFS= read -r line; do
+            if [[ "$line" == "$sentinel_start" ]]; then
+                in_block=1
+                cat "$tmp_input"
+            elif [[ "$line" == "$sentinel_end" ]]; then
+                in_block=0
+            elif [[ "$in_block" == "0" ]]; then
+                printf '%s\n' "$line"
+            fi
+        done < "$profile_file" > "$tmp_output"
+        mv "$tmp_output" "$profile_file"
+    else
+        # Append new block
+        printf '\n' >> "$profile_file"
+        cat "$tmp_input" >> "$profile_file"
+    fi
+
+    rm -f "$tmp_input" "$tmp_output"
+
+    info "Added Atelier directories to PATH in ${profile_file/#$HOME/~}"
 }
 
 main() {
@@ -1361,6 +1505,7 @@ main() {
     fi
 
     install_uv_if_needed
+    install_node_if_needed
 
     local stack_available=0
     if [[ "$ATELIER_NO_STACK" != "1" ]] && command -v npm >/dev/null 2>&1; then
@@ -1427,11 +1572,12 @@ main() {
 
     local selected_zoekt=""
     if [[ "$ATELIER_ZOEKT" == "1" ]]; then
-        if command -v docker >/dev/null 2>&1; then
+        if _zoekt_all_local_binaries_present; then
             selected_zoekt="1"
-            verbose "Zoekt sidecar: enabled by default (Docker)"
+            verbose "Zoekt runtime: local binaries found on PATH"
         else
-            warn "Docker not found — skipping Zoekt sidecar service setup"
+            selected_zoekt="1"
+            verbose "Zoekt runtime: local binaries will be installed"
         fi
     fi
 
@@ -1459,10 +1605,14 @@ main() {
         : >"$zoekt_record"
     fi
 
+    local node_user_bin="${ATELIER_NODE_DIR}/bin"
+    _ensure_path_persistence
+    # Re-export for this session too
     if [[ ":$PATH:" != *":$ATELIER_BIN_DIR:"* ]]; then
-        warn "$ATELIER_BIN_DIR is not currently on PATH"
-        info "Add this to your shell profile, then restart your shell:"
-        info "  export PATH=\"$ATELIER_BIN_DIR:\$PATH\""
+        export PATH="${ATELIER_BIN_DIR}:${PATH}"
+    fi
+    if [[ -d "$node_user_bin" && ":$PATH:" != *":$node_user_bin:"* ]]; then
+        export PATH="${node_user_bin}:${PATH}"
     fi
 
     local atelier_cli="$ATELIER_BIN_DIR/atelier"
@@ -1526,7 +1676,7 @@ main() {
             fi
         fi
         if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-            echo "[dry-run] bash $ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh ${host_install_args[*]}"
+            echo "[dry-run] bash $ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh ${host_install_args[*]+${host_install_args[*]}}"
         else
             local host_output host_output_file host_ret
             host_output_file="${TMPDIR:-/tmp}/atelier-hosts.$(date +%Y%m%dT%H%M%S).$$.log"
@@ -1534,21 +1684,22 @@ main() {
             set +e
             if [[ "$ATELIER_VERBOSE" == "1" ]]; then
                 if [[ -n "$C_RESET" ]]; then
-                    FORCE_COLOR=1 bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]}" 2>&1 | tee "$host_output_file"
+                    FORCE_COLOR=1 bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | tee "$host_output_file"
                 else
-                    bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]}" 2>&1 | tee "$host_output_file"
+                    bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | tee "$host_output_file"
                 fi
                 host_ret=${PIPESTATUS[0]}
             else
                 local had_lastpipe=0
-                if shopt -q lastpipe; then
+                # lastpipe is bash 4.2+; macOS 3.2 doesn't have it.
+                if shopt -q lastpipe 2>/dev/null; then
                     had_lastpipe=1
                 else
-                    shopt -s lastpipe
+                    shopt -s lastpipe 2>/dev/null || true
                 fi
                 _SPINNER_MSG="Installing host integrations"                _SPINNER_ACTIVE=1
                 _spinner_run
-                ATELIER_HOST_STATUS_STREAM=1 bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]}" 2>&1 | while IFS= read -r line; do
+                ATELIER_HOST_STATUS_STREAM=1 bash "$ATELIER_INSTALL_DIR/scripts/install_agent_clis.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | while IFS= read -r line; do
                     printf "%s\n" "$line" >>"$host_output_file"
                     if [[ "$line" =~ ^@@ATELIER_HOST_STATUS@@[[:space:]]+([A-Z]+)[[:space:]]+(.+)$ ]]; then
                         local status="${BASH_REMATCH[1]}"
@@ -1598,7 +1749,7 @@ main() {
                 done
                 host_ret=${PIPESTATUS[0]}
                 if [[ "$had_lastpipe" -eq 0 ]]; then
-                    shopt -u lastpipe
+                    shopt -u lastpipe 2>/dev/null || true
                 fi
                 _SPINNER_MSG="Installing host integrations"
                 _spinner_pause
@@ -1607,11 +1758,23 @@ main() {
             set -e
             host_output="$(cat "$host_output_file")"
             collect_issues_from_output "$host_output"
-            if [[ -f "$host_output_file" ]] && [[ ${#WARNINGS[@]} -gt 0 || ${#ERRORS[@]} -gt 0 ]]; then
-                info "Host integration log: $host_output_file"
-            fi
-            if [[ $host_ret -ne 0 ]]; then                ERRORS+=("One or more host integrations failed")
+            if [[ $host_ret -ne 0 ]]; then
+                ERRORS+=("One or more host integrations failed")
                 FINAL_EXIT_CODE=1
+                # Dump the full host output inline so failures are visible
+                # even when sub-scripts don't stream verbose output.
+                if [[ -s "$host_output_file" ]]; then
+                    # Write host details to log file, not terminal — the
+                    # @@ATELIER_HOST_STATUS@@ lines are internal markers.
+                    {
+                        printf -- "Host install details (from %s):\n" "$host_output_file"
+                        cat "$host_output_file"
+                        printf -- "--- end host output ---\n"
+                    } >>"$ATELIER_INSTALL_LOG_FILE"
+                fi
+            fi
+            if [[ -f "$host_output_file" ]]; then
+                verbose "Host integration log preserved at: $host_output_file"
             fi
         fi
         # Persist host detection results for the local service/UI surfaces
@@ -1747,9 +1910,6 @@ main() {
         printf "   installer log: %s\n\n" "$ATELIER_INSTALL_LOG_FILE"
     fi
     printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
-    if [[ ":$PATH:" != *":$ATELIER_BIN_DIR:"* ]]; then
-        printf "⚡ Reload your shell to use 'atelier' command.\n"
-    fi
 
     return "$FINAL_EXIT_CODE"
 }

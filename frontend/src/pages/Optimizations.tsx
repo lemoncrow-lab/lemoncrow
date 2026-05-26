@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { HelpCircle } from "lucide-react";
 import {
   api,
   type OptimizationAdvisorCandidate,
@@ -142,9 +143,9 @@ function Hint({ text }: { text: string }) {
   return (
     <span
       title={text}
-      className="inline-flex h-5 w-5 cursor-help items-center justify-center border border-neutral-700 text-[10px] font-mono text-neutral-400"
+      className="inline-flex h-5 w-5 cursor-help items-center justify-center border border-neutral-700 text-neutral-400"
     >
-      ?
+      <HelpCircle size={12} />
     </span>
   );
 }

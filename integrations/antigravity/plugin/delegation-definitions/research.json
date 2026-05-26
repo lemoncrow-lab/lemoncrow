@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0",
+  "runtimeContract": "subagent-v1",
+  "defineSubagent": {
+    "atelier-research": {
+      "description": "External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations.",
+      "capabilities": ["read_files", "web_fetch", "search_code", "mcp_tools"],
+      "disallowed_capabilities": ["edit_files", "create_files", "delete_files"]
+    }
+  }
+}

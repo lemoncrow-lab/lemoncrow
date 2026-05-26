@@ -15,16 +15,15 @@ for nearly all symbol-level operations.
 from __future__ import annotations
 
 import contextlib
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from benchmarks.mcp_tools._env import configure_benchmark_runtime
 from benchmarks.mcp_tools.cases.code import CODE_CASES
 from benchmarks.mcp_tools.harness import BenchCase, CaseResult, ToolReport, run_case
 from benchmarks.mcp_tools.reporter import render_summary
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -32,16 +31,18 @@ from benchmarks.mcp_tools.reporter import render_summary
 
 
 @pytest.fixture(scope="session")
-def code_workspace() -> Path:
-    """Point CLAUDE_WORKSPACE_ROOT at the real Atelier repo root."""
+def code_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Point workspace reads at the repo while keeping runtime state isolated."""
+    root = tmp_path_factory.mktemp("bench_code")
     repo_root = Path(__file__).resolve().parent.parent.parent
-    os.environ["CLAUDE_WORKSPACE_ROOT"] = str(repo_root)
+    configure_benchmark_runtime(root, workspace_root=repo_root)
     return repo_root
 
 
 @pytest.fixture(scope="session")
 def code_tool_fn() -> Any:
     from atelier.gateway.adapters.mcp_server import tool_code
+
     return tool_code
 
 
@@ -83,9 +84,7 @@ def _find(results: list[CaseResult], label: str) -> CaseResult:
 @pytest.mark.parametrize("case", CODE_CASES, ids=lambda c: c.label)
 def test_code_op_correctness(case: BenchCase, code_bench_results: list[CaseResult]) -> None:
     result = _find(code_bench_results, case.label)
-    assert result.passed, (
-        f"[{case.label}] FAILED: {result.failure}\nresponse={result.response}"
-    )
+    assert result.passed, f"[{case.label}] FAILED: {result.failure}\nresponse={result.response}"
 
 
 @pytest.mark.parametrize(
@@ -98,6 +97,6 @@ def test_code_op_saves_tokens(case: BenchCase, code_bench_results: list[CaseResu
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
     assert result.baseline_tokens > 0, f"[{case.label}] baseline is zero"
-    assert result.atelier_tokens < result.baseline_tokens, (
-        f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={result.baseline_tokens}"
-    )
+    assert (
+        result.atelier_tokens < result.baseline_tokens
+    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={result.baseline_tokens}"

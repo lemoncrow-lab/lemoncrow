@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Hexagon } from "lucide-react";
 import {
   ApiError,
   api,
@@ -84,8 +85,13 @@ export default function Memory() {
 
   const VENDOR_COLORS: Record<string, string> = {
     anthropic: "text-orange-400",
+    claude: "text-orange-400",
     openai: "text-green-400",
+    codex: "text-green-400",
     google: "text-blue-400",
+    gemini: "text-blue-400",
+    copilot: "text-purple-400",
+    opencode: "text-cyan-400",
   };
 
   useEffect(() => {
@@ -274,7 +280,7 @@ export default function Memory() {
         size="sm"
         options={[
           { value: "cross-vendor", label: "Cross-vendor" },
-          { value: "knowledge", label: "Knowledge Blocks" },
+          { value: "knowledge", label: "Lessons" },
         ]}
         value={tab}
         onChange={(value) =>
@@ -291,7 +297,7 @@ export default function Memory() {
           )}
           {facts !== null && facts.length === 0 && (
             <EmptyState
-              icon="⬡"
+              icon={<Hexagon size={32} />}
               title="No cross-vendor facts yet"
               description="Facts are shared across vendors after they are written to the memory registry."
             />

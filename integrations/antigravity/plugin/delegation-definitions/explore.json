@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0",
+  "runtimeContract": "subagent-v1",
+  "defineSubagent": {
+    "atelier-explore": {
+      "description": "Read-only codebase explorer. Finds files, symbols, and patterns. Never edits.",
+      "capabilities": ["read_files", "search_code", "mcp_tools"],
+      "disallowed_capabilities": ["edit_files", "create_files", "delete_files"]
+    }
+  }
+}

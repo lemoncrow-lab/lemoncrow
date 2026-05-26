@@ -3,7 +3,7 @@
 #
 # Usage:
 #   bash scripts/build_host_skills.sh --host codex
-#   bash scripts/build_host_skills.sh --host antigravity --include-dev
+#   bash scripts/build_host_skills.sh --host claude --include-dev
 #   bash scripts/build_host_skills.sh --host codex --dest /tmp/codex-skills
 #   bash scripts/build_host_skills.sh --host all --include-dev
 
@@ -12,6 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 SKILLS_SRC="${ATELIER_REPO}/integrations/skills"
+RENDER_SCRIPT="${SCRIPT_DIR}/render_mode_surfaces.py"
 ALWAYS_EXCLUDED_SKILLS=("trace")
 
 HOST=""
@@ -48,9 +49,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$HOST" ]]; then
-    echo "--host is required (codex | antigravity | all)" >&2
+    echo "--host is required (claude | codex | antigravity | all)" >&2
     exit 1
 fi
+
+python3 "$RENDER_SCRIPT" >/dev/null
 
 if [[ ! -d "$SKILLS_SRC" ]]; then
     echo "Shared skills directory not found: $SKILLS_SRC" >&2
@@ -90,6 +93,7 @@ is_always_excluded_skill() {
 
 default_dest_for_host() {
     case "$1" in
+        claude) printf "%s" "${ATELIER_REPO}/integrations/claude/plugin/skills" ;;
         codex) printf "%s" "${ATELIER_REPO}/integrations/codex/plugin/skills" ;;
         antigravity) printf "%s" "${ATELIER_REPO}/integrations/antigravity/skills" ;;
         *)
@@ -102,6 +106,8 @@ default_dest_for_host() {
 render_host_bundle() {
     local host="$1"
     local dest_dir="$2"
+    local skill_dir
+    local skill_name
 
     mkdir -p "$dest_dir"
     find "$dest_dir" -mindepth 1 -maxdepth 1 \
@@ -109,13 +115,11 @@ render_host_bundle() {
         ! -name "README.md" \
         -exec rm -rf {} +
 
-    local skill_dir
     for skill_dir in "$SKILLS_SRC"/*; do
         if [[ ! -d "$skill_dir" || ! -f "$skill_dir/SKILL.md" ]]; then
             continue
         fi
 
-        local skill_name
         skill_name="$(basename "$skill_dir")"
         if is_always_excluded_skill "$skill_name"; then
             continue
@@ -136,6 +140,7 @@ if [[ "$HOST" == "all" ]]; then
         echo "--dest cannot be used with --host all" >&2
         exit 1
     fi
+    render_host_bundle "claude" "$(default_dest_for_host claude)"
     render_host_bundle "codex" "$(default_dest_for_host codex)"
     render_host_bundle "antigravity" "$(default_dest_for_host antigravity)"
     exit 0

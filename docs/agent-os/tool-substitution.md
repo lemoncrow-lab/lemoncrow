@@ -31,7 +31,12 @@ code intelligence. Native tools are fallback-only.
 
 | Atelier tool | Best for |
 |---|---|
-| `mcp__atelier__code` (all ops) | Code intelligence: symbol search, definitions, callers/callees, impact, file tree, routes, context |
+| `mcp__atelier__code` (all ops) | Code intelligence: symbol search, definitions, file tree, routes, context, status |
+| `mcp__atelier__node` | Full definition of a specific symbol — faster than `read` for targeted inspection |
+| `mcp__atelier__callers` | Who calls a function (inbound call graph) — faster than grep for invocation tracing |
+| `mcp__atelier__callees` | What a function calls (outbound call graph) — understand dependencies before editing |
+| `mcp__atelier__impact` | Blast radius for a file or symbol — use before refactoring |
+| `mcp__atelier__explore` | Grouped source + relationships in one call — replaces search→node→callers chain |
 | `mcp__atelier__grep` | Regex and glob search across files |
 | `mcp__atelier__read` | Reading files (outline mode for large files) |
 | `mcp__atelier__edit` | Editing files (atomic multi-file with rollback) |
@@ -40,11 +45,16 @@ code intelligence. Native tools are fallback-only.
 
 **Decision rules:**
 
-1. **Symbol lookup, definition, callers, callees, impact, file tree, routes, context** → `mcp__atelier__code` FIRST.
-2. **Regex/grep, text search** → `mcp__atelier__grep` FIRST.
-3. **File reading** → `mcp__atelier__read` FIRST.
-4. **Editing** → `mcp__atelier__edit` FIRST.
-5. **Shell commands** → `mcp__atelier__shell` FIRST.
+1. **Get a symbol definition** → `mcp__atelier__node` FIRST.
+2. **Find callers of a function** → `mcp__atelier__callers` FIRST (not grep).
+3. **Find what a function calls** → `mcp__atelier__callees` FIRST.
+4. **Blast radius before refactoring** → `mcp__atelier__impact` FIRST.
+5. **Understand a concept across files** → `mcp__atelier__explore` FIRST.
+6. **Symbol search, file tree, context, routes** → `mcp__atelier__code` with the right `op`.
+7. **Regex/grep, text search** → `mcp__atelier__grep` FIRST.
+8. **File reading** → `mcp__atelier__read` FIRST.
+9. **Editing** → `mcp__atelier__edit` FIRST.
+10. **Shell commands** → `mcp__atelier__shell` FIRST.
 
 **Fallback:** Use native host tools only when the Atelier equivalent returns `noop`, is hidden, or is unavailable.
 
@@ -88,7 +98,6 @@ Agent(...)  # current model
 - Entry point: `uv run atelier-mcp` (registered script in `pyproject.toml`)
 - Dev server with reload: `uv run uvicorn atelier.gateway.adapters.http_api:app --reload`
 - All MCP tools are registered in `src/atelier/gateway/adapters/mcp_server.py` via `@mcp_tool(name=...)`.
-- **Do NOT add new top-level `@mcp_tool` entries** unless a milestone file explicitly says so; add new `op=` values to existing tools instead.
 
 ### Frontend
 

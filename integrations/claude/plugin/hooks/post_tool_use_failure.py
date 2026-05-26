@@ -19,6 +19,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 REPEAT_THRESHOLD = 2  # block on the second identical failure
 
@@ -64,7 +65,8 @@ def _atelier_root() -> Path:
 
 
 def _active_session_id() -> str | None:
-    return _read_session_state().get("active_session_id")
+    state = _read_session_state()
+    return state.get("session_id") or state.get("active_session_id")
 
 
 def _append_failure_event(session_id: str, command: str, error: str, repeat: int) -> None:
@@ -78,7 +80,7 @@ def _append_failure_event(session_id: str, command: str, error: str, repeat: int
     except Exception:
         return
 
-    events: list[dict] = data.setdefault("events", [])  # type: ignore[assignment]
+    events: list[dict[str, Any]] = data.setdefault("events", [])
     short_cmd = command.strip()[:80] + ("…" if len(command.strip()) > 80 else "")
     events.append(
         {

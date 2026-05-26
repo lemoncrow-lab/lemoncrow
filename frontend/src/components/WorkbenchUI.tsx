@@ -1,4 +1,5 @@
 import { type ReactNode, useState } from "react";
+import { Check } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -218,7 +219,9 @@ export function FeaturePanel({
           {bullets.length > 0 && (
             <div className="mt-3 space-y-1 text-xs text-emerald-300/90">
               {bullets.map((bullet) => (
-                <p key={bullet}>✓ {bullet}</p>
+                <p key={bullet} className="flex items-center gap-1.5">
+                  <Check size={12} className="text-emerald-500" /> {bullet}
+                </p>
               ))}
             </div>
           )}

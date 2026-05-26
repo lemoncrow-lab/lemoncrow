@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import {
   api,
   type CommandRecord,
@@ -8,7 +9,13 @@ import {
 } from "../../api";
 import { cx } from "../../components/WorkbenchUI";
 import { getFileEditInfo, InlineFileDiff, SideBySideDiff } from "./DiffView";
-import { fmtUsd, parseAt, LONG_OUTPUT_THRESHOLD, getNormName } from "./helpers";
+import {
+  fmtUsd,
+  fmtTok,
+  parseAt,
+  LONG_OUTPUT_THRESHOLD,
+  getNormName,
+} from "./helpers";
 
 const TEXT_EXTENSIONS = new Set([
   "c",
@@ -74,7 +81,9 @@ function isImageAttachment(attachment: SessionAttachment): boolean {
 function isVideoAttachment(attachment: SessionAttachment): boolean {
   return (
     attachment.mime_type?.startsWith("video/") === true ||
-    ["mp4", "mov", "webm", "mkv", "avi"].includes(pathExtension(attachment.path))
+    ["mp4", "mov", "webm", "mkv", "avi"].includes(
+      pathExtension(attachment.path)
+    )
   );
 }
 
@@ -151,7 +160,12 @@ function TextBlock({
 
   return (
     <div className={cx("relative", className)}>
-      <div className={cx("whitespace-pre-wrap", !showFull && "max-h-40 overflow-hidden")}>
+      <div
+        className={cx(
+          "whitespace-pre-wrap",
+          !showFull && "max-h-40 overflow-hidden"
+        )}
+      >
         {text}
       </div>
       {!showFull && (
@@ -161,20 +175,24 @@ function TextBlock({
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="mt-4 border border-neutral-800 px-2.5 py-1 text-[9px] font-mono uppercase tracking-[0.2em] text-neutral-400 transition hover:border-neutral-600 hover:text-neutral-200"
+          className="mt-4 border border-neutral-800 px-2.5 py-1 text-[9px] font-mono uppercase tracking-[0.2em] text-neutral-400 transition hover:border-neutral-600 hover:text-neutral-200 flex items-center gap-1.5"
         >
-          {expanded ? "Collapse ▲" : "Expand ▼"}
+          {expanded ? (
+            <>
+              Collapse <ChevronUp size={10} />
+            </>
+          ) : (
+            <>
+              Expand <ChevronDown size={10} />
+            </>
+          )}
         </button>
       )}
     </div>
   );
 }
 
-function TodoCard({
-  turn,
-}: {
-  turn: ConversationEntry;
-}) {
+function TodoCard({ turn }: { turn: ConversationEntry }) {
   const todos = turn.todos ?? [];
   return (
     <div className="w-full border border-amber-900/30 bg-amber-950/[0.08] p-5 shadow-2xl">
@@ -197,7 +215,9 @@ function TodoCard({
             key={`${todo.content}-${index}`}
             className="grid gap-2 border border-amber-900/15 bg-black/20 px-3 py-2 md:grid-cols-[1fr_auto]"
           >
-            <div className="text-sm leading-6 text-neutral-100">{todo.content}</div>
+            <div className="text-sm leading-6 text-neutral-100">
+              {todo.content}
+            </div>
             <div className="flex flex-wrap items-center gap-2 md:justify-end">
               {todo.priority && (
                 <span className="border border-red-900/30 bg-red-950/20 px-2 py-0.5 text-[9px] font-mono uppercase tracking-[0.2em] text-red-300">
@@ -231,7 +251,9 @@ function AttachmentPreview({
   const [error, setError] = useState<string | null>(null);
   const fileUrl = attachment.path ? api.fileContentUrl(attachment.path) : null;
   const wantsTextPreview =
-    remoteContent === null && Boolean(attachment.path) && isTextAttachment(attachment);
+    remoteContent === null &&
+    Boolean(attachment.path) &&
+    isTextAttachment(attachment);
 
   useEffect(() => {
     if (!wantsTextPreview || !fileUrl) return;
@@ -318,7 +340,9 @@ function AttachmentCard({
       <div className="flex items-center justify-between gap-3 border-b border-cyan-900/15 pb-3">
         <div>
           <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-cyan-400/80">
-            {turn.kind === "pasted_content" ? "Pasted Context" : "Attached Context"}
+            {turn.kind === "pasted_content"
+              ? "Pasted Context"
+              : "Attached Context"}
           </div>
           <div className="mt-1 text-sm font-semibold text-neutral-100">
             {turn.summary}
@@ -329,7 +353,9 @@ function AttachmentCard({
         </div>
       </div>
       {attachments.map((attachment, index) => {
-        const fileUrl = attachment.path ? api.fileContentUrl(attachment.path) : null;
+        const fileUrl = attachment.path
+          ? api.fileContentUrl(attachment.path)
+          : null;
         return (
           <div
             key={`${attachment.path || attachment.display_name || attachment.title || attachment.type}-${index}`}
@@ -338,7 +364,9 @@ function AttachmentCard({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-xs font-semibold text-neutral-100">
-                  {attachment.display_name || attachment.title || attachment.type}
+                  {attachment.display_name ||
+                    attachment.title ||
+                    attachment.type}
                 </div>
                 {attachment.path && (
                   <div className="mt-1 truncate font-mono text-[10px] text-neutral-500">
@@ -372,7 +400,10 @@ function AttachmentCard({
                 )}
               </div>
             </div>
-            <AttachmentPreview attachment={attachment} forceExpand={forceExpand} />
+            <AttachmentPreview
+              attachment={attachment}
+              forceExpand={forceExpand}
+            />
           </div>
         );
       })}
@@ -423,7 +454,9 @@ function ToolConversationCard({
 }) {
   const argsText = useMemo(() => safeJson(turn.arguments), [turn.arguments]);
   const showContent = Boolean(
-    turn.content && turn.content.trim() && turn.content.trim() !== argsText.trim()
+    turn.content &&
+    turn.content.trim() &&
+    turn.content.trim() !== argsText.trim()
   );
 
   return (
@@ -547,11 +580,44 @@ export function ConversationTurn({
         </div>
 
         <div className="flex items-center gap-3">
-          {turn.cost && turn.cost > 0 && (
-            <div className="text-[9px] font-black tracking-tight text-red-500">
-              - {fmtUsd(turn.cost)}
-            </div>
-          )}
+          {turn.cost &&
+            turn.cost > 0 &&
+            (() => {
+              const tok = turn.tokens as Record<string, number> | undefined;
+              const totalTok = tok
+                ? (tok.in ?? 0) +
+                  (tok.out ?? 0) +
+                  (tok.cache_read ?? 0) +
+                  (tok.cache_write ?? 0)
+                : 0;
+              return (
+                <div className="text-[9px] font-black tracking-tight text-red-500">
+                  - {fmtUsd(turn.cost)}
+                  {totalTok > 0 && (
+                    <span className="ml-1 font-normal text-red-500/60">
+                      ({fmtTok(totalTok)})
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
+          {turn.saved &&
+            ((turn.saved.tokens ?? 0) > 0 || (turn.saved.calls ?? 0) > 0) && (
+              <span
+                className="text-[9px] font-black tracking-tight text-emerald-400"
+                title={`Atelier saved ${turn.saved.tokens.toLocaleString()} tokens${turn.saved.calls > 0 ? ` and ${turn.saved.calls} call${turn.saved.calls === 1 ? "" : "s"}` : ""}${turn.saved.usd > 0 ? ` (≈ $${turn.saved.usd.toFixed(4)} at the model's input rate)` : ""}`}
+              >
+                ↓{" "}
+                {turn.saved.usd > 0
+                  ? fmtUsd(turn.saved.usd)
+                  : `${fmtTok(turn.saved.tokens)} tok`}
+                {turn.saved.tokens > 0 && (
+                  <span className="ml-1 font-normal text-emerald-500/70">
+                    ({fmtTok(turn.saved.tokens)})
+                  </span>
+                )}
+              </span>
+            )}
           <span className="font-normal tracking-tight text-neutral-500 transition-colors group-hover:text-neutral-300">
             {parseAt(turn.at)?.toLocaleTimeString() ?? ""}
           </span>
@@ -612,7 +678,9 @@ export function ConversationTurn({
               <div
                 className={cx(
                   !isExpanded && "max-h-32 overflow-hidden",
-                  isUser || isAgent ? "whitespace-pre-wrap" : "whitespace-pre-wrap"
+                  isUser || isAgent
+                    ? "whitespace-pre-wrap"
+                    : "whitespace-pre-wrap"
                 )}
               >
                 {turn.content}
@@ -625,9 +693,18 @@ export function ConversationTurn({
               <button
                 type="button"
                 onClick={() => setInternalExpanded((value) => !value)}
-                className="mt-6 border border-neutral-800 bg-neutral-900/50 px-3 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-neutral-500 transition-all hover:border-neutral-500 hover:text-neutral-200"
+                className="mt-6 border border-neutral-800 bg-neutral-900/50 px-3 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-neutral-500 transition-all hover:border-neutral-500 hover:text-neutral-200 flex items-center gap-1.5"
               >
-                {internalExpanded ? "Shrink ▲" : `Expand (${turn.content?.length || 0} chars) ▼`}
+                {internalExpanded ? (
+                  <>
+                    Shrink <ChevronUp size={10} />
+                  </>
+                ) : (
+                  <>
+                    Expand ({turn.content?.length || 0} chars){" "}
+                    <ChevronDown size={10} />
+                  </>
+                )}
               </button>
             )}
           </div>
@@ -668,8 +745,16 @@ export function ToolCallDetail({
               {tool.name}
             </span>
           </div>
-          <span className="text-[9px] font-black uppercase tracking-widest text-neutral-500 transition-colors group-hover/tool:text-neutral-300">
-            {expanded ? "Collapse ▲" : "Inspect ▼"}
+          <span className="text-[9px] font-black uppercase tracking-widest text-neutral-500 transition-colors group-hover/tool:text-neutral-300 flex items-center gap-1.5">
+            {expanded ? (
+              <>
+                Collapse <ChevronUp size={10} />
+              </>
+            ) : (
+              <>
+                Inspect <ChevronDown size={10} />
+              </>
+            )}
           </span>
         </div>
       </button>
@@ -745,8 +830,16 @@ export function CommandDetail({
                 EXIT_{rc ?? "?"}
               </span>
             )}
-            <span className="text-[9px] font-black uppercase tracking-widest text-neutral-500 transition-colors group-hover/cmd:text-neutral-300">
-              {expanded ? "Hide ▲" : "Logs ▼"}
+            <span className="text-[9px] font-black uppercase tracking-widest text-neutral-500 transition-colors group-hover/cmd:text-neutral-300 flex items-center gap-1.5">
+              {expanded ? (
+                <>
+                  Hide <ChevronUp size={10} />
+                </>
+              ) : (
+                <>
+                  Logs <ChevronDown size={10} />
+                </>
+              )}
             </span>
           </div>
         </div>

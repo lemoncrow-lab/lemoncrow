@@ -429,7 +429,7 @@ class TestBenchmarkPublishCLI:
     def test_dry_run_prints_dry_run_label(self, benchmark_root: Path, tmp_path: Path) -> None:
         from click.testing import CliRunner
 
-        from atelier.gateway.adapters.cli import cli
+        from atelier.gateway.cli import cli
 
         runner = CliRunner()
         result = runner.invoke(
@@ -450,7 +450,7 @@ class TestBenchmarkPublishCLI:
     def test_publish_reports_output_path(self, benchmark_root: Path, tmp_path: Path) -> None:
         from click.testing import CliRunner
 
-        from atelier.gateway.adapters.cli import cli
+        from atelier.gateway.cli import cli
 
         runner = CliRunner()
         output_dir = tmp_path / "reports"

@@ -18,7 +18,7 @@ The following Atelier MCP tools are available and documented in `tasks/preflight
 - **Context savings** (Atelier augmentation): `search`, `edit`, `code`, `sql`, `compact`
 - **Lesson pipeline** (Atelier augmentation): `atelier lesson inbox`, `atelier lesson decide`
 
-All V2 tools are Atelier augmentations. Native Codex `Read`, shell `rg`/`grep`, and `MultiEdit` remain the raw-access and editing defaults.
+All V2 tools are Atelier augmentations. Native Codex `Read`, shell `rg`/`grep`, and `MultiEdit` may still be exposed by the host, but Atelier policy treats them as fallback-only when the Atelier MCP equivalents are available.
 
 ## Trace confidence
 

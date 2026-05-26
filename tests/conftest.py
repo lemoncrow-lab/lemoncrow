@@ -16,6 +16,31 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
+    """Isolate tests from host workspace env vars and default runtime roots.
+
+    Without an explicit ATELIER_ROOT, code paths that fall back to ``~/.atelier`` can
+    still derive project-local lessons from the current working directory. That lets
+    tests mutate the repository's tracked ``.lessons/`` tree even when host workspace
+    env vars are cleared.
+    """
+    for env_var in (
+        "ATELIER_WORKSPACE_ROOT",
+        "CLAUDE_WORKSPACE_ROOT",
+        "CURSOR_WORKSPACE_ROOT",
+        "VSCODE_CWD",
+        "ATELIER_LESSONS_ROOT",
+        "ATELIER_STORE_ROOT",
+        "ATELIER_MEM_ROOT",
+    ):
+        monkeypatch.delenv(env_var, raising=False)
+    isolated_root = tmp_path / ".atelier"
+    monkeypatch.setenv("ATELIER_ROOT", str(isolated_root))
+    monkeypatch.setenv("ATELIER_STORE_ROOT", str(isolated_root))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _no_network_sync() -> Iterator[None]:
     """Block all outbound sync_usage calls so no test ever hits atelier.beseam.com."""
     with patch("atelier.core.service.usage_sync.sync_usage", return_value=True):

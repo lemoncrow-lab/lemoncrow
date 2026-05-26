@@ -17,7 +17,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from atelier.core.runtime import AtelierRuntimeCore, AtelierRuntimeV3
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #

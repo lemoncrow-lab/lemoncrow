@@ -50,6 +50,65 @@ def _host_family(host: str | None) -> str:
     return host_name
 
 
+_HOST_LABEL_OVERRIDES: dict[str, str] = {
+    "claude": "Claude Code",
+    "codex": "Codex CLI",
+    "opencode": "opencode",
+    "copilot": "Copilot / VS Code",
+    "antigravity": "Antigravity",
+    "cursor": "Cursor IDE",
+    "hermes": "Hermes Agent",
+}
+
+_HOST_DESCRIPTION_OVERRIDES: dict[str, str] = {
+    "claude": "Generated AGENTS surface, MCP wrapper, and Claude plugin hooks.",
+    "codex": "Codex MCP registration with generated instructions and shared telemetry.",
+    "opencode": "OpenCode MCP config with imported session support and local agents.",
+    "copilot": "VS Code / Copilot MCP config with custom instructions and shared telemetry.",
+    "antigravity": "Antigravity MCP config plus generated AGENTS guidance and agy companion flow.",
+    "cursor": "Cursor MCP config with project rules and MCP-first guidance.",
+    "hermes": "Global-only Hermes MCP registration through ~/.hermes/config.yaml.",
+}
+
+_HOST_ORDER: tuple[str, ...] = (
+    "claude",
+    "codex",
+    "opencode",
+    "copilot",
+    "antigravity",
+    "cursor",
+    "hermes",
+)
+
+
+def _extract_enum_params(input_schema: dict[str, Any]) -> list[dict[str, Any]]:
+    properties = input_schema.get("properties")
+    if not isinstance(properties, dict):
+        return []
+
+    priority = {"op": 0, "action": 1, "task_type": 2, "budget": 3}
+    enum_params: list[dict[str, Any]] = []
+    for param_name, raw_spec in properties.items():
+        if not isinstance(raw_spec, dict):
+            continue
+        raw_enum = raw_spec.get("enum")
+        if not isinstance(raw_enum, list) or len(raw_enum) <= 1:
+            continue
+        options = [str(item) for item in raw_enum if item is not None]
+        if len(options) > 20:
+            continue
+        enum_params.append(
+            {
+                "name": str(param_name),
+                "options": options,
+                "description": str(raw_spec.get("description") or ""),
+            }
+        )
+
+    enum_params.sort(key=lambda item: (priority.get(item["name"], 50), item["name"]))
+    return enum_params
+
+
 # --------------------------------------------------------------------------- #
 # Savings helpers                                                             #
 # --------------------------------------------------------------------------- #
@@ -2949,6 +3008,49 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
     def _normalize_trace_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         from atelier.core.foundation.redaction import redact, redact_list
 
+        def _normalize_trace_learnings(value: Any) -> list[dict[str, Any]]:
+            if value is None:
+                return []
+            if isinstance(value, (str, dict)):
+                items = [value]
+            elif isinstance(value, list):
+                items = value
+            else:
+                return []
+
+            normalized_items: list[dict[str, Any]] = []
+            for item in items:
+                if isinstance(item, str):
+                    text = redact(item.strip())
+                    if text:
+                        normalized_items.append({"kind": "note", "text": text})
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                raw_text = (
+                    item.get("text")
+                    or item.get("learning")
+                    or item.get("lesson")
+                    or item.get("body")
+                    or item.get("summary")
+                    or ""
+                )
+                text = redact(str(raw_text).strip())
+                if not text:
+                    continue
+                entry: dict[str, Any] = {"text": text}
+                if item.get("kind") is not None:
+                    entry["kind"] = redact(str(item["kind"]))
+                if item.get("evidence") is not None:
+                    entry["evidence"] = redact(str(item["evidence"]))
+                promote_to = item.get("promote_to")
+                if promote_to is None:
+                    promote_to = item.get("target") or item.get("promotion_target")
+                if promote_to is not None:
+                    entry["promote_to"] = redact(str(promote_to))
+                normalized_items.append(entry)
+            return normalized_items
+
         def _normalize_trace_confidence(value: Any) -> str | None:
             if value is None:
                 return None
@@ -2969,7 +3071,6 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         normalized.pop("bash_outputs", None)
         normalized.pop("tool_outputs", None)
         normalized.pop("capture_files", None)
-        normalized.pop("learnings", None)
 
         normalized["task"] = redact(str(normalized.get("task") or ""))
         _raw_files = normalized.get("files_touched") or []
@@ -2994,6 +3095,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         normalized["validation_results"] = _normalize_trace_validation_results(
             list(normalized.get("validation_results") or [])
         )
+        normalized["learnings"] = _normalize_trace_learnings(normalized.get("learnings"))
         return normalized, event_recorded
 
     @app.post("/v1/traces", tags=["traces"], dependencies=[Depends(verify_api_key)])
@@ -3238,7 +3340,11 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             raise HTTPException(status_code=400, detail="target_user_id and role are required")
         manager = TeamWorkspaceManager(store_path)
         try:
-            return manager.set_role(user_id, role, actor_user_id=str(payload.get("user_id") or "") or None)  # type: ignore[arg-type]
+            return manager.set_role(
+                user_id,
+                role,  # type: ignore[arg-type]
+                actor_user_id=str(payload.get("user_id") or "") or None,
+            )
         except TeamPermissionError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except TeamWorkspaceError as exc:
@@ -3309,7 +3415,9 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         result = export_audit_bundle(store_path, out_dir=Path(str(out_dir)), since=since_dt)
         manager.append_audit_event(
             TeamAuditEvent(
-                action="audit.export", actor_user_id=actor.user_id, details={"bundle_dir": result["bundle_dir"]}
+                action="audit.export",
+                actor_user_id=actor.user_id,
+                details={"bundle_dir": result["bundle_dir"]},
             )
         )
         return result
@@ -3734,6 +3842,23 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             reverse=True,
         )
 
+        from atelier.infra.runtime.session_report import read_total_savings_from_events
+
+        _atelier_root = Path(cfg.atelier_root)
+
+        # Per-session Atelier savings — sum routing/compaction events keyed
+        # by session_id. Display savings (content[].saved) live in the host
+        # transcript and aren't aggregated here.
+        _session_savings: dict[str, float] = {}
+        for _s in dashboard_sessions:
+            _sk = str(_s.get("session_key") or _s["id"])
+            if _sk in _session_savings:
+                continue
+            try:
+                _session_savings[_sk] = read_total_savings_from_events(_sk, _atelier_root)
+            except Exception:
+                _session_savings[_sk] = 0.0
+
         top_sessions_clean = [
             {
                 "id": s.get("session_key") or s["id"],
@@ -3745,6 +3870,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                 "input_tokens": s["input_tokens"],
                 "output_tokens": s["output_tokens"],
                 "cached_tokens": s["cached_tokens"],
+                "atelier_savings_usd": _session_savings.get(str(s.get("session_key") or s["id"]), 0.0),
             }
             for s in sorted(dashboard_sessions, key=lambda x: x["cost"], reverse=True)[:20]
         ]
@@ -3798,14 +3924,19 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                 bucket[name]["input_tokens"] += tin
                 bucket[name]["output_tokens"] += tout
 
+        _total_savings = round(sum(_session_savings.values()), 6)
+        _total_cost_window = round(sum(float(session["cost"]) for session in dashboard_sessions), 6)
+
         return {
             "summary": {
-                "total_cost": round(sum(float(session["cost"]) for session in dashboard_sessions), 6),
+                "total_cost": _total_cost_window,
                 "projected_monthly_cost": round(
-                    sum(float(session["cost"]) for session in dashboard_sessions) * (30 / max(days, 1)),
+                    _total_cost_window * (30 / max(days, 1)),
                     6,
                 ),
                 "total_sessions": len(dashboard_sessions),
+                "total_atelier_savings_usd": _total_savings,
+                "savings_pct": (round(_total_savings / _total_cost_window * 100, 2) if _total_cost_window > 0 else 0.0),
             },
             "daily": daily_list,
             "hourly": hourly_list,
@@ -4568,6 +4699,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                     "description": _tool_description(spec),
                     "is_dev": bool(spec.get("is_dev")),
                     "mode": _tool_mode(spec),
+                    "enum_params": _extract_enum_params(cast(dict[str, Any], spec.get("inputSchema") or {})),
                 }
                 for name, spec in TOOLS.items()
                 if _tool_visible_to_llm(name, spec)
@@ -4578,30 +4710,41 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
 
     @app.get("/hosts", tags=["ops"], dependencies=[Depends(verify_api_key)])
     def list_hosts() -> list[dict[str, Any]]:
+        import yaml
+
         store = get_store()
         seen_hosts = set(store.get_traces_metrics()["hosts"])
+        root = Path(__file__).parent.parent.parent.parent.parent
+        configs_dir = root / "src" / "atelier" / "gateway" / "hosts" / "configs"
 
-        hosts = [
-            ("claude", "Claude Code"),
-            ("codex", "Codex"),
-            ("opencode", "OpenCode"),
-            ("copilot", "VS Code Copilot"),
-            ("antigravity", "Antigravity"),
-        ]
-        return [
-            {
-                "host_id": hid,
-                "label": label,
-                "status": "active" if hid in seen_hosts else "not_detected",
-                "active_domains": [],
-                "mcp_tools": [],
-                "last_seen": None,
-                "atelier_version": None,
-                "description": None,
-                "install_command": None,
-            }
-            for hid, label in hosts
-        ]
+        hosts: list[dict[str, Any]] = []
+        for host_id in _HOST_ORDER:
+            config_path = configs_dir / f"{host_id}.yaml"
+            payload: dict[str, Any] = {}
+            if config_path.exists():
+                loaded = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+                if isinstance(loaded, dict):
+                    payload = loaded
+
+            install_script = root / "scripts" / f"install_{host_id}.sh"
+            label = _HOST_LABEL_OVERRIDES.get(host_id) or str(payload.get("name") or host_id)
+            description = _HOST_DESCRIPTION_OVERRIDES.get(host_id) or str(payload.get("description") or "")
+            if host_id == "hermes":
+                label = "Hermes Agent (global-only)"
+            hosts.append(
+                {
+                    "host_id": host_id,
+                    "label": label,
+                    "status": "active" if host_id in seen_hosts else "not_detected",
+                    "active_domains": [],
+                    "mcp_tools": [],
+                    "last_seen": None,
+                    "atelier_version": None,
+                    "description": description or None,
+                    "install_command": (f"bash scripts/{install_script.name}" if install_script.exists() else None),
+                }
+            )
+        return hosts
 
     # ------------------------------------------------------------------ #
     # Skills                                                              #
@@ -4894,6 +5037,8 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             return conversations, source_files, artifacts
 
         from atelier.gateway.hosts.session_parsers._session_parser import (
+            _extract_claude_session_id,
+            attach_atelier_sidecar_savings,
             parse_session_turns,
         )
 
@@ -4910,6 +5055,16 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             try:
                 raw_content = store_inst.read_raw_artifact_content(artifact)
                 artifact_turns = parse_session_turns(raw_content, artifact.source)
+                # Join host sidecar (real per-call savings written by the MCP
+                # server) onto Atelier MCP tool turns. Claude Code strips the
+                # in-response `saved` block when persisting, so this is the
+                # only reliable source for per-tool savings in the UI.
+                if artifact.source == "claude":
+                    artifact_session_id = _extract_claude_session_id(raw_content)
+                    if artifact_session_id:
+                        from atelier.core.foundation.paths import default_store_root
+
+                        attach_atelier_sidecar_savings(artifact_turns, artifact_session_id, default_store_root())
                 artifact_label = "main"
                 if scope == "subagent":
                     artifact_label = (
@@ -4970,11 +5125,15 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         session_id: str,
         trace: Trace,
         store_inst: Any | None = None,
+        root: Path | None = None,
     ) -> dict[str, Any]:
         from atelier.gateway.hosts.session_parsers._session_parser import (
             extract_session_usage_summary,
         )
-        from atelier.infra.runtime.session_report import _derive_vendor
+        from atelier.infra.runtime.session_report import (
+            _derive_vendor,
+            read_total_savings_from_events,
+        )
 
         def _prefer_positive_int(authoritative: int, fallback: int) -> int:
             return authoritative if authoritative > 0 else fallback
@@ -5333,7 +5492,9 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             "raw_artifact_ids": trace.raw_artifact_ids,
             "total_turns": total_turns,
             "total_cost_usd": total_cost_usd,
-            "total_atelier_savings_usd": 0.0,
+            "total_atelier_savings_usd": (
+                read_total_savings_from_events(session_id, root) if root is not None else 0.0
+            ),
             "label": None,
             "models_used": models_used,
             "started_model": started_model,
@@ -5362,6 +5523,9 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             "routing_savings_usd": 0.0,
             "compact_events": 0,
             "compact_savings_estimate_usd": 0.0,
+            "context_compression_savings_usd": 0.0,
+            "context_compression_tool_calls": 0,
+            "tool_savings": [],
             "top_tools_by_cost": top_tools_by_cost,
         }
 
@@ -5447,6 +5611,9 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             "routing_savings_usd": report.routing_savings_usd,
             "compact_events": report.compact_events,
             "compact_savings_estimate_usd": report.compact_savings_estimate_usd,
+            "context_compression_savings_usd": report.context_compression_savings_usd,
+            "context_compression_tool_calls": report.context_compression_tool_calls,
+            "tool_savings": report.tool_savings,
             "top_tools_by_cost": top_tools_by_cost,
         }
 
@@ -5490,7 +5657,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             sid = trace.session_id or trace.id
             if sid in seen_session_ids:
                 continue
-            payload = _build_imported_session_payload(sid, trace, store_inst)
+            payload = _build_imported_session_payload(sid, trace, store_inst, root=root)
             payload["updated_at"] = trace.created_at.isoformat()
             results.append(payload)
             seen_session_ids.add(sid)
@@ -5532,7 +5699,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             trace = _load_trace_for_session(session_id)
             if trace is None:
                 raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
-            return _build_imported_session_payload(session_id, trace)
+            return _build_imported_session_payload(session_id, trace, root=root)
         return _build_session_payload(report)
 
     @app.get(
@@ -5788,6 +5955,13 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
 app = create_app()
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _is_loopback(host: str) -> bool:
+    return host.strip().lower() in _LOOPBACK_HOSTS
+
+
 def main(
     host: str | None = None,
     port: int | None = None,
@@ -5798,11 +5972,33 @@ def main(
 
     Used by ``atelier service start`` CLI command and the ``atelier-service``
     entrypoint.
+
+    Warns when binding a non-loopback interface without ATELIER_REQUIRE_AUTH=1.
+    Set ATELIER_REQUIRE_AUTH=1 + ATELIER_API_KEY=<secret> for authenticated public access.
     """
+    import sys
+
     import uvicorn
 
     _host = host or cfg.host
     _port = port or cfg.port
+
+    if not _is_loopback(_host):
+        if not cfg.require_auth:
+            sys.stderr.write(
+                f"\nWarning: host={_host!r} is non-loopback and "
+                "ATELIER_REQUIRE_AUTH is not enabled.\n"
+                "Local memory, traces, and configuration will be exposed to the network.\n"
+                "To enable authenticated access:\n"
+                "  export ATELIER_REQUIRE_AUTH=1\n"
+                "  export ATELIER_API_KEY=<a-long-random-secret>\n"
+            )
+        elif not cfg.api_key:
+            sys.stderr.write(
+                "\nWarning: ATELIER_REQUIRE_AUTH=1 but ATELIER_API_KEY is empty.\n"
+                "Set ATELIER_API_KEY=<a-long-random-secret> to enable authenticated access.\n"
+            )
+
     uvicorn.run(
         "atelier.core.service.api:create_app",
         factory=True,

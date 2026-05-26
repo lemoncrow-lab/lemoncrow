@@ -312,6 +312,64 @@ def test_mcp_server_record_trace_accepts_string_tool_names(tmp_path: Path) -> No
         assert [result.detail for result in stored_trace.validation_results] == ["", "ok"]
 
 
+def test_mcp_server_record_trace_persists_and_archives_learnings(tmp_path: Path) -> None:
+    """MCP trace learnings are stored on Trace and copied to archival memory."""
+    import os
+
+    os.environ["ATELIER_ROOT"] = str(tmp_path)
+    (tmp_path / "blocks").mkdir(parents=True, exist_ok=True)
+
+    import unittest.mock as mock
+
+    with (
+        mock.patch("atelier.gateway.adapters.mcp_server._runtime") as mock_rt,
+        mock.patch("atelier.gateway.adapters.mcp_server._get_ledger") as mock_led,
+        mock.patch("atelier.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
+        mock.patch("atelier.gateway.adapters.mcp_server._memory_store") as mock_memory_store,
+    ):
+        fake_store = mock.MagicMock()
+        fake_rt = mock.MagicMock()
+        fake_rt.store = fake_store
+        mock_rt.return_value = fake_rt
+
+        fake_ledger = mock.MagicMock()
+        fake_ledger.session_id = "run-test-learnings"
+        mock_led.return_value = fake_ledger
+
+        mock_rtc.return_value = mock.MagicMock()
+        fake_memory = mock.MagicMock()
+        mock_memory_store.return_value = fake_memory
+
+        from atelier.gateway.adapters.mcp_server import tool_record_trace
+
+        tool_record_trace(
+            {
+                "agent": "codex",
+                "domain": "coding",
+                "task": "record session learnings",
+                "status": "success",
+                "learnings": [
+                    "Focused regressions worked.",
+                    {
+                        "kind": "didnt work",
+                        "text": "Relying on output_summary hid the actual lesson.",
+                        "target": "reasonblock",
+                    },
+                ],
+            }
+        )
+
+        assert fake_store.record_trace.called
+        stored_trace = fake_store.record_trace.call_args[0][0]
+        assert [learning.text for learning in stored_trace.learnings] == [
+            "Focused regressions worked.",
+            "Relying on output_summary hid the actual lesson.",
+        ]
+        assert [learning.kind for learning in stored_trace.learnings] == ["note", "did_not_work"]
+        assert stored_trace.learnings[1].promote_to == "reasonblock"
+        assert fake_memory.insert_passage.call_count == 2
+
+
 def test_mcp_server_record_trace_accepts_legacy_run_id(tmp_path: Path) -> None:
     """Legacy callers may still send run_id instead of session_id."""
     import os

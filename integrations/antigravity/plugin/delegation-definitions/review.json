@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0",
+  "runtimeContract": "subagent-v1",
+  "defineSubagent": {
+    "atelier-review": {
+      "description": "Adversarial code reviewer. Applies the verification ladder. Never edits source files.",
+      "capabilities": ["read_files", "search_code", "mcp_tools"],
+      "disallowed_capabilities": ["edit_files", "create_files", "delete_files"]
+    }
+  }
+}

@@ -17,6 +17,7 @@ import yaml
 
 from atelier.core.foundation.models import Trace
 from atelier.core.foundation.store import ContextStore
+from atelier.gateway.hosts.session_parsers.antigravity import AntigravityImporter
 from atelier.gateway.hosts.session_parsers.claude import ClaudeImporter
 from atelier.gateway.hosts.session_parsers.codex import CodexImporter
 from atelier.gateway.hosts.session_parsers.copilot import CopilotImporter
@@ -409,6 +410,53 @@ class TestCodexImporterTokens:
         assert usage_by_model["gpt-5.4"].output_tokens == 60
         assert usage_by_model["gpt-5.4-mini"].output_tokens == 30
 
+    def test_codex_event_msg_dedupes_repeated_token_rows(self, store: ContextStore, tmp_path: Path) -> None:
+        first_turn = json.dumps(
+            {
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"last_token_usage": {"input_tokens": 200, "output_tokens": 60}},
+                },
+            }
+        )
+        fixture_lines = [
+            json.dumps(
+                {
+                    "type": "session_meta",
+                    "payload": {"id": "test-session-id", "timestamp": "2026-05-09T12:00:00Z"},
+                }
+            ),
+            json.dumps({"type": "turn_context", "payload": {"model": "gpt-5.4"}}),
+            first_turn,
+            first_turn,
+            json.dumps({"type": "turn_context", "payload": {"model": "gpt-5.4-mini"}}),
+            json.dumps(
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {"last_token_usage": {"input_tokens": 100, "output_tokens": 30}},
+                    },
+                }
+            ),
+        ]
+
+        jsonl_path = tmp_path / "rollout-2026-05-09T14-00-00-duplicate-token-session.jsonl"
+        jsonl_path.write_text("\n".join(fixture_lines))
+
+        importer = CodexImporter(store)
+        result = importer.import_session(jsonl_path, force=True)
+        assert result is not None
+
+        trace = _get_trace(store, "codex")
+        usage_by_model = {usage.model: usage for usage in trace.model_usages}
+
+        assert len(trace.usage_entries) == 2
+        assert trace.output_tokens == 90
+        assert usage_by_model["gpt-5.4"].input_tokens == 200
+        assert usage_by_model["gpt-5.4-mini"].output_tokens == 30
+
 
 # =========================================================================
 # Copilot
@@ -517,6 +565,26 @@ class TestCopilotImporterTokens:
         #   tool.input_tokens (edit) = dist_out = 80 // 1 = 80
         #   tool.output_tokens (edit) = resultForLlmLength // 4 = 400 // 4 = 100
         _assert_tool_tokens(trace, "edit", input_t=80, output_t=100)
+
+    def test_copilot_dedupes_repeated_event_rows(self, store: ContextStore, tmp_path: Path) -> None:
+        session_dir = tmp_path / "copilot-session-duplicate-rows"
+        session_dir.mkdir(parents=True)
+
+        events = [self.EVENTS[0], self.EVENTS[0], *self.EVENTS[1:], self.EVENTS[-1]]
+        (session_dir / "events.jsonl").write_text("\n".join(events))
+        (session_dir / "workspace.yaml").write_text(self.WORKSPACE_YAML)
+
+        importer = CopilotImporter(store)
+        result = importer.import_session(session_dir, force=True)
+        assert result is not None
+
+        trace = _get_trace(store, "copilot")
+        edit_tools = [tool for tool in trace.tools_called if tool.name == "edit"]
+
+        assert trace.input_tokens == 300
+        assert trace.output_tokens == 110
+        assert len(trace.usage_entries) == 1
+        assert edit_tools and edit_tools[0].count == 1
 
     def test_copilot_falls_back_to_assistant_output_tokens(self, store: ContextStore, tmp_path: Path) -> None:
         session_dir = tmp_path / "copilot-session-fallback"
@@ -915,6 +983,44 @@ class TestCopilotImporterTokens:
 
 
 # =========================================================================
+# Antigravity
+# =========================================================================
+
+
+class TestAntigravityImporterTokens:
+    def test_antigravity_dedupes_repeated_cache_calls(self, store: ContextStore, tmp_path: Path) -> None:
+        call = {
+            "id": "call-1",
+            "timestamp": "2026-05-14T09:00:00Z",
+            "userMessage": "Run the build",
+            "model": "claude-sonnet-4-6",
+            "inputTokens": 100,
+            "outputTokens": 50,
+            "cacheReadInputTokens": 20,
+            "cacheCreationInputTokens": 10,
+            "tools": ["bash"],
+            "bashCommands": ["pytest"],
+            "outputSummary": "Build passed",
+        }
+        cache_path = tmp_path / "antigravity-results.json"
+        cache_path.write_text(json.dumps({"cascades": {"cascade-1": {"calls": [call, call]}}}))
+
+        importer = AntigravityImporter(store)
+        result = importer.import_all(root=tmp_path, force=True)
+        assert result == ["antigravity-cascade-1"]
+
+        trace = _get_trace(store, "antigravity")
+        tools = [tool for tool in trace.tools_called if tool.name == "bash"]
+
+        assert trace.input_tokens == 100
+        assert trace.output_tokens == 50
+        assert trace.cached_input_tokens == 20
+        assert trace.cache_creation_input_tokens == 10
+        assert len(trace.usage_entries) == 1
+        assert tools and tools[0].count == 1
+
+
+# =========================================================================
 # Cursor
 # =========================================================================
 
@@ -986,6 +1092,10 @@ class TestCursorImporterTokens:
                     ),
                 ),
             )
+            conn.execute(
+                "INSERT INTO cursorDiskKV (key, value) SELECT key, value FROM cursorDiskKV WHERE key = ?",
+                ("bubbleId:test-composer:assistant-bubble",),
+            )
             conn.commit()
 
         importer = CursorImporter(store)
@@ -1000,6 +1110,7 @@ class TestCursorImporterTokens:
         assert trace.user_prompt_tokens > 0
         assert len(trace.usage_entries) == 1
         assert trace.usage_entries[0].model == "claude-sonnet-4-5"
+        assert trace.usage_entries[0].source_id == "a-assistant-bubble"
 
 
 # =========================================================================
@@ -1162,6 +1273,7 @@ class TestOpenCodeImporterTokens:
         assert trace.cached_input_tokens == 25  # cache.read (disjoint from input)
         assert trace.cache_creation_input_tokens == 13  # cache.write (disjoint)
         assert trace.model == "anthropic/claude-sonnet-4-6"
+        assert [entry.source_id for entry in trace.usage_entries] == ["p2", "p3"]
 
         # Turn 1: effective_in = 100 + 20 + 10 = 130, n_tools = 1
         #   tool.input_tokens (Bash) = dist_out = 50 // 1 = 50

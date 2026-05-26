@@ -30,6 +30,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 _MAX_PROMPT_BYTES = 8192  # 8 KB
 
@@ -69,7 +70,8 @@ def _atelier_root() -> Path:
 
 
 def _active_session_id() -> str | None:
-    return _read_session_state().get("active_session_id")
+    state = _read_session_state()
+    return state.get("session_id") or state.get("active_session_id")
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +90,7 @@ def _append_prompt_event(session_id: str, prompt: str) -> None:
     except Exception:
         return
 
-    events: list[dict] = data.setdefault("events", [])  # type: ignore[assignment]
+    events: list[dict[str, Any]] = data.setdefault("events", [])
     truncated = len(prompt) > _MAX_PROMPT_BYTES
     stored_prompt = prompt[:_MAX_PROMPT_BYTES]
     short = stored_prompt[:100].replace("\n", " ")

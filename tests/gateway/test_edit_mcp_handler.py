@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from atelier.gateway.adapters import mcp_server
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 # ---------------------------------------------------------------------------
 # Helpers

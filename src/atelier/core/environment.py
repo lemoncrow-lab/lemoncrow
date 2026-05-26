@@ -23,7 +23,26 @@ INSTALL_PROFILES = frozenset({"stable", "dev"})
 MEMORY_BACKENDS = frozenset({"sqlite", "letta", "openmemory"})
 
 STABLE_LLM_TOOLS = frozenset(
-    {"compact", "context", "trace", "memory", "read", "grep", "search", "route", "edit", "sql", "shell", "code"}
+    {
+        "compact",
+        "context",
+        "trace",
+        "memory",
+        "read",
+        "grep",
+        "search",
+        "route",
+        "edit",
+        "sql",
+        "shell",
+        "symbols",
+        # Dedicated code-intel tools (split from `symbols` op for LLM discoverability)
+        "node",
+        "callers",
+        "callees",
+        "impact",
+        "explore",
+    }
 )
 DEV_LLM_TOOLS = frozenset(
     {

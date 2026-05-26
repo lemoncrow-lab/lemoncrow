@@ -55,6 +55,26 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _copilot_event_identity(ev: dict[str, Any]) -> str:
+    etype = str(ev.get("type") or "")
+    data = _as_dict(ev.get("data"))
+    for candidate in (ev, data):
+        for key in (
+            "id",
+            "event_id",
+            "eventId",
+            "messageId",
+            "message_id",
+            "toolCallId",
+            "spanId",
+            "traceId",
+        ):
+            value = str(candidate.get(key) or "").strip()
+            if value:
+                return f"{etype}:{value}"
+    return ""
+
+
 def _as_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -535,6 +555,8 @@ class CopilotImporter:
         user_prompt_tokens = 0
         assistant_output_tokens = 0
         start_time: datetime | None = None
+        seen_event_ids: set[str] = set()
+        previous_unidentified_event = ""
 
         for line in redacted_events.splitlines():
             line = line.strip()
@@ -544,6 +566,17 @@ class CopilotImporter:
                 ev = json.loads(line)
             except json.JSONDecodeError:
                 continue
+
+            event_identity = _copilot_event_identity(ev)
+            if event_identity:
+                if event_identity in seen_event_ids:
+                    continue
+                seen_event_ids.add(event_identity)
+                previous_unidentified_event = ""
+            elif line == previous_unidentified_event:
+                continue
+            else:
+                previous_unidentified_event = line
 
             etype = ev.get("type")
 
@@ -1054,6 +1087,7 @@ class CopilotImporter:
                 "task": "",
             }
         )
+        seen_debug_event_keys: set[str] = set()
         for source_kind, content in chunks:
             for line in content.splitlines():
                 line = line.strip()
@@ -1063,6 +1097,11 @@ class CopilotImporter:
                     ev = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                event_identity = _copilot_event_identity(ev)
+                event_key = event_identity or f"raw:{_sha256(line)}"
+                if event_key in seen_debug_event_keys:
+                    continue
+                seen_debug_event_keys.add(event_key)
                 ts_ms = ev.get("ts")
                 ev_dt: datetime | None = None
                 if isinstance(ts_ms, (int, float)) and ts_ms > 0:

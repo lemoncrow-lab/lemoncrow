@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { type FileEditRecord } from "../../api";
 import { cx } from "../../components/WorkbenchUI";
 
@@ -469,15 +470,23 @@ function DiffShell({
               rel="noreferrer"
               className="text-[9px] text-neutral-500 hover:text-emerald-500 font-black uppercase tracking-widest transition-colors flex items-center gap-1"
             >
-              View <span className="text-[10px]">⎋</span>
+              View <ExternalLink size={10} />
             </a>
           )}
           {!forceExpand && (
             <button
               onClick={onToggle}
-              className="text-[9px] text-neutral-500 hover:text-neutral-300 font-black uppercase tracking-widest transition-colors border-l border-neutral-800/60 pl-3"
+              className="text-[9px] text-neutral-500 hover:text-neutral-300 font-black uppercase tracking-widest transition-colors border-l border-neutral-800/60 pl-3 flex items-center gap-1.5"
             >
-              {expanded ? "Hide Diff ▲" : "View Diff ▼"}
+              {expanded ? (
+                <>
+                  Hide Diff <ChevronUp size={10} />
+                </>
+              ) : (
+                <>
+                  View Diff <ChevronDown size={10} />
+                </>
+              )}
             </button>
           )}
         </div>
@@ -537,13 +546,21 @@ export function FileDetail({
             className="text-[9px] text-neutral-500 font-black tracking-widest hover:text-emerald-500 transition-colors uppercase flex items-center gap-1"
             title="View raw file content"
           >
-            Raw <span className="text-[10px]">⎋</span>
+            Raw <ExternalLink size={10} />
           </a>
           <button
             onClick={() => setInternalExpanded(!internalExpanded)}
-            className="text-[9px] text-neutral-500 font-black tracking-widest group-hover/file:text-neutral-300 transition-colors uppercase pl-2 border-l border-neutral-800"
+            className="text-[9px] text-neutral-500 font-black tracking-widest group-hover/file:text-neutral-300 transition-colors uppercase pl-2 border-l border-neutral-800 flex items-center gap-1.5"
           >
-            {expanded ? "Hide ▲" : "Diff ▼"}
+            {expanded ? (
+              <>
+                Hide <ChevronUp size={10} />
+              </>
+            ) : (
+              <>
+                Diff <ChevronDown size={10} />
+              </>
+            )}
           </button>
         </div>
       </div>

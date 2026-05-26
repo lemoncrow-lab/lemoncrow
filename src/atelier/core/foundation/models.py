@@ -22,6 +22,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 BlockStatus = Literal["active", "deprecated", "quarantined"]
 TraceStatus = Literal["success", "failed", "partial"]
 TraceConfidence = Literal["full_live", "mcp_live", "wrapper_live", "imported", "manual"]
+TraceLearningKind = Literal["worked", "did_not_work", "next_rule", "risk", "note"]
+TraceLearningPromotion = Literal["memory", "reasonblock", "rubric", "none"]
 PlanStatus = Literal["pass", "warn", "blocked"]
 Severity = Literal["low", "medium", "high"]
 ConsolidationKind = Literal["duplicate_cluster", "stale_candidate", "low_confidence"]
@@ -155,6 +157,82 @@ class ValidationResult(BaseModel):
     detail: str = ""
 
 
+class TraceLearning(BaseModel):
+    """A concise observable lesson from one agent session.
+
+    These are raw session observations. Durable procedures still belong in
+    ReasonBlocks/Rubrics after review or repeated evidence.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: TraceLearningKind = "note"
+    text: str
+    evidence: str = ""
+    promote_to: TraceLearningPromotion | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_shapes(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            return {"kind": "note", "text": data}
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+        if "text" not in normalized:
+            for alias in ("learning", "lesson", "body", "summary"):
+                if alias in normalized:
+                    normalized["text"] = normalized[alias]
+                    break
+        if "promote_to" not in normalized:
+            for alias in ("target", "promotion_target"):
+                if alias in normalized:
+                    normalized["promote_to"] = normalized[alias]
+                    break
+        return normalized
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _normalize_kind(cls, value: Any) -> TraceLearningKind:
+        normalized = str(value or "note").strip().lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "works": "worked",
+            "what_worked": "worked",
+            "success": "worked",
+            "failed": "did_not_work",
+            "failure": "did_not_work",
+            "not_worked": "did_not_work",
+            "what_did_not_work": "did_not_work",
+            "didnt_work": "did_not_work",
+            "rule": "next_rule",
+            "next": "next_rule",
+            "rubric": "next_rule",
+            "warning": "risk",
+        }
+        normalized = aliases.get(normalized, normalized)
+        if normalized not in {"worked", "did_not_work", "next_rule", "risk", "note"}:
+            return "note"
+        return normalized  # type: ignore[return-value]
+
+    @field_validator("promote_to", mode="before")
+    @classmethod
+    def _normalize_promotion(cls, value: Any) -> TraceLearningPromotion | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+        aliases = {"reason_block": "reasonblock", "reason": "reasonblock", "rubric_check": "rubric"}
+        normalized = aliases.get(normalized, normalized)
+        if normalized not in {"memory", "reasonblock", "rubric", "none"}:
+            return None
+        return normalized  # type: ignore[return-value]
+
+    @field_validator("text", "evidence", mode="before")
+    @classmethod
+    def _coerce_text(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+
 class ModelUsage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -207,6 +285,7 @@ class Trace(BaseModel):
     diff_summary: str = ""
     output_summary: str = ""
     validation_results: list[ValidationResult] = Field(default_factory=list)
+    learnings: list[TraceLearning] = Field(default_factory=list)
     reasoning: list[str] = Field(default_factory=list)
     raw_artifact_ids: list[str] = Field(default_factory=list)
     host: str | None = None

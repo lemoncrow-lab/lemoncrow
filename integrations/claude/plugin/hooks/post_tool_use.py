@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # State helpers (mirrors pre_tool_use.py / stop.py)
@@ -55,7 +56,8 @@ def _atelier_root() -> Path:
 
 
 def _active_session_id() -> str | None:
-    return _read_session_state().get("active_session_id")
+    state = _read_session_state()
+    return state.get("session_id") or state.get("active_session_id")
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +147,7 @@ def _append_file_edit_event(session_id: str, file_path: str, diff: str) -> None:
     except Exception:
         return
 
-    events: list[dict] = data.setdefault("events", [])  # type: ignore[assignment]
+    events: list[dict[str, Any]] = data.setdefault("events", [])
     short_path = Path(file_path).name
     events.append(
         {
@@ -196,7 +198,7 @@ def main() -> int:
     if tool_name not in ("Edit", "Write", "MultiEdit"):
         return 0
 
-    tool_input: dict = payload.get("tool_input", {}) or {}  # type: ignore[assignment]
+    tool_input: dict[str, Any] = payload.get("tool_input", {}) or {}
 
     try:
         file_path, diff = _compute_diff(tool_name, tool_input)

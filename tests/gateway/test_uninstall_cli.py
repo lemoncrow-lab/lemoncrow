@@ -6,13 +6,13 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 
 def test_uninstall_command_calls_script(tmp_path: Path) -> None:
     runner = CliRunner()
     # Mock _project_root to point to a temp dir where we'll place a dummy script
-    with patch("atelier.gateway.adapters.cli._project_root") as mock_root:
+    with patch("atelier.gateway.cli.app._project_root") as mock_root:
         mock_root.return_value = tmp_path
         script_dir = tmp_path / "scripts"
         script_dir.mkdir()
@@ -35,7 +35,7 @@ def test_uninstall_command_calls_script(tmp_path: Path) -> None:
 
 def test_uninstall_command_with_workspace(tmp_path: Path) -> None:
     runner = CliRunner()
-    with patch("atelier.gateway.adapters.cli._project_root") as mock_root:
+    with patch("atelier.gateway.cli.app._project_root") as mock_root:
         mock_root.return_value = tmp_path
         script_dir = tmp_path / "scripts"
         script_dir.mkdir()
@@ -58,7 +58,7 @@ def test_uninstall_command_with_workspace(tmp_path: Path) -> None:
 
 def test_uninstall_command_with_purge(tmp_path: Path) -> None:
     runner = CliRunner()
-    with patch("atelier.gateway.adapters.cli._project_root") as mock_root:
+    with patch("atelier.gateway.cli.app._project_root") as mock_root:
         mock_root.return_value = tmp_path
         script_dir = tmp_path / "scripts"
         script_dir.mkdir()
@@ -80,7 +80,7 @@ def test_uninstall_command_with_purge(tmp_path: Path) -> None:
 
 def test_uninstall_command_script_not_found(tmp_path: Path) -> None:
     runner = CliRunner()
-    with patch("atelier.gateway.adapters.cli._project_root") as mock_root:
+    with patch("atelier.gateway.cli.app._project_root") as mock_root:
         mock_root.return_value = tmp_path
         # scripts/uninstall.sh does not exist
         result = runner.invoke(cli, ["uninstall"])
@@ -90,7 +90,7 @@ def test_uninstall_command_script_not_found(tmp_path: Path) -> None:
 
 def test_uninstall_command_failure(tmp_path: Path) -> None:
     runner = CliRunner()
-    with patch("atelier.gateway.adapters.cli._project_root") as mock_root:
+    with patch("atelier.gateway.cli.app._project_root") as mock_root:
         mock_root.return_value = tmp_path
         script_dir = tmp_path / "scripts"
         script_dir.mkdir()

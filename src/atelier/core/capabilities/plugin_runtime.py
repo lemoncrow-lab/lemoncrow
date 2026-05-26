@@ -31,13 +31,10 @@ FUZZY_ACCEPT_THRESHOLD = 0.95
 FUZZY_AMBIGUITY_MARGIN = 0.05
 COLUMN_REPAIR_THRESHOLD = 0.85
 
-LIVE_TIME_SAVED_PER_CALL_MS = 25_000
+# Used by baseline_time_saved() to estimate wall-clock time saved per call.
+# Tokens/cost are NEVER synthesized from constants — those come from real
+# tool measurements and per-model pricing at emit time.
 BASELINE_TIME_SAVED_PER_CALL_MS = 7_000
-LIVE_INPUT_TOKENS_PER_CALL = 20_000
-LIVE_OUTPUT_TOKENS_PER_CALL = 50_000
-LIVE_CACHE_READ_TOKENS_PER_CALL = 1_000
-LIVE_CONTEXT_MULTIPLIER = 1.3
-
 PLUGIN_DEFAULT_SETTINGS: dict[str, bool] = {
     "attribution": True,
     "statusLine": True,
@@ -608,10 +605,24 @@ def status_line_choose_message(
 
 def session_start_install_status_line(plugin_root: str, settings: dict[str, Any] | None = None) -> dict[str, Any]:
     updated = dict(settings or {})
-    updated["statusLine"] = {
-        "type": "command",
-        "command": f"{plugin_root}/scripts/statusline.sh",
-    }
+    existing = updated.get("subagentStatusLine")
+    if not isinstance(existing, dict):
+        existing = updated.get("statusLine")
+
+    command = f"{plugin_root}/scripts/statusline.sh"
+    padding: Any | None = None
+    if isinstance(existing, dict):
+        existing_command = str(existing.get("command", ""))
+        if "statusline.sh" in existing_command:
+            command = existing_command
+        padding = existing.get("padding")
+
+    status_config: dict[str, Any] = {"type": "command", "command": command}
+    if padding is not None:
+        status_config["padding"] = padding
+
+    updated["statusLine"] = dict(status_config)
+    updated["subagentStatusLine"] = dict(status_config)
     return {"settings": updated}
 
 
@@ -620,9 +631,10 @@ def apply_status_line_setting(host_settings: dict[str, Any], plugin_root: str, e
     if enabled:
         installed = session_start_install_status_line(plugin_root, updated).get("settings")
         return installed if isinstance(installed, dict) else updated
-    current = updated.get("statusLine")
-    if isinstance(current, dict) and "statusline.sh" in str(current.get("command", "")):
-        updated.pop("statusLine", None)
+    for key in ("statusLine", "subagentStatusLine"):
+        current = updated.get(key)
+        if isinstance(current, dict) and "statusline.sh" in str(current.get("command", "")):
+            updated.pop(key, None)
     return updated
 
 
@@ -817,20 +829,126 @@ def _merge_session_start_stdout(*items: Any) -> dict[str, Any] | str:
     return output
 
 
+def _codex_session_start_tool_policy() -> dict[str, Any]:
+    return {
+        "hookSpecificOutput": {"hookEventName": "SessionStart"},
+        "message": "Atelier policy: for coding tasks call mcp__atelier__context first and use Atelier MCP tools before native Codex tools.",
+        "additionalContext": "\n".join(
+            [
+                "Codex Atelier tool policy:",
+                "- Call mcp__atelier__context before exploratory reads or edits on coding tasks.",
+                "- Use mcp__atelier__node / callers / callees / impact / explore for code intelligence before native search loops.",
+                "- Use mcp__atelier__grep or mcp__atelier__search instead of native Grep/Glob or shell rg/grep/find.",
+                "- Use mcp__atelier__read instead of native Read or shell cat/sed/head for file reads.",
+                "- Use mcp__atelier__edit instead of native Edit/Write/MultiEdit for file changes.",
+                "- Use mcp__atelier__shell only for commands without a better Atelier equivalent (git, make, uv, npm, pytest).",
+                "- Treat native Codex Read/Edit/Write/MultiEdit/Bash/Grep/Glob as disabled-by-policy unless the Atelier equivalent is hidden, unavailable, or returned noop.",
+            ]
+        ),
+    }
+
+
 def codex_update_notification(root: str | Path, *, current_version: str) -> dict[str, Any]:
     result = update_notification(current_version, _read_json(update_flag_path(root), None))
     if result.get("delete_flag"):
         update_flag_path(root).unlink(missing_ok=True)
-    stdout = _merge_session_start_stdout(result.get("stdout"), _session_optimizer_start_notice(root, host="codex"))
+    stdout = _merge_session_start_stdout(
+        result.get("stdout"),
+        _session_optimizer_start_notice(root, host="codex"),
+        _codex_session_start_tool_policy(),
+    )
     return {**result, "stdout": stdout, "optimizer": {"host": "codex"}}
+
+
+_ATELIER_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "context",
+        "route",
+        "rescue",
+        "trace",
+        "verify",
+        "memory",
+        "read",
+        "edit",
+        "sql",
+        "code",
+        "grep",
+        "search",
+        "compact",
+        "shell",
+    }
+)
 
 
 def _is_atelier_tool(tool_name: str) -> bool:
     lowered = tool_name.lower()
-    suffixes = ("edit", "search", "sql", "recall")
-    if lowered in suffixes:
+    if "atelier" in lowered:
         return True
-    return "atelier" in lowered and any(lowered.endswith(suffix) for suffix in suffixes)
+    # Bare tool name from hosts that strip the MCP server prefix
+    return lowered in _ATELIER_TOOL_NAMES
+
+
+def _codex_native_tool_replacement(payload: dict[str, Any]) -> tuple[str, str] | None:
+    tool_name = str(payload.get("tool_name") or "")
+    lowered = tool_name.lower().strip()
+    raw_tool_input = payload.get("tool_input")
+    tool_input: dict[str, Any] = raw_tool_input if isinstance(raw_tool_input, dict) else {}
+    command = str(tool_input.get("command") or "")
+    normalized = " ".join(command.strip().split()).lower()
+
+    if lowered == "read":
+        return ("mcp__atelier__read", "Use Atelier read for file reads and ranges.")
+    if lowered in {"edit", "write", "multiedit"}:
+        return ("mcp__atelier__edit", "Use Atelier edit for deterministic grouped writes and rollback.")
+    if lowered in {"grep", "glob"}:
+        return ("mcp__atelier__grep", "Use Atelier grep/search for text and path discovery.")
+    if lowered in {"bash", "shell", "exec_command", "run_command"}:
+        if (
+            normalized.startswith(("rg ", "grep ", "find "))
+            or " rg " in f" {normalized} "
+            or " grep " in f" {normalized} "
+        ):
+            return ("mcp__atelier__grep", "Use Atelier grep/search instead of shell rg/grep/find loops.")
+        if normalized.startswith(("cat ", "sed ", "head ", "tail ")):
+            return ("mcp__atelier__read", "Use Atelier read instead of shell file-print commands.")
+        return ("mcp__atelier__shell", "Use Atelier shell so command execution stays compact and supervised.")
+    return None
+
+
+def _codex_native_tool_nudge(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
+    replacement = _codex_native_tool_replacement(payload)
+    if replacement is None:
+        return {"no_output": True}
+    session_id = str(payload.get("session_id") or "default")
+    path = session_stats_path(root, session_id)
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except Exception:
+        state = {}
+    nudged = state.setdefault("native_tool_nudges", {}) if isinstance(state, dict) else {}
+    tool_name = str(payload.get("tool_name") or "unknown")
+    command = ""
+    if isinstance(payload.get("tool_input"), dict):
+        command = str((payload.get("tool_input") or {}).get("command") or "")
+    nudge_key = f"{tool_name.lower()}::{command.strip().lower()[:120]}"
+    if bool(nudged.get(nudge_key)):
+        return {"no_output": True}
+    nudged[nudge_key] = True
+    if isinstance(state, dict):
+        state["native_tool_nudges"] = nudged
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    replacement_tool, rationale = replacement
+    return {
+        "message": f"Atelier policy: native tool '{tool_name}' was used where {replacement_tool} should be preferred.",
+        "additionalContext": "\n".join(
+            [
+                rationale,
+                "For coding tasks, call mcp__atelier__context first if you have not already.",
+                "Keep native Codex tools as fallback only when the Atelier equivalent is hidden, unavailable, or returned noop.",
+            ]
+        ),
+    }
 
 
 def build_codex_post_tool_use_savings_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -838,13 +956,17 @@ def build_codex_post_tool_use_savings_output(root: str | Path, payload: dict[str
         return {"no_output": True}
     tool_name = str(payload.get("tool_name") or "")
     if not _is_atelier_tool(tool_name):
-        return {"no_output": True}
+        return _codex_native_tool_nudge(root, payload)
     stats = update_session_stats(root, payload)
-    savings = stats.get("savings") or {}
-    calls = int(savings.get("calls_saved", 0) or 0)
-    tokens = int(savings.get("tokens_saved", 0) or 0)
+    session_id = str(payload.get("session_id") or "default")
+    from atelier.core.capabilities.savings_summary import compute_savings_summary
+
+    summary = compute_savings_summary(session_id, atelier_root=root)
+    calls = int(summary.smart_calls)
+    tokens = int(summary.ctx_saved)
+    saved_usd = float(summary.saved_usd)
     output: dict[str, Any] = {
-        "systemMessage": f"Atelier saved about {calls} calls and {tokens} tokens in this session.",
+        "systemMessage": (f"Atelier saved ${saved_usd:.4f} · {tokens:,} tokens · {calls} calls in this session."),
         "stats": stats,
     }
     progress = build_session_progress_optimization_output(root, payload)
@@ -873,27 +995,20 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     calls_avoided = int(report.get("calls_avoided", 0) or 0)
     tokens_saved = int(report.get("tokens_saved", 0) or 0)
     saved_usd = float(cost.get("saved_usd", 0.0) or 0.0)
-    estimated_saved_usd = float(report.get("estimated_saved_usd", 0.0) or 0.0)
     routing_saved_usd = float(cost.get("routing_saved_usd", 0.0) or 0.0)
     compactions = int(session.get("compactions", 0) or 0)
 
-    if (
-        total_tool_calls <= 0
-        and calls_avoided <= 0
-        and tokens_saved <= 0
-        and saved_usd <= 0
-        and estimated_saved_usd <= 0
-    ):
+    if total_tool_calls <= 0 and calls_avoided <= 0 and tokens_saved <= 0 and saved_usd <= 0:
         return {"no_output": True}
 
-    savings_usd = saved_usd if saved_usd > 0 else estimated_saved_usd
-    savings_prefix = "$" if saved_usd > 0 else "~$"
+    parts = [f"${saved_usd:.4f}"]
+    if tokens_saved > 0:
+        parts.append(f"{tokens_saved:,} tokens saved")
+    if calls_avoided > 0:
+        parts.append(f"{calls_avoided} calls avoided")
     lines = [
         "Atelier session complete.",
-        (
-            f"savings: {savings_prefix}{savings_usd:.4f} "
-            f"· {calls_avoided} calls avoided · {tokens_saved:,} tokens saved"
-        ),
+        "savings: " + " · ".join(parts),
         f"Atelier tool calls: {total_tool_calls}",
     ]
     if compactions > 0:
@@ -901,86 +1016,6 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     if routing_saved_usd > 0:
         lines.append(f"routing savings: ${routing_saved_usd:.4f}")
     return {"systemMessage": "\n".join(lines), "report": report}
-
-
-def equivalent_calls(tool_name: str, tool_input: dict[str, Any] | None = None) -> float:
-    tool_input = tool_input or {}
-    lowered = tool_name.lower()
-    if lowered.endswith("edit") or lowered in {"edit", "write", "multiedit"}:
-        edits = tool_input.get("edits") or [tool_input]
-        edit_count = max(1, len(edits))
-        files = {
-            str(edit.get("file_path") or edit.get("path") or edit.get("file") or "")
-            for edit in edits
-            if isinstance(edit, dict)
-        }
-        files.discard("")
-        return edit_count + max(1, len(files)) + 0.5
-    if lowered.endswith("search") or lowered in {"search", "grep", "glob"}:
-        globs = tool_input.get("file_glob_patterns") or []
-        equivalent = 2 + max(0, len(globs) - 1)
-        if tool_input.get("content_regex"):
-            equivalent += 1
-        if str(tool_input.get("output_mode") or "").lower() in {
-            "summary",
-            "type-summary",
-            "type_summary",
-        }:
-            equivalent += 1
-        return float(equivalent)
-    if lowered.endswith("sql") or lowered == "sql":
-        return 5.0
-    return 1.0
-
-
-def live_savings_events_path(root: str | Path) -> Path:
-    return Path(root) / "live_savings_events.jsonl"
-
-
-def load_live_savings_summary(root: str | Path, *, session_id: str | None = None) -> dict[str, Any]:
-    path = live_savings_events_path(root)
-    if not path.is_file():
-        return {"calls_saved": 0, "tokens_saved": 0, "saved_usd": 0.0, "routing_saved_usd": 0.0}
-
-    calls_saved = 0
-    tokens_saved = 0
-    saved_usd = 0.0
-    routing_saved_usd = 0.0
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict):
-            continue
-        if session_id and str(event.get("session_id") or "") != session_id:
-            continue
-        calls_saved += max(0, int(event.get("calls_saved", 0) or 0))
-        tokens_saved += max(0, int(event.get("tokens_saved", 0) or 0))
-        cost_saved_usd = max(0.0, float(event.get("cost_saved_usd", 0.0) or 0.0))
-        saved_usd += cost_saved_usd
-        lever = str(event.get("lever") or event.get("kind") or "").strip().lower()
-        if lever in {"model_routing", "model_recommendation"}:
-            routing_saved_usd += cost_saved_usd
-    return {
-        "calls_saved": calls_saved,
-        "tokens_saved": tokens_saved,
-        "saved_usd": round(saved_usd, 6),
-        "routing_saved_usd": round(routing_saved_usd, 6),
-    }
-
-
-def compute_live_savings(equivalent_call_count: float, model: str | None = None) -> dict[str, Any]:
-    calls_saved = max(0, int(equivalent_call_count - 1))
-    return {
-        "calls_saved": calls_saved,
-        "time_saved_ms": calls_saved * LIVE_TIME_SAVED_PER_CALL_MS,
-        "input_tokens_saved": int(calls_saved * LIVE_INPUT_TOKENS_PER_CALL * LIVE_CONTEXT_MULTIPLIER),
-        "output_tokens_saved": calls_saved * LIVE_OUTPUT_TOKENS_PER_CALL,
-        "cache_read_tokens_saved": int(calls_saved * LIVE_CACHE_READ_TOKENS_PER_CALL * LIVE_CONTEXT_MULTIPLIER),
-        "cache_write_tokens_saved": 0,
-        "model": model,
-    }
 
 
 def _tool_uses(turns: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
@@ -1111,32 +1146,22 @@ def _usage_numbers(raw: dict[str, Any]) -> dict[str, int]:
 
 
 def _extract_usage(payload: dict[str, Any]) -> dict[str, int]:
+    # Only accumulate per-turn deltas — NOT context_window.current_usage (cumulative session
+    # total) and NOT transcript data (handled separately in stop.py).  Both are overwrite/
+    # snapshot sources and must not be summed across calls.
     usage: dict[str, int] = {
         "input_tokens": 0,
         "output_tokens": 0,
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
     }
-    candidates = [payload.get("usage"), payload.get("token_usage")]
-    context_usage = (
-        (payload.get("context_window") or {}).get("current_usage")
-        if isinstance(payload.get("context_window"), dict)
-        else None
-    )
-    candidates.append(context_usage)
     message_usage = (payload.get("message") or {}).get("usage") if isinstance(payload.get("message"), dict) else None
-    candidates.append(message_usage)
-    for candidate in candidates:
+    for candidate in (payload.get("usage"), payload.get("token_usage"), message_usage):
         if not isinstance(candidate, dict):
             continue
         found = _usage_numbers(candidate)
         for key, value in found.items():
             usage[key] += value
-    transcript_path = payload.get("transcript_path") or payload.get("transcriptPath")
-    if isinstance(transcript_path, str) and transcript_path:
-        for found in _usage_from_transcript(Path(transcript_path)):
-            for key, value in found.items():
-                usage[key] += value
     return usage
 
 
@@ -1202,8 +1227,6 @@ def update_session_stats(root: str | Path, payload: dict[str, Any]) -> dict[str,
     state.setdefault("started_at_ms", _now_ms(payload))
     state.setdefault("total_tool_calls", 0)
     state.setdefault("edit_tool_calls", 0)
-    state.setdefault("equivalent_baseline_calls", 0.0)
-    state.setdefault("savings", {"calls_saved": 0, "time_saved_ms": 0, "tokens_saved": 0})
     state.setdefault("event_counts", {})
     state.setdefault(
         "usage",
@@ -1214,26 +1237,22 @@ def update_session_stats(root: str | Path, payload: dict[str, Any]) -> dict[str,
     if event:
         state["event_counts"][event] = int(state["event_counts"].get(event, 0) or 0) + 1
     _merge_usage(state, _extract_usage(payload))
+    # context_window.current_usage is a cumulative snapshot of the entire session so far.
+    # Overwrite state["usage"] with it each time — never accumulate it additively.
+    context_cw = payload.get("context_window") if isinstance(payload.get("context_window"), dict) else None
+    context_cw_usage = context_cw.get("current_usage") if context_cw else None
+    if isinstance(context_cw_usage, dict):
+        snapshot = _usage_numbers(context_cw_usage)
+        if any(v > 0 for v in snapshot.values()):
+            state["usage"].update(snapshot)
     if event == "PostToolUse":
         tool_name = str(payload.get("tool_name") or "")
-        tool_input = payload.get("tool_input") or {}
-        equiv = equivalent_calls(tool_name, tool_input if isinstance(tool_input, dict) else {})
-        savings = compute_live_savings(equiv)
         state["total_tool_calls"] = int(state.get("total_tool_calls", 0)) + 1
         from atelier.core.capabilities.session_optimizer import tool_is_edit
 
         if tool_is_edit(tool_name):
             state["edit_tool_calls"] = int(state.get("edit_tool_calls", 0) or 0) + 1
             state.setdefault("first_edit_at_ms", _now_ms(payload))
-        state["equivalent_baseline_calls"] = float(state.get("equivalent_baseline_calls", 0.0)) + equiv
-        state["savings"]["calls_saved"] = int(state["savings"].get("calls_saved", 0)) + savings["calls_saved"]
-        state["savings"]["time_saved_ms"] = int(state["savings"].get("time_saved_ms", 0)) + savings["time_saved_ms"]
-        state["savings"]["tokens_saved"] = (
-            int(state["savings"].get("tokens_saved", 0))
-            + savings["input_tokens_saved"]
-            + savings["output_tokens_saved"]
-            + savings["cache_read_tokens_saved"]
-        )
         if tool_name == "Agent":
             state["subagents_started"] = int(state.get("subagents_started", 0) or 0) + 1
             state["pending_subagents"] = max(0, int(state.get("pending_subagents", 0) or 0) + 1)
@@ -1432,7 +1451,7 @@ def _active_run_loop_report(root: str | Path) -> dict[str, Any] | None:
     state = _read_json(state_path, {})
     if not isinstance(state, dict):
         return None
-    session_id = str(state.get("active_session_id") or "").strip()
+    session_id = str(state.get("session_id") or state.get("active_session_id") or "").strip()
     if not session_id:
         return None
     atelier_root = Path(str(state.get("atelier_root") or root))
@@ -1565,50 +1584,15 @@ def build_session_progress_optimization_output(root: str | Path, payload: dict[s
 
 
 def get_session_stats_from_trace(trace: Any) -> dict[str, Any]:
-    """Reconstruct a session stats dictionary from a Trace object."""
-    # Tool call counts
+    """Reconstruct a session stats dictionary from a Trace object.
+
+    NOTE: Savings (tokens_saved / cost_saved_usd) come from the Claude
+    transcript JSONL (tool_result.content[].saved). This function only
+    reports tool-call counts that can be derived deterministically from
+    the trace.
+    """
     tools_called = {tc.name: tc.count for tc in trace.tools_called}
     total_tool_calls = sum(tools_called.values())
-
-    # Equivalent baseline calls (logic mirrored from equivalent_calls)
-    equiv_total = 0.0
-    for tc in trace.tools_called:
-        lowered = tc.name.lower()
-        if lowered.endswith("edit") or lowered in {"edit", "write", "multiedit"}:
-            args = tc.args or {}
-            edits = args.get("edits") or [args]
-            edit_count = max(1, len(edits))
-            files = {
-                str(edit.get("file_path") or edit.get("path") or edit.get("file") or "")
-                for edit in edits
-                if isinstance(edit, dict)
-            }
-            files.discard("")
-            equiv_total += edit_count + max(1, len(files)) + 0.5
-        elif lowered.endswith("search") or lowered in {"search", "grep", "glob"}:
-            args = tc.args or {}
-            globs = args.get("file_glob_patterns") or []
-            equiv = 2 + max(0, len(globs) - 1)
-            if args.get("content_regex"):
-                equiv += 1
-            if str(args.get("output_mode") or "").lower() in {
-                "summary",
-                "type-summary",
-                "type_summary",
-            }:
-                equiv += 1
-            equiv_total += float(equiv)
-        elif lowered.endswith("sql") or lowered == "sql":
-            equiv_total += 5.0
-        else:
-            equiv_total += tc.count
-
-    # Savings (logic mirrored from compute_live_savings)
-    calls_saved = max(0, int(equiv_total - total_tool_calls))
-    time_saved_ms = calls_saved * LIVE_TIME_SAVED_PER_CALL_MS
-    in_saved = int(calls_saved * LIVE_INPUT_TOKENS_PER_CALL * LIVE_CONTEXT_MULTIPLIER)
-    out_saved = calls_saved * LIVE_OUTPUT_TOKENS_PER_CALL
-    cache_saved = int(calls_saved * LIVE_CACHE_READ_TOKENS_PER_CALL * LIVE_CONTEXT_MULTIPLIER)
 
     return {
         "id": trace.id,
@@ -1616,12 +1600,6 @@ def get_session_stats_from_trace(trace: Any) -> dict[str, Any]:
         "agent": trace.agent,
         "task": trace.task,
         "total_tool_calls": total_tool_calls,
-        "equivalent_baseline_calls": round(equiv_total, 2),
-        "savings": {
-            "calls_saved": calls_saved,
-            "time_saved_ms": time_saved_ms,
-            "tokens_saved": in_saved + out_saved + cache_saved,
-        },
         "usage": {
             "input_tokens": trace.input_tokens,
             "output_tokens": trace.output_tokens,
@@ -1663,8 +1641,7 @@ def aggregate_session_stats(root: str | Path, session_id: str | None = None) -> 
     aggregate: dict[str, Any] = {
         "session_count": 0,
         "total_tool_calls": 0,
-        "equivalent_baseline_calls": 0.0,
-        "savings": {"calls_saved": 0, "time_saved_ms": 0, "tokens_saved": 0},
+        "edit_tool_calls": 0,
         "usage": {
             "input_tokens": 0,
             "output_tokens": 0,
@@ -1686,9 +1663,7 @@ def aggregate_session_stats(root: str | Path, session_id: str | None = None) -> 
             continue
         aggregate["session_count"] += 1
         aggregate["total_tool_calls"] += int(data.get("total_tool_calls", 0) or 0)
-        aggregate["equivalent_baseline_calls"] += float(data.get("equivalent_baseline_calls", 0.0) or 0.0)
-        for key in aggregate["savings"]:
-            aggregate["savings"][key] += int((data.get("savings") or {}).get(key, 0) or 0)
+        aggregate["edit_tool_calls"] += int(data.get("edit_tool_calls", 0) or 0)
         for key in aggregate["usage"]:
             aggregate["usage"][key] += int((data.get("usage") or {}).get(key, 0) or 0)
         for key in (
@@ -1699,7 +1674,6 @@ def aggregate_session_stats(root: str | Path, session_id: str | None = None) -> 
             "subagents_completed",
         ):
             aggregate[key] += int(data.get(key, 0) or 0)
-    aggregate["equivalent_baseline_calls"] = round(float(aggregate["equivalent_baseline_calls"]), 2)
     return aggregate
 
 
@@ -1740,46 +1714,101 @@ def _cost_history_summary(root: str | Path) -> dict[str, Any]:
     }
 
 
-def build_savings_report(
-    root: str | Path, *, session_id: str | None = None, usd_per_1k_tokens: float = 0.003
-) -> dict[str, Any]:
-    root_path = Path(root)
-    smart = {}
-    smart_path = root_path / "smart_state.json"
-    if smart_path.exists():
+def live_savings_events_path(root: str | Path) -> Path:
+    """Routing/compaction analytics log. Not used for display savings."""
+    return Path(root) / "live_savings_events.jsonl"
+
+
+def load_live_savings_summary(root: str | Path, *, session_id: str | None = None) -> dict[str, Any]:
+    """Aggregate routing/compaction events from the analytics log.
+
+    NOTE: This no longer drives statusline / stop-hook savings display — those
+    come from the Claude transcript JSONL (tool_result.content[].saved).
+    Kept for cross_vendor_routing.advisor and audit_export consumers.
+    """
+    path = live_savings_events_path(root)
+    if not path.is_file():
+        return {"calls_saved": 0, "tokens_saved": 0, "saved_usd": 0.0, "routing_saved_usd": 0.0}
+
+    calls_saved = 0
+    tokens_saved = 0
+    saved_usd = 0.0
+    routing_saved_usd = 0.0
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
-            smart = json.loads(smart_path.read_text(encoding="utf-8"))
-        except Exception:
-            smart = {}
-    smart_savings = smart.get("savings") if isinstance(smart, dict) else {}
-    if not isinstance(smart_savings, dict):
-        smart_savings = {}
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if session_id and str(event.get("session_id") or "") != session_id:
+            continue
+        calls_saved += max(0, int(event.get("calls_saved", 0) or 0))
+        tokens_saved += max(0, int(event.get("tokens_saved", 0) or 0))
+        cost_saved_usd = max(0.0, float(event.get("cost_saved_usd", 0.0) or 0.0))
+        saved_usd += cost_saved_usd
+        lever = str(event.get("lever") or event.get("kind") or "").strip().lower()
+        if lever in {"model_routing", "model_recommendation"}:
+            routing_saved_usd += cost_saved_usd
+    return {
+        "calls_saved": calls_saved,
+        "tokens_saved": tokens_saved,
+        "saved_usd": round(saved_usd, 6),
+        "routing_saved_usd": round(routing_saved_usd, 6),
+    }
+
+
+def build_savings_report(
+    root: str | Path,
+    *,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """Compose the savings/cost report.
+
+    - With ``session_id``: per-session live display, sourced from the Claude
+      transcript JSONL (tool_result.content[].saved entries).
+    - Without ``session_id``: all-session analytics aggregate from the
+      routing/compaction event log.
+    """
+    root_path = Path(root)
     session = aggregate_session_stats(root_path, session_id=session_id)
-    smart_calls = int(smart_savings.get("calls_avoided", 0) or 0)
-    smart_tokens = int(smart_savings.get("tokens_saved", 0) or 0)
-    session_calls = int(session["savings"].get("calls_saved", 0) or 0)
-    session_tokens = int(session["savings"].get("tokens_saved", 0) or 0)
-    tokens_saved = max(smart_tokens, session_tokens)
-    calls_avoided = max(smart_calls, session_calls)
-    live = load_live_savings_summary(root_path, session_id=session_id)
-    tokens_saved = max(tokens_saved, int(live.get("tokens_saved", 0) or 0))
-    calls_avoided = max(calls_avoided, int(live.get("calls_saved", 0) or 0))
-    estimated_saved_usd = round((tokens_saved / 1000.0) * float(usd_per_1k_tokens), 6)
-    cost = _cost_history_summary(root_path)
-    live_saved_usd = float(live.get("saved_usd", 0.0) or 0.0)
-    if live_saved_usd > 0:
-        cost["saved_usd"] = round(float(cost["saved_usd"]) + live_saved_usd, 6)
-        cost["live_saved_usd"] = round(live_saved_usd, 6)
-        cost["routing_saved_usd"] = round(float(live.get("routing_saved_usd", 0.0) or 0.0), 6)
-        cost["would_have_cost_usd"] = round(float(cost["would_have_cost_usd"]) + live_saved_usd, 6)
-        cost["saved_pct"] = (
-            round(100.0 * float(cost["saved_usd"]) / float(cost["would_have_cost_usd"]), 2)
-            if float(cost["would_have_cost_usd"]) > 0
-            else 0.0
-        )
-    elif cost["saved_usd"] <= 0 and estimated_saved_usd > 0:
-        cost["saved_usd"] = estimated_saved_usd
-    estimated_saved_usd = max(estimated_saved_usd, float(cost["saved_usd"]))
+
+    if session_id:
+        from atelier.core.capabilities.savings_summary import compute_savings_summary
+
+        summary = compute_savings_summary(session_id, atelier_root=root_path)
+        tokens_saved = int(summary.ctx_saved)
+        calls_avoided = int(summary.smart_calls)
+        saved_usd = float(summary.saved_usd)
+        routing_saved_usd = float(summary.routing_saved_usd)
+        live = {
+            "calls_saved": calls_avoided,
+            "tokens_saved": tokens_saved,
+            "saved_usd": round(saved_usd, 6),
+            "routing_saved_usd": round(routing_saved_usd, 6),
+        }
+    else:
+        live = load_live_savings_summary(root_path)
+        tokens_saved = int(live.get("tokens_saved", 0) or 0)
+        calls_avoided = int(live.get("calls_saved", 0) or 0)
+        saved_usd = float(live.get("saved_usd", 0.0) or 0.0)
+        routing_saved_usd = float(live.get("routing_saved_usd", 0.0) or 0.0)
+
+    if session_id:
+        cost = {
+            "saved_usd": round(saved_usd, 6),
+            "live_saved_usd": round(saved_usd, 6),
+            "routing_saved_usd": round(routing_saved_usd, 6),
+            "total_calls": int(session.get("total_tool_calls", 0) or 0),
+        }
+    else:
+        cost = {
+            "saved_usd": round(saved_usd, 6),
+            "live_saved_usd": round(saved_usd, 6),
+            "routing_saved_usd": round(routing_saved_usd, 6),
+            "total_calls": int(session.get("total_tool_calls", 0) or 0),
+        }
+
     baseline = _read_json(baseline_estimate_path(root_path), {})
     if not isinstance(baseline, dict):
         baseline = {}
@@ -1791,7 +1820,7 @@ def build_savings_report(
         lifetime = {}
     lifetime.setdefault("calls_saved", calls_avoided)
     lifetime.setdefault("tokens_saved", tokens_saved)
-    lifetime.setdefault("estimated_saved_usd", max(estimated_saved_usd, float(cost.get("saved_usd", 0.0) or 0.0)))
+    lifetime.setdefault("saved_usd", saved_usd)
     auth = auth_status(root_path)
     subscription = _read_json(subscription_state_path(root_path), auth.get("subscription") or {})
     if not isinstance(subscription, dict):
@@ -1800,7 +1829,7 @@ def build_savings_report(
     return {
         "calls_avoided": calls_avoided,
         "tokens_saved": tokens_saved,
-        "estimated_saved_usd": estimated_saved_usd,
+        "saved_usd": saved_usd,
         "live": live,
         "session": session,
         "lifetime": lifetime,
@@ -1812,8 +1841,5 @@ def build_savings_report(
         "subscription": subscription,
         "ab_calibration": ab_calibration,
         "cost": cost,
-        "bad_plans_blocked": 0,
-        "rescue_events": 0,
-        "rubric_failures_caught": 0,
-        "local_note": "Savings are local estimates for this workspace and reset if the Atelier store is cleared.",
+        "local_note": "Savings reflect tokens Atelier actually kept out of LLM input, priced per-turn at the model in use.",
     }

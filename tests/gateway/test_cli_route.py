@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner, Result
 
 from atelier.core.capabilities.lesson_promotion.models import TypedLesson
 from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 
 def _invoke(root: Path, *args: str) -> Result:
@@ -15,7 +16,7 @@ def _invoke(root: Path, *args: str) -> Result:
     return runner.invoke(cli, ["--root", str(root), *args])
 
 
-def test_route_configure_writes_route_yaml(tmp_path: Path, monkeypatch) -> None:
+def test_route_configure_writes_route_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".atelier"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
@@ -39,7 +40,7 @@ def test_route_plan_fails_closed_without_config(tmp_path: Path) -> None:
     assert "route config not found" in res.output
 
 
-def test_route_plan_returns_cross_vendor_recommendation(tmp_path: Path, monkeypatch) -> None:
+def test_route_plan_returns_cross_vendor_recommendation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".atelier"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
@@ -65,7 +66,7 @@ def test_route_plan_returns_cross_vendor_recommendation(tmp_path: Path, monkeypa
     assert payload["fallback"] is not None
 
 
-def test_route_status_reports_recommendation_count_and_savings(tmp_path: Path, monkeypatch) -> None:
+def test_route_status_reports_recommendation_count_and_savings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".atelier"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
     configured = _invoke(root, "route", "configure", "--vendor", "anthropic", "--json")

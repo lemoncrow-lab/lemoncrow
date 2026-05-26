@@ -134,7 +134,7 @@ def _load_litellm_model_cost() -> dict[str, object]:
     return cast(dict[str, object], model_cost)
 
 
-with_model_cost = _load_litellm_model_cost()
+with_model_cost: dict[str, object] = {}  # populated lazily on first _load_pricing_table() call
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -390,7 +390,8 @@ def _load_pricing_table() -> dict[str, dict[str, float | tuple[PricingTier, ...]
     }
     priorities: dict[str, tuple[int, int, int, tuple[int, ...], int]] = {"_default": (0, 0, 0, (), 0)}
 
-    for model_id, raw_entry in with_model_cost.items():
+    prices = _load_litellm_model_cost()
+    for model_id, raw_entry in prices.items():
         pricing_entry = _extract_pricing_entry(model_id, raw_entry)
         if pricing_entry is None:
             continue

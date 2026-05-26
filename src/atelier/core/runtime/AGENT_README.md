@@ -19,4 +19,4 @@ Single orchestrator for capabilities, storage, traces, environments, and runtime
 
 - `src/atelier/gateway/adapters/runtime.py`
 - `src/atelier/gateway/adapters/mcp_server.py`
-- `src/atelier/gateway/adapters/cli.py`
+- `src/atelier/gateway/cli/app.py`

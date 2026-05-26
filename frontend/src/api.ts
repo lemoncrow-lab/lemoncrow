@@ -97,6 +97,13 @@ export interface ValidationResult {
   detail?: string;
 }
 
+export interface TraceLearning {
+  kind: "worked" | "did_not_work" | "next_rule" | "risk" | "note";
+  text: string;
+  evidence?: string;
+  promote_to?: "memory" | "reasonblock" | "rubric" | "none" | null;
+}
+
 export interface Trace {
   id: string;
   session_id?: string;
@@ -114,6 +121,7 @@ export interface Trace {
   diff_summary?: string;
   output_summary?: string;
   validation_results: ValidationResult[];
+  learnings?: TraceLearning[];
   reasoning?: string[];
   created_at: string;
   note?: string;
@@ -145,7 +153,13 @@ export interface ConversationEntry {
   path?: string;
   diff?: string;
   tool_name?: string;
+  tool_use_id?: string;
   arguments?: unknown;
+  // Per-call Atelier savings written by the MCP server to its host sidecar.
+  // Same data the statusline aggregates — attached per-tool by the backend.
+  // `usd` is priced at the row's captured model input rate (already summed
+  // across grouped turns).
+  saved?: { tokens: number; calls: number; usd: number };
   todos?: Array<{
     content: string;
     status?: string;
@@ -817,6 +831,11 @@ export interface MCPStatus {
   description?: string;
   is_dev?: boolean;
   mode?: "active" | "passive";
+  enum_params?: Array<{
+    name: string;
+    options: string[];
+    description?: string;
+  }>;
 }
 
 export interface HostAdapter {
@@ -956,12 +975,23 @@ export interface SessionSummary {
   input_tokens?: number;
   output_tokens?: number;
   cached_input_tokens?: number;
+  cache_write_tokens?: number;
 }
 
 export interface TopTool {
   tool: string;
   calls: number;
   cost_usd: number;
+}
+
+export interface ToolSavingsRow {
+  tool: string;
+  tokens_saved: number;
+  calls_saved: number;
+  cost_saved_usd: number;
+  model: string;
+  at: string;
+  rid?: string;
 }
 
 export interface SessionReport extends SessionSummary {
@@ -978,12 +1008,15 @@ export interface SessionReport extends SessionSummary {
   routing_savings_usd: number;
   compact_events: number;
   compact_savings_estimate_usd: number;
+  context_compression_savings_usd: number;
+  context_compression_tool_calls: number;
+  tool_savings: ToolSavingsRow[];
   top_tools_by_cost: TopTool[];
 }
 
 export interface MemoryFact {
   fact_id: string;
-  vendor: "claude" | "codex" | "gemini";
+  vendor: "claude" | "codex" | "gemini" | "copilot" | "opencode";
   source_path: string;
   source_kind: string;
   content: string;
@@ -1123,6 +1156,7 @@ export interface DashboardTopSession {
   input_tokens: number;
   output_tokens: number;
   cached_tokens: number;
+  atelier_savings_usd?: number;
 }
 
 export interface DashboardTool {
@@ -1214,6 +1248,8 @@ export interface AnalyticsDashboard {
     total_cost: number;
     projected_monthly_cost: number;
     total_sessions: number;
+    total_atelier_savings_usd?: number;
+    savings_pct?: number;
   };
   daily: DashboardDaily[];
   hourly: DashboardDaily[];

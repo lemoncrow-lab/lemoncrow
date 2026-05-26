@@ -15,7 +15,12 @@ EXPECTED_TOOLS = {
     "sql",
     "search",
     "compact",
-    "code",
+    "symbols",
+    "node",
+    "callers",
+    "callees",
+    "impact",
+    "explore",
     "shell",
 }
 

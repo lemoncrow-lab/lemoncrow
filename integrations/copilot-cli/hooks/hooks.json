@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "bash": "python3 __HOOKS_DIR__/session_start.py",
+        "timeout": 10
+      }
+    ],
+    "agentStop": [
+      {
+        "bash": "python3 __HOOKS_DIR__/stop.py",
+        "timeout": 30
+      }
+    ]
+  }
+}

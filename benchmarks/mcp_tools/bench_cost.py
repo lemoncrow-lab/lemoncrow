@@ -15,12 +15,13 @@ Run:
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+from benchmarks.mcp_tools._env import configure_benchmark_runtime
 
 # ---------------------------------------------------------------------------
 # Model pricing (USD per 1M tokens, mid-2025 estimates)
@@ -28,17 +29,17 @@ import pytest
 
 _PRICING: dict[str, dict[str, float]] = {
     "frontier": {
-        "input_per_m": 3.00,   # claude-sonnet-4.x uncached
+        "input_per_m": 3.00,  # claude-sonnet-4.x uncached
         "cache_read_per_m": 0.30,  # 90% cheaper when cache hit
         "output_per_m": 15.00,
     },
     "cheap_llm": {
-        "input_per_m": 0.25,   # claude-haiku / gpt-4o-mini
+        "input_per_m": 0.25,  # claude-haiku / gpt-4o-mini
         "cache_read_per_m": 0.025,
         "output_per_m": 1.25,
     },
     "local_slm": {
-        "input_per_m": 0.00,   # Ollama / local
+        "input_per_m": 0.00,  # Ollama / local
         "cache_read_per_m": 0.00,
         "output_per_m": 0.00,
     },
@@ -65,6 +66,7 @@ def _cost_usd(
 # Simulated turn data — models a realistic bug-fix coding task
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TurnProfile:
     """Token profile for one agent turn."""
@@ -89,14 +91,14 @@ class TurnProfile:
 TURN_PROFILES: list[TurnProfile] = [
     TurnProfile(
         label="turn-1: understand task",
-        naive_input_tokens=1_400,          # system + task + files
+        naive_input_tokens=1_400,  # system + task + files
         atelier_uncached_input_tokens=600,  # task + compact context
-        atelier_cache_read_tokens=800,      # system + tool schema (stable prefix)
-        atelier_route_tier="cheap_llm",     # analysis, no code generation
+        atelier_cache_read_tokens=800,  # system + tool schema (stable prefix)
+        atelier_route_tier="cheap_llm",  # analysis, no code generation
     ),
     TurnProfile(
         label="turn-2: read relevant files",
-        naive_input_tokens=2_900,           # + turn-1 history + tool output
+        naive_input_tokens=2_900,  # + turn-1 history + tool output
         atelier_uncached_input_tokens=500,
         atelier_cache_read_tokens=800,
         atelier_route_tier="cheap_llm",
@@ -121,7 +123,7 @@ TURN_PROFILES: list[TurnProfile] = [
         atelier_uncached_input_tokens=800,
         atelier_cache_read_tokens=800,
         atelier_route_tier="frontier_llm",
-        watchdog_prevented_retry=True,      # watchdog catches repeated failure pattern
+        watchdog_prevented_retry=True,  # watchdog catches repeated failure pattern
     ),
     TurnProfile(
         label="turn-6: verify + summarise",
@@ -136,6 +138,7 @@ TURN_PROFILES: list[TurnProfile] = [
 # ---------------------------------------------------------------------------
 # Simulation result
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class LoopResult:
@@ -170,7 +173,9 @@ def _simulate_naive(profiles: list[TurnProfile]) -> LoopResult:
             c += _cost_usd(p.naive_input_tokens, 0, _AVG_OUTPUT_TOKENS_PER_TURN, "frontier")
         turn_costs.append(c)
 
-    output_tokens = (len(profiles) + sum(1 for p in profiles if p.watchdog_prevented_retry)) * _AVG_OUTPUT_TOKENS_PER_TURN
+    output_tokens = (
+        len(profiles) + sum(1 for p in profiles if p.watchdog_prevented_retry)
+    ) * _AVG_OUTPUT_TOKENS_PER_TURN
     output_cost = output_tokens * _PRICING["frontier"]["output_per_m"] / 1_000_000
     total_cost = sum(turn_costs) + output_cost
 
@@ -310,6 +315,7 @@ def render_cost_table(naive: LoopResult, atelier: LoopResult) -> str:
 # Per-turn breakdown renderer
 # ---------------------------------------------------------------------------
 
+
 def render_turn_breakdown(profiles: list[TurnProfile], naive: LoopResult, atelier: LoopResult) -> str:
     lines: list[str] = []
     lines.append(f"\n{_BOLD}━━ Per-Turn Breakdown ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{_RESET}")
@@ -335,11 +341,11 @@ def render_turn_breakdown(profiles: list[TurnProfile], naive: LoopResult, atelie
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("bench_cost")
-    os.environ["ATELIER_ROOT"] = str(root / ".atelier")
-    return root
+    return configure_benchmark_runtime(root)
 
 
 @pytest.fixture(scope="session")
@@ -361,6 +367,7 @@ def print_cost_report(naive_result: LoopResult, atelier_result: LoopResult) -> N
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 def test_atelier_fewer_uncached_tokens(naive_result: LoopResult, atelier_result: LoopResult) -> None:
     """Atelier uses significantly fewer uncached input tokens through state compression."""
@@ -385,9 +392,9 @@ def test_atelier_has_cache_reads(atelier_result: LoopResult) -> None:
 
 def test_atelier_prevents_retries(atelier_result: LoopResult) -> None:
     """Atelier watchdog prevents at least one redundant retry."""
-    assert atelier_result.retries_prevented >= 1, (
-        f"Expected ≥1 watchdog-prevented retries, got {atelier_result.retries_prevented}"
-    )
+    assert (
+        atelier_result.retries_prevented >= 1
+    ), f"Expected ≥1 watchdog-prevented retries, got {atelier_result.retries_prevented}"
 
 
 def test_atelier_cost_reduction_at_least_60pct(naive_result: LoopResult, atelier_result: LoopResult) -> None:
@@ -401,6 +408,6 @@ def test_atelier_cost_reduction_at_least_60pct(naive_result: LoopResult, atelier
 
 def test_atelier_uses_cheap_model_for_analysis_turns(atelier_result: LoopResult) -> None:
     """Atelier routes analysis turns to cheap model, not frontier."""
-    assert atelier_result.cheap_calls >= 4, (
-        f"Expected ≥4 cheap-model calls (analysis turns). Got {atelier_result.cheap_calls}"
-    )
+    assert (
+        atelier_result.cheap_calls >= 4
+    ), f"Expected ≥4 cheap-model calls (analysis turns). Got {atelier_result.cheap_calls}"

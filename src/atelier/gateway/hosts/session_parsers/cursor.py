@@ -64,6 +64,13 @@ def _parse_composer_id(key: str) -> str | None:
     return composer_id
 
 
+def _parse_bubble_id(key: str) -> str:
+    parts = key.split(":", 2)
+    if len(parts) >= 3 and parts[2].strip():
+        return parts[2].strip()
+    return key.strip()
+
+
 def _normalize_model(value: Any) -> str:
     model = str(value or "").strip()
     if model in _PLACEHOLDER_MODELS:
@@ -188,12 +195,19 @@ class CursorImporter:
                 "json_extract(value, '$.text') AS text, "
                 "json_extract(value, '$.richText') AS rich_text, "
                 "json_extract(value, '$.codeBlocks') AS code_blocks "
-                "FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' ORDER BY ROWID ASC"
+                "FROM cursorDiskKV "
+                "WHERE key LIKE 'bubbleId:%' "
+                "  AND ROWID IN ("
+                "    SELECT MAX(ROWID) FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' GROUP BY key"
+                "  ) "
+                "ORDER BY ROWID ASC"
             ).fetchall()
         for row in rows:
-            composer_id = _parse_composer_id(str(row["key"] or ""))
+            row_key = str(row["key"] or "")
+            composer_id = _parse_composer_id(row_key)
             if not composer_id:
                 continue
+            bubble_id = _parse_bubble_id(row_key)
             project = project_map.get(composer_id, "cursor")
             group = groups[composer_id]
             group["project"] = project
@@ -202,7 +216,9 @@ class CursorImporter:
             bubble_type = int(row["bubble_type"] or 0)
             if bubble_type == 1:
                 if text:
-                    group["events"].append(make_user_message(text[:500], timestamp=timestamp))
+                    group["events"].append(
+                        make_user_message(text[:500], timestamp=timestamp, message_id=f"u-{bubble_id}")
+                    )
                 continue
             input_tokens = int(row["input_tokens"] or 0)
             output_tokens = int(row["output_tokens"] or 0)
@@ -235,6 +251,7 @@ class CursorImporter:
                     texts=[text] if text else [],
                     tool_calls=tool_calls,
                     timestamp=timestamp,
+                    message_id=f"a-{bubble_id}",
                 )
             )
 

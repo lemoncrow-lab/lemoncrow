@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from atelier.core.capabilities.lesson_promotion.models import TypedLesson
 from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 
-def _invoke(root: Path, *args: str):
+def _invoke(root: Path, *args: str) -> Result:
     return CliRunner().invoke(cli, ["--root", str(root), *args])
 
 

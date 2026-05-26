@@ -13,7 +13,7 @@ from click.testing import CliRunner
 from atelier.core.foundation.models import ReasonBlock, Rubric
 from atelier.core.foundation.rubric_gate import run_rubric
 from atelier.core.runtime import AtelierRuntimeCore
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 _GROUND_TRUTH_PATH = Path(__file__).resolve().parents[2] / "src" / "benchmarks" / "retrieval" / "ground_truth.jsonl"
 _BASELINE_FLOOR = {

@@ -7,7 +7,7 @@ from click.testing import CliRunner
 from pytest import MonkeyPatch
 
 from atelier.core.runtime import AtelierRuntimeCore
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 
 def _init_root(root: Path) -> None:

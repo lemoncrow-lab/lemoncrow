@@ -8,8 +8,8 @@ from click.testing import CliRunner
 
 from atelier.core.foundation.models import ReasonBlock
 from atelier.core.foundation.store import ContextStore
-from atelier.gateway.adapters import cli as cli_module
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import app as cli_module
+from atelier.gateway.cli import cli
 from atelier.infra.internal_llm.ollama_client import OllamaUnavailable
 
 

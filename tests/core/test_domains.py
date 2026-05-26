@@ -11,7 +11,7 @@ from click.testing import CliRunner
 from atelier.core.domains import DomainManager
 from atelier.core.domains.loader import DomainLoader
 from atelier.core.domains.models import DomainBundle
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 # ---------------------------------------------------------------------------
 # DomainManager: basic loading

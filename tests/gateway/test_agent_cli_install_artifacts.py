@@ -76,8 +76,7 @@ def test_build_host_skills_generates_stable_bundle_by_default(tmp_path: Path) ->
         check=True,
     )
     generated = {path.name for path in dest.iterdir() if path.is_dir()}
-    # Currently all skills are marked as DEV_ONLY_SKILLS in environment.py
-    assert generated == set()
+    assert generated == {"code", "explore", "repair", "research", "review"}
 
 
 def test_build_host_skills_can_include_dev_skills(tmp_path: Path) -> None:
@@ -96,10 +95,7 @@ def test_build_host_skills_can_include_dev_skills(tmp_path: Path) -> None:
         check=True,
     )
     generated = {path.name for path in dest.iterdir() if path.is_dir()}
-    assert {"context", "rescue"}.issubset(generated)
-    assert "trace" not in generated
-    assert "reasoning" not in generated
-    assert "lint" not in generated
+    assert generated == {"code", "explore", "repair", "research", "review"}
 
 
 def test_verify_agent_clis_script_exists() -> None:
@@ -520,22 +516,18 @@ def test_new_claude_plugin_json_no_manifest_keys() -> None:
 
 @pytest.mark.parametrize(
     "skill_name",
-    ["status", "context", "savings", "benchmark", "analyze-failures", "evals", "settings"],
+    ["code", "explore", "review", "repair", "research"],
 )
 def test_new_claude_plugin_user_skill_exists(skill_name: str) -> None:
-    # Phase H consolidation: All skills unified in ./integrations/skills/
     skill_file = INTEGRATIONS / "skills" / skill_name / "SKILL.md"
-    assert (
-        skill_file.exists()
-    ), f"integrations/skills/{skill_name}/SKILL.md must exist (all hosts now use unified skills)"
+    assert skill_file.exists(), f"integrations/skills/{skill_name}/SKILL.md must exist"
 
 
 @pytest.mark.parametrize(
     "skill_name",
-    ["status", "context", "savings", "benchmark", "analyze-failures", "evals", "settings"],
+    ["code", "explore", "review", "repair", "research"],
 )
 def test_new_claude_plugin_skill_has_description(skill_name: str) -> None:
-    # Phase H consolidation: All skills unified in ./integrations/skills/
     skill_file = INTEGRATIONS / "skills" / skill_name / "SKILL.md"
     if not skill_file.exists():
         pytest.skip(f"skill file not found: {skill_name}")
@@ -546,7 +538,7 @@ def test_new_claude_plugin_skill_has_description(skill_name: str) -> None:
 def test_new_claude_plugin_has_agents() -> None:
     agents_dir = CLAUDE_PLUGIN_NEW / "agents"
     assert agents_dir.is_dir(), "integrations/claude/plugin/agents/ directory must exist"
-    for name in ("code.md", "explore.md", "review.md", "repair.md"):
+    for name in ("code.md", "explore.md", "review.md", "repair.md", "research.md"):
         assert (agents_dir / name).exists(), f"integrations/claude/plugin/agents/{name} must exist"
 
 
@@ -707,6 +699,16 @@ def test_install_claude_uses_new_plugin_path() -> None:
     assert "integrations/claude/plugin" in content, "install_claude.sh must reference integrations/claude/plugin"
 
 
+def test_install_claude_stages_statusline_assets() -> None:
+    script = SCRIPTS / "install_claude.sh"
+    content = script.read_text()
+    assert "cp -r '${SOURCE_PLUGIN_DIR}/scripts' '$STAGING_DIR/'" in content
+    assert "cp '${SOURCE_PLUGIN_DIR}/settings.json' '$STAGING_DIR/'" in content
+    assert (
+        'data["subagentStatusLine"] = {"type": "command", "command": "${STATUSLINE_SCRIPT}", "padding": 1}' in content
+    )
+
+
 # ---------------------------------------------------------------------------
 # 19. Docs use correct /atelier:skill namespacing (not /atelier-skill)
 # ---------------------------------------------------------------------------
@@ -717,16 +719,15 @@ def test_docs_use_atelier_colon_not_dash_for_skills() -> None:
     if not doc.exists():
         pytest.skip("claude-code-install.md not found")
     content = doc.read_text()
-    # /atelier:status is correct; /atelier-status is the old commands-based name
-    assert "/atelier:status" in content, "claude-code-install.md must document /atelier:status (colon, not dash)"
+    assert "/atelier:code" in content, "claude-code-install.md must document /atelier:code (colon, not dash)"
     # Ensure the wrong form is not present (unless it's mentioned as a legacy note)
     # We allow it if explicitly labelled as deprecated/old
     bad_uses = [
         line
         for line in content.splitlines()
-        if "/atelier-status" in line and "deprecated" not in line.lower() and "old" not in line.lower()
+        if "/atelier-code" in line and "deprecated" not in line.lower() and "old" not in line.lower()
     ]
-    assert not bad_uses, f"claude-code-install.md uses /atelier-status (dash) without deprecated label: {bad_uses}"
+    assert not bad_uses, f"claude-code-install.md uses /atelier-code (dash) without deprecated label: {bad_uses}"
 
 
 def test_docs_mention_three_install_modes() -> None:

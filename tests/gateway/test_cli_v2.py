@@ -11,7 +11,7 @@ from click.testing import CliRunner, Result
 
 from atelier.core.foundation.models import Trace, UsageEntry
 from atelier.core.foundation.store import ContextStore
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 from atelier.infra.runtime.run_ledger import RunLedger
 
 
@@ -228,7 +228,7 @@ def test_savings_reports_counters(tmp_path: Path) -> None:
 def test_optimize_reports_trace_recommendations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "a"
     _seed_optimizer_traces(root)
-    monkeypatch.setattr("atelier.gateway.adapters.cli._run_external_optimize", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("atelier.gateway.cli.app._run_external_optimize", lambda *_args, **_kwargs: None)
 
     res = _invoke(root, "optimize", "--host", "codex", "--json")
 
@@ -243,7 +243,7 @@ def test_optimize_reports_trace_recommendations(tmp_path: Path, monkeypatch: pyt
 def test_optimize_accepts_new_registry_host_choice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "a"
     _seed_optimizer_traces(root)
-    monkeypatch.setattr("atelier.gateway.adapters.cli._run_external_optimize", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("atelier.gateway.cli.app._run_external_optimize", lambda *_args, **_kwargs: None)
 
     res = _invoke(root, "optimize", "--host", "qwen", "--json")
 

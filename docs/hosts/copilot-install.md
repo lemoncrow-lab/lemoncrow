@@ -70,6 +70,7 @@ Additional workspace helpers:
 - Copilot Chat can invoke Atelier MCP tools through the local Atelier MCP wrapper
 - `copilot-instructions.md` provides Atelier context to every Copilot session
 - `atelier` chat mode is available from the chat mode selector
+- The installed Copilot instructions and chat mode explicitly map native `codebase`, `search`, `editFiles`, and `runCommands` back to Atelier MCP equivalents
 - `Atelier: Copilot Preflight` runs the shell-based preflight before you continue in Copilot Chat
 - `Atelier: Worktree Bootstrap` makes local stacks easier to boot from multiple worktrees
 - `Atelier: Runtime Evidence` provides a repeatable validation artifact for service behavior

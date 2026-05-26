@@ -7,7 +7,7 @@ from click.testing import CliRunner
 
 from atelier.core.foundation.models import ConsolidationCandidate
 from atelier.core.foundation.store import ContextStore
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 
 def test_consolidation_inbox_and_decide_are_cli_only(tmp_path: Path) -> None:

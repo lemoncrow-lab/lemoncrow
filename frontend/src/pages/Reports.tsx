@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { FileText } from "lucide-react";
 import { api, type ReportMeta, type ReportContent } from "../api";
 import {
   Alert,
@@ -45,7 +46,7 @@ export default function Reports() {
 
       {list !== null && list.length === 0 && (
         <EmptyState
-          icon="📄"
+          icon={<FileText size={32} />}
           title="No reports published yet"
           description={
             <>

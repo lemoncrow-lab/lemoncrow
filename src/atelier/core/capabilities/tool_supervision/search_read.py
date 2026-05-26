@@ -183,6 +183,8 @@ def _run_grep(pattern: str, search_path: str) -> str:
                 "--no-ignore",
                 "--glob",
                 "!.git",
+                "--glob",
+                "!.atelier",
                 "--",
                 pattern,
                 search_path,
@@ -242,7 +244,7 @@ def _fingerprint_path(search_path: Path) -> str:
         st = search_path.stat()
         entries.append(f"{search_path}:{st.st_size}:{st.st_mtime_ns}")
     elif search_path.is_dir():
-        files = sorted(p for p in search_path.rglob("*") if p.is_file())
+        files = sorted(p for p in search_path.rglob("*") if p.is_file() and ".atelier" not in p.parts)
         for file_path in files:
             st = file_path.stat()
             entries.append(f"{file_path}:{st.st_size}:{st.st_mtime_ns}")

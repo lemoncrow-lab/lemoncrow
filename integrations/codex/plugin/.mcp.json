@@ -4,6 +4,7 @@
     "args": ["--host", "codex"],
     "env": {
       "ATELIER_DEV_MODE": "0"
-    }
+    },
+    "alwaysLoad": true
   }
-}
+  }

@@ -58,14 +58,28 @@ class AntigravityImporter:
             calls[0].get("timestamp") or datetime.fromtimestamp(cache_path.stat().st_mtime, tz=UTC).isoformat()
         )
         events: list[dict[str, Any]] = [make_session_line(cascade_id, timestamp=first_timestamp, title="antigravity")]
-        for index, call in enumerate(calls):
+        seen_call_ids: set[str] = set()
+        previous_unidentified_call = ""
+        turn_index = 0
+        for call in calls:
+            call_id = str(call.get("id") or call.get("callId") or call.get("messageId") or "").strip()
+            if call_id:
+                if call_id in seen_call_ids:
+                    continue
+                seen_call_ids.add(call_id)
+                previous_unidentified_call = ""
+            else:
+                call_fingerprint = json.dumps(call, sort_keys=True, default=str, ensure_ascii=False)
+                if call_fingerprint == previous_unidentified_call:
+                    continue
+                previous_unidentified_call = call_fingerprint
             user_message = str(call.get("userMessage") or "").strip()
             if user_message:
                 events.append(
                     make_user_message(
                         user_message[:500],
                         timestamp=str(call.get("timestamp") or first_timestamp),
-                        message_id=f"u-{index}",
+                        message_id=f"u-{turn_index}",
                     )
                 )
             tools = []
@@ -86,9 +100,10 @@ class AntigravityImporter:
                     texts=[str(call.get("outputSummary") or "Antigravity response")],
                     tool_calls=tools,
                     timestamp=str(call.get("timestamp") or first_timestamp),
-                    message_id=f"a-{index}",
+                    message_id=f"a-{turn_index}",
                 )
             )
+            turn_index += 1
         raw_content = build_normalized_jsonl(events)
         return record_normalized_session(
             self.store,

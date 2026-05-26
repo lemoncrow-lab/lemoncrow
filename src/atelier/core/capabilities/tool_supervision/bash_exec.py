@@ -16,12 +16,14 @@ def _strip_ansi(text: str) -> str:
     return _ANSI_ESCAPE.sub("", text)
 
 
-def _head_tail_lines(lines: list[str], head: int, tail: int) -> tuple[str, int]:
+def _head_tail_lines(lines: list[str], head: int, tail: int) -> tuple[str, int, int]:
     if len(lines) <= head + tail:
-        return "\n".join(lines), 0
-    omitted = len(lines) - head - tail
+        return "\n".join(lines), 0, 0
+    omitted_lines = lines[head : len(lines) - tail]
+    omitted = len(omitted_lines)
+    omitted_chars = sum(len(line) for line in omitted_lines)
     parts = [*lines[:head], f"... ({omitted} lines omitted) ...", *lines[-tail:]]
-    return "\n".join(parts), omitted
+    return "\n".join(parts), omitted, omitted_chars
 
 
 @dataclass
@@ -33,6 +35,7 @@ class RunResult:
     truncated: bool
     lines_omitted: int
     command: str
+    chars_omitted: int = 0
     policy_category: str = "generic"
     policy_action: str = "allow"
     policy_reason: str = ""
@@ -232,8 +235,8 @@ def run_command(
     else:
         head = max(20, max_lines // 4)
         tail = max_lines - head
-    stdout_compact, lines_omitted = _head_tail_lines(raw_stdout.splitlines(), head, tail)
-    stderr_compact, _ = _head_tail_lines(raw_stderr.splitlines(), 100, 100)
+    stdout_compact, lines_omitted, chars_omitted = _head_tail_lines(raw_stdout.splitlines(), head, tail)
+    stderr_compact, _, _ = _head_tail_lines(raw_stderr.splitlines(), 100, 100)
 
     return RunResult(
         stdout=stdout_compact,
@@ -242,6 +245,7 @@ def run_command(
         duration_ms=duration_ms,
         truncated=lines_omitted > 0,
         lines_omitted=lines_omitted,
+        chars_omitted=chars_omitted,
         command=command,
         policy_category=policy.category,
         policy_action=policy.action,

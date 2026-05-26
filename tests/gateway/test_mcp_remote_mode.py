@@ -22,8 +22,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from atelier.gateway.adapters.cli import cli
 from atelier.gateway.adapters.mcp_server import _REMOTE_TOOLS, _handle
+from atelier.gateway.cli import cli
 from atelier.infra.storage.sqlite_store import SQLiteStore
 
 # --------------------------------------------------------------------------- #

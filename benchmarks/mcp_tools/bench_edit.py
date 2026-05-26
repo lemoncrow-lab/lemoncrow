@@ -11,12 +11,12 @@ args before running, so every run starts from a fresh known state.
 from __future__ import annotations
 
 import copy
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from benchmarks.mcp_tools._env import configure_benchmark_runtime
 from benchmarks.mcp_tools.cases.edit import EDIT_CASES
 from benchmarks.mcp_tools.harness import BenchCase, CaseResult, ToolReport
 from benchmarks.mcp_tools.reporter import render_summary
@@ -34,14 +34,13 @@ _FILE_B_CONTENT = "# scratch file B\nPLACEHOLDER_BETA = 2\n"
 @pytest.fixture(scope="session")
 def edit_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("bench_edit")
-    os.environ["ATELIER_ROOT"] = str(root / ".atelier")
-    os.environ["CLAUDE_WORKSPACE_ROOT"] = str(root)
-    return root
+    return configure_benchmark_runtime(root)
 
 
 @pytest.fixture(scope="session")
 def edit_tool_fn(edit_workspace: Path) -> Any:
     from atelier.gateway.adapters.mcp_server import tool_smart_edit
+
     return tool_smart_edit
 
 
@@ -82,6 +81,7 @@ def _run_edit_case(case: BenchCase, tool_fn: Any, workspace: Path) -> CaseResult
         baseline_tokens=case.baseline_tokens,
     )
     from benchmarks.mcp_tools.harness import run_case
+
     return run_case(patched_case, tool_fn)
 
 
@@ -126,6 +126,6 @@ def test_edit_op_saves_tokens(case: BenchCase, edit_bench_results: list[CaseResu
     result = _find(edit_bench_results, case.label)
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
-    assert result.atelier_tokens < case.baseline_tokens, (
-        f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"
-    )
+    assert (
+        result.atelier_tokens < case.baseline_tokens
+    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"

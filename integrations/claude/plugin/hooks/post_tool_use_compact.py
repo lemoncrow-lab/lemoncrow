@@ -28,7 +28,8 @@ def _read_session_state() -> dict[str, Any]:
     if not p.exists():
         return {}
     try:
-        return json.loads(p.read_text("utf-8"))
+        result = json.loads(p.read_text("utf-8"))
+        return result if isinstance(result, dict) else {}
     except Exception:
         return {}
 

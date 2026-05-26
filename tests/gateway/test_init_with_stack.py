@@ -4,7 +4,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from atelier.gateway.adapters.cli import cli
+from atelier.gateway.cli import cli
 
 
 def test_init_with_stack_copies_templates(tmp_path: Path) -> None:

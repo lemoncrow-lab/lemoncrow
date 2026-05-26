@@ -1,12 +1,14 @@
 import { type ReactNode, useEffect, useState } from "react";
 import type {
   AnalyticsDashboard,
+  InsightsWindow,
+  InsightsSessionSummary,
   OverviewStats,
   SavingsSummaryV2,
   TraceListResponse,
 } from "../api";
 import { api } from "../api";
-import { SectionHeader } from "../components/WorkbenchUI";
+import { Card, SectionHeader } from "../components/WorkbenchUI";
 import { getTelemetrySummary, type TelemetrySummary } from "../lib/insightsApi";
 import { useTimeRange } from "../lib/TimeRangeContext";
 
@@ -36,6 +38,7 @@ interface OverviewData {
   savings: SavingsSummaryV2 | null;
   analytics: AnalyticsDashboard | null;
   telemetry: TelemetrySummary | null;
+  insights: InsightsWindow | null;
 }
 
 interface SnapshotChipData {
@@ -63,6 +66,7 @@ const EMPTY_DATA: OverviewData = {
   savings: null,
   analytics: null,
   telemetry: null,
+  insights: null,
 };
 
 const TONE_STYLES: Record<
@@ -263,7 +267,7 @@ function InsightCard({
 export default function Overview() {
   const [data, setData] = useState<OverviewData>(EMPTY_DATA);
   const [err, setErr] = useState<string | null>(null);
-  const { days, seconds } = useTimeRange();
+  const { days, seconds, range } = useTimeRange();
 
   useEffect(() => {
     let active = true;
@@ -274,6 +278,7 @@ export default function Overview() {
       api.savingsSummary(days),
       api.analyticsDashboard(days),
       getTelemetrySummary({ since: Date.now() / 1000 - seconds }),
+      api.insightsWindow(range),
     ]).then((results) => {
       if (!active) return;
 
@@ -283,6 +288,7 @@ export default function Overview() {
         savingsResult,
         analyticsResult,
         telemetryResult,
+        insightsResult,
       ] = results;
 
       const nextData: OverviewData = {
@@ -294,6 +300,8 @@ export default function Overview() {
           analyticsResult.status === "fulfilled" ? analyticsResult.value : null,
         telemetry:
           telemetryResult.status === "fulfilled" ? telemetryResult.value : null,
+        insights:
+          insightsResult.status === "fulfilled" ? insightsResult.value : null,
       };
 
       setData(nextData);
@@ -314,7 +322,7 @@ export default function Overview() {
     return () => {
       active = false;
     };
-  }, [days, seconds]);
+  }, [days, seconds, range]);
 
   const runStats = data.traces?.metrics.stats;
   const sessionTotal = runStats?.total ?? data.stats?.total_traces ?? null;
@@ -697,6 +705,133 @@ export default function Overview() {
           />
         </div>
       </section>
+
+      {data.insights !== null && data.insights.session_count > 0 && (
+        <section className="space-y-3">
+          <SectionHeader title="Session Activity" />
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="border border-neutral-800 bg-neutral-950/60 p-4">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+                Sessions
+              </div>
+              <div className="mt-2 text-xl font-semibold text-violet-200">
+                {data.insights.session_count}
+              </div>
+            </div>
+            <div className="border border-neutral-800 bg-neutral-950/60 p-4">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+                Total Cost
+              </div>
+              <div className="mt-2 text-xl font-semibold text-amber-200">
+                {usd(data.insights.total_cost_usd)}
+              </div>
+            </div>
+            <div className="border border-neutral-800 bg-neutral-950/60 p-4">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+                Total Savings
+              </div>
+              <div className="mt-2 text-xl font-semibold text-emerald-200">
+                {usd(data.insights.total_atelier_savings_usd)}
+              </div>
+            </div>
+            <div className="border border-neutral-800 bg-neutral-950/60 p-4">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+                Avg Session Cost
+              </div>
+              <div className="mt-2 text-xl font-semibold text-neutral-100">
+                {data.insights.session_count > 0
+                  ? usd(data.insights.total_cost_usd / data.insights.session_count)
+                  : "—"}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-3">
+            {data.insights.top_sessions.length > 0 && (
+              <Card className="p-4">
+                <h3 className="mb-3 text-[10px] font-mono font-bold uppercase tracking-widest text-neutral-500">
+                  Top Cost Sessions
+                </h3>
+                <div className="space-y-2">
+                  {data.insights.top_sessions.map((s: InsightsSessionSummary) => {
+                    const maxCost = data.insights!.top_sessions[0]?.cost_usd ?? 1;
+                    return (
+                      <div key={s.session_id} className="flex flex-col gap-0.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="font-mono text-violet-400/80">
+                            {s.session_id.slice(0, 14)}…
+                          </span>
+                          <span className="text-amber-300">{usd(s.cost_usd)}</span>
+                        </div>
+                        <div className="h-1 w-full bg-neutral-800">
+                          <div
+                            className="h-full bg-violet-600"
+                            style={{
+                              width: `${maxCost > 0 ? Math.min(100, (s.cost_usd / maxCost) * 100) : 0}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+
+            {Object.keys(data.insights.cost_by_vendor).length > 0 && (
+              <Card className="p-4">
+                <h3 className="mb-3 text-[10px] font-mono font-bold uppercase tracking-widest text-neutral-500">
+                  Cost by Vendor
+                </h3>
+                <div className="space-y-2">
+                  {Object.entries(data.insights.cost_by_vendor)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([vendor, cost]) => {
+                      const maxCost = Math.max(...Object.values(data.insights!.cost_by_vendor));
+                      return (
+                        <div key={vendor} className="flex flex-col gap-0.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-neutral-300">{vendor}</span>
+                            <span className="text-amber-300">{usd(cost)}</span>
+                          </div>
+                          <div className="h-1 w-full bg-neutral-800">
+                            <div
+                              className="h-full bg-amber-600"
+                              style={{
+                                width: `${maxCost > 0 ? Math.min(100, (cost / maxCost) * 100) : 0}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </Card>
+            )}
+
+            {data.insights.opportunities.length > 0 && (
+              <Card tone="amber" className="p-4">
+                <h3 className="mb-2 text-[10px] font-mono font-bold uppercase tracking-widest text-amber-500">
+                  Optimization Opportunities
+                </h3>
+                <ul className="space-y-2">
+                  {data.insights.opportunities.map((opp) => (
+                    <li key={opp.kind} className="text-xs">
+                      <div className="flex justify-between">
+                        <span className="font-semibold text-neutral-200">{opp.kind}</span>
+                        <span className="text-emerald-400">
+                          {usd(opp.estimated_savings_usd)}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-neutral-500">{opp.message}</p>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

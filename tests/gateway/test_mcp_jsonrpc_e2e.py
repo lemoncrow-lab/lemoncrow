@@ -21,8 +21,8 @@ from atelier.core.environment import (
     STABLE_LLM_TOOLS,
 )
 from atelier.gateway.adapters import mcp_server
-from atelier.gateway.adapters.cli import cli
 from atelier.gateway.adapters.mcp_server import TOOLS, _handle
+from atelier.gateway.cli import cli
 
 EXPECTED_TOOLS = {
     "context",
@@ -37,7 +37,12 @@ EXPECTED_TOOLS = {
     "sql",
     "search",
     "compact",
-    "code",
+    "symbols",
+    "node",
+    "callers",
+    "callees",
+    "impact",
+    "explore",
     "shell",
 }
 
@@ -66,6 +71,13 @@ def _payload(response: dict[str, Any]) -> dict[str, Any]:
     payload = json.loads(response["result"]["content"][0]["text"])
     assert isinstance(payload, dict)
     return payload
+
+
+def _text(response: dict[str, Any]) -> str:
+    assert "result" in response, response
+    text = response["result"]["content"][0]["text"]
+    assert isinstance(text, str)
+    return text
 
 
 class _FakeRemoteClient:
@@ -205,11 +217,11 @@ def test_non_remote_tool_calls_fallback_when_route_has_no_configured_vendor_keys
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
-    response = _call("read", {"file_path": str(target), "max_lines": 5})
-    payload = _payload(response)
+    response = _call("read", {"path": str(target), "max_lines": 5})
+    payload = _text(response)
 
-    assert payload["path"] == str(target)
-    assert "hello route fallback" in json.dumps(payload)
+    assert str(target) in payload
+    assert "hello route fallback" in payload
 
 
 @pytest.mark.slow  # Spawns a real atelier-mcp subprocess for end-to-end stdio
@@ -394,31 +406,31 @@ def test_read_search_edit_and_compact_e2e(mcp_env: Path) -> None:
         encoding="utf-8",
     )
 
-    short_read = _payload(_call("read", {"file_path": str(target), "max_lines": 3}))
-    assert short_read["language"] == "python"
+    short_read = _text(_call("read", {"path": str(target), "max_lines": 3}))
+    assert "alpha" in short_read or "python" in short_read
 
-    expanded_read = _payload(_call("read", {"file_path": str(target), "expand": True}))
-    assert "def alpha" in str(expanded_read["content"])
+    expanded_read = _text(_call("read", {"path": str(target), "expand": True}))
+    assert "def alpha" in expanded_read
 
-    ranged_read = _payload(_call("read", {"file_path": str(target), "range": "2-2"}))
-    assert "needle" in str(ranged_read["content"])
+    ranged_read = _text(_call("read", {"path": str(target), "range": "2-2"}))
+    assert "needle" in ranged_read
 
-    ranked_search = _payload(_call("search", {"query": "needle", "file_path": str(mcp_env), "mode": "chunks"}))
-    assert ranked_search["matches"]
+    ranked_search = _text(_call("search", {"query": "needle", "path": str(mcp_env), "mode": "chunks"}))
+    assert "needle" in ranked_search or "sample.py" in ranked_search
 
-    repo_map = _payload(
+    repo_map = _text(
         _call(
             "search",
             {"query": "", "seed_files": [str(target)], "mode": "map", "budget_tokens": 200},
         )
     )
-    assert repo_map["ranked_files"]
+    assert "sample.py" in repo_map
 
-    native_search = _payload(
+    native_search = _text(
         _call(
             "grep",
             {
-                "file_path": str(mcp_env),
+                "path": str(mcp_env),
                 "content_regex": "secondary needle",
                 "file_glob_patterns": ["*.py"],
                 "output_mode": "file_paths_with_match_count",
@@ -427,8 +439,7 @@ def test_read_search_edit_and_compact_e2e(mcp_env: Path) -> None:
             },
         )
     )
-    assert native_search["content"]
-    assert "_meta" not in native_search
+    assert "secondary needle" in native_search or "sample.py" in native_search
 
     rich_edit = _payload(
         _call(

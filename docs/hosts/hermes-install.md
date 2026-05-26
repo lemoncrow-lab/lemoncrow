@@ -46,13 +46,14 @@ mcp_servers:
 
 platform_toolsets:
   cli:
-    - hermes-cli
     - mcp-atelier
+    - hermes-cli
 ```
 
 The `platform_toolsets.cli` entry is essential — without it, Hermes CLI profiles
 may filter out MCP-discovered tools from normal sessions even though the server
-connects successfully.
+connects successfully. Keeping `mcp-atelier` first also makes the Atelier toolset
+the default preference when Hermes composes CLI capabilities.
 
 ---
 

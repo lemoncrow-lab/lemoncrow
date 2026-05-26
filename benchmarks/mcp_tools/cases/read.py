@@ -51,7 +51,7 @@ READ_CASES: list[BenchCase] = [
     BenchCase(
         op="read",
         label="read/small_file",
-        args={"file_path": _SMALL_FILE, "include_meta": True},
+        args={"path": _SMALL_FILE, "include_meta": True},
         assert_keys=["content", "path", "mode", "tokens_saved"],
         custom_assert=_assert_read_full,
         # baseline = naive cat of environment.py with framing/selection overhead
@@ -60,7 +60,7 @@ READ_CASES: list[BenchCase] = [
     BenchCase(
         op="read",
         label="read/large_file_outline",
-        args={"file_path": _LARGE_FILE, "include_meta": True},
+        args={"path": _LARGE_FILE, "include_meta": True},
         assert_keys=["mode", "tokens_saved", "outline"],
         custom_assert=_assert_read_outline,
         # baseline = naive cat of mcp_server.py (>30k tokens)
@@ -69,7 +69,7 @@ READ_CASES: list[BenchCase] = [
     BenchCase(
         op="read",
         label="read/range",
-        args={"file_path": _RANGE_FILE, "range": "1-20", "include_meta": True},
+        args={"path": _RANGE_FILE, "range": "1-20", "include_meta": True},
         assert_keys=["content", "range"],
         custom_assert=_assert_read_range,
         # baseline = naive cat of the full file even to read 20 lines (~800 tokens)

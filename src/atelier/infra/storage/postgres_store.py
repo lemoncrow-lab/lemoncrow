@@ -596,6 +596,7 @@ class PostgresStore:
 
     def record_trace(self, trace: Trace, *, write_json: bool = False) -> None:
         payload = to_jsonable(trace)
+        metadata = {"learnings": payload.get("learnings", [])}
         now = datetime.now(UTC).isoformat()
         with self._connect() as conn:
             conn.execute(
@@ -629,7 +630,7 @@ class PostgresStore:
                     "diff_summary": trace.diff_summary or None,
                     "output_summary": trace.output_summary or None,
                     "validation_results": json.dumps(payload.get("validation_results", [])),
-                    "metadata": "{}",
+                    "metadata": json.dumps(metadata),
                     "created_at": now,
                     "updated_at": now,
                 },
@@ -654,7 +655,7 @@ class PostgresStore:
         status: str | None = None,
         limit: int = 100,
     ) -> list[Trace]:
-        sql = "SELECT * FROM traces WHERE 1=1"
+        sql = "SELECT * FROM traces WHERE task != 'session-auto-record' AND 1=1"
         params: list[Any] = []
         if domain:
             sql += " AND domain = %s"
@@ -1065,6 +1066,12 @@ class PostgresStore:
             raw_validation = json.loads(raw_validation)
         raw_validation = raw_validation or []
 
+        raw_metadata = d.get("metadata")
+        if isinstance(raw_metadata, str):
+            raw_metadata = json.loads(raw_metadata)
+        raw_metadata = raw_metadata or {}
+        raw_learnings = raw_metadata.get("learnings", [])
+
         # Build typed tool calls
         tools_called: list[ToolCall] = []
         for item in raw_tools:
@@ -1122,6 +1129,7 @@ class PostgresStore:
             diff_summary=d.get("diff_summary") or "",
             output_summary=d.get("output_summary") or "",
             validation_results=raw_validation,
+            learnings=raw_learnings,
         )
 
     def _row_to_rubric(self, row: Any) -> Rubric:

@@ -112,7 +112,7 @@ def test_code_search_ab_real(tmp_path: Path) -> None:
     _append_row(row)
 
     assert payload["items"]
-    assert payload["items"][0]["symbol_name"] == "OrderService"
+    assert (payload["items"][0].get("name") or payload["items"][0].get("symbol_name")) == "OrderService"
     assert all("content_hash" not in item for item in payload["items"])
     assert payload["total_tokens"] <= 1800
     assert atelier_tokens < native_tokens

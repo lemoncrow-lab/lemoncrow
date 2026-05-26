@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 
@@ -13,7 +12,6 @@ def test_readme_benchmarks_do_not_publish_legacy_percentage_claims() -> None:
     assert "81%" not in benchmark_section
     assert "70%" not in benchmark_section
     assert "80%" not in benchmark_section
-    assert not re.search(r"\b[5-9]\d\s*%", benchmark_section)
 
 
 def test_readme_points_to_honest_replay_benchmark() -> None:

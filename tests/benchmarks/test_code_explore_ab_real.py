@@ -142,7 +142,7 @@ def test_code_explore_ab_real(tmp_path: Path) -> None:
     )
     _append_row(row)
 
-    entry_symbols = {item.get("symbol_name") for item in payload.get("entry_points", [])}
+    entry_symbols = {item.get("name") or item.get("symbol_name") for item in payload.get("entry_points", [])}
     assert payload["query"] == query
     assert {"login", "create_session"} & entry_symbols
     assert atelier_tokens < native_tokens

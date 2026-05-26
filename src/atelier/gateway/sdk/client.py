@@ -17,6 +17,7 @@ from atelier.core.foundation.models import (
     Rubric,
     RubricResult,
     Trace,
+    TraceLearning,
     TraceStatus,
     ValidationResult,
 )
@@ -188,6 +189,7 @@ class TraceClient:
         diff_summary: str = "",
         output_summary: str = "",
         validation_results: builtins.list[ValidationResult] | None = None,
+        learnings: builtins.list[str | dict[str, Any] | TraceLearning] | None = None,
     ) -> TraceRecordResult:
         return self._client.record_trace(
             agent=agent,
@@ -201,6 +203,7 @@ class TraceClient:
             diff_summary=diff_summary,
             output_summary=output_summary,
             validation_results=validation_results,
+            learnings=learnings,
         )
 
     def get(self, trace_id: str) -> Trace | None:
@@ -419,6 +422,7 @@ class AtelierClient(ABC):
         diff_summary: str = "",
         output_summary: str = "",
         validation_results: builtins.list[ValidationResult] | None = None,
+        learnings: builtins.list[str | dict[str, Any] | TraceLearning] | None = None,
     ) -> TraceRecordResult:
         raise NotImplementedError
 

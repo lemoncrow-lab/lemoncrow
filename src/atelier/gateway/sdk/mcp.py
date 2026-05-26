@@ -14,6 +14,7 @@ from atelier.core.foundation.memory_models import MemoryBlock
 from atelier.core.foundation.models import (
     RescueResult,
     RubricResult,
+    TraceLearning,
     TraceStatus,
     ValidationResult,
 )
@@ -239,7 +240,11 @@ class MCPClient(LocalClient):
         diff_summary: str = "",
         output_summary: str = "",
         validation_results: list[ValidationResult] | None = None,
+        learnings: list[str | dict[str, Any] | TraceLearning] | None = None,
     ) -> TraceRecordResult:
+        serialized_learnings = [
+            item.model_dump(mode="json") if isinstance(item, TraceLearning) else item for item in (learnings or [])
+        ]
         payload = self._transport.call_tool(
             "trace",
             {
@@ -254,7 +259,8 @@ class MCPClient(LocalClient):
                 "diff_summary": diff_summary,
                 "output_summary": output_summary,
                 "validation_results": [result.model_dump(mode="json") for result in (validation_results or [])],
+                "learnings": serialized_learnings,
             },
         )
-        payload = {"id": str(payload.get("id") or payload.get("session_id") or "")}
+        payload = {"id": str(payload.get("id") or payload.get("trace_id") or payload.get("session_id") or "")}
         return TraceRecordResult.model_validate(payload)

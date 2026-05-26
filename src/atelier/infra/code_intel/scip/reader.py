@@ -17,6 +17,35 @@ from atelier.infra.code_intel.scip.external_artifacts import ScipArtifactOrigin
 _MAX_SCIP_ARTIFACT_BYTES = 10 * 1024 * 1024
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
+# Artifacts are serialised using compact short field names (see _FIELD_NAME_SHORTMAP in
+# engine.py).  Expand them to the long names that Pydantic models expect before
+# calling model_validate.
+_SCIP_SYMBOL_EXPAND: dict[str, str] = {
+    "id": "symbol_id",
+    "path": "file_path",
+    "name": "symbol_name",
+    "qname": "qualified_name",
+    "line": "start_line",
+    "start_b": "start_byte",
+    "end_b": "end_byte",
+}
+# CallGraphNode shares most short-name keys but has no start_b / end_b.
+_SCIP_NODE_EXPAND: dict[str, str] = {
+    "id": "symbol_id",
+    "path": "file_path",
+    "name": "symbol_name",
+    "qname": "qualified_name",
+    "line": "start_line",
+}
+
+
+def _expand_symbol_fields(raw: dict[str, Any]) -> dict[str, Any]:
+    return {_SCIP_SYMBOL_EXPAND.get(k, k): v for k, v in raw.items()}
+
+
+def _expand_node_fields(raw: dict[str, Any]) -> dict[str, Any]:
+    return {_SCIP_NODE_EXPAND.get(k, k): v for k, v in raw.items()}
+
 
 class ScipArtifactError(ValueError):
     """Raised when a `.scip` artifact is malformed or untrusted."""
@@ -212,7 +241,7 @@ class ScipArtifactReader:
         for raw in symbols_payload:
             if not isinstance(raw, dict):
                 raise ScipArtifactError(f"malformed symbol entry in SCIP artifact: {path}")
-            raw_payload = dict(raw)
+            raw_payload = _expand_symbol_fields(dict(raw))
             source = str(raw_payload.pop("source", "") or "")
             raw_payload.setdefault("documentation", raw.get("documentation"))
             raw_payload.setdefault("provenance", "scip")
@@ -309,7 +338,7 @@ class ScipArtifactReader:
             for raw_neighbor in raw_neighbors:
                 if not isinstance(raw_neighbor, dict):
                     raise ScipArtifactError(f"malformed call_graph entry in SCIP artifact: {artifact_path}")
-                payload_neighbor = dict(raw_neighbor)
+                payload_neighbor = _expand_node_fields(dict(raw_neighbor))
                 payload_neighbor.setdefault("provenance", "scip")
                 try:
                     neighbor = CallGraphNode.model_validate(payload_neighbor)

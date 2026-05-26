@@ -1,5 +1,19 @@
 import { useEffect, useState, useMemo, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import {
+  AlertTriangle,
+  Brain,
+  Circle,
+  CircleDashed,
+  CircleDot,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ClipboardList,
+  Database,
+  Scale,
+  X,
+} from "lucide-react";
 import { api, type ReasonBlock, type PlanRecord, type Cluster } from "../api";
 import {
   Chip,
@@ -12,22 +26,27 @@ import Rubrics from "./Rubrics";
 
 type Section = "blocks" | "memory" | "failures" | "plans" | "rubrics";
 
-const SECTIONS: { id: Section; label: string; icon: string; desc: string }[] = [
-  { id: "blocks", label: "Blocks", icon: "🧠", desc: "Curated procedures" },
+const SECTIONS: {
+  id: Section;
+  label: string;
+  icon: React.ElementType;
+  desc: string;
+}[] = [
+  { id: "blocks", label: "Blocks", icon: Brain, desc: "Curated procedures" },
   {
     id: "memory",
     label: "Memory",
-    icon: "💾",
+    icon: Database,
     desc: "Pinned + archival recall",
   },
   {
     id: "failures",
     label: "Failures",
-    icon: "🚨",
+    icon: AlertTriangle,
     desc: "Error clusters",
   },
-  { id: "plans", label: "Plans", icon: "📋", desc: "Plan validation" },
-  { id: "rubrics", label: "Rubrics", icon: "⚖️", desc: "Verification gates" },
+  { id: "plans", label: "Plans", icon: ClipboardList, desc: "Plan validation" },
+  { id: "rubrics", label: "Rubrics", icon: Scale, desc: "Verification gates" },
 ];
 
 export default function Learnings() {
@@ -62,7 +81,7 @@ export default function Learnings() {
           value: s.id,
           label: (
             <span className="flex items-center gap-1.5">
-              <span>{s.icon}</span>
+              <s.icon size={14} />
               <span>{s.label}</span>
             </span>
           ),
@@ -253,7 +272,7 @@ function FailuresSection() {
   if (items.length === 0)
     return (
       <div className="text-neutral-500 text-center py-12">
-        <div className="text-4xl mb-4">✅</div>
+        <Check size={48} className="mx-auto mb-4 text-emerald-500" />
         <p>No failure clusters detected — agents running smoothly.</p>
       </div>
     );
@@ -284,11 +303,10 @@ function FailuresSection() {
               </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span
-                    className={`text-neutral-500 font-mono text-xs transition-transform ${isExpanded ? "rotate-90" : ""}`}
-                  >
-                    ❯
-                  </span>
+                  <ChevronRight
+                    size={14}
+                    className={`text-neutral-500 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                  />
                   <span className="font-mono font-bold text-neutral-200 text-sm">
                     {c.domain}
                   </span>
@@ -387,7 +405,7 @@ function PlansSection() {
   if (items.length === 0)
     return (
       <div className="text-neutral-500 text-center py-12">
-        <div className="text-4xl mb-4">📋</div>
+        <ClipboardList size={48} className="mx-auto mb-4" />
         <p>No plan validation results yet.</p>
       </div>
     );
@@ -416,11 +434,10 @@ function PlansSection() {
               </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span
-                    className={`text-neutral-500 font-mono text-xs transition-transform ${isExpanded ? "rotate-90" : ""}`}
-                  >
-                    ❯
-                  </span>
+                  <ChevronRight
+                    size={14}
+                    className={`text-neutral-500 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                  />
                   <span className="font-mono font-bold text-neutral-200 text-sm">
                     {p.domain}
                   </span>
@@ -459,7 +476,7 @@ function PlansSection() {
                         }`}
                       >
                         <span className="flex-shrink-0 mt-0.5">
-                          {c.passed ? "✓" : "✗"}
+                          {c.passed ? <Check size={12} /> : <X size={12} />}
                         </span>
                         <div className="flex-1">
                           <div>{c.name}</div>
@@ -519,20 +536,21 @@ function BlockCard({
         onClick={onToggle}
         className="w-full px-5 py-4 text-left hover:bg-neutral-800/50 transition-colors flex items-start gap-4"
       >
-        <div className="text-lg flex-shrink-0 mt-0.5">
-          {block.status === "active"
-            ? "●"
-            : block.status === "retired"
-              ? "◐"
-              : "○"}
+        <div className="flex-shrink-0 mt-0.5">
+          {block.status === "active" ? (
+            <CircleDot size={18} className="text-emerald-500" />
+          ) : block.status === "retired" ? (
+            <CircleDashed size={18} className="text-neutral-500" />
+          ) : (
+            <Circle size={18} className="text-red-500" />
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 mb-1 flex-wrap">
-            <span
-              className={`text-amber-400 font-mono text-xs transition-transform ${isExpanded ? "rotate-90" : ""}`}
-            >
-              ❯
-            </span>
+            <ChevronRight
+              size={14}
+              className={`text-amber-400 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            />
             <h3 className="font-mono font-bold text-neutral-200 text-sm">
               {block.title}
             </h3>
@@ -764,7 +782,7 @@ function BlockDetail({ block }: { block: ReasonBlock }) {
                 key={i}
                 className="flex gap-2 items-start text-[13px] text-emerald-300 bg-emerald-950/20 border border-emerald-900/30 px-3 py-2"
               >
-                <span className="shrink-0 text-emerald-500 mt-0.5">✓</span>
+                <Check size={14} className="shrink-0 text-emerald-500 mt-0.5" />
                 {v}
               </li>
             ))}
@@ -781,7 +799,7 @@ function BlockDetail({ block }: { block: ReasonBlock }) {
                 key={i}
                 className="flex gap-2 items-start text-[13px] text-red-300 bg-red-950/20 border border-red-900/30 px-3 py-2"
               >
-                <span className="shrink-0 text-red-500 mt-0.5">✗</span>
+                <X size={14} className="shrink-0 text-red-500 mt-0.5" />
                 {d}
               </li>
             ))}
@@ -798,7 +816,10 @@ function BlockDetail({ block }: { block: ReasonBlock }) {
                 key={i}
                 className="flex gap-2 items-start text-[13px] text-amber-300 bg-amber-950/20 border border-amber-900/30 px-3 py-2"
               >
-                <span className="shrink-0 text-amber-500 mt-0.5">⚠</span>
+                <AlertTriangle
+                  size={14}
+                  className="shrink-0 text-amber-500 mt-0.5"
+                />
                 {s}
               </li>
             ))}
@@ -857,7 +878,8 @@ function MatchHints({ block }: { block: ReasonBlock }) {
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-widest text-neutral-600 hover:text-neutral-400 transition mb-2"
       >
-        <span>{open ? "▼" : "▶"}</span> Match hints
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Match
+        hints
       </button>
       {open && (
         <div className="space-y-2">
