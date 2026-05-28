@@ -202,8 +202,16 @@ class RunLedger:
         response: str | None = None,
         stable_prefix_hash: str | None = None,
         prefix_invalidated_reason: str = "",
+        cache_write_tokens: int = 0,
+        phase: str | None = None,
     ) -> LedgerEvent:
-        """Record a single LLM call with cost + lessons attribution."""
+        """Record a single LLM call with cost + lessons attribution.
+
+        ``cache_write_tokens`` and ``phase`` are additive Phase 13 fields
+        (LINEAR-02 / T-13-04): keyword-only with defaults so existing
+        callers and on-disk JSONL records remain compatible. Loaders that
+        read these keys must use ``.get(..., default)``.
+        """
         if self.cost_tracker is None:
             self.cost_tracker = CostTracker(Path("."))
         rec = self.cost_tracker.record_call(
@@ -228,6 +236,7 @@ class RunLedger:
                 "input_tokens": rec.input_tokens,
                 "output_tokens": rec.output_tokens,
                 "cache_read_tokens": rec.cache_read_tokens,
+                "cache_write_tokens": cache_write_tokens,
                 "cost_usd": rec.cost_usd,
                 "lessons_used": list(rec.lessons_used),
                 "op_key": rec.op_key,
@@ -235,6 +244,7 @@ class RunLedger:
                 "response": response,
                 "stable_prefix_hash": stable_prefix_hash or "",
                 "prefix_invalidated_reason": prefix_invalidated_reason,
+                "phase": phase,
             },
         )
 
