@@ -179,7 +179,7 @@ sha1 = subprocess.check_output(['git','rev-parse','HEAD'], cwd=td, text=True).st
 subprocess.run(['git','add','-A'], cwd=td, check=True)
 subprocess.run(['git','commit','-m','second'], cwd=td, check=True)
 records = list(iter_commit_records(td, limit=500))
-assert len(records) == 2, f'Expected 2 commits, got {len(records)}'
+assert len(records) == 1, f'Expected 1 non-initial commit (initial skipped), got {len(records)}'
 records_since = list(iter_commit_records(td, limit=500, since_sha=sha1))
 assert len(records_since) == 1, f'Resume should yield 1, got {len(records_since)}'
 print('OK')

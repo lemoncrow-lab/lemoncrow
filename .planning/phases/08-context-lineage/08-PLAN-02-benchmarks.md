@@ -5,7 +5,7 @@ title: "Benchmarks"
 status: pending
 created: 2025-07-15
 requires:
-  - 08-PLAN-01-core.md
+  - 08-PLAN-01b-engine.md
 requirements:
   - CQEVAL-01
   - CQEVAL-02
@@ -493,7 +493,7 @@ Full benchmark run (requires bootstrap complete):
 ATELIER_REPO_ROOT=$(pwd) uv run pytest tests/benchmarks/context_quality/M1_lineage.py -v -m slow -s
 ```
 
-**Depends on:** Task 1 (suite skeleton), `08-PLAN-01-core.md` fully executed (commit_chunks populated)
+**Depends on:** Task 1 (suite skeleton), `08-PLAN-01b-engine.md` fully executed (commit_chunks populated)
 
 ---
 

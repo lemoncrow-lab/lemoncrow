@@ -38,14 +38,14 @@ created: 2025-07-15
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 08-01-01 | 01 | 1 | LINEAGE-01 | — | N/A | unit | `uv run python -c "from atelier.infra.code_intel.git_history.models import CommitRecord, CommitSummary, CommitChunk; print('OK')"` | ❌ W0 | ⬜ pending |
-| 08-01-02 | 01 | 1 | LINEAGE-01 | — | N/A | unit | `uv run pytest tests/infra/code_intel/git_history/test_walker_resume.py -q` | ❌ W0 | ⬜ pending |
-| 08-01-03 | 01 | 1 | LINEAGE-01/05 | T-05 prompt injection | Commit msg XML-encapsulated; truncated to 500 chars | unit | `uv run pytest tests/infra/code_intel/git_history/test_summarizer.py -q` | ❌ W0 | ⬜ pending |
-| 08-01-04 | 01 | 2 | LINEAGE-01 | — | N/A | unit | `uv run pytest tests/infra/code_intel/git_history/test_embedder.py -q` | ❌ W0 | ⬜ pending |
-| 08-01-05 | 01 | 2 | LINEAGE-01/02 | — | N/A | integration | `uv run pytest tests/infra/code_intel/git_history/test_walker_resume.py -q` | ❌ W0 | ⬜ pending |
-| 08-01-06 | 01 | 2 | LINEAGE-03/04/06 | — | provenance preserved end-to-end | unit | `uv run pytest tests/infra/code_intel/git_history/test_search_merge.py -q` | ❌ W0 | ⬜ pending |
-| 08-01-07 | 01 | 3 | LINEAGE-01/02 | — | fail-open; no crash on missing DB | unit | `uv run python integrations/claude/plugin/hooks/post_commit.py; echo "Exit: $?"` | ❌ W0 | ⬜ pending |
-| 08-01-08 | 01 | 3 | LINEAGE-01..06 | — | all behaviors green | unit+integration | `uv run pytest tests/infra/code_intel/git_history/ -q` | ❌ W0 | ⬜ pending |
+| 08-01a-01 | 01a | 1 | LINEAGE-01 | — | N/A | unit | `uv run python -c "from atelier.infra.code_intel.git_history.models import CommitRecord, CommitSummary, CommitChunk; print('OK')"` | ❌ W0 | ⬜ pending |
+| 08-01a-02 | 01a | 1 | LINEAGE-01 | — | N/A | unit | `uv run pytest tests/infra/code_intel/git_history/test_walker_resume.py -q` | ❌ W0 | ⬜ pending |
+| 08-01a-03 | 01a | 1 | LINEAGE-01/05 | T-05 prompt injection | Commit msg XML-encapsulated; truncated to 500 chars | unit | `uv run pytest tests/infra/code_intel/git_history/test_summarizer.py -q` | ❌ W0 | ⬜ pending |
+| 08-01a-04 | 01a | 2 | LINEAGE-01 | — | N/A | unit | `uv run pytest tests/infra/code_intel/git_history/test_embedder.py -q` | ❌ W0 | ⬜ pending |
+| 08-01b-01 | 01b | 2 | LINEAGE-01/02 | — | N/A | integration | `uv run pytest tests/infra/code_intel/git_history/test_walker_resume.py -q` | ❌ W0 | ⬜ pending |
+| 08-01b-02 | 01b | 2 | LINEAGE-03/04/06 | — | provenance preserved end-to-end | unit | `uv run pytest tests/infra/code_intel/git_history/test_search_merge.py -q` | ❌ W0 | ⬜ pending |
+| 08-01b-03 | 01b | 3 | LINEAGE-01/02 | — | fail-open; no crash on missing DB | unit | `uv run python integrations/claude/plugin/hooks/post_commit.py; echo "Exit: $?"` | ❌ W0 | ⬜ pending |
+| 08-01b-04 | 01b | 3 | LINEAGE-01..06 | — | all behaviors green | unit+integration | `uv run pytest tests/infra/code_intel/git_history/ -q` | ❌ W0 | ⬜ pending |
 | 08-02-01 | 02 | 4 | CQEVAL-01 | — | N/A | structure | `ls tests/benchmarks/context_quality/` | ❌ W0 | ⬜ pending |
 | 08-02-02 | 02 | 4 | CQEVAL-02 | — | N/A | benchmark | `uv run pytest tests/benchmarks/context_quality/M1_lineage.py -q -m slow` | ❌ W0 | ⬜ pending |
 
