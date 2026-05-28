@@ -47,6 +47,7 @@ class SymbolRecord(BaseModel):
     origin: Literal["internal", "external"] = "internal"
     repo_name: str | None = None
     cross_lang_refs: list[CrossLangReference] | None = None
+    commit_sha: str | None = None
 
 
 class IndexStats(BaseModel):

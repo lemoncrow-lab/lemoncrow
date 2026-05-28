@@ -75,3 +75,40 @@ class BlameRangeAnnotation:
     local_edits: bool
     hunks: tuple[BlameHunk, ...]
     churn: ChurnStats | None = None
+
+
+@dataclass(frozen=True)
+class CommitRecord:
+    """Raw enumerated commit before summarisation."""
+
+    sha: str
+    author_date: int  # unix seconds
+    message: str  # strip()[:2000]
+    files_touched: list[str]
+    is_merge: bool
+
+
+@dataclass(frozen=True)
+class CommitSummary:
+    """LLM-generated semantic summary of a single commit."""
+
+    sha: str
+    author_date: int
+    files_touched: list[str]
+    summary: str  # ≤200 tokens
+    summary_model: str
+    prompt_version: str  # "v1"
+
+
+@dataclass(frozen=True)
+class CommitChunk:
+    """Persisted commit chunk as read back from SQLite."""
+
+    commit_sha: str
+    author_date: int
+    files_touched: list[str]  # JSON-deserialised
+    symbols_touched: list[str] | None
+    summary: str
+    summary_model: str
+    embedding: list[float] | None  # decoded from BLOB; None if not yet embedded
+    index_version: int
