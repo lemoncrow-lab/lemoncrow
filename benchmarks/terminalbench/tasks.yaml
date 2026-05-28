@@ -1,0 +1,22 @@
+# benchmarks/terminalbench/tasks.yaml
+# 10 pinned code-editing tasks from terminal-bench-core 0.1.1
+# Selection criteria: code-editing tasks completing in <30 min
+# No ML model downloads, kernel compilation, or VM startup required
+# Pre-registered before first benchmark run (anti-p-hacking)
+# Selection date: 2026-06-09
+
+dataset:
+  name: terminal-bench-core
+  version: "0.1.1"
+
+tasks:
+  - hello-world
+  - fix-pandas-version
+  - incompatible-python-fasttext
+  - csv-to-parquet
+  - fibonacci-server
+  - simple-web-scraper
+  - fix-git
+  - swe-bench-fsspec
+  - swe-bench-langcodes
+  - grid-pattern-transform
