@@ -67,6 +67,8 @@ class CrossVendorRouteAdvisor:
             session_state=session_state,
             actual_vendor=actual_vendor,
         )
+        if recommendation is None:
+            return {"configured": False, "bench_off": True}
         actual_model = active_model()
         actual_vendor_name = actual_vendor or _vendor_for_model(actual_model)
         recommendation_followed = _normalize_model(actual_model) == _normalize_model(recommendation.model)
