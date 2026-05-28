@@ -1,5 +1,15 @@
 # Atelier Public Benchmarks
 
+## Current Milestone: v0.2 Context Quality Lift
+
+**Goal:** Make the same underlying model measurably better at coding tasks by feeding it better-scoped, history-aware context — and by refusing to break the KV-cache for marginal routing wins.
+
+**Target features:**
+- Context Lineage: LLM-summarised commit history embedded alongside code chunks
+- Cache-Aware Routing: router stays on current model when KV-cache eviction cost > quality gain
+- Counterexample Loop: per-step layered verification feeding structured counterexamples back into the agent loop
+- Scoped Pull Context: explicit `context op="pull"` API for subtask-scoped minimal context retrieval
+
 ## What This Is
 
 A reproducible public benchmarking system that proves Atelier's value through honest A/B comparisons: Atelier-on vs Atelier-off, measuring cost, latency, and quality together — never cost alone. Runs against canonical harnesses (TerminalBench) and against any developer's own GitHub PRs, with raw transcripts published and losses reported.
@@ -77,4 +87,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-28 after initialization*
+*Last updated: 2026-05-28 — Milestone v0.2 started*
