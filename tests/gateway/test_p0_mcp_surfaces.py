@@ -913,6 +913,8 @@ def test_tool_code_deleted_search_stays_on_additive_code_surface(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake_engine = MagicMock()
+    fake_engine.db_path = tmp_path / "code_context.sqlite"
+    fake_engine.db_path.touch()  # mark as indexed so bootstrap_note is not injected
     fake_engine.tool_search.return_value = {
         "items": [
             {
@@ -982,6 +984,8 @@ def test_tool_code_blame_is_an_additive_extension_to_code_surface(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake_engine = MagicMock()
+    fake_engine.db_path = tmp_path / "code_context.sqlite"
+    fake_engine.db_path.touch()  # mark as indexed so bootstrap_note is not injected
     fake_engine.tool_blame.return_value = {
         "symbol_name": "risk_score",
         "qualified_name": "risk_score",

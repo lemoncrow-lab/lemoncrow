@@ -1181,12 +1181,36 @@ def help_cmd(ctx: click.Context, command_path: tuple[str, ...]) -> None:
 # ----- init ---------------------------------------------------------------- #
 
 
+def _detect_git_root(search_path: Path) -> Path | None:
+    """Return the git repo root containing search_path, or None if not in a repo."""
+    import subprocess as _subprocess
+
+    try:
+        result = _subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=str(search_path),
+        )
+        if result.returncode == 0:
+            return Path(result.stdout.strip())
+    except Exception:
+        pass
+    return None
+
+
 @cli.command()
 @click.option("--seed/--no-seed", default=True, help="Import bundled seed blocks and rubrics.")
 @click.option("--stack", default=None, help="Copy starter ReasonBlock templates for a stack.")
 @click.option("--list-stacks", "show_stacks", is_flag=True, help="List available starter stacks.")
+@click.option(
+    "--index/--no-index",
+    default=True,
+    help="Bootstrap the code index for the current git repo (default: on).",
+)
 @click.pass_context
-def init(ctx: click.Context, seed: bool, stack: str | None, show_stacks: bool) -> None:
+def init(ctx: click.Context, seed: bool, stack: str | None, show_stacks: bool, index: bool) -> None:
     """Initialize the runtime store at --root."""
     if show_stacks:
         from atelier.core.capabilities.starter_packs import list_stacks
@@ -1240,6 +1264,19 @@ def init(ctx: click.Context, seed: bool, stack: str | None, show_stacks: bool) -
             raise click.ClickException(str(exc)) from exc
         suffix = f", skipped {skipped} existing" if skipped else ""
         click.echo(f"copied {copied} starter reasonblocks for stack {stack}{suffix}")
+    if index:
+        git_root = _detect_git_root(Path.cwd())
+        if git_root is not None:
+            click.echo(f"bootstrapping code index for {git_root} ...")
+            engine = _code_context_engine(str(git_root))
+            stats = engine.index_repo().model_dump(mode="json")
+            click.echo(
+                f"indexed {stats['files_indexed']} files, "
+                f"{stats['symbols_indexed']} symbols "
+                f"({stats['imports_indexed']} imports)"
+            )
+        else:
+            click.echo("code index skipped (no git repository detected in current directory)")
 
 
 # ----- uninstall ----------------------------------------------------------- #
@@ -4710,6 +4747,64 @@ def _code_context_engine(repo_root: str) -> Any:
     from atelier.core.capabilities.code_context import CodeContextEngine
 
     return CodeContextEngine(repo_root)
+
+
+@cli.group("project")
+def project_group() -> None:
+    """Per-project setup — index bootstrap, workspace binding, host guidance."""
+
+
+@project_group.command("init")
+@click.argument("directory", default=".", type=click.Path(file_okay=False, path_type=Path))
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON summary.")
+def project_init_cmd(directory: Path, as_json: bool) -> None:
+    """Bootstrap code index for a project and print host-setup guidance.
+
+    Detects the git root of DIRECTORY (default: current directory), runs
+    `atelier code index` for it, and prints next steps for registering the
+    workspace with your host (Claude Code, Copilot, Codex, etc.).
+    """
+    resolved = directory.expanduser().resolve()
+    if not resolved.exists():
+        raise click.ClickException(f"Directory does not exist: {resolved}")
+
+    git_root = _detect_git_root(resolved)
+    index_root = git_root if git_root is not None else resolved
+
+    click.echo(f"project root: {index_root}")
+    if git_root is None:
+        click.echo("  (not a git repo — indexing directory as-is)")
+
+    click.echo("bootstrapping code index …")
+    engine = _code_context_engine(str(index_root))
+    stats = engine.index_repo().model_dump(mode="json")
+
+    if as_json:
+        _emit(
+            {
+                "project_root": str(index_root),
+                "is_git_repo": git_root is not None,
+                "files_indexed": stats["files_indexed"],
+                "symbols_indexed": stats["symbols_indexed"],
+                "imports_indexed": stats["imports_indexed"],
+            },
+            as_json=True,
+        )
+        return
+
+    click.echo(
+        f"indexed {stats['files_indexed']} files, "
+        f"{stats['symbols_indexed']} symbols "
+        f"({stats['imports_indexed']} imports)"
+    )
+    click.echo("")
+    click.echo("next steps — register the workspace with your host:")
+    click.echo(f"  Claude Code:  bash scripts/install_claude.sh --workspace {index_root}")
+    click.echo(f"  Copilot:      bash scripts/install_copilot.sh --workspace {index_root}")
+    click.echo(f"  Codex:        bash scripts/install_codex.sh --workspace {index_root}")
+    click.echo(f"  OpenCode:     bash scripts/install_opencode.sh --workspace {index_root}")
+    click.echo("")
+    click.echo("  (skip if already using global-mode install — autosync will keep the index warm)")
 
 
 @cli.group("code")

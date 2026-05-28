@@ -783,7 +783,12 @@ def _append_savings(tool_name: str, tokens_saved: int, calls_saved: int, rid: st
         }
         if rid:
             event["rid"] = rid
-        cpath = _context_savings_path(led.session_id)
+        # Key the file by the Claude host session UUID (workspace bridge) when
+        # available so that session_report.py can find savings via
+        # runs/<uuid>_context_savings.jsonl — matching the UUID-keyed run ledger
+        # files. Falls back to the MCP ledger hex session_id for non-Claude hosts.
+        host_sid, _ = _read_workspace_session_bridge()
+        cpath = _context_savings_path(host_sid or led.session_id)
         cpath.parent.mkdir(parents=True, exist_ok=True)
         with cpath.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(event) + "\n")
@@ -3269,10 +3274,15 @@ def _memory_summary(session_id: str) -> dict[str, Any]:
         return {"error": str(exc)}
 
 
+# Thread-local used to pass the active engine into _maybe_attach_code_rendered
+# for cold-start bootstrap-note injection without touching every return branch.
+_code_engine_for_current_call: threading.local = threading.local()
+
+
 def _code_context_engine(repo_root: str = ".") -> Any:
     from atelier.core.capabilities.code_context import CodeContextEngine
 
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    workspace = str(_workspace_root())
     root = Path(repo_root)
     resolved = root if root.is_absolute() else Path(workspace) / root
     return CodeContextEngine(resolved)
@@ -3281,7 +3291,7 @@ def _code_context_engine(repo_root: str = ".") -> Any:
 def _workspace_code_router(repo_root: str = ".") -> Any:
     from atelier.core.capabilities.code_context.workspace_router import WorkspaceCodeRouter
 
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    workspace = str(_workspace_root())
     root = Path(repo_root)
     resolved = root if root.is_absolute() else Path(workspace) / root
     return WorkspaceCodeRouter(
@@ -3385,6 +3395,15 @@ def _maybe_attach_code_rendered(op: str, payload: dict[str, Any], *, render_comp
 
     if render_compact and rendered:
         result["rendered"] = rendered
+
+    # Inject cold-start bootstrap note so the LLM knows results may be incomplete.
+    if op not in {"index", "status", "cache_status"}:
+        engine = getattr(_code_engine_for_current_call, "value", None)
+        if engine is not None and not Path(engine.db_path).exists():
+            result["bootstrap_note"] = (
+                "Repository not yet indexed — results may be incomplete. "
+                "Run `atelier code index` (or `atelier project init`) to bootstrap the index."
+            )
 
     return result
 
@@ -3532,6 +3551,7 @@ def tool_code(
         raise ValueError("repo filter is only supported for workspace search and symbol operations")
 
     engine = _code_context_engine(repo_root)
+    _code_engine_for_current_call.value = engine
 
     if op == "index":
         return _maybe_attach_code_rendered(
@@ -5313,6 +5333,23 @@ def _setup_file_logging(root: str | Path) -> None:
 def main() -> None:
     # Phase 1: Absorb wrapper logic into atelier-mcp (zero-config)
     os.environ.setdefault("ATELIER_SERVICE_URL", "http://127.0.0.1:8787")
+    # If no host has injected a workspace env var, detect the git repo root so
+    # global-mode installs on any host always point at the project root.
+    _HOST_WORKSPACE_VARS = ("CLAUDE_WORKSPACE_ROOT", "ATELIER_WORKSPACE_ROOT", "VSCODE_CWD")
+    if not any(os.environ.get(v) for v in _HOST_WORKSPACE_VARS):
+        try:
+            import subprocess as _subprocess
+
+            _git_result = _subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if _git_result.returncode == 0:
+                os.environ["ATELIER_WORKSPACE_ROOT"] = _git_result.stdout.strip()
+        except Exception:
+            pass
     os.environ.setdefault("ATELIER_WORKSPACE_ROOT", os.getcwd())
     os.environ.setdefault("ATELIER_LESSONS_ROOT", os.path.join(os.environ["ATELIER_WORKSPACE_ROOT"], ".lessons"))
 
