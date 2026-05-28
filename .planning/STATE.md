@@ -1,9 +1,9 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.2
-milestone_name: Context Quality Lift
+milestone: v0.3
+milestone_name: Context Quality Execution
 status: planning
-last_updated: "2026-05-28T18:24:01.223Z"
+last_updated: "2026-05-28T21:07:56.449Z"
 last_activity: 2026-05-28
 progress:
   total_phases: 4
@@ -16,17 +16,17 @@ progress:
 # Project State
 
 **Project:** Atelier Public Benchmarks
-**Milestone:** v0.2 — Context Quality Lift
+**Milestone:** v0.3 — Context Quality Execution
 **Updated:** 2026-05-28
-**Status:** 🚀 v0.1 complete (7 phases) — v0.2 ready to start
+**Status:** 🚀 v0.3 initialized — ready to plan Phase 12
 
 ## Current Phase
 
-**Upcoming: Phase 8 — Context Lineage**
+**Upcoming: Phase 12 — Cache-Aware Routing**
 
-Next action: `/gsd-plan-phase 8`
+Next action: `/gsd-plan-phase 12`
 
-Phase 8 ships LLM-summarised commit history embedded alongside code chunks. It is the highest-leverage gap and unblocks Phase 11 (scoped pull context needs M1 commit chunks in the candidate set).
+Phase 12 wires prefix-cache economics into model routing, preserves cache warmth across tool-call chains, and emits route-decision telemetry. It is the first v0.3 execution phase and unblocks the phase-linear cache-reuse proof work.
 
 ## Roadmap Progress
 
@@ -42,14 +42,23 @@ Phase 8 ships LLM-summarised commit history embedded alongside code chunks. It i
 | Phase 6 | ✅ Complete | Long-session suite + CLI (LS-01–04, CLI-01–06) |
 | Phase 7 | ✅ Complete | PR-replay benchmarks (PR-01–06) |
 
-### v0.2 (Not started)
+### v0.2 (Context Lineage Complete; Remaining Scope Superseded)
 
 | Phase | Status | Goal |
 |-------|--------|------|
-| Phase 8 | ⏳ Not started | Context Lineage (LINEAGE-01–06, CQEVAL-01–02) |
-| Phase 9 | ⏳ Not started | Cache-Aware Routing (CACHE-01–05, CQEVAL-03) |
-| Phase 10 | ⏳ Not started | Counterexample Loop (COUNTER-01–05, CQEVAL-04) |
-| Phase 11 | ⏳ Not started | Scoped Pull Context (SCOPED-01–06, CQEVAL-05) |
+| Phase 8 | ✅ Complete | Context Lineage (LINEAGE-01–06, CQEVAL-01–02) |
+| Phase 9 | ↪ Superseded | Cache-Aware Routing moved to Phase 12 |
+| Phase 10 | ↪ Superseded | Counterexample Loop moved to Phase 14 |
+| Phase 11 | ↪ Superseded | Scoped Pull Context moved to Phase 15 |
+
+### v0.3 (Ready)
+
+| Phase | Status | Goal |
+|-------|--------|------|
+| Phase 12 | ⏳ Not started | Cache-Aware Routing (CACHE-01–05, CQEVAL-03) |
+| Phase 13 | ⏳ Not started | Phase-Linear Cache-Reuse Agent (LINEAR-01–05, TBEVAL-01) |
+| Phase 14 | ⏳ Not started | Counterexample Loop (COUNTER-01–05, CQEVAL-04) |
+| Phase 15 | ⏳ Not started | Scoped Pull Context + Proof Gate (SCOPED-01–06, CQEVAL-05, TBEVAL-02) |
 
 ## Key Decisions Log
 
@@ -62,6 +71,8 @@ Phase 8 ships LLM-summarised commit history embedded alongside code chunks. It i
 | AtelierClaudeAgent._env | Minimal dict only — NOT full os.environ | T-02-04 threat: prevents host dev contamination (ATELIER_DEV_MODE excluded) |
 | Judge model for PR-replay | Non-Claude (GPT-4o or Gemini) | Avoid self-judging bias |
 | State leakage prevention | Separate `ATELIER_ROOT` per arm | Shared filesystem state contaminates off-arm |
+| Phase-linear cache reuse | Survey→Plan continuity + minified reads | Reduce cost/latency without model downgrade |
+| v0.3 autonomy | Execute end-to-end without approval gates unless blocked by conflicting user changes | User requested autonomous execution and local proof benchmarks |
 
 ## Watch Points
 
@@ -69,6 +80,8 @@ Phase 8 ships LLM-summarised commit history embedded alongside code chunks. It i
 - **`ATELIER_DEV_MODE`** — ensure it cannot re-enable features in off-arm
 - **Docusaurus `blog: false`** in `docs-site/docusaurus.config.ts` — must fix in Phase 5
 - **Module-level singletons** in `mcp_server.py` (`_current_ledger`, `_realtime_ctx`) — subprocess isolation required
+- **Uncommitted implementation changes** — source files already have modifications; inspect before editing and avoid overwriting user work
+- **TerminalBench target** — v0.3 final proof should target ≥90% pass rate while cheaper and faster; if local proof fails, loop back into implementation
 
 ## Open Questions
 
@@ -81,7 +94,7 @@ Phase 8 ships LLM-summarised commit history embedded alongside code chunks. It i
 |------|---------|
 | `.planning/PROJECT.md` | Requirements, decisions, constraints |
 | `.planning/REQUIREMENTS.md` | 47 v1 requirements with REQ-IDs |
-| `.planning/ROADMAP.md` | 7-phase execution plan |
+| `.planning/ROADMAP.md` | 15-phase cumulative execution plan; v0.3 phases 12–15 active |
 | `.planning/config.json` | YOLO mode, quality model, all agents on |
 | `.planning/research/SUMMARY.md` | Synthesized research findings |
 | `.planning/research/STACK.md` | Stack research (TerminalBench, claude -p schema) |
@@ -95,4 +108,4 @@ Phase 8 ships LLM-summarised commit history embedded alongside code chunks. It i
 Phase: Not started (defining requirements)
 Plan: —
 Status: Defining requirements
-Last activity: 2026-05-28 — Milestone v0.2 started
+Last activity: 2026-05-28 — Milestone v0.3 started

@@ -326,9 +326,9 @@ Plans:
 **Phases:**
 
 - [x] **Phase 8: Context Lineage** — LLM-summarised commit history embedded alongside code chunks; agent can answer "why was this changed?" without reading raw git log
-- [ ] **Phase 9: Cache-Aware Routing** — Router stays on current model when KV-cache eviction cost exceeds quality gain; sticky routes within tool-call chains reduce cache-miss tail latency
-- [ ] **Phase 10: Counterexample Loop** — Per-step lint/type/test verification inside the agent loop; structured counterexamples fed back as tool-result blocks for self-correction before user sees failures
-- [ ] **Phase 11: Scoped Pull Context** — Explicit `context op="pull"` API returns minimal, budget-packed, subtask-scoped context; replaces broad session-start retrieval with a pull-model gradient toward tightness
+- [ ] **Phase 9: Cache-Aware Routing** — Superseded by v0.3 Phase 12
+- [ ] **Phase 10: Counterexample Loop** — Superseded by v0.3 Phase 14
+- [ ] **Phase 11: Scoped Pull Context** — Superseded by v0.3 Phase 15
 
 ---
 
@@ -417,14 +417,126 @@ Plans:
 
 ---
 
+## Milestone v0.3: Context Quality Execution
+
+**Goal:** Finish the context-quality execution stack so local benchmarks prove the agent is cheaper, faster, and materially better at coding tasks without changing the underlying model.
+
+**Phases:**
+
+- [ ] **Phase 12: Cache-Aware Routing** — Wire prefix-cache economics into model routing; keep routes sticky across tool-call chains and emit route-decision telemetry
+- [ ] **Phase 13: Phase-Linear Cache-Reuse Agent** — Add a Survey→Plan cache-warm run mode with minified read context, mode selection, and linear-vs-per-agent benchmark proof
+- [ ] **Phase 14: Counterexample Loop** — Add scoped deterministic verification and structured counterexamples that drive bounded self-correction before failures reach the user
+- [ ] **Phase 15: Scoped Pull Context + Proof Gate** — Add `context op="pull"`, scoped-context benchmarks, and TerminalBench-oriented local proof that Atelier-on is cheaper, faster, and targets ≥90% pass rate
+
+---
+
+### Phase 12: Cache-Aware Routing
+**Goal**: The model router refuses to switch models when doing so would evict a KV-cache prefix whose reconstruction cost exceeds the estimated quality gain, and routes stay sticky across follow-up tool calls.
+**Depends on**: Phase 8 (route decisions can now consider context lineage search cost but do not require it)
+**Requirements**: CACHE-01, CACHE-02, CACHE-03, CACHE-04, CACHE-05, CQEVAL-03
+
+**Key modules**:
+- `src/atelier/core/capabilities/model_routing/cache_cost.py` (new) — pure cache eviction cost calculation from prefix plans and pricing
+- `src/atelier/core/capabilities/model_routing/stickiness.py` (new) — turn-window sticky route state
+- `src/atelier/core/capabilities/model_routing/router.py` (extend) — optional cache-plan and prior-route inputs; existing callers unchanged
+- `tests/benchmarks/context_quality/M2_routing.py` (extend) — replay-cost benchmark
+
+**Success Criteria**:
+  1. Existing `ModelRouter.recommend()` callers compile without changes because new inputs are optional.
+  2. Synthetic cache plans prove the router stays on the prior route when cache eviction cost exceeds estimated quality gain, and switches when the gain justifies the cost.
+  3. A default three-call stickiness window keeps follow-up tool calls on the same route and resets on a user-visible response boundary.
+  4. Every recommendation emits a `route_decision` ledger event with cache cost, estimated quality gain, decision, and stickiness fields.
+  5. M2 benchmark proves ≥10% estimated cost reduction with no quality-tier regressions.
+
+**Plans**: TBD
+
+---
+
+### Phase 13: Phase-Linear Cache-Reuse Agent
+**Goal**: Make multi-phase coding runs cheaper and faster at the same model quality by running Survey and Plan as one cache-warm conversation, minifying read context, and selecting linear mode only when it wins.
+**Depends on**: Phase 12 (uses cache telemetry and pricing; can be developed in parallel where pure)
+**Requirements**: LINEAR-01, LINEAR-02, LINEAR-03, LINEAR-04, LINEAR-05, TBEVAL-01
+
+**Key modules**:
+- `src/atelier/core/capabilities/context_reuse/models.py` (extend) — phase state machine models and cache stats
+- `src/atelier/core/capabilities/context_reuse/phase_runner.py` (new) — Survey→Plan→Implement orchestration
+- `src/atelier/core/capabilities/context_reuse/prompts/` (new) — fixed system prompt and per-phase user objectives
+- `src/atelier/core/capabilities/context_compression/` (extend) — safe `minify_source()` read-context path
+- `src/atelier/core/runtime/engine.py` (extend) — `linear | per_agent | auto` dispatch
+
+**Success Criteria**:
+  1. Unit tests prove Survey and Plan share one message list and one fixed system prompt; Implement starts lean as a writer step.
+  2. Cache breakpoint and cache-read/write/fresh-input/output token stats are recorded per phase in the run ledger.
+  3. Minified reads preserve Python/YAML semantics, reduce read-context tokens measurably, and are never used for writer exact-byte reads.
+  4. `auto` chooses linear for context-sharing scenarios and falls back for divergent or oversized contexts.
+  5. Linear-vs-per-agent benchmark artifact shows ≥30% lower cost and ≥25% lower wall-time at equal-or-better task success.
+
+**Plans**: docs/plans/phase-linear-cache-reuse/01-PLAN.md
+
+---
+
+### Phase 14: Counterexample Loop
+**Goal**: Deterministic check failures become structured counterexamples in the tool-result channel, allowing bounded self-correction inside the agent loop.
+**Depends on**: Phase 12 (cheaper retries) and Phase 13 (linear run mode should preserve cache stability by keeping counterexamples out of static prompts)
+**Requirements**: COUNTER-01, COUNTER-02, COUNTER-03, COUNTER-04, COUNTER-05, CQEVAL-04
+
+**Key modules**:
+- `src/atelier/core/capabilities/verification/` (new) — verifier, checks, counterexample model, retry budget
+- `src/atelier/core/capabilities/proof_gate/capability.py` (extend) — verification trace as evidence
+- `src/atelier/core/capabilities/prompt_compilation/` (extend) — reject Counterexample blocks with static/branch stability
+- `tests/benchmarks/context_quality/M3_verification.py` (extend) — self-correction benchmark
+
+**Success Criteria**:
+  1. Verifier runs lint, typecheck, tests, and semantic checks scoped to touched files only.
+  2. Failures render as structured `Counterexample` objects with check, severity, location, diagnostic, expected/actual, and repro command.
+  3. Prompt compiler enforces counterexamples in tool-result/turn stability, never system/static stability.
+  4. Retry budget caps at three attempts and invokes rescue on exhaustion.
+  5. M3 benchmark proves ≥60% self-correction on seeded type-error edits.
+
+**Plans**: TBD
+
+---
+
+### Phase 15: Scoped Pull Context + Proof Gate
+**Goal**: `context op="pull"` returns minimal subtask-scoped context with rationale/exclusion trace, and final local benchmarks prove the v0.3 stack is faster, cheaper, and high-quality.
+**Depends on**: Phase 8, Phase 12, Phase 13, Phase 14
+**Requirements**: SCOPED-01, SCOPED-02, SCOPED-03, SCOPED-04, SCOPED-05, SCOPED-06, CQEVAL-05, TBEVAL-02
+
+**Key modules**:
+- `src/atelier/core/capabilities/scoped_context/` (new) — Subtask, ScopedContext, pull/prune/cache logic
+- `src/atelier/core/capabilities/code_context/engine.py` (reuse) — code and commit candidate search
+- `src/atelier/gateway/adapters/mcp_server.py` (extend) — register `context op="pull"`
+- `tests/benchmarks/context_quality/M4_scoped.py` (extend) — precision/recall benchmark
+- TerminalBench/local proof harness — record pass rate, cost, and latency deltas
+
+**Success Criteria**:
+  1. `ScopedContextCapability.pull()` returns ranked chunks within budget and excludes forbidden paths deterministically.
+  2. Output includes rationale, excluded records, trace ID, and cached provenance on repeated identical pulls.
+  3. `context op="pull"` is available to host CLIs and can surface M1 commit chunks when relevant.
+  4. M4 benchmark reaches precision ≥0.6 and recall ≥0.85 on multi-file edits from this repo history.
+  5. Final local proof run targets ≥90% TerminalBench pass rate while cheaper and faster than baseline; failures loop back into implementation before sign-off.
+
+**Plans**: TBD
+
+---
+
 ## Progress Table (v0.2)
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 8. Context Lineage | 3/3 | Complete | 2025-07-15 |
-| 9. Cache-Aware Routing | 0/? | Not started | - |
-| 10. Counterexample Loop | 0/? | Not started | - |
-| 11. Scoped Pull Context | 0/? | Not started | - |
+| 9. Cache-Aware Routing | 0/? | Superseded by Phase 12 | - |
+| 10. Counterexample Loop | 0/? | Superseded by Phase 14 | - |
+| 11. Scoped Pull Context | 0/? | Superseded by Phase 15 | - |
+
+## Progress Table (v0.3)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 12. Cache-Aware Routing | 0/? | Not started | - |
+| 13. Phase-Linear Cache-Reuse Agent | 0/? | Not started | - |
+| 14. Counterexample Loop | 0/? | Not started | - |
+| 15. Scoped Pull Context + Proof Gate | 0/? | Not started | - |
 
 ---
 
@@ -432,38 +544,55 @@ Plans:
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LINEAGE-01 | Phase 8 | Pending |
-| LINEAGE-02 | Phase 8 | Pending |
-| LINEAGE-03 | Phase 8 | Pending |
-| LINEAGE-04 | Phase 8 | Pending |
-| LINEAGE-05 | Phase 8 | Pending |
-| LINEAGE-06 | Phase 8 | Pending |
-| CQEVAL-01 | Phase 8 | Pending |
-| CQEVAL-02 | Phase 8 | Pending |
-| CACHE-01 | Phase 9 | Pending |
-| CACHE-02 | Phase 9 | Pending |
-| CACHE-03 | Phase 9 | Pending |
-| CACHE-04 | Phase 9 | Pending |
-| CACHE-05 | Phase 9 | Pending |
-| CQEVAL-03 | Phase 9 | Pending |
-| COUNTER-01 | Phase 10 | Pending |
-| COUNTER-02 | Phase 10 | Pending |
-| COUNTER-03 | Phase 10 | Pending |
-| COUNTER-04 | Phase 10 | Pending |
-| COUNTER-05 | Phase 10 | Pending |
-| CQEVAL-04 | Phase 10 | Pending |
-| SCOPED-01 | Phase 11 | Pending |
-| SCOPED-02 | Phase 11 | Pending |
-| SCOPED-03 | Phase 11 | Pending |
-| SCOPED-04 | Phase 11 | Pending |
-| SCOPED-05 | Phase 11 | Pending |
-| SCOPED-06 | Phase 11 | Pending |
-| CQEVAL-05 | Phase 11 | Pending |
+| LINEAGE-01 | Phase 8 | Complete |
+| LINEAGE-02 | Phase 8 | Complete |
+| LINEAGE-03 | Phase 8 | Complete |
+| LINEAGE-04 | Phase 8 | Complete |
+| LINEAGE-05 | Phase 8 | Complete |
+| LINEAGE-06 | Phase 8 | Complete |
+| CQEVAL-01 | Phase 8 | Complete |
+| CQEVAL-02 | Phase 8 | Complete |
 
-**v0.2 coverage: 27/27 requirements mapped ✓**
+**v0.2 coverage: 8/8 requirements mapped ✓**
+
+## Coverage (v0.3)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| CACHE-01 | Phase 12 | Pending |
+| CACHE-02 | Phase 12 | Pending |
+| CACHE-03 | Phase 12 | Pending |
+| CACHE-04 | Phase 12 | Pending |
+| CACHE-05 | Phase 12 | Pending |
+| CQEVAL-03 | Phase 12 | Pending |
+| LINEAR-01 | Phase 13 | Pending |
+| LINEAR-02 | Phase 13 | Pending |
+| LINEAR-03 | Phase 13 | Pending |
+| LINEAR-04 | Phase 13 | Pending |
+| LINEAR-05 | Phase 13 | Pending |
+| TBEVAL-01 | Phase 13 | Pending |
+| COUNTER-01 | Phase 14 | Pending |
+| COUNTER-02 | Phase 14 | Pending |
+| COUNTER-03 | Phase 14 | Pending |
+| COUNTER-04 | Phase 14 | Pending |
+| COUNTER-05 | Phase 14 | Pending |
+| CQEVAL-04 | Phase 14 | Pending |
+| SCOPED-01 | Phase 15 | Pending |
+| SCOPED-02 | Phase 15 | Pending |
+| SCOPED-03 | Phase 15 | Pending |
+| SCOPED-04 | Phase 15 | Pending |
+| SCOPED-05 | Phase 15 | Pending |
+| SCOPED-06 | Phase 15 | Pending |
+| CQEVAL-05 | Phase 15 | Pending |
+| TBEVAL-02 | Phase 15 | Pending |
+
+**v0.3 coverage: 26/26 requirements mapped ✓**
 
 ---
 
 *v0.2 roadmap appended: 2026-05-28*
 *Milestone target: v0.2 Context Quality Lift*
 *Build order: Phase 8 → Phase 9 → Phase 10 → Phase 11 (Phase 9 can run parallel with Phase 8)*
+*v0.3 roadmap appended: 2026-05-28*
+*Milestone target: v0.3 Context Quality Execution*
+*Build order: Phase 12 → Phase 13 → Phase 14 → Phase 15*

@@ -75,16 +75,16 @@
 - [ ] **PR-05**: Per-PR comparison table printed: cost, latency, diff similarity score, judge score per arm with delta
 - [ ] **PR-06**: Each replay produces a transcript JSON stored under `~/.atelier/bench/<run-id>/`
 
-## v0.2 Requirements — Context Quality Lift
+## v0.2-v0.3 Requirements — Context Quality Lift
 
 ### Context Lineage
 
-- [ ] **LINEAGE-01**: Bootstrap walk summarises last 500 commits and persists to `commit_chunks` SQLite table; merge commits and commits with >50 files touched are skipped automatically
-- [ ] **LINEAGE-02**: Incremental update fires on next session start when new commits exist; walk is resumable if interrupted mid-way
-- [ ] **LINEAGE-03**: `code op="search"` merges commit chunks with symbol/file results; each commit result carries `provenance="commit"` and `commit_sha` fields
-- [ ] **LINEAGE-04**: `code op="search" provenance="commit"` filter returns only commit chunk results
-- [ ] **LINEAGE-05**: Summariser uses version-pinned prompt (`_PROMPT_V1`); bumping the version triggers re-summarisation of all commits
-- [ ] **LINEAGE-06**: Commit chunks get a small score penalty (configurable, default −0.1) so they don't crowd current-file results
+- [x] **LINEAGE-01**: Bootstrap walk summarises last 500 commits and persists to `commit_chunks` SQLite table; merge commits and commits with >50 files touched are skipped automatically
+- [x] **LINEAGE-02**: Incremental update fires on next session start when new commits exist; walk is resumable if interrupted mid-way
+- [x] **LINEAGE-03**: `code op="search"` merges commit chunks with symbol/file results; each commit result carries `provenance="commit"` and `commit_sha` fields
+- [x] **LINEAGE-04**: `code op="search" provenance="commit"` filter returns only commit chunk results
+- [x] **LINEAGE-05**: Summariser uses version-pinned prompt (`_PROMPT_V1`); bumping the version triggers re-summarisation of all commits
+- [x] **LINEAGE-06**: Commit chunks get a small score penalty (configurable, default −0.1) so they don't crowd current-file results
 
 ### Cache-Aware Routing
 
@@ -102,6 +102,14 @@
 - [ ] **COUNTER-04**: Retry loop capped at 3 attempts per subtask; budget exhaustion calls `rescue.invoke(reason="verification_budget_exhausted")`
 - [ ] **COUNTER-05**: Test scoping: only tests whose paths match touched files run inside the loop; full-suite run is never triggered automatically
 
+### Phase-Linear Cache Reuse
+
+- [ ] **LINEAR-01**: `context_reuse` defines `Phase`, `PhasePlan`, `PhaseResult`, cache-stat fields, and a declarative Survey → Plan → Implement phase state machine
+- [ ] **LINEAR-02**: Survey and Plan run under one fixed system prompt with per-phase user objectives; Plan uses `continue_from="survey"` so provider cache can read the Survey prefix warm
+- [ ] **LINEAR-03**: Read-only Survey/Plan tool profile uses safe source minification and records original vs minified token counts; writer profile reads exact bytes
+- [ ] **LINEAR-04**: Runtime exposes `linear | per_agent | auto` mode selection with an auto heuristic that avoids linear mode for divergent or oversized contexts
+- [ ] **LINEAR-05**: Linear-vs-per-agent benchmark proves ≥30% lower cost and ≥25% lower wall-time at equal-or-better success on context-sharing scenarios
+
 ### Scoped Pull Context
 
 - [ ] **SCOPED-01**: `ScopedContextCapability.pull(subtask: Subtask) → ScopedContext` returns ranked, budget-packed chunks within `subtask.budget_tokens` (default 4000)
@@ -113,11 +121,16 @@
 
 ### Cross-Milestone Evaluation
 
-- [ ] **CQEVAL-01**: `tests/benchmarks/context_quality/` suite exists with benchmark modules for M1–M4 and a README describing the internal eval protocol
-- [ ] **CQEVAL-02**: M1 benchmark (`M1_lineage.py`): ≥7/10 commit history queries answered correctly (baseline ≤2/10 expected)
+- [x] **CQEVAL-01**: `tests/benchmarks/context_quality/` suite exists with benchmark modules for M1–M4 and a README describing the internal eval protocol
+- [x] **CQEVAL-02**: M1 benchmark (`M1_lineage.py`): ≥7/10 commit history queries answered correctly (baseline ≤2/10 expected)
 - [ ] **CQEVAL-03**: M2 benchmark (`M2_routing.py`): ≥10% cost reduction on 50 replayed session traces with no quality-tier regressions
 - [ ] **CQEVAL-04**: M3 benchmark (`M3_verification.py`): ≥60% self-correction rate on 20 seeded type-error edits (baseline ≤15% expected)
 - [ ] **CQEVAL-05**: M4 benchmark (`M4_scoped.py`): precision ≥0.6 and recall ≥0.85 on 20 multi-file edits from this repo's history
+
+### Local Benchmark Proof
+
+- [ ] **TBEVAL-01**: Local linear-vs-per-agent benchmark artifact records cost, latency, cache-hit ratio, minification delta, and task success for at least 7 representative scenarios
+- [ ] **TBEVAL-02**: TerminalBench-oriented local proof run shows Atelier-on target ≥90% pass rate while cheaper and faster than the off/per-agent baseline, or records concrete implementation gaps and loops back before finalizing
 
 ## v2 Requirements
 
@@ -163,42 +176,55 @@
 | LS-01–04 | Phase 6 | Pending |
 | PR-01–06 | Phase 7 | Pending |
 
-### v0.2 (Context Quality Lift)
+### v0.2 (Context Lineage)
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LINEAGE-01 | Phase 8 | Pending |
-| LINEAGE-02 | Phase 8 | Pending |
-| LINEAGE-03 | Phase 8 | Pending |
-| LINEAGE-04 | Phase 8 | Pending |
-| LINEAGE-05 | Phase 8 | Pending |
-| LINEAGE-06 | Phase 8 | Pending |
-| CQEVAL-01 | Phase 8 | Pending |
-| CQEVAL-02 | Phase 8 | Pending |
-| CACHE-01 | Phase 9 | Pending |
-| CACHE-02 | Phase 9 | Pending |
-| CACHE-03 | Phase 9 | Pending |
-| CACHE-04 | Phase 9 | Pending |
-| CACHE-05 | Phase 9 | Pending |
-| CQEVAL-03 | Phase 9 | Pending |
-| COUNTER-01 | Phase 10 | Pending |
-| COUNTER-02 | Phase 10 | Pending |
-| COUNTER-03 | Phase 10 | Pending |
-| COUNTER-04 | Phase 10 | Pending |
-| COUNTER-05 | Phase 10 | Pending |
-| CQEVAL-04 | Phase 10 | Pending |
-| SCOPED-01 | Phase 11 | Pending |
-| SCOPED-02 | Phase 11 | Pending |
-| SCOPED-03 | Phase 11 | Pending |
-| SCOPED-04 | Phase 11 | Pending |
-| SCOPED-05 | Phase 11 | Pending |
-| SCOPED-06 | Phase 11 | Pending |
-| CQEVAL-05 | Phase 11 | Pending |
+| LINEAGE-01 | Phase 8 | Complete |
+| LINEAGE-02 | Phase 8 | Complete |
+| LINEAGE-03 | Phase 8 | Complete |
+| LINEAGE-04 | Phase 8 | Complete |
+| LINEAGE-05 | Phase 8 | Complete |
+| LINEAGE-06 | Phase 8 | Complete |
+| CQEVAL-01 | Phase 8 | Complete |
+| CQEVAL-02 | Phase 8 | Complete |
+
+### v0.3 (Context Quality Execution)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| CACHE-01 | Phase 12 | Pending |
+| CACHE-02 | Phase 12 | Pending |
+| CACHE-03 | Phase 12 | Pending |
+| CACHE-04 | Phase 12 | Pending |
+| CACHE-05 | Phase 12 | Pending |
+| CQEVAL-03 | Phase 12 | Pending |
+| LINEAR-01 | Phase 13 | Pending |
+| LINEAR-02 | Phase 13 | Pending |
+| LINEAR-03 | Phase 13 | Pending |
+| LINEAR-04 | Phase 13 | Pending |
+| LINEAR-05 | Phase 13 | Pending |
+| TBEVAL-01 | Phase 13 | Pending |
+| COUNTER-01 | Phase 14 | Pending |
+| COUNTER-02 | Phase 14 | Pending |
+| COUNTER-03 | Phase 14 | Pending |
+| COUNTER-04 | Phase 14 | Pending |
+| COUNTER-05 | Phase 14 | Pending |
+| CQEVAL-04 | Phase 14 | Pending |
+| SCOPED-01 | Phase 15 | Pending |
+| SCOPED-02 | Phase 15 | Pending |
+| SCOPED-03 | Phase 15 | Pending |
+| SCOPED-04 | Phase 15 | Pending |
+| SCOPED-05 | Phase 15 | Pending |
+| SCOPED-06 | Phase 15 | Pending |
+| CQEVAL-05 | Phase 15 | Pending |
+| TBEVAL-02 | Phase 15 | Pending |
 
 **Coverage:**
 - v0.1 requirements: 47 total | Mapped: 47 | Unmapped: 0 ✓
-- v0.2 requirements: 27 total | Mapped: 27 | Unmapped: 0 ✓
+- v0.2 requirements: 8 total | Mapped: 8 | Unmapped: 0 ✓
+- v0.3 requirements: 26 total | Mapped: 26 | Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-28*
-*Last updated: 2026-05-28 — v0.2 requirements added*
+*Last updated: 2026-05-28 — v0.3 requirements added*

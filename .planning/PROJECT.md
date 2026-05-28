@@ -1,14 +1,15 @@
 # Atelier Public Benchmarks
 
-## Current Milestone: v0.2 Context Quality Lift
+## Current Milestone: v0.3 Context Quality Execution
 
-**Goal:** Make the same underlying model measurably better at coding tasks by feeding it better-scoped, history-aware context — and by refusing to break the KV-cache for marginal routing wins.
+**Goal:** Finish the context-quality execution stack so local benchmarks prove the agent is cheaper, faster, and materially better at coding tasks without changing the underlying model.
 
 **Target features:**
-- Context Lineage: LLM-summarised commit history embedded alongside code chunks
 - Cache-Aware Routing: router stays on current model when KV-cache eviction cost > quality gain
+- Phase-Linear Cache-Reuse: Survey and Plan run as one cache-warm conversation with minified read context
 - Counterexample Loop: per-step layered verification feeding structured counterexamples back into the agent loop
 - Scoped Pull Context: explicit `context op="pull"` API for subtask-scoped minimal context retrieval
+- Local Benchmark Proof: context-quality benchmarks plus a TerminalBench-oriented proof run target ≥90% pass rate with lower cost and latency
 
 ## What This Is
 
@@ -50,6 +51,8 @@ A stranger can clone the repo, run one command, and reproduce the exact benchmar
 - Existing `src/atelier/infra/benchmarks/publisher.py` produces internal weekly snapshots — not externally reproducible.
 - Target: benchmark report #1 published at `docs-site/blog/2026-06-04-*` covering TerminalBench × Claude Sonnet × 10 tasks × N=5.
 - PR-replay benchmarks (`--pr <url>`) let any developer run a personal A/B on their own real work.
+- v0.2 Phase 8 shipped Context Lineage: commit summaries are searchable alongside code chunks and M1 benchmark scaffolding exists.
+- v0.3 is driven by the design docs in `docs/plans/context-quality-lift/` and `docs/plans/phase-linear-cache-reuse/`; do not re-decide those architecture choices during planning.
 
 ## Constraints
 
@@ -58,6 +61,7 @@ A stranger can clone the repo, run one command, and reproduce the exact benchmar
 - **Reproducibility**: Every published report includes exact CLI command and commit SHA to reproduce
 - **Timeline**: First published report by 2026-06-04 (D1–D5 are the critical path)
 - **Tech stack**: Python, existing `benchmarks/mcp_tools/` harness patterns, tiktoken, matplotlib; TerminalBench as submodule or PyPI dep
+- **v0.3 proof target**: local benchmark evidence must show lower cost and lower latency with equal-or-better task success; TerminalBench-oriented target is ≥90% pass rate
 
 ## Key Decisions
 
@@ -68,6 +72,9 @@ A stranger can clone the repo, run one command, and reproduce the exact benchmar
 | PR-replay scores diff quality against real merge | Real tasks with ground-truth; complete benchmark cell (base commit + prompt + expected output) | — Pending |
 | Reuse `ANTHROPIC_API_KEY`, print which key is used | Simpler UX; add `--no-cost-cap` override at $50 default hard-stop | — Pending |
 | All together as one milestone (D1–D7 + PR-replay) | User explicitly confirmed scope | — Pending |
+| Phase-linear cache reuse before broader agent execution | Survey→Plan cache warmth and minified reads are the highest-leverage cost/latency lever before final proof benchmarks | — v0.3 active |
+| Counterexamples in tool-result channel only | Preserves static/system prompt cache stability and makes failures actionable without cache-busting prompt mutation | — v0.3 active |
+| Scoped pull as the default context gradient | Subtask-scoped context is required to reduce over-fetch while preserving recall for implementation agents | — v0.3 active |
 
 ## Evolution
 
@@ -87,4 +94,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-28 — Milestone v0.2 started*
+*Last updated: 2026-05-28 — Milestone v0.3 started*
