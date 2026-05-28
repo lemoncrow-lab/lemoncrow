@@ -842,7 +842,7 @@ def _search_commit_chunks(
    - What we know: `RetrievalCache` is keyed by `index_version` (verified at engine.py:2292)
    - What's unclear: Whether to bump `index_version` on lineage update (affects ALL cache entries) or use a separate `commit_lineage_version` cache key
    - Recommendation: Add `commit_lineage_head` SHA to the `code.search` cache key args dict — precise invalidation without global cache bust.
-   - **RESOLVED:** Task 6 of PLAN-01 adds `commit_lineage_head` to the `code.search` RetrievalCache key args, giving precise invalidation on new commits without global cache bust.
+   - **RESOLVED (DEFERRED to M2):** Cache invalidation for commit chunks is not implemented in Phase 8. The RetrievalCache TTL (default: 5 minutes) provides adequate staleness protection for M1. Precise invalidation via `commit_lineage_head` cache key is tracked for Phase 9 (Cache-Aware Routing). Risk: a search result may not include newly bootstrapped commit chunks until the next cache expiry.
 
 4. **M1 benchmark commit selection**
    - What we know: Repo has 425 commits; benchmark needs 10 bug-fix commits
