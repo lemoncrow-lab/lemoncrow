@@ -3534,6 +3534,7 @@ def tool_code(
         | None
     ) = None,
     render_compact: bool = False,
+    provenance: str | None = None,
 ) -> dict[str, Any]:
     """Search the SCIP code index for symbols by name or description.
 
@@ -3585,6 +3586,8 @@ def tool_code(
             search_kwargs["since"] = since
         if touched_by is not None:
             search_kwargs["touched_by"] = touched_by
+        if provenance is not None:
+            search_kwargs["provenance_filter"] = provenance
         if workspace_router.is_configured:
             return _maybe_attach_code_rendered(
                 op,

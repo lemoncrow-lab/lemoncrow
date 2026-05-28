@@ -151,7 +151,9 @@ _DELETED_SEARCH_OPTIONAL_KEYS = [
     "last_commit_msg",
     "matched_on",
 ]
-_SEARCH_COMPACT_DEFAULT_KEYS = set([*_SEARCH_ESSENTIAL_KEYS, "score"])
+_SEARCH_COMPACT_DEFAULT_KEYS = set([*_SEARCH_ESSENTIAL_KEYS, "score", "commit_sha"])
+_LINEAGE_INDEX_VERSION = 1
+_LINEAGE_DEFAULT_SCORE_PENALTY = 0.1
 _DELETED_SEARCH_COMPACT_DEFAULT_KEYS = set(
     [*_DELETED_SEARCH_ESSENTIAL_KEYS, "score", "matched_on", "rename_target", "rename_note"]
 )
@@ -585,6 +587,10 @@ class CodeContextEngine:
         self._autosync_lock = threading.RLock()
         self._autosync_stop = threading.Event()
         self._autosync_thread: threading.Thread | None = None
+        self._lineage_thread: threading.Thread | None = None
+        self._lineage_score_penalty: float = float(
+            os.getenv("ATELIER_LINEAGE_COMMIT_SCORE_PENALTY", str(_LINEAGE_DEFAULT_SCORE_PENALTY))
+        )
         self._register_symbol_intel_providers()
         if self._autosync_enabled:
             self._start_autosync_worker()
@@ -821,6 +827,7 @@ class CodeContextEngine:
         touched_by: str | None = None,
         budget_tokens: int = 4000,
         auto_index: bool = True,
+        provenance_filter: str | None = None,
     ) -> dict[str, Any]:
         force_compact_snippet = self._should_force_search_compaction(scope=scope, snippet=snippet, limit=limit)
         effective_snippet: Literal["none", "head", "full"] = "none" if force_compact_snippet else snippet
@@ -852,6 +859,7 @@ class CodeContextEngine:
             "touched_by": normalized_touched_by,
             "budget_tokens": effective_budget_tokens,
             "semantic_candidate_limit": semantic_candidate_limit(limit),
+            "provenance_filter": provenance_filter,
         }
         hit, cached = self._cache_get("code.search", cache_args)
         if hit and cached is not None:
@@ -887,6 +895,7 @@ class CodeContextEngine:
                 since=since,
                 touched_by=touched_by,
                 auto_index=False,
+                provenance_filter=provenance_filter,
             )
             items = [item.model_dump(mode="json", exclude_none=True) for item in raw_items]
         if scope == "repo" and (parsed_since is not None or normalized_touched_by is not None):
@@ -2320,6 +2329,7 @@ class CodeContextEngine:
         since: str | None = None,
         touched_by: str | None = None,
         auto_index: bool = True,
+        provenance_filter: str | None = None,
     ) -> list[SymbolRecord]: ...
 
     @overload
@@ -2338,6 +2348,7 @@ class CodeContextEngine:
         since: str | None = None,
         touched_by: str | None = None,
         auto_index: bool = True,
+        provenance_filter: str | None = None,
     ) -> list[DeletedHistoryItem]: ...
 
     def search_symbols(
@@ -2355,6 +2366,7 @@ class CodeContextEngine:
         since: str | None = None,
         touched_by: str | None = None,
         auto_index: bool = True,
+        provenance_filter: str | None = None,
     ) -> list[SymbolRecord] | list[DeletedHistoryItem]:
         """Deterministic multi-channel symbol search with routed-provider fallback."""
         if auto_index and scope != "deleted":
@@ -2417,13 +2429,20 @@ class CodeContextEngine:
                     kind=kind,
                     language=language,
                 )
-                hits = (
-                    semantic_hits[:limit]
-                    if resolved_mode == "semantic"
-                    else self._semantic_ranker.reciprocal_rank_fuse(lexical_hits, semantic_hits, limit=limit)
-                )
+                # Merge commit chunks as a third candidate source (LINEAGE-03)
+                commit_hits: list[SymbolRecord] = []
+                with contextlib.suppress(Exception):
+                    commit_hits = self._search_commit_chunks(query, limit=candidate_limit)
+                if resolved_mode == "semantic":
+                    hits = (semantic_hits + commit_hits)[:limit]
+                else:
+                    hits = self._semantic_ranker.reciprocal_rank_fuse(
+                        lexical_hits, semantic_hits + commit_hits, limit=limit
+                    )
         if file_glob:
             hits = [hit for hit in hits if fnmatch.fnmatch(hit.file_path, file_glob)]
+        if provenance_filter is not None:
+            hits = [h for h in hits if h.provenance == provenance_filter]
         return [self._attach_snippet(symbol, snippet=snippet, snippet_lines=snippet_lines) for symbol in hits[:limit]]
 
     def _search_symbols_local(
@@ -3747,6 +3766,18 @@ class CodeContextEngine:
             CREATE INDEX IF NOT EXISTS idx_references_file ON "references"(repo_id, file_path);
             CREATE INDEX IF NOT EXISTS idx_call_edges_callee ON call_edges(repo_id, callee_name);
             CREATE INDEX IF NOT EXISTS idx_call_edges_caller ON call_edges(repo_id, caller_file_path, caller_start_line);
+            CREATE TABLE IF NOT EXISTS commit_chunks (
+                commit_sha     TEXT PRIMARY KEY,
+                author_date    INTEGER NOT NULL,
+                files_touched  TEXT NOT NULL,
+                symbols_touched TEXT,
+                summary        TEXT NOT NULL,
+                summary_model  TEXT NOT NULL,
+                embedding      BLOB,
+                index_version  INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_commit_author_date ON commit_chunks(author_date);
+            CREATE INDEX IF NOT EXISTS idx_commit_files ON commit_chunks(files_touched);
             """)
         conn.execute("INSERT OR IGNORE INTO engine_state(key, value) VALUES ('index_version', '0')")
 
@@ -3810,6 +3841,7 @@ class CodeContextEngine:
                 return
             if self._autosync_enabled:
                 self._maybe_autosync_reindex_locked()
+        self._ensure_lineage_ready()
 
     def _excluded(self, path: Path, patterns: list[str]) -> bool:
         rel = _safe_relpath(self.repo_root, path)
@@ -5306,7 +5338,13 @@ class CodeContextEngine:
         if scope == "repo":
             result: list[dict[str, Any]] = []
             for item in compacted:
-                cleaned = {k: v for k, v in item.items() if k not in _SEARCH_REPO_STRIP_ITEM_KEYS}
+                # For commit chunks, provenance and commit_sha must survive.
+                if item.get("provenance") == "commit":
+                    cleaned = {
+                        k: v for k, v in item.items() if k not in _SEARCH_REPO_STRIP_ITEM_KEYS or k == "provenance"
+                    }
+                else:
+                    cleaned = {k: v for k, v in item.items() if k not in _SEARCH_REPO_STRIP_ITEM_KEYS}
                 # qualified_name adds no information when it is identical to symbol_name
                 if cleaned.get("qualified_name") == cleaned.get("symbol_name"):
                     cleaned.pop("qualified_name", None)
@@ -6348,6 +6386,216 @@ class CodeContextEngine:
                 return None
             return str(value)
         return None
+
+    def _ensure_lineage_ready(self) -> None:
+        """Start background lineage bootstrap if commit_chunks is empty or stale.
+
+        Non-blocking: launches a daemon thread. Safe to call multiple times.
+        """
+        if self._lineage_thread is not None:
+            return
+        current_head = self._safe_current_head_sha()
+        if current_head is None:
+            return
+        needs_update = False
+        with contextlib.suppress(Exception), contextlib.closing(self._connect()) as conn:
+            self._init_schema(conn)
+            head_row = conn.execute("SELECT value FROM engine_state WHERE key = 'commit_lineage_head'").fetchone()
+            previous_head = str(head_row["value"]) if head_row is not None else None
+            count_row = conn.execute("SELECT COUNT(*) AS n FROM commit_chunks").fetchone()
+            chunk_count = int(count_row["n"]) if count_row is not None else 0
+            stale_row = conn.execute(
+                "SELECT COUNT(*) AS n FROM commit_chunks WHERE index_version < ?",
+                (_LINEAGE_INDEX_VERSION,),
+            ).fetchone()
+            has_stale = stale_row is not None and int(stale_row["n"]) > 0
+            if previous_head != current_head or chunk_count == 0 or has_stale:
+                needs_update = True
+        if not needs_update:
+            return
+        self._lineage_thread = threading.Thread(
+            target=self._lineage_bootstrap_worker,
+            name=f"atelier-lineage-{self.repo_id[:8]}",
+            daemon=True,
+        )
+        self._lineage_thread.start()
+
+    def _lineage_bootstrap_worker(self) -> None:
+        """Background thread: walk, summarise, embed, persist commit chunks."""
+        try:
+            with contextlib.closing(self._connect()) as conn:
+                self._init_schema(conn)
+                watermark_row = conn.execute(
+                    "SELECT value FROM engine_state WHERE key = 'commit_lineage_watermark'"
+                ).fetchone()
+                since_sha = str(watermark_row["value"]) if watermark_row is not None else None
+            self._walk_and_summarise(since_sha=since_sha)
+        except Exception:
+            pass  # fail-open — lineage is additive, never blocks search
+
+    def _walk_and_summarise(self, *, since_sha: str | None) -> None:
+        """Walk commits, summarise, embed, upsert to commit_chunks in batches of 50."""
+        from atelier.infra.code_intel.git_history import require_pygit2
+        from atelier.infra.code_intel.git_history.embedder import embed_summary
+        from atelier.infra.code_intel.git_history.summarizer import (
+            SummarizerError,
+            summarize_commit,
+        )
+        from atelier.infra.code_intel.git_history.walker import iter_commit_records
+
+        def _get_diff_text(repo: Any, commit: Any) -> str:
+            try:
+                if not commit.parents:
+                    return ""
+                parent = commit.parents[0]
+                diff = parent.tree.diff_to_tree(commit.tree)
+                return diff.patch or ""
+            except Exception:
+                return ""
+
+        pygit2 = require_pygit2()
+        repo = pygit2.Repository(str(self.repo_root))
+        batch: list[tuple[Any, ...]] = []
+
+        for record in iter_commit_records(self.repo_root, limit=500, since_sha=since_sha):
+            try:
+                commit_obj = repo.revparse_single(record.sha)
+                diff_text = _get_diff_text(repo, commit_obj)
+            except Exception:
+                diff_text = ""
+
+            try:
+                summary = summarize_commit(record, diff_text=diff_text)
+                embedding_blob = embed_summary(summary)
+            except SummarizerError:
+                continue
+            except Exception:
+                continue
+
+            batch.append(
+                (
+                    summary.sha,
+                    summary.author_date,
+                    json.dumps(summary.files_touched),
+                    None,  # symbols_touched — deferred to follow-up phase
+                    summary.summary,
+                    summary.summary_model,
+                    embedding_blob,
+                    _LINEAGE_INDEX_VERSION,
+                )
+            )
+
+            if len(batch) >= 50:
+                self._flush_commit_batch(batch, watermark_sha=batch[-1][0])
+                batch.clear()
+
+        if batch:
+            self._flush_commit_batch(batch, watermark_sha=batch[-1][0])
+
+        current_head = self._safe_current_head_sha()
+        if current_head:
+            with contextlib.closing(self._connect()) as conn:
+                conn.execute(
+                    "INSERT INTO engine_state(key, value) VALUES (?, ?)"
+                    " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    ("commit_lineage_head", current_head),
+                )
+                conn.commit()
+
+    def _flush_commit_batch(self, batch: list[tuple[Any, ...]], *, watermark_sha: str) -> None:
+        """Upsert a batch of commit chunks and advance the resume watermark."""
+        with contextlib.closing(self._connect()) as conn:
+            self._init_schema(conn)
+            conn.executemany(
+                """INSERT OR REPLACE INTO commit_chunks
+                   (commit_sha, author_date, files_touched, symbols_touched,
+                    summary, summary_model, embedding, index_version)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                batch,
+            )
+            conn.execute(
+                "INSERT INTO engine_state(key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                ("commit_lineage_watermark", watermark_sha),
+            )
+            conn.commit()
+
+    def _search_commit_chunks(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+    ) -> list[SymbolRecord]:
+        """Embed query and return top-limit commit chunks as SymbolRecord objects.
+
+        Each result has provenance="commit" and commit_sha set.
+        Applies ATELIER_LINEAGE_COMMIT_SCORE_PENALTY (default 0.1) to the score.
+        Returns [] if commit_chunks is empty or embeddings unavailable.
+        """
+        from atelier.infra.code_intel.git_history.embedder import decode_embedding
+        from atelier.infra.storage.vector import cosine_similarity
+
+        query_vec: list[float] | None = None
+        with contextlib.suppress(Exception):
+            query_vec = self._semantic_ranker._embed_query(query)
+
+        if not query_vec:
+            return []
+
+        rows: list[sqlite3.Row] = []
+        with contextlib.suppress(Exception), contextlib.closing(self._connect()) as conn:
+            self._init_schema(conn)
+            rows = conn.execute(
+                "SELECT commit_sha, author_date, files_touched, summary, summary_model, embedding "
+                "FROM commit_chunks WHERE embedding IS NOT NULL "
+                "ORDER BY author_date DESC LIMIT 2000"
+            ).fetchall()
+
+        if not rows:
+            return []
+
+        scored: list[tuple[float, sqlite3.Row]] = []
+        for row in rows:
+            try:
+                stored_vec = decode_embedding(bytes(row["embedding"]))
+                sim = cosine_similarity(query_vec, stored_vec)
+                adjusted = sim - self._lineage_score_penalty
+                scored.append((adjusted, row))
+            except Exception:
+                continue
+
+        scored.sort(key=lambda t: t[0], reverse=True)
+        top = scored[:limit]
+
+        results: list[SymbolRecord] = []
+        for score_val, row in top:
+            try:
+                files = json.loads(row["files_touched"]) if row["files_touched"] else []
+                primary_file = files[0] if files else ""
+                sha = str(row["commit_sha"])
+                results.append(
+                    SymbolRecord(
+                        symbol_id=sha,
+                        repo_id=self.repo_id,
+                        file_path=primary_file,
+                        language="",
+                        symbol_name=sha[:8],
+                        qualified_name=str(row["summary"])[:80],
+                        kind="commit",
+                        signature=str(row["summary"]),
+                        start_byte=0,
+                        end_byte=0,
+                        start_line=0,
+                        end_line=0,
+                        content_hash=sha,
+                        score=round(score_val, 4),
+                        provenance="commit",
+                        commit_sha=sha,
+                    )
+                )
+            except Exception:
+                continue
+        return results
 
     def _deleted_history_adapter(self) -> DeletedHistorySearchAdapter:
         if self._deleted_history_search_adapter is None:
