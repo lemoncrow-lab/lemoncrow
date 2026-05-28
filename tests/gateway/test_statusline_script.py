@@ -92,10 +92,10 @@ def test_statusline_reads_session_savings(tmp_path: Path) -> None:
     output = _run_statusline(tmp_path, _payload())
 
     # Format: "$0.036(12k)" — saved USD with token count in parens.
+    # Token breakdown (I: C: O:) is now always shown alongside the live cost.
     assert "$0.036(12k)" in output
+    assert "I: 100 C: 300 O: 50" in output
     assert "calls saved" not in output
-    assert "I:" not in output
-    assert "O:" not in output
 
 
 def test_statusline_prices_fallback_savings_from_claude_transcript_model_mix(

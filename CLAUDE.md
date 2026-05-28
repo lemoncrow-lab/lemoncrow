@@ -115,3 +115,9 @@ See [docs/agent-os/coding-guidelines.md](docs/agent-os/coding-guidelines.md) for
 | Code-intel engine | `uv run pytest tests/core/test_code_context.py -q && make lint && make typecheck` |
 | Frontend | `cd frontend && npm run build && npm run test` |
 | Docs / host instruction sources | `make docs-check && make check-agent-context` |
+
+## Code Intelligence
+
+For all code-intel needs (symbol search, definitions, callers, callees, impact,
+file tree, routes, context), use `mcp__atelier__code` — it handles all of them
+with SCIP-indexed precision and native project awareness.

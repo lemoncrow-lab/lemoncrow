@@ -7,9 +7,9 @@
 #   - make typecheck   (mypy — strict)
 #   - make docs-check  (agent context sync + docs governance)
 #   - make test        (pytest)
-#   - pip-audit        (dependency vulnerability audit)
-#
-# Bypass with:  git push --no-verify
+#   - uv audit           (dependency vulnerability audit)
+ #
+ # Bypass with:  git push --no-verify
 
 set -e
 
@@ -55,6 +55,8 @@ md_files=$(git ls-files "*.md" \
     | grep -v "^skills/" \
     | grep -v "^integrations/" \
     | grep -v "^.github/" \
+    | grep -v "^.knowledge/" \
+    | grep -v "^internal/" \
     | grep -v "^tests/fixtures/memory/" \
     | grep -v "AGENTS" \
     | grep -v "QUICK_REFERENCE" \
@@ -74,7 +76,8 @@ if [ -n "$md_files" ]; then
     echo ""
     echo "Allowed: docs/, docs-archive/, reports/, .planning/, .lessons/, templates/,"
     echo "  .ruler/, .agent/, skills/, integrations/, .github/,"
-    echo "  tests/fixtures/memory/, AGENTS*, QUICK_REFERENCE*,"
+    echo "  .knowledge/, internal/, tests/fixtures/memory/,"
+    echo "  AGENTS*, QUICK_REFERENCE*,"
     echo "  README.md, SECURITY.md, SKILL.md,"
     echo "  LICENSE.md, CHANGELOG.md, CONTRIBUTING.md, GEMINI.md"
     exit 1
@@ -131,20 +134,14 @@ if ! env -u ATELIER_WORKSPACE_ROOT -u CLAUDE_WORKSPACE_ROOT -u CURSOR_WORKSPACE_
 fi
 
 # ---------------------------------------------------------------------------
-# 8. Dependency audit (pip-audit) — same as CI security job
+# 8. Dependency audit (uv audit) — same as CI security job
 # ---------------------------------------------------------------------------
 echo "🔒 Dependency audit ..."
-if ! uv export --frozen --group dev --format requirements-txt --no-hashes --output-file /tmp/atelier-preaudit-requirements.txt 2>/dev/null; then
-    echo "   ⚠️  Could not export frozen requirements (uv sync --frozen may be needed)."
-    echo "      Run 'uv sync --group dev' first, or use 'git push --no-verify' to bypass."
-    exit 1
-fi
-if ! uvx pip-audit --requirement /tmp/atelier-preaudit-requirements.txt 2>&1; then
+if ! uv audit --frozen 2>&1; then
     echo -e "\033[1;31m❌ Dependency audit found vulnerabilities.\033[0m"
     echo "   Run 'uv sync --upgrade' or use 'git push --no-verify' to bypass."
     exit 1
 fi
-rm -f /tmp/atelier-preaudit-requirements.txt
 
 echo ""
 echo "✅ All CI-equivalent pre-push checks passed!"

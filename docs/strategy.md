@@ -1,6 +1,6 @@
 # Atelier Strategy
 
-> Status: living doc. Last revised 2026-05-15.
+> Status: living doc. Last revised 2026-05-28.
 
 ## One-line positioning
 
@@ -71,15 +71,3 @@ Not a feature you sell — the engine that makes pillars 1 and 2 keep getting be
 ## Strategic timing
 
 The window is open **now** — probably 6 to 12 months before one native partners with another or builds a vendor-bridge. Sprint while the gap exists. Use the lead to build federated learning, which is the harder-to-replicate moat.
-
-## Success criteria
-
-By month 12 from today (May 2027):
-- 10,000 free installs
-- 500 Pro subscribers (~$6K MRR)
-- 30 teams averaging 8 seats (~$7K MRR)
-- ~$13K MRR — founder-bootstrapped revenue proving the wedge
-- 1 published benchmark report per week, cited by 3+ independent dev blogs
-- Public dashboard at `atelier.dev/leaderboard` showing live cross-vendor data
-
-That's the validation needed to either bootstrap further or raise on the cross-vendor thesis.

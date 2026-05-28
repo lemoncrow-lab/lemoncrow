@@ -305,6 +305,51 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
     return reportModels[0] || null;
   }, [inspectorData, report, trace]);
 
+  // Join per-call savings from the session report onto conversation turns.
+  // Claude strips the MCP response's `saved` field before writing the transcript,
+  // so we reattach it here by matching tool name (short form) + sequential order
+  // within each tool type (savings events are written in call order).
+  const enrichedConversations = useMemo(() => {
+    const base = inspectorData?.conversations ?? [];
+    if (!report?.tool_savings?.length) return base;
+
+    // Group savings by short tool name, sorted by timestamp.
+    const queue = new Map<string, typeof report.tool_savings>();
+    for (const row of [...report.tool_savings].sort((a, b) =>
+      a.at < b.at ? -1 : 1
+    )) {
+      if (!queue.has(row.tool)) queue.set(row.tool, []);
+      queue.get(row.tool)!.push(row);
+    }
+    const ptr = new Map<string, number>();
+
+    return base.map((turn) => {
+      if (turn.kind !== "tool_call" || !turn.tool_name) return turn;
+      // Extract the short name: "mcp__plugin_atelier_atelier__read" → "read"
+      const parts = (turn.tool_name as string).split("__");
+      const shortName = parts[parts.length - 1];
+      const rows = queue.get(shortName);
+      if (!rows) return turn;
+      const i = ptr.get(shortName) ?? 0;
+      if (i >= rows.length) return turn;
+      // Savings timestamp is slightly after the tool call — allow up to 60 s.
+      const turnMs = new Date(turn.at || 0).getTime();
+      const savMs = new Date(rows[i].at).getTime();
+      if (savMs >= turnMs - 2000 && savMs <= turnMs + 60000) {
+        ptr.set(shortName, i + 1);
+        return {
+          ...turn,
+          saved: {
+            tokens: rows[i].tokens_saved,
+            calls: rows[i].calls_saved,
+            usd: rows[i].cost_saved_usd,
+          },
+        };
+      }
+      return turn;
+    });
+  }, [inspectorData, report]);
+
   // Derive file changes from the session ledger directly — every file_edit turn
   // is already captured there. The trace's files_touched is redundant for this;
   // trace should only carry signals that can't be reconstructed from the session.
@@ -530,9 +575,8 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                 </div>
 
                 <div className="space-y-12">
-                  {inspectorData?.conversations &&
-                  inspectorData.conversations.length > 0 ? (
-                    groupTurns(inspectorData.conversations).map((turn, i) => (
+                  {enrichedConversations.length > 0 ? (
+                    groupTurns(enrichedConversations).map((turn, i) => (
                       <ConversationTurn
                         key={i}
                         turn={turn}
