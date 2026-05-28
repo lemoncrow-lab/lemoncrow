@@ -19,10 +19,10 @@
 ### TerminalBench Adapter
 
 - [x] **TB-01**: `benchmarks/terminalbench/` package installs via isolated `benchmarks/pyproject.toml` (Python 3.12 workspace) to resolve version conflict
-- [ ] **TB-02**: `agent_adapter.py` invokes `claude -p --output-format stream-json --verbose` as subprocess, parses the `result` line for `total_cost_usd`, `duration_ms`, `usage.input_tokens`, `usage.output_tokens`, `usage.cache_creation_input_tokens`, `usage.cache_read_input_tokens`
+- [x] **TB-02**: `agent_adapter.py` invokes `claude -p --output-format stream-json --verbose` as subprocess, parses the `result` line for `total_cost_usd`, `duration_ms`, `usage.input_tokens`, `usage.output_tokens`, `usage.cache_creation_input_tokens`, `usage.cache_read_input_tokens`
 - [x] **TB-03**: `tasks.yaml` pins 10 TerminalBench task IDs that complete in <30 min and exercise code-editing capabilities
-- [ ] **TB-04**: Runner produces per-run transcript JSON with all required fields populated (transcript, token counts, latency, cost, grader verdict)
-- [ ] **TB-05**: `--mode on` and `--mode off` arms produce distinguishably different transcripts
+- [x] **TB-04**: Runner produces per-run transcript JSON with all required fields populated (transcript, token counts, latency, cost, grader verdict)
+- [x] **TB-05**: `--mode on` and `--mode off` arms produce distinguishably different transcripts
 
 ### A/B Runner
 

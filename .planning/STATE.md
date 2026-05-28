@@ -1,3 +1,17 @@
+---
+gsd_state_version: 1.0
+milestone: v0.1
+milestone_name: milestone
+status: completed
+last_updated: "2026-05-28T17:22:02.155Z"
+progress:
+  total_phases: 7
+  completed_phases: 1
+  total_plans: 6
+  completed_plans: 5
+  percent: 14
+---
+
 # Project State
 
 **Project:** Atelier Public Benchmarks
@@ -9,12 +23,14 @@
 
 **Next up: Phase 2 — TerminalBench Adapter**
 
+Wave 2 complete: AtelierClaudeAgent + runner CLI + ANSI reporter.
+
 ## Roadmap Progress
 
 | Phase | Status | Goal |
 |-------|--------|------|
 | Phase 1 | ✅ Complete | Bench-mode toggle (MODE-01–08) |
-| Phase 2 | 🔲 Not started | TerminalBench adapter (TB-01–05) |
+| Phase 2 | 🔄 In Progress | TerminalBench adapter (TB-01–05) |
 | Phase 3 | 🔲 Not started | A/B runner (AB-01–06) |
 | Phase 4 | 🔲 Not started | Report generator (RPT-01–06) |
 | Phase 5 | 🔲 Not started | Publication pipeline (PUB-01–05) |
@@ -28,7 +44,8 @@
 | Python version for benchmarks | Isolated 3.12 workspace (`benchmarks/pyproject.toml`) | TerminalBench requires ≥3.12; main project on 3.11 |
 | Token counting | API `usage` field only | tiktoken cl100k_base has 10-30% error on Claude |
 | CI method | Wilson score (inline math) | Normal approx invalid at N=5; scipy not available |
-| Arm interleaving | Rep-by-rep (not batched) | Equalizes prompt cache temperature between arms |
+| parse_stream_jsonl return keys | Mapped names (cost_usd, latency_ms) not raw JSON names | CRITICAL spec in prompt; run_terminalbench_trial uses same names |
+| AtelierClaudeAgent._env | Minimal dict only — NOT full os.environ | T-02-04 threat: prevents host dev contamination (ATELIER_DEV_MODE excluded) |
 | Judge model for PR-replay | Non-Claude (GPT-4o or Gemini) | Avoid self-judging bias |
 | State leakage prevention | Separate `ATELIER_ROOT` per arm | Shared filesystem state contaminates off-arm |
 
