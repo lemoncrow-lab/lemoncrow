@@ -47,6 +47,10 @@ class ContextCompressionCapability:
             task:         Optional task description for task-conditioned scoring.
                           Events whose summaries overlap with task terms score higher.
         """
+        from atelier.bench.mode import is_off as _bench_is_off
+
+        if _bench_is_off():
+            return CompressionResult.passthrough()
         raw_events: list[Any] = []
         with contextlib.suppress(Exception):
             raw_events = list(getattr(ledger, "events", []) or [])
@@ -126,6 +130,10 @@ class ContextCompressionCapability:
 
         The original ``compress_with_provenance`` is unchanged.
         """
+        from atelier.bench.mode import is_off as _bench_is_off
+
+        if _bench_is_off():
+            return CompressionResult.passthrough()
         result = self.compress_with_provenance(ledger, token_budget=token_budget, task=task)
 
         raw_events: list[Any] = []

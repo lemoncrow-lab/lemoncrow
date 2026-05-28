@@ -46,3 +46,15 @@ class CompressionResult:
             "dropped": [d.to_dict() for d in self.dropped],
             "token_savings": self.token_savings,
         }
+
+    @classmethod
+    def passthrough(cls) -> CompressionResult:
+        """Zero-work result for bench-off mode (no events dropped)."""
+        return cls(
+            chars_before=0,
+            chars_after=0,
+            reduction_pct=0.0,
+            preserved_facts=[],
+            dropped=[],
+            token_savings=0,
+        )
