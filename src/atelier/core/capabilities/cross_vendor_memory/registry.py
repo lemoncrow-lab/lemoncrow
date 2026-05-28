@@ -34,6 +34,10 @@ class MemoryRegistry:
         self._cache: list[MemoryFact] | None = None
 
     def _load(self) -> list[MemoryFact]:
+        from atelier.bench.mode import is_off as _bench_is_off
+
+        if _bench_is_off():
+            return []
         if self._cache is None:
             facts: list[MemoryFact] = []
             for adapter in self._adapters:
