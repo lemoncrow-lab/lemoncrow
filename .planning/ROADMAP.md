@@ -351,7 +351,7 @@ Plans:
   4. `code op="search" provenance="commit"` filter returns only commit chunk results (no symbol/file results bleed through)
   5. M1 benchmark passes: ≥7/10 commit history queries answered with a correct citation; `tests/benchmarks/context_quality/` suite exists with README describing the eval protocol
 
-**Plans**: TBD
+**Plans**: 08-01a-PLAN.md, 08-01b-PLAN.md, 08-02-PLAN.md
 
 ---
 

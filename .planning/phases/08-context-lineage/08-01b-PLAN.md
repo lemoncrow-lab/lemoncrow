@@ -5,7 +5,7 @@ title: "Engine Integration — Schema, Bootstrap, Search, Hook, Tests"
 status: pending
 created: 2025-07-15
 requires:
-  - 08-PLAN-01a-infra.md
+  - 08-01a-PLAN.md
 requirements:
   - LINEAGE-01
   - LINEAGE-02
