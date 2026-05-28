@@ -1,0 +1,132 @@
+diff --git a/src/atelier/core/capabilities/context_reuse/capability.py b/src/atelier/core/capabilities/context_reuse/capability.py
+index 14971a7..1d7cb66 100644
+--- a/src/atelier/core/capabilities/context_reuse/capability.py
++++ b/src/atelier/core/capabilities/context_reuse/capability.py
+@@ -81,6 +81,8 @@ _ADAPTIVE_MAX_MULTIPLIER = 1.10
+ _VECTOR_DIM = 128
+ _TRACE_ENV = "ATELIER_RETRIEVAL_TRACE"
+ _BASE_RETRIEVER_MIN_SCORE = 0.0
++_MIN_CONTEXT_MATCH_SCORE = 0.80
++_MAX_CONTEXT_BLOCKS = 2
+ _RETRIEVER_VERSION = 2
+ 
+ 
+@@ -500,10 +502,10 @@ class ContextReuseCapability:
+             token_budget=token_budget,
+         )
+         base_scores: dict[str, float] = {item.block.id: item.score for item in learned}
++        direct_match_scores = {block.id: score_block(block, ctx).score for block in all_blocks}
+         base_ranked = sorted(base_scores.items(), key=lambda x: x[1], reverse=True)
+         base_rank: dict[str, int] = {bid: rank for rank, (bid, _) in enumerate(base_ranked)}
+         base_rank_trace: dict[str, int] = {bid: rank for rank, (bid, _) in enumerate(base_ranked, start=1)}
+-
+         # RRF fusion — merge three rank lists
+         block_map: dict[str, ReasonBlock] = {b.id: b for b in all_blocks}
+         rrf_scores: dict[str, float] = {}
+@@ -545,11 +547,11 @@ class ContextReuseCapability:
+                     recency_score=_recency_score(matched_block),
+                     success_score=_bayesian_success(matched_block),
+                     final_score=final,
++                    match_score=direct_match_scores.get(bid, 0.0),
+                     rescue=is_rescue,
+                     dead_ends=list(matched_block.dead_ends),
+                 )
+             )
+-
+         # Sort by final score before MMR selection
+         results.sort(key=lambda r: r.final_score, reverse=True)
+ 
+@@ -557,6 +559,8 @@ class ContextReuseCapability:
+         self._apply_graph_propagation(results)
+         self._apply_ann_reranking(results, query_vector=query_vector, block_vectors=block_vectors)
+         results.sort(key=lambda r: r.final_score, reverse=True)
++        results = [r for r in results if r.match_score > _MIN_CONTEXT_MATCH_SCORE]
++        effective_limit = min(limit, _MAX_CONTEXT_BLOCKS)
+ 
+         if dedup:
+             results = deduplicate_by_reasonblock(results, lambda item: item.block)
+@@ -564,8 +568,7 @@ class ContextReuseCapability:
+         # MMR diversity selection — covers different procedures after exact near-dup filtering.
+         selected: list[_HybridResult] = []
+         candidates = list(results)
+-        selection_pool_limit = len(results) if token_budget is not None else limit
+-
++        selection_pool_limit = len(results) if token_budget is not None else effective_limit
+         while candidates and len(selected) < selection_pool_limit:
+             if not selected:
+                 best = candidates.pop(0)
+@@ -592,7 +595,7 @@ class ContextReuseCapability:
+         selected = pack_by_reasonblock_token_budget(
+             selected,
+             lambda item: item.block,
+-            limit=limit,
++            limit=effective_limit,
+             token_budget=token_budget,
+         )
+ 
+@@ -601,7 +604,6 @@ class ContextReuseCapability:
+             final_ids = [item.block.id for item in selected]
+             final_rank = {block_id: rank for rank, block_id in enumerate(final_ids, start=1)}
+             result_rank = {item.block.id: rank for rank, item in enumerate(results, start=1)}
+-
+             for item in results:
+                 if item.block.id not in mmr_selected_ids:
+                     trace_reasons.setdefault(item.block.id, set()).add("mmr_suppressed")
+@@ -637,6 +639,7 @@ class ContextReuseCapability:
+                         "base_rank": base_rank_value,
+                         "bm25_score": round(float(bm25_score_lookup.get(block_id, 0.0)), 6),
+                         "base_probe_score": round(float(base_probe_scores.get(block_id, 0.0)), 6),
++                        "match_score": round(float(direct_match_scores.get(block_id, 0.0)), 6),
+                         "rrf": round(float(rrf_scores.get(block_id, 0.0)), 6),
+                         "rrf_contributions": {
+                             "bm25": round(
+@@ -811,7 +814,7 @@ class ContextReuseCapability:
+         return [
+             ScoredBlock(
+                 block=r.block,
+-                score=r.final_score,
++                score=r.match_score,
+                 breakdown={
+                     "fts": r.fts_score,
+                     "bm25": r.bm25_score,
+@@ -820,6 +823,7 @@ class ContextReuseCapability:
+                     "adaptive": r.adaptive_prior,
+                     "graph": r.graph_score,
+                     "ann": r.ann_score,
++                    "rank": r.final_score,
+                 },
+             )
+             for r in ranked
+@@ -859,7 +863,7 @@ class ContextReuseCapability:
+                 "id": r.block.id,
+                 "title": r.block.title,
+                 "domain": r.block.domain,
+-                "score": round(r.final_score, 3),
++                "score": round(r.match_score, 3),
+                 "rescue": r.rescue,
+             }
+             if r.block.procedure:
+@@ -953,6 +957,7 @@ class _HybridResult:
+         "final_score",
+         "fts_score",
+         "graph_score",
++        "match_score",
+         "recency_score",
+         "rescue",
+         "success_score",
+@@ -967,6 +972,7 @@ class _HybridResult:
+         recency_score: float,
+         success_score: float,
+         final_score: float,
++        match_score: float,
+         rescue: bool,
+         dead_ends: list[str],
+     ) -> None:
+@@ -976,6 +982,7 @@ class _HybridResult:
+         self.recency_score = recency_score
+         self.success_score = success_score
+         self.final_score = final_score
++        self.match_score = match_score
+         self.rescue = rescue
+         self.dead_ends = dead_ends
+         self.adaptive_prior = 0.5
