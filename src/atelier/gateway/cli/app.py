@@ -32,6 +32,7 @@ import click
 import yaml
 
 from atelier import __version__ as atelier_version
+from atelier.bench import bootstrap as _bench_bootstrap
 from atelier.core.environment import cli_dev_disabled_message, is_dev_mode
 from atelier.core.foundation.models import (
     ReasonBlock,
@@ -134,6 +135,7 @@ def _telemetry_session(ctx: click.Context) -> str | None:
 
 
 def _begin_cli_telemetry(command_name: str) -> tuple[str, float]:
+    from atelier.bench.mode import mode as _bench_mode
     from atelier.core.foundation.identity import (
         get_anon_id,
         new_session_id,
@@ -152,6 +154,7 @@ def _begin_cli_telemetry(command_name: str) -> tuple[str, float]:
         atelier_version=_atelier_version(),
         anon_id=get_anon_id(),
         session_id=session_id,
+        bench_mode=_bench_mode().value,
         **payload,
     )
     emit_product(
@@ -8371,6 +8374,7 @@ def batch_edit_cmd(
 
 
 def main() -> None:
+    _bench_bootstrap()  # Freeze ATELIER_BENCH_MODE before any lazy init (MODE-05)
     command_name = _cli_command_name(sys.argv[1:])
     session_id, started_at = _begin_cli_telemetry(command_name)
     old_handlers: dict[int, Any] = {}
