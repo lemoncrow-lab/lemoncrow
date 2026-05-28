@@ -472,7 +472,13 @@ Plans:
   4. `auto` chooses linear for context-sharing scenarios and falls back for divergent or oversized contexts.
   5. Linear-vs-per-agent benchmark artifact shows ≥30% lower cost and ≥25% lower wall-time at equal-or-better task success.
 
-**Plans**: docs/plans/phase-linear-cache-reuse/01-PLAN.md
+**Plans:** 4 plans
+- [ ] 13-01-PLAN.md — Phase state-machine models, fixed prompts, PhaseRunner, additive ledger fields (LINEAR-01, LINEAR-02)
+- [ ] 13-02-PLAN.md — minify_source + reader/writer profile dispatch + minify telemetry (LINEAR-03)
+- [ ] 13-03-PLAN.md — Engine run_phased dispatch with auto fallback heuristic (LINEAR-04)
+- [ ] 13-04-PLAN.md — Local linear-vs-per_agent benchmark + threshold-proving artifact (LINEAR-05, TBEVAL-01)
+
+Locked design reference: docs/plans/phase-linear-cache-reuse/01-PLAN.md
 
 ---
 
