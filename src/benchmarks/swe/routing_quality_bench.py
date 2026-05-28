@@ -439,6 +439,8 @@ def _analyze_session(path: Path, router: ModelRouter) -> list[_TurnQuality]:
             prior_errors += 1
 
         # Only analyse downtiered turns
+        if rec is None:
+            continue
         if _TIER_RANK[rec.tier] < _TIER_RANK[actual_tier]:
             label, risk = _classify_risk(tool_name, tool_input, ev.output_tokens, had_model, had_retry)
             results.append(

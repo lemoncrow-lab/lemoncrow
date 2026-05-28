@@ -413,8 +413,8 @@ def _run_session(
         tool_input = dict(tool_uses[0].get("input") or {})
 
         rec = router.score(tool_name, "", {})
-        if _TIER_RANK[rec.tier] >= _TIER_RANK[actual_tier]:
-            continue  # not downtiered
+        if rec is None or _TIER_RANK[rec.tier] >= _TIER_RANK[actual_tier]:
+            continue  # not downtiered (or bench-off)
 
         turns_found += 1
         if max_turns is not None and len(turn_results) >= max_turns:

@@ -333,6 +333,8 @@ def run_routing_bench(
                 },
             )
 
+            if rec is None:
+                continue
             baseline_cost = _turn_cost(inp, out, actual_tier)
             rec_cost = _turn_cost(inp, out, rec.tier)
 

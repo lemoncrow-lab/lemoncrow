@@ -4998,6 +4998,8 @@ def _emit_model_recommendation(tool_name: str, args: dict[str, Any], led: RunLed
         }
     except (RouteConfigError, NoFeasibleRouteError) as exc:
         legacy = ModelRouter().score(tool_name, _task_text_from_args(args), session_state)
+        if legacy is None:
+            raise NoFeasibleRouteError("bench-off") from None
         vs_model = "auto"
         cost_saved_usd = 0.0
         if legacy.model != vs_model:
