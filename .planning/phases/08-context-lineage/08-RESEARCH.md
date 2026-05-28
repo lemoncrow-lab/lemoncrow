@@ -824,27 +824,31 @@ def _search_commit_chunks(
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`_SEARCH_REPO_STRIP_ITEM_KEYS` handling for commit provenance**
    - What we know: `_compact_search_items()` strips `provenance` from repo-scope results because it's always `"local"` — verified in engine.py:5308-5309
    - What's unclear: Best fix — remove `provenance` from the strip set entirely, or conditional skip
    - Recommendation: Remove `"provenance"` from `_SEARCH_REPO_STRIP_ITEM_KEYS` and let `_provenance_breakdown()` handle provenance aggregation. Lower risk than conditional logic.
+   - **RESOLVED:** Task 6 of PLAN-01 removes `"provenance"` from `_SEARCH_REPO_STRIP_ITEM_KEYS` unconditionally.
 
 2. **Background bootstrap threading vs. call-path bootstrap**
    - What we know: autosync uses a daemon thread (`_start_autosync_worker`); graveyard adapter uses call-path lazy init (`_ensure_history_ready`)
    - What's unclear: Bootstrap for 425 commits via Haiku takes ~4-5 minutes; call-path would block first search
    - Recommendation: Use daemon thread pattern (like autosync) with `threading.Event` for stop signal; call-path path only calls `_ensure_lineage_ready()` which either starts the thread or checks completion.
+   - **RESOLVED:** Task 5 of PLAN-01 implements daemon thread pattern with `_start_lineage_worker()`, mirroring `_start_autosync_worker`.
 
 3. **Cache invalidation when commit chunks grow**
    - What we know: `RetrievalCache` is keyed by `index_version` (verified at engine.py:2292)
    - What's unclear: Whether to bump `index_version` on lineage update (affects ALL cache entries) or use a separate `commit_lineage_version` cache key
    - Recommendation: Add `commit_lineage_head` SHA to the `code.search` cache key args dict — precise invalidation without global cache bust.
+   - **RESOLVED:** Task 6 of PLAN-01 adds `commit_lineage_head` to the `code.search` RetrievalCache key args, giving precise invalidation on new commits without global cache bust.
 
 4. **M1 benchmark commit selection**
    - What we know: Repo has 425 commits; benchmark needs 10 bug-fix commits
    - What's unclear: Whether 10 suitable bug-fix commits can be automatically selected via commit message grep ("fix", "bug") or need manual curation
    - Recommendation: Automate selection via `[Ff]ix` in commit message; fallback to most-changed-files commits. Manual override list in `M1_lineage.py`.
+   - **RESOLVED:** PLAN-02 Task 2 uses 10 manually curated commits from the Atelier repo history with fixed expected SHAs and keywords for deterministic grading.
 
 ---
 
