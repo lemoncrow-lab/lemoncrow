@@ -8981,6 +8981,7 @@ def bench_publish_cmd(run_dir: Path, out_dir: Path) -> None:
 @click.option("--yes", "confirmed", is_flag=True, help="Skip cost confirmation (CLI-03).")
 @click.option("--no-cost-cap", is_flag=True, help="Remove $50 hard-stop (CLI-03).")
 @click.option("--out", "out_dir", type=click.Path(path_type=Path), default=None)
+@click.option("--pr", "pr_url", default=None, help="GitHub PR URL for replay benchmarks (PR-01).")
 def bench_run_cmd(
     suite: str,
     quick: bool,
@@ -8993,11 +8994,26 @@ def bench_run_cmd(
     confirmed: bool,
     no_cost_cap: bool,
     out_dir: Path | None,
+    pr_url: str | None,
 ) -> None:
     """Run an A/B benchmark suite comparing Atelier-on vs off (CLI-01 through CLI-06).
 
     Results are stored under ~/.atelier/bench/<run-id>/ by default (CLI-05).
+    Use --pr <github-url> to replay a GitHub PR and score diff quality (PR-01).
     """
+    if pr_url:
+        import datetime
+
+        from benchmarks.ab.bench_run import default_run_dir
+        from benchmarks.ab.pr_replay import run_pr_replay
+
+        run_id = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
+        resolved_out = out_dir if out_dir is not None else default_run_dir(run_id)
+        resolved_out.mkdir(parents=True, exist_ok=True)
+        mode_list = [m.strip() for m in modes.split(",")]
+        run_pr_replay(pr_url, resolved_out, modes=mode_list)
+        return
+
     # Build a Click context and invoke
     import sys
 
