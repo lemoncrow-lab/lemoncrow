@@ -504,6 +504,7 @@ class LedgerEvent(BaseModel):
         "test_result",
         "note",
         "model_recommendation",
+        "route_decision",
         "reasoning",
         "agent_message",
         "checkpoint",

@@ -691,6 +691,29 @@ def test_model_recommendation_emitted_before_tool_dispatch(store_root: Path) -> 
     assert recommendations[-1].payload["cost_saved_usd"] >= 0
 
 
+def test_model_recommendation_fallback_records_route_decision(
+    monkeypatch: pytest.MonkeyPatch, store_root: Path
+) -> None:
+    from atelier.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
+    from atelier.infra.runtime.run_ledger import RunLedger
+
+    def fail_recommend(*_: object, **__: object) -> dict[str, object]:
+        raise RouteConfigError("disabled")
+
+    monkeypatch.setattr(
+        "atelier.core.capabilities.cross_vendor_routing.advisor.CrossVendorRouteAdvisor.recommend",
+        fail_recommend,
+    )
+    ledger = RunLedger(session_id="route-fallback", root=store_root)
+
+    payload = mcp_server._emit_model_recommendation("read", {}, ledger)
+    route_decisions = [event for event in ledger.events if event.kind == "route_decision"]
+
+    assert payload["kind"] == "model_recommendation"
+    assert route_decisions
+    assert route_decisions[-1].payload["kind"] == "route_decision"
+
+
 def test_compact_session_op_emits_session_compaction_savings(monkeypatch: pytest.MonkeyPatch, store_root: Path) -> None:
     _ = store_root
     events: list[dict[str, Any]] = []

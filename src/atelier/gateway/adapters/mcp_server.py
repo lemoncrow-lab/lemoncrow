@@ -5000,7 +5000,20 @@ def _emit_model_recommendation(tool_name: str, args: dict[str, Any], led: RunLed
             **recommendation,
         }
     except (RouteConfigError, NoFeasibleRouteError) as exc:
-        legacy = ModelRouter().score(tool_name, _task_text_from_args(args), session_state)
+
+        def _record_route_decision(route_payload: dict[str, Any]) -> None:
+            led.record(
+                "route_decision",
+                f"{route_payload.get('decision', 'baseline')} route for {tool_name}",
+                route_payload,
+            )
+
+        legacy = ModelRouter().recommend(
+            tool_name,
+            _task_text_from_args(args),
+            session_state,
+            route_decision_sink=_record_route_decision,
+        )
         if legacy is None:
             raise NoFeasibleRouteError("bench-off") from None
         vs_model = "auto"

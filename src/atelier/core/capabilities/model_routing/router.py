@@ -6,9 +6,18 @@ The router is advisory: host CLIs keep ownership of actual model selection.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
+from math import isfinite
 from typing import Any, Literal
+
+from atelier.core.capabilities.model_routing.cache_cost import cache_eviction_cost_usd
+from atelier.core.capabilities.model_routing.stickiness import decrement_stickiness
+from atelier.core.capabilities.model_routing.stickiness import (
+    stickiness_remaining as _stickiness_remaining,
+)
+from atelier.core.capabilities.prefix_cache.planner import PrefixCachePlan
+from atelier.core.capabilities.pricing import ModelPricing
 
 ModelTier = Literal["cheap", "medium", "expensive"]
 
@@ -98,6 +107,11 @@ class ModelRecommendation:
     reasons: list[str] = field(default_factory=list)
     score: int = 0
     cache_affinity_model: str | None = None
+    cache_cost_usd: float = 0.0
+    quality_gain_usd_estimated: float = 0.0
+    decision: str = "baseline"
+    baseline_tier: ModelTier | None = None
+    sticky_until_tool_calls: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,6 +121,11 @@ class ModelRecommendation:
             "reasons": list(self.reasons),
             "score": self.score,
             "cache_affinity_model": self.cache_affinity_model,
+            "cache_cost_usd": self.cache_cost_usd,
+            "quality_gain_usd_estimated": self.quality_gain_usd_estimated,
+            "decision": self.decision,
+            "baseline_tier": self.baseline_tier,
+            "sticky_until_tool_calls": self.sticky_until_tool_calls,
         }
 
 
@@ -204,6 +223,103 @@ class ModelRouter:
             cache_affinity_model=cache_affinity_model,
         )
 
+    def recommend(
+        self,
+        tool_name: str,
+        task_text: str,
+        session_state: Mapping[str, Any] | None = None,
+        *,
+        prior_plan: PrefixCachePlan | None = None,
+        current_plan: PrefixCachePlan | None = None,
+        prior_route: ModelRecommendation | None = None,
+        stickiness_remaining: int = 0,
+        pricing: ModelPricing | None = None,
+        route_decision_sink: Callable[[dict[str, Any]], None] | None = None,
+    ) -> ModelRecommendation | None:
+        """Return a cache-aware recommendation while preserving score() behavior."""
+        baseline = self.score(tool_name, task_text, session_state)
+        if baseline is None:
+            return None
+
+        state = session_state or {}
+        remaining = _stickiness_remaining(stickiness_remaining)
+        cache_cost_usd = 0.0
+        quality_gain_usd_estimated = 0.0
+        chosen = replace(baseline, baseline_tier=baseline.tier)
+
+        if prior_route is not None and remaining > 0:
+            next_remaining = decrement_stickiness(remaining).remaining_tool_calls
+            chosen = replace(
+                prior_route,
+                reasons=[*prior_route.reasons, "stickiness: preserved prior route"],
+                cache_cost_usd=0.0,
+                quality_gain_usd_estimated=0.0,
+                decision="sticky",
+                baseline_tier=baseline.tier,
+                sticky_until_tool_calls=next_remaining,
+            )
+            self._emit_route_decision(route_decision_sink, chosen, baseline)
+            return chosen
+
+        if prior_route is not None and prior_plan is not None and current_plan is not None and pricing is not None:
+            cache_cost_usd = cache_eviction_cost_usd(prior_plan, current_plan, pricing)
+            quality_gain_usd_estimated = _estimated_quality_gain_usd(prior_route, baseline, state)
+            if cache_cost_usd > quality_gain_usd_estimated:
+                chosen = replace(
+                    prior_route,
+                    reasons=[
+                        *prior_route.reasons,
+                        f"cache_preserve: eviction ${cache_cost_usd:.8f} exceeds quality gain "
+                        f"${quality_gain_usd_estimated:.8f}",
+                    ],
+                    cache_cost_usd=cache_cost_usd,
+                    quality_gain_usd_estimated=quality_gain_usd_estimated,
+                    decision="cache_preserve",
+                    baseline_tier=baseline.tier,
+                    sticky_until_tool_calls=0,
+                )
+            elif cache_cost_usd > 0.0 or quality_gain_usd_estimated > 0.0:
+                chosen = replace(
+                    baseline,
+                    reasons=[
+                        *baseline.reasons,
+                        f"quality_gain: estimated ${quality_gain_usd_estimated:.8f} covers cache eviction "
+                        f"${cache_cost_usd:.8f}",
+                    ],
+                    cache_cost_usd=cache_cost_usd,
+                    quality_gain_usd_estimated=quality_gain_usd_estimated,
+                    decision="quality_gain",
+                    baseline_tier=baseline.tier,
+                    sticky_until_tool_calls=0,
+                )
+
+        self._emit_route_decision(route_decision_sink, chosen, baseline)
+        return chosen
+
+    def _emit_route_decision(
+        self,
+        sink: Callable[[dict[str, Any]], None] | None,
+        recommendation: ModelRecommendation,
+        baseline: ModelRecommendation,
+    ) -> None:
+        if sink is None:
+            return
+        payload = {
+            "kind": "route_decision",
+            "decision": recommendation.decision,
+            "chosen_tier": recommendation.tier,
+            "chosen_model": recommendation.model,
+            "baseline_tier": baseline.tier,
+            "baseline_model": baseline.model,
+            "cache_cost_usd": recommendation.cache_cost_usd,
+            "quality_gain_usd_estimated": recommendation.quality_gain_usd_estimated,
+            "sticky_until_tool_calls": recommendation.sticky_until_tool_calls,
+        }
+        try:
+            sink(payload)
+        except Exception:
+            return
+
     def _compute_route_tier(self, tier: ModelTier, score: int, state: Mapping[str, Any]) -> RouteTier:
         """Map scored ModelTier to semantic RouteTier.
 
@@ -289,9 +405,15 @@ class ModelRouter:
 
         # Clearly exploration-dominant → exploration phase
         if explore_ratio >= 0.60 and turn_number <= 15:
-            return 0, f"session_phase: exploration (explore_ratio={explore_ratio:.0%}, turn={turn_number})"
+            return (
+                0,
+                f"session_phase: exploration (explore_ratio={explore_ratio:.0%}, turn={turn_number})",
+            )
 
-        return 1, f"session_phase: transition (turn={turn_number}, exec={exec_ratio:.0%}, explore={explore_ratio:.0%})"
+        return (
+            1,
+            f"session_phase: transition (turn={turn_number}, exec={exec_ratio:.0%}, explore={explore_ratio:.0%})",
+        )
 
     def _score_prior_errors(self, state: Mapping[str, Any]) -> tuple[int, str]:
         errors = _safe_int(state.get("prior_errors"))
@@ -339,3 +461,34 @@ def _clean_string(value: Any) -> str | None:
         return None
     cleaned = value.strip()
     return cleaned or None
+
+
+def _estimated_quality_gain_usd(
+    prior_route: ModelRecommendation,
+    baseline: ModelRecommendation,
+    state: Mapping[str, Any],
+) -> float:
+    explicit = _safe_float(state.get("quality_gain_usd_estimated"))
+    if explicit is not None:
+        return explicit
+
+    tier_rank: dict[ModelTier, int] = {"cheap": 0, "medium": 1, "expensive": 2}
+    rank_delta = max(0, tier_rank[baseline.tier] - tier_rank[prior_route.tier])
+    return round(rank_delta * 0.001, 8)
+
+
+def _safe_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        cleaned = float(value)
+    elif isinstance(value, str):
+        try:
+            cleaned = float(value.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    if cleaned < 0.0 or not isfinite(cleaned):
+        return None
+    return cleaned
