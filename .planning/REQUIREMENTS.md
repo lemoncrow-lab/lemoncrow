@@ -88,11 +88,11 @@
 
 ### Cache-Aware Routing
 
-- [ ] **CACHE-01**: `ModelRouter.recommend()` accepts optional `prior_plan`, `current_plan`, `prior_route`, `stickiness_remaining` arguments; existing callers compile without change
-- [ ] **CACHE-02**: Router stays on prior model when `cache_eviction_cost_usd > estimated_quality_gain_usd`
-- [ ] **CACHE-03**: Routes are sticky for a configurable window (default 3 follow-up tool calls) within a single agent turn; stickiness resets on new user-visible response
-- [ ] **CACHE-04**: Every `recommend()` call emits a `route_decision` event to the run ledger with `cache_cost_usd`, `quality_gain_usd_estimated`, `decision`, and `stickiness_remaining` fields
-- [ ] **CACHE-05**: New `cache_cost.py` pure function `cache_eviction_cost_usd(plan_a, plan_b, pricing)` and `stickiness.py` turn-window state module added
+- [x] **CACHE-01**: `ModelRouter.recommend()` accepts optional `prior_plan`, `current_plan`, `prior_route`, `stickiness_remaining` arguments; existing callers compile without change
+- [x] **CACHE-02**: Router stays on prior model when `cache_eviction_cost_usd > estimated_quality_gain_usd`
+- [x] **CACHE-03**: Routes are sticky for a configurable window (default 3 follow-up tool calls) within a single agent turn; stickiness resets on new user-visible response
+- [x] **CACHE-04**: Every `recommend()` call emits a `route_decision` event to the run ledger with `cache_cost_usd`, `quality_gain_usd_estimated`, `decision`, and `stickiness_remaining` fields
+- [x] **CACHE-05**: New `cache_cost.py` pure function `cache_eviction_cost_usd(plan_a, plan_b, pricing)` and `stickiness.py` turn-window state module added
 
 ### Counterexample Loop
 
@@ -123,7 +123,7 @@
 
 - [x] **CQEVAL-01**: `tests/benchmarks/context_quality/` suite exists with benchmark modules for M1–M4 and a README describing the internal eval protocol
 - [x] **CQEVAL-02**: M1 benchmark (`M1_lineage.py`): ≥7/10 commit history queries answered correctly (baseline ≤2/10 expected)
-- [ ] **CQEVAL-03**: M2 benchmark (`M2_routing.py`): ≥10% cost reduction on 50 replayed session traces with no quality-tier regressions
+- [x] **CQEVAL-03**: M2 benchmark (`M2_routing.py`): ≥10% cost reduction on 50 replayed session traces with no quality-tier regressions
 - [ ] **CQEVAL-04**: M3 benchmark (`M3_verification.py`): ≥60% self-correction rate on 20 seeded type-error edits (baseline ≤15% expected)
 - [ ] **CQEVAL-05**: M4 benchmark (`M4_scoped.py`): precision ≥0.6 and recall ≥0.85 on 20 multi-file edits from this repo's history
 
@@ -193,12 +193,12 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CACHE-01 | Phase 12 | Pending |
-| CACHE-02 | Phase 12 | Pending |
-| CACHE-03 | Phase 12 | Pending |
-| CACHE-04 | Phase 12 | Pending |
-| CACHE-05 | Phase 12 | Pending |
-| CQEVAL-03 | Phase 12 | Pending |
+| CACHE-01 | Phase 12 | Complete |
+| CACHE-02 | Phase 12 | Complete |
+| CACHE-03 | Phase 12 | Complete |
+| CACHE-04 | Phase 12 | Complete |
+| CACHE-05 | Phase 12 | Complete |
+| CQEVAL-03 | Phase 12 | Complete |
 | LINEAR-01 | Phase 13 | Pending |
 | LINEAR-02 | Phase 13 | Pending |
 | LINEAR-03 | Phase 13 | Pending |

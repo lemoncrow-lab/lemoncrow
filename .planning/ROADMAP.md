@@ -326,8 +326,8 @@ Plans:
 **Phases:**
 
 - [x] **Phase 8: Context Lineage** — LLM-summarised commit history embedded alongside code chunks; agent can answer "why was this changed?" without reading raw git log
-- [ ] **Phase 9: Cache-Aware Routing** — Superseded by v0.3 Phase 12
-- [ ] **Phase 10: Counterexample Loop** — Superseded by v0.3 Phase 14
+- [x] **Phase 9: Cache-Aware Routing** — Superseded by v0.3 Phase 12
+- [ ] **Phase 10: Counterexample Loop** — Superseded by v0.3 Phase 14 (completed 2026-05-28)
 - [ ] **Phase 11: Scoped Pull Context** — Superseded by v0.3 Phase 15
 
 ---
@@ -423,7 +423,7 @@ Plans:
 
 **Phases:**
 
-- [ ] **Phase 12: Cache-Aware Routing** — Wire prefix-cache economics into model routing; keep routes sticky across tool-call chains and emit route-decision telemetry
+- [x] **Phase 12: Cache-Aware Routing** — Wire prefix-cache economics into model routing; keep routes sticky across tool-call chains and emit route-decision telemetry
 - [ ] **Phase 13: Phase-Linear Cache-Reuse Agent** — Add a Survey→Plan cache-warm run mode with minified read context, mode selection, and linear-vs-per-agent benchmark proof
 - [ ] **Phase 14: Counterexample Loop** — Add scoped deterministic verification and structured counterexamples that drive bounded self-correction before failures reach the user
 - [ ] **Phase 15: Scoped Pull Context + Proof Gate** — Add `context op="pull"`, scoped-context benchmarks, and TerminalBench-oriented local proof that Atelier-on is cheaper, faster, and targets ≥90% pass rate
@@ -448,7 +448,8 @@ Plans:
   4. Every recommendation emits a `route_decision` ledger event with cache cost, estimated quality gain, decision, and stickiness fields.
   5. M2 benchmark proves ≥10% estimated cost reduction with no quality-tier regressions.
 
-**Plans**: TBD
+**Plans**: `.planning/phases/12-cache-aware-routing/12-01-PLAN.md`
+**Summary**: `.planning/phases/12-cache-aware-routing/12-01-SUMMARY.md`
 
 ---
 
@@ -533,7 +534,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 12. Cache-Aware Routing | 0/? | Not started | - |
+| 12. Cache-Aware Routing | 1/1 | Complete    | 2026-05-28 |
 | 13. Phase-Linear Cache-Reuse Agent | 0/? | Not started | - |
 | 14. Counterexample Loop | 0/? | Not started | - |
 | 15. Scoped Pull Context + Proof Gate | 0/? | Not started | - |
@@ -559,12 +560,12 @@ Plans:
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CACHE-01 | Phase 12 | Pending |
-| CACHE-02 | Phase 12 | Pending |
-| CACHE-03 | Phase 12 | Pending |
-| CACHE-04 | Phase 12 | Pending |
-| CACHE-05 | Phase 12 | Pending |
-| CQEVAL-03 | Phase 12 | Pending |
+| CACHE-01 | Phase 12 | Complete |
+| CACHE-02 | Phase 12 | Complete |
+| CACHE-03 | Phase 12 | Complete |
+| CACHE-04 | Phase 12 | Complete |
+| CACHE-05 | Phase 12 | Complete |
+| CQEVAL-03 | Phase 12 | Complete |
 | LINEAR-01 | Phase 13 | Pending |
 | LINEAR-02 | Phase 13 | Pending |
 | LINEAR-03 | Phase 13 | Pending |
