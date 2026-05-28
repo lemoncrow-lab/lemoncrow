@@ -27,7 +27,7 @@ atelier = { path = "../", editable = true }
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["terminalbench"]
+packages = ["terminalbench", "ab"]
 
 [tool.ruff]
 line-length = 100
