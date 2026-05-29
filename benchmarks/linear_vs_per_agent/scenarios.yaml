@@ -1,0 +1,71 @@
+# Linear-vs-per_agent benchmark scenarios — Phase 13 (LINEAR-05, D-15).
+#
+# Each scenario references a deterministic in-memory fixture so the benchmark
+# runs offline with no external provider. The `expected_mode` field is the
+# mode that AUTO would pick (validated by the reporter); both arms still
+# execute for every scenario so cost/wall-time deltas can be computed.
+#
+# `divergent_subcontexts` is the one scenario whose `expected_mode` is
+# `per_agent` (D-13, validates 13-03-04 in the benchmark). The reporter
+# excludes per_agent-expected scenarios from the headline threshold check
+# so the divergent case does not penalize the result.
+dataset:
+  name: phase-linear-cache-reuse
+  version: "0.1.0"
+
+scenarios:
+  - id: survey_plan_implement_small
+    description: "3-file refactor with high context sharing across phases."
+    expected_mode: linear
+    projected_prefix_tokens: 4000
+    divergence_signal: false
+    base_cost_factor: 1.0
+    expected_success: true
+
+  - id: oss_bug_fix_medium
+    description: "Single-file bug fix in a medium repo; phase contexts overlap."
+    expected_mode: linear
+    projected_prefix_tokens: 8000
+    divergence_signal: false
+    base_cost_factor: 1.1
+    expected_success: true
+
+  - id: feature_in_large_repo
+    description: "Feature spanning 5 files in a large repo."
+    expected_mode: linear
+    projected_prefix_tokens: 22000
+    divergence_signal: false
+    base_cost_factor: 1.4
+    expected_success: true
+
+  - id: coverage_push_80pct
+    description: "Add tests to reach >=80% coverage on a module."
+    expected_mode: linear
+    projected_prefix_tokens: 6000
+    divergence_signal: false
+    base_cost_factor: 0.9
+    expected_success: true
+
+  - id: multi_file_refactor
+    description: "Rename a symbol across 8 files."
+    expected_mode: linear
+    projected_prefix_tokens: 14000
+    divergence_signal: false
+    base_cost_factor: 1.2
+    expected_success: true
+
+  - id: doc_only_task
+    description: "README edit; minimal context shared across phases."
+    expected_mode: linear
+    projected_prefix_tokens: 1500
+    divergence_signal: false
+    base_cost_factor: 0.7
+    expected_success: true
+
+  - id: divergent_subcontexts
+    description: "Two unrelated subtasks with no shared files (AUTO → per_agent)."
+    expected_mode: per_agent
+    projected_prefix_tokens: 3000
+    divergence_signal: true
+    base_cost_factor: 1.0
+    expected_success: true
