@@ -197,10 +197,10 @@
 
 ### Stdout to Logging
 
-- [ ] **QBL-LOG-01**: Fresh enumeration of `print()` in `src/` is bucketed into CLI-allowed vs non-CLI debt
-- [ ] **QBL-LOG-02**: Non-CLI core/infra/server/background prints are converted to module logging or stderr diagnostics
-- [ ] **QBL-LOG-03**: CLI user output uses `click.echo` and remains intentionally ignored by T20
-- [ ] **QBL-LOG-04**: MCP stdio smoke tests confirm no non-protocol stdout leaks
+- [x] **QBL-LOG-01**: Fresh enumeration of `print()` in `src/` is bucketed into CLI-allowed vs non-CLI debt
+- [x] **QBL-LOG-02**: Non-CLI core/infra/server/background prints are converted to module logging or stderr diagnostics
+- [x] **QBL-LOG-03**: CLI user output uses `click.echo` and remains intentionally ignored by T20
+- [x] **QBL-LOG-04**: MCP stdio smoke tests confirm no non-protocol stdout leaks
 
 ### CLI Decomposition
 
@@ -395,8 +395,8 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | QBL-GATE-01–05 | Phase 22 | Complete |
-| QBL-EXC-01–04 | Phase 23 | Pending |
-| QBL-LOG-01–04 | Phase 24 | Pending |
+| QBL-EXC-01–04 | Phase 23 | Complete |
+| QBL-LOG-01–04 | Phase 24 | Complete |
 | QBL-CLI-01–04 | Phase 25 | Pending |
 | QBL-AB-01–04 | Phase 26 | Pending |
 | QBL-RES-01–04 | Phase 27 | Pending |

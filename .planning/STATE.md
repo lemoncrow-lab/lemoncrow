@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: Quality & Benchmark Lift
-status: executing
-last_updated: "2026-05-29T19:04:57Z"
-last_activity: 2026-05-29 -- Plan 24-01 complete (strict MCP stdio framing gate)
+status: active
+last_updated: "2026-05-29T19:52:09.345Z"
+last_activity: 2026-05-29 -- Phase 24 marked complete
 progress:
-  total_phases: 6
-  completed_phases: 2
-  total_plans: 8
-  completed_plans: 4
-  percent: 33
+  total_phases: 27
+  completed_phases: 11
+  total_plans: 38
+  completed_plans: 27
+  percent: 41
 ---
 
 # Project State
@@ -18,13 +18,13 @@ progress:
 **Project:** Atelier Public Benchmarks
 **Milestone:** v0.5 — Quality & Benchmark Lift
 **Updated:** 2026-05-29
-**Status:** Executing Phase 24
+**Status:** Phase 24 complete; Phase 25 ready for planning
 
 ## Current Phase
 
-**Current: Phase 22 — Lint and Coverage Gates**
+**Current: Phase 25 — CLI Decomposition**
 
-Next action: `/gsd-plan-phase 22`
+Next action: `/gsd-plan-phase 25`
 
 Milestone v0.5 is defined from `docs/plans/quality-and-benchmark-lift/`. It focuses on coding-quality gates, silent exception burn-down, stdout/logging hygiene, CLI decomposition, expanded A/B suites, and reproducible public benchmark results.
 
@@ -75,9 +75,9 @@ Milestone v0.5 is defined from `docs/plans/quality-and-benchmark-lift/`. It focu
 
 | Phase | Status | Goal |
 |-------|--------|------|
-| Phase 22 | ⏳ Not started | Lint and Coverage Gates (QBL-GATE-01–05) |
+| Phase 22 | ✅ Complete | Lint and Coverage Gates (QBL-GATE-01–05) |
 | Phase 23 | ✅ Complete | Silent Exception Audit (QBL-EXC-01–04) |
-| Phase 24 | ⏳ Not started | Stdout to Logging (QBL-LOG-01–04) |
+| Phase 24 | ✅ Complete | Stdout to Logging (QBL-LOG-01–04) |
 | Phase 25 | ⏳ Not started | CLI Decomposition (QBL-CLI-01–04) |
 | Phase 26 | ⏳ Not started | A/B Suite Expansion (QBL-AB-01–04) |
 | Phase 27 | ⏳ Not started | Public Benchmark Results (QBL-RES-01–04) |
@@ -151,9 +151,9 @@ Milestone v0.5 is defined from `docs/plans/quality-and-benchmark-lift/`. It focu
 
 ## Current Position
 
-Phase: 24 (stdout-to-logging) — EXECUTING
-Plan: 2 of 4
+Phase: 24 — COMPLETE
+Plan: 4 of 4
 Previous milestone: v0.4 (Dedicated Language Support) — COMPLETE
-Plans: 23-01, 23-02, 23-03 all complete; 24-01 complete
-Status: Executing Phase 24
-Last activity: 2026-05-29 -- Plan 24-01 complete (strict MCP stdio framing gate, QBL-LOG-04)
+Plans: 23-01, 23-02, 23-03 all complete; 24-01, 24-02, 24-03 complete
+Status: Phase 24 complete
+Last activity: 2026-05-29 -- Phase 24 marked complete

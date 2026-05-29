@@ -17,7 +17,7 @@ key-files:
   modified:
     - tests/gateway/test_mcp_stdio_smoke.py
 decisions:
-  - "Replaced lenient try/except:pass stdout parse with strict json.loads + isinstance(dict) assertion"
+  - "Replaced lenient try/except:pass stdout parse with strict json.loads + isinstance(dict) assertion; review follow-up now raises AssertionError with the raw offending line on JSONDecodeError"
 metrics:
   duration: "~6 min"
   completed: "2026-05-29"
@@ -34,8 +34,9 @@ byte now fails the smoke test — establishing the QBL-LOG-04 framing gate befor
 ## What Was Built
 
 - Hardened the stdout parse loop in `tests/gateway/test_mcp_stdio_smoke.py` (formerly
-  L78-83). Every non-empty stdout line is now parsed with a bare `json.loads(line)`
-  (no surrounding try/except) and asserted to be a JSON object via
+  L78-83). Every non-empty stdout line is now parsed with `json.loads(line)`;
+  `JSONDecodeError` raises `AssertionError` with the raw offending line, and parsed
+  values are asserted to be JSON objects via
   `assert isinstance(msg, dict), f"non-protocol stdout line: {line!r}"`. Only then is
   `msg["id"]` indexed into the responses map.
 - Subprocess launch, request batch, and existing response assertions are unchanged —
@@ -54,7 +55,7 @@ byte now fails the smoke test — establishing the QBL-LOG-04 framing gate befor
 |---------|--------|
 | `uv run pytest tests/gateway/test_mcp_stdio_smoke.py -m "" -q` | ✅ 1 passed in 3.02s |
 | `uv run pytest tests/gateway/test_mcp_jsonrpc_e2e.py -q` | ⚠️ 8 passed, 1 failed (pre-existing baseline blocker, unrelated — see below), 1 deselected |
-| Source assertion: `json.loads(line)` present, no try/except | ✅ L80, no `except Exception` |
+| Source assertion: `json.loads(line)` present, no silent swallow | ✅ L80, no `except Exception`; malformed JSON raises `AssertionError` |
 | Source assertion: `isinstance(msg, dict)` present | ✅ L81 |
 | Source assertion: `@pytest.mark.slow` preserved | ✅ L8 |
 

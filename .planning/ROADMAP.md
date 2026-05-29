@@ -922,7 +922,7 @@ Plans:
 
 - [x] **Phase 22: Lint and Coverage Gates** — Enable BLE001/T20 with scoped ignores and add nightly full-suite coverage gating (completed 2026-05-29)
 - [x] **Phase 23: Silent Exception Audit** — Remove or justify every `except Exception: pass` site and shrink BLE001 ignores (completed 2026-05-29)
-- [ ] **Phase 24: Stdout to Logging** — Replace non-CLI `print()` calls with logging/stderr and preserve CLI output via Click
+- [x] **Phase 24: Stdout to Logging** — Replace non-CLI `print()` calls with logging/stderr and preserve CLI output via Click (completed 2026-05-29)
 - [ ] **Phase 25: CLI Decomposition** — Split `gateway/cli/app.py` into command modules and extract business logic
 - [ ] **Phase 26: A/B Suite Expansion** — Map every savings mechanism to a runnable suite/grader with smoke coverage
 - [ ] **Phase 27: Public Benchmark Results** — Publish reproducible results and add benchmark regression CI
@@ -1000,16 +1000,16 @@ Plans:
 **Plans**: 4 plans
 **Wave 1**
 
-- [ ] 24-01-PLAN.md — Harden MCP stdio smoke test to strictly reject non-protocol stdout (QBL-LOG-04)
+- [x] 24-01-PLAN.md — Harden MCP stdio smoke test to strictly reject non-protocol stdout (QBL-LOG-04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 24-02-PLAN.md — Convert 9 session-parser modules to loggers + CLI stderr progress handler/test (QBL-LOG-02, QBL-LOG-03)
-- [ ] 24-03-PLAN.md — Convert registry/publisher prints + T201-clean atelier-mcp --version (QBL-LOG-02)
+- [x] 24-02-PLAN.md — Convert 9 session-parser modules to loggers + CLI stderr progress handler/test (QBL-LOG-02, QBL-LOG-03)
+- [x] 24-03-PLAN.md — Convert registry/publisher prints + T201-clean atelier-mcp --version (QBL-LOG-02)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 24-04-PLAN.md — Shrink T201 per-file-ignores to benchmark boundary + record final inventory (QBL-LOG-01, QBL-LOG-03)
+- [x] 24-04-PLAN.md — Shrink T201 per-file-ignores to benchmark boundary + record final inventory (QBL-LOG-01, QBL-LOG-03)
 
 ---
 
@@ -1095,7 +1095,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 22. Lint and Coverage Gates | 1/1 | Complete    | 2026-05-29 |
 | 23. Silent Exception Audit | 3/3 | Complete    | 2026-05-29 |
-| 24. Stdout to Logging | 0/? | Not started | - |
+| 24. Stdout to Logging | 4/4 | Complete    | 2026-05-29 |
 | 25. CLI Decomposition | 0/? | Not started | - |
 | 26. A/B Suite Expansion | 0/? | Not started | - |
 | 27. Public Benchmark Results | 0/? | Not started | - |
@@ -1106,19 +1106,19 @@ Plans:
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| QBL-GATE-01 | Phase 22 | Pending |
-| QBL-GATE-02 | Phase 22 | Pending |
-| QBL-GATE-03 | Phase 22 | Pending |
-| QBL-GATE-04 | Phase 22 | Pending |
-| QBL-GATE-05 | Phase 22 | Pending |
-| QBL-EXC-01 | Phase 23 | Pending |
-| QBL-EXC-02 | Phase 23 | Pending |
-| QBL-EXC-03 | Phase 23 | Pending |
-| QBL-EXC-04 | Phase 23 | Pending |
-| QBL-LOG-01 | Phase 24 | Pending |
-| QBL-LOG-02 | Phase 24 | Pending |
-| QBL-LOG-03 | Phase 24 | Pending |
-| QBL-LOG-04 | Phase 24 | Pending |
+| QBL-GATE-01 | Phase 22 | Complete |
+| QBL-GATE-02 | Phase 22 | Complete |
+| QBL-GATE-03 | Phase 22 | Complete |
+| QBL-GATE-04 | Phase 22 | Complete |
+| QBL-GATE-05 | Phase 22 | Complete |
+| QBL-EXC-01 | Phase 23 | Complete |
+| QBL-EXC-02 | Phase 23 | Complete |
+| QBL-EXC-03 | Phase 23 | Complete |
+| QBL-EXC-04 | Phase 23 | Complete |
+| QBL-LOG-01 | Phase 24 | Complete |
+| QBL-LOG-02 | Phase 24 | Complete |
+| QBL-LOG-03 | Phase 24 | Complete |
+| QBL-LOG-04 | Phase 24 | Complete |
 | QBL-CLI-01 | Phase 25 | Pending |
 | QBL-CLI-02 | Phase 25 | Pending |
 | QBL-CLI-03 | Phase 25 | Pending |
