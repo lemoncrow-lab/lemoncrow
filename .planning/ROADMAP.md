@@ -785,7 +785,10 @@ Plans:
   4. Cached SCIP outputs can be read back into symbols by the existing reader path.
   5. Java and C/C++ skip cleanly when required build context is unavailable.
 
-**Plans**: TBD
+**Plans**:
+
+- [ ] 19-01-PLAN.md — Expanded SCIP registry discovery
+- [ ] 19-02-PLAN.md — Lazy SCIP artifact indexing
 
 ---
 
@@ -845,7 +848,7 @@ Plans:
 | 16. Canonical Language Registry | 2/2 | Complete | 2026-05-29 |
 | 17. Tree-sitter Outline Coverage | 2/2 | Complete | 2026-05-29 |
 | 18. Tree-sitter Repo-map Tags | 2/2 | Complete | 2026-05-29 |
-| 19. Expanded SCIP Registry and Lazy Indexing | 0/? | Not started | - |
+| 19. Expanded SCIP Registry and Lazy Indexing | 0/2 | Planned | - |
 | 20. Runtime SCIP Indexer Provisioning | 0/? | Not started | - |
 | 21. Validation, Benchmarks, and Docs | 0/? | Not started | - |
 
