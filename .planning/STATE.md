@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v0.4
 milestone_name: Dedicated Language Support
 status: executing
-last_updated: "2026-05-29T15:05:00.000Z"
-last_activity: 2026-05-29 -- Phase 19 verified complete; Phase 20 planning next
+last_updated: "2026-05-29T15:25:00.000Z"
+last_activity: 2026-05-29 -- Phase 20 planned; execution next
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 8
+  total_plans: 10
   completed_plans: 8
   percent: 67
 ---
@@ -18,15 +18,15 @@ progress:
 **Project:** Atelier Public Benchmarks
 **Milestone:** v0.4 — Dedicated Language Support
 **Updated:** 2026-05-29
-**Status:** Planning Phase 20
+**Status:** Executing Phase 20
 
 ## Current Phase
 
 **Current: Phase 20 — Runtime SCIP Indexer Provisioning**
 
-Next action: `/gsd-plan-phase 20`
+Next action: `/gsd-execute-phase 20`
 
-Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 19 completed expanded SCIP registry discovery and opt-in lazy artifact indexing. Phase 20 now needs planning for runtime SCIP indexer provisioning.
+Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 20 planning is complete with two execution plans for managed Tier-1 SCIP install/discovery and bootstrap availability status.
 
 ## Roadmap Progress
 
@@ -68,7 +68,7 @@ Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 1
 | Phase 17 | ✅ Complete | Tree-sitter Outline Coverage (DLS-OUTLINE-01–05) |
 | Phase 18 | ✅ Complete | Tree-sitter Repo-map Tags (DLS-TAGS-01–04) |
 | Phase 19 | ✅ Complete | Expanded SCIP Registry and Lazy Indexing (DLS-SCIP-01–04) |
-| Phase 20 | ⏳ Not started | Runtime SCIP Indexer Provisioning (DLS-PROV-01–05) |
+| Phase 20 | 🔄 Planned | Runtime SCIP Indexer Provisioning (DLS-PROV-01–05) |
 | Phase 21 | ⏳ Not started | Validation, Benchmarks, and Docs (DLS-VAL-01–04) |
 
 ## Key Decisions Log

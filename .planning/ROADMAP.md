@@ -816,7 +816,10 @@ Plans:
   4. Offline or failed lazy bootstrap degrades safely without crashes or partial unusable binaries.
   5. Runtime status output shows which SCIP languages are ready, missing, or require user-provided toolchains.
 
-**Plans**: TBD
+**Plans**:
+
+- [ ] 20-01-PLAN.md — Managed Tier-1 install and discovery
+- [ ] 20-02-PLAN.md — Bootstrap and availability status
 
 ---
 
@@ -852,7 +855,7 @@ Plans:
 | 17. Tree-sitter Outline Coverage | 2/2 | Complete | 2026-05-29 |
 | 18. Tree-sitter Repo-map Tags | 2/2 | Complete | 2026-05-29 |
 | 19. Expanded SCIP Registry and Lazy Indexing | 2/2 | Complete | 2026-05-29 |
-| 20. Runtime SCIP Indexer Provisioning | 0/? | Not started | - |
+| 20. Runtime SCIP Indexer Provisioning | 0/2 | Planned | - |
 | 21. Validation, Benchmarks, and Docs | 0/? | Not started | - |
 
 ---
