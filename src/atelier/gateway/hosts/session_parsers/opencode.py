@@ -10,7 +10,6 @@ import hashlib
 import json
 import logging
 import sqlite3
-import traceback as _traceback
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -64,7 +63,7 @@ def find_opencode_sessions(db_path: Path | None = None) -> list[dict[str, Any]]:
         finally:
             conn.close()
     except sqlite3.Error:
-        _traceback.print_exc()
+        logger.exception("[atelier] opencode: failed to read sessions from %s", db_path)
         return []
 
 
@@ -350,5 +349,5 @@ class OpenCodeImporter:
 
             conn.close()
         except Exception:
-            _traceback.print_exc()
+            logger.exception("[atelier] opencode: failed to read messages from %s", db_path)
         return "\n".join(lines)

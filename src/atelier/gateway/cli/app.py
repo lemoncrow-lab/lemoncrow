@@ -95,6 +95,7 @@ def _ensure_import_progress_logging() -> None:
     handler.setFormatter(logging.Formatter("%(message)s"))
     setattr(handler, _IMPORT_PROGRESS_HANDLER_FLAG, True)
     progress_logger.addHandler(handler)
+    progress_logger.propagate = False
     if progress_logger.level == logging.NOTSET or progress_logger.level > logging.INFO:
         progress_logger.setLevel(logging.INFO)
 
