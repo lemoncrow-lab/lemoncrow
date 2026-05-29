@@ -132,6 +132,52 @@
 - [x] **TBEVAL-01**: Local linear-vs-per-agent benchmark artifact records cost, latency, cache-hit ratio, minification delta, and task success for at least 7 representative scenarios
 - [ ] **TBEVAL-02**: TerminalBench-oriented local proof run shows Atelier-on target ≥90% pass rate while cheaper and faster than the off/per-agent baseline, or records concrete implementation gaps and loops back before finalizing
 
+## v0.4 Requirements — Dedicated Language Support
+
+### Language Registry
+
+- [ ] **DLS-LANG-01**: A canonical language registry exists as the single source of truth for recognized language identity, extensions, parser names, and SCIP indexer metadata
+- [ ] **DLS-LANG-02**: Extension-based language detection delegates to the registry while preserving the `"text"` fallback for unknown files
+- [ ] **DLS-LANG-03**: Shell extensions (`.sh`, `.bash`, `.zsh`) resolve to the canonical tree-sitter-compatible bash language key
+- [ ] **DLS-LANG-04**: Tree-sitter config keys, repo-map tag language detection, and SCIP binary registry keys all use canonical language names
+
+### Tree-sitter Outline Coverage
+
+- [ ] **DLS-OUTLINE-01**: Shell/bash files produce dedicated tree-sitter outlines with meaningful function and assignment structure
+- [ ] **DLS-OUTLINE-02**: SQL files produce dedicated tree-sitter outlines for schema-level constructs such as tables, views, functions, and indexes
+- [ ] **DLS-OUTLINE-03**: YAML files produce dedicated tree-sitter outlines for top-level document structure
+- [ ] **DLS-OUTLINE-04**: TOML files produce dedicated tree-sitter outlines for table headers and top-level key/value structure
+- [ ] **DLS-OUTLINE-05**: JSON files produce dedicated tree-sitter outlines for top-level object structure when parser availability and the 25% savings threshold justify it
+
+### Tree-sitter Repo-map Tags
+
+- [ ] **DLS-TAGS-01**: Repo-map tag extraction uses tree-sitter-derived tags for all tree-sitter-supported languages
+- [ ] **DLS-TAGS-02**: Python keeps its existing AST-based tag extraction path
+- [ ] **DLS-TAGS-03**: Unknown or unsupported languages keep regex tag extraction as a fallback instead of failing
+- [ ] **DLS-TAGS-04**: Repo-map/PageRank can consume tags from languages that previously produced no useful symbols
+
+### SCIP Registry and Lazy Indexing
+
+- [ ] **DLS-SCIP-01**: SCIP language registry coverage expands to Go, Rust, Java, Ruby, C, and C++ in addition to Python, TypeScript, and JavaScript
+- [ ] **DLS-SCIP-02**: SCIP registry entries support per-language env overrides, fallback commands, and argv templates including subcommand-style invocations
+- [ ] **DLS-SCIP-03**: Lazy or opt-in SCIP indexer execution writes `.scip` artifacts into the repo-local cache
+- [ ] **DLS-SCIP-04**: Java and C/C++ indexers skip cleanly when required build context is unavailable
+
+### SCIP Runtime Provisioning
+
+- [ ] **DLS-PROV-01**: `scip-python` and `scip-typescript` install into Atelier-managed runtime directories at install time
+- [ ] **DLS-PROV-02**: SCIP binary discovery searches Atelier-managed binary directories before system PATH
+- [ ] **DLS-PROV-03**: Tier-2 SCIP indexers can be lazily fetched with checksum verification and safe offline failure
+- [ ] **DLS-PROV-04**: Tier-3 toolchain-backed indexers such as Rust and Java are detected and documented without auto-installing heavy toolchains
+- [ ] **DLS-PROV-05**: Runtime status or availability output shows which SCIP languages are ready, missing, or require user-provided toolchains
+
+### Validation, Benchmarks, and Docs
+
+- [ ] **DLS-VAL-01**: A per-language fixture matrix validates detection, expected outline kind, and tag behavior
+- [ ] **DLS-VAL-02**: Honest savings benchmarks compare newly dedicated outline languages against generic and full-file paths
+- [ ] **DLS-VAL-03**: A SCIP availability report matches the expanded registry and provisioning matrix
+- [ ] **DLS-VAL-04**: Language-support, architecture, installation, quick-reference, and SCIP provisioning docs reflect actual shipped behavior
+
 ## v2 Requirements
 
 ### Enhanced PR-Replay
@@ -220,11 +266,43 @@
 | CQEVAL-05 | Phase 15 | Pending |
 | TBEVAL-02 | Phase 15 | Pending |
 
+### v0.4 (Dedicated Language Support)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DLS-LANG-01 | Phase 16 | Pending |
+| DLS-LANG-02 | Phase 16 | Pending |
+| DLS-LANG-03 | Phase 16 | Pending |
+| DLS-LANG-04 | Phase 16 | Pending |
+| DLS-OUTLINE-01 | Phase 17 | Pending |
+| DLS-OUTLINE-02 | Phase 17 | Pending |
+| DLS-OUTLINE-03 | Phase 17 | Pending |
+| DLS-OUTLINE-04 | Phase 17 | Pending |
+| DLS-OUTLINE-05 | Phase 17 | Pending |
+| DLS-TAGS-01 | Phase 18 | Pending |
+| DLS-TAGS-02 | Phase 18 | Pending |
+| DLS-TAGS-03 | Phase 18 | Pending |
+| DLS-TAGS-04 | Phase 18 | Pending |
+| DLS-SCIP-01 | Phase 19 | Pending |
+| DLS-SCIP-02 | Phase 19 | Pending |
+| DLS-SCIP-03 | Phase 19 | Pending |
+| DLS-SCIP-04 | Phase 19 | Pending |
+| DLS-PROV-01 | Phase 20 | Pending |
+| DLS-PROV-02 | Phase 20 | Pending |
+| DLS-PROV-03 | Phase 20 | Pending |
+| DLS-PROV-04 | Phase 20 | Pending |
+| DLS-PROV-05 | Phase 20 | Pending |
+| DLS-VAL-01 | Phase 21 | Pending |
+| DLS-VAL-02 | Phase 21 | Pending |
+| DLS-VAL-03 | Phase 21 | Pending |
+| DLS-VAL-04 | Phase 21 | Pending |
+
 **Coverage:**
 - v0.1 requirements: 47 total | Mapped: 47 | Unmapped: 0 ✓
 - v0.2 requirements: 8 total | Mapped: 8 | Unmapped: 0 ✓
 - v0.3 requirements: 26 total | Mapped: 26 | Unmapped: 0 ✓
+- v0.4 requirements: 26 total | Mapped: 26 | Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-28*
-*Last updated: 2026-05-29 — Phase 13 requirements completed*
+*Last updated: 2026-05-29 — Milestone v0.4 requirements defined*

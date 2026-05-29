@@ -1,15 +1,16 @@
 # Atelier Public Benchmarks
 
-## Current Milestone: v0.3 Context Quality Execution
+## Current Milestone: v0.4 Dedicated Language Support
 
-**Goal:** Finish the context-quality execution stack so local benchmarks prove the agent is cheaper, faster, and materially better at coding tasks without changing the underlying model.
+**Goal:** Give every recognized language first-class code intelligence through canonical language identity, dedicated tree-sitter structure, expanded repo-map tags, and runtime-provisioned SCIP indexing.
 
 **Target features:**
-- Cache-Aware Routing: router stays on current model when KV-cache eviction cost > quality gain
-- Phase-Linear Cache-Reuse: Survey and Plan run as one cache-warm conversation with minified read context
-- Counterexample Loop: per-step layered verification feeding structured counterexamples back into the agent loop
-- Scoped Pull Context: explicit `context op="pull"` API for subtask-scoped minimal context retrieval
-- Local Benchmark Proof: context-quality benchmarks plus a TerminalBench-oriented proof run target ≥90% pass rate with lower cost and latency
+- Canonical Language Registry: one source of truth for extensions, parser names, tags, and SCIP metadata
+- Dedicated Tree-sitter Outlines: shell, YAML, TOML, JSON, and SQL leave the generic regex path where grammar and savings justify it
+- Tree-sitter Repo-map Tags: all tree-sitter languages can contribute definition tags to PageRank repo maps
+- Expanded SCIP Registry: Go, Rust, Java, Ruby, C, and C++ join Python/TypeScript/JavaScript semantic indexing
+- Runtime SCIP Provisioning: Atelier-managed install and lazy bootstrap paths make indexers discoverable without manual PATH setup
+- Validation and Docs: fixture matrix, honest savings benchmark, SCIP availability report, and docs reflect shipped behavior
 
 ## What This Is
 
@@ -27,14 +28,12 @@ A stranger can clone the repo, run one command, and reproduce the exact benchmar
 
 ### Active
 
-- [ ] **BENCH-01**: `ATELIER_BENCH_MODE` env var cleanly toggles Atelier-on vs Atelier-off (no routing, compaction, memory, or tool substitution in off mode)
-- [ ] **BENCH-02**: TerminalBench adapter runs pinned 10-task subset and captures transcript, tokens, latency, cost, and grader verdict per run
-- [ ] **BENCH-03**: A/B runner executes N≥5 replications per cell with seeded determinism and produces `summary.json` with mean + 95% CI
-- [ ] **BENCH-04**: Report generator produces 3 delta plots (cost, latency, quality) and a `report.md` with methodology, headline table, per-task transcript links, and an explicit losses section
-- [ ] **BENCH-05**: External publication pipeline assembles a self-contained blog post directory (index.md, transcripts/, plots/, reproduce.sh) consumable by the existing docusaurus site
-- [ ] **BENCH-06**: Long-session quality-degradation suite (50/100/200 turns) with recall-rubric grader, answering the "does Atelier lose context?" objection
-- [ ] **BENCH-07**: `atelier bench run` CLI with `--quick` (1 task, N=2, <5 min) and `--full` (10 tasks, N=5) modes, printing a terminal comparison table
-- [ ] **BENCH-08**: `atelier bench run --pr <url>` replays any GitHub PR twice (Atelier-on and Atelier-off), scores diff quality against the real merge, reports cost + latency + quality delta
+- [ ] **DLS-LANG**: Code-intel language identity is centralized in a canonical registry used by extension detection, tree-sitter outlines, repo-map tags, and SCIP binaries
+- [ ] **DLS-OUTLINE**: Shell, YAML, TOML, JSON, and SQL use dedicated tree-sitter outlines when parser support and the existing savings guard make them better than generic
+- [ ] **DLS-TAGS**: Repo-map symbol tags are tree-sitter-derived for every tree-sitter language, while Python AST tags and regex fallback remain intact
+- [ ] **DLS-SCIP**: SCIP semantic indexing covers Go, Rust, Java, Ruby, C, and C++ with env overrides, argv templates, lazy execution, and cache outputs
+- [ ] **DLS-PROV**: SCIP indexers are installed or bootstrapped from Atelier-managed runtime locations instead of relying only on system PATH
+- [ ] **DLS-VAL**: Per-language fixtures, honest savings benchmarks, availability reporting, and docs prove and explain the expanded language support
 
 ### Out of Scope
 
@@ -53,6 +52,7 @@ A stranger can clone the repo, run one command, and reproduce the exact benchmar
 - PR-replay benchmarks (`--pr <url>`) let any developer run a personal A/B on their own real work.
 - v0.2 Phase 8 shipped Context Lineage: commit summaries are searchable alongside code chunks and M1 benchmark scaffolding exists.
 - v0.3 is driven by the design docs in `docs/plans/context-quality-lift/` and `docs/plans/phase-linear-cache-reuse/`; do not re-decide those architecture choices during planning.
+- v0.4 is driven by the design docs in `docs/plans/dedicated-language-support/`; use those milestone files as the source of truth.
 
 ## Constraints
 
@@ -62,6 +62,8 @@ A stranger can clone the repo, run one command, and reproduce the exact benchmar
 - **Timeline**: First published report by 2026-06-04 (D1–D5 are the critical path)
 - **Tech stack**: Python, existing `benchmarks/mcp_tools/` harness patterns, tiktoken, matplotlib; TerminalBench as submodule or PyPI dep
 - **v0.3 proof target**: local benchmark evidence must show lower cost and lower latency with equal-or-better task success; TerminalBench-oriented target is ≥90% pass rate
+- **Language support source of truth**: canonical language names must be shared across extension detection, tree-sitter outlines, repo-map tags, and SCIP registry
+- **Runtime provisioning**: cheap SCIP indexers can be installed by Atelier; heavy toolchain-backed indexers should be detected and documented rather than force-installed
 
 ## Key Decisions
 
@@ -75,6 +77,8 @@ A stranger can clone the repo, run one command, and reproduce the exact benchmar
 | Phase-linear cache reuse before broader agent execution | Survey→Plan cache warmth and minified reads are the highest-leverage cost/latency lever before final proof benchmarks | — v0.3 active |
 | Counterexamples in tool-result channel only | Preserves static/system prompt cache stability and makes failures actionable without cache-busting prompt mutation | — v0.3 active |
 | Scoped pull as the default context gradient | Subtask-scoped context is required to reduce over-fetch while preserving recall for implementation agents | — v0.3 active |
+| Canonical language names follow tree-sitter parser names | Parser loading is the hard constraint and fixes shell/bash drift at the source | — v0.4 active |
+| SCIP provisioning is tiered | Python/TypeScript are cheap install-time wins; Go/Ruby/Clang can lazy-fetch; Rust/Java depend on heavier user toolchains | — v0.4 active |
 
 ## Evolution
 
@@ -94,4 +98,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-28 — Milestone v0.3 started*
+*Last updated: 2026-05-29 — Milestone v0.4 started*

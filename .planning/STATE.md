@@ -1,32 +1,32 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.3
-milestone_name: Context Quality Execution
-status: executing
-last_updated: "2026-05-29T12:00:00.000Z"
-last_activity: 2026-05-29 -- Phase 13 complete; Phase 14 ready
+milestone: v0.4
+milestone_name: Dedicated Language Support
+status: planning
+last_updated: "2026-05-29T09:21:49.708Z"
+last_activity: 2026-05-29 -- Milestone v0.4 roadmap ready; Phase 16 ready
 progress:
-  total_phases: 4
-  completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
-  percent: 50
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 **Project:** Atelier Public Benchmarks
-**Milestone:** v0.3 — Context Quality Execution
+**Milestone:** v0.4 — Dedicated Language Support
 **Updated:** 2026-05-29
-**Status:** Ready to discuss Phase 14
+**Status:** Ready to plan Phase 16
 
 ## Current Phase
 
-**Upcoming: Phase 14 — Counterexample Loop**
+**Upcoming: Phase 16 — Canonical Language Registry**
 
-Next action: `/gsd-discuss-phase 14`
+Next action: `/gsd-plan-phase 16`
 
-Phase 13 is complete. Phase 14 should add scoped deterministic verification and structured counterexamples that drive bounded self-correction before failures reach the user.
+Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 16 should add the canonical language registry that unifies extension detection, tree-sitter outline keys, repo-map tag detection, and SCIP binary lookup.
 
 ## Roadmap Progress
 
@@ -51,7 +51,7 @@ Phase 13 is complete. Phase 14 should add scoped deterministic verification and 
 | Phase 10 | ↪ Superseded | Counterexample Loop moved to Phase 14 |
 | Phase 11 | ↪ Superseded | Scoped Pull Context moved to Phase 15 |
 
-### v0.3 (Ready)
+### v0.3 (Context Quality Execution)
 
 | Phase | Status | Goal |
 |-------|--------|------|
@@ -59,6 +59,17 @@ Phase 13 is complete. Phase 14 should add scoped deterministic verification and 
 | Phase 13 | ✅ Complete | Phase-Linear Cache-Reuse Agent (LINEAR-01–05, TBEVAL-01) |
 | Phase 14 | ⏳ Not started | Counterexample Loop (COUNTER-01–05, CQEVAL-04) |
 | Phase 15 | ⏳ Not started | Scoped Pull Context + Proof Gate (SCOPED-01–06, CQEVAL-05, TBEVAL-02) |
+
+### v0.4 (Ready)
+
+| Phase | Status | Goal |
+|-------|--------|------|
+| Phase 16 | ⏳ Not started | Canonical Language Registry (DLS-LANG-01–04) |
+| Phase 17 | ⏳ Not started | Tree-sitter Outline Coverage (DLS-OUTLINE-01–05) |
+| Phase 18 | ⏳ Not started | Tree-sitter Repo-map Tags (DLS-TAGS-01–04) |
+| Phase 19 | ⏳ Not started | Expanded SCIP Registry and Lazy Indexing (DLS-SCIP-01–04) |
+| Phase 20 | ⏳ Not started | Runtime SCIP Indexer Provisioning (DLS-PROV-01–05) |
+| Phase 21 | ⏳ Not started | Validation, Benchmarks, and Docs (DLS-VAL-01–04) |
 
 ## Key Decisions Log
 
@@ -73,6 +84,8 @@ Phase 13 is complete. Phase 14 should add scoped deterministic verification and 
 | State leakage prevention | Separate `ATELIER_ROOT` per arm | Shared filesystem state contaminates off-arm |
 | Phase-linear cache reuse | Survey→Plan continuity + minified reads | Reduce cost/latency without model downgrade |
 | v0.3 autonomy | Execute end-to-end without approval gates unless blocked by conflicting user changes | User requested autonomous execution and local proof benchmarks |
+| Canonical language names | Use tree-sitter parser names as the shared key set across code-intel surfaces | Fixes shell/bash drift and prevents future spelling mismatches |
+| SCIP provisioning tiers | Install cheap Python/TypeScript indexers, lazy-fetch medium indexers, detect/document heavy toolchain indexers | Semantic intel should work out of the box where practical without forcing large toolchains |
 
 ## Watch Points
 
@@ -82,20 +95,25 @@ Phase 13 is complete. Phase 14 should add scoped deterministic verification and 
 - **Module-level singletons** in `mcp_server.py` (`_current_ledger`, `_realtime_ctx`) — subprocess isolation required
 - **Uncommitted implementation changes** — source files already have modifications; inspect before editing and avoid overwriting user work
 - **TerminalBench target** — v0.3 final proof should target ≥90% pass rate while cheaper and faster; if local proof fails, loop back into implementation
+- **Language registry drift** — do not add new extension maps, parser-key maps, or SCIP language maps outside the canonical registry
+- **SCIP binary installation size** — keep heavy toolchains opt-in/detected; avoid silently installing Rust/Java/C++ ecosystems
 
 ## Open Questions
 
 - [ ] Which 10 specific TerminalBench task IDs to pin in `tasks.yaml` (review tbench.ai/tasks for <30min tasks)
 - [ ] Non-Claude judge model choice: GPT-4o vs Gemini 1.5 Pro (Phase 7)
+- [ ] Confirm exact tree-sitter-language-pack parser names for `yaml`, `toml`, `json`, `sql`, and C# canonical spelling during Phase 16/17 implementation
+- [ ] Confirm checksum source and allowlist format for Tier-2 SCIP lazy downloads during Phase 20 implementation
 
 ## Planning Artifacts
 
 | File | Purpose |
 |------|---------|
 | `.planning/PROJECT.md` | Requirements, decisions, constraints |
-| `.planning/REQUIREMENTS.md` | 47 v1 requirements with REQ-IDs |
-| `.planning/ROADMAP.md` | 15-phase cumulative execution plan; v0.3 phases 12–15 active |
+| `.planning/REQUIREMENTS.md` | Cumulative requirements; v0.4 DLS requirements active |
+| `.planning/ROADMAP.md` | 21-phase cumulative execution plan; v0.4 phases 16–21 active |
 | `.planning/config.json` | YOLO mode, quality model, all agents on |
+| `docs/plans/dedicated-language-support/` | Source design plan for v0.4 |
 | `.planning/research/SUMMARY.md` | Synthesized research findings |
 | `.planning/research/STACK.md` | Stack research (TerminalBench, claude -p schema) |
 | `.planning/research/FEATURES.md` | Feature research (PR-replay, long-session) |
@@ -105,7 +123,7 @@ Phase 13 is complete. Phase 14 should add scoped deterministic verification and 
 
 ## Current Position
 
-Phase: 14 (Counterexample Loop) — READY TO DISCUSS
-Previous phase: 13 (Phase-Linear Cache-Reuse Agent) — COMPLETE
-Status: Ready to discuss
-Last activity: 2026-05-29 -- Phase 13 complete; Phase 14 ready
+Phase: 16 (Canonical Language Registry) — READY TO PLAN
+Plan: —
+Status: Ready to plan
+Last activity: 2026-05-29 -- Milestone v0.4 roadmap ready; Phase 16 ready

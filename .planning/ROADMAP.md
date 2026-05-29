@@ -600,9 +600,209 @@ Locked design reference: docs/plans/phase-linear-cache-reuse/01-PLAN.md
 
 ---
 
+---
+
+## Milestone v0.4: Dedicated Language Support
+
+**Goal:** Give every recognized language first-class code intelligence through canonical language identity, dedicated tree-sitter structure, expanded repo-map tags, and runtime-provisioned SCIP indexing.
+
+**Source of truth:** `docs/plans/dedicated-language-support/`
+
+**Phases:**
+
+- [ ] **Phase 16: Canonical Language Registry** — One registry owns language identity across extension detection, tree-sitter outlines, repo-map tags, and SCIP binaries
+- [ ] **Phase 17: Tree-sitter Outline Coverage** — Shell, YAML, TOML, JSON, and SQL get dedicated outlines where parser support and savings justify it
+- [ ] **Phase 18: Tree-sitter Repo-map Tags** — Repo-map symbol tags come from tree-sitter for every supported grammar while Python AST and regex fallback remain intact
+- [ ] **Phase 19: Expanded SCIP Registry and Lazy Indexing** — Go, Rust, Java, Ruby, C, and C++ join SCIP semantic indexing with env overrides, argv templates, and cached outputs
+- [ ] **Phase 20: Runtime SCIP Indexer Provisioning** — Atelier-managed install and lazy bootstrap paths make SCIP binaries discoverable without manual PATH setup
+- [ ] **Phase 21: Validation, Benchmarks, and Docs** — Fixtures, honest savings benchmarks, availability reports, and docs prove the expanded language support
+
+---
+
+### Phase 16: Canonical Language Registry
+**Goal**: All code-intel surfaces share one canonical language identity, fixing shell/bash drift.
+**Depends on**: Existing code-intel surfaces; unblocks Phases 17, 18, and 19
+**Requirements**: DLS-LANG-01, DLS-LANG-02, DLS-LANG-03, DLS-LANG-04
+
+**Key modules**:
+- `src/atelier/infra/code_intel/languages.py` (new) — canonical registry and lookup helpers
+- `src/atelier/core/capabilities/semantic_file_memory/capability.py` (extend) — `_detect_language` delegates to registry
+- `src/atelier/core/capabilities/semantic_file_memory/treesitter_ast.py` (extend) — configs keyed on canonical names
+- `src/atelier/infra/tree_sitter/tags.py` (extend) — tag language detection delegates to registry
+- `src/atelier/infra/code_intel/scip/binaries.py` (extend) — SCIP registry keyed on canonical names
+
+**Success Criteria**:
+  1. Recognized file extensions resolve through one canonical registry, with unknowns still falling back to `"text"`.
+  2. Shell files such as `.sh`, `.bash`, and `.zsh` resolve to the tree-sitter-compatible bash key.
+  3. Extension detection, tree-sitter outline configuration, repo-map tag detection, and SCIP binary lookup use the same language identity.
+  4. Existing recognized languages continue to resolve to their prior or intentionally canonicalized language names.
+
+**Plans**: TBD
+
+---
+
+### Phase 17: Tree-sitter Outline Coverage
+**Goal**: Shell, YAML, TOML, JSON, and SQL get dedicated tree-sitter structural outlines where grammar/savings allow.
+**Depends on**: Phase 16
+**Requirements**: DLS-OUTLINE-01, DLS-OUTLINE-02, DLS-OUTLINE-03, DLS-OUTLINE-04, DLS-OUTLINE-05
+
+**Key modules**:
+- `src/atelier/core/capabilities/semantic_file_memory/treesitter_ast.py` (extend) — `LangCfg` entries for newly dedicated languages
+- `src/atelier/core/capabilities/semantic_file_memory/capability.py` (verify) — existing 25% savings guard keeps low-value outlines on generic path
+- `tests/core/` (extend) — per-language outline fixtures
+
+**Success Criteria**:
+  1. Shell scripts produce tree-sitter outlines containing meaningful function and assignment structure instead of generic regex outlines.
+  2. SQL files produce outlines showing schema-level constructs such as tables, views, functions, and indexes.
+  3. YAML, TOML, and JSON expose top-level document structure rather than noisy scalar-heavy outlines.
+  4. Dedicated outlines only ship when parser availability and the existing 25% savings guard make them better than generic.
+  5. Missing grammars or low-value outlines degrade cleanly to the generic path.
+
+**Plans**: TBD
+
+---
+
+### Phase 18: Tree-sitter Repo-map Tags
+**Goal**: Repo-map symbol tags come from tree-sitter for every tree-sitter language, while Python AST and regex fallback remain intact.
+**Depends on**: Phase 16
+**Requirements**: DLS-TAGS-01, DLS-TAGS-02, DLS-TAGS-03, DLS-TAGS-04
+
+**Key modules**:
+- `src/atelier/infra/tree_sitter/tags.py` (extend) — tree-sitter tag extraction
+- `src/atelier/core/capabilities/semantic_file_memory/treesitter_ast.py` (reuse) — definition node kinds from outline configs
+- `src/atelier/core/capabilities/repo_map/graph.py` (verify) — consumes additional tags unchanged
+- `tests/infra/` (extend) — per-language tag fixtures
+
+**Success Criteria**:
+  1. Tree-sitter-supported files contribute definition tags to the repo map using grammar-derived structure.
+  2. Previously unsupported tree-sitter languages contribute non-empty tags where definitions or structures exist.
+  3. Python continues to use the existing AST-based tag path.
+  4. Unknown or unsupported languages still use regex fallback instead of failing.
+  5. Repo-map ranking can include symbols from languages that previously produced no useful tags.
+
+**Plans**: TBD
+
+---
+
+### Phase 19: Expanded SCIP Registry and Lazy Indexing
+**Goal**: SCIP semantic indexing expands to Go, Rust, Java, Ruby, and C/C++ with env overrides, argv templates, and cached outputs.
+**Depends on**: Phase 16
+**Requirements**: DLS-SCIP-01, DLS-SCIP-02, DLS-SCIP-03, DLS-SCIP-04
+
+**Key modules**:
+- `src/atelier/infra/code_intel/scip/binaries.py` (extend) — expanded registry, env overrides, fallback commands, argv templates
+- `src/atelier/infra/code_intel/scip/indexer.py` (extend) — lazy indexer execution into repo-local cache
+- `src/atelier/infra/code_intel/scip/reader.py` (verify) — reads generated `.scip` artifacts
+- `tests/` (extend) — SCIP registry and mocked indexing tests
+
+**Success Criteria**:
+  1. SCIP discovery includes Python, TypeScript, JavaScript, Go, Rust, Java, Ruby, C, and C++ from the canonical language registry.
+  2. Each supported language resolves env override and fallback command metadata, including subcommand invocations such as `rust-analyzer scip`.
+  3. Supported languages can lazily run indexers and emit `.scip` artifacts into the repo-local cache.
+  4. Cached SCIP outputs can be read back into symbols by the existing reader path.
+  5. Java and C/C++ skip cleanly when required build context is unavailable.
+
+**Plans**: TBD
+
+---
+
+### Phase 20: Runtime SCIP Indexer Provisioning
+**Goal**: Atelier installs or bootstraps SCIP indexers from managed runtime locations instead of relying only on PATH.
+**Depends on**: Phase 19
+**Requirements**: DLS-PROV-01, DLS-PROV-02, DLS-PROV-03, DLS-PROV-04, DLS-PROV-05
+
+**Key modules**:
+- `scripts/install.sh` (extend) — install cheap SCIP indexers into Atelier-managed runtime dirs
+- `src/atelier/infra/code_intel/scip/binaries.py` (extend) — search managed dirs before PATH
+- `src/atelier/infra/code_intel/scip/bootstrap.py` (possible new) — lazy checksum-verified Tier-2 bootstrap
+- CLI/MCP status surfaces (extend) — SCIP availability output
+
+**Success Criteria**:
+  1. Fresh install can make `scip-python` and `scip-typescript` discoverable from Atelier-managed Node/runtime dirs.
+  2. SCIP discovery checks Atelier-managed binary dirs before system PATH.
+  3. Tier-2 indexers such as Go, Ruby, and Clang can be fetched lazily with checksum verification on first use.
+  4. Offline or failed lazy bootstrap degrades safely without crashes or partial unusable binaries.
+  5. Runtime status output shows which SCIP languages are ready, missing, or require user-provided toolchains.
+
+**Plans**: TBD
+
+---
+
+### Phase 21: Validation, Benchmarks, and Docs
+**Goal**: The expanded language support is proven with fixtures, honest savings benchmarks, availability reports, and updated docs.
+**Depends on**: Phases 17, 18, 19, and 20
+**Requirements**: DLS-VAL-01, DLS-VAL-02, DLS-VAL-03, DLS-VAL-04
+
+**Key modules**:
+- `tests/core/` and `tests/infra/` (extend) — recognized-language fixture matrix
+- Benchmark harness under existing savings/code-intel benchmark surfaces — outline savings vs generic/full-file
+- Docs — architecture language support, installation, quick reference, and SCIP provisioning sections
+
+**Success Criteria**:
+  1. Fixture matrix covers recognized languages and verifies detection, expected outline kind, and tag behavior.
+  2. Savings benchmarks report full-file vs generic vs dedicated outline behavior for shell, YAML, TOML, JSON, and SQL.
+  3. Benchmark records honestly show when the 25% savings guard accepts or rejects a dedicated outline.
+  4. SCIP availability report matches the expanded registry/provisioning matrix.
+  5. Language-support, architecture, SCIP provisioning, installation, and quick-reference docs reflect actual shipped behavior.
+
+**Plans**: TBD
+
+---
+
+## Progress Table (v0.4)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 16. Canonical Language Registry | 0/? | Not started | - |
+| 17. Tree-sitter Outline Coverage | 0/? | Not started | - |
+| 18. Tree-sitter Repo-map Tags | 0/? | Not started | - |
+| 19. Expanded SCIP Registry and Lazy Indexing | 0/? | Not started | - |
+| 20. Runtime SCIP Indexer Provisioning | 0/? | Not started | - |
+| 21. Validation, Benchmarks, and Docs | 0/? | Not started | - |
+
+---
+
+## Coverage (v0.4)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DLS-LANG-01 | Phase 16 | Pending |
+| DLS-LANG-02 | Phase 16 | Pending |
+| DLS-LANG-03 | Phase 16 | Pending |
+| DLS-LANG-04 | Phase 16 | Pending |
+| DLS-OUTLINE-01 | Phase 17 | Pending |
+| DLS-OUTLINE-02 | Phase 17 | Pending |
+| DLS-OUTLINE-03 | Phase 17 | Pending |
+| DLS-OUTLINE-04 | Phase 17 | Pending |
+| DLS-OUTLINE-05 | Phase 17 | Pending |
+| DLS-TAGS-01 | Phase 18 | Pending |
+| DLS-TAGS-02 | Phase 18 | Pending |
+| DLS-TAGS-03 | Phase 18 | Pending |
+| DLS-TAGS-04 | Phase 18 | Pending |
+| DLS-SCIP-01 | Phase 19 | Pending |
+| DLS-SCIP-02 | Phase 19 | Pending |
+| DLS-SCIP-03 | Phase 19 | Pending |
+| DLS-SCIP-04 | Phase 19 | Pending |
+| DLS-PROV-01 | Phase 20 | Pending |
+| DLS-PROV-02 | Phase 20 | Pending |
+| DLS-PROV-03 | Phase 20 | Pending |
+| DLS-PROV-04 | Phase 20 | Pending |
+| DLS-PROV-05 | Phase 20 | Pending |
+| DLS-VAL-01 | Phase 21 | Pending |
+| DLS-VAL-02 | Phase 21 | Pending |
+| DLS-VAL-03 | Phase 21 | Pending |
+| DLS-VAL-04 | Phase 21 | Pending |
+
+**v0.4 coverage: 26/26 requirements mapped ✓**
+
+---
+
 *v0.2 roadmap appended: 2026-05-28*
 *Milestone target: v0.2 Context Quality Lift*
 *Build order: Phase 8 → Phase 9 → Phase 10 → Phase 11 (Phase 9 can run parallel with Phase 8)*
 *v0.3 roadmap appended: 2026-05-28*
 *Milestone target: v0.3 Context Quality Execution*
 *Build order: Phase 12 → Phase 13 → Phase 14 → Phase 15*
+*v0.4 roadmap appended: 2026-05-29*
+*Milestone target: v0.4 Dedicated Language Support*
+*Build order: Phase 16 → Phase 17/18/19 → Phase 20 → Phase 21*
