@@ -974,7 +974,7 @@ Plans:
 **Wave 1**
 
 - [x] 23-01-PLAN.md — MCP/CLI core: make 13 in-scope silent handlers observable (QBL-EXC-01/02/04)
-- [ ] 23-02-PLAN.md — SDK/core/infra: 9 silent handlers observable + remove 4 BLE001 ignores (QBL-EXC-02/03)
+- [x] 23-02-PLAN.md — SDK/core/infra: 9 silent handlers observable + remove 4 BLE001 ignores (QBL-EXC-02/03)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -1082,7 +1082,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 22. Lint and Coverage Gates | 1/1 | Complete    | 2026-05-29 |
-| 23. Silent Exception Audit | 1/3 | In Progress|  |
+| 23. Silent Exception Audit | 2/3 | In Progress|  |
 | 24. Stdout to Logging | 0/? | Not started | - |
 | 25. CLI Decomposition | 0/? | Not started | - |
 | 26. A/B Suite Expansion | 0/? | Not started | - |

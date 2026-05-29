@@ -192,7 +192,7 @@
 
 - [x] **QBL-EXC-01**: Fresh enumeration of `except Exception: pass` sites is captured before fixes
 - [x] **QBL-EXC-02**: Every silent broad-except is removed, narrowed, re-raised, or explicitly logged with rationale
-- [ ] **QBL-EXC-03**: Fixed files are removed from BLE001 per-file ignores
+- [x] **QBL-EXC-03**: Fixed files are removed from BLE001 per-file ignores
 - [x] **QBL-EXC-04**: MCP/tool-handler focused tests cover touched gateway surfaces
 
 ### Stdout to Logging

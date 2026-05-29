@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: Quality & Benchmark Lift
 status: executing
-last_updated: "2026-05-29T17:57:25.496Z"
-last_activity: 2026-05-29 -- Completed 23-01-PLAN.md (gateway MCP/CLI silent exceptions observable)
+last_updated: "2026-05-29T18:05:41.778Z"
+last_activity: 2026-05-29 -- Completed 23-02-PLAN.md (9 SDK/core/infra silent exceptions observable; 4 BLE001 ignores removed)
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 17
 ---
 
@@ -150,8 +150,8 @@ Milestone v0.5 is defined from `docs/plans/quality-and-benchmark-lift/`. It focu
 ## Current Position
 
 Phase: 23 (silent-exception-audit) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Previous milestone: v0.4 (Dedicated Language Support) — COMPLETE
 Plans: TBD
 Status: Executing Phase 23
-Last activity: 2026-05-29 -- Completed 23-01-PLAN.md (13 in-scope gateway silent exceptions made observable; src commit 0df47e4)
+Last activity: 2026-05-29 -- Completed 23-02-PLAN.md (9 SDK/core/infra silent exceptions observable; 4 BLE001 ignores removed; src commits 6f08d89, c86ca8d)
