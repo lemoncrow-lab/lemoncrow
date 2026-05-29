@@ -36,3 +36,28 @@ def register(cli: click.Group) -> None:
         cli.add_command(openmemory_group)
     except ModuleNotFoundError:
         pass
+
+    try:
+        from .stack import stack_group
+
+        cli.add_command(stack_group)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        from .servicectl import logs_cmd, service_group, servicectl_group, worker_group
+
+        cli.add_command(service_group)
+        cli.add_command(worker_group)
+        cli.add_command(servicectl_group)
+        cli.add_command(logs_cmd)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        from .background import background_group, systemd_alias_group
+
+        cli.add_command(background_group)
+        cli.add_command(systemd_alias_group)
+    except ModuleNotFoundError:
+        pass
