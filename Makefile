@@ -4,12 +4,18 @@ PY_PATHS := src
 ATELIER_STORE ?= $(HOME)/.atelier
 ATELIER_CMD ?= uv run atelier
 TEST_PRINT_TIME ?= 0
+# Coverage floor for the full slow-inclusive suite (make test-full / nightly-coverage.yml).
+# Conservative provisional floor pending first-CI calibration (see 22-01-SUMMARY.md):
+# local measurement could not complete the full suite (slow-service + xdist tree-sitter
+# limitations); a partial subset run measured 68% (a strict lower bound). Calibrate to
+# ~2 points below the first nightly run's reported total.
+COV_FAIL_UNDER ?= 66
 FORCE_ARG := $(if $(f),--force,)
 EXTERNAL_PERIODS ?= today week month
 
 .PHONY: help install uninstall status start restart build-host-skills sync-agent-context \
 	check-agent-context docs-check worktree-env runtime-evidence \
-	test test-fast test-cov security-test lint format-check format typecheck launch-gate verify pre-commit \
+	test test-fast test-cov test-full security-test lint format-check format typecheck launch-gate verify pre-commit \
 	benchmark bench-savings bench-savings-honest proof-cost-quality demo import clean \
 	_ensure_hooks
 
@@ -91,6 +97,9 @@ test-fast: | _ensure_hooks ## Run fast tests: stop on first failure, skip slow/P
 
 test-cov: ## Run tests with terminal and HTML coverage reports
 	uv run pytest --cov=atelier --cov-report=term-missing --cov-report=html
+
+test-full: ## Run the FULL suite (incl. slow) with measured coverage floor
+	uv run pytest -m "" --cov=atelier --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
 
 security-test: ## Run security-focused test cases
 	uv run pytest tests/gateway/test_security.py -v
