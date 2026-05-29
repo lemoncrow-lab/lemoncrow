@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v0.4
 milestone_name: Dedicated Language Support
 status: executing
-last_updated: "2026-05-29T12:40:00.000Z"
-last_activity: 2026-05-29 -- Phase 17 verified complete; Phase 18 planning next
+last_updated: "2026-05-29T13:10:00.000Z"
+last_activity: 2026-05-29 -- Phase 18 planned; execution next
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 4
+  total_plans: 6
   completed_plans: 4
   percent: 33
 ---
@@ -18,15 +18,15 @@ progress:
 **Project:** Atelier Public Benchmarks
 **Milestone:** v0.4 — Dedicated Language Support
 **Updated:** 2026-05-29
-**Status:** Planning Phase 18
+**Status:** Executing Phase 18
 
 ## Current Phase
 
 **Current: Phase 18 — Tree-sitter Repo-map Tags**
 
-Next action: `/gsd-plan-phase 18`
+Next action: `/gsd-execute-phase 18`
 
-Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 17 completed dedicated tree-sitter outline coverage and verified DLS-OUTLINE-01 through DLS-OUTLINE-05. Phase 18 now needs planning for tree-sitter repo-map tags while preserving Python AST and regex fallback behavior.
+Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 18 planning is complete with two execution plans for tree-sitter tag extraction and repo-map validation.
 
 ## Roadmap Progress
 
@@ -66,7 +66,7 @@ Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 1
 |-------|--------|------|
 | Phase 16 | ✅ Complete | Canonical Language Registry (DLS-LANG-01–04) |
 | Phase 17 | ✅ Complete | Tree-sitter Outline Coverage (DLS-OUTLINE-01–05) |
-| Phase 18 | ⏳ Not started | Tree-sitter Repo-map Tags (DLS-TAGS-01–04) |
+| Phase 18 | 🔄 Planned | Tree-sitter Repo-map Tags (DLS-TAGS-01–04) |
 | Phase 19 | ⏳ Not started | Expanded SCIP Registry and Lazy Indexing (DLS-SCIP-01–04) |
 | Phase 20 | ⏳ Not started | Runtime SCIP Indexer Provisioning (DLS-PROV-01–05) |
 | Phase 21 | ⏳ Not started | Validation, Benchmarks, and Docs (DLS-VAL-01–04) |

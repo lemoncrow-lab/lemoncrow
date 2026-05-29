@@ -754,7 +754,10 @@ Plans:
   4. Unknown or unsupported languages still use regex fallback instead of failing.
   5. Repo-map ranking can include symbols from languages that previously produced no useful tags.
 
-**Plans**: TBD
+**Plans**:
+
+- [ ] 18-01-PLAN.md — Shared tree-sitter tag extraction for all configured tree-sitter languages
+- [ ] 18-02-PLAN.md — Repo-map integration validation and graph-noise guards
 
 ---
 
@@ -838,7 +841,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 16. Canonical Language Registry | 2/2 | Complete | 2026-05-29 |
 | 17. Tree-sitter Outline Coverage | 2/2 | Complete | 2026-05-29 |
-| 18. Tree-sitter Repo-map Tags | 0/? | Not started | - |
+| 18. Tree-sitter Repo-map Tags | 0/2 | Planned | - |
 | 19. Expanded SCIP Registry and Lazy Indexing | 0/? | Not started | - |
 | 20. Runtime SCIP Indexer Provisioning | 0/? | Not started | - |
 | 21. Validation, Benchmarks, and Docs | 0/? | Not started | - |
