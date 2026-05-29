@@ -1,0 +1,16 @@
+{
+  "scenario_id": "coverage_push_80pct",
+  "mode": "per_agent",
+  "rep": 2,
+  "expected_mode": "linear",
+  "real_wall_time_ms": 258.688,
+  "minify_delta_tokens": 0,
+  "task_success": true,
+  "input_tokens": 5400,
+  "output_tokens": 540,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 4860,
+  "cache_hit_ratio": 0.0,
+  "cost_usd": 0.0243,
+  "wall_time_ms": 3780.0
+}

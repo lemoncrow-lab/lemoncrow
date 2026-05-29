@@ -1,0 +1,16 @@
+{
+  "scenario_id": "coverage_push_80pct",
+  "mode": "linear",
+  "rep": 3,
+  "expected_mode": "linear",
+  "real_wall_time_ms": 216.987,
+  "minify_delta_tokens": 500,
+  "task_success": true,
+  "input_tokens": 2052,
+  "output_tokens": 540,
+  "cache_read_tokens": 3420,
+  "cache_write_tokens": 1620,
+  "cache_hit_ratio": 0.625,
+  "cost_usd": 0.015282,
+  "wall_time_ms": 2277.0
+}

@@ -1,0 +1,16 @@
+{
+  "scenario_id": "oss_bug_fix_medium",
+  "mode": "per_agent",
+  "rep": 3,
+  "expected_mode": "linear",
+  "real_wall_time_ms": 249.068,
+  "minify_delta_tokens": 0,
+  "task_success": true,
+  "input_tokens": 6600,
+  "output_tokens": 660,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 5940,
+  "cache_hit_ratio": 0.0,
+  "cost_usd": 0.0297,
+  "wall_time_ms": 4620.0
+}

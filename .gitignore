@@ -143,6 +143,8 @@ eval_results/
 # Scripts output
 outputs/
 results/
+!docs/plans/phase-linear-cache-reuse/results/
+!docs/plans/phase-linear-cache-reuse/results/**
 /*.py
 /*.sh
 

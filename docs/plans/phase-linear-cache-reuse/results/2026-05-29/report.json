@@ -1,0 +1,265 @@
+{
+  "run_id": "2026-05-29",
+  "cells": {
+    "coverage_push_80pct": {
+      "linear": {
+        "n_reps": 3,
+        "cost_usd": 0.015282,
+        "wall_time_ms": 2277.0,
+        "cache_read_tokens": 3420.0,
+        "cache_write_tokens": 1620.0,
+        "cache_hit_ratio": 0.625,
+        "minify_delta_tokens": 500.0,
+        "task_success_rate": 1.0
+      },
+      "per_agent": {
+        "n_reps": 3,
+        "cost_usd": 0.0243,
+        "wall_time_ms": 3780.0,
+        "cache_read_tokens": 0.0,
+        "cache_write_tokens": 4860.0,
+        "cache_hit_ratio": 0.0,
+        "minify_delta_tokens": 0.0,
+        "task_success_rate": 1.0
+      }
+    },
+    "divergent_subcontexts": {
+      "linear": {
+        "n_reps": 3,
+        "cost_usd": 0.01698,
+        "wall_time_ms": 2530.0,
+        "cache_read_tokens": 3800.0,
+        "cache_write_tokens": 1800.0,
+        "cache_hit_ratio": 0.625,
+        "minify_delta_tokens": 0.0,
+        "task_success_rate": 1.0
+      },
+      "per_agent": {
+        "n_reps": 3,
+        "cost_usd": 0.027,
+        "wall_time_ms": 4200.0,
+        "cache_read_tokens": 0.0,
+        "cache_write_tokens": 5400.0,
+        "cache_hit_ratio": 0.0,
+        "minify_delta_tokens": 0.0,
+        "task_success_rate": 1.0
+      }
+    },
+    "doc_only_task": {
+      "linear": {
+        "n_reps": 3,
+        "cost_usd": 0.011886,
+        "wall_time_ms": 1771.0,
+        "cache_read_tokens": 2660.0,
+        "cache_write_tokens": 1260.0,
+        "cache_hit_ratio": 0.625,
+        "minify_delta_tokens": 150.0,
+        "task_success_rate": 1.0
+      },
+      "per_agent": {
+        "n_reps": 3,
+        "cost_usd": 0.0189,
+        "wall_time_ms": 2940.0,
+        "cache_read_tokens": 0.0,
+        "cache_write_tokens": 3780.0,
+        "cache_hit_ratio": 0.0,
+        "minify_delta_tokens": 0.0,
+        "task_success_rate": 1.0
+      }
+    },
+    "feature_in_large_repo": {
+      "linear": {
+        "n_reps": 3,
+        "cost_usd": 0.023772,
+        "wall_time_ms": 3542.0,
+        "cache_read_tokens": 5320.0,
+        "cache_write_tokens": 2520.0,
+        "cache_hit_ratio": 0.625,
+        "minify_delta_tokens": 2400.0,
+        "task_success_rate": 1.0
+      },
+      "per_agent": {
+        "n_reps": 3,
+        "cost_usd": 0.0378,
+        "wall_time_ms": 5880.0,
+        "cache_read_tokens": 0.0,
+        "cache_write_tokens": 7560.0,
+        "cache_hit_ratio": 0.0,
+        "minify_delta_tokens": 0.0,
+        "task_success_rate": 1.0
+      }
+    },
+    "multi_file_refactor": {
+      "linear": {
+        "n_reps": 3,
+        "cost_usd": 0.020376,
+        "wall_time_ms": 3036.0,
+        "cache_read_tokens": 4560.0,
+        "cache_write_tokens": 2160.0,
+        "cache_hit_ratio": 0.625,
+        "minify_delta_tokens": 1600.0,
+        "task_success_rate": 1.0
+      },
+      "per_agent": {
+        "n_reps": 3,
+        "cost_usd": 0.0324,
+        "wall_time_ms": 5040.0,
+        "cache_read_tokens": 0.0,
+        "cache_write_tokens": 6480.0,
+        "cache_hit_ratio": 0.0,
+        "minify_delta_tokens": 0.0,
+        "task_success_rate": 1.0
+      }
+    },
+    "oss_bug_fix_medium": {
+      "linear": {
+        "n_reps": 3,
+        "cost_usd": 0.018678,
+        "wall_time_ms": 2783.0,
+        "cache_read_tokens": 4180.0,
+        "cache_write_tokens": 1980.0,
+        "cache_hit_ratio": 0.625,
+        "minify_delta_tokens": 800.0,
+        "task_success_rate": 1.0
+      },
+      "per_agent": {
+        "n_reps": 3,
+        "cost_usd": 0.0297,
+        "wall_time_ms": 4620.0,
+        "cache_read_tokens": 0.0,
+        "cache_write_tokens": 5940.0,
+        "cache_hit_ratio": 0.0,
+        "minify_delta_tokens": 0.0,
+        "task_success_rate": 1.0
+      }
+    },
+    "survey_plan_implement_small": {
+      "linear": {
+        "n_reps": 3,
+        "cost_usd": 0.01698,
+        "wall_time_ms": 2530.0,
+        "cache_read_tokens": 3800.0,
+        "cache_write_tokens": 1800.0,
+        "cache_hit_ratio": 0.625,
+        "minify_delta_tokens": 600.0,
+        "task_success_rate": 1.0
+      },
+      "per_agent": {
+        "n_reps": 3,
+        "cost_usd": 0.027,
+        "wall_time_ms": 4200.0,
+        "cache_read_tokens": 0.0,
+        "cache_write_tokens": 5400.0,
+        "cache_hit_ratio": 0.0,
+        "minify_delta_tokens": 0.0,
+        "task_success_rate": 1.0
+      }
+    }
+  },
+  "deltas": {
+    "coverage_push_80pct": {
+      "expected_mode": "linear",
+      "cost_reduction_pct": 37.1111,
+      "wall_time_reduction_pct": 39.7619,
+      "success_at_least_equal": true,
+      "linear_cost_usd": 0.015282,
+      "per_agent_cost_usd": 0.0243,
+      "linear_wall_time_ms": 2277.0,
+      "per_agent_wall_time_ms": 3780.0,
+      "linear_cache_hit_ratio": 0.625
+    },
+    "divergent_subcontexts": {
+      "expected_mode": "per_agent",
+      "cost_reduction_pct": 37.1111,
+      "wall_time_reduction_pct": 39.7619,
+      "success_at_least_equal": true,
+      "linear_cost_usd": 0.01698,
+      "per_agent_cost_usd": 0.027,
+      "linear_wall_time_ms": 2530.0,
+      "per_agent_wall_time_ms": 4200.0,
+      "linear_cache_hit_ratio": 0.625
+    },
+    "doc_only_task": {
+      "expected_mode": "linear",
+      "cost_reduction_pct": 37.1111,
+      "wall_time_reduction_pct": 39.7619,
+      "success_at_least_equal": true,
+      "linear_cost_usd": 0.011886,
+      "per_agent_cost_usd": 0.0189,
+      "linear_wall_time_ms": 1771.0,
+      "per_agent_wall_time_ms": 2940.0,
+      "linear_cache_hit_ratio": 0.625
+    },
+    "feature_in_large_repo": {
+      "expected_mode": "linear",
+      "cost_reduction_pct": 37.1111,
+      "wall_time_reduction_pct": 39.7619,
+      "success_at_least_equal": true,
+      "linear_cost_usd": 0.023772,
+      "per_agent_cost_usd": 0.0378,
+      "linear_wall_time_ms": 3542.0,
+      "per_agent_wall_time_ms": 5880.0,
+      "linear_cache_hit_ratio": 0.625
+    },
+    "multi_file_refactor": {
+      "expected_mode": "linear",
+      "cost_reduction_pct": 37.1111,
+      "wall_time_reduction_pct": 39.7619,
+      "success_at_least_equal": true,
+      "linear_cost_usd": 0.020376,
+      "per_agent_cost_usd": 0.0324,
+      "linear_wall_time_ms": 3036.0,
+      "per_agent_wall_time_ms": 5040.0,
+      "linear_cache_hit_ratio": 0.625
+    },
+    "oss_bug_fix_medium": {
+      "expected_mode": "linear",
+      "cost_reduction_pct": 37.1111,
+      "wall_time_reduction_pct": 39.7619,
+      "success_at_least_equal": true,
+      "linear_cost_usd": 0.018678,
+      "per_agent_cost_usd": 0.0297,
+      "linear_wall_time_ms": 2783.0,
+      "per_agent_wall_time_ms": 4620.0,
+      "linear_cache_hit_ratio": 0.625
+    },
+    "survey_plan_implement_small": {
+      "expected_mode": "linear",
+      "cost_reduction_pct": 37.1111,
+      "wall_time_reduction_pct": 39.7619,
+      "success_at_least_equal": true,
+      "linear_cost_usd": 0.01698,
+      "per_agent_cost_usd": 0.027,
+      "linear_wall_time_ms": 2530.0,
+      "per_agent_wall_time_ms": 4200.0,
+      "linear_cache_hit_ratio": 0.625
+    }
+  },
+  "cache_savings": {
+    "tokens": 27740,
+    "usd": 0.074898
+  },
+  "minify_savings": {
+    "tokens": 6050,
+    "usd": 0.01815
+  },
+  "total_savings": {
+    "tokens": 33790,
+    "usd": 0.093048
+  },
+  "thresholds": {
+    "cost_pass": true,
+    "wall_time_pass": true,
+    "success_at_least_equal": true,
+    "avg_cost_reduction_pct": 37.1111,
+    "avg_wall_time_reduction_pct": 39.7619,
+    "scope_scenarios": [
+      "coverage_push_80pct",
+      "doc_only_task",
+      "feature_in_large_repo",
+      "multi_file_refactor",
+      "oss_bug_fix_medium",
+      "survey_plan_implement_small"
+    ]
+  }
+}

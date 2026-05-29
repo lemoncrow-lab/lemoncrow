@@ -1,0 +1,19 @@
+{
+  "run_id": "2026-05-29",
+  "scenarios": [
+    "survey_plan_implement_small",
+    "oss_bug_fix_medium",
+    "feature_in_large_repo",
+    "coverage_push_80pct",
+    "multi_file_refactor",
+    "doc_only_task",
+    "divergent_subcontexts"
+  ],
+  "modes": [
+    "linear",
+    "per_agent"
+  ],
+  "reps": 3,
+  "seed": 42,
+  "started_at": "2026-05-29T00:32:09.879546+00:00"
+}

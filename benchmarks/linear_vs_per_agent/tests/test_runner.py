@@ -34,7 +34,7 @@ def test_cell_skip_on_existing_output(tmp_path: Path) -> None:
 
     counter = {"calls": 0}
 
-    def factory(scenario: dict):
+    def factory(scenario: dict, mode: str):
         counter["calls"] += 1
 
         class _P:
@@ -66,7 +66,7 @@ def test_arm_isolation_via_atelier_root(tmp_path: Path, monkeypatch: pytest.Monk
     original = os.environ.get("ATELIER_ROOT")
     monkeypatch.delenv("ATELIER_ROOT", raising=False)
 
-    def factory(scenario: dict):
+    def factory(scenario: dict, mode: str):
         # Capture ATELIER_ROOT at the moment the runner builds the trial.
         seen_roots.append(os.environ.get("ATELIER_ROOT", ""))
 
@@ -99,7 +99,7 @@ def test_runner_records_required_fields(tmp_path: Path) -> None:
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
 
-    def factory(scenario: dict):
+    def factory(scenario: dict, mode: str):
         class _P:
             def complete(self, messages, *, cache_read=0, cache_write=0):
                 # First per-phase call (len==2): "cold" — no cache reuse.

@@ -1,0 +1,4 @@
+# Per-arm ATELIER_ROOT workspaces are runtime artifacts (15+ MB of
+# ContextStore state per cell); they prove T-13-05 isolation at run
+# time but are not part of the committed benchmark output.
+roots/

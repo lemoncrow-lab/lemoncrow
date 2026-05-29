@@ -21,6 +21,7 @@ scenarios:
     divergence_signal: false
     base_cost_factor: 1.0
     expected_success: true
+    synthetic_minify_delta_tokens: 600
 
   - id: oss_bug_fix_medium
     description: "Single-file bug fix in a medium repo; phase contexts overlap."
@@ -29,6 +30,7 @@ scenarios:
     divergence_signal: false
     base_cost_factor: 1.1
     expected_success: true
+    synthetic_minify_delta_tokens: 800
 
   - id: feature_in_large_repo
     description: "Feature spanning 5 files in a large repo."
@@ -37,6 +39,7 @@ scenarios:
     divergence_signal: false
     base_cost_factor: 1.4
     expected_success: true
+    synthetic_minify_delta_tokens: 2400
 
   - id: coverage_push_80pct
     description: "Add tests to reach >=80% coverage on a module."
@@ -45,6 +48,7 @@ scenarios:
     divergence_signal: false
     base_cost_factor: 0.9
     expected_success: true
+    synthetic_minify_delta_tokens: 500
 
   - id: multi_file_refactor
     description: "Rename a symbol across 8 files."
@@ -53,6 +57,7 @@ scenarios:
     divergence_signal: false
     base_cost_factor: 1.2
     expected_success: true
+    synthetic_minify_delta_tokens: 1600
 
   - id: doc_only_task
     description: "README edit; minimal context shared across phases."
@@ -61,6 +66,7 @@ scenarios:
     divergence_signal: false
     base_cost_factor: 0.7
     expected_success: true
+    synthetic_minify_delta_tokens: 150
 
   - id: divergent_subcontexts
     description: "Two unrelated subtasks with no shared files (AUTO → per_agent)."
@@ -69,3 +75,4 @@ scenarios:
     divergence_signal: true
     base_cost_factor: 1.0
     expected_success: true
+    synthetic_minify_delta_tokens: 0

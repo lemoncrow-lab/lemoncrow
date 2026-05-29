@@ -1,0 +1,16 @@
+{
+  "scenario_id": "feature_in_large_repo",
+  "mode": "linear",
+  "rep": 2,
+  "expected_mode": "linear",
+  "real_wall_time_ms": 275.881,
+  "minify_delta_tokens": 2400,
+  "task_success": true,
+  "input_tokens": 3192,
+  "output_tokens": 840,
+  "cache_read_tokens": 5320,
+  "cache_write_tokens": 2520,
+  "cache_hit_ratio": 0.625,
+  "cost_usd": 0.023772,
+  "wall_time_ms": 3542.0
+}
