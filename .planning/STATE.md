@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: Quality & Benchmark Lift
 status: executing
-last_updated: "2026-05-29T18:59:18.324Z"
-last_activity: 2026-05-29 -- Phase 24 planning complete
+last_updated: "2026-05-29T19:04:57Z"
+last_activity: 2026-05-29 -- Plan 24-01 complete (strict MCP stdio framing gate)
 progress:
   total_phases: 6
   completed_phases: 2
@@ -18,7 +18,7 @@ progress:
 **Project:** Atelier Public Benchmarks
 **Milestone:** v0.5 — Quality & Benchmark Lift
 **Updated:** 2026-05-29
-**Status:** Ready to execute
+**Status:** Executing Phase 24
 
 ## Current Phase
 
@@ -151,9 +151,9 @@ Milestone v0.5 is defined from `docs/plans/quality-and-benchmark-lift/`. It focu
 
 ## Current Position
 
-Phase: 24
-Plan: Not started
+Phase: 24 (stdout-to-logging) — EXECUTING
+Plan: 2 of 4
 Previous milestone: v0.4 (Dedicated Language Support) — COMPLETE
-Plans: 23-01, 23-02, 23-03 all complete
-Status: Ready to execute
-Last activity: 2026-05-29 -- Phase 24 planning complete
+Plans: 23-01, 23-02, 23-03 all complete; 24-01 complete
+Status: Executing Phase 24
+Last activity: 2026-05-29 -- Plan 24-01 complete (strict MCP stdio framing gate, QBL-LOG-04)
