@@ -787,8 +787,11 @@ Plans:
 
 **Plans**:
 
-- [ ] 19-01-PLAN.md — Expanded SCIP registry discovery
-- [ ] 19-02-PLAN.md — Lazy SCIP artifact indexing
+- [x] 19-01-PLAN.md — Expanded SCIP registry discovery
+- [x] 19-02-PLAN.md — Lazy SCIP artifact indexing
+
+**Summary**: `.planning/phases/19-expanded-scip-registry-and-lazy-indexing/19-01-SUMMARY.md`, `.planning/phases/19-expanded-scip-registry-and-lazy-indexing/19-02-SUMMARY.md`
+**Verification**: `.planning/phases/19-expanded-scip-registry-and-lazy-indexing/19-VERIFICATION.md`
 
 ---
 
@@ -848,7 +851,7 @@ Plans:
 | 16. Canonical Language Registry | 2/2 | Complete | 2026-05-29 |
 | 17. Tree-sitter Outline Coverage | 2/2 | Complete | 2026-05-29 |
 | 18. Tree-sitter Repo-map Tags | 2/2 | Complete | 2026-05-29 |
-| 19. Expanded SCIP Registry and Lazy Indexing | 0/2 | Planned | - |
+| 19. Expanded SCIP Registry and Lazy Indexing | 2/2 | Complete | 2026-05-29 |
 | 20. Runtime SCIP Indexer Provisioning | 0/? | Not started | - |
 | 21. Validation, Benchmarks, and Docs | 0/? | Not started | - |
 
@@ -871,10 +874,10 @@ Plans:
 | DLS-TAGS-02 | Phase 18 | Complete |
 | DLS-TAGS-03 | Phase 18 | Complete |
 | DLS-TAGS-04 | Phase 18 | Complete |
-| DLS-SCIP-01 | Phase 19 | Pending |
-| DLS-SCIP-02 | Phase 19 | Pending |
-| DLS-SCIP-03 | Phase 19 | Pending |
-| DLS-SCIP-04 | Phase 19 | Pending |
+| DLS-SCIP-01 | Phase 19 | Complete |
+| DLS-SCIP-02 | Phase 19 | Complete |
+| DLS-SCIP-03 | Phase 19 | Complete |
+| DLS-SCIP-04 | Phase 19 | Complete |
 | DLS-PROV-01 | Phase 20 | Pending |
 | DLS-PROV-02 | Phase 20 | Pending |
 | DLS-PROV-03 | Phase 20 | Pending |

@@ -158,10 +158,10 @@
 
 ### SCIP Registry and Lazy Indexing
 
-- [ ] **DLS-SCIP-01**: SCIP language registry coverage expands to Go, Rust, Java, Ruby, C, and C++ in addition to Python, TypeScript, and JavaScript
-- [ ] **DLS-SCIP-02**: SCIP registry entries support per-language env overrides, fallback commands, and argv templates including subcommand-style invocations
-- [ ] **DLS-SCIP-03**: Lazy or opt-in SCIP indexer execution writes `.scip` artifacts into the repo-local cache
-- [ ] **DLS-SCIP-04**: Java and C/C++ indexers skip cleanly when required build context is unavailable
+- [x] **DLS-SCIP-01**: SCIP language registry coverage expands to Go, Rust, Java, Ruby, C, and C++ in addition to Python, TypeScript, and JavaScript
+- [x] **DLS-SCIP-02**: SCIP registry entries support per-language env overrides, fallback commands, and argv templates including subcommand-style invocations
+- [x] **DLS-SCIP-03**: Lazy or opt-in SCIP indexer execution writes `.scip` artifacts into the repo-local cache
+- [x] **DLS-SCIP-04**: Java and C/C++ indexers skip cleanly when required build context is unavailable
 
 ### SCIP Runtime Provisioning
 
@@ -283,10 +283,10 @@
 | DLS-TAGS-02 | Phase 18 | Complete |
 | DLS-TAGS-03 | Phase 18 | Complete |
 | DLS-TAGS-04 | Phase 18 | Complete |
-| DLS-SCIP-01 | Phase 19 | Pending |
-| DLS-SCIP-02 | Phase 19 | Pending |
-| DLS-SCIP-03 | Phase 19 | Pending |
-| DLS-SCIP-04 | Phase 19 | Pending |
+| DLS-SCIP-01 | Phase 19 | Complete |
+| DLS-SCIP-02 | Phase 19 | Complete |
+| DLS-SCIP-03 | Phase 19 | Complete |
+| DLS-SCIP-04 | Phase 19 | Complete |
 | DLS-PROV-01 | Phase 20 | Pending |
 | DLS-PROV-02 | Phase 20 | Pending |
 | DLS-PROV-03 | Phase 20 | Pending |
@@ -305,4 +305,4 @@
 
 ---
 *Requirements defined: 2026-05-28*
-*Last updated: 2026-05-29 — Phase 18 tree-sitter repo-map tag requirements complete*
+*Last updated: 2026-05-29 — Phase 19 expanded SCIP registry requirements complete*

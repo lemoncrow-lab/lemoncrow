@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.4
 milestone_name: Dedicated Language Support
 status: executing
-last_updated: "2026-05-29T14:25:00.000Z"
-last_activity: 2026-05-29 -- Phase 19 planned; execution next
+last_updated: "2026-05-29T15:05:00.000Z"
+last_activity: 2026-05-29 -- Phase 19 verified complete; Phase 20 planning next
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 8
-  completed_plans: 6
-  percent: 50
+  completed_plans: 8
+  percent: 67
 ---
 
 # Project State
@@ -18,15 +18,15 @@ progress:
 **Project:** Atelier Public Benchmarks
 **Milestone:** v0.4 — Dedicated Language Support
 **Updated:** 2026-05-29
-**Status:** Executing Phase 19
+**Status:** Planning Phase 20
 
 ## Current Phase
 
-**Current: Phase 19 — Expanded SCIP Registry and Lazy Indexing**
+**Current: Phase 20 — Runtime SCIP Indexer Provisioning**
 
-Next action: `/gsd-execute-phase 19`
+Next action: `/gsd-plan-phase 20`
 
-Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 19 planning is complete with two execution plans for expanded SCIP binary discovery and lazy artifact indexing.
+Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 19 completed expanded SCIP registry discovery and opt-in lazy artifact indexing. Phase 20 now needs planning for runtime SCIP indexer provisioning.
 
 ## Roadmap Progress
 
@@ -67,7 +67,7 @@ Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 1
 | Phase 16 | ✅ Complete | Canonical Language Registry (DLS-LANG-01–04) |
 | Phase 17 | ✅ Complete | Tree-sitter Outline Coverage (DLS-OUTLINE-01–05) |
 | Phase 18 | ✅ Complete | Tree-sitter Repo-map Tags (DLS-TAGS-01–04) |
-| Phase 19 | 🔄 Planned | Expanded SCIP Registry and Lazy Indexing (DLS-SCIP-01–04) |
+| Phase 19 | ✅ Complete | Expanded SCIP Registry and Lazy Indexing (DLS-SCIP-01–04) |
 | Phase 20 | ⏳ Not started | Runtime SCIP Indexer Provisioning (DLS-PROV-01–05) |
 | Phase 21 | ⏳ Not started | Validation, Benchmarks, and Docs (DLS-VAL-01–04) |
 
