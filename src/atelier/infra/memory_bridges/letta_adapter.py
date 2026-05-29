@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 from datetime import UTC, datetime
 from importlib import import_module
@@ -18,6 +19,8 @@ from atelier.core.foundation.memory_models import (
 )
 from atelier.infra.storage.memory_store import MemorySidecarUnavailable
 from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
+
+logger = logging.getLogger(__name__)
 
 _PINNED_TAG = "atelier:pinned"
 _HAS_LETTA = False
@@ -92,7 +95,7 @@ class LettaAdapter:
                 return self._as_mapping(result)
         except Exception:
             # Block may not exist yet — create standalone + attach
-            pass
+            logger.debug("upsert_block label-scoped update fallback", exc_info=True)
         try:
             if hasattr(self.client, "blocks") and hasattr(self.client.blocks, "create"):
                 result = self.client.blocks.create(**payload)
@@ -119,7 +122,7 @@ class LettaAdapter:
                 result = self.client.agents.blocks.retrieve(block_label=label, agent_id=agent_id)
                 return self._as_mapping(result)
         except Exception:
-            pass
+            logger.debug("get_block label-scoped retrieve fallback", exc_info=True)
         # Fallback: flat get_block
         try:
             if hasattr(self.client, "get_block"):

@@ -7,6 +7,7 @@ CLI, and UI-facing metadata stay consistent.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -17,6 +18,8 @@ try:
     import tomllib
 except ImportError:  # pragma: no cover
     tomllib = None  # type: ignore[assignment]
+
+logger = logging.getLogger(__name__)
 
 DEV_MODE_ENV_VAR = "ATELIER_DEV_MODE"
 MEMORY_BACKEND_ENV_VAR = "ATELIER_MEMORY_BACKEND"
@@ -156,9 +159,9 @@ def resolve_memory_backend(
                 config_backend = str(memory.get("backend", "")).strip().lower()
                 if config_backend:
                     return _validated_memory_backend(config_backend)
-            except Exception:
+            except (tomllib.TOMLDecodeError, OSError, ValueError):
                 # Keep runtime robust; invalid config falls back to defaults.
-                pass
+                logger.warning("Invalid config.toml; falling back to defaults", exc_info=True)
 
     fallback = (prefer or "sqlite").strip().lower()
     return _validated_memory_backend(fallback)

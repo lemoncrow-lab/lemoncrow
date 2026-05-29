@@ -8,6 +8,7 @@ import difflib
 import fnmatch
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -78,6 +79,7 @@ if TYPE_CHECKING:
     from atelier.infra.code_intel.git_history.adapter import DeletedHistorySearchAdapter
 
 _MAX_FILE_BYTES = 1_000_000
+logger = logging.getLogger(__name__)
 _FTS_TERM_RE = re.compile(r"[A-Za-z0-9_]+")
 _CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _SINCE_RELATIVE_RE = re.compile(r"^(?P<amount>\d+)(?P<unit>[dwmy])$")
@@ -6431,7 +6433,9 @@ class CodeContextEngine:
                 since_sha = str(watermark_row["value"]) if watermark_row is not None else None
             self._walk_and_summarise(since_sha=since_sha)
         except Exception:
-            pass  # fail-open — lineage is additive, never blocks search
+            logger.debug(
+                "lineage bootstrap failed", exc_info=True
+            )  # fail-open — lineage is additive, never blocks search
 
     def _walk_and_summarise(self, *, since_sha: str | None) -> None:
         """Walk commits, summarise, embed, upsert to commit_chunks in batches of 50."""

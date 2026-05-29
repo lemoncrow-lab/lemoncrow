@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime
@@ -12,6 +13,8 @@ from typing import Any, cast
 from atelier.infra.code_intel.git_history import require_pygit2
 from atelier.infra.code_intel.git_history.graveyard import SymbolGraveyard
 from atelier.infra.code_intel.git_history.walker import walk_history
+
+logger = logging.getLogger(__name__)
 
 
 class DeletedHistorySearchAdapter:
@@ -317,7 +320,7 @@ class DeletedHistorySearchAdapter:
                 self._rename_target_cache[cache_key] = candidates[0]
                 return candidates[0]
         except Exception:
-            pass
+            logger.debug("rename-target resolution failed", exc_info=True)
         self._rename_target_cache[cache_key] = None
         return None
 

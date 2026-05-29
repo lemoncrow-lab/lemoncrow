@@ -60,3 +60,23 @@ def test_unknown_memory_backend_raises(tmp_path: Path, monkeypatch: pytest.Monke
     monkeypatch.setenv("ATELIER_MEMORY_BACKEND", "bogus")
     with pytest.raises(ValueError, match=r"letta.*openmemory.*sqlite"):
         make_memory_store(tmp_path / "atelier")
+
+
+def test_invalid_config_toml_falls_back_and_warns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Invalid config.toml must fall back to the default backend and emit a warning."""
+    root = tmp_path / "atelier"
+    root.mkdir()
+    # Malformed TOML triggers tomllib.TOMLDecodeError inside resolve_memory_backend.
+    (root / "config.toml").write_text("[memory]\nbackend = \n", encoding="utf-8")
+    monkeypatch.delenv("ATELIER_MEMORY_BACKEND", raising=False)
+
+    with caplog.at_level("WARNING", logger="atelier.core.environment"):
+        store = make_memory_store(root)
+
+    assert isinstance(store, SqliteMemoryStore)
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any("falling back to defaults" in r.getMessage() for r in warnings)
+    # Warning carries exception info for observability.
+    assert any(r.exc_info is not None for r in warnings)
