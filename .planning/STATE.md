@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: Quality & Benchmark Lift
-status: executing
-last_updated: "2026-05-29T18:30:00.000Z"
+status: ready_to_plan
+last_updated: 2026-05-29T18:36:49.502Z
 last_activity: 2026-05-29 -- Completed 23-03-PLAN.md (6 benchmark silent sites observable; 4 BLE001 ignores removed; src commit f466ca9)
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 4
-  completed_plans: 4
+  completed_plans: 23
   percent: 33
+stopped_at: Phase 23 complete (3/3) — ready to discuss Phase 24
 ---
 
 # Project State
@@ -18,7 +19,7 @@ progress:
 **Project:** Atelier Public Benchmarks
 **Milestone:** v0.5 — Quality & Benchmark Lift
 **Updated:** 2026-05-29
-**Status:** Ready to execute
+**Status:** Ready to plan
 
 ## Current Phase
 
@@ -149,9 +150,9 @@ Milestone v0.5 is defined from `docs/plans/quality-and-benchmark-lift/`. It focu
 
 ## Current Position
 
-Phase: 23 (silent-exception-audit) — COMPLETE
-Plan: 3 of 3 (complete)
+Phase: 24
+Plan: Not started
 Previous milestone: v0.4 (Dedicated Language Support) — COMPLETE
 Plans: 23-01, 23-02, 23-03 all complete
 Status: Phase 23 complete
-Last activity: 2026-05-29 -- Completed 23-03-PLAN.md (6 benchmark silent sites observable; 4 BLE001 ignores removed; src commit f466ca9)
+Last activity: 2026-05-29

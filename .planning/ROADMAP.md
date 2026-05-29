@@ -921,7 +921,7 @@ Plans:
 **Phases:**
 
 - [x] **Phase 22: Lint and Coverage Gates** — Enable BLE001/T20 with scoped ignores and add nightly full-suite coverage gating (completed 2026-05-29)
-- [ ] **Phase 23: Silent Exception Audit** — Remove or justify every `except Exception: pass` site and shrink BLE001 ignores
+- [x] **Phase 23: Silent Exception Audit** — Remove or justify every `except Exception: pass` site and shrink BLE001 ignores (completed 2026-05-29)
 - [ ] **Phase 24: Stdout to Logging** — Replace non-CLI `print()` calls with logging/stderr and preserve CLI output via Click
 - [ ] **Phase 25: CLI Decomposition** — Split `gateway/cli/app.py` into command modules and extract business logic
 - [ ] **Phase 26: A/B Suite Expansion** — Map every savings mechanism to a runnable suite/grader with smoke coverage
@@ -978,7 +978,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 23-03-PLAN.md — Benchmarks: narrow 6 pass + 3 continue sites + remove 4 BLE001 ignores (QBL-EXC-02/03)
+- [x] 23-03-PLAN.md — Benchmarks: narrow 6 pass + 3 continue sites + remove 4 BLE001 ignores (QBL-EXC-02/03)
 
 ---
 
@@ -1082,7 +1082,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 22. Lint and Coverage Gates | 1/1 | Complete    | 2026-05-29 |
-| 23. Silent Exception Audit | 2/3 | In Progress|  |
+| 23. Silent Exception Audit | 3/3 | Complete    | 2026-05-29 |
 | 24. Stdout to Logging | 0/? | Not started | - |
 | 25. CLI Decomposition | 0/? | Not started | - |
 | 26. A/B Suite Expansion | 0/? | Not started | - |
