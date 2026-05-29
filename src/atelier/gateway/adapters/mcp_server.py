@@ -5381,7 +5381,7 @@ def main() -> None:
 
     argv = sys.argv[1:]
     if "--version" in argv or "-V" in argv:
-        print(f"atelier-mcp {SERVER_VERSION}")
+        sys.stdout.write(f"atelier-mcp {SERVER_VERSION}\n")
         return
     if "--root" in argv:
         i = argv.index("--root")

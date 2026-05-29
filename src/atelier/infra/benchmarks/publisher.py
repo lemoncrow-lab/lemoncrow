@@ -7,10 +7,13 @@ and assembles them into a weekly Atelier benchmark post inside ``reports/``.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Shapes for each benchmark result (all fields optional so missing data → n/a)
@@ -333,9 +336,9 @@ def publish(
 
 
 def _print_dry_run(report_dir: Path, md_content: str, json_content: dict[str, Any]) -> None:
-    print(f"[dry-run] Would write {report_dir / 'benchmark.md'} ({len(md_content)} bytes)")
+    logger.info("[dry-run] Would write %s (%d bytes)", report_dir / "benchmark.md", len(md_content))
     json_str = json.dumps(json_content)
-    print(f"[dry-run] Would write {report_dir / 'benchmark.json'} ({len(json_str)} bytes)")
+    logger.info("[dry-run] Would write %s (%d bytes)", report_dir / "benchmark.json", len(json_str))
 
 
 def _update_index(output_dir: Path, report: PublishReport) -> None:
