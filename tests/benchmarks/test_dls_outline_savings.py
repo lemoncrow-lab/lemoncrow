@@ -51,9 +51,9 @@ def _saved_pct(returned_tokens: int, full_tokens: int) -> float:
     return round(((full_tokens - returned_tokens) / full_tokens) * 100, 2)
 
 
-def measure_outline_savings(language: str, fixture: Path) -> OutlineSavingsRow:
+def measure_outline_savings(language: str, fixture: Path, cache_root: Path) -> OutlineSavingsRow:
     source = fixture.read_text(encoding="utf-8")
-    cap = SemanticFileMemoryCapability(fixture.parent)
+    cap = SemanticFileMemoryCapability(cache_root)
     generic = cap._generic_outline_text(source, language)
     dedicated = outline_text(language, source)
     payload = cap.smart_read(fixture, outline_threshold=0)
@@ -81,8 +81,8 @@ def measure_outline_savings(language: str, fixture: Path) -> OutlineSavingsRow:
 
 @pytest.mark.ab
 @pytest.mark.parametrize("language", tuple(DLS_FIXTURES), ids=tuple(DLS_FIXTURES))
-def test_dls_outline_savings_are_honest(language: str) -> None:
-    row = measure_outline_savings(language, DLS_FIXTURES[language])
+def test_dls_outline_savings_are_honest(language: str, tmp_path: Path) -> None:
+    row = measure_outline_savings(language, DLS_FIXTURES[language], tmp_path)
 
     assert row.full_tokens > 0
     assert row.dedicated_tokens > 0
@@ -95,12 +95,12 @@ def test_dls_outline_savings_are_honest(language: str) -> None:
         assert row.outline_kind_observed != "treesitter"
 
 
-def test_dls_outline_savings_artifact_matches_measurements() -> None:
+def test_dls_outline_savings_artifact_matches_measurements(tmp_path: Path) -> None:
     artifact = Path("reports/2026-W22/dls-outline-savings.json")
     if not artifact.exists():
         pytest.skip("committed DLS outline savings artifact not present")
 
-    measured = [asdict(measure_outline_savings(language, path)) for language, path in DLS_FIXTURES.items()]
+    measured = [asdict(measure_outline_savings(language, path, tmp_path)) for language, path in DLS_FIXTURES.items()]
     recorded = json.loads(artifact.read_text(encoding="utf-8"))["rows"]
 
     assert recorded == measured
