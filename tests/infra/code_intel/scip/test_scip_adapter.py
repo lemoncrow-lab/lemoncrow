@@ -576,3 +576,38 @@ def test_scip_refresh_invalidates_cached_search_for_new_engine_instance(tmp_path
     assert fresh["cache_hit"] is False
     assert fresh["provenance"] == "scip"
     assert fresh["items"][0]["symbol_id"] == "scip-v2"
+
+
+def test_scip_env_var_contract_preserved_after_registry_migration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SCIP env-var names stay byte-identical and agree with the registry.
+
+    Regression for DLS-LANG-04: `discover_scip_binary` now sources the indexer
+    binary name from the canonical registry's `scip_indexer`, but the operator
+    env-var names must remain unchanged, and the registry indexer identity must
+    agree with the env-var map.
+    """
+    from atelier.infra.code_intel.languages import language_by_name
+    from atelier.infra.code_intel.scip.binaries import discover_scip_binary
+
+    # Registry agreement: canonical scip_indexer identities.
+    assert language_by_name("python").scip_indexer == "scip-python"
+    assert language_by_name("typescript").scip_indexer == "scip-typescript"
+    assert language_by_name("javascript").scip_indexer == "scip-typescript"
+
+    # Make a fake executable that env vars can point at.
+    fake_bin = tmp_path / "fake-scip-indexer"
+    fake_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+    fake_bin.chmod(0o755)
+
+    # python resolves via ATELIER_SCIP_PYTHON_BIN (byte-identical name).
+    monkeypatch.delenv("ATELIER_SCIP_TYPESCRIPT_BIN", raising=False)
+    monkeypatch.setenv("ATELIER_SCIP_PYTHON_BIN", str(fake_bin))
+    assert discover_scip_binary("python") == fake_bin.resolve()
+
+    # typescript + javascript both resolve via ATELIER_SCIP_TYPESCRIPT_BIN.
+    monkeypatch.delenv("ATELIER_SCIP_PYTHON_BIN", raising=False)
+    monkeypatch.setenv("ATELIER_SCIP_TYPESCRIPT_BIN", str(fake_bin))
+    assert discover_scip_binary("typescript") == fake_bin.resolve()
+    assert discover_scip_binary("javascript") == fake_bin.resolve()
