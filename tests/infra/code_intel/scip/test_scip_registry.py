@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import subprocess
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from atelier.infra.code_intel.languages import language_by_name
+from atelier.infra.code_intel.scip import bootstrap
 from atelier.infra.code_intel.scip.binaries import (
     discover_scip_binaries,
     discover_scip_binary,
@@ -14,7 +16,7 @@ from atelier.infra.code_intel.scip.binaries import (
     scip_binary_spec,
     scip_binary_specs,
 )
-from atelier.infra.code_intel.scip.bootstrap import ensure_scip_binary
+from atelier.infra.code_intel.scip.bootstrap import ScipLazyFetchSpec, ensure_scip_binary
 from atelier.infra.code_intel.scip.indexer import ScipIndexer
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -121,6 +123,26 @@ def test_tier2_bootstrap_fails_closed_without_checksum(monkeypatch: pytest.Monke
     assert result.status == "bootstrap_unavailable"
     assert result.binary is None
     assert "checksum" in result.message
+
+
+def test_tier2_bootstrap_fetches_checksum_verified_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = tmp_path / "scip-go-download"
+    payload.write_bytes(b"fake scip-go")
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / "root"))
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.delenv("ATELIER_SCIP_GO_BIN", raising=False)
+    monkeypatch.setitem(
+        bootstrap._LAZY_BOOTSTRAP_FETCHES,
+        "go",
+        ScipLazyFetchSpec(url=payload.as_uri(), sha256=sha256(payload.read_bytes()).hexdigest()),
+    )
+
+    result = ensure_scip_binary("go")
+
+    assert result.status == "ready"
+    assert result.binary == (tmp_path / "root" / "bin" / "scip-go").resolve()
+    assert result.binary.read_bytes() == b"fake scip-go"
+    assert result.binary.stat().st_mode & 0o111
 
 
 def test_tier3_bootstrap_reports_user_toolchain_required(monkeypatch: pytest.MonkeyPatch) -> None:
