@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.4
 milestone_name: Dedicated Language Support
-status: executing
-last_updated: "2026-05-29T16:30:00.000Z"
-last_activity: 2026-05-29 -- Phase 20 verified complete; Phase 21 next
+status: complete
+last_updated: "2026-05-29T17:30:00.000Z"
+last_activity: 2026-05-29 -- Phase 21 verified complete; v0.4 milestone complete
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 10
-  completed_plans: 10
-  percent: 83
+  completed_phases: 6
+  total_plans: 13
+  completed_plans: 13
+  percent: 100
 ---
 
 # Project State
@@ -18,15 +18,15 @@ progress:
 **Project:** Atelier Public Benchmarks
 **Milestone:** v0.4 — Dedicated Language Support
 **Updated:** 2026-05-29
-**Status:** Ready for Phase 21
+**Status:** v0.4 Complete
 
 ## Current Phase
 
-**Current: Phase 21 — Validation, Benchmarks, and Docs**
+**Current: v0.4 — Dedicated Language Support Complete**
 
-Next action: `/gsd-plan-phase 21`
+Next action: archive or start next milestone when requested.
 
-Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 20 is complete: Tier-1 SCIP install/discovery, checksum-gated lazy bootstrap, Tier-3 toolchain hints, and availability output are implemented and verified.
+Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. All six phases are complete: canonical language registry, tree-sitter outlines, repo-map tags, expanded SCIP registry, runtime SCIP provisioning, validation benchmarks, and docs.
 
 ## Roadmap Progress
 
@@ -69,7 +69,7 @@ Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 2
 | Phase 18 | ✅ Complete | Tree-sitter Repo-map Tags (DLS-TAGS-01–04) |
 | Phase 19 | ✅ Complete | Expanded SCIP Registry and Lazy Indexing (DLS-SCIP-01–04) |
 | Phase 20 | ✅ Complete | Runtime SCIP Indexer Provisioning (DLS-PROV-01–05) |
-| Phase 21 | ⏳ Not started | Validation, Benchmarks, and Docs (DLS-VAL-01–04) |
+| Phase 21 | ✅ Complete | Validation, Benchmarks, and Docs (DLS-VAL-01–04) |
 
 ## Key Decisions Log
 
@@ -123,8 +123,8 @@ Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 2
 
 ## Current Position
 
-Phase: 21 (Validation, Benchmarks, and Docs) — READY TO PLAN
-Previous phase: 20 (Runtime SCIP Indexer Provisioning) — COMPLETE
-Plans: TBD
-Status: Planning Phase 21
-Last activity: 2026-05-29 -- Phase 20 verified complete; Phase 21 planning next
+Phase: v0.4 (Dedicated Language Support) — COMPLETE
+Previous phase: 21 (Validation, Benchmarks, and Docs) — COMPLETE
+Plans: 13/13 complete
+Status: Milestone complete
+Last activity: 2026-05-29 -- Phase 21 verified complete; v0.4 complete

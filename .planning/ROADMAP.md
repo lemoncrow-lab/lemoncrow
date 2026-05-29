@@ -663,7 +663,7 @@ Locked design reference: docs/plans/phase-linear-cache-reuse/01-PLAN.md
 - [x] **Phase 18: Tree-sitter Repo-map Tags** — Repo-map symbol tags come from tree-sitter for every supported grammar while Python AST and regex fallback remain intact
 - [x] **Phase 19: Expanded SCIP Registry and Lazy Indexing** — Go, Rust, Java, Ruby, C, and C++ join SCIP semantic indexing with env overrides, argv templates, and cached outputs
 - [x] **Phase 20: Runtime SCIP Indexer Provisioning** — Atelier-managed install and lazy bootstrap paths make SCIP binaries discoverable without manual PATH setup
-- [ ] **Phase 21: Validation, Benchmarks, and Docs** — Fixtures, honest savings benchmarks, availability reports, and docs prove the expanded language support
+- [x] **Phase 21: Validation, Benchmarks, and Docs** — Fixtures, honest savings benchmarks, availability reports, and docs prove the expanded language support
 
 ---
 
@@ -843,7 +843,11 @@ Plans:
   4. SCIP availability report matches the expanded registry/provisioning matrix.
   5. Language-support, architecture, SCIP provisioning, installation, and quick-reference docs reflect actual shipped behavior.
 
-**Plans**: TBD
+**Plans**:
+
+- [x] 21-01-PLAN.md — Fixture Matrix and SCIP Availability
+- [x] 21-02-PLAN.md — Honest Outline Savings Benchmark
+- [x] 21-03-PLAN.md — Docs and Milestone Completion
 
 ---
 
@@ -856,7 +860,7 @@ Plans:
 | 18. Tree-sitter Repo-map Tags | 2/2 | Complete | 2026-05-29 |
 | 19. Expanded SCIP Registry and Lazy Indexing | 2/2 | Complete | 2026-05-29 |
 | 20. Runtime SCIP Indexer Provisioning | 2/2 | Complete | 2026-05-29 |
-| 21. Validation, Benchmarks, and Docs | 0/? | Not started | - |
+| 21. Validation, Benchmarks, and Docs | 3/3 | Complete | 2026-05-29 |
 
 ---
 
@@ -886,10 +890,10 @@ Plans:
 | DLS-PROV-03 | Phase 20 | Complete |
 | DLS-PROV-04 | Phase 20 | Complete |
 | DLS-PROV-05 | Phase 20 | Complete |
-| DLS-VAL-01 | Phase 21 | Pending |
-| DLS-VAL-02 | Phase 21 | Pending |
-| DLS-VAL-03 | Phase 21 | Pending |
-| DLS-VAL-04 | Phase 21 | Pending |
+| DLS-VAL-01 | Phase 21 | Complete |
+| DLS-VAL-02 | Phase 21 | Complete |
+| DLS-VAL-03 | Phase 21 | Complete |
+| DLS-VAL-04 | Phase 21 | Complete |
 
 **v0.4 coverage: 26/26 requirements mapped ✓**
 

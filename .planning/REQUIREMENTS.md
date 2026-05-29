@@ -173,10 +173,10 @@
 
 ### Validation, Benchmarks, and Docs
 
-- [ ] **DLS-VAL-01**: A per-language fixture matrix validates detection, expected outline kind, and tag behavior
-- [ ] **DLS-VAL-02**: Honest savings benchmarks compare newly dedicated outline languages against generic and full-file paths
-- [ ] **DLS-VAL-03**: A SCIP availability report matches the expanded registry and provisioning matrix
-- [ ] **DLS-VAL-04**: Language-support, architecture, installation, quick-reference, and SCIP provisioning docs reflect actual shipped behavior
+- [x] **DLS-VAL-01**: A per-language fixture matrix validates detection, expected outline kind, and tag behavior
+- [x] **DLS-VAL-02**: Honest savings benchmarks compare newly dedicated outline languages against generic and full-file paths
+- [x] **DLS-VAL-03**: A SCIP availability report matches the expanded registry and provisioning matrix
+- [x] **DLS-VAL-04**: Language-support, architecture, installation, quick-reference, and SCIP provisioning docs reflect actual shipped behavior
 
 ## v2 Requirements
 
@@ -292,10 +292,10 @@
 | DLS-PROV-03 | Phase 20 | Complete |
 | DLS-PROV-04 | Phase 20 | Complete |
 | DLS-PROV-05 | Phase 20 | Complete |
-| DLS-VAL-01 | Phase 21 | Pending |
-| DLS-VAL-02 | Phase 21 | Pending |
-| DLS-VAL-03 | Phase 21 | Pending |
-| DLS-VAL-04 | Phase 21 | Pending |
+| DLS-VAL-01 | Phase 21 | Complete |
+| DLS-VAL-02 | Phase 21 | Complete |
+| DLS-VAL-03 | Phase 21 | Complete |
+| DLS-VAL-04 | Phase 21 | Complete |
 
 **Coverage:**
 - v0.1 requirements: 47 total | Mapped: 47 | Unmapped: 0 ✓
