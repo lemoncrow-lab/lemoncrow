@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: Quality & Benchmark Lift
 status: executing
-last_updated: "2026-05-29T18:05:41.778Z"
-last_activity: 2026-05-29 -- Completed 23-02-PLAN.md (9 SDK/core/infra silent exceptions observable; 4 BLE001 ignores removed)
+last_updated: "2026-05-29T18:30:00.000Z"
+last_activity: 2026-05-29 -- Completed 23-03-PLAN.md (6 benchmark silent sites observable; 4 BLE001 ignores removed; src commit f466ca9)
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
-  percent: 17
+  completed_plans: 4
+  percent: 33
 ---
 
 # Project State
@@ -76,7 +76,7 @@ Milestone v0.5 is defined from `docs/plans/quality-and-benchmark-lift/`. It focu
 | Phase | Status | Goal |
 |-------|--------|------|
 | Phase 22 | ⏳ Not started | Lint and Coverage Gates (QBL-GATE-01–05) |
-| Phase 23 | ⏳ Not started | Silent Exception Audit (QBL-EXC-01–04) |
+| Phase 23 | ✅ Complete | Silent Exception Audit (QBL-EXC-01–04) |
 | Phase 24 | ⏳ Not started | Stdout to Logging (QBL-LOG-01–04) |
 | Phase 25 | ⏳ Not started | CLI Decomposition (QBL-CLI-01–04) |
 | Phase 26 | ⏳ Not started | A/B Suite Expansion (QBL-AB-01–04) |
@@ -149,9 +149,9 @@ Milestone v0.5 is defined from `docs/plans/quality-and-benchmark-lift/`. It focu
 
 ## Current Position
 
-Phase: 23 (silent-exception-audit) — EXECUTING
-Plan: 3 of 3
+Phase: 23 (silent-exception-audit) — COMPLETE
+Plan: 3 of 3 (complete)
 Previous milestone: v0.4 (Dedicated Language Support) — COMPLETE
-Plans: TBD
-Status: Executing Phase 23
-Last activity: 2026-05-29 -- Completed 23-02-PLAN.md (9 SDK/core/infra silent exceptions observable; 4 BLE001 ignores removed; src commits 6f08d89, c86ca8d)
+Plans: 23-01, 23-02, 23-03 all complete
+Status: Phase 23 complete
+Last activity: 2026-05-29 -- Completed 23-03-PLAN.md (6 benchmark silent sites observable; 4 BLE001 ignores removed; src commit f466ca9)
