@@ -68,10 +68,10 @@ class GooseImporter:
                 "SELECT id, name, working_dir, created_at, updated_at, accumulated_input_tokens, accumulated_output_tokens, model_config_json FROM sessions ORDER BY updated_at DESC"
             ).fetchall()
             rows = [r for r in rows if r["accumulated_input_tokens"] or r["accumulated_output_tokens"]]
-            print(f"[atelier] goose: discovering sessions (found {len(rows)})")
+            logger.info("[atelier] goose: discovering sessions (found %d)", len(rows))
             for i, row in enumerate(rows):
                 if i % 10 == 0 and i > 0:
-                    print(f"[atelier] goose: importing {i}/{len(rows)}...")
+                    logger.info("[atelier] goose: importing %d/%d...", i, len(rows))
                 trace_id = self._import_session_row(conn, db_path, row, force=force)
                 if trace_id:
                     imported.append(trace_id)

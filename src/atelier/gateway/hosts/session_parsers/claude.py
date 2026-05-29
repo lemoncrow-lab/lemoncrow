@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
-import traceback as _traceback
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +39,8 @@ from atelier.gateway.hosts.session_parsers._common import (
     snapshot_edited_files,
     summarize_usage_entries,
 )
+
+logger = logging.getLogger(__name__)
 
 _FILE_TOOLS = {
     "read",
@@ -219,23 +221,26 @@ class ClaudeImporter:
         all_sessions = list(find_claude_sessions(root))
         total = len(all_sessions)
         if total > 0:
-            print(f"[atelier] claude: discovering sessions (found {total})")
+            logger.info("[atelier] claude: discovering sessions (found %d)", total)
 
         imported_ids = []
         for i, (workspace_slug, jsonl_path) in enumerate(all_sessions):
             try:
                 size = jsonl_path.stat().st_size
                 if size > _SIZE_LIMIT_BYTES:
-                    print(f"[atelier] claude: skipping massive session {jsonl_path.name} ({size / 1e6:.1f}MB)")
+                    logger.warning(
+                        "[atelier] claude: skipping massive session %s (%.1fMB)",
+                        jsonl_path.name,
+                        size / 1e6,
+                    )
                     continue
                 if i % 10 == 0 and i > 0:
-                    print(f"[atelier] claude: importing {i}/{total}...")
+                    logger.info("[atelier] claude: importing %d/%d...", i, total)
                 sid = self.import_session(workspace_slug, jsonl_path, force=force)
                 if sid:
                     imported_ids.append(sid)
-            except Exception as exc:
-                _traceback.print_exc()
-                print(f"[atelier] skipping claude session {jsonl_path.name}: {exc}")
+            except Exception:
+                logger.exception("[atelier] skipping claude session %s", jsonl_path.name)
         return imported_ids
 
     def import_session(self, workspace_slug: str, jsonl_path: Path, *, force: bool = False) -> str | None:

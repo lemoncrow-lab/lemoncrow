@@ -15,7 +15,6 @@ import hashlib
 import json
 import logging
 import re
-import traceback as _traceback
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -201,26 +200,25 @@ class ClineImporter:
 
         task_history = _load_task_history(root)
         total = len(task_dirs)
-        print(f"[atelier] cline: discovering tasks (found {total})")
+        logger.info("[atelier] cline: discovering tasks (found %d)", total)
 
         imported_ids: list[str] = []
         skipped = 0
         for i, task_dir in enumerate(task_dirs):
             try:
                 if i % 10 == 0 and i > 0:
-                    print(f"[atelier] cline: importing {i}/{total}...")
+                    logger.info("[atelier] cline: importing %d/%d...", i, total)
                 history_entry = task_history.get(task_dir.name, {})
                 sid = self.import_task(task_dir, history_entry, force=force)
                 if sid:
                     imported_ids.append(sid)
                 else:
                     skipped += 1
-            except Exception as exc:
-                _traceback.print_exc()
-                print(f"[atelier] cline: skipping task {task_dir.name}: {exc}")
+            except Exception:
+                logger.exception("[atelier] cline: skipping task %s", task_dir.name)
 
         if skipped > 0:
-            print(f"[atelier] cline: {skipped} tasks already imported (skipped by dedup)")
+            logger.info("[atelier] cline: %d tasks already imported (skipped by dedup)", skipped)
         return imported_ids
 
     def import_task(self, task_dir: Path, history_entry: dict[str, Any], *, force: bool = False) -> str | None:

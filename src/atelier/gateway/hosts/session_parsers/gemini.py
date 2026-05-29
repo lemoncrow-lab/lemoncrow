@@ -9,7 +9,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
-import traceback as _traceback
+import logging
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +29,8 @@ from atelier.gateway.hosts.session_parsers._common import (
     make_llm_usage_entry,
     summarize_usage_entries,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
@@ -149,27 +151,30 @@ class GeminiImporter:
         all_sessions = list(find_gemini_sessions(root))
         total = len(all_sessions)
 
-        print(f"[atelier] gemini: discovering sessions (found {total})")
+        logger.info("[atelier] gemini: discovering sessions (found %d)", total)
 
         for i, jsonl_path in enumerate(all_sessions):
             try:
                 # Performance safety: skip massive files (>50MB) for now
                 if jsonl_path.stat().st_size > _SIZE_LIMIT_BYTES:
                     size_mb = jsonl_path.stat().st_size / 1e6
-                    print(f"[atelier] gemini: skipping massive session {jsonl_path.name} ({size_mb:.1f}MB)")
+                    logger.warning(
+                        "[atelier] gemini: skipping massive session %s (%.1fMB)",
+                        jsonl_path.name,
+                        size_mb,
+                    )
                     continue
 
                 if i % 10 == 0 and i > 0:
-                    print(f"[atelier] gemini: importing {i}/{total}...")
+                    logger.info("[atelier] gemini: importing %d/%d...", i, total)
 
                 sid = self.import_session(jsonl_path, force=force)
                 if sid:
                     imported_ids.append(sid)
                 else:
                     skipped += 1
-            except Exception as exc:
-                _traceback.print_exc()
-                print(f"[atelier] skipping gemini session {jsonl_path.name}: {exc}")
+            except Exception:
+                logger.exception("[atelier] skipping gemini session %s", jsonl_path.name)
         return imported_ids
 
     def import_session(self, jsonl_path: Path, *, force: bool = False) -> str | None:

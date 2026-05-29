@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -59,6 +60,8 @@ from atelier.gateway.hosts.session_parsers._common import (
     make_llm_usage_entry,
     summarize_usage_entries,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -309,27 +312,28 @@ class CodexImporter:
         skipped = 0
         all_sessions = list(find_codex_sessions(root))
         total = len(all_sessions)
-        print(f"[atelier] codex: discovering sessions (found {total})")
+        logger.info("[atelier] codex: discovering sessions (found %d)", total)
         for i, jsonl_path in enumerate(all_sessions):
             try:
                 size = jsonl_path.stat().st_size
                 if size > _SIZE_LIMIT_BYTES:
-                    print(f"[atelier] codex: skipping massive session {jsonl_path.name} ({size / 1e6:.1f}MB)")
+                    logger.warning(
+                        "[atelier] codex: skipping massive session %s (%.1fMB)",
+                        jsonl_path.name,
+                        size / 1e6,
+                    )
                     continue
                 if i % 10 == 0 and i > 0:
-                    print(f"[atelier] codex: importing {i}/{total}...")
+                    logger.info("[atelier] codex: importing %d/%d...", i, total)
                 sid = self.import_session(jsonl_path, force=force)
                 if sid:
                     imported_ids.append(sid)
                 else:
                     skipped += 1
-            except Exception as exc:
-                import traceback as _tb
-
-                _tb.print_exc()
-                print(f"[atelier] skipping codex session {jsonl_path.name}: {exc}")
+            except Exception:
+                logger.exception("[atelier] skipping codex session %s", jsonl_path.name)
         if skipped > 0:
-            print(f"[atelier] {skipped} sessions already imported (skipped by dedup)")
+            logger.info("[atelier] %d sessions already imported (skipped by dedup)", skipped)
         return imported_ids
 
     def import_session(self, jsonl_path: Path, *, force: bool = False) -> str | None:

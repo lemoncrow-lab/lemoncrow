@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sqlite3
 import traceback as _traceback
 from datetime import UTC, datetime
@@ -28,6 +29,8 @@ from atelier.gateway.hosts.session_parsers._common import (
     snapshot_edited_files,
     summarize_usage_entries,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _ms_to_dt(ms: Any) -> datetime:
@@ -77,11 +80,11 @@ class OpenCodeImporter:
             return []
 
         all_sessions = list(find_opencode_sessions(resolved_db_path))
-        print(f"[atelier] opencode: discovering sessions (found {len(all_sessions)})")
+        logger.info("[atelier] opencode: discovering sessions (found %d)", len(all_sessions))
         imported_ids = []
         for i, session_row in enumerate(all_sessions):
             if i % 10 == 0 and i > 0:
-                print(f"[atelier] opencode: importing {i}/{len(all_sessions)}...")
+                logger.info("[atelier] opencode: importing %d/%d...", i, len(all_sessions))
             tid = self._import_session(session_row, resolved_db_path, force=force)
             if tid:
                 imported_ids.append(tid)

@@ -81,11 +81,11 @@ class KiroImporter:
     ) -> list[str]:
         all_sessions = list(find_kiro_sessions(agent_root, workspace_root))
         total = len(all_sessions)
-        print(f"[atelier] kiro: discovering sessions (found {total})")
+        logger.info("[atelier] kiro: discovering sessions (found %d)", total)
         imported: list[str] = []
         for i, (chat_file, project) in enumerate(all_sessions):
             if i % 10 == 0 and i > 0:
-                print(f"[atelier] kiro: importing {i}/{total}...")
+                logger.info("[atelier] kiro: importing %d/%d...", i, total)
             trace_id = self.import_session(chat_file, project=project, force=force)
             if trace_id:
                 imported.append(trace_id)

@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
-import traceback as _traceback
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -41,6 +41,8 @@ from atelier.gateway.hosts.session_parsers._common import (
     make_llm_usage_entry,
     summarize_usage_entries,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -390,9 +392,11 @@ class CopilotImporter:
         all_transcripts = list(find_copilot_transcript_files(root))
         all_debug_logs = list(find_copilot_debug_log_dirs(root))
         total = len(all_sessions) + len(all_transcripts) + len(all_debug_logs)
-        print(
-            f"[atelier] copilot: found {len(all_sessions)} session directories, "
-            f"{len(all_transcripts)} transcript files, {len(all_debug_logs)} debug-log directories"
+        logger.info(
+            "[atelier] copilot: found %d session directories, %d transcript files, %d debug-log directories",
+            len(all_sessions),
+            len(all_transcripts),
+            len(all_debug_logs),
         )
 
         processed = 0
@@ -401,16 +405,15 @@ class CopilotImporter:
         for session_dir in all_sessions:
             processed += 1
             if processed % 10 == 0:
-                print(f"[atelier] copilot: importing {processed}/{total} (sessions)...")
+                logger.info("[atelier] copilot: importing %d/%d (sessions)...", processed, total)
             try:
                 sid = self.import_session(session_dir, force=force)
                 if sid:
                     imported_ids.append(sid)
                 else:
                     skipped += 1
-            except Exception as exc:
-                _traceback.print_exc()
-                print(f"[atelier] skipping session {session_dir.name}: {exc}")
+            except Exception:
+                logger.exception("[atelier] skipping session %s", session_dir.name)
 
         # Pre-index parent traces and workspaces to avoid O(N^2) lookups during transcript linking
         # This is a major optimization for large history imports.
@@ -420,31 +423,29 @@ class CopilotImporter:
         for transcript_path in all_transcripts:
             processed += 1
             if processed % 10 == 0:
-                print(f"[atelier] copilot: importing {processed}/{total} (transcripts)...")
+                logger.info("[atelier] copilot: importing %d/%d (transcripts)...", processed, total)
             try:
                 sid = self.import_transcript_file(transcript_path, force=force, parent_index=parent_index)
                 if sid:
                     imported_ids.append(sid)
                 else:
                     skipped += 1
-            except Exception as exc:
-                _traceback.print_exc()
-                print(f"[atelier] skipping transcript {transcript_path.name}: {exc}")
+            except Exception:
+                logger.exception("[atelier] skipping transcript %s", transcript_path.name)
 
         # Phase 3: Debug Log Directories (telemetry/token counts)
         for debug_log_dir in all_debug_logs:
             processed += 1
             if processed % 10 == 0:
-                print(f"[atelier] copilot: importing {processed}/{total} (debug-logs)...")
+                logger.info("[atelier] copilot: importing %d/%d (debug-logs)...", processed, total)
             try:
                 sid = self.import_debug_log_dir(debug_log_dir, force=force)
                 if sid:
                     imported_ids.append(sid)
                 else:
                     skipped += 1
-            except Exception as exc:
-                _traceback.print_exc()
-                print(f"[atelier] skipping debug-log {debug_log_dir.name}: {exc}")
+            except Exception:
+                logger.exception("[atelier] skipping debug-log %s", debug_log_dir.name)
 
         # Phase 4: Reconciliation (link existing orphans)
         reconciled = self._reconcile_stored_transcripts(parent_index=parent_index)
@@ -453,7 +454,7 @@ class CopilotImporter:
                 imported_ids.append(sid)
 
         if skipped > 0:
-            print(f"[atelier] {skipped} copilot artifacts already imported (skipped by dedup)")
+            logger.info("[atelier] %d copilot artifacts already imported (skipped by dedup)", skipped)
         return imported_ids
 
     def _build_parent_index(self) -> list[dict[str, Any]]:
@@ -781,7 +782,11 @@ class CopilotImporter:
         try:
             size = events_path.stat().st_size
             if size > _SIZE_LIMIT_BYTES:
-                print(f"[atelier] copilot: skipping massive session {session_id} ({size / 1e6:.1f}MB)")
+                logger.warning(
+                    "[atelier] copilot: skipping massive session %s (%.1fMB)",
+                    session_id,
+                    size / 1e6,
+                )
                 return None
         except OSError:
             pass
@@ -947,7 +952,11 @@ class CopilotImporter:
         try:
             size = transcript_path.stat().st_size
             if size > _SIZE_LIMIT_BYTES:
-                print(f"[atelier] copilot: skipping massive transcript {session_id} ({size / 1e6:.1f}MB)")
+                logger.warning(
+                    "[atelier] copilot: skipping massive transcript %s (%.1fMB)",
+                    session_id,
+                    size / 1e6,
+                )
                 return None
         except OSError:
             pass
