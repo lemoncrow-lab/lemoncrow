@@ -104,11 +104,11 @@
 
 ### Phase-Linear Cache Reuse
 
-- [ ] **LINEAR-01**: `context_reuse` defines `Phase`, `PhasePlan`, `PhaseResult`, cache-stat fields, and a declarative Survey → Plan → Implement phase state machine
-- [ ] **LINEAR-02**: Survey and Plan run under one fixed system prompt with per-phase user objectives; Plan uses `continue_from="survey"` so provider cache can read the Survey prefix warm
-- [ ] **LINEAR-03**: Read-only Survey/Plan tool profile uses safe source minification and records original vs minified token counts; writer profile reads exact bytes
-- [ ] **LINEAR-04**: Runtime exposes `linear | per_agent | auto` mode selection with an auto heuristic that avoids linear mode for divergent or oversized contexts
-- [ ] **LINEAR-05**: Linear-vs-per-agent benchmark proves ≥30% lower cost and ≥25% lower wall-time at equal-or-better success on context-sharing scenarios
+- [x] **LINEAR-01**: `context_reuse` defines `Phase`, `PhasePlan`, `PhaseResult`, cache-stat fields, and a declarative Survey → Plan → Implement phase state machine
+- [x] **LINEAR-02**: Survey and Plan run under one fixed system prompt with per-phase user objectives; Plan uses `continue_from="survey"` so provider cache can read the Survey prefix warm
+- [x] **LINEAR-03**: Read-only Survey/Plan tool profile uses safe source minification and records original vs minified token counts; writer profile reads exact bytes
+- [x] **LINEAR-04**: Runtime exposes `linear | per_agent | auto` mode selection with an auto heuristic that avoids linear mode for divergent or oversized contexts
+- [x] **LINEAR-05**: Linear-vs-per-agent benchmark proves ≥30% lower cost and ≥25% lower wall-time at equal-or-better success on context-sharing scenarios
 
 ### Scoped Pull Context
 
@@ -129,7 +129,7 @@
 
 ### Local Benchmark Proof
 
-- [ ] **TBEVAL-01**: Local linear-vs-per-agent benchmark artifact records cost, latency, cache-hit ratio, minification delta, and task success for at least 7 representative scenarios
+- [x] **TBEVAL-01**: Local linear-vs-per-agent benchmark artifact records cost, latency, cache-hit ratio, minification delta, and task success for at least 7 representative scenarios
 - [ ] **TBEVAL-02**: TerminalBench-oriented local proof run shows Atelier-on target ≥90% pass rate while cheaper and faster than the off/per-agent baseline, or records concrete implementation gaps and loops back before finalizing
 
 ## v2 Requirements
@@ -199,12 +199,12 @@
 | CACHE-04 | Phase 12 | Complete |
 | CACHE-05 | Phase 12 | Complete |
 | CQEVAL-03 | Phase 12 | Complete |
-| LINEAR-01 | Phase 13 | Pending |
-| LINEAR-02 | Phase 13 | Pending |
-| LINEAR-03 | Phase 13 | Pending |
-| LINEAR-04 | Phase 13 | Pending |
-| LINEAR-05 | Phase 13 | Pending |
-| TBEVAL-01 | Phase 13 | Pending |
+| LINEAR-01 | Phase 13 | Complete |
+| LINEAR-02 | Phase 13 | Complete |
+| LINEAR-03 | Phase 13 | Complete |
+| LINEAR-04 | Phase 13 | Complete |
+| LINEAR-05 | Phase 13 | Complete |
+| TBEVAL-01 | Phase 13 | Complete |
 | COUNTER-01 | Phase 14 | Pending |
 | COUNTER-02 | Phase 14 | Pending |
 | COUNTER-03 | Phase 14 | Pending |
@@ -227,4 +227,4 @@
 
 ---
 *Requirements defined: 2026-05-28*
-*Last updated: 2026-05-28 — v0.3 requirements added*
+*Last updated: 2026-05-29 — Phase 13 requirements completed*

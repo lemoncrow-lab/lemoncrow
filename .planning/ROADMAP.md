@@ -424,7 +424,7 @@ Plans:
 **Phases:**
 
 - [x] **Phase 12: Cache-Aware Routing** — Wire prefix-cache economics into model routing; keep routes sticky across tool-call chains and emit route-decision telemetry
-- [ ] **Phase 13: Phase-Linear Cache-Reuse Agent** — Add a Survey→Plan cache-warm run mode with minified read context, mode selection, and linear-vs-per-agent benchmark proof
+- [x] **Phase 13: Phase-Linear Cache-Reuse Agent** — Add a Survey→Plan cache-warm run mode with minified read context, mode selection, and linear-vs-per-agent benchmark proof
 - [ ] **Phase 14: Counterexample Loop** — Add scoped deterministic verification and structured counterexamples that drive bounded self-correction before failures reach the user
 - [ ] **Phase 15: Scoped Pull Context + Proof Gate** — Add `context op="pull"`, scoped-context benchmarks, and TerminalBench-oriented local proof that Atelier-on is cheaper, faster, and targets ≥90% pass rate
 
@@ -473,10 +473,13 @@ Plans:
   5. Linear-vs-per-agent benchmark artifact shows ≥30% lower cost and ≥25% lower wall-time at equal-or-better task success.
 
 **Plans:** 4 plans
-- [ ] 13-01-PLAN.md — Phase state-machine models, fixed prompts, PhaseRunner, additive ledger fields (LINEAR-01, LINEAR-02)
-- [ ] 13-02-PLAN.md — minify_source + reader/writer profile dispatch + minify telemetry (LINEAR-03)
-- [ ] 13-03-PLAN.md — Engine run_phased dispatch with auto fallback heuristic (LINEAR-04)
-- [ ] 13-04-PLAN.md — Local linear-vs-per_agent benchmark + threshold-proving artifact (LINEAR-05, TBEVAL-01)
+- [x] 13-01-PLAN.md — Phase state-machine models, fixed prompts, PhaseRunner, additive ledger fields (LINEAR-01, LINEAR-02)
+- [x] 13-02-PLAN.md — minify_source + reader/writer profile dispatch + minify telemetry (LINEAR-03)
+- [x] 13-03-PLAN.md — Engine run_phased dispatch with auto fallback heuristic (LINEAR-04)
+- [x] 13-04-PLAN.md — Local linear-vs-per_agent benchmark + threshold-proving artifact (LINEAR-05, TBEVAL-01)
+
+**Summary**: `.planning/phases/13-phase-linear-cache-reuse-agent/13-04-SUMMARY.md`
+**Verification**: `.planning/phases/13-phase-linear-cache-reuse-agent/13-VERIFICATION.md`
 
 Locked design reference: docs/plans/phase-linear-cache-reuse/01-PLAN.md
 
@@ -541,7 +544,7 @@ Locked design reference: docs/plans/phase-linear-cache-reuse/01-PLAN.md
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 12. Cache-Aware Routing | 1/1 | Complete    | 2026-05-28 |
-| 13. Phase-Linear Cache-Reuse Agent | 0/? | Not started | - |
+| 13. Phase-Linear Cache-Reuse Agent | 4/4 | Complete | 2026-05-29 |
 | 14. Counterexample Loop | 0/? | Not started | - |
 | 15. Scoped Pull Context + Proof Gate | 0/? | Not started | - |
 
@@ -572,12 +575,12 @@ Locked design reference: docs/plans/phase-linear-cache-reuse/01-PLAN.md
 | CACHE-04 | Phase 12 | Complete |
 | CACHE-05 | Phase 12 | Complete |
 | CQEVAL-03 | Phase 12 | Complete |
-| LINEAR-01 | Phase 13 | Pending |
-| LINEAR-02 | Phase 13 | Pending |
-| LINEAR-03 | Phase 13 | Pending |
-| LINEAR-04 | Phase 13 | Pending |
-| LINEAR-05 | Phase 13 | Pending |
-| TBEVAL-01 | Phase 13 | Pending |
+| LINEAR-01 | Phase 13 | Complete |
+| LINEAR-02 | Phase 13 | Complete |
+| LINEAR-03 | Phase 13 | Complete |
+| LINEAR-04 | Phase 13 | Complete |
+| LINEAR-05 | Phase 13 | Complete |
+| TBEVAL-01 | Phase 13 | Complete |
 | COUNTER-01 | Phase 14 | Pending |
 | COUNTER-02 | Phase 14 | Pending |
 | COUNTER-03 | Phase 14 | Pending |
