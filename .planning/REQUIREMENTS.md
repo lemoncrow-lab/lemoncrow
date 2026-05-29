@@ -165,11 +165,11 @@
 
 ### SCIP Runtime Provisioning
 
-- [ ] **DLS-PROV-01**: `scip-python` and `scip-typescript` install into Atelier-managed runtime directories at install time
-- [ ] **DLS-PROV-02**: SCIP binary discovery searches Atelier-managed binary directories before system PATH
-- [ ] **DLS-PROV-03**: Tier-2 SCIP indexers can be lazily fetched with checksum verification and safe offline failure
-- [ ] **DLS-PROV-04**: Tier-3 toolchain-backed indexers such as Rust and Java are detected and documented without auto-installing heavy toolchains
-- [ ] **DLS-PROV-05**: Runtime status or availability output shows which SCIP languages are ready, missing, or require user-provided toolchains
+- [x] **DLS-PROV-01**: `scip-python` and `scip-typescript` install into Atelier-managed runtime directories at install time
+- [x] **DLS-PROV-02**: SCIP binary discovery searches Atelier-managed binary directories before system PATH
+- [x] **DLS-PROV-03**: Tier-2 SCIP indexers can be lazily fetched with checksum verification and safe offline failure
+- [x] **DLS-PROV-04**: Tier-3 toolchain-backed indexers such as Rust and Java are detected and documented without auto-installing heavy toolchains
+- [x] **DLS-PROV-05**: Runtime status or availability output shows which SCIP languages are ready, missing, or require user-provided toolchains
 
 ### Validation, Benchmarks, and Docs
 
@@ -287,11 +287,11 @@
 | DLS-SCIP-02 | Phase 19 | Complete |
 | DLS-SCIP-03 | Phase 19 | Complete |
 | DLS-SCIP-04 | Phase 19 | Complete |
-| DLS-PROV-01 | Phase 20 | Pending |
-| DLS-PROV-02 | Phase 20 | Pending |
-| DLS-PROV-03 | Phase 20 | Pending |
-| DLS-PROV-04 | Phase 20 | Pending |
-| DLS-PROV-05 | Phase 20 | Pending |
+| DLS-PROV-01 | Phase 20 | Complete |
+| DLS-PROV-02 | Phase 20 | Complete |
+| DLS-PROV-03 | Phase 20 | Complete |
+| DLS-PROV-04 | Phase 20 | Complete |
+| DLS-PROV-05 | Phase 20 | Complete |
 | DLS-VAL-01 | Phase 21 | Pending |
 | DLS-VAL-02 | Phase 21 | Pending |
 | DLS-VAL-03 | Phase 21 | Pending |

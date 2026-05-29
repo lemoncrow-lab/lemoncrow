@@ -660,9 +660,9 @@ Locked design reference: docs/plans/phase-linear-cache-reuse/01-PLAN.md
 
 - [x] **Phase 16: Canonical Language Registry** — One registry owns language identity across extension detection, tree-sitter outlines, repo-map tags, and SCIP binaries
 - [x] **Phase 17: Tree-sitter Outline Coverage** — Shell, YAML, TOML, JSON, and SQL get dedicated outlines where parser support and savings justify it
-- [ ] **Phase 18: Tree-sitter Repo-map Tags** — Repo-map symbol tags come from tree-sitter for every supported grammar while Python AST and regex fallback remain intact
-- [ ] **Phase 19: Expanded SCIP Registry and Lazy Indexing** — Go, Rust, Java, Ruby, C, and C++ join SCIP semantic indexing with env overrides, argv templates, and cached outputs
-- [ ] **Phase 20: Runtime SCIP Indexer Provisioning** — Atelier-managed install and lazy bootstrap paths make SCIP binaries discoverable without manual PATH setup
+- [x] **Phase 18: Tree-sitter Repo-map Tags** — Repo-map symbol tags come from tree-sitter for every supported grammar while Python AST and regex fallback remain intact
+- [x] **Phase 19: Expanded SCIP Registry and Lazy Indexing** — Go, Rust, Java, Ruby, C, and C++ join SCIP semantic indexing with env overrides, argv templates, and cached outputs
+- [x] **Phase 20: Runtime SCIP Indexer Provisioning** — Atelier-managed install and lazy bootstrap paths make SCIP binaries discoverable without manual PATH setup
 - [ ] **Phase 21: Validation, Benchmarks, and Docs** — Fixtures, honest savings benchmarks, availability reports, and docs prove the expanded language support
 
 ---
@@ -818,8 +818,8 @@ Plans:
 
 **Plans**:
 
-- [ ] 20-01-PLAN.md — Managed Tier-1 install and discovery
-- [ ] 20-02-PLAN.md — Bootstrap and availability status
+- [x] 20-01-PLAN.md — Managed Tier-1 install and discovery
+- [x] 20-02-PLAN.md — Bootstrap and availability status
 
 ---
 
@@ -855,7 +855,7 @@ Plans:
 | 17. Tree-sitter Outline Coverage | 2/2 | Complete | 2026-05-29 |
 | 18. Tree-sitter Repo-map Tags | 2/2 | Complete | 2026-05-29 |
 | 19. Expanded SCIP Registry and Lazy Indexing | 2/2 | Complete | 2026-05-29 |
-| 20. Runtime SCIP Indexer Provisioning | 0/2 | Planned | - |
+| 20. Runtime SCIP Indexer Provisioning | 2/2 | Complete | 2026-05-29 |
 | 21. Validation, Benchmarks, and Docs | 0/? | Not started | - |
 
 ---
@@ -881,11 +881,11 @@ Plans:
 | DLS-SCIP-02 | Phase 19 | Complete |
 | DLS-SCIP-03 | Phase 19 | Complete |
 | DLS-SCIP-04 | Phase 19 | Complete |
-| DLS-PROV-01 | Phase 20 | Pending |
-| DLS-PROV-02 | Phase 20 | Pending |
-| DLS-PROV-03 | Phase 20 | Pending |
-| DLS-PROV-04 | Phase 20 | Pending |
-| DLS-PROV-05 | Phase 20 | Pending |
+| DLS-PROV-01 | Phase 20 | Complete |
+| DLS-PROV-02 | Phase 20 | Complete |
+| DLS-PROV-03 | Phase 20 | Complete |
+| DLS-PROV-04 | Phase 20 | Complete |
+| DLS-PROV-05 | Phase 20 | Complete |
 | DLS-VAL-01 | Phase 21 | Pending |
 | DLS-VAL-02 | Phase 21 | Pending |
 | DLS-VAL-03 | Phase 21 | Pending |

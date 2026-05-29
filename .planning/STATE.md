@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.4
 milestone_name: Dedicated Language Support
 status: executing
-last_updated: "2026-05-29T15:25:00.000Z"
-last_activity: 2026-05-29 -- Phase 20 planned; execution next
+last_updated: "2026-05-29T16:30:00.000Z"
+last_activity: 2026-05-29 -- Phase 20 verified complete; Phase 21 next
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 10
-  completed_plans: 8
-  percent: 67
+  completed_plans: 10
+  percent: 83
 ---
 
 # Project State
@@ -18,15 +18,15 @@ progress:
 **Project:** Atelier Public Benchmarks
 **Milestone:** v0.4 — Dedicated Language Support
 **Updated:** 2026-05-29
-**Status:** Executing Phase 20
+**Status:** Ready for Phase 21
 
 ## Current Phase
 
-**Current: Phase 20 — Runtime SCIP Indexer Provisioning**
+**Current: Phase 21 — Validation, Benchmarks, and Docs**
 
-Next action: `/gsd-execute-phase 20`
+Next action: `/gsd-plan-phase 21`
 
-Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 20 planning is complete with two execution plans for managed Tier-1 SCIP install/discovery and bootstrap availability status.
+Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 20 is complete: Tier-1 SCIP install/discovery, checksum-gated lazy bootstrap, Tier-3 toolchain hints, and availability output are implemented and verified.
 
 ## Roadmap Progress
 
@@ -68,7 +68,7 @@ Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 2
 | Phase 17 | ✅ Complete | Tree-sitter Outline Coverage (DLS-OUTLINE-01–05) |
 | Phase 18 | ✅ Complete | Tree-sitter Repo-map Tags (DLS-TAGS-01–04) |
 | Phase 19 | ✅ Complete | Expanded SCIP Registry and Lazy Indexing (DLS-SCIP-01–04) |
-| Phase 20 | 🔄 Planned | Runtime SCIP Indexer Provisioning (DLS-PROV-01–05) |
+| Phase 20 | ✅ Complete | Runtime SCIP Indexer Provisioning (DLS-PROV-01–05) |
 | Phase 21 | ⏳ Not started | Validation, Benchmarks, and Docs (DLS-VAL-01–04) |
 
 ## Key Decisions Log
@@ -123,8 +123,8 @@ Milestone v0.4 is defined from `docs/plans/dedicated-language-support/`. Phase 2
 
 ## Current Position
 
-Phase: 18 (Tree-sitter Repo-map Tags) — READY TO PLAN
-Previous phase: 17 (Tree-sitter Outline Coverage) — COMPLETE
+Phase: 21 (Validation, Benchmarks, and Docs) — READY TO PLAN
+Previous phase: 20 (Runtime SCIP Indexer Provisioning) — COMPLETE
 Plans: TBD
-Status: Planning Phase 18
-Last activity: 2026-05-29 -- Phase 17 verified complete; Phase 18 planning next
+Status: Planning Phase 21
+Last activity: 2026-05-29 -- Phase 20 verified complete; Phase 21 planning next
