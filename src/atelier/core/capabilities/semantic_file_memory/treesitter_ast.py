@@ -294,9 +294,13 @@ _LANG_CONFIG: dict[str, LangCfg] = {
         body_kinds=frozenset({"template_body", "block"}),
     ),
     "bash": LangCfg(
-        keep_full=frozenset({"variable_assignment", "command", "comment"}),
+        keep_full=frozenset({"variable_assignment", "declaration_command"}),
         keep_signature=frozenset({"function_definition"}),
         body_kinds=frozenset({"compound_statement"}),
+    ),
+    "toml": LangCfg(
+        keep_full=frozenset({"pair"}),
+        keep_first_line=frozenset({"table", "table_array_element"}),
     ),
 }
 
