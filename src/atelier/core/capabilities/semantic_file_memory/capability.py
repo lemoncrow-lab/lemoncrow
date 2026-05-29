@@ -9,6 +9,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from atelier.infra.code_intel.languages import language_for_path
+
 from .indexer import FileIndex
 from .models import FileOutline, SemanticSummary
 from .python_ast import analyze_python, stub_function_bodies
@@ -79,47 +81,12 @@ class SemanticFileMemoryCapability:
 
     @staticmethod
     def _language_for(path: Path) -> str:
-        suffix = path.suffix.lower()
-        return {
-            ".py": "python",
-            ".pyi": "python",
-            ".ts": "typescript",
-            ".tsx": "typescript",
-            ".js": "javascript",
-            ".jsx": "javascript",
-            ".mjs": "javascript",
-            ".cjs": "javascript",
-            ".sql": "sql",
-            ".md": "markdown",
-            ".markdown": "markdown",
-            # Languages handled by the generic outline fallback (regex-based).
-            # Per-language tree-sitter outlines are queued in
-            # docs/plans/active/savings-honest-ab/README.md.
-            ".go": "go",
-            ".rs": "rust",
-            ".java": "java",
-            ".kt": "kotlin",
-            ".kts": "kotlin",
-            ".scala": "scala",
-            ".rb": "ruby",
-            ".cs": "csharp",
-            ".cpp": "cpp",
-            ".cc": "cpp",
-            ".cxx": "cpp",
-            ".hpp": "cpp",
-            ".hh": "cpp",
-            ".c": "c",
-            ".h": "c",
-            ".swift": "swift",
-            ".php": "php",
-            ".sh": "shell",
-            ".bash": "shell",
-            ".zsh": "shell",
-            ".yaml": "yaml",
-            ".yml": "yaml",
-            ".toml": "toml",
-            ".json": "json",
-        }.get(suffix, "text")
+        # Delegate to the canonical registry (DLS-LANG-03/04). Unknown
+        # extensions resolve to None at the registry boundary; callers here
+        # map that to "text". Shell extensions (.sh/.bash/.zsh) now resolve to
+        # "bash", reaching the live tree-sitter grammar.
+        lang = language_for_path(path)
+        return lang.name if lang is not None else "text"
 
     # ------------------------------------------------------------------
     # Core summarisation

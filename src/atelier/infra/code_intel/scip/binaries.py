@@ -6,17 +6,24 @@ import os
 import shutil
 from pathlib import Path
 
-_SCIP_BINARIES = {
-    "python": ("ATELIER_SCIP_PYTHON_BIN", "scip-python"),
-    "typescript": ("ATELIER_SCIP_TYPESCRIPT_BIN", "scip-typescript"),
-    "javascript": ("ATELIER_SCIP_TYPESCRIPT_BIN", "scip-typescript"),
+from atelier.infra.code_intel.languages import language_by_name
+
+# Canonical-keyed env-var names. These strings are operator-supplied config and
+# MUST stay byte-identical across refactors (DLS-LANG-04). The indexer binary
+# name (the fallback) is sourced from the canonical registry's `scip_indexer`.
+_SCIP_ENV_VARS = {
+    "python": "ATELIER_SCIP_PYTHON_BIN",
+    "typescript": "ATELIER_SCIP_TYPESCRIPT_BIN",
+    "javascript": "ATELIER_SCIP_TYPESCRIPT_BIN",
 }
 
 
 def discover_scip_binary(language: str) -> Path | None:
     """Resolve a supported local SCIP indexer binary if one is installed."""
 
-    env_var, fallback = _SCIP_BINARIES.get(language, ("", ""))
+    env_var = _SCIP_ENV_VARS.get(language, "")
+    lang = language_by_name(language)
+    fallback = lang.scip_indexer if lang is not None and lang.scip_indexer else ""
     candidates = [os.environ.get(env_var, ""), fallback]
     for candidate in candidates:
         if not candidate:

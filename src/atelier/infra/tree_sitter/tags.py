@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from atelier.infra.code_intel.languages import language_for_path
+
 TagKind = Literal["definition", "reference"]
 
 
@@ -80,15 +82,12 @@ def _regex_tags(path: Path, text: str, language: str) -> list[Tag]:
 
 
 def detect_language(path: Path) -> str | None:
-    return {
-        ".py": "python",
-        ".js": "javascript",
-        ".jsx": "javascript",
-        ".ts": "typescript",
-        ".tsx": "typescript",
-        ".go": "go",
-        ".rs": "rust",
-    }.get(path.suffix)
+    # Delegate to the canonical registry (DLS-LANG-04). Preserves the
+    # str | None contract: extract_tags_from_text short-circuits to [] on None.
+    # Widening to more languages is safe — _regex_tags falls back to the
+    # javascript pattern for any language without a dedicated regex.
+    lang = language_for_path(path)
+    return lang.name if lang is not None else None
 
 
 def extract_tags_from_text(text: str, file_path: str | Path, language: str | None = None) -> list[Tag]:
