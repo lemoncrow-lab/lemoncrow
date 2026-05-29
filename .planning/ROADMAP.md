@@ -971,8 +971,13 @@ Plans:
   4. Gateway/MCP focused tests cover touched protocol surfaces.
 
 **Plans**: 3 plans
+**Wave 1**
+
 - [ ] 23-01-PLAN.md — MCP/CLI core: make 13 in-scope silent handlers observable (QBL-EXC-01/02/04)
 - [ ] 23-02-PLAN.md — SDK/core/infra: 9 silent handlers observable + remove 4 BLE001 ignores (QBL-EXC-02/03)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 23-03-PLAN.md — Benchmarks: narrow 6 pass + 3 continue sites + remove 4 BLE001 ignores (QBL-EXC-02/03)
 
 ---
