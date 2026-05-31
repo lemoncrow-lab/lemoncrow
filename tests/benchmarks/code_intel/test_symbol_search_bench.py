@@ -100,7 +100,7 @@ def _text_search_plus_read_tokens(repo_root: Path, query: str) -> int:
     matches = search_payload.get("matches", [])
     assert matches, f"expected text-search match for {query}"
     first_match = matches[0]
-    read_payload = tool_smart_read({"path": str(first_match["path"]), "max_lines": 20})
+    read_payload = tool_smart_read({"path": str(first_match["path"])})
     return count_tokens(json.dumps(search_payload, sort_keys=True, default=str)) + count_tokens(
         json.dumps(read_payload, sort_keys=True, default=str)
     )

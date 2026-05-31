@@ -310,18 +310,19 @@ class SemanticFileMemoryCapability:
         if range_spec:
             start, end = self._parse_range_spec(range_spec, len(lines))
             content = "\n".join(lines[start - 1 : end])
+            baseline = _claude_read_baseline_text(source)
             result.update(
                 {
                     "mode": "range",
                     "range": f"{start}-{end}",
                     "content": content,
-                    "tokens_saved": 0,
+                    "tokens_saved": self._token_savings(baseline, content),
                 }
             )
             return result
 
-        # Per-language AST outline (python / typescript / javascript)
-        if not expand and effective_loc > outline_threshold and language in {"python", "typescript", "javascript"}:
+        # Per-language AST outline (python only — TS/JS now go through tree-sitter below)
+        if not expand and effective_loc > outline_threshold and language == "python":
             outline = self._outline_for(
                 file_path,
                 source,
@@ -329,15 +330,20 @@ class SemanticFileMemoryCapability:
                 effective_loc=effective_loc,
             )
             outline_json = json.dumps(outline.model_dump(mode="json"), ensure_ascii=False)
-            baseline = _claude_read_baseline_text(source)
-            result.update(
-                {
-                    "mode": "outline",
-                    "outline": outline.model_dump(mode="json"),
-                    "tokens_saved": self._token_savings(baseline, outline_json),
-                }
-            )
-            return result
+            # Same 25% guard as tree-sitter branch: don't ship a fake savings
+            # event if the outline is larger than the source (e.g. parse failed
+            # and returned an empty FileOutline, or source has invalid syntax).
+            if len(outline_json) <= int(len(source) * 0.75):
+                baseline = _claude_read_baseline_text(source)
+                result.update(
+                    {
+                        "mode": "outline",
+                        "outline": outline.model_dump(mode="json"),
+                        "tokens_saved": self._token_savings(baseline, outline_json),
+                    }
+                )
+                return result
+            # Guard failed — fall through to tree-sitter / generic / full.
 
         # Tree-sitter outline for languages with a per-grammar config.
         # Same 25% guard as generic: if the structural extraction doesn't
@@ -380,11 +386,12 @@ class SemanticFileMemoryCapability:
                 )
                 return result
 
+        baseline = _claude_read_baseline_text(source)
         result.update(
             {
                 "mode": "full",
                 "content": source,
-                "tokens_saved": self._token_savings(source, source),
+                "tokens_saved": self._token_savings(baseline, source),
             }
         )
         return result

@@ -139,10 +139,12 @@ def run_case(
         response = tool_fn(case.args)
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000
+        # Use baseline_tokens (not 0) so a crash doesn't look like 100% savings.
+        # The agent would still have to use the baseline on failure.
         return CaseResult(
             case=case,
             response={},
-            atelier_tokens=0,
+            atelier_tokens=case.baseline_tokens,
             baseline_tokens=case.baseline_tokens,
             quality_score=case.quality_score,
             input_file_tokens=0,

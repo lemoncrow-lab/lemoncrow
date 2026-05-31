@@ -89,7 +89,7 @@ _LANG_CONFIG: dict[str, LangCfg] = {
         ),
         container=frozenset({"impl_item", "trait_item", "mod_item"}),
         member=frozenset({"function_item", "function_signature_item", "const_item"}),
-        body_kinds=frozenset({"block", "declaration_list"}),
+        body_kinds=frozenset({"block", "declaration_list", "field_declaration_list", "enum_variant_list"}),
     ),
     "java": LangCfg(
         keep_full=frozenset({"package_declaration", "import_declaration"}),
@@ -323,6 +323,43 @@ _LANG_CONFIG: dict[str, LangCfg] = {
     "json": LangCfg(
         unwrap=frozenset({"document", "object"}),
         keep_first_line=frozenset({"pair"}),
+    ),
+    # JavaScript — ES modules and CommonJS class/function declarations.
+    # IIFE-wrapped files (e.g. UMD bundles) produce no outline; guard falls through to full.
+    "javascript": LangCfg(
+        keep_full=frozenset({"import_statement"}),
+        keep_signature=frozenset({"function_declaration", "generator_function_declaration"}),
+        container=frozenset({"class_declaration"}),
+        member=frozenset({"method_definition", "field_definition"}),
+        body_kinds=frozenset({"statement_block", "class_body"}),
+        unwrap=frozenset({"export_statement"}),
+    ),
+    # TypeScript — export_statement wraps most top-level declarations; unwrap it
+    # so the inner node is processed by keep_signature / container rules.
+    # import_statement uses keep_first_line (not keep_full) because TS compiler
+    # files have massive multi-import blocks that would bloat the outline.
+    "typescript": LangCfg(
+        keep_first_line=frozenset({"import_statement"}),
+        keep_signature=frozenset(
+            {
+                "function_declaration",
+                "function_signature",
+                "interface_declaration",
+                "type_alias_declaration",
+                "enum_declaration",
+            }
+        ),
+        container=frozenset({"class_declaration"}),
+        member=frozenset(
+            {
+                "method_definition",
+                "method_signature",
+                "property_signature",
+                "public_field_definition",
+            }
+        ),
+        body_kinds=frozenset({"statement_block", "class_body", "interface_body", "enum_body"}),
+        unwrap=frozenset({"export_statement"}),
     ),
 }
 

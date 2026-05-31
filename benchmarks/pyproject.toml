@@ -33,6 +33,8 @@ packages = ["terminalbench", "ab"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = ["mcp_tools/fixtures/downloaded"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]

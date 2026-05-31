@@ -483,8 +483,8 @@ class AtelierRuntimeCore:
             if path:
                 suggestion = {
                     "tool": "read",
-                    "args": {"path": path, "max_lines": 120},
-                    "reason": "Use AST-aware smart read with token metrics.",
+                    "args": {"file_path": path},
+                    "reason": "Use AST-aware smart read with automatic outline mode.",
                 }
         elif text.startswith("find "):
             query = text.replace("find", "", 1).strip()

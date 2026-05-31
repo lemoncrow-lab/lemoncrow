@@ -102,6 +102,10 @@ packages = ["src/atelier", "src/benchmarks"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Downloaded third-party fixtures must not be linted (force-exclude applies
+# even when ruff is invoked with explicit file paths, e.g. from pre-commit).
+exclude = ["benchmarks/mcp_tools/fixtures/downloaded"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "BLE", "UP", "RUF"]
