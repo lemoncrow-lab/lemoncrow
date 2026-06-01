@@ -22,9 +22,13 @@ from atelier.gateway.cli.commands import register as _register_command_modules
 from atelier.gateway.cli.commands._dev import (
     MCP_TOOL_ONLY_COMMANDS,
     MCP_TOOL_ONLY_GROUPS,
-    _DummyGroup,
     _check_dev_mode,
+    _DummyGroup,
+)
+from atelier.gateway.cli.commands._dev import (
     dev_command as _module_dev_command,
+)
+from atelier.gateway.cli.commands._dev import (
     dev_group as _module_dev_group,
 )
 from atelier.gateway.cli.commands.admin import _project_root
@@ -267,9 +271,9 @@ def main() -> None:
 __all__ = [
     "MCP_TOOL_ONLY_COMMANDS",
     "MCP_TOOL_ONLY_GROUPS",
-    "_DummyGroup",
     "_IMPORT_PROGRESS_HANDLER_FLAG",
     "_IMPORT_PROGRESS_LOGGER",
+    "_DummyGroup",
     "_atelier_version",
     "_begin_cli_telemetry",
     "_check_dev_mode",

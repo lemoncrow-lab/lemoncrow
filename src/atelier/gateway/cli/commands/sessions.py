@@ -196,7 +196,6 @@ def session_list_cmd(ctx: click.Context, since: str | None, as_json: bool) -> No
     """List recent sessions with costs and durations (newest first, max 20)."""
     import dataclasses
 
-
     from atelier.infra.runtime.session_report import (
         build_report,
         list_run_files,

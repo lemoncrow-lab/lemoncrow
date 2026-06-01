@@ -728,9 +728,8 @@ def eval_from_cluster(ctx: click.Context, cluster_id: str) -> None:
 
 __all__ = [
     "_emit_lesson_inbox",
-    "_evaluate_eval_case",
     "_eval_dir",
-    "_latest_ledger_path",
+    "_evaluate_eval_case",
     "_ledger_dir",
     "_ledger_path",
     "_load_eval",
