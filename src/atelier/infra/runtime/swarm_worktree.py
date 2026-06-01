@@ -18,6 +18,10 @@ class DirtyPath:
     def is_delete(self) -> bool:
         return self.source_path is None and "D" in self.status
 
+    @property
+    def is_untracked(self) -> bool:
+        return self.status == "??"
+
 
 def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     completed = subprocess.run(
@@ -67,6 +71,50 @@ def _safe_remove(path: Path) -> None:
         path.unlink()
 
 
+_SKIP_UNTRACKED_DIR_NAMES = frozenset(
+    {
+        ".atelier-benchmarks",
+        ".cache",
+        ".codegraph",
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".venv",
+        "build",
+        "coverage",
+        "dist",
+        "node_modules",
+    }
+)
+_ALLOWLISTED_HIDDEN_DIRS = frozenset({".github", ".lessons", ".planning"})
+_SKIP_UNTRACKED_FILE_SUFFIXES = frozenset(
+    {
+        ".db",
+        ".log",
+        ".pyc",
+        ".pyd",
+        ".pyo",
+        ".sqlite",
+        ".sqlite3",
+    }
+)
+_SKIP_UNTRACKED_FILE_NAMES = frozenset({"semantic_file_index.json"})
+
+
+def _should_skip_untracked_path(path: str) -> bool:
+    parts = Path(path).parts
+    if not parts:
+        return False
+    head = parts[0]
+    if head.startswith(".") and head not in _ALLOWLISTED_HIDDEN_DIRS:
+        return True
+    if any(part in _SKIP_UNTRACKED_DIR_NAMES for part in parts):
+        return True
+    candidate = Path(path)
+    return candidate.name in _SKIP_UNTRACKED_FILE_NAMES or candidate.suffix in _SKIP_UNTRACKED_FILE_SUFFIXES
+
+
 class SwarmWorktreeManager:
     def __init__(self, *, repo_root: Path, pool_root: Path) -> None:
         self.repo_root = Path(repo_root).resolve()
@@ -80,6 +128,8 @@ class SwarmWorktreeManager:
 
     def sync_dirty_state(self, *, base_worktree: Path, child_worktree: Path) -> None:
         for item in collect_dirty_snapshot(base_worktree):
+            if item.is_untracked and _should_skip_untracked_path(item.path):
+                continue
             if item.source_path:
                 _safe_remove(child_worktree / item.source_path)
             if item.is_delete:

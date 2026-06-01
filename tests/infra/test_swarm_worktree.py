@@ -81,3 +81,49 @@ def test_worktree_manager_copies_untracked_directories(tmp_path: Path) -> None:
 
     manager.remove_worktree(child)
     assert not child.exists()
+
+
+def test_worktree_manager_skips_generated_untracked_directories(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    (repo / "tracked.txt").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+
+    generated = repo / ".codegraph" / "cache"
+    generated.mkdir(parents=True)
+    (generated / "index.json").write_text('{"huge": true}\n', encoding="utf-8")
+    useful = repo / "scratch" / "nested"
+    useful.mkdir(parents=True)
+    (useful / "note.txt").write_text("hello\n", encoding="utf-8")
+
+    manager = SwarmWorktreeManager(repo_root=repo, pool_root=tmp_path / "pool")
+    child = manager.create_worktree(run_id="swarm-test", child_id="run-01")
+    manager.sync_dirty_state(base_worktree=repo, child_worktree=child)
+
+    assert not (child / ".codegraph").exists()
+    assert (child / "scratch" / "nested" / "note.txt").read_text(encoding="utf-8") == "hello\n"
+
+    manager.remove_worktree(child)
+    assert not child.exists()
+
+
+def test_worktree_manager_copies_allowlisted_hidden_directories(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    (repo / "tracked.txt").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+
+    planning = repo / ".planning" / "notes"
+    planning.mkdir(parents=True)
+    (planning / "todo.md").write_text("keep this\n", encoding="utf-8")
+
+    manager = SwarmWorktreeManager(repo_root=repo, pool_root=tmp_path / "pool")
+    child = manager.create_worktree(run_id="swarm-test", child_id="run-01")
+    manager.sync_dirty_state(base_worktree=repo, child_worktree=child)
+
+    assert (child / ".planning" / "notes" / "todo.md").read_text(encoding="utf-8") == "keep this\n"
+
+    manager.remove_worktree(child)
+    assert not child.exists()
