@@ -1752,12 +1752,16 @@ def initialize_swarm_run(
     used_program_md: bool = False,
     launch_provider: Literal["cli", "openai", "litellm"] = "cli",
     launch_effort: str = "",
+    evaluator_backend: SwarmEvaluatorBackend = "auto",
+    evaluator_model: str = "",
     child_command: list[str],
     runs: int,
     validation_commands: list[str],
     keep_worktrees: bool,
     detached: bool,
     continuous: bool = False,
+    max_no_progress_waves: int = 3,
+    max_evaluator_failures: int = 3,
 ) -> tuple[SwarmRunState, Path]:
     root = Path(root).resolve()
     repo_root = Path(repo_root).resolve()
@@ -1801,10 +1805,14 @@ def initialize_swarm_run(
         runner_model=runner_model,
         launch_provider=launch_provider,
         launch_effort=launch_effort,
+        evaluator_backend=evaluator_backend,
+        evaluator_model=evaluator_model,
         child_command=list(child_command),
         validation_commands=list(validation_commands),
         runs=runs,
         max_runs=runs,
+        max_no_progress_waves=max(max_no_progress_waves, 1),
+        max_evaluator_failures=max(max_evaluator_failures, 1),
         keep_worktrees=keep_worktrees,
         detached=detached,
         dirty_paths=dirty_paths,
@@ -1813,6 +1821,7 @@ def initialize_swarm_run(
             "The agent command must consume the provided worktree/spec env vars to use Atelier MCP/runtime inside each child.",
             "Accepted child patches are merged onto an integration worktree in score order; later waves branch from that accepted base.",
             "max_runs is the per-wave cap; planned_runs records how many children the coordinator actually launched in that wave.",
+            "Continuous mode now uses a semantic evaluator plus stagnation budgets to decide whether later waves should keep running.",
         ],
     )
     _write_run_base_snapshot_manifest(state, run_dir)
@@ -2309,11 +2318,54 @@ def launch_swarm_children(root: Path, state_path: Path) -> SwarmRunState:
                 save_swarm_state(state_path, state)
                 break
 
-            if not accepted_any:
-                state.status = "success"
-                state.stop_reason = f"Stopped after wave {wave_index}: no accepted improvements."
+            if state.consecutive_evaluator_failures >= max(state.max_evaluator_failures, 1):
+                state.status = "failed"
+                state.stop_reason = (
+                    f"Stopped after wave {wave_index}: evaluator failed "
+                    f"{state.consecutive_evaluator_failures} consecutive times."
+                )
                 save_swarm_state(state_path, state)
                 break
+
+            if state.convergence_status == "blocked":
+                state.status = "failed"
+                state.stop_reason = f"Stopped after wave {wave_index}: evaluator marked the run blocked."
+                save_swarm_state(state_path, state)
+                break
+
+            if state.convergence_status == "converged":
+                state.status = "success"
+                state.stop_reason = f"Stopped after wave {wave_index}: evaluator marked the run converged."
+                save_swarm_state(state_path, state)
+                break
+
+            if accepted_any:
+                continue
+
+            should_continue = (
+                state.convergence_status == "continue"
+                and state.consecutive_no_progress_waves < max(state.max_no_progress_waves, 1)
+            )
+            if should_continue:
+                save_swarm_state(state_path, state)
+                continue
+
+            state.status = "success"
+            state.stop_reason = (
+                f"Stopped after wave {wave_index}: no accepted improvements across "
+                f"{state.consecutive_no_progress_waves} consecutive wave(s)."
+            )
+            if state.convergence_status == "stagnating":
+                state.stop_reason = (
+                    f"Stopped after wave {wave_index}: evaluator marked the run stagnating after "
+                    f"{state.consecutive_no_progress_waves} idle wave(s)."
+                )
+            elif state.convergence_summary:
+                state.stop_reason = (
+                    f"Stopped after wave {wave_index}: {state.convergence_summary}"
+                )
+            save_swarm_state(state_path, state)
+            break
 
         state = load_swarm_state(state_path)
         if not state.keep_worktrees:
