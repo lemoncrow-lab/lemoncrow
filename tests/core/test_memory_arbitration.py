@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from types import SimpleNamespace
 
@@ -62,14 +63,21 @@ def test_arbitration_uses_ollama_json_for_similar_blocks(
 ) -> None:
     existing = MemoryBlock(agent_id="atelier:code", label="style", value="prefer compact scoped patches")
     new_fact = MemoryBlock(agent_id="atelier:code", label="style", value="prefer compact scoped edits")
-    monkeypatch.setattr(
-        "atelier.core.capabilities.memory_arbitration.arbiter.chat",
-        lambda messages, json_schema=None: {
+    seen_messages: list[dict[str, str]] = []
+
+    def fake_chat(messages: list[dict[str, str]], json_schema: object | None = None) -> dict[str, str]:
+        _ = json_schema
+        seen_messages.extend(messages)
+        return {
             "op": "UPDATE",
             "target_block_id": existing.id,
             "merged_value": "prefer compact scoped patches and edits",
             "reason": "same preference",
-        },
+        }
+
+    monkeypatch.setattr(
+        "atelier.core.capabilities.memory_arbitration.arbiter.chat",
+        fake_chat,
     )
 
     decision = arbitrate(new_fact, _MemoryStore([existing]), NullEmbedder())
@@ -77,3 +85,12 @@ def test_arbitration_uses_ollama_json_for_similar_blocks(
     assert decision.op == "UPDATE"
     assert decision.target_block_id == existing.id
     assert decision.merged_value == "prefer compact scoped patches and edits"
+    assert seen_messages[1]["content"] == json.dumps(
+        {
+            "new_fact": new_fact.model_dump(mode="json"),
+            "existing": [existing.model_dump(mode="json")],
+            "ops": ["ADD", "UPDATE", "DELETE", "NOOP"],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )

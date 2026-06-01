@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 from atelier.core.capabilities.tool_supervision.search_read import (
+    FileMatch,
     SearchReadResult,
+    Snippet,
     _assert_safe_args,
     _cluster_snippets,
     _detect_lang,
@@ -265,6 +267,35 @@ def test_search_read_to_dict_schema(tmp_path: Path) -> None:
             assert "line_end" in sn
             assert "score" in sn
             assert "text" in sn
+
+
+def test_search_read_to_dict_omits_empty_metadata_fields() -> None:
+    result = SearchReadResult(
+        matches=[
+            FileMatch(
+                path="src/example.py",
+                lang="python",
+                snippets=[
+                    Snippet(line_start=1, line_end=2, score=0.5, text="alpha"),
+                    Snippet(line_start=3, line_end=4, score=0.8, text="beta", byte_start=10, byte_end=14),
+                ],
+                outline=None,
+                tokens=12,
+            )
+        ],
+        total_tokens=12,
+        tokens_saved_vs_naive=0,
+        cache_hit=False,
+    )
+
+    payload = search_read_to_dict(result)
+    match = payload["matches"][0]
+
+    assert "outline" not in match
+    assert "byte_start" not in match["snippets"][0]
+    assert "byte_end" not in match["snippets"][0]
+    assert match["snippets"][1]["byte_start"] == 10
+    assert match["snippets"][1]["byte_end"] == 14
 
 
 def test_search_read_rejects_injection_attempt(tmp_path: Path) -> None:

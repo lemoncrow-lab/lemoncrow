@@ -39,6 +39,10 @@ def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _compact_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 def _default_user_id() -> str:
     configured = os.environ.get("ATELIER_OPENMEMORY_USER_ID", "").strip()
     if configured:
@@ -334,7 +338,7 @@ def maybe_link_trace_to_memory_context(
     }
     try:
         stored = add_memories(
-            messages=[{"role": "system", "content": json.dumps(record, ensure_ascii=False, sort_keys=True)}],
+            messages=[{"role": "system", "content": _compact_json(record)}],
             user_id=_default_user_id(),
             metadata={
                 "atelier_kind": "trace_context_link",
@@ -387,7 +391,7 @@ def maybe_store_memory_pointer(trace_id: str, memory_id: str) -> dict[str, objec
     }
     try:
         stored = add_memories(
-            messages=[{"role": "system", "content": json.dumps(record, ensure_ascii=False, sort_keys=True)}],
+            messages=[{"role": "system", "content": _compact_json(record)}],
             user_id=_default_user_id(),
             metadata={
                 "atelier_kind": "trace_memory_pointer",
@@ -423,7 +427,7 @@ def link_trace_with_memory_context(
     }
     try:
         stored = add_memories(
-            messages=[{"role": "system", "content": json.dumps(record, ensure_ascii=False, sort_keys=True)}],
+            messages=[{"role": "system", "content": _compact_json(record)}],
             user_id=_default_user_id(),
             metadata={
                 "atelier_kind": "trace_context_bundle",

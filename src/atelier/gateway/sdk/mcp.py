@@ -28,6 +28,7 @@ from atelier.gateway.sdk.client import (
     TraceRecordResult,
 )
 from atelier.gateway.sdk.local import LocalClient
+from atelier.gateway.trace_payloads import serialize_trace_learnings, serialize_validation_results
 
 
 class _LoopbackTransport(MCPToolTransport):
@@ -44,7 +45,7 @@ class _LoopbackTransport(MCPToolTransport):
             "search": mcp_server.tool_smart_search,
             "edit": mcp_server.tool_smart_edit,
             "compact": mcp_server.tool_compact,
-            "code": mcp_server.tool_code,
+            "symbols": mcp_server.tool_symbols,
         }
         return cast(dict[str, Any], tools[name](arguments))
 
@@ -242,9 +243,7 @@ class MCPClient(LocalClient):
         validation_results: list[ValidationResult] | None = None,
         learnings: list[str | dict[str, Any] | TraceLearning] | None = None,
     ) -> TraceRecordResult:
-        serialized_learnings = [
-            item.model_dump(mode="json") if isinstance(item, TraceLearning) else item for item in (learnings or [])
-        ]
+        serialized_learnings = serialize_trace_learnings(learnings)
         payload = self._transport.call_tool(
             "trace",
             {
@@ -258,7 +257,7 @@ class MCPClient(LocalClient):
                 "errors_seen": errors_seen or [],
                 "diff_summary": diff_summary,
                 "output_summary": output_summary,
-                "validation_results": [result.model_dump(mode="json") for result in (validation_results or [])],
+                "validation_results": serialize_validation_results(validation_results),
                 "learnings": serialized_learnings,
             },
         )

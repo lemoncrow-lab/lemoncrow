@@ -468,8 +468,10 @@ def search_read_to_dict(result: SearchReadResult, *, include_metadata: bool = Tr
             }
             if include_metadata:
                 entry["score"] = snippet.score
-                entry["byte_start"] = snippet.byte_start
-                entry["byte_end"] = snippet.byte_end
+                if snippet.byte_start is not None:
+                    entry["byte_start"] = snippet.byte_start
+                if snippet.byte_end is not None:
+                    entry["byte_end"] = snippet.byte_end
             snippets.append(entry)
 
         match_payload: dict[str, Any] = {
@@ -478,8 +480,9 @@ def search_read_to_dict(result: SearchReadResult, *, include_metadata: bool = Tr
         }
         if include_metadata:
             match_payload["lang"] = match.lang
-            match_payload["outline"] = match.outline
             match_payload["tokens"] = match.tokens
+            if match.outline is not None:
+                match_payload["outline"] = match.outline
         matches.append(match_payload)
 
     payload: dict[str, Any] = {"matches": matches}

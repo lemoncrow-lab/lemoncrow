@@ -193,6 +193,58 @@ def test_parse_copilot_tool_execution_complete_keeps_result_content() -> None:
     assert turns[0]["content"] == "10. first line\n11. second line"
 
 
+def test_parse_copilot_tool_request_compacts_json_fallback_content() -> None:
+    content = json.dumps(
+        {
+            "type": "assistant.message",
+            "timestamp": "2026-05-16T00:00:00Z",
+            "data": {
+                "toolRequests": [
+                    {
+                        "name": "view",
+                        "arguments": {
+                            "path": "/tmp/demo.tsx",
+                            "view_range": [10, 12],
+                        },
+                    }
+                ]
+            },
+        }
+    )
+
+    turns = parse_session_turns(content, "copilot")
+
+    assert [turn["kind"] for turn in turns] == ["tool_call"]
+    assert turns[0]["content"] == '{"path":"/tmp/demo.tsx","view_range":[10,12]}'
+
+
+def test_parse_claude_diagnostics_attachment_compacts_json_content() -> None:
+    content = json.dumps(
+        {
+            "type": "attachment",
+            "id": "attachment-1",
+            "timestamp": "2026-05-16T00:00:00Z",
+            "attachment": {
+                "type": "diagnostics",
+                "files": {
+                    "src/app.py": [
+                        {
+                            "severity": "error",
+                            "message": "Missing import",
+                        }
+                    ]
+                },
+            },
+        }
+    )
+
+    turns = parse_session_turns(content, "claude")
+
+    assert [turn["kind"] for turn in turns] == ["attachment"]
+    assert turns[0]["content"] == '{"src/app.py":[{"severity":"error","message":"Missing import"}]}'
+    assert turns[0]["attachments"][0]["content"] == ('{"src/app.py":[{"severity":"error","message":"Missing import"}]}')
+
+
 def test_parse_claude_assigns_usage_to_only_one_visible_turn() -> None:
     content = "\n".join(
         [

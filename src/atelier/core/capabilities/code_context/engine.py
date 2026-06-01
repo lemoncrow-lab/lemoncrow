@@ -60,9 +60,10 @@ from atelier.core.capabilities.code_context.output_policy import (
     hard_cap_chars,
     resolve_output_policy,
 )
+from atelier.core.capabilities.code_context.rerank import SearchReranker
 from atelier.core.capabilities.repo_map import build_repo_map
 from atelier.core.capabilities.repo_map.budget import count_tokens
-from atelier.core.capabilities.repo_map.graph import iter_source_files
+from atelier.core.capabilities.repo_map.graph import iter_source_files, should_skip_relative_path
 from atelier.core.foundation.paths import default_store_root
 from atelier.core.service.telemetry import emit_product_local
 from atelier.infra.code_intel.astgrep import (
@@ -82,6 +83,7 @@ _MAX_FILE_BYTES = 1_000_000
 logger = logging.getLogger(__name__)
 _FTS_TERM_RE = re.compile(r"[A-Za-z0-9_]+")
 _CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_PRECISE_SYMBOL_QUERY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
 _SINCE_RELATIVE_RE = re.compile(r"^(?P<amount>\d+)(?P<unit>[dwmy])$")
 _JS_IMPORT_RE = re.compile(
     r"(?:from\s+['\"]([^'\"]+)['\"]|import\s*\(\s*['\"]([^'\"]+)['\"]\s*\)|require\(\s*['\"]([^'\"]+)['\"]\s*\))"
@@ -195,6 +197,7 @@ _EXPLORE_ESSENTIAL_KEYS = [
     "provenance",
 ]
 _EXPLORE_OPTIONAL_KEYS = ["relationships", "files", "additional_relevant_files"]
+_EXPLORE_SOURCE_SECTION_MAX_CHARS = resolve_output_policy("context").max_code_block_chars
 _IMPACT_ESSENTIAL_KEYS = [
     "target",
     "target_type",
@@ -465,6 +468,25 @@ def _identifier_terms(text: str) -> list[str]:
     return terms
 
 
+def _is_precise_symbol_query(query: str) -> bool:
+    return bool(_PRECISE_SYMBOL_QUERY_RE.fullmatch(query.strip()))
+
+
+def _exact_symbol_hits(hits: list[SymbolRecord], query: str) -> list[SymbolRecord]:
+    normalized_query = query.strip()
+    normalized_query_lower = normalized_query.lower()
+    case_sensitive = [
+        hit for hit in hits if hit.symbol_name == normalized_query or hit.qualified_name == normalized_query
+    ]
+    if case_sensitive:
+        return case_sensitive
+    return [
+        hit
+        for hit in hits
+        if hit.symbol_name.lower() == normalized_query_lower or hit.qualified_name.lower() == normalized_query_lower
+    ]
+
+
 def _query_implies_test_scope(query: str) -> bool:
     lowered = query.lower()
     return any(token in lowered for token in ("test", "tests", "spec", "pytest", "unittest"))
@@ -573,6 +595,7 @@ class CodeContextEngine:
         self._cache = RetrievalCache(self.db_path)
         self._budget = BudgetPacker()
         self._semantic_ranker = SemanticSearchRanker(self.repo_root, store_root=default_store_root())
+        self._search_reranker = SearchReranker()
         self.intel_store = SymbolIntelStore(
             cache=self._cache,
             packer=self._budget,
@@ -893,6 +916,7 @@ class CodeContextEngine:
         temporal_scope = scope in {"repo", "deleted"}
         parsed_since = _parse_since_filter(since) if temporal_scope else None
         normalized_touched_by = _normalize_touched_by(touched_by) if temporal_scope else None
+        rerank_limit = self._search_reranker.pre_rerank_limit(limit, mode=resolved_mode, scope=scope)
         cache_args = {
             "query": query,
             "limit": limit,
@@ -908,7 +932,9 @@ class CodeContextEngine:
             "since_ts": parsed_since,
             "touched_by": normalized_touched_by,
             "budget_tokens": effective_budget_tokens,
-            "semantic_candidate_limit": semantic_candidate_limit(limit),
+            "semantic_candidate_limit": semantic_candidate_limit(rerank_limit),
+            "rerank_limit": rerank_limit,
+            "rerank": self._search_reranker.cache_fingerprint(mode=resolved_mode, scope=scope),
             "provenance_filter": provenance_filter,
         }
         hit, cached = self._cache_get("code.search", cache_args)
@@ -2441,6 +2467,7 @@ class CodeContextEngine:
             )
         resolved_mode = resolve_search_mode(query, mode)
         candidate_files: set[str] | None = None
+        rerank_limit = self._search_reranker.pre_rerank_limit(limit, mode=resolved_mode, scope=scope)
         if scope == "repo" and resolved_mode != "semantic":
             candidate_files = self._zoekt_candidate_files(query, max_files=max(limit * 4, 40))
         if resolved_mode == "lexical":
@@ -2456,7 +2483,7 @@ class CodeContextEngine:
                     candidate_files=candidate_files,
                 )
         else:
-            candidate_limit = semantic_candidate_limit(limit)
+            candidate_limit = semantic_candidate_limit(rerank_limit)
             if scope == "external":
                 hits = self.intel_store.search_symbols(
                     query,
@@ -2494,15 +2521,27 @@ class CodeContextEngine:
                 with contextlib.suppress(Exception):
                     commit_hits = self._search_commit_chunks(query, limit=candidate_limit)
                 if resolved_mode == "semantic":
-                    hits = (semantic_hits + commit_hits)[:limit]
+                    hits = (semantic_hits + commit_hits)[:rerank_limit]
                 else:
                     hits = self._semantic_ranker.reciprocal_rank_fuse(
-                        lexical_hits, semantic_hits + commit_hits, limit=limit
+                        lexical_hits, semantic_hits + commit_hits, limit=rerank_limit
                     )
         if file_glob:
             hits = [hit for hit in hits if fnmatch.fnmatch(hit.file_path, file_glob)]
+        hits = [hit for hit in hits if not should_skip_relative_path(hit.file_path)]
         if provenance_filter is not None:
             hits = [h for h in hits if h.provenance == provenance_filter]
+        if _is_precise_symbol_query(query):
+            exact_hits = _exact_symbol_hits(hits, query)
+            if exact_hits:
+                hits = exact_hits
+        hits = self._search_reranker.rerank(
+            query,
+            hits,
+            mode=resolved_mode,
+            scope=scope,
+            source_loader=self._load_symbol_source_for_rerank,
+        )
         return [self._attach_snippet(symbol, snippet=snippet, snippet_lines=snippet_lines) for symbol in hits[:limit]]
 
     def _search_symbols_local(
@@ -4526,6 +4565,15 @@ class CodeContextEngine:
         data = (self.repo_root / rel).read_bytes()
         return data[start_byte:end_byte].decode("utf-8", errors="replace")
 
+    def _load_symbol_source_for_rerank(self, symbol: SymbolRecord) -> str:
+        if symbol.provenance == "commit" or symbol.kind == "commit":
+            return ""
+        if not symbol.file_path or symbol.end_byte <= symbol.start_byte:
+            return ""
+        with contextlib.suppress(OSError, ValueError):
+            return self._read_file_slice(symbol.file_path, symbol.start_byte, symbol.end_byte)
+        return ""
+
     def _source_section_for_symbol(
         self,
         symbol: SymbolRecord | dict[str, Any],
@@ -4551,7 +4599,7 @@ class CodeContextEngine:
             "symbol_name": payload["symbol_name"],
             "qualified_name": payload["qualified_name"],
             "line_numbers": line_numbers,
-            "content": content,
+            "content": hard_cap_chars(content, _EXPLORE_SOURCE_SECTION_MAX_CHARS),
         }
 
     def _merge_nearby_source_sections(
@@ -4606,8 +4654,11 @@ class CodeContextEngine:
         end_idx = min(len(lines), max(start_idx, end_line))
         segment = lines[start_idx:end_idx]
         if line_numbers:
-            return "\n".join(f"{start_line + idx}\t{line}" for idx, line in enumerate(segment))
-        return "\n".join(segment)
+            return hard_cap_chars(
+                "\n".join(f"{start_line + idx}\t{line}" for idx, line in enumerate(segment)),
+                _EXPLORE_SOURCE_SECTION_MAX_CHARS,
+            )
+        return hard_cap_chars("\n".join(segment), _EXPLORE_SOURCE_SECTION_MAX_CHARS)
 
     def _usage_item(self, reference: UsageReference, *, snippet_lines: int) -> dict[str, Any]:
         payload = reference.model_dump(mode="json", exclude_none=True)

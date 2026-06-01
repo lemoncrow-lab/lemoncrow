@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -87,6 +88,8 @@ def test_link_trace_persists_via_add_memories(monkeypatch: pytest.MonkeyPatch) -
     assert name == "add_memories"
     assert arguments["infer"] is False
     assert arguments["metadata"]["atelier_kind"] == "trace_context_link"
+    content = arguments["messages"][0]["content"]
+    assert content == json.dumps(json.loads(content), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def test_fetch_context_uses_search_memory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -115,6 +118,8 @@ def test_store_pointer_persists_via_add_memories(monkeypatch: pytest.MonkeyPatch
     name, arguments = client.calls[0]
     assert name == "add_memories"
     assert arguments["metadata"]["memory_id"] == "mem-456"
+    content = arguments["messages"][0]["content"]
+    assert content == json.dumps(json.loads(content), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 @pytest.mark.parametrize(

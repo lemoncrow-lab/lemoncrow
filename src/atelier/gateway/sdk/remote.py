@@ -31,6 +31,7 @@ from atelier.gateway.sdk.client import (
     SavingsSummary,
     TraceRecordResult,
 )
+from atelier.gateway.trace_payloads import serialize_trace_learnings, serialize_validation_results
 
 
 class _ServiceClient(Protocol):
@@ -176,9 +177,7 @@ class RemoteClient(AtelierClient):
         validation_results: list[ValidationResult] | None = None,
         learnings: list[str | dict[str, Any] | TraceLearning] | None = None,
     ) -> TraceRecordResult:
-        serialized_learnings = [
-            item.model_dump(mode="json") if isinstance(item, TraceLearning) else item for item in (learnings or [])
-        ]
+        serialized_learnings = serialize_trace_learnings(learnings)
         payload = self._ensure_ok(
             self._client.record_trace(
                 {
@@ -192,7 +191,7 @@ class RemoteClient(AtelierClient):
                     "errors_seen": errors_seen or [],
                     "diff_summary": diff_summary,
                     "output_summary": output_summary,
-                    "validation_results": [result.model_dump(mode="json") for result in (validation_results or [])],
+                    "validation_results": serialize_validation_results(validation_results),
                     "learnings": serialized_learnings,
                 }
             )

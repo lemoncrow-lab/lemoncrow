@@ -115,7 +115,10 @@ def arbitrate(
                     "role": "system",
                     "content": "Decide how to merge a new memory fact. Return strict JSON only.",
                 },
-                {"role": "user", "content": json.dumps(prompt, sort_keys=True)},
+                {
+                    "role": "user",
+                    "content": json.dumps(prompt, sort_keys=True, separators=(",", ":")),
+                },
             ],
             json_schema=schema,
         )
