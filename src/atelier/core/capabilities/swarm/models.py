@@ -95,6 +95,8 @@ class SwarmRunState(BaseModel):
     integration_base_ref: str = ""
     spec_source_path: str
     copied_spec_path: str
+    runner_name: str = "custom"
+    runner_model: str = ""
     child_command: list[str]
     validation_commands: list[str] = Field(default_factory=list)
     runs: int

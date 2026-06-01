@@ -33,6 +33,8 @@ def test_swarm_start_reports_winner(monkeypatch: object, tmp_path: Path) -> None
         integration_base_ref="HEAD",
         spec_source_path=str(spec),
         copied_spec_path=str(spec),
+        runner_name="claude",
+        runner_model="sonnet",
         child_command=["echo", "hi"],
         runs=1,
         current_wave=2,
@@ -106,6 +108,8 @@ def test_swarm_start_accepts_runner_profile(monkeypatch: object, tmp_path: Path)
         integration_base_ref="HEAD",
         spec_source_path=str(spec),
         copied_spec_path=str(spec),
+        runner_name="claude",
+        runner_model="sonnet",
         child_command=["claude", "-p", "stub"],
         runs=1,
         children=[],
@@ -115,6 +119,8 @@ def test_swarm_start_accepts_runner_profile(monkeypatch: object, tmp_path: Path)
 
     def _initialize(**kwargs: object) -> tuple[SwarmRunState, Path]:
         captured["child_command"] = kwargs["child_command"]
+        captured["runner_name"] = kwargs["runner_name"]
+        captured["runner_model"] = kwargs["runner_model"]
         return state, tmp_path / "state.json"
 
     monkeypatch.setattr(
@@ -159,6 +165,8 @@ def test_swarm_start_accepts_runner_profile(monkeypatch: object, tmp_path: Path)
         "--append-system-prompt",
         "runner-note",
     ]
+    assert captured["runner_name"] == "ollama-claude"
+    assert captured["runner_model"] == "qwen3.6"
 
 
 def test_swarm_start_rejects_runner_and_raw_command(tmp_path: Path) -> None:
@@ -202,9 +210,27 @@ def test_swarm_status_reads_state(monkeypatch: object, tmp_path: Path) -> None:
         integration_base_ref="HEAD",
         spec_source_path=str(tmp_path / "program.md"),
         copied_spec_path=str(tmp_path / "program.md"),
+        runner_name="claude",
+        runner_model="sonnet",
         child_command=["echo", "hi"],
         runs=0,
-        children=[],
+        children=[
+            SwarmChildState(
+                child_id="wave-01-run-01",
+                label="candidate-1",
+                wave_index=1,
+                status="failed",
+                worktree_path=str(tmp_path / "pool" / "wave-01-run-01"),
+                atelier_root=str(root / "child"),
+                run_dir=str(root / "runs" / "run-01"),
+                spec_path=str(tmp_path / "program.md"),
+                result_path=str(root / "runs" / "run-01" / "result.json"),
+                stdout_path=str(root / "runs" / "run-01" / "stdout.log"),
+                stderr_path=str(root / "runs" / "run-01" / "stderr.log"),
+                metadata_path=str(root / "runs" / "run-01" / "meta.json"),
+                summary="selected model is invalid",
+            )
+        ],
     )
     monkeypatch.setattr("atelier.gateway.cli.commands.swarm.load_swarm_state", lambda _path: state)
 
@@ -212,6 +238,10 @@ def test_swarm_status_reads_state(monkeypatch: object, tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "run_id: swarm-123" in result.output
+    assert "runner: claude" in result.output
+    assert "runner_model: sonnet" in result.output
+    assert "failed_children:" in result.output
+    assert "selected model is invalid" in result.output
 
 
 def test_swarm_list_prints_known_runs(monkeypatch: object, tmp_path: Path) -> None:
@@ -229,6 +259,8 @@ def test_swarm_list_prints_known_runs(monkeypatch: object, tmp_path: Path) -> No
         integration_base_ref="HEAD",
         spec_source_path=str(tmp_path / "program.md"),
         copied_spec_path=str(tmp_path / "program.md"),
+        runner_name="ollama-claude",
+        runner_model="qwen3.6",
         child_command=["echo", "hi"],
         runs=2,
         current_wave=3,
@@ -256,7 +288,8 @@ def test_swarm_list_prints_known_runs(monkeypatch: object, tmp_path: Path) -> No
 
     assert result.exit_code == 0
     assert "swarm-123" in result.output
-    assert "continuous" in result.output
+    assert "ollama-claude" in result.output
+    assert "qwen3.6" in result.output
 
 
 def test_swarm_logs_reads_child_output(monkeypatch: object, tmp_path: Path) -> None:

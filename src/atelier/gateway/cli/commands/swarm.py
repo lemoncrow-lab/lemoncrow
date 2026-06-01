@@ -103,6 +103,21 @@ def _resolve_child_command(
     raise click.ClickException(f"unsupported runner profile: {runner}")
 
 
+def _resolve_runner_metadata(
+    *, runner: str | None, runner_model: str | None, child_command: list[str]
+) -> tuple[str, str]:
+    if runner:
+        return runner.lower(), runner_model or ""
+    if not child_command:
+        return "custom", ""
+    inferred_model = ""
+    for index, token in enumerate(child_command[:-1]):
+        if token in {"--model", "-m"} and index + 1 < len(child_command):
+            inferred_model = child_command[index + 1]
+            break
+    return child_command[0], inferred_model
+
+
 @click.group("swarm")
 def swarm_group() -> None:
     """Coordinate isolated child attempts in separate git worktrees."""
@@ -122,13 +137,16 @@ def swarm_list(ctx: click.Context, as_json: bool) -> None:
         click.echo("No swarm runs found.")
         return
     lines = [
-        "run_id                           status    mode        wave  accepted  running  created_at",
-        "-------------------------------------------------------------------------------------------",
+        "run_id                           status    runner           model               wave  ok/fail/run  created_at",
+        "---------------------------------------------------------------------------------------------------------------",
     ]
     for state in states:
         running = sum(1 for child in state.children if child.status == "running")
+        failed = sum(1 for child in state.children if child.status == "failed")
+        runner_label = state.runner_name[:16]
+        model_label = (state.runner_model or "-")[:18]
         lines.append(
-            f"{state.run_id:<32} {state.status:<9} {state.mode:<11} {state.current_wave:<5} {len(state.accepted_child_ids):<9} {running:<7} {state.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+            f"{state.run_id:<32} {state.status:<9} {runner_label:<16} {model_label:<18} {state.current_wave:<5} {len(state.accepted_child_ids):>2}/{failed:<4}/{running:<3} {state.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
         )
     click.echo("\n".join(lines))
 
@@ -207,10 +225,17 @@ def swarm_start(
         runner_args=runner_args,
         child_command=child_command,
     )
+    resolved_runner_name, resolved_runner_model = _resolve_runner_metadata(
+        runner=runner,
+        runner_model=runner_model,
+        child_command=resolved_child_command,
+    )
     state, state_path = initialize_swarm_run(
         root=root,
         repo_root=repo_root,
         spec_path=spec_path,
+        runner_name=resolved_runner_name,
+        runner_model=resolved_runner_model,
         child_command=resolved_child_command,
         runs=runs,
         validation_commands=list(validation_commands),

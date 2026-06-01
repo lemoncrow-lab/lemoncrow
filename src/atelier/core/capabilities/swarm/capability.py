@@ -418,6 +418,8 @@ def initialize_swarm_run(
     root: Path,
     repo_root: Path,
     spec_path: Path,
+    runner_name: str,
+    runner_model: str,
     child_command: list[str],
     runs: int,
     validation_commands: list[str],
@@ -458,6 +460,8 @@ def initialize_swarm_run(
         integration_base_ref=integration_base_ref,
         spec_source_path=str(spec_path),
         copied_spec_path=str(spec_copy),
+        runner_name=runner_name,
+        runner_model=runner_model,
         child_command=list(child_command),
         validation_commands=list(validation_commands),
         runs=runs,
@@ -965,14 +969,19 @@ def _run_validation_command(
 
 
 def format_swarm_summary(state: SwarmRunState) -> str:
+    failed = [child for child in state.children if child.status == "failed"]
+    stopped = [child for child in state.children if child.status == "stopped"]
     lines = [
         f"run_id: {state.run_id}",
         f"status: {state.status}",
         f"mode: {state.mode}",
+        f"runner: {state.runner_name}",
+        f"runner_model: {state.runner_model or '(default)'}",
         f"current_wave: {state.current_wave}",
         f"accepted_children: {len(state.accepted_child_ids)}",
         f"children: {len(state.children)}",
     ]
+    lines.append(f"child_command: {' '.join(state.child_command)}")
     if state.stop_reason:
         lines.append(f"stop_reason: {state.stop_reason}")
     if state.integration_worktree:
@@ -992,6 +1001,16 @@ def format_swarm_summary(state: SwarmRunState) -> str:
         )
         if recent_wave.summary:
             lines.append(f"latest_wave_summary: {recent_wave.summary}")
+    if failed:
+        lines.append("failed_children:")
+        for child in failed[:8]:
+            detail = child.summary or child.error or child.acceptance_note or "failed"
+            lines.append(f"  - {child.child_id}: {detail}")
+    if stopped:
+        lines.append("stopped_children:")
+        for child in stopped[:8]:
+            detail = child.summary or child.error or child.acceptance_note or "stopped"
+            lines.append(f"  - {child.child_id}: {detail}")
     return "\n".join(lines)
 
 
