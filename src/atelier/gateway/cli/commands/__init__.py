@@ -90,12 +90,43 @@ def register(cli: click.Group) -> None:
         pass
 
     try:
-        from .benchmark import bench_group, benchmark_group
+        from .benchmark import benchmark_group
 
         # ``benchmark.py`` attaches the optional SWE group to ``benchmark_group``
         # at import time (resilient to ModuleNotFoundError), so registering the
         # group here preserves the original "SWE after benchmark_group" ordering.
         cli.add_command(benchmark_group)
-        cli.add_command(bench_group)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        from .code import code_group, zoekt_group
+
+        cli.add_command(code_group)
+        cli.add_command(zoekt_group)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        from .route import proof_group, route_public_group
+
+        cli.add_command(route_public_group)
+        cli.add_command(proof_group)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        from .sessions import outcomes_group, runs_group, session_group
+
+        cli.add_command(runs_group)
+        cli.add_command(outcomes_group)
+        cli.add_command(session_group)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        from .memory import memory_group_cli
+
+        cli.add_command(memory_group_cli)
     except ModuleNotFoundError:
         pass
