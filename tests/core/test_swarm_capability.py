@@ -10,6 +10,7 @@ from atelier.core.capabilities.swarm import (
     load_swarm_state,
     rank_children,
     run_child_once,
+    swarm_run_dir,
 )
 from atelier.core.capabilities.swarm.capability import _plan_wave_runs
 from atelier.core.capabilities.swarm.models import (
@@ -90,6 +91,15 @@ def _make_child(
         files_changed=[f"M {changed_file}"],
         validation_results=_passing_validation(),
     )
+
+
+def test_swarm_run_dir_resolves_relative_roots(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    resolved = swarm_run_dir(Path("relative-root"), "swarm-123")
+
+    assert resolved.is_absolute()
+    assert resolved == tmp_path / "relative-root" / "swarm" / "runs" / "swarm-123"
 
 
 def test_run_child_once_writes_structured_result(tmp_path: Path) -> None:

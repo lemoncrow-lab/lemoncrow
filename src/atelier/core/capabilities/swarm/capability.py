@@ -80,7 +80,7 @@ def save_swarm_state(path: Path, state: SwarmRunState) -> None:
 
 
 def swarm_run_dir(root: Path, run_id: str) -> Path:
-    return Path(root) / "swarm" / "runs" / run_id
+    return Path(root).resolve() / "swarm" / "runs" / run_id
 
 
 def resolve_state_path(root: Path, run_id: str) -> Path:
