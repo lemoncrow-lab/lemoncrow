@@ -41,7 +41,7 @@ def _invoke(root: Path, *args: str) -> Result:
 
 def test_import_progress_lands_on_stderr_not_stdout(tmp_path: Path) -> None:
     root = tmp_path / "store"
-    _invoke(root, "init")
+    _invoke(root, "init", "--no-index")
     sessions = _make_claude_fixture(tmp_path)
 
     result = _invoke(root, "claude", "import", "--path", str(sessions))

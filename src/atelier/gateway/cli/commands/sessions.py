@@ -9,7 +9,7 @@ from typing import Any
 import click
 
 from atelier.core.foundation.models import Trace, to_jsonable
-from atelier.gateway.cli.commands._shared import _emit, _load_store
+from atelier.gateway.cli.commands._shared import _emit, _load_store, _parse_duration
 
 
 @click.group("runs")
@@ -112,7 +112,7 @@ def outcomes_show(ctx: click.Context, session_id: str) -> None:
 @click.pass_context
 def outcomes_summary(ctx: click.Context, since: str) -> None:
     """Aggregate outcome_scores by (kind, tool) and print averages."""
-    from atelier.gateway.cli.app import _parse_duration
+
     from atelier.infra.runtime.outcome_capture import (
         load_outcomes_from_state,
         summarise_outcomes,
@@ -196,7 +196,7 @@ def session_list_cmd(ctx: click.Context, since: str | None, as_json: bool) -> No
     """List recent sessions with costs and durations (newest first, max 20)."""
     import dataclasses
 
-    from atelier.gateway.cli.app import _parse_duration
+
     from atelier.infra.runtime.session_report import (
         build_report,
         list_run_files,

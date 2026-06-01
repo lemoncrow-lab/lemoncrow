@@ -8,7 +8,6 @@ from click.testing import CliRunner
 
 from atelier.core.foundation.models import ReasonBlock
 from atelier.core.foundation.store import ContextStore
-from atelier.gateway.cli import app as cli_module
 from atelier.gateway.cli import cli
 from atelier.infra.internal_llm.ollama_client import OllamaUnavailable
 
@@ -97,7 +96,10 @@ def test_cli_consolidate_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 def test_cli_letta_commands_route_to_compose(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []
-    monkeypatch.setattr(cli_module, "_run_compose", lambda args: calls.append(args))
+    monkeypatch.setattr(
+        "atelier.gateway.integrations.openmemory_lifecycle.run_compose",
+        lambda args: calls.append(args),
+    )
     runner = CliRunner()
 
     up = runner.invoke(cli, ["letta", "up"])

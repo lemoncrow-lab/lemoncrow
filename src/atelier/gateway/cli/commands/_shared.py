@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -90,3 +91,37 @@ def _save_smart_state(root: Path, state: dict[str, Any]) -> None:
     p = _smart_state_path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def _parse_duration(value: str) -> timedelta:
+    match = re.fullmatch(r"(\d+)([dhm])", value.strip())
+    if not match:
+        raise click.ClickException("duration must look like 7d, 12h, or 30m")
+    amount = int(match.group(1))
+    unit = match.group(2)
+    if unit == "d":
+        return timedelta(days=amount)
+    if unit == "h":
+        return timedelta(hours=amount)
+    return timedelta(minutes=amount)
+
+
+def _ledger_dir(root: Path) -> Path:
+    return Path(root) / "runs"
+
+
+def _latest_ledger_path(root: Path) -> Path | None:
+    runs = _ledger_dir(root)
+    if not runs.is_dir():
+        return None
+    paths = sorted(runs.glob("*.json"))
+    return paths[-1] if paths else None
+
+
+def _ledger_path(root: Path, session_id: str | None) -> Path:
+    if session_id:
+        return _ledger_dir(root) / f"{session_id}.json"
+    latest = _latest_ledger_path(root)
+    if latest is None:
+        raise click.ClickException("no run ledger found. Pass --session-id or record one first.")
+    return latest

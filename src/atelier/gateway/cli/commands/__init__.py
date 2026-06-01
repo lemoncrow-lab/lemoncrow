@@ -1,11 +1,4 @@
-"""Aggregator entrypoint for relocated Atelier CLI command modules.
-
-``register(cli)`` import-and-``add_command``s each extracted command module onto
-the root ``cli`` group. It mirrors ``_register_swe_benchmark_group``'s resilient
-try/except ``ModuleNotFoundError`` style so partial installs keep CLI startup
-working. For Plan 25-01 this is an intentionally empty stub: no command groups
-have moved yet. Later Phase 25 slices add their imports here.
-"""
+"""Aggregator entrypoint for relocated Atelier CLI command modules."""
 
 from __future__ import annotations
 
@@ -16,13 +9,76 @@ if TYPE_CHECKING:
 
 
 def register(cli: click.Group) -> None:
-    """Register relocated command modules onto the root ``cli`` group.
+    """Register relocated command modules onto the root ``cli`` group."""
+    try:
+        from .admin import (
+            audit_group,
+            deprecate,
+            detect_loop_cmd,
+            env_group,
+            governance_group,
+            init,
+            insights_cmd,
+            login_cmd,
+            logout_cmd,
+            loop_report_cmd,
+            plugin_settings_group,
+            quarantine,
+            share_cmd,
+            status_cmd,
+            team_group,
+            tool_report_cmd,
+            uninstall,
+        )
 
-    Each future ``commands/<group>.py`` exports a top-level Click group; this
-    function imports it and calls ``cli.add_command(...)``. Imports are wrapped
-    in try/except ``ModuleNotFoundError`` so a missing optional module never
-    breaks CLI startup (mirrors ``_register_swe_benchmark_group``).
-    """
+        cli.add_command(init)
+        cli.add_command(uninstall)
+        cli.add_command(env_group)
+        cli.add_command(deprecate)
+        cli.add_command(quarantine)
+        cli.add_command(login_cmd)
+        cli.add_command(logout_cmd)
+        cli.add_command(status_cmd)
+        cli.add_command(share_cmd)
+        cli.add_command(plugin_settings_group)
+        cli.add_command(detect_loop_cmd)
+        cli.add_command(loop_report_cmd)
+        cli.add_command(tool_report_cmd)
+        cli.add_command(team_group)
+        cli.add_command(governance_group)
+        cli.add_command(audit_group)
+        cli.add_command(insights_cmd)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        from .blocks import (
+            add_block,
+            block_group,
+            domain_group,
+            import_style_guide_cmd,
+            list_blocks_cmd,
+            reembed,
+            report_cmd,
+        )
+
+        cli.add_command(reembed)
+        cli.add_command(add_block)
+        cli.add_command(domain_group)
+        cli.add_command(report_cmd)
+        cli.add_command(import_style_guide_cmd)
+        cli.add_command(block_group)
+        cli.add_command(list_blocks_cmd)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        from .telemetry import telemetry_group
+
+        cli.add_command(telemetry_group)
+    except ModuleNotFoundError:
+        pass
+
     try:
         from .letta import letta_group
 
@@ -92,9 +148,6 @@ def register(cli: click.Group) -> None:
     try:
         from .benchmark import benchmark_group
 
-        # ``benchmark.py`` attaches the optional SWE group to ``benchmark_group``
-        # at import time (resilient to ModuleNotFoundError), so registering the
-        # group here preserves the original "SWE after benchmark_group" ordering.
         cli.add_command(benchmark_group)
     except ModuleNotFoundError:
         pass
@@ -112,6 +165,39 @@ def register(cli: click.Group) -> None:
 
         cli.add_command(route_public_group)
         cli.add_command(proof_group)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        from .hosts import claude, codex, copilot, gemini, global_import, opencode
+
+        cli.add_command(copilot)
+        cli.add_command(claude)
+        cli.add_command(codex)
+        cli.add_command(opencode)
+        cli.add_command(gemini)
+        cli.add_command(global_import)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        from .lessons import (
+            analyze_failures_cmd,
+            checkpoint,
+            eval_,
+            eval_from_cluster,
+            failure,
+            ledger,
+            lesson,
+        )
+
+        cli.add_command(ledger)
+        cli.add_command(checkpoint)
+        cli.add_command(failure)
+        cli.add_command(lesson)
+        cli.add_command(analyze_failures_cmd)
+        cli.add_command(eval_)
+        cli.add_command(eval_from_cluster)
     except ModuleNotFoundError:
         pass
 

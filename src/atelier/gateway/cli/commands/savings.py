@@ -26,6 +26,7 @@ import click
 
 from atelier.gateway.cli.commands._shared import (
     _emit,
+    _ledger_dir,
     _load_smart_state,
     _load_store,
     _save_smart_state,
@@ -66,8 +67,6 @@ def savings_cmd(ctx: click.Context, as_json: bool, line: bool) -> None:
         return
     from atelier.core.capabilities.plugin_runtime import build_savings_report
     from atelier.core.capabilities.session_optimizer import build_trace_optimization_report
-    from atelier.gateway.cli.app import _ledger_dir
-
     runs = _ledger_dir(ctx.obj["root"])
     bad_plans_blocked = 0
     rescue_events = 0
