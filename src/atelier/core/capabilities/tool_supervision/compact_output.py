@@ -166,18 +166,32 @@ def _compact_bash(content: str, budget_chars: int = 8000) -> str:
 
 
 def _compact_json(content: str) -> str | None:
+    # Emit compact JSON (no indent whitespace): this helper exists to reduce
+    # oversized tool output, so pretty-printing would be self-defeating.
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
         return None
     if isinstance(data, list):
         list_sample = data[:2]
-        return json.dumps({"type": "list", "len": len(data), "sample": list_sample}, indent=2)
+        return json.dumps(
+            {"type": "list", "len": len(data), "sample": list_sample},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
     if isinstance(data, dict):
         keys = sorted(data.keys())
         dict_sample = {key: data[key] for key in keys[:10]}
-        return json.dumps({"type": "object", "keys": keys, "sample": dict_sample}, indent=2)
-    return json.dumps({"type": type(data).__name__, "value": data}, indent=2)
+        return json.dumps(
+            {"type": "object", "keys": keys, "sample": dict_sample},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    return json.dumps(
+        {"type": type(data).__name__, "value": data},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 def deterministic_truncate(content: str, content_type: str, budget_tokens: int) -> str:

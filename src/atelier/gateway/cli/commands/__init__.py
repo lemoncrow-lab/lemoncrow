@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     import click
@@ -15,6 +15,7 @@ def register(cli: click.Group) -> None:
             audit_group,
             deprecate,
             detect_loop_cmd,
+            doctor_cmd,
             env_group,
             governance_group,
             init,
@@ -24,6 +25,7 @@ def register(cli: click.Group) -> None:
             loop_report_cmd,
             plugin_settings_group,
             quarantine,
+            reset_cmd,
             share_cmd,
             status_cmd,
             team_group,
@@ -41,9 +43,11 @@ def register(cli: click.Group) -> None:
         cli.add_command(status_cmd)
         cli.add_command(share_cmd)
         cli.add_command(plugin_settings_group)
-        cli.add_command(detect_loop_cmd)
+        cli.add_command(cast("click.Command", detect_loop_cmd))
         cli.add_command(loop_report_cmd)
         cli.add_command(tool_report_cmd)
+        cli.add_command(doctor_cmd)
+        cli.add_command(reset_cmd)
         cli.add_command(team_group)
         cli.add_command(governance_group)
         cli.add_command(audit_group)
@@ -62,8 +66,8 @@ def register(cli: click.Group) -> None:
             report_cmd,
         )
 
-        cli.add_command(reembed)
-        cli.add_command(add_block)
+        cli.add_command(cast("click.Command", reembed))
+        cli.add_command(cast("click.Command", add_block))
         cli.add_command(domain_group)
         cli.add_command(report_cmd)
         cli.add_command(import_style_guide_cmd)
@@ -207,6 +211,13 @@ def register(cli: click.Group) -> None:
         cli.add_command(runs_group)
         cli.add_command(outcomes_group)
         cli.add_command(session_group)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        from .swarm import swarm_group
+
+        cli.add_command(swarm_group)
     except ModuleNotFoundError:
         pass
 

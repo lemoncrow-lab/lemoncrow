@@ -77,6 +77,7 @@ Atelier persists observable execution state rather than hidden reasoning.
 | -------------------------- | ----------------------------------------------------- |
 | `atelier runs ...`         | Record, list, and inspect run data.                   |
 | `atelier ledger ...`       | Manage run ledgers and session state.                 |
+| `atelier swarm ...`        | Fan out isolated child attempts into git worktrees.   |
 
 Examples:
 
@@ -84,6 +85,49 @@ Examples:
 atelier runs list
 atelier ledger list
 ```
+
+## Swarm Harness (MVP)
+
+`atelier swarm` is the first Atelier-owned multi-run harness. It creates one git
+worktree and one isolated `ATELIER_ROOT` per child, launches the same child
+agent command in each sandbox, collects structured result JSON, and ranks the
+candidates explicitly.
+
+```bash
+atelier swarm start program.md --runs 3 \
+  --validate "make lint" \
+  --validate "uv run pytest tests/gateway/test_cli_swarm.py -q" \
+  -- claude-code run --spec {spec}
+```
+
+What the harness guarantees today:
+
+- one detached git worktree per child under a deterministic `*-swarm-worktrees/<run_id>/` pool
+- one isolated `ATELIER_ROOT` plus `ATELIER_WORKSPACE_ROOT` / `CLAUDE_WORKSPACE_ROOT` per child
+- a copied program spec at `.atelier-swarm/program.md` in each child worktree
+- structured child artifacts with summary, files changed, validations, cost/tokens (when available), and final status
+- persisted coordinator state under `--root/swarm/runs/<run_id>/state.json`
+
+Useful child environment variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `ATELIER_SWARM_SPEC_PATH` | Copied spec path inside the child worktree |
+| `ATELIER_SWARM_RESULT_PATH` | Final structured result artifact written by the wrapper |
+| `ATELIER_SWARM_METADATA_PATH` | Optional child-authored JSON metadata (`summary`, `token_count`, `cost_usd`, `validation_results`) |
+| `ATELIER_SWARM_RUN_ID` / `ATELIER_SWARM_CHILD_ID` | Stable coordinator and child identifiers |
+
+Inspection commands:
+
+```bash
+atelier swarm status <run_id>
+atelier swarm stop <run_id> --cleanup
+```
+
+Current limitation: the coordinator provides the isolation/runtime harness, but
+the actual child agent command is still supplied after `--` so you can plug in
+Claude/Codex/Copilot or another runner that speaks Atelier MCP inside that
+isolated environment.
 
 ## Retrieval, Search, and Code-Aware Helpers
 
