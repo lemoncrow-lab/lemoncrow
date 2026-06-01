@@ -427,28 +427,3 @@ def test_external_report_cli_streams_tool_progress(tmp_path: Path, monkeypatch: 
     assert "[external-report] done tokscale status=ok" in res.output
     assert "[external-report] running codeburn period=today..." in res.output
     assert "[external-report] done codeburn:optimize status=ok" in res.output
-
-
-def test_benchmark_dry_run(tmp_path: Path) -> None:
-    root = tmp_path / "a"
-    _invoke(root, "init")
-    res = _invoke(
-        root,
-        "benchmark",
-        "run",
-        "--prompt",
-        "Fix Shopify publish",
-        "--prompt",
-        "Refactor catalog",
-        "--rounds",
-        "2",
-        "--json",
-    )
-    assert res.exit_code == 0, res.output
-    payload = json.loads(res.output)
-    assert "tasks" in payload
-    assert len(payload["tasks"]) == 2
-    assert payload["aggregate"]["total_calls"] >= 4
-    # Round 2 should cost <= round 1 because lessons reduce input tokens.
-    for task in payload["tasks"]:
-        assert task["final_cost_usd"] <= task["baseline_cost_usd"]

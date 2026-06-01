@@ -22,6 +22,8 @@ EXPECTED_TOOLS = {
     "impact",
     "explore",
     "shell",
+    "pattern",
+    "usages",
 }
 
 

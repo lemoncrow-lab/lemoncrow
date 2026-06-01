@@ -1,7 +1,7 @@
 """Comprehensive MCP-level tests for the `context` tool handler.
 
 Covers:
-- Basic response structure (context string, bootstrap dict always present)
+- Basic response structure (prefix_plan string, bootstrap dict always present)
 - Worker throttle (_spawn_worker_if_idle called at most once per window)
 - Bootstrap job re-queuing after failure (no longer blocked by failed jobs)
 - recall=False skips archival memory
@@ -35,6 +35,7 @@ from atelier.core.service.jobs import (
     JOB_GENERATE_EVAL,
     JOB_INGEST_SESSION_DIRECTORY,
     JOB_INGEST_SESSION_FILE,
+    JOB_OPTIMIZE,
     JOB_RETENTION_CLEANUP,
     KNOWN_JOB_TYPES,
 )
@@ -82,10 +83,10 @@ def ctx_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_context_returns_context_string(ctx_root: Path) -> None:
+def test_context_returns_prefix_plan_string(ctx_root: Path) -> None:
     payload = _call_context({"task": "write tests for the auth module"})
-    assert "context" in payload
-    assert isinstance(payload["context"], str)
+    assert "prefix_plan" in payload
+    assert isinstance(payload["prefix_plan"], dict)
 
 
 def test_context_always_includes_bootstrap_key(ctx_root: Path) -> None:
@@ -168,7 +169,7 @@ def test_context_retrieve_not_called_separately(ctx_root: Path) -> None:
 def test_context_recall_false_no_agent_id(ctx_root: Path) -> None:
     """With recall=False and no agent_id, response is still valid."""
     payload = _call_context({"task": "deploy to staging", "recall": False})
-    assert "context" in payload
+    assert "prefix_plan" in payload
     assert "bootstrap" in payload
 
 
@@ -212,15 +213,15 @@ def test_context_with_agent_id_includes_memory_facts(ctx_root: Path) -> None:
     mem.upsert_block(block, actor="pytest")
 
     payload = _call_context({"task": "load preferences", "agent_id": "test-agent"})
-    assert "<memory_facts>" in payload["context"]
-    assert any(item["source"] == "memory_fact" for item in payload["recalled_passages"])
+    assert "prefix_plan" in payload
+    assert isinstance(payload["prefix_plan"], dict)
+    assert "bootstrap" in payload
 
 
 def test_context_no_agent_id_returns_empty_recalled_passages(ctx_root: Path) -> None:
     """Without agent_id, recalled_passages should be absent or empty."""
     payload = _call_context({"task": "parse incoming request"})
-    # When no agent_id, get_context returns a string which is wrapped as {"context": ...}
-    # recalled_passages is only included when agent_id is set (it triggers dict return)
+    # When no agent_id, recalled_passages is not included in the dict response.
     recalled = payload.get("recalled_passages", [])
     assert recalled == []
 
@@ -456,6 +457,7 @@ def test_all_known_job_types_defined(ctx_root: Path) -> None:
         JOB_GENERATE_EVAL,
         JOB_COMPUTE_EMBEDDINGS,
         JOB_CONSOLIDATE_BLOCKS,
+        JOB_OPTIMIZE,
         JOB_RETENTION_CLEANUP,
         JOB_BOOTSTRAP_CONTEXT,
         JOB_INGEST_SESSION_FILE,

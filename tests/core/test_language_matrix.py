@@ -94,7 +94,7 @@ def test_tree_sitter_outline_matrix_honors_guard(fixture: LanguageFixture, tmp_p
 
     if fixture.language in AST_OUTLINE_LANGUAGES:
         assert payload["mode"] == "outline"
-        assert payload["outline"]["lang"] in {fixture.language, "tsx"}
+        assert payload["outline"]["language"] in {fixture.language, "tsx"}
     elif guard_passes:
         assert payload["mode"] == "outline"
         assert payload["outline"]["kind"] == "treesitter"

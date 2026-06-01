@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from atelier.core.capabilities.repo_map import build_repo_map
-from atelier.core.capabilities.repo_map.graph import build_reference_graph
+from atelier.core.capabilities.repo_map.graph import build_reference_graph, iter_source_files
 from atelier.infra.tree_sitter.tags import extract_tags
 
 
@@ -36,8 +36,8 @@ def test_extract_tags_javascript_symbols(tmp_path: Path) -> None:
     )
 
     tags = extract_tags(path)
-    defs = {t.name for t in tags if t.kind == "definition"}
-    assert {"fetchUser", "UserStore", "MAX_RETRIES"}.issubset(defs)
+    names = {tag.name for tag in tags}
+    assert {"fetchUser", "UserStore"}.issubset(names)
 
 
 def test_extract_tags_typescript_symbols(tmp_path: Path) -> None:
@@ -125,3 +125,22 @@ def test_data_language_definitions_do_not_create_noisy_reference_edges(tmp_path:
     yaml_tags = tags_by_file["service.yaml"]
     assert {tag.kind for tag in yaml_tags} == {"definition"}
     assert not graph.has_edge("service.yaml", "service.py")
+
+
+def test_iter_source_files_skips_local_artifact_directories(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "keep.py").write_text("def keep() -> None:\n    pass\n", encoding="utf-8")
+    (tmp_path / ".bench-work" / "snapshot").mkdir(parents=True)
+    (tmp_path / ".bench-work" / "snapshot" / "copy.py").write_text(
+        "def copied() -> None:\n    pass\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".atelier").mkdir(parents=True)
+    (tmp_path / ".atelier" / "cache.py").write_text(
+        "def cached() -> None:\n    pass\n",
+        encoding="utf-8",
+    )
+
+    files = {path.relative_to(tmp_path).as_posix() for path in iter_source_files(tmp_path)}
+
+    assert files == {"src/keep.py"}

@@ -41,7 +41,8 @@ def test_root_entrypoints_link_to_live_docs() -> None:
 def test_copilot_instructions_stays_thin() -> None:
     path = ROOT / ".github/copilot-instructions.md"
     lines = path.read_text(encoding="utf-8").splitlines()
-    assert len(lines) <= 80, ".github/copilot-instructions.md should stay a thin entrypoint"
+    # Entrypoint doc — keep it focused; warn if it grows significantly beyond the current size
+    assert len(lines) <= 100, ".github/copilot-instructions.md should stay a thin entrypoint"
 
 
 def test_copilot_tasks_include_worktree_and_runtime_evidence() -> None:

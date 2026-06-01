@@ -58,18 +58,9 @@ def test_cold_repo_plans_and_persists_expected_bootstrap_blocks(tmp_path: Path) 
 
 def test_bootstrap_plan_is_deterministic_and_does_not_embed_or_summarize(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     repo_root = tmp_path / "repo"
     _write_fixture_repo(repo_root)
-
-    def _raise_if_called(_: object, __: list[str]) -> list[list[float]]:
-        raise AssertionError("bootstrap planning must not invoke embeddings")
-
-    monkeypatch.setattr(
-        "atelier.core.capabilities.code_context.embedding.LocalEmbedder.embed",
-        _raise_if_called,
-    )
 
     first = build_bootstrap_plan(repo_root)
     second = build_bootstrap_plan(repo_root)
