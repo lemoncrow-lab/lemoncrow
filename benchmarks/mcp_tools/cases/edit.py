@@ -2,14 +2,6 @@
 
 Edit's savings come from batching: one call handles multi-file atomic edits,
 rollback on failure, and post-edit hook diagnostics vs N separate Write calls.
-
-Baseline estimates:
-  - single-file: one separate Edit call (~200 tokens overhead + file content)
-  - multi-file:  N separate Edit calls, each with framing (~200 * N tokens)
-  - create:      Write call + diagnostic pass (~300 tokens)
-  - rollback:    naive: broken file stays; atelier rolls back automatically
-
-EDIT_WORKSPACE env var must point to a writable scratch directory.
 """
 
 from __future__ import annotations
@@ -17,10 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from benchmarks.mcp_tools.harness import BenchCase
-
-# ---------------------------------------------------------------------------
-# Assertions
-# ---------------------------------------------------------------------------
 
 
 def _assert_edit_applied(result: dict[str, Any]) -> None:
@@ -33,9 +21,7 @@ def _assert_edit_applied(result: dict[str, Any]) -> None:
 
 def _assert_multi_file_atomic(result: dict[str, Any]) -> None:
     _assert_edit_applied(result)
-    assert len(result["applied"]) >= 2, (
-        f"multi-file edit must apply >=2 descriptors, got {len(result['applied'])}"
-    )
+    assert len(result["applied"]) >= 2, f"multi-file edit must apply >=2 descriptors, got {len(result['applied'])}"
 
 
 def _assert_create_file(result: dict[str, Any]) -> None:
@@ -44,49 +30,54 @@ def _assert_create_file(result: dict[str, Any]) -> None:
 
 
 def _assert_rollback(result: dict[str, Any]) -> None:
-    # When one descriptor fails in atomic mode, all changes are rolled back
-    assert result.get("rolled_back") is True or result.get("failed"), (
-        f"expected rollback or failure when one descriptor is invalid, got: {result}"
-    )
+    assert result.get("rolled_back") is True or result.get(
+        "failed"
+    ), f"expected rollback or failure when one descriptor is invalid, got: {result}"
 
 
-# ---------------------------------------------------------------------------
-# Cases
-# ---------------------------------------------------------------------------
-
-EDIT_CASES: list[BenchCase] = [
-    BenchCase(
+def _single_replace_case(index: int, target: str, old: str, new: str) -> BenchCase:
+    return BenchCase(
         op="edit",
-        label="edit/single-replace",
+        label=f"edit/single-replace/{index:02d}",
         args={
-            "edits": [
-                {
-                    "file_path": "__EDIT_FILE_A__",
-                    "old_string": "PLACEHOLDER_ALPHA",
-                    "new_string": "REPLACED_ALPHA",
-                }
-            ],
-            "post_edit_hooks": False,  # no hooks in bench env
+            "edits": [{"file_path": target, "old_string": old, "new_string": new}],
+            "post_edit_hooks": False,
         },
         assert_keys=["applied"],
         custom_assert=_assert_edit_applied,
-        # baseline: one native Edit call with file read + framing
         baseline_tokens=200,
-    ),
-    BenchCase(
+    )
+
+
+def _line_replace_case(index: int, target: str, old: str, new: str) -> BenchCase:
+    return BenchCase(
         op="edit",
-        label="edit/multi-file-atomic",
+        label=f"edit/line-replace/{index:02d}",
+        args={
+            "edits": [{"file_path": target, "old_string": old, "new_string": new}],
+            "post_edit_hooks": False,
+        },
+        assert_keys=["applied"],
+        custom_assert=_assert_edit_applied,
+        baseline_tokens=220,
+    )
+
+
+def _multi_file_case(index: int, new_alpha: str, new_beta: str) -> BenchCase:
+    return BenchCase(
+        op="edit",
+        label=f"edit/multi-file-atomic/{index:02d}",
         args={
             "edits": [
                 {
                     "file_path": "__EDIT_FILE_A__",
                     "old_string": "PLACEHOLDER_ALPHA",
-                    "new_string": "REPLACED_ALPHA",
+                    "new_string": new_alpha,
                 },
                 {
                     "file_path": "__EDIT_FILE_B__",
                     "old_string": "PLACEHOLDER_BETA",
-                    "new_string": "REPLACED_BETA",
+                    "new_string": new_beta,
                 },
             ],
             "atomic": True,
@@ -94,41 +85,38 @@ EDIT_CASES: list[BenchCase] = [
         },
         assert_keys=["applied"],
         custom_assert=_assert_multi_file_atomic,
-        # baseline: 2 separate Edit calls, each ~200 tokens
         baseline_tokens=400,
-    ),
-    BenchCase(
+    )
+
+
+def _create_case(index: int, content: str) -> BenchCase:
+    return BenchCase(
         op="edit",
-        label="edit/create-file",
+        label=f"edit/create-file/{index:02d}",
         args={
-            "edits": [
-                {
-                    "file_path": "__EDIT_FILE_NEW__",
-                    "new_string": "# created by bench\nresult = 42\n",
-                    "overwrite": True,
-                }
-            ],
+            "edits": [{"file_path": "__EDIT_FILE_NEW__", "new_string": content, "overwrite": True}],
             "post_edit_hooks": False,
         },
         assert_keys=["applied"],
         custom_assert=_assert_create_file,
-        # baseline: Write call (~300 tokens)
         baseline_tokens=300,
-    ),
-    BenchCase(
+    )
+
+
+def _rollback_case(index: int, missing_text: str) -> BenchCase:
+    return BenchCase(
         op="edit",
-        label="edit/atomic-rollback",
+        label=f"edit/atomic-rollback/{index:02d}",
         args={
             "edits": [
                 {
                     "file_path": "__EDIT_FILE_A__",
                     "old_string": "PLACEHOLDER_ALPHA",
-                    "new_string": "REPLACED_ALPHA",
+                    "new_string": f"ROLLED_BACK_ALPHA_{index}",
                 },
                 {
-                    # This descriptor will fail: old_string not present after first edit
                     "file_path": "__EDIT_FILE_A__",
-                    "old_string": "THIS_STRING_DOES_NOT_EXIST_XYZ",
+                    "old_string": missing_text,
                     "new_string": "SHOULD_NOT_APPEAR",
                 },
             ],
@@ -137,7 +125,67 @@ EDIT_CASES: list[BenchCase] = [
         },
         assert_keys=[],
         custom_assert=_assert_rollback,
-        # no token baseline — correctness only
         baseline_tokens=0,
-    ),
-]
+    )
+
+
+EDIT_CASES: list[BenchCase] = []
+
+for index, (target, old, new) in enumerate(
+    [
+        ("__EDIT_FILE_A__", "PLACEHOLDER_ALPHA", "REPLACED_ALPHA"),
+        ("__EDIT_FILE_A__", "PLACEHOLDER_ALPHA = 1", "PLACEHOLDER_ALPHA = 7"),
+        ("__EDIT_FILE_B__", "PLACEHOLDER_BETA", "REPLACED_BETA"),
+        ("__EDIT_FILE_B__", "PLACEHOLDER_BETA = 2", "PLACEHOLDER_BETA = 9"),
+        ("__EDIT_FILE_A__", "# scratch file A", "# scratch file A / bench"),
+        ("__EDIT_FILE_B__", "# scratch file B", "# scratch file B / bench"),
+    ],
+    start=1,
+):
+    EDIT_CASES.append(_single_replace_case(index, target, old, new))
+
+for index, (target, old, new) in enumerate(
+    [
+        ("__EDIT_FILE_A__#1-2", "PLACEHOLDER_ALPHA = 1", "PLACEHOLDER_ALPHA = 11"),
+        ("__EDIT_FILE_A__#1-2", "# scratch file A", "# scratch file A / ranged"),
+        ("__EDIT_FILE_B__#1-2", "PLACEHOLDER_BETA = 2", "PLACEHOLDER_BETA = 12"),
+        ("__EDIT_FILE_B__#1-2", "# scratch file B", "# scratch file B / ranged"),
+    ],
+    start=1,
+):
+    EDIT_CASES.append(_line_replace_case(index, target, old, new))
+
+for index, (new_alpha, new_beta) in enumerate(
+    [
+        ("REPLACED_ALPHA", "REPLACED_BETA"),
+        ("ALPHA_VARIANT_ONE", "BETA_VARIANT_ONE"),
+        ("ALPHA_VARIANT_TWO", "BETA_VARIANT_TWO"),
+        ("ALPHA_VARIANT_THREE", "BETA_VARIANT_THREE"),
+        ("ALPHA_VARIANT_FOUR", "BETA_VARIANT_FOUR"),
+        ("ALPHA_VARIANT_FIVE", "BETA_VARIANT_FIVE"),
+    ],
+    start=1,
+):
+    EDIT_CASES.append(_multi_file_case(index, new_alpha, new_beta))
+
+for index, content in enumerate(
+    [
+        "# created by bench\nresult = 42\n",
+        "# created by bench\nanswer = 'ok'\n",
+        "from __future__ import annotations\n\nVALUE = 7\n",
+        "class Created:\n    value = 3\n",
+    ],
+    start=1,
+):
+    EDIT_CASES.append(_create_case(index, content))
+
+for index, missing_text in enumerate(
+    [
+        "THIS_STRING_DOES_NOT_EXIST_XYZ",
+        "ABSENT_ALPHA_SENTINEL",
+        "MISSING_SECOND_EDIT_MARKER",
+        "NO_SUCH_PLACEHOLDER",
+    ],
+    start=1,
+):
+    EDIT_CASES.append(_rollback_case(index, missing_text))

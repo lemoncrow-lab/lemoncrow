@@ -5,13 +5,7 @@ from pathlib import Path
 
 ATELIER_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = (
-    ATELIER_ROOT
-    / "integrations"
-    / "claude"
-    / "plugin"
-    / "workflows"
-    / "fixtures"
-    / "code-audit-review-fixture.json"
+    ATELIER_ROOT / "integrations" / "claude" / "plugin" / "workflows" / "fixtures" / "code-audit-review-fixture.json"
 )
 
 

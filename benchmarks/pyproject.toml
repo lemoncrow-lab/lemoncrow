@@ -12,6 +12,7 @@ dependencies = [
     "jinja2>=3.1",
     "matplotlib>=3.9",
     "atelier",
+    "mitmproxy>=12.2.3",
 ]
 
 [project.optional-dependencies]

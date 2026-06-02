@@ -58,8 +58,6 @@ def test_llm_provider_sdks_are_confined_to_infra_boundaries() -> None:
             violations.append(f"{path}: forbidden provider import {provider}")
         for provider, allowed_paths in ALLOWED_PROVIDER_IMPORTS.items():
             if provider in imports and path not in allowed_paths:
-                violations.append(
-                    f"{path}: {provider} import must stay in {sorted(allowed_paths)!r}"
-                )
+                violations.append(f"{path}: {provider} import must stay in {sorted(allowed_paths)!r}")
 
     assert not violations, "\n".join(violations)

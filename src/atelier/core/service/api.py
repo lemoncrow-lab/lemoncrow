@@ -132,7 +132,7 @@ class SwarmLaunchRequest(BaseModel):
     continuous: bool = True
     evaluator_backend: Literal["auto", "disabled", "ollama", "openai", "litellm"] = "auto"
     evaluator_model: str | None = None
-    max_idle_waves: int = Field(default=3, ge=1)
+    max_waves: int = Field(default=5, ge=0)
     max_evaluator_failures: int = Field(default=3, ge=1)
     keep_worktrees: bool = True
     effort: str = "high"
@@ -6275,6 +6275,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                 "runner": "claude",
                 "runs": 3,
                 "continuous": True,
+                "max_waves": 5,
                 "keep_worktrees": True,
                 "effort": "high",
             },
@@ -6354,7 +6355,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             launch_effort=payload.effort,
             evaluator_backend=payload.evaluator_backend,
             evaluator_model=payload.evaluator_model or "",
-            max_no_progress_waves=payload.max_idle_waves,
+            max_waves=payload.max_waves if payload.continuous else 1,
             max_evaluator_failures=payload.max_evaluator_failures,
         )
         if payload.provider != "cli":
@@ -6402,9 +6403,8 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                     "convergence_status": state.convergence_status,
                     "convergence_summary": state.convergence_summary,
                     "next_wave_directives": list(state.next_wave_directives),
-                    "max_no_progress_waves": state.max_no_progress_waves,
-                    "consecutive_no_progress_waves": state.consecutive_no_progress_waves,
                     "current_wave": state.current_wave,
+                    "max_waves": state.max_waves,
                     "max_runs": state.max_runs or state.runs,
                     "planned_runs": latest_wave.planned_runs if latest_wave else 0,
                     "planning_mode": latest_wave.planning_mode if latest_wave else state.planning_mode,

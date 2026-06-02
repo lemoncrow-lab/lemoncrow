@@ -50,6 +50,7 @@ def test_swarm_run_state_migrates_legacy_payload() -> None:
     state = SwarmRunState.model_validate(_legacy_state_payload())
 
     assert state.max_runs == 4
+    assert state.max_waves == 0
     assert state.runs == 4
     assert state.base_snapshot_ref == "def456"
     assert state.primary_winner_child_id == "wave-01-run-01"

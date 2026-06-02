@@ -98,11 +98,7 @@ def test_code_search_graph_view_keeps_relationships_out_of_items() -> None:
 
     assert "items" not in result
     assert result["target"]["name"] == "classify_command"
-    assert result["related"]["imports"] == [
-        {"path": "tests/test_run_tool.py", "line": 9, "edge_kind": "import"}
-    ]
-    assert result["related"]["usages"] == [
-        {"path": "src/pkg/runner.py", "line": 20, "edge_kind": "call"}
-    ]
+    assert result["related"]["imports"] == [{"path": "tests/test_run_tool.py", "line": 9, "edge_kind": "import"}]
+    assert result["related"]["usages"] == [{"path": "src/pkg/runner.py", "line": 20, "edge_kind": "call"}]
     assert result["related"]["callers"][0]["name"] == "run_tool"
     assert result["related"]["callees"][0]["name"] == "parse_command"

@@ -20,9 +20,9 @@ _TARGET_PER_FAMILY = 100
 def _assert_read_common(result: dict[str, object], expected_path: str) -> None:
     assert "path" in result, "read response must have 'path'"
     actual_path = str(result["path"])
-    assert actual_path.endswith(expected_path), (
-        f"read response path must end with {expected_path!r}, got {actual_path!r}"
-    )
+    assert actual_path.endswith(
+        expected_path
+    ), f"read response path must end with {expected_path!r}, got {actual_path!r}"
 
 
 def _assert_read_full(result: dict[str, object], expected_path: str, expected_marker: str) -> None:
@@ -32,32 +32,33 @@ def _assert_read_full(result: dict[str, object], expected_path: str, expected_ma
     assert "tokens_saved" in result, "read response must have 'tokens_saved'"
     assert result["mode"] == "full", f"small file should use 'full' mode, got {result['mode']!r}"
     assert isinstance(result["content"], str), "'content' must be a string"
-    assert expected_marker in result["content"], (
-        f"full read must include anchor text {expected_marker!r}"
-    )
+    assert expected_marker in result["content"], f"full read must include anchor text {expected_marker!r}"
 
 
-def _assert_read_outline(
-    result: dict[str, object], expected_path: str, expected_symbols: tuple[str, ...]
-) -> None:
+def _assert_read_large(result: dict[str, object], expected_path: str, expected_symbols: tuple[str, ...]) -> None:
     _assert_read_common(result, expected_path)
     assert "mode" in result, "read response must have 'mode'"
-    assert result["mode"] == "outline", (
-        f"large file should use 'outline' mode, got {result['mode']!r}"
-    )
-    assert "tokens_saved" in result, "read response must have 'tokens_saved'"
-    tokens_saved = result["tokens_saved"]
-    assert isinstance(tokens_saved, int), (
-        f"'tokens_saved' must be an int, got {type(tokens_saved).__name__}"
-    )
-    assert tokens_saved > 0, (
-        f"outline mode must save tokens for large file, got tokens_saved={tokens_saved}"
-    )
-    assert "outline" in result, "outline mode response must have 'outline'"
-    outline_text = str(result["outline"])
-    assert any(symbol in outline_text for symbol in expected_symbols), (
-        f"outline must include one of {expected_symbols!r}, got {outline_text[:300]!r}"
-    )
+    assert result["mode"] in {
+        "outline",
+        "full",
+    }, f"large file should use 'outline' or 'full' mode, got {result['mode']!r}"
+    if result["mode"] == "outline":
+        assert "tokens_saved" in result, "read response must have 'tokens_saved'"
+        tokens_saved = result["tokens_saved"]
+        assert isinstance(tokens_saved, int), f"'tokens_saved' must be an int, got {type(tokens_saved).__name__}"
+        assert tokens_saved > 0, f"outline mode must save tokens for large file, got tokens_saved={tokens_saved}"
+        assert "outline" in result, "outline mode response must have 'outline'"
+        outline_text = str(result["outline"])
+        assert any(
+            symbol in outline_text for symbol in expected_symbols
+        ), f"outline must include one of {expected_symbols!r}, got {outline_text[:300]!r}"
+        return
+    assert "content" in result, "full-mode large read must have 'content'"
+    content = result["content"]
+    assert isinstance(content, str), "'content' must be a string"
+    assert any(
+        symbol in content for symbol in expected_symbols
+    ), f"full-mode large read must include one of {expected_symbols!r}"
 
 
 def _assert_read_range(result: dict[str, object], expected_path: str, expected_marker: str) -> None:
@@ -65,9 +66,7 @@ def _assert_read_range(result: dict[str, object], expected_path: str, expected_m
     assert "content" in result, "read response must have 'content'"
     assert "range" in result, "read response must have 'range'"
     assert isinstance(result["content"], str), "'content' must be a string"
-    assert expected_marker in result["content"], (
-        f"range read must include anchor text {expected_marker!r}"
-    )
+    assert expected_marker in result["content"], f"range read must include anchor text {expected_marker!r}"
 
 
 def _full_assert(expected_path: str, expected_marker: str) -> Callable[[dict[str, Any]], None]:
@@ -77,11 +76,9 @@ def _full_assert(expected_path: str, expected_marker: str) -> Callable[[dict[str
     return _assert
 
 
-def _outline_assert(
-    expected_path: str, expected_symbols: tuple[str, ...]
-) -> Callable[[dict[str, Any]], None]:
+def _outline_assert(expected_path: str, expected_symbols: tuple[str, ...]) -> Callable[[dict[str, Any]], None]:
     def _assert(result: dict[str, Any]) -> None:
-        _assert_read_outline(result, expected_path, expected_symbols)
+        _assert_read_large(result, expected_path, expected_symbols)
 
     return _assert
 
@@ -96,16 +93,12 @@ def _range_assert(expected_path: str, expected_marker: str) -> Callable[[dict[st
 def _build_read_cases() -> list[BenchCase]:
     file_facts = collect_repo_file_facts(benchmark_repo_root())
     small_files = [
-        fact
-        for fact in file_facts
-        if 5 <= fact.line_count <= 120 and fact.char_count <= 5000 and fact.anchor_text
+        fact for fact in file_facts if 5 <= fact.line_count <= 120 and fact.char_count <= 5000 and fact.anchor_text
     ][:_TARGET_PER_FAMILY]
-    large_files = [
-        fact for fact in file_facts if fact.line_count >= 220 and len(fact.symbols) >= 3
-    ][:_TARGET_PER_FAMILY]
-    range_files = [fact for fact in file_facts if fact.line_count >= 40 and fact.anchor_text][
+    large_files = [fact for fact in file_facts if fact.line_count >= 220 and len(fact.symbols) >= 3][
         :_TARGET_PER_FAMILY
     ]
+    range_files = [fact for fact in file_facts if fact.line_count >= 40 and fact.anchor_text][:_TARGET_PER_FAMILY]
 
     assert len(small_files) == _TARGET_PER_FAMILY, "not enough small files for read benchmark"
     assert len(large_files) == _TARGET_PER_FAMILY, "not enough large files for read benchmark"

@@ -104,9 +104,7 @@ def wilson_interval(successes: int, total: int, *, confidence: float) -> tuple[f
 def summarize_terminalbench_arm(
     records: list[dict[str, Any]], *, mode: str, confidence: float = 0.95
 ) -> TerminalBenchArmSummary:
-    filtered = [
-        record for record in records if str(record.get("mode") or "").lower() == mode.lower()
-    ]
+    filtered = [record for record in records if str(record.get("mode") or "").lower() == mode.lower()]
     if not filtered:
         raise ValueError(f"no TerminalBench rows found for mode={mode!r}")
 

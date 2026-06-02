@@ -101,6 +101,7 @@ export interface SwarmRunListItem {
   launch_provider?: string | null;
   launch_effort?: string | null;
   current_wave: number;
+  max_waves?: number | null;
   max_runs: number;
   planned_runs: number;
   planning_mode?: string | null;
@@ -142,6 +143,7 @@ export interface SwarmRunStateView {
   base_snapshot_ref?: string | null;
   integration_base_ref?: string | null;
   current_wave: number;
+  max_waves?: number | null;
   max_runs?: number | null;
   runs: number;
   planning_mode?: string | null;
@@ -256,6 +258,7 @@ export interface SwarmLaunchOptionsResponse {
     runner: string;
     runs: number;
     continuous: boolean;
+    max_waves: number;
     keep_worktrees: boolean;
     effort: string;
   };
@@ -279,6 +282,7 @@ export interface SwarmLaunchRequest {
   runner_options?: string;
   runs: number;
   continuous: boolean;
+  max_waves?: number;
   keep_worktrees: boolean;
   effort: string;
   provider_api_key?: string | null;

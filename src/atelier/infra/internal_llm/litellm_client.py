@@ -34,9 +34,7 @@ def _litellm_module() -> Any:
     try:
         import litellm
     except ImportError as exc:
-        raise LiteLLMUnavailable(
-            "litellm package is not installed; install atelier[litellm]"
-        ) from exc
+        raise LiteLLMUnavailable("litellm package is not installed; install atelier[litellm]") from exc
     return litellm
 
 

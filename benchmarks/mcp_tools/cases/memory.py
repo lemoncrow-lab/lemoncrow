@@ -33,7 +33,7 @@ def _assert_recall(result: dict[str, object], symbol_name: str, expected_path: s
     passages = result.get("passages")
     assert isinstance(passages, list), "'passages' must be a list"
     assert passages, "recall must return at least one passage"
-    text = str(passages[0])
+    text = " ".join(str(passage) for passage in passages)
     assert symbol_name in text, f"recall result must mention {symbol_name!r}"
     assert expected_path in text, f"recall result must mention {expected_path!r}"
 

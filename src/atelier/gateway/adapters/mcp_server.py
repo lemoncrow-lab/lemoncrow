@@ -107,9 +107,7 @@ def mcp_tool(
         sig = inspect.signature(func)
         fields = {}
         for param_name, param in sig.parameters.items():
-            annotation = (
-                param.annotation if param.annotation is not inspect.Parameter.empty else Any
-            )
+            annotation = param.annotation if param.annotation is not inspect.Parameter.empty else Any
             default = param.default if param.default is not inspect.Parameter.empty else ...
             fields[param_name] = (
                 annotation,
@@ -203,11 +201,7 @@ def _detect_agent() -> str:
         return "opencode"
     if os.environ.get("CURSOR_SESSION_ID") or os.environ.get("CURSOR_TRACE_ID"):
         return "cursor"
-    if (
-        os.environ.get("HERMES_HOME")
-        or os.environ.get("HERMES_SESSION_ID")
-        or os.environ.get("HERMES_CLI")
-    ):
+    if os.environ.get("HERMES_HOME") or os.environ.get("HERMES_SESSION_ID") or os.environ.get("HERMES_CLI"):
         return "hermes"
     if os.environ.get("COPILOT_CLI") or os.environ.get("GITHUB_COPILOT_SESSION_ID"):
         return "copilot"
@@ -835,9 +829,7 @@ def _append_savings(tool_name: str, tokens_saved: int, calls_saved: int, rid: st
         _log.debug("context savings ledger append failed", exc_info=True)
 
 
-def _append_workspace_savings(
-    tool_name: str, tokens_saved: int, calls_saved: int, rid: str = ""
-) -> None:
+def _append_workspace_savings(tool_name: str, tokens_saved: int, calls_saved: int, rid: str = "") -> None:
     """Backward-compat shim — delegates to _append_savings."""
     _append_savings(tool_name, tokens_saved, calls_saved, rid=rid)
 
@@ -1194,9 +1186,7 @@ def tool_get_context(
 
         context_text = result.get("context", "")
         bootstrap_text = (
-            result.get("bootstrap", {}).get("context", "")
-            if isinstance(result.get("bootstrap"), dict)
-            else ""
+            result.get("bootstrap", {}).get("context", "") if isinstance(result.get("bootstrap"), dict) else ""
         )
         _recall_count = len(result.get("recalled_passages", []))
 
@@ -1501,9 +1491,7 @@ def _spawn_subprocess(prompt: str, model: str) -> dict[str, Any] | None:
 )
 def tool_route(
     task: str = "",
-    task_type: Literal[
-        "debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"
-    ] = "feature",
+    task_type: Literal["debug", "feature", "refactor", "test", "explain", "review", "docs", "ops"] = "feature",
     budget: Literal["cheap", "balanced", "best"] = "balanced",
 ) -> dict[str, Any]:
     """Pick the best model for an upcoming task."""
@@ -1818,18 +1806,9 @@ def tool_record_trace(
     # Derive host label from agent string and environment
     def _derive_host(a: str) -> str:
         al = a.lower()
-        if (
-            "antigravity" in al
-            or "agy" in al
-            or os.environ.get("ANTIGRAVITY_CLI")
-            or os.environ.get("AGY_CLI")
-        ):
+        if "antigravity" in al or "agy" in al or os.environ.get("ANTIGRAVITY_CLI") or os.environ.get("AGY_CLI"):
             return "antigravity"
-        if (
-            "cursor" in al
-            or os.environ.get("CURSOR_SESSION_ID")
-            or os.environ.get("CURSOR_TRACE_ID")
-        ):
+        if "cursor" in al or os.environ.get("CURSOR_SESSION_ID") or os.environ.get("CURSOR_TRACE_ID"):
             return "cursor"
         if (
             "hermes" in al
@@ -2017,9 +1996,7 @@ def _compress_context(session_id: str | None = None) -> Any:
     led = _get_ledger()
     if session_id:
         led.session_id = session_id
-    state = ContextCompressor().compress(
-        led, preserve_last_n_turns=10, workspace_root=_workspace_root()
-    )
+    state = ContextCompressor().compress(led, preserve_last_n_turns=10, workspace_root=_workspace_root())
     compaction_savings = _session_compaction_savings_payload(
         led,
         state,
@@ -2069,9 +2046,7 @@ def _memory_upsert_block(
     clean_description = _redact_memory_input(description, "description")
     store = _memory_store()
     existing = store.get_block(agent_id, label)
-    version = (
-        expected_version if expected_version is not None else (existing.version if existing else 1)
-    )
+    version = expected_version if expected_version is not None else (existing.version if existing else 1)
     seed = existing or MemoryBlock(agent_id=agent_id, label=label, value=clean_value)
     block = MemoryBlock(
         id=seed.id,
@@ -2107,9 +2082,7 @@ def _memory_upsert_block(
         )
     elif decision.op == "DELETE" and target is not None:
         store.tombstone_block(target.id, deprecated_by_block_id=block.id, reason=decision.reason)
-        stored = store.upsert_block(
-            block, actor=actor or f"agent:{agent_id}", reason=decision.reason
-        )
+        stored = store.upsert_block(block, actor=actor or f"agent:{agent_id}", reason=decision.reason)
     else:
         stored = store.upsert_block(block, actor=actor or f"agent:{agent_id}")
     return {
@@ -2385,9 +2358,7 @@ def tool_memory(
     top_k: Annotated[int, Field(description="Max results to return for recall.")] = 5,
     subject: Annotated[
         str | None,
-        Field(
-            description="Fact subject for store_fact (for example: testing, workflow preference)."
-        ),
+        Field(description="Fact subject for store_fact (for example: testing, workflow preference)."),
     ] = None,
     fact: Annotated[
         str | None,
@@ -2685,9 +2656,7 @@ def _resolve_snapshot_path(raw_path: str, repo_root: Path) -> tuple[str, Path]:
     return display, resolved
 
 
-def _collect_touched_paths(
-    edits: list[dict[str, Any]], *, repo_root: str | Path | None = None
-) -> dict[str, Path]:
+def _collect_touched_paths(edits: list[dict[str, Any]], *, repo_root: str | Path | None = None) -> dict[str, Path]:
     """Extract workspace-resolved file paths referenced in edit descriptors."""
     root = Path(repo_root or Path.cwd()).resolve()
     paths: dict[str, Path] = {}
@@ -2760,9 +2729,7 @@ def _validate_edit_descriptor_families(edits: list[dict[str, Any]]) -> str:
         raise ValueError("edits must include at least one descriptor")
     families = {_edit_descriptor_family(edit) for edit in edits}
     if len(families) > 1:
-        raise ValueError(
-            "cannot mix legacy op/path descriptors with rich edit descriptors in one call"
-        )
+        raise ValueError("cannot mix legacy op/path descriptors with rich edit descriptors in one call")
     return families.pop()
 
 
@@ -3088,8 +3055,7 @@ def _ledger_turn_count(led: RunLedger) -> int:
     turn_events = [
         event
         for event in led.events
-        if event.kind
-        in {"agent_message", "reasoning", "test_result", "command_result", "tool_result"}
+        if event.kind in {"agent_message", "reasoning", "test_result", "command_result", "tool_result"}
     ]
     if turn_events:
         return len(turn_events)
@@ -3124,14 +3090,9 @@ def _context_lifecycle_decision(led: RunLedger) -> dict[str, Any]:
     # Bypass the min-turns gate when utilisation is already very high - a small
     # number of dense turns (huge tool outputs, large file reads) can fill the
     # window just as fast as many small ones.
-    turns_gate_passed = (
-        turn_count > AUTO_COMPACT_MIN_TURNS or utilisation_pct >= AUTO_COMPACT_HIGH_UTIL_OVERRIDE
-    )
+    turns_gate_passed = turn_count > AUTO_COMPACT_MIN_TURNS or utilisation_pct >= AUTO_COMPACT_HIGH_UTIL_OVERRIDE
     should_auto_compact = (
-        not should_handover
-        and utilisation_pct >= AUTO_COMPACT_THRESHOLD
-        and turns_gate_passed
-        and boundary
+        not should_handover and utilisation_pct >= AUTO_COMPACT_THRESHOLD and turns_gate_passed and boundary
     )
     should_advise = utilisation_pct >= COMPACT_ADVISORY_THRESHOLD
 
@@ -3199,9 +3160,7 @@ def _compact_advise(session_id: str | None = None) -> dict[str, Any]:
         utilisation_pct = float(lifecycle["utilisation_pct"])
         should_compact = bool(lifecycle["should_compact"])
         should_handover = bool(lifecycle["should_handover"])
-        state = ContextCompressor().compress(
-            led, preserve_last_n_turns=10, workspace_root=_workspace_root()
-        )
+        state = ContextCompressor().compress(led, preserve_last_n_turns=10, workspace_root=_workspace_root())
         compaction_savings = _session_compaction_savings_payload(
             led,
             state,
@@ -3452,11 +3411,14 @@ _CODE_OP_TOP_STRIP: frozenset[str] = frozenset(
         "total_tokens",
         "tokens_saved",
         "provenance_breakdown",
+        "provenance",
+        "mode",
+        "view",
     }
 )
 
 # Fields to strip from nested item dicts (search results, callers/related lists, etc.).
-# Keep: provenance (data quality), origin (external/internal scope), repo_name (multi-repo workspace).
+# Keep: origin (external/internal scope), repo_name (multi-repo workspace).
 _CODE_OP_ITEM_STRIP: frozenset[str] = frozenset(
     {
         "symbol_id",
@@ -3465,6 +3427,7 @@ _CODE_OP_ITEM_STRIP: frozenset[str] = frozenset(
         "content_hash",
         "repo_id",
         "score",
+        "provenance",
     }
 )
 
@@ -3507,27 +3470,21 @@ def _strip_code_op_response(op: str, payload: dict[str, Any]) -> dict[str, Any]:
 
     # Strip internal keys from the target object
     if isinstance(result.get("target"), dict):
-        result["target"] = {
-            k: v for k, v in result["target"].items() if k not in _CODE_OP_ITEM_STRIP
-        }
+        result["target"] = {k: v for k, v in result["target"].items() if k not in _CODE_OP_ITEM_STRIP}
 
     # Strip internal keys from list fields
     for field in _CODE_OP_ITEM_LIST_FIELDS:
         lst = result.get(field)
         if isinstance(lst, list):
             result[field] = [
-                {k: v for k, v in item.items() if k not in _CODE_OP_ITEM_STRIP}
-                if isinstance(item, dict)
-                else item
+                {k: v for k, v in item.items() if k not in _CODE_OP_ITEM_STRIP} if isinstance(item, dict) else item
                 for item in lst
             ]
 
     return result
 
 
-def _maybe_attach_code_rendered(
-    op: str, payload: dict[str, Any], *, render_compact: bool
-) -> dict[str, Any]:
+def _maybe_attach_code_rendered(op: str, payload: dict[str, Any], *, render_compact: bool) -> dict[str, Any]:
     # Render first so the markdown uses all original fields (e.g. repo_id for cache_status heading).
     from atelier.core.capabilities.code_context.renderer import render_code_payload
 
@@ -3586,9 +3543,7 @@ def _code_search_suggested_next(query: str) -> list[dict[str, str]]:
 def _code_search_target_view(payload: dict[str, Any], *, query: str) -> dict[str, Any]:
     items = payload.get("items")
     if isinstance(items, list):
-        payload["items"] = [
-            _code_search_target_item(item) if isinstance(item, dict) else item for item in items
-        ]
+        payload["items"] = [_code_search_target_item(item) if isinstance(item, dict) else item for item in items]
     if payload.get("items"):
         payload["has_more_context"] = True
         payload["suggested_next"] = _code_search_suggested_next(query)
@@ -3619,11 +3574,7 @@ def _code_search_graph_view(
     budget_tokens: int,
 ) -> dict[str, Any]:
     items = search_payload.get("items")
-    primary = (
-        next((item for item in items if isinstance(item, dict)), None)
-        if isinstance(items, list)
-        else None
-    )
+    primary = next((item for item in items if isinstance(item, dict)), None) if isinstance(items, list) else None
     if primary is None:
         return {
             "target": None,
@@ -3697,8 +3648,7 @@ def _code_search_graph_view(
             for item in cast(list[Any], search_payload.get("items", []))
         ]
         payload["explanation"] = (
-            "items are primary search targets; related contains graph evidence from usages, "
-            "callers, and callees."
+            "items are primary search targets; related contains graph evidence from usages, " "callers, and callees."
         )
         payload["suggested_next"] = _code_search_suggested_next(query)
     return payload
@@ -3733,6 +3683,16 @@ SYMBOLS_TOOL_INPUT_SCHEMA: dict[str, Any] = {
             "enum": ["auto", "lexical", "semantic", "hybrid"],
             "default": "auto",
             "description": "'auto': picks best mode. 'lexical': exact identifier match. 'semantic': description/intent match.",
+        },
+        "intent": {
+            "type": "string",
+            "enum": ["auto", "symbol", "text", "semantic"],
+            "default": "auto",
+            "description": (
+                "Search intent. 'symbol' forces symbol-index search for functions/classes/variables; "
+                "'text' forces local text/substring search; 'semantic' forces semantic search; "
+                "'auto' uses query heuristics."
+            ),
         },
         "view": {
             "type": "string",
@@ -3795,6 +3755,7 @@ def tool_symbols(
     rewrite: str | None = None,
     limit: int = 20,
     mode: Literal["auto", "lexical", "semantic", "hybrid"] = "auto",
+    intent: Literal["auto", "symbol", "text", "semantic"] = "auto",
     view: Literal["target", "graph", "context", "explain"] = "target",
     kind: str | None = None,
     language: str | None = None,
@@ -3904,6 +3865,7 @@ def tool_symbols(
         search_kwargs: dict[str, Any] = {
             "limit": limit,
             "mode": mode,
+            "intent": intent,
             "kind": kind,
             "language": language,
             "snippet": snippet,
@@ -3952,9 +3914,7 @@ def tool_symbols(
 
     if op == "blame":
         if not (query or symbol_id or qualified_name or symbol_name):
-            raise ValueError(
-                "query, symbol_id, qualified_name, or symbol_name is required for code blame"
-            )
+            raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code blame")
         return _maybe_attach_code_rendered(
             op,
             cast(
@@ -4088,9 +4048,7 @@ def tool_symbols(
 
     if op == "usages":
         if not any([query, symbol_id, qualified_name, symbol_name]):
-            raise ValueError(
-                "query, symbol_id, qualified_name, or symbol_name is required for code usages"
-            )
+            raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code usages")
         return _maybe_attach_code_rendered(
             op,
             cast(
@@ -4115,9 +4073,7 @@ def tool_symbols(
 
     if op == "callers":
         if not any([query, symbol_id, qualified_name, symbol_name]):
-            raise ValueError(
-                "query, symbol_id, qualified_name, or symbol_name is required for code callers"
-            )
+            raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code callers")
         return _maybe_attach_code_rendered(
             op,
             cast(
@@ -4141,9 +4097,7 @@ def tool_symbols(
 
     if op == "callees":
         if not any([query, symbol_id, qualified_name, symbol_name]):
-            raise ValueError(
-                "query, symbol_id, qualified_name, or symbol_name is required for code callees"
-            )
+            raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code callees")
         return _maybe_attach_code_rendered(
             op,
             cast(
@@ -4169,9 +4123,7 @@ def tool_symbols(
         if not new_name:
             raise ValueError("new_name is required for code rename")
         if not any([query, symbol_id, qualified_name, symbol_name]):
-            raise ValueError(
-                "query, symbol_id, qualified_name, or symbol_name is required for code rename"
-            )
+            raise ValueError("query, symbol_id, qualified_name, or symbol_name is required for code rename")
         from atelier.core.capabilities.tool_supervision.rename_symbol import build_rename_edits
 
         workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
@@ -4363,9 +4315,7 @@ def tool_callers(
     Returns caller names, file paths, and line numbers grouped by file.
     depth=1: direct callers; depth=2: transitive callers.
     """
-    return _tool_symbols_alias_handler(
-        {"op": "callers", **_parse_symbol(symbol), "depth": depth, "limit": limit}
-    )
+    return _tool_symbols_alias_handler({"op": "callers", **_parse_symbol(symbol), "depth": depth, "limit": limit})
 
 
 @mcp_tool(name="callees")
@@ -4380,9 +4330,7 @@ def tool_callees(
     Returns callee names, file paths, and call sites grouped by file.
     depth=1: direct callees; depth=2: transitive callees.
     """
-    return _tool_symbols_alias_handler(
-        {"op": "callees", **_parse_symbol(symbol), "depth": depth, "limit": limit}
-    )
+    return _tool_symbols_alias_handler({"op": "callees", **_parse_symbol(symbol), "depth": depth, "limit": limit})
 
 
 @mcp_tool(name="impact")
@@ -4505,9 +4453,7 @@ def _run_shell_tool(
             if not target_path.is_absolute():
                 target_path = (Path(effective_cwd) / target_path).resolve()
             read_handler: Callable[[dict[str, Any]], Any] = TOOLS["read"]["handler"]
-            rewritten = cast(
-                dict[str, Any], read_handler({"path": str(target_path), "expand": True})
-            )
+            rewritten = cast(dict[str, Any], read_handler({"path": str(target_path), "expand": True}))
             rewritten_stdout = str(rewritten.get("content") or "")
             return {
                 "stdout": rewritten_stdout,
@@ -4728,8 +4674,7 @@ def tool_grep(
         str | None,
         Field(
             description=(
-                "Language or file-type filter, such as `python`, `markdown`, or another "
-                "supported type alias."
+                "Language or file-type filter, such as `python`, `markdown`, or another " "supported type alias."
             )
         ),
     ] = None,
@@ -4754,11 +4699,7 @@ def tool_grep(
     ] = None,
     multiline: Annotated[
         bool,
-        Field(
-            description=(
-                "Enable multiline regex matching so `.` spans newlines and `^` / `$` work per line."
-            )
-        ),
+        Field(description=("Enable multiline regex matching so `.` spans newlines and `^` / `$` work per line.")),
     ] = False,
     summary: Annotated[
         bool | None,
@@ -4840,8 +4781,7 @@ def tool_grep(
                 "enum": ["chunks", "map"],
                 "default": "chunks",
                 "description": (
-                    "`chunks` returns ranked snippets per file, and `map` builds a repo map "
-                    "from `seed_files`."
+                    "`chunks` returns ranked snippets per file, and `map` builds a repo map " "from `seed_files`."
                 ),
             },
             "max_files": {
@@ -4885,10 +4825,7 @@ def tool_smart_search(
     mode: Annotated[
         Literal["chunks", "map"],
         Field(
-            description=(
-                "`chunks` returns ranked snippets per file, and `map` builds a repo map "
-                "from `seed_files`."
-            )
+            description=("`chunks` returns ranked snippets per file, and `map` builds a repo map " "from `seed_files`.")
         ),
     ] = "chunks",
     max_files: Annotated[
@@ -4898,17 +4835,12 @@ def tool_smart_search(
     max_chars_per_file: Annotated[
         int,
         Field(
-            description=(
-                "Cap the returned characters per ranked file before the overall token "
-                "budget is applied."
-            )
+            description=("Cap the returned characters per ranked file before the overall token " "budget is applied.")
         ),
     ] = 2000,
     include_outline: Annotated[
         bool,
-        Field(
-            description="Include outline metadata for ranked files when the backend can provide it."
-        ),
+        Field(description="Include outline metadata for ranked files when the backend can provide it."),
     ] = True,
     seed_files: Annotated[
         list[str] | None,
@@ -5276,9 +5208,7 @@ def _record_context_budget_for_tool(
             if rendered_text_size is not None:
                 actual_output_tokens = max(0, rendered_text_size // 4)
             else:
-                actual_output_tokens = max(
-                    0, len(json.dumps(result, ensure_ascii=False, default=str)) // 4
-                )
+                actual_output_tokens = max(0, len(json.dumps(result, ensure_ascii=False, default=str)) // 4)
 
         if compact_tool_tokens_saved > 0 and not isinstance(raw_lever_savings, dict):
             recorder.record_compact_tool_output(
@@ -5430,9 +5360,7 @@ def _restore_legacy_route(workflow: dict[str, Any], current_step: str) -> tuple[
     )
 
 
-def _persist_legacy_route(
-    workflow: dict[str, Any], payload: dict[str, Any], current_step: str
-) -> None:
+def _persist_legacy_route(workflow: dict[str, Any], payload: dict[str, Any], current_step: str) -> None:
     if not current_step:
         return
     tier = str(payload.get("tier") or "").strip()
@@ -5571,9 +5499,7 @@ def _finalize_model_recommendation(
     wrapper_model: str | None = None,
 ) -> dict[str, Any]:
     finalized = dict(payload)
-    finalized["route_enforcement_active"] = (
-        _route_enforcement_enabled() and finalized.get("configured") is not False
-    )
+    finalized["route_enforcement_active"] = _route_enforcement_enabled() and finalized.get("configured") is not False
     finalized["wrapper_applied"] = wrapper_applied
     if wrapper_model:
         finalized["wrapper_model"] = wrapper_model
@@ -5684,12 +5610,8 @@ def _session_compaction_savings_payload(
     }
 
 
-def _emit_model_recommendation(
-    tool_name: str, args: dict[str, Any], led: RunLedger
-) -> dict[str, Any]:
-    payload, session_state, workflow, current_step = _prepare_model_recommendation(
-        tool_name, args, led
-    )
+def _emit_model_recommendation(tool_name: str, args: dict[str, Any], led: RunLedger) -> dict[str, Any]:
+    payload, session_state, workflow, current_step = _prepare_model_recommendation(tool_name, args, led)
     return _finalize_model_recommendation(
         payload,
         led=led,
@@ -5797,17 +5719,13 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
                     result = _clean_tool_result(result, name)
             else:
                 led = _get_ledger()
-                route_payload, route_state, route_workflow, route_step = (
-                    _prepare_model_recommendation(
-                        name,
-                        args if isinstance(args, dict) else {},
-                        led,
-                    )
+                route_payload, route_state, route_workflow, route_step = _prepare_model_recommendation(
+                    name,
+                    args if isinstance(args, dict) else {},
+                    led,
                 )
                 handler: Callable[[dict[str, Any]], dict[str, Any]] = spec["handler"]
-                _tool_call_tokens_saved.value = (
-                    0  # reset before handler so stale values can't bleed through
-                )
+                _tool_call_tokens_saved.value = 0  # reset before handler so stale values can't bleed through
                 _tool_call_rendered_text.value = None  # reset before handler
                 wrapper_model = (
                     str(route_payload.get("model") or "")
@@ -5846,14 +5764,10 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | None:
                         rendered_text = _render_grep_md(result if isinstance(result, dict) else {})
                 elif name == "search":
                     with contextlib.suppress(Exception):
-                        rendered_text = _render_search_md(
-                            result if isinstance(result, dict) else {}
-                        )
+                        rendered_text = _render_search_md(result if isinstance(result, dict) else {})
                 elif name == "shell":
                     with contextlib.suppress(Exception):
-                        rendered_text = _render_shell_text(
-                            result if isinstance(result, dict) else {}
-                        )
+                        rendered_text = _render_shell_text(result if isinstance(result, dict) else {})
 
                 _record_context_budget_for_tool(
                     name,
@@ -6031,9 +5945,7 @@ def main() -> None:
         except (OSError, _subprocess.SubprocessError):
             _log.debug("git rev-parse workspace-root detection failed", exc_info=True)
     os.environ.setdefault("ATELIER_WORKSPACE_ROOT", os.getcwd())
-    os.environ.setdefault(
-        "ATELIER_LESSONS_ROOT", os.path.join(os.environ["ATELIER_WORKSPACE_ROOT"], ".lessons")
-    )
+    os.environ.setdefault("ATELIER_LESSONS_ROOT", os.path.join(os.environ["ATELIER_WORKSPACE_ROOT"], ".lessons"))
 
     argv = sys.argv[1:]
     if "--version" in argv or "-V" in argv:

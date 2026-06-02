@@ -206,14 +206,10 @@ def run_blame_bench(
     _write_fixture_repo(repo_root)
 
     cold_start = time.perf_counter()
-    cold = tool_code(
-        {"op": "blame", "repo_root": str(repo_root), "query": query, "budget_tokens": budget_tokens}
-    )
+    cold = tool_code({"op": "blame", "repo_root": str(repo_root), "query": query, "budget_tokens": budget_tokens})
     cold_elapsed_ms = (time.perf_counter() - cold_start) * 1000
     hot_start = time.perf_counter()
-    hot = tool_code(
-        {"op": "blame", "repo_root": str(repo_root), "query": query, "budget_tokens": budget_tokens}
-    )
+    hot = tool_code({"op": "blame", "repo_root": str(repo_root), "query": query, "budget_tokens": budget_tokens})
     hot_elapsed_ms = (time.perf_counter() - hot_start) * 1000
     manual_total_tokens = _manual_blame_tokens(repo_root)
 
@@ -230,15 +226,11 @@ def run_blame_bench(
         hot_elapsed_ms=round(hot_elapsed_ms, 3),
         last_author=str(cold.get("last_author") or ""),
         churn_commit_count=(
-            int(cold.get("churn", {}).get("commit_count", 0))
-            if isinstance(cold.get("churn"), dict)
-            else None
+            int(cold.get("churn", {}).get("commit_count", 0)) if isinstance(cold.get("churn"), dict) else None
         ),
         manual_total_tokens=manual_total_tokens,
         blame_to_manual_ratio=(
-            (int(cold.get("total_tokens", 0) or 0) / manual_total_tokens)
-            if manual_total_tokens
-            else 0.0
+            (int(cold.get("total_tokens", 0) or 0) / manual_total_tokens) if manual_total_tokens else 0.0
         ),
         blame_workflow_steps=1,
         manual_workflow_steps=3,

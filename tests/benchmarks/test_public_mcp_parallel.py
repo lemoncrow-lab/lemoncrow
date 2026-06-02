@@ -44,6 +44,37 @@ def test_plan_suite_shards_rejects_unknown_suite() -> None:
         EXPORTER._plan_suite_shards(["unknown-suite"], jobs=2)
 
 
+def test_resolve_jobs_uses_full_cpu_up_to_suite_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    specs = [(f"suite-{index}", 1, lambda _root, _progress: []) for index in range(12)]
+    monkeypatch.setattr(EXPORTER, "_select_suite_specs", lambda _suite_names: specs)
+    monkeypatch.setattr(EXPORTER.os, "cpu_count", lambda: 64)
+
+    assert EXPORTER._resolve_jobs(0, None) == 12
+
+
+def test_render_shard_progress_is_single_status_line(tmp_path: Path) -> None:
+    status_file = tmp_path / "shard-1.status.json"
+    status_file.write_text(
+        (
+            '{"current":"search search/example","done":3,"shard":"shard-1",'
+            '"status":"running","title":"running","total":5,"updated_at":1}'
+        ),
+        encoding="utf-8",
+    )
+
+    status = EXPORTER._render_shard_progress(
+        {1: ["search"]},
+        {1: status_file},
+        completed_shards=0,
+        total_shards=1,
+        total_cases=5,
+    )
+
+    assert "\n" not in status
+    assert "cases 3/5" in status
+    assert "shard-1 [search] 3/5 running" in status
+
+
 def test_select_suite_specs_expands_code_alias() -> None:
     specs = EXPORTER._select_suite_specs(["code"])
     names = [name for name, _size, _runner in specs]
@@ -82,7 +113,7 @@ def test_summarize_rows_adds_total_row() -> None:
     assert summary[-1]["passed"] == 1
 
 
-def test_repo_workspace_root_uses_cached_snapshot(monkeypatch, tmp_path: Path) -> None:
+def test_repo_workspace_root_uses_cached_snapshot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     snapshot_root = tmp_path / "snapshot"
@@ -109,3 +140,34 @@ def test_repo_workspace_root_uses_cached_snapshot(monkeypatch, tmp_path: Path) -
             "abc123",
         )
     ]
+
+
+def test_flatten_reports_adds_case_input_and_stable_args(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    harness = _load("benchmarks.mcp_tools.harness")
+    monkeypatch.setattr(EXPORTER, "_repo_root", lambda: tmp_path / "repo")
+
+    case = harness.BenchCase(
+        op="shell",
+        label="shell/example",
+        args={"command": f"cat {tmp_path}/repo/src/example.py"},
+        baseline_tokens=100,
+    )
+    result = harness.CaseResult(
+        case=case,
+        response={"ok": True},
+        atelier_tokens=25,
+        baseline_tokens=100,
+        quality_score=1.0,
+        input_file_tokens=0,
+        baseline_commands=["cat /tmp/example.py"],
+        spill_probe_tokens=0,
+        spill_probe_hits=0,
+        elapsed_ms=12.5,
+        passed=True,
+    )
+
+    rows = EXPORTER._flatten_reports([harness.ToolReport(tool_name="shell", results=[result])])
+
+    assert rows[0]["case_input"].startswith("cat ")
+    assert "$REPO_ROOT" in rows[0]["stable_args_json"]
+    assert "$TMP" in rows[0]["baseline_commands_json"]

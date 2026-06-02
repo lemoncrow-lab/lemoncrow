@@ -46,7 +46,8 @@ SESSION_OPTIMIZATION_RULES: tuple[SessionOptimizationRule, ...] = (
         trigger="A task can expand into broad searches, high-cost context loading, or long-running exploration.",
         action=(
             "Before changing files, name the deliverable and summarize the smallest viable plan. "
-            "Keep context narrow and stop after the first working patch for review when the scope is uncertain."
+            "Keep context narrow, default to the smallest sufficient response, and skip long walkthroughs unless asked. "
+            "Stop after the first working patch for review when the scope is uncertain."
         ),
     ),
     SessionOptimizationRule(

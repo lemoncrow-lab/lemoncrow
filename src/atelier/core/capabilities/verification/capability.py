@@ -19,24 +19,18 @@ _DEFAULT_CHECKS = ("lint", "typecheck", "tests")
 
 
 class SemanticReviewRunner(Protocol):
-    def __call__(
-        self, files: list[str], task_intent: str, *, cwd: Path
-    ) -> list[Counterexample]: ...
+    def __call__(self, files: list[str], task_intent: str, *, cwd: Path) -> list[Counterexample]: ...
 
 
 def _default_run(args: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        list(args), cwd=str(cwd), capture_output=True, text=True, check=False, timeout=120
-    )
+    return subprocess.run(list(args), cwd=str(cwd), capture_output=True, text=True, check=False, timeout=120)
 
 
 def _is_test_file_path(file_path: str) -> bool:
     path = Path(file_path)
     parts = {part.lower() for part in path.parts}
     name = path.name.lower()
-    return (
-        "test" in parts or "tests" in parts or name.startswith("test_") or name.endswith("_test.py")
-    )
+    return "test" in parts or "tests" in parts or name.startswith("test_") or name.endswith("_test.py")
 
 
 def _typecheck_targets(files: list[str]) -> list[str]:
@@ -76,9 +70,7 @@ class VerifierCapability:
         if "lint" in checks:
             results.extend(run_lint(scope_files, cwd=self._cwd, run=self._run))
         if "typecheck" in checks:
-            results.extend(
-                run_typecheck(_typecheck_targets(scope_files), cwd=self._cwd, run=self._run)
-            )
+            results.extend(run_typecheck(_typecheck_targets(scope_files), cwd=self._cwd, run=self._run))
         if "tests" in checks:
             results.extend(run_tests(scope_files, cwd=self._cwd, run=self._run))
         if "semantic" in checks and self._task_intent:

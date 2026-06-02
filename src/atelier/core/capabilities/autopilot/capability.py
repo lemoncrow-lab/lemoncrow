@@ -76,9 +76,7 @@ class AutopilotCapability:
         parts = [p for p in parts if p and p.strip()]
         if not parts:
             return AutopilotAction.noop("no_providers", "session_warm")
-        content = "Relevant prior context (Atelier autopilot):\n" + "\n".join(
-            f"- {p}" for p in parts
-        )
+        content = "Relevant prior context (Atelier autopilot):\n" + "\n".join(f"- {p}" for p in parts)
         return self._emit("session_warm", content)
 
     def _scoped_inject(self, event: AutopilotEvent) -> AutopilotAction:
@@ -110,10 +108,7 @@ class AutopilotCapability:
         # Keep it small + scoped: only the top-K most-relevant chunks (the pull
         # returns them ranked). Avoids the "lost in the middle" context dump.
         top = chunks[: self.config.max_inject_chunks]
-        lines = [
-            f"- {getattr(c, 'symbol', '') or getattr(c, 'path', '')} ({getattr(c, 'path', '')})"
-            for c in top
-        ]
+        lines = [f"- {getattr(c, 'symbol', '') or getattr(c, 'path', '')} ({getattr(c, 'path', '')})" for c in top]
         body = "Scoped context for this request (Atelier autopilot):\n" + "\n".join(lines)
         content = f"{advisory}\n{body}" if advisory else body
         return self._emit("scoped_inject", content)
@@ -232,7 +227,5 @@ class AutopilotCapability:
         return (
             "Verification hit the retry budget for the same counterexample set "
             f"(attempt {attempt}/{self._retry_budget.max_attempts}).\n"
-            "Switch to rescue-style debugging before another edit:\n"
-            + "\n".join(procedure)
-            + suffix
+            "Switch to rescue-style debugging before another edit:\n" + "\n".join(procedure) + suffix
         )

@@ -74,6 +74,7 @@ from atelier.infra.code_intel.astgrep import (
     PatternSearchResult,
 )
 from atelier.infra.code_intel.cross_lang import CrossLangEdge, CrossLangEdgeStore
+from atelier.infra.internal_llm.exceptions import OllamaUnavailable
 from atelier.infra.tree_sitter.tags import detect_language, extract_tags
 
 if TYPE_CHECKING:
@@ -470,6 +471,21 @@ def _identifier_terms(text: str) -> list[str]:
 
 def _is_precise_symbol_query(query: str) -> bool:
     return bool(_PRECISE_SYMBOL_QUERY_RE.fullmatch(query.strip()))
+
+
+def _should_skip_fuzzy_for_precise_query(query: str) -> bool:
+    normalized = query.strip()
+    if not _is_precise_symbol_query(normalized):
+        return False
+    return "_" in normalized or "." in normalized
+
+
+def _matches_file_glob(path: str, pattern: str) -> bool:
+    if fnmatch.fnmatch(path, pattern):
+        return True
+    if "**/" in pattern and fnmatch.fnmatch(path, pattern.replace("**/", "")):
+        return True
+    return False
 
 
 def _exact_symbol_hits(hits: list[SymbolRecord], query: str) -> list[SymbolRecord]:
@@ -890,6 +906,7 @@ class CodeContextEngine:
         *,
         limit: int = 20,
         mode: SearchMode = "auto",
+        intent: Literal["auto", "symbol", "text", "semantic"] = "auto",
         kind: str | None = None,
         language: str | None = None,
         snippet: Literal["none", "head", "full"] = "none",
@@ -912,7 +929,19 @@ class CodeContextEngine:
         if auto_index and scope != "deleted":
             self._ensure_indexed()
         self._sync_symbol_intel()
-        resolved_mode = resolve_search_mode(query, mode)
+        resolved_mode = "semantic" if intent == "semantic" else resolve_search_mode(query, mode)
+        use_text_substring = intent == "text" or (
+            intent == "auto"
+            and self._should_use_text_substring_search(
+                query,
+                mode=resolved_mode,
+                scope=scope,
+                kind=kind,
+                language=language,
+                file_glob=file_glob,
+                provenance_filter=provenance_filter,
+            )
+        )
         temporal_scope = scope in {"repo", "deleted"}
         parsed_since = _parse_since_filter(since) if temporal_scope else None
         normalized_touched_by = _normalize_touched_by(touched_by) if temporal_scope else None
@@ -921,6 +950,7 @@ class CodeContextEngine:
             "query": query,
             "limit": limit,
             "mode": mode,
+            "intent": intent,
             "resolved_mode": resolved_mode,
             "kind": kind,
             "language": language,
@@ -936,10 +966,23 @@ class CodeContextEngine:
             "rerank_limit": rerank_limit,
             "rerank": self._search_reranker.cache_fingerprint(mode=resolved_mode, scope=scope),
             "provenance_filter": provenance_filter,
+            "use_text_substring": use_text_substring,
         }
         hit, cached = self._cache_get("code.search", cache_args)
         if hit and cached is not None:
             return self._mark_cache_hit(cached)
+
+        if use_text_substring:
+            text_payload = self._tool_text_substring_search(
+                query,
+                limit=limit,
+                file_glob=file_glob,
+                budget_tokens=effective_budget_tokens,
+                since_ts=parsed_since,
+                touched_by=normalized_touched_by,
+            )
+            self._cache_set("code.search", cache_args, text_payload)
+            return text_payload
 
         if scope == "deleted":
             raw_deleted_items = self.search_symbols(
@@ -1457,13 +1500,13 @@ class CodeContextEngine:
         query: str,
         *,
         seed_files: list[str] | None = None,
-        max_files: int = 8,
-        max_symbols: int = 30,
+        max_files: int = 6,
+        max_symbols: int = 20,
         include_source: bool = True,
         include_relationships: bool = True,
         line_numbers: bool = True,
         depth: int = 1,
-        budget_tokens: int = 12000,
+        budget_tokens: int = 9000,
         auto_index: bool = True,
     ) -> dict[str, Any]:
         if auto_index:
@@ -2484,7 +2527,9 @@ class CodeContextEngine:
                 scope=scope,
                 source_loader=self._load_symbol_source_for_rerank,
             )
-            return [self._attach_snippet(symbol, snippet=snippet, snippet_lines=snippet_lines) for symbol in hits[:limit]]
+            return [
+                self._attach_snippet(symbol, snippet=snippet, snippet_lines=snippet_lines) for symbol in hits[:limit]
+            ]
         if scope == "repo" and resolved_mode != "semantic":
             candidate_files = self._zoekt_candidate_files(query, max_files=max(limit * 4, 40))
         if resolved_mode == "lexical":
@@ -2527,12 +2572,15 @@ class CodeContextEngine:
                         language=language,
                         candidate_files=candidate_files,
                     )
-                semantic_hits = self._search_symbols_semantic_local(
-                    query,
-                    limit=candidate_limit,
-                    kind=kind,
-                    language=language,
-                )
+                try:
+                    semantic_hits = self._search_symbols_semantic_local(
+                        query,
+                        limit=candidate_limit,
+                        kind=kind,
+                        language=language,
+                    )
+                except OllamaUnavailable:
+                    semantic_hits = []
                 # Merge commit chunks as a third candidate source (LINEAGE-03)
                 commit_hits: list[SymbolRecord] = []
                 with contextlib.suppress(Exception):
@@ -2774,6 +2822,8 @@ class CodeContextEngine:
             consider_rows(camel_rows, channel_rank=6, base=790.0)
 
             if not scored:
+                if _should_skip_fuzzy_for_precise_query(normalized_query):
+                    return []
                 fuzzy_rows = conn.execute(
                     f"""
                     SELECT *, NULL AS score
@@ -2981,6 +3031,49 @@ class CodeContextEngine:
         result = build_repo_map(self.repo_root, seed_files=normalized, budget_tokens=budget_tokens)
         return result.model_dump(mode="json") | {"mode": "map"}
 
+    def _render_context_code_block(self, symbol: SymbolRecord, source_block: str) -> str:
+        block_header = f"### {symbol.qualified_name} ({symbol.file_path}:{symbol.start_line}-{symbol.end_line})"
+        return f"{block_header}\n```{symbol.language}\n{source_block}\n```"
+
+    def _context_content_with_candidate(self, lines: list[str], *, block: str | None = None) -> str:
+        candidate_lines = list(lines)
+        if block is not None:
+            candidate_lines.extend([block, ""])
+        return "\n".join(candidate_lines).strip()
+
+    def _fit_context_code_block_source(
+        self,
+        *,
+        lines: list[str],
+        symbol: SymbolRecord,
+        source: str,
+        budget_tokens: int,
+        max_source_chars: int,
+        allow_over_budget: bool,
+    ) -> str | None:
+        capped_source = hard_cap_chars(source, max_source_chars)
+        full_block = self._render_context_code_block(symbol, capped_source)
+        if count_tokens(self._context_content_with_candidate(lines, block=full_block)) <= budget_tokens:
+            return capped_source
+
+        search_high = min(max_source_chars, max(1, len(source)))
+        best_source: str | None = None
+        low = 1
+        high = max(1, search_high)
+        while low <= high:
+            mid = (low + high) // 2
+            candidate_source = hard_cap_chars(source, mid)
+            candidate_block = self._render_context_code_block(symbol, candidate_source)
+            if count_tokens(self._context_content_with_candidate(lines, block=candidate_block)) <= budget_tokens:
+                best_source = candidate_source
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        if best_source is not None:
+            return best_source
+        return capped_source if allow_over_budget else None
+
     def context_pack(
         self,
         *,
@@ -2995,11 +3088,19 @@ class CodeContextEngine:
             self._ensure_indexed()
         context_policy = resolve_output_policy("context")
         normalized_seeds = [self._normalize_file_arg(seed) for seed in seed_files or []]
-        lexical_anchor_files = sorted(self._zoekt_candidate_files(task, max_files=max(max_symbols * 4, 24)))
+        search_query = task
+        lexical_anchor_files = sorted(self._zoekt_candidate_files(search_query, max_files=max(max_symbols * 4, 24)))
         context_seed_files = list(dict.fromkeys([*normalized_seeds, *lexical_anchor_files]))
         repo_map_payload = self.repo_map(seed_files=context_seed_files, budget_tokens=max(200, budget_tokens // 4))
         bounded_max_symbols = max(1, min(max_symbols, context_policy.max_related_symbols))
-        symbol_hits = self.search_symbols(task, limit=bounded_max_symbols, auto_index=False)
+        symbol_hits = self.search_symbols(
+            search_query,
+            limit=self._context_pack_search_limit(
+                max_symbols=bounded_max_symbols,
+                max_symbols_per_file=context_policy.max_symbols_per_file,
+            ),
+            auto_index=False,
+        )
         seed_symbols = self._symbols_for_files(
             context_seed_files,
             limit=max(
@@ -3008,28 +3109,47 @@ class CodeContextEngine:
             ),
         )
         selected = self._dedupe_symbols([*seed_symbols, *symbol_hits])
-        selected = [symbol for symbol in selected if not self._is_noise_symbol_kind(symbol.kind)]
-        selected = self._prioritize_context_symbols(task, selected)
+        selected = [symbol for symbol in selected if self._is_context_pack_symbol(symbol)]
+        selected = self._prioritize_context_symbols(search_query, selected)
+        selected = self._prune_overlapping_context_symbols(selected)
         selected = self._cap_symbols_per_file(selected, max_per_file=max(1, context_policy.max_symbols_per_file))
         selected = selected[:bounded_max_symbols]
 
         neighbors = self._import_neighbors(context_seed_files)
         neighbor_files = self._context_neighbor_files(neighbors)[: context_policy.max_related_symbols]
-        neighbor_symbols = self._symbols_for_files(
-            neighbor_files,
-            limit=max(1, context_policy.max_related_symbols * max(1, context_policy.max_symbols_per_file)),
+        graph_related = self._context_graph_related_symbols(
+            selected,
+            query=search_query,
+            limit=context_policy.max_related_symbols,
+            max_symbols_per_file=max(1, context_policy.max_symbols_per_file),
         )
         selected_ids = {item.symbol_id for item in selected}
-        related_seed = [
-            symbol
-            for symbol in neighbor_symbols
-            if not self._is_noise_symbol_kind(symbol.kind) and symbol.symbol_id not in selected_ids
-        ]
-        related_symbols = self._prioritize_context_symbols(task, related_seed)
-        related_symbols = self._cap_symbols_per_file(
-            related_symbols, max_per_file=max(1, context_policy.max_symbols_per_file)
-        )
-        related_symbols = related_symbols[: context_policy.max_related_symbols]
+        related_symbols = list(graph_related)
+        related_ids = {item.symbol_id for item in related_symbols} | selected_ids
+        if len(related_symbols) < context_policy.max_related_symbols and neighbor_files:
+            neighbor_symbol_limit = max(
+                1,
+                context_policy.max_related_symbols * max(1, context_policy.max_symbols_per_file),
+            )
+            neighbor_symbols = self._search_symbols_local(
+                search_query,
+                limit=neighbor_symbol_limit,
+                candidate_files=set(neighbor_files),
+            )
+            if not neighbor_symbols:
+                neighbor_symbols = self._symbols_for_files(neighbor_files, limit=neighbor_symbol_limit)
+            related_seed = [
+                symbol
+                for symbol in neighbor_symbols
+                if self._is_context_pack_symbol(symbol) and symbol.symbol_id not in related_ids
+            ]
+            neighbor_related = self._prioritize_context_symbols(search_query, related_seed)
+            related_symbols.extend(neighbor_related)
+            related_symbols = self._prune_overlapping_context_symbols(related_symbols)
+            related_symbols = self._cap_symbols_per_file(
+                related_symbols, max_per_file=max(1, context_policy.max_symbols_per_file)
+            )
+            related_symbols = related_symbols[: context_policy.max_related_symbols]
         entry_points = [self._context_symbol_summary(symbol) for symbol in selected]
         related_summaries = [self._context_symbol_summary(symbol) for symbol in related_symbols]
 
@@ -3066,16 +3186,24 @@ class CodeContextEngine:
         code_blocks: list[dict[str, Any]] = []
         naive_tokens = 0
         max_code_blocks = max(1, context_policy.max_code_blocks)
-        for symbol in selected[:max_code_blocks]:
+        code_block_candidates = self._dedupe_symbols([*selected, *graph_related])
+        for symbol in code_block_candidates:
+            if len(packed_symbols) >= max_code_blocks:
+                break
             full_file = self._read_file(symbol.file_path)
             naive_tokens += count_tokens(full_file)
             symbol_payload = self.get_symbol(symbol_id=symbol.symbol_id, auto_index=False)
-            source_block = hard_cap_chars(str(symbol_payload["source"]), context_policy.max_code_block_chars)
-            block_header = f"### {symbol.qualified_name} ({symbol.file_path}:{symbol.start_line}-{symbol.end_line})"
-            block = f"{block_header}\n```{symbol.language}\n{source_block}\n```"
-            candidate = "\n".join([*lines, block])
-            if count_tokens(candidate) > budget_tokens and packed_symbols:
-                break
+            source_block = self._fit_context_code_block_source(
+                lines=lines,
+                symbol=symbol,
+                source=str(symbol_payload.get("source") or ""),
+                budget_tokens=budget_tokens,
+                max_source_chars=context_policy.max_code_block_chars,
+                allow_over_budget=not packed_symbols,
+            )
+            if source_block is None:
+                continue
+            block = self._render_context_code_block(symbol, source_block)
             lines.append(block)
             lines.append("")
             packed_symbols.append(symbol)
@@ -3120,6 +3248,7 @@ class CodeContextEngine:
                 "selected_symbols": len(packed_symbols),
                 "entry_points": len(entry_points),
                 "related_symbols": len(related_summaries),
+                "call_graph_related_symbols": len(graph_related),
                 "token_budget_fit": token_count <= budget_tokens,
             },
         )
@@ -3154,6 +3283,158 @@ class CodeContextEngine:
                 raise RuntimeError(proc.stderr.strip() or "ripgrep failed")
             return self._parse_rg_output(proc.stdout, limit=limit)
         return self._python_text_search(query, search_path, limit=limit, ignore_case=ignore_case)
+
+    def _should_use_text_substring_search(
+        self,
+        query: str,
+        *,
+        mode: SearchMode,
+        scope: Literal["repo", "external", "deleted"],
+        kind: str | None,
+        language: str | None,
+        file_glob: str | None,
+        provenance_filter: str | None,
+    ) -> bool:
+        normalized = query.strip()
+        if scope != "repo" or mode != "lexical" or kind is not None or provenance_filter is not None:
+            return False
+        if not (4 <= len(normalized) <= 40):
+            return False
+        if any(char.isspace() for char in normalized):
+            return False
+        if "_" in normalized or "." in normalized:
+            return False
+        if normalized != normalized.lower():
+            return False
+        return not self._has_exact_repo_symbol(normalized, kind=kind, language=language, file_glob=file_glob)
+
+    def _has_exact_repo_symbol(
+        self,
+        query: str,
+        *,
+        kind: str | None,
+        language: str | None,
+        file_glob: str | None,
+    ) -> bool:
+        hits = self.intel_store.search_symbols(
+            query,
+            limit=20,
+            kind=kind,
+            language=language,
+            scope="repo",
+        )
+        if file_glob:
+            hits = [hit for hit in hits if _matches_file_glob(hit.file_path, file_glob)]
+        return bool(_exact_symbol_hits(hits, query))
+
+    def _tool_text_substring_search(
+        self,
+        query: str,
+        *,
+        limit: int,
+        file_glob: str | None,
+        budget_tokens: int,
+        since_ts: int | None = None,
+        touched_by: str | None = None,
+    ) -> dict[str, Any]:
+        search_path = "src/atelier" if (self.repo_root / "src" / "atelier").is_dir() else "."
+        query_lower = query.lower()
+        symbol_hits = self.search_symbols(
+            query,
+            limit=max(limit * 40, 200),
+            mode="lexical",
+            file_glob=file_glob,
+            scope="repo",
+            auto_index=False,
+        )
+        ranked_symbol_hits = sorted(
+            (
+                item
+                for item in symbol_hits
+                if query_lower in item.symbol_name.lower() or query_lower in item.qualified_name.lower()
+            ),
+            key=lambda item: self._text_substring_symbol_score(query_lower, item),
+            reverse=True,
+        )
+        symbol_items = [item.model_dump(mode="json", exclude_none=True) for item in ranked_symbol_hits[:limit]]
+        raw_limit = max(limit * 50, 500)
+        matches = self.search_text(query, path=search_path, limit=raw_limit, ignore_case=True)
+        if file_glob:
+            matches = [match for match in matches if _matches_file_glob(match.file_path, file_glob)]
+        ranked = sorted(
+            matches,
+            key=lambda match: self._text_substring_score(query, match),
+            reverse=True,
+        )
+        symbol_paths = {str(item.get("file_path") or "") for item in symbol_items}
+        text_items = [
+            item
+            for item in (self._text_match_search_item(query, match) for match in ranked[:limit])
+            if str(item.get("file_path") or "") not in symbol_paths
+        ]
+        items = self._dedupe_search_items(symbol_items + text_items)
+        if since_ts is not None or touched_by is not None:
+            changed_files = self._deleted_history_adapter().changed_files(
+                since_ts=since_ts,
+                touched_by=touched_by,
+            )
+            items = [item for item in items if str(item.get("file_path") or "") in changed_files]
+        payload = self._pack_items_payload(
+            items,
+            budget_tokens=budget_tokens,
+            essential_keys=_SEARCH_ESSENTIAL_KEYS,
+            optional_keys_in_drop_order=["snippet", "score", "repo_id"],
+            extra_payload={
+                "mode": "lexical",
+                "snippet": "none",
+                "provenance": _LOCAL_PROVENANCE,
+                "text_search": True,
+            },
+        )
+        return payload
+
+    def _text_substring_score(self, query: str, match: TextMatch) -> tuple[int, int, int, int]:
+        lowered_text = match.text.lower()
+        lowered_path = match.file_path.lower()
+        query_lower = query.lower()
+        definition = int(
+            bool(re.search(rf"\b(def|class)\s+[A-Za-z_][A-Za-z0-9_]*{re.escape(query_lower)}", lowered_text))
+        )
+        symbolish = int(bool(re.search(rf"[A-Za-z_][A-Za-z0-9_]*{re.escape(query_lower)}", lowered_text)))
+        path_hit = int(query_lower in lowered_path)
+        return (definition, symbolish, path_hit, -len(match.file_path))
+
+    def _text_substring_symbol_score(self, query_lower: str, symbol: SymbolRecord) -> tuple[int, int, int, int, int]:
+        symbol_name_lower = symbol.symbol_name.lower()
+        qualified_name_lower = symbol.qualified_name.lower()
+        preferred_kind = int(symbol.kind in {"class", "method", "function"})
+        startswith = int(symbol_name_lower.startswith(query_lower) or qualified_name_lower.startswith(query_lower))
+        bare_startswith = int(symbol_name_lower.lstrip("_").startswith(query_lower))
+        path_hit = int(query_lower in symbol.file_path.lower())
+        return (preferred_kind, startswith, bare_startswith, path_hit, -len(symbol.symbol_name))
+
+    def _text_match_search_item(self, query: str, match: TextMatch) -> dict[str, Any]:
+        name = self._text_match_name(query, match.text)
+        return {
+            "symbol_id": f"text:{match.file_path}:{match.line}:{match.column}",
+            "symbol_name": name,
+            "qualified_name": name,
+            "file_path": match.file_path,
+            "kind": "text_match",
+            "start_line": match.line,
+            "signature": match.text.strip()[:240],
+            "provenance": _LOCAL_PROVENANCE,
+            "score": 1.0,
+        }
+
+    def _text_match_name(self, query: str, text: str) -> str:
+        match = re.search(r"\b(?:def|class)\s+([A-Za-z_][A-Za-z0-9_]*)", text)
+        if match:
+            return match.group(1)
+        token = re.search(rf"([A-Za-z_][A-Za-z0-9_]*{re.escape(query)}[A-Za-z0-9_]*)", text)
+        if token:
+            return token.group(1)
+        return query
 
     def _zoekt_candidate_files(
         self,
@@ -4350,8 +4631,27 @@ class CodeContextEngine:
             output.append(symbol)
         return output
 
+    def _context_pack_search_limit(self, *, max_symbols: int, max_symbols_per_file: int) -> int:
+        return max(
+            max_symbols,
+            max_symbols * max(2, max_symbols_per_file),
+        )
+
     def _is_noise_symbol_kind(self, kind: str) -> bool:
         return kind.strip().lower() in {"import", "export"}
+
+    def _is_context_pack_symbol(self, symbol: SymbolRecord) -> bool:
+        if self._is_noise_symbol_kind(symbol.kind):
+            return False
+        if symbol.provenance == "commit" or symbol.kind == "commit":
+            return False
+        rel = str(symbol.file_path or "").strip()
+        if not rel:
+            return False
+        with contextlib.suppress(ValueError):
+            if self._resolve_inside_repo(rel).is_file():
+                return True
+        return False
 
     def _symbol_matches_compound_query(self, query_terms: list[str], symbol: SymbolRecord) -> bool:
         if len(query_terms) < 2:
@@ -4415,6 +4715,28 @@ class CodeContextEngine:
             ),
         )
 
+    def _prune_overlapping_context_symbols(self, symbols: list[SymbolRecord]) -> list[SymbolRecord]:
+        kept: list[SymbolRecord] = []
+        for symbol in symbols:
+            if any(self._context_symbols_are_redundant(existing, symbol) for existing in kept):
+                continue
+            kept.append(symbol)
+        return kept
+
+    def _context_symbols_are_redundant(self, kept: SymbolRecord, candidate: SymbolRecord) -> bool:
+        if self._normalize_file_arg(kept.file_path) != self._normalize_file_arg(candidate.file_path):
+            return False
+        kept_contains_candidate = self._context_symbol_contains(kept, candidate)
+        candidate_contains_kept = self._context_symbol_contains(candidate, kept)
+        return kept_contains_candidate or candidate_contains_kept
+
+    def _context_symbol_contains(self, outer: SymbolRecord, inner: SymbolRecord) -> bool:
+        outer_start = int(outer.start_line)
+        outer_end = max(outer_start, int(outer.end_line))
+        inner_start = int(inner.start_line)
+        inner_end = max(inner_start, int(inner.end_line))
+        return outer_start <= inner_start and outer_end >= inner_end
+
     def _context_neighbor_files(self, neighbors: list[str]) -> list[str]:
         files: list[str] = []
         for neighbor in neighbors:
@@ -4425,6 +4747,111 @@ class CodeContextEngine:
             if path.is_file():
                 files.append(candidate)
         return sorted(set(files))
+
+    def _context_symbol_from_call_graph_node(self, node: CallGraphNode) -> SymbolRecord | None:
+        node_file = str(node.file_path or "").strip()
+        if not node_file:
+            return None
+        normalized_file = self._normalize_file_arg(node_file)
+        with self._connect() as conn:
+            self._init_schema(conn)
+            node_symbol_id = str(node.symbol_id or "").strip()
+            if node_symbol_id and not node_symbol_id.startswith(("local-call::", "local-callee::", "ref::")):
+                row = conn.execute(
+                    """
+                    SELECT *, NULL AS score FROM symbols
+                    WHERE repo_id = ? AND symbol_id = ?
+                    LIMIT 1
+                    """,
+                    (self.repo_id, node_symbol_id),
+                ).fetchone()
+                if row is not None:
+                    return _row_to_symbol(row)
+            row = conn.execute(
+                """
+                SELECT *, NULL AS score FROM symbols
+                WHERE repo_id = ? AND file_path = ? AND start_line = ?
+                  AND (qualified_name = ? OR symbol_name = ?)
+                ORDER BY
+                  CASE
+                    WHEN qualified_name = ? THEN 0
+                    WHEN symbol_name = ? THEN 1
+                    ELSE 2
+                  END,
+                  (end_line - start_line) ASC,
+                  end_line ASC,
+                  symbol_id ASC
+                LIMIT 1
+                """,
+                (
+                    self.repo_id,
+                    normalized_file,
+                    int(node.start_line),
+                    str(node.qualified_name),
+                    str(node.symbol_name),
+                    str(node.qualified_name),
+                    str(node.symbol_name),
+                ),
+            ).fetchone()
+        if row is None:
+            return None
+        return _row_to_symbol(row)
+
+    def _context_graph_related_symbols(
+        self,
+        selected: list[SymbolRecord],
+        *,
+        query: str,
+        limit: int,
+        max_symbols_per_file: int,
+    ) -> list[SymbolRecord]:
+        if limit <= 0 or not selected:
+            return []
+        relation_priority: dict[str, int] = {}
+        candidates_by_id: dict[str, SymbolRecord] = {}
+        selected_ids = {symbol.symbol_id for symbol in selected}
+        for symbol in selected:
+            for priority, lookup in enumerate((self.intel_store.find_callees, self.intel_store.find_callers)):
+                nodes = lookup(
+                    symbol_id=symbol.symbol_id,
+                    qualified_name=symbol.qualified_name,
+                    file_path=symbol.file_path,
+                    symbol_name=symbol.symbol_name,
+                )
+                if not nodes:
+                    continue
+                for node in nodes:
+                    candidate = self._context_symbol_from_call_graph_node(node)
+                    if candidate is None or candidate.symbol_id in selected_ids:
+                        continue
+                    if not self._is_context_pack_symbol(candidate):
+                        continue
+                    candidates_by_id[candidate.symbol_id] = candidate
+                    existing = relation_priority.get(candidate.symbol_id)
+                    if existing is None or priority < existing:
+                        relation_priority[candidate.symbol_id] = priority
+        if not candidates_by_id:
+            return []
+        ranks = {symbol_id: self._context_symbol_rank(query, symbol) for symbol_id, symbol in candidates_by_id.items()}
+        ordered = sorted(
+            candidates_by_id.values(),
+            key=lambda symbol: (
+                relation_priority.get(symbol.symbol_id, 99),
+                -ranks[symbol.symbol_id][0],
+                -ranks[symbol.symbol_id][1],
+                -ranks[symbol.symbol_id][2],
+                -ranks[symbol.symbol_id][3],
+                -ranks[symbol.symbol_id][4],
+                -ranks[symbol.symbol_id][5],
+                ranks[symbol.symbol_id][6],
+                ranks[symbol.symbol_id][7],
+                ranks[symbol.symbol_id][8],
+                symbol.symbol_id,
+            ),
+        )
+        ordered = self._prune_overlapping_context_symbols(ordered)
+        ordered = self._cap_symbols_per_file(ordered, max_per_file=max(1, max_symbols_per_file))
+        return ordered[:limit]
 
     def _context_symbol_summary(self, symbol: SymbolRecord) -> dict[str, Any]:
         return {

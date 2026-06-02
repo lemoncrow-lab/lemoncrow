@@ -45,9 +45,8 @@ def test_codex_savings_reporter_updates_session_stats(tmp_path: Path) -> None:
         },
     )
 
-    output = json.loads(result.stdout)
     stats = json.loads((root / "session_stats" / "c1.json").read_text(encoding="utf-8"))
-    assert "Atelier saved" in output["systemMessage"]
+    assert result.stdout == ""
     assert stats["total_tool_calls"] == 1
     assert stats["savings"]["calls_saved"] > 0
 

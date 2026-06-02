@@ -73,9 +73,7 @@ def _tokens(value: str) -> set[str]:
 def _boost(cand: dict[str, Any], query_tokens: set[str], affected: list[str]) -> float:
     score = float(cand.get("score", 0.0) or 0.0)
     path_tokens = _tokens(str(cand.get("path", "")))
-    text_tokens = _tokens(
-        f"{cand.get('symbol', '')} {cand.get('qualified_name', '')} {cand.get('signature', '')}"
-    )
+    text_tokens = _tokens(f"{cand.get('symbol', '')} {cand.get('qualified_name', '')} {cand.get('signature', '')}")
     path_overlap = len(query_tokens & path_tokens)
     text_overlap = len(query_tokens & text_tokens)
     if path_overlap:

@@ -213,12 +213,8 @@ def run_call_graph_bench(
             "budget_tokens": expanded_budget_tokens,
         }
     )
-    default_total_tokens = count_tokens(
-        json.dumps(default_payload, sort_keys=True, ensure_ascii=False, default=str)
-    )
-    expanded_total_tokens = count_tokens(
-        json.dumps(expanded_payload, sort_keys=True, ensure_ascii=False, default=str)
-    )
+    default_total_tokens = count_tokens(json.dumps(default_payload, sort_keys=True, ensure_ascii=False, default=str))
+    expanded_total_tokens = count_tokens(json.dumps(expanded_payload, sort_keys=True, ensure_ascii=False, default=str))
     return CallGraphBenchResult(
         budget_tokens=budget_tokens,
         expanded_budget_tokens=expanded_budget_tokens,

@@ -74,8 +74,7 @@ def service_start(host: str | None, port: int | None, reload: bool) -> None:
     except ImportError as exc:
         if "cannot import name 'main'" in str(exc):
             raise click.ClickException(
-                "The service API 'main' entrypoint is missing. "
-                "Ensure your 'atelier' installation is up to date."
+                "The service API 'main' entrypoint is missing. " "Ensure your 'atelier' installation is up to date."
             ) from exc
         raise click.ClickException(
             "Could not start the service API. Ensure all dependencies are installed: uv sync --extra api"
@@ -184,9 +183,7 @@ def worker_enqueue(
 @click.option("--limit", default=20, type=int, show_default=True)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def worker_list(
-    ctx: click.Context, status: str | None, job_type: str | None, limit: int, as_json: bool
-) -> None:
+def worker_list(ctx: click.Context, status: str | None, job_type: str | None, limit: int, as_json: bool) -> None:
     """List queued and processed jobs."""
     from atelier.infra.storage.factory import create_store
 
@@ -471,18 +468,14 @@ def servicectl_run(
 
 
 @click.command("logs")
-@click.argument(
-    "service", type=click.Choice(["stack", "controller", "letta", "openmemory", "zoekt", "mcp"])
-)
+@click.argument("service", type=click.Choice(["stack", "controller", "letta", "openmemory", "zoekt", "mcp", "all"]))
 @click.option("-f", "--follow", is_flag=True, help="Follow log output.")
-@click.option(
-    "-n", "--lines", default=80, show_default=True, type=int, help="Number of lines to show."
-)
+@click.option("-n", "--lines", default=80, show_default=True, type=int, help="Number of lines to show.")
 @click.pass_context
 def logs_cmd(ctx: click.Context, service: str, follow: bool, lines: int) -> None:
     """Show logs for an Atelier service.
 
-    SERVICE is one of: stack, controller, letta, openmemory, zoekt, mcp.
+    SERVICE is one of: stack, controller, letta, openmemory, zoekt, mcp, all.
 
     On Linux with systemd units installed, uses journalctl to read
     the service unit logs (which contain everything the process wrote
@@ -499,51 +492,61 @@ def logs_cmd(ctx: click.Context, service: str, follow: bool, lines: int) -> None
         "zoekt": ZOEKT_UNIT,
         "mcp": MCP_UNIT,
     }
-    unit = unit_map[service]
 
-    # Linux with systemd unit installed -> journalctl
-    if _is_linux() and (SYSTEMD_USER_DIR / unit).exists():
-        cmd: list[str] = ["journalctl", "--user", "-u", unit, "-n", str(lines)]
+    services = list(unit_map.keys()) if service == "all" else [service]
+
+    for s in services:
+        if service == "all":
+            click.echo(f"\n--- {s} logs ---")
+
+        unit = unit_map[s]
+
+        # Linux with systemd unit installed -> journalctl
+        if _is_linux() and (SYSTEMD_USER_DIR / unit).exists():
+            cmd: list[str] = ["journalctl", "--user", "-u", unit, "-n", str(lines)]
+            if follow:
+                cmd.append("-f")
+            subprocess.run(cmd, check=False)
+            continue
+
+        # Native / macOS -> tail the log file
+        if s == "stack":
+            log_path = _stack_log_path(root)
+        elif s == "controller":
+            log_path = _servicectl_log_path(root)
+        elif s == "letta":
+            # Letta runs under Docker Compose -> use compose logs
+            args = ["logs"]
+            if follow:
+                args.append("-f")
+            _run_compose(args)
+            continue
+        elif s == "openmemory":
+            log_path = _openmemory_log_path(root)
+        elif s == "zoekt":
+            log_path = Path(root) / "zoekt" / "zoekt.log"
+        elif s == "mcp":
+            log_path = _mcp_log_path(root)
+        else:
+            # unreachable given the Choice validator
+            raise click.ClickException(f"unknown service: {s}")
+
+        if not log_path or not log_path.exists():
+            click.echo(f"(no {s} logs at {log_path or 'unknown path'})")
+            continue
+
         if follow:
-            cmd.append("-f")
-        subprocess.run(cmd, check=False)
-        return
-
-    # Native / macOS -> tail the log file
-    if service == "stack":
-        log_path = _stack_log_path(root)
-    elif service == "controller":
-        log_path = _servicectl_log_path(root)
-    elif service == "letta":
-        # Letta runs under Docker Compose -> use compose logs
-        args = ["logs"]
-        if follow:
-            args.append("-f")
-        _run_compose(args)
-        return
-    elif service == "openmemory":
-        log_path = _openmemory_log_path(root)
-    elif service == "zoekt":
-        log_path = Path(root) / "zoekt" / "zoekt.log"
-    elif service == "mcp":
-        log_path = _mcp_log_path(root)
-    else:
-        # unreachable given the Choice validator
-        raise click.ClickException(f"unknown service: {service}")
-
-    if not log_path.exists():
-        click.echo(f"(no {service} logs at {log_path})")
-        return
-
-    if follow:
-        try:
-            subprocess.run(["tail", "-n", str(lines), "-f", str(log_path)], check=True)
-        except FileNotFoundError as exc:
-            raise click.ClickException("tail is required for --follow log streaming") from exc
-        except subprocess.CalledProcessError as exc:
-            raise click.ClickException(f"tail exited with code {exc.returncode}") from exc
-        return
-
-    content = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    for line in content[-lines:]:
-        click.echo(line)
+            try:
+                subprocess.run(["tail", "-n", str(lines), "-f", str(log_path)], check=True)
+            except FileNotFoundError as exc:
+                raise click.ClickException("tail is required for --follow log streaming") from exc
+            except subprocess.CalledProcessError as exc:
+                raise click.ClickException(f"tail exited with code {exc.returncode}") from exc
+        else:
+            try:
+                subprocess.run(["tail", "-n", str(lines), str(log_path)], check=True)
+            except FileNotFoundError as exc:
+                raise click.ClickException("tail is required for log streaming") from exc
+            except subprocess.CalledProcessError as exc:
+                raise click.ClickException(f"tail exited with code {exc.returncode}") from exc
+        continue

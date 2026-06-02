@@ -62,18 +62,14 @@ def test_rust_uses_rust_analyzer_binary_with_scip_subcommand(tmp_path: Path) -> 
     assert command == [str(tmp_path / "rust-analyzer"), "scip", str(tmp_path)]
 
 
-def test_discover_scip_binary_prefers_explicit_env_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_discover_scip_binary_prefers_explicit_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_bin = _fake_executable(tmp_path / "custom-scip-go")
     monkeypatch.setenv("ATELIER_SCIP_GO_BIN", str(fake_bin))
 
     assert discover_scip_binary("go") == fake_bin.resolve()
 
 
-def test_discover_scip_binary_prefers_managed_dir_before_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_discover_scip_binary_prefers_managed_dir_before_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     managed = tmp_path / "node" / "bin"
     system = tmp_path / "system"
     managed.mkdir(parents=True)
@@ -89,9 +85,7 @@ def test_discover_scip_binary_prefers_managed_dir_before_path(
     assert discover_scip_binary("python") == managed_bin.resolve()
 
 
-def test_discover_scip_binaries_iterates_supported_specs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_discover_scip_binaries_iterates_supported_specs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for command in {
@@ -117,9 +111,7 @@ def test_discover_scip_binaries_iterates_supported_specs(
 def test_install_script_installs_tier1_scip_npm_packages() -> None:
     install_script = (REPO_ROOT / "scripts" / "install.sh").read_text(encoding="utf-8")
     npm_install_line = next(
-        line
-        for line in install_script.splitlines()
-        if 'npm install -g --prefix "$ATELIER_NODE_DIR"' in line
+        line for line in install_script.splitlines() if 'npm install -g --prefix "$ATELIER_NODE_DIR"' in line
     )
 
     assert "@sourcegraph/scip-python" in npm_install_line
@@ -137,9 +129,7 @@ def test_tier2_bootstrap_fails_closed_without_checksum(monkeypatch: pytest.Monke
     assert "checksum" in result.message
 
 
-def test_tier2_bootstrap_fetches_checksum_verified_binary(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_tier2_bootstrap_fetches_checksum_verified_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     payload = tmp_path / "scip-go-download"
     payload.write_bytes(b"fake scip-go")
     monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / "root"))
@@ -169,14 +159,10 @@ def test_tier3_bootstrap_reports_user_toolchain_required(monkeypatch: pytest.Mon
     assert "rust-analyzer" in result.install_hint
 
 
-def test_index_language_reports_missing_binary(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_index_language_reports_missing_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "atelier.infra.code_intel.scip.indexer.ensure_scip_binary",
-        lambda language: ensure_scip_binary("python").model_copy(
-            update={"binary": None, "status": "missing_binary"}
-        ),
+        lambda language: ensure_scip_binary("python").model_copy(update={"binary": None, "status": "missing_binary"}),
     )
     monkeypatch.setenv("PATH", "")
     monkeypatch.delenv("ATELIER_SCIP_PYTHON_BIN", raising=False)
@@ -187,9 +173,7 @@ def test_index_language_reports_missing_binary(
     assert result.artifact_path is None
 
 
-def test_index_language_reports_tier2_bootstrap_unavailable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_index_language_reports_tier2_bootstrap_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", "")
     monkeypatch.delenv("ATELIER_SCIP_GO_BIN", raising=False)
 
@@ -199,15 +183,11 @@ def test_index_language_reports_tier2_bootstrap_unavailable(
     assert "checksum" in result.message
 
 
-def test_index_language_skips_missing_clang_context(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_index_language_skips_missing_clang_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_bin = _fake_executable(tmp_path / "scip-clang")
     monkeypatch.setattr(
         "atelier.infra.code_intel.scip.indexer.ensure_scip_binary",
-        lambda language: ensure_scip_binary("python").model_copy(
-            update={"binary": fake_bin, "status": "ready"}
-        ),
+        lambda language: ensure_scip_binary("python").model_copy(update={"binary": fake_bin, "status": "ready"}),
     )
 
     result = ScipIndexer(tmp_path, "repo").index_language("c")
@@ -216,15 +196,11 @@ def test_index_language_skips_missing_clang_context(
     assert "compile_commands.json" in result.message
 
 
-def test_index_language_success_is_discoverable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_index_language_success_is_discoverable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_bin = _fake_executable(tmp_path / "scip-python")
     monkeypatch.setattr(
         "atelier.infra.code_intel.scip.indexer.ensure_scip_binary",
-        lambda language: ensure_scip_binary("python").model_copy(
-            update={"binary": fake_bin, "status": "ready"}
-        ),
+        lambda language: ensure_scip_binary("python").model_copy(update={"binary": fake_bin, "status": "ready"}),
     )
 
     def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -238,22 +214,15 @@ def test_index_language_success_is_discoverable(
     result = indexer.index_language("python")
 
     assert result.status == "indexed"
-    assert (
-        result.artifact_path
-        == (default_scip_cache_root(tmp_path, "repo") / "python.scip").resolve()
-    )
+    assert result.artifact_path == (default_scip_cache_root(tmp_path, "repo") / "python.scip").resolve()
     assert [artifact.path for artifact in indexer.discover_artifacts()] == [result.artifact_path]
 
 
-def test_index_language_normalizes_rust_directory_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_index_language_normalizes_rust_directory_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_bin = _fake_executable(tmp_path / "rust-analyzer")
     monkeypatch.setattr(
         "atelier.infra.code_intel.scip.indexer.ensure_scip_binary",
-        lambda language: ensure_scip_binary("rust").model_copy(
-            update={"binary": fake_bin, "status": "ready"}
-        ),
+        lambda language: ensure_scip_binary("rust").model_copy(update={"binary": fake_bin, "status": "ready"}),
     )
 
     def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -266,14 +235,10 @@ def test_index_language_normalizes_rust_directory_output(
     result = ScipIndexer(tmp_path, "repo").index_language("rust")
 
     assert result.status == "indexed"
-    assert (
-        result.artifact_path == (default_scip_cache_root(tmp_path, "repo") / "rust.scip").resolve()
-    )
+    assert result.artifact_path == (default_scip_cache_root(tmp_path, "repo") / "rust.scip").resolve()
 
 
-def test_default_scip_cache_root_uses_branch_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_default_scip_cache_root_uses_branch_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "atelier.infra.code_intel.scip.indexer.resolve_git_repo_state",
         lambda repo_root: SimpleNamespace(branch_key="refs-heads-main-abc123"),
@@ -305,15 +270,11 @@ def test_resolve_git_repo_state_handles_worktree_gitdir_files(tmp_path: Path) ->
     assert state.branch_key.startswith("refs-heads-feature-")
 
 
-def test_index_language_reports_subprocess_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_index_language_reports_subprocess_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_bin = _fake_executable(tmp_path / "scip-python")
     monkeypatch.setattr(
         "atelier.infra.code_intel.scip.indexer.ensure_scip_binary",
-        lambda language: ensure_scip_binary("python").model_copy(
-            update={"binary": fake_bin, "status": "ready"}
-        ),
+        lambda language: ensure_scip_binary("python").model_copy(update={"binary": fake_bin, "status": "ready"}),
     )
     monkeypatch.setattr(
         "atelier.infra.code_intel.scip.indexer.subprocess.run",

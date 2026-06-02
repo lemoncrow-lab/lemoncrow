@@ -95,9 +95,7 @@ _LANG_CONFIG: dict[str, LangCfg] = {
         ),
         container=frozenset({"impl_item", "trait_item", "mod_item"}),
         member=frozenset({"function_item", "function_signature_item", "const_item"}),
-        body_kinds=frozenset(
-            {"block", "declaration_list", "field_declaration_list", "enum_variant_list"}
-        ),
+        body_kinds=frozenset({"block", "declaration_list", "field_declaration_list", "enum_variant_list"}),
     ),
     "java": LangCfg(
         keep_full=frozenset({"package_declaration", "import_declaration"}),
@@ -319,12 +317,8 @@ _LANG_CONFIG: dict[str, LangCfg] = {
     # sql — unwrap the `statement` wrapper; signature-trim table/function bodies.
     "sql": LangCfg(
         unwrap=frozenset({"statement"}),
-        keep_signature=frozenset(
-            {"create_table", "create_view", "create_index", "create_function", "alter_table"}
-        ),
-        body_kinds=frozenset(
-            {"column_definitions", "function_body", "create_query", "index_fields"}
-        ),
+        keep_signature=frozenset({"create_table", "create_view", "create_index", "create_function", "alter_table"}),
+        body_kinds=frozenset({"column_definitions", "function_body", "create_query", "index_fields"}),
     ),
     # yaml — descend 3 wrapper levels, keep top-level mapping keys' first line only.
     "yaml": LangCfg(
@@ -430,13 +424,7 @@ def definition_node_kinds(language: str) -> frozenset[str]:
     if cfg is None:
         return frozenset()
     keep_full_definitions = cfg.keep_full - _NON_DEFINITION_KEEP_FULL_KINDS
-    return frozenset(
-        keep_full_definitions
-        | cfg.keep_signature
-        | cfg.container
-        | cfg.member
-        | cfg.keep_first_line
-    )
+    return frozenset(keep_full_definitions | cfg.keep_signature | cfg.container | cfg.member | cfg.keep_first_line)
 
 
 def transparent_node_kinds(language: str) -> frozenset[str]:
@@ -481,9 +469,7 @@ def _signature_slice(source: bytes, node: Any, body_kinds: frozenset[str]) -> by
     return source[start:end].rstrip()
 
 
-def _extract_member_signatures(
-    container: Any, source: bytes, cfg: LangCfg, indent: str = "    "
-) -> list[bytes]:
+def _extract_member_signatures(container: Any, source: bytes, cfg: LangCfg, indent: str = "    ") -> list[bytes]:
     """Walk into a container and collect signature lines for its members."""
     out: list[bytes] = []
     # Find the body child (class_body, declaration_list, etc.) and iterate its children.

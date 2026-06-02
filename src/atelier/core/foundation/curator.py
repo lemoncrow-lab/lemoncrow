@@ -72,9 +72,7 @@ def apply_curation(store: _CuratorStore, report: CurationReport) -> dict[str, in
             store.delete_block(decision.block_id)
             counts["remove"] += 1
             continue
-        updated = decision.block.model_copy(
-            update={"tier": decision.tier_to, "updated_at": datetime.now(UTC)}
-        )
+        updated = decision.block.model_copy(update={"tier": decision.tier_to, "updated_at": datetime.now(UTC)})
         store.upsert_block(updated)
         counts[decision.action] += 1
     return counts

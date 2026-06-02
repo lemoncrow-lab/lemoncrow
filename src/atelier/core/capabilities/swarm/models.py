@@ -233,6 +233,7 @@ class SwarmRunState(BaseModel):
     validation_commands: list[str] = Field(default_factory=list)
     runs: int = 0
     max_runs: int = 0
+    max_waves: int = 0
     planning_mode: SwarmPlanningMode = "adaptive"
     fan_out_reason: str = ""
     current_wave: int = 0
@@ -248,8 +249,6 @@ class SwarmRunState(BaseModel):
     convergence_status: SwarmConvergenceVerdict = "continue"
     convergence_summary: str = ""
     next_wave_directives: list[str] = Field(default_factory=list)
-    consecutive_no_progress_waves: int = 0
-    max_no_progress_waves: int = 3
     consecutive_evaluator_failures: int = 0
     max_evaluator_failures: int = 3
     ranking_notes: list[str] = Field(default_factory=list)
@@ -290,9 +289,10 @@ class SwarmRunState(BaseModel):
         payload.setdefault("convergence_status", "continue")
         payload.setdefault("convergence_summary", "")
         payload.setdefault("next_wave_directives", [])
-        payload.setdefault("consecutive_no_progress_waves", 0)
-        payload.setdefault("max_no_progress_waves", 3)
+        payload.pop("consecutive_no_progress_waves", None)
+        payload.pop("max_no_progress_waves", None)
         payload.setdefault("consecutive_evaluator_failures", 0)
         payload.setdefault("max_evaluator_failures", 3)
+        payload.setdefault("max_waves", 0)
         payload.setdefault("dirty_paths", [])
         return payload

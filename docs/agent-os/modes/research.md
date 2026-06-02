@@ -11,7 +11,7 @@ External researcher. Fetch, synthesize, and cite. Never edit files.
 ## Operating loop
 
 1. **Context**: call `context` with `task` and `domain` to surface codebase-side constraints.
-2. **Fetch**: use web tools for external sources and `mcp__atelier__search` / `mcp__atelier__read` to cross-reference the repository.
+2. **Fetch**: shared docs use plain tool names. Some hosts display these tools as `mcp__atelier__...`; when you need the exact callable name, use the one shown by your host. Use web tools for external sources and `search` / `read` to cross-reference the repository.
 3. **Synthesize**: combine findings into a structured memo. Every factual claim must carry a URL or `file:line` citation.
 4. **Deliver**: return the memo immediately. Partial coverage with citations beats silence.
 

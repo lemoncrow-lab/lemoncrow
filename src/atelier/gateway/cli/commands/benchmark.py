@@ -16,6 +16,10 @@ from shutil import rmtree, which
 import click
 import yaml
 
+from atelier.core.capabilities.host_runners import (
+    CLAUDE_PROVIDER_PRESETS,
+    resolve_claude_provider_preset,
+)
 from atelier.gateway.cli.progress import ProgressReporter
 
 
@@ -81,7 +85,9 @@ def benchmark_mcp_cmd(out: Path | None, jobs: int) -> None:
 )
 @click.option(
     "--providers",
-    default="atelier,atelier-zoekt,serena,codegraph,code-index-mcp,jcodemunch-mcp",
+    default=(
+        "atelier,atelier-zoekt,zoekt,atelier-serena,serena," "atelier-codegraph,codegraph,code-index-mcp,jcodemunch-mcp"
+    ),
     show_default=True,
 )
 @click.option("--families", default="exact_search,substring_search,nohit_search", show_default=True)
@@ -389,11 +395,115 @@ def benchmark_swe_cmd(
     multiple=True,
     default=("baseline", "atelier"),
     show_default=True,
-    type=click.Choice(["baseline", "atelier"]),
+    type=click.Choice(["baseline", "atelier", "vix"]),
 )
 @click.option("--reps", type=int, default=1, show_default=True)
 @click.option("--model", default="sonnet", show_default=True)
 @click.option("--timeout", type=int, default=900, show_default=True)
+@click.option("--transport", type=click.Choice(["cli", "api"]), default="cli", show_default=True)
+@click.option(
+    "--cli-driver",
+    type=click.Choice(["claude", "copilot", "codex", "opencode"]),
+    default="claude",
+    show_default=True,
+    help="CLI host to benchmark when --transport cli is used.",
+)
+@click.option(
+    "--jobs",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Parallel task/rep workers; arms stay serial within each worker.",
+)
+@click.option(
+    "--parallel-scope",
+    type=click.Choice(["task", "arm"]),
+    default="task",
+    show_default=True,
+    help="Use 'arm' only for throughput experiments; 'task' preserves fair per-task comparisons.",
+)
+@click.option(
+    "--api-provider",
+    type=click.Choice(["openai", "litellm", "ollama"]),
+    default="ollama",
+    show_default=True,
+)
+@click.option("--api-base-url", default=None, help="OpenAI-compatible base URL.")
+@click.option("--api-key-env", default=None, help="Environment variable containing the API key.")
+@click.option("--launch-ollama", is_flag=True, help="Start 'ollama serve' before API runs.")
+@click.option("--judge", is_flag=True, help="Score correctness with an LLM judge.")
+@click.option("--judge-transport", type=click.Choice(["cli", "api"]), default=None)
+@click.option("--judge-provider", type=click.Choice(["openai", "litellm", "ollama"]), default=None)
+@click.option("--judge-model", default=None)
+@click.option("--judge-agent-command", default=None)
+@click.option("--judge-api-base-url", default=None)
+@click.option("--judge-api-key-env", default=None)
+@click.option(
+    "--agent-command",
+    default="claude",
+    show_default=True,
+    help="Claude-compatible command to run each arm.",
+)
+@click.option(
+    "--agent-env",
+    "agent_env",
+    multiple=True,
+    help="CLI transport env override in KEY=VALUE form; repeatable.",
+)
+@click.option(
+    "--agent-env-from-host",
+    "agent_env_from_host",
+    multiple=True,
+    help="Copy a host env var into the Claude CLI env as DEST_KEY=SOURCE_ENV; repeatable.",
+)
+@click.option(
+    "--cli-extra-arg",
+    "cli_extra_args",
+    multiple=True,
+    help="Extra CLI argument passed to the selected driver; repeatable.",
+)
+@click.option(
+    "--openrouter-claude/--no-openrouter-claude",
+    "--openrouter-anthropic/--no-openrouter-anthropic",
+    "openrouter_claude",
+    default=False,
+    show_default=True,
+    help="Preset Claude CLI env for OpenRouter's Anthropic-compatible endpoint.",
+)
+@click.option(
+    "--claude-provider-preset",
+    type=click.Choice(sorted(CLAUDE_PROVIDER_PRESETS)),
+    default=None,
+    help="Named Claude CLI provider preset (for example openrouter-claude, aws-claude, azure-claude, gcp-claude).",
+)
+@click.option(
+    "--openrouter-key-env",
+    default="OPENROUTER_API_KEY",
+    show_default=True,
+    help="Host env var that holds the OpenRouter API key for --openrouter-claude.",
+)
+@click.option(
+    "--claude-base-url",
+    default=None,
+    help="Set ANTHROPIC_BASE_URL for Claude CLI transport.",
+)
+@click.option(
+    "--claude-auth-token-env",
+    default=None,
+    help="Copy a host env var into ANTHROPIC_AUTH_TOKEN for Claude CLI transport.",
+)
+@click.option(
+    "--claude-api-key-env",
+    default=None,
+    help="Copy a host env var into ANTHROPIC_API_KEY for Claude CLI transport.",
+)
+@click.option(
+    "--clear-claude-api-key",
+    is_flag=True,
+    help="Set ANTHROPIC_API_KEY to an empty string for Claude CLI transport.",
+)
+@click.option("--bridge-command", default=None, help="Optional background bridge command to launch first.")
+@click.option("--bridge-wait", type=float, default=3.0, show_default=True)
 @click.option("--vix-eval-dir", type=click.Path(path_type=Path, file_okay=False), default=None)
 @click.option("--out", type=click.Path(path_type=Path, file_okay=False), default=None)
 def benchmark_vix_cmd(
@@ -402,6 +512,34 @@ def benchmark_vix_cmd(
     reps: int,
     model: str,
     timeout: int,
+    transport: str,
+    cli_driver: str,
+    jobs: int,
+    parallel_scope: str,
+    api_provider: str,
+    api_base_url: str | None,
+    api_key_env: str | None,
+    launch_ollama: bool,
+    judge: bool,
+    judge_transport: str | None,
+    judge_provider: str | None,
+    judge_model: str | None,
+    judge_agent_command: str | None,
+    judge_api_base_url: str | None,
+    judge_api_key_env: str | None,
+    agent_command: str,
+    agent_env: tuple[str, ...],
+    agent_env_from_host: tuple[str, ...],
+    cli_extra_args: tuple[str, ...],
+    openrouter_claude: bool,
+    claude_provider_preset: str | None,
+    openrouter_key_env: str,
+    claude_base_url: str | None,
+    claude_auth_token_env: str | None,
+    claude_api_key_env: str | None,
+    clear_claude_api_key: bool,
+    bridge_command: str | None,
+    bridge_wait: float,
     vix_eval_dir: Path | None,
     out: Path | None,
 ) -> None:
@@ -410,6 +548,66 @@ def benchmark_vix_cmd(
     run_dir = _run_dir("vix", out)
     resolved_vix_eval_dir = _ensure_vix_eval_dir(repo_root, vix_eval_dir)
     env = {"VIX_EVAL_DIR": str(resolved_vix_eval_dir)}
+    bridge_args = []
+    if bridge_command:
+        bridge_args = ["--bridge-command", bridge_command, "--bridge-wait", str(bridge_wait)]
+    api_args = ["--transport", transport, "--api-provider", api_provider]
+    if api_base_url:
+        api_args.extend(["--api-base-url", api_base_url])
+    if api_key_env:
+        api_args.extend(["--api-key-env", api_key_env])
+    if launch_ollama:
+        api_args.append("--launch-ollama")
+    judge_args = []
+    if judge:
+        judge_args.append("--judge")
+    if judge_transport:
+        judge_args.extend(["--judge-transport", judge_transport])
+    if judge_provider:
+        judge_args.extend(["--judge-provider", judge_provider])
+    if judge_model:
+        judge_args.extend(["--judge-model", judge_model])
+    if judge_agent_command:
+        judge_args.extend(["--judge-agent-command", judge_agent_command])
+    if judge_api_base_url:
+        judge_args.extend(["--judge-api-base-url", judge_api_base_url])
+    if judge_api_key_env:
+        judge_args.extend(["--judge-api-key-env", judge_api_key_env])
+    agent_env_args: list[str] = []
+    if openrouter_claude:
+        if transport != "cli" or cli_driver != "claude":
+            raise click.ClickException("--openrouter-claude only applies to --transport cli --cli-driver claude.")
+        claude_provider_preset = claude_provider_preset or "openrouter-claude"
+    if (transport != "cli" or cli_driver != "claude") and (
+        claude_provider_preset or claude_base_url or claude_auth_token_env or claude_api_key_env or clear_claude_api_key
+    ):
+        raise click.ClickException("Claude CLI provider env flags only apply to --transport cli --cli-driver claude.")
+    if claude_provider_preset:
+        preset = resolve_claude_provider_preset(
+            claude_provider_preset,
+            openrouter_key_env=openrouter_key_env,
+        )
+        if cli_driver not in preset.supported_drivers:
+            raise click.ClickException(
+                f"{claude_provider_preset} only supports CLI drivers: {', '.join(preset.supported_drivers)}"
+            )
+        for key, value in preset.env.items():
+            agent_env_args.extend(["--agent-env", f"{key}={value}"])
+        for dest, source in preset.env_from_host.items():
+            agent_env_args.extend(["--agent-env-from-host", f"{dest}={source}"])
+    if claude_base_url:
+        agent_env_args.extend(["--agent-env", f"ANTHROPIC_BASE_URL={claude_base_url}"])
+    if claude_auth_token_env:
+        agent_env_args.extend(["--agent-env-from-host", f"ANTHROPIC_AUTH_TOKEN={claude_auth_token_env}"])
+    if claude_api_key_env:
+        agent_env_args.extend(["--agent-env-from-host", f"ANTHROPIC_API_KEY={claude_api_key_env}"])
+    if clear_claude_api_key:
+        agent_env_args.extend(["--agent-env", "ANTHROPIC_API_KEY="])
+    for item in agent_env:
+        agent_env_args.extend(["--agent-env", item])
+    for item in agent_env_from_host:
+        agent_env_args.extend(["--agent-env-from-host", item])
+    forwarded_cli_extra_args = [f"--cli-extra-arg={arg}" for arg in cli_extra_args]
     progress = ProgressReporter("vix", total=1)
     progress.start("starting benchmark", current=f"{len(tasks)} task selector(s) x {len(arms)} arm(s)")
     _run(
@@ -427,6 +625,19 @@ def benchmark_vix_cmd(
             model,
             "--timeout",
             str(timeout),
+            "--cli-driver",
+            cli_driver,
+            "--jobs",
+            str(jobs),
+            "--parallel-scope",
+            parallel_scope,
+            "--agent-command",
+            agent_command,
+            *forwarded_cli_extra_args,
+            *agent_env_args,
+            *api_args,
+            *judge_args,
+            *bridge_args,
             "--out",
             str(run_dir),
         ],
@@ -468,7 +679,7 @@ def _csv_values(value: str) -> list[str]:
 
 def _auto_jobs(item_count: int, *, hard_cap: int) -> int:
     detected = max(cpu_count() or 1, 1)
-    return max(1, min(item_count, hard_cap, max(1, detected // 2)))
+    return max(1, min(item_count, hard_cap, detected))
 
 
 def _resolve_mcp_jobs(requested_jobs: int, *, repo_root: Path) -> int:
@@ -479,13 +690,13 @@ def _resolve_mcp_jobs(requested_jobs: int, *, repo_root: Path) -> int:
         sys.path.insert(0, str(repo_root))
     from benchmarks.mcp_tools.export_public_mcp_csv import _select_suite_specs
 
-    return _auto_jobs(len(_select_suite_specs(None)), hard_cap=8)
+    return _auto_jobs(len(_select_suite_specs(None)), hard_cap=32)
 
 
 def _resolve_provider_jobs(requested_jobs: int, providers: list[str]) -> int:
     if requested_jobs > 0:
         return requested_jobs
-    return _auto_jobs(len(providers), hard_cap=4)
+    return _auto_jobs(len(providers), hard_cap=32)
 
 
 def _ensure_vix_eval_dir(repo_root: Path, configured_dir: Path | None) -> Path:

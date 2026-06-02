@@ -52,9 +52,7 @@ def _ensure_gitignore(git_root: Path) -> list[str]:
     Returns a list of entries added.
     """
     gitignore_path = git_root / ".gitignore"
-    existing = (
-        gitignore_path.read_text(encoding="utf-8").splitlines() if gitignore_path.exists() else []
-    )
+    existing = gitignore_path.read_text(encoding="utf-8").splitlines() if gitignore_path.exists() else []
     added: list[str] = []
     entries = [
         "# Atelier runtime data",
@@ -220,9 +218,7 @@ def _project_init_setup(git_root: Path) -> dict[str, list[str]]:
     # .gitignore
     added = _ensure_gitignore(git_root)
     if added:
-        results["gitignore"] = [
-            f"added to .gitignore: {', '.join(a for a in added if not a.startswith('#'))}"
-        ]
+        results["gitignore"] = [f"added to .gitignore: {', '.join(a for a in added if not a.startswith('#'))}"]
     else:
         results["gitignore"] = [".atelier/ already in .gitignore"]
 
@@ -235,8 +231,7 @@ def _project_init_setup(git_root: Path) -> dict[str, list[str]]:
         content = claude_path.read_text(encoding="utf-8")
         # Detect whether the file already has any CLAUDE.md-style header or Atelier content
         has_header = any(
-            marker in content
-            for marker in ("# CLAUDE.md", "# CLAUDE.md — Atelier", "# Atelier", "mcp__atelier__")
+            marker in content for marker in ("# CLAUDE.md", "# CLAUDE.md — Atelier", "# Atelier", "mcp__atelier__")
         )
         if not has_header:
             claude_path.write_text(
@@ -355,9 +350,7 @@ def _parse_since_arg(value: str) -> datetime:
         delta = (
             timedelta(days=amount)
             if unit == "d"
-            else timedelta(hours=amount)
-            if unit == "h"
-            else timedelta(minutes=amount)
+            else timedelta(hours=amount) if unit == "h" else timedelta(minutes=amount)
         )
         return datetime.now(UTC) - delta
 
@@ -367,8 +360,7 @@ def _parse_since_arg(value: str) -> datetime:
         pass
 
     raise click.ClickException(
-        f"Cannot parse --since value {value!r}. "
-        "Use a duration like '7d', '24h', or a date like '2026-05-01'."
+        f"Cannot parse --since value {value!r}. " "Use a duration like '7d', '24h', or a date like '2026-05-01'."
     )
 
 
@@ -387,9 +379,7 @@ def _parse_since_arg(value: str) -> datetime:
     help="Also run project-scoped setup: .gitignore, CLAUDE.md, AGENTS.md, .mcp.json.",
 )
 @click.pass_context
-def init(
-    ctx: click.Context, seed: bool, stack: str | None, show_stacks: bool, index: bool, project: bool
-) -> None:
+def init(ctx: click.Context, seed: bool, stack: str | None, show_stacks: bool, index: bool, project: bool) -> None:
     """Initialize the runtime store at --root."""
     if show_stacks:
         from atelier.core.capabilities.starter_packs import list_stacks
@@ -710,18 +700,12 @@ def login_cmd(ctx: click.Context, token: str | None, anonymous: bool, as_json: b
     else:
         auth_payload = payload.get("auth")
         auth = auth_payload if isinstance(auth_payload, dict) else {}
-        label = (
-            "anonymous trial"
-            if auth.get("isAnonymous")
-            else auth.get("email") or auth.get("userId")
-        )
+        label = "anonymous trial" if auth.get("isAnonymous") else auth.get("email") or auth.get("userId")
         click.echo(f"logged in: {label}")
 
 
 @click.command("logout")
-@click.option(
-    "--no-trial", is_flag=True, help="Do not create a local anonymous trial after logout."
-)
+@click.option("--no-trial", is_flag=True, help="Do not create a local anonymous trial after logout.")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def logout_cmd(ctx: click.Context, no_trial: bool, as_json: bool) -> None:
@@ -740,9 +724,7 @@ def logout_cmd(ctx: click.Context, no_trial: bool, as_json: bool) -> None:
 @click.option("--line", "line_mode", is_flag=True, help="One-liner mode (good for status bars).")
 @click.option("-n", type=int, default=5, show_default=True, help="Number of recent runs to show.")
 @click.option("--session-id", default=None, help="Show detail for a specific run only.")
-@click.option(
-    "--auth", "auth_mode", is_flag=True, help="Show auth/subscription status instead of runs."
-)
+@click.option("--auth", "auth_mode", is_flag=True, help="Show auth/subscription status instead of runs.")
 @click.option(
     "--index",
     "index_mode",
@@ -932,9 +914,7 @@ def team_group() -> None:
 def team_init_cmd(ctx: click.Context, name: str, admin_email: str, as_json: bool) -> None:
     from atelier.core.capabilities.team import TeamWorkspaceManager
 
-    workspace = TeamWorkspaceManager(ctx.obj["root"]).init_workspace(
-        name=name, admin_email=admin_email
-    )
+    workspace = TeamWorkspaceManager(ctx.obj["root"]).init_workspace(name=name, admin_email=admin_email)
     payload = workspace.model_dump(mode="json")
     if as_json:
         _emit(payload, as_json=True)
@@ -944,9 +924,7 @@ def team_init_cmd(ctx: click.Context, name: str, admin_email: str, as_json: bool
 
 @team_group.command("invite")
 @click.argument("emails", nargs=-1)
-@click.option(
-    "--role", type=click.Choice(["member", "viewer", "admin"]), default="member", show_default=True
-)
+@click.option("--role", type=click.Choice(["member", "viewer", "admin"]), default="member", show_default=True)
 @click.option("--json", "as_json", is_flag=True, default=False)
 @click.pass_context
 def team_invite_cmd(ctx: click.Context, emails: tuple[str, ...], role: str, as_json: bool) -> None:
@@ -996,9 +974,7 @@ def team_role_cmd(ctx: click.Context, user_id: str, role: str, as_json: bool) ->
 
 
 @team_group.command("usage")
-@click.option(
-    "--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01."
-)
+@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
 @click.option("--json", "as_json", is_flag=True, default=False)
 @click.pass_context
 def team_usage_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
@@ -1006,9 +982,7 @@ def team_usage_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
 
     manager = TeamWorkspaceManager(ctx.obj["root"])
     manager.require_admin()
-    payload = summarize_workspace_usage(
-        ctx.obj["root"], manager=manager, since=_parse_since_arg(since)
-    )
+    payload = summarize_workspace_usage(ctx.obj["root"], manager=manager, since=_parse_since_arg(since))
     if as_json:
         _emit(payload, as_json=True)
         return
@@ -1016,15 +990,11 @@ def team_usage_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
     click.echo(f"sessions: {payload['session_count']}")
     click.echo(f"total cost usd: {payload['total_cost_usd']:.6f}")
     for row in payload["users"]:
-        click.echo(
-            f"{row['user_id']}\t{row['role']}\t{row['session_count']}\t{row['total_cost_usd']:.6f}"
-        )
+        click.echo(f"{row['user_id']}\t{row['role']}\t{row['session_count']}\t{row['total_cost_usd']:.6f}")
 
 
 @team_group.command("audit")
-@click.option(
-    "--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01."
-)
+@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
 @click.option("--json", "as_json", is_flag=True, default=False)
 @click.pass_context
 def team_audit_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
@@ -1101,9 +1071,7 @@ def audit_group() -> None:
 
 
 @audit_group.command("export")
-@click.option(
-    "--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01."
-)
+@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
 @click.option("--out", "out_dir", required=True, type=click.Path(path_type=Path))
 @click.option("--json", "as_json", is_flag=True, default=False)
 @click.pass_context
@@ -1202,10 +1170,7 @@ def insights_cmd(
     if vendor and not as_json:
         vendor_key = vendor.capitalize()
         filtered_cost = window.cost_by_vendor.get(vendor_key, 0.0)
-        click.echo(
-            f"Vendor filter: {vendor_key}  ${filtered_cost:.2f}"
-            f" of ${window.total_cost_usd:.2f} total"
-        )
+        click.echo(f"Vendor filter: {vendor_key}  ${filtered_cost:.2f}" f" of ${window.total_cost_usd:.2f} total")
 
     display_window = window
     if group_by == "vendor" and not as_json:

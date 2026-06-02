@@ -1262,8 +1262,6 @@ def test_swarm_runs_endpoint_lists_live_activity(
         convergence_status="continue",
         convergence_summary="Keep exploring independent optimization directions.",
         next_wave_directives=["Trim redundant trace metadata."],
-        max_no_progress_waves=3,
-        consecutive_no_progress_waves=1,
         primary_winner_child_id="wave-01-run-02",
         accepted_child_ids=["wave-01-run-02"],
         used_program_md=True,
@@ -1316,6 +1314,7 @@ def test_swarm_launch_options_endpoint_returns_projects_and_editor_state(
     assert payload["project_roots"][0]["full_path"] == str(tmp_path)
     assert payload["providers"][0]["id"] == "cli"
     assert payload["providers"][1]["supported"] is True
+    assert payload["defaults"]["max_waves"] == 5
     assert payload["spec_document"]["content"].startswith("Prompt title")
     assert payload["notes"]["provider_credentials"]
 
@@ -1380,7 +1379,7 @@ def test_swarm_run_create_endpoint_uses_default_program_md(
     assert captured["used_program_md"] is True
     assert captured["launch_provider"] == "cli"
     assert captured["evaluator_backend"] == "auto"
-    assert captured["max_no_progress_waves"] == 3
+    assert captured["max_waves"] == 5
     assert captured["max_evaluator_failures"] == 3
 
 
@@ -1434,7 +1433,7 @@ def test_swarm_run_create_endpoint_supports_provider_worker_and_inline_spec(
             "model": "gpt-4o-mini",
             "evaluator_backend": "litellm",
             "evaluator_model": "claude-opus-4.8",
-            "max_idle_waves": 5,
+            "max_waves": 7,
             "max_evaluator_failures": 4,
             "provider_api_key": "sk-test-key",
             "provider_base_url": "https://openrouter.example/v1",
@@ -1453,7 +1452,7 @@ def test_swarm_run_create_endpoint_supports_provider_worker_and_inline_spec(
     assert captured["launch_provider"] == "openai"
     assert captured["evaluator_backend"] == "litellm"
     assert captured["evaluator_model"] == "claude-opus-4.8"
-    assert captured["max_no_progress_waves"] == 5
+    assert captured["max_waves"] == 1
     assert captured["max_evaluator_failures"] == 4
     assert "_provider-worker" in captured["child_command"]
     assert "gpt-4o-mini" not in " ".join(captured["child_command"])

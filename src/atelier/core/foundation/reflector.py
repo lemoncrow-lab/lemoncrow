@@ -64,10 +64,7 @@ def _llm_enrich(trace: Trace, base: ReasonBlock) -> ReasonBlock | None:
 
 def _build_messages(trace: Trace, base: ReasonBlock) -> list[dict[str, str]]:
     errors = "\n".join(f"- {e}" for e in trace.errors_seen[:10]) or "(none recorded)"
-    repeated = (
-        "\n".join(f"- {rf.signature} (x{rf.count})" for rf in trace.repeated_failures[:10])
-        or "(none)"
-    )
+    repeated = "\n".join(f"- {rf.signature} (x{rf.count})" for rf in trace.repeated_failures[:10]) or "(none)"
     passed = [v.name for v in trace.validation_results if v.passed]
     failed = [v.name for v in trace.validation_results if not v.passed]
     system = (
@@ -104,9 +101,7 @@ def _merge_llm_fields(base: ReasonBlock, raw: dict[str, Any]) -> ReasonBlock:
             "procedure": _union(base.procedure, _as_str_list(raw.get("procedure")), 12),
             "dead_ends": _union(base.dead_ends, _as_str_list(raw.get("dead_ends")), 8),
             "verification": _union(base.verification, _as_str_list(raw.get("verification")), 8),
-            "failure_signals": _union(
-                base.failure_signals, _as_str_list(raw.get("failure_signals")), 8
-            ),
+            "failure_signals": _union(base.failure_signals, _as_str_list(raw.get("failure_signals")), 8),
             "when_not_to_apply": when_not,
         }
     )

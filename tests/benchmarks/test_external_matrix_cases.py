@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -140,6 +141,65 @@ def test_summarize_results_adds_atelier_comparison_columns() -> None:
     assert other["atelier_score_vs_provider_pct"] == "+100.0%"
     assert other["atelier_latency_vs_provider_pct"] == "+50.0%"
     assert other["atelier_tokens_vs_provider_pct"] == "+75.0%"
+
+
+def test_compact_provider_payload_preserves_path_keyed_matches() -> None:
+    _ensure_benchmarks_package()
+    cases_module = _load_module(
+        "benchmarks.mcp_tools.external_matrix_cases",
+        ROOT / "benchmarks" / "mcp_tools" / "external_matrix_cases.py",
+    )
+    runner_module = _load_module(
+        "benchmarks.mcp_tools.bench_external_matrix",
+        ROOT / "benchmarks" / "mcp_tools" / "bench_external_matrix.py",
+    )
+    case = cases_module.ExternalBenchCase(
+        case_id="substring-search-0001",
+        family="substring_search",
+        query="absolute",
+        expected_paths=("src/atelier/gateway/hosts/session_parsers/copilot.py",),
+        expected_names=("_extract_absolute_paths_from_text",),
+    )
+    raw = {
+        "src/atelier/gateway/adapters/mcp_server.py": ["  > 10: p.is_absolute()"],
+        "src/atelier/gateway/hosts/session_parsers/copilot.py": [
+            "  > 182:def _extract_absolute_paths_from_text(text: str) -> set[str]:"
+        ],
+    }
+
+    compact = runner_module._compact_provider_payload("atelier-serena", case, json.dumps(raw))
+
+    assert runner_module.score_case(case, compact) == 1.0
+    assert "src/atelier/gateway/hosts/session_parsers/copilot.py" in compact
+
+
+def test_render_provider_progress_includes_total_cases(tmp_path: Path) -> None:
+    _ensure_benchmarks_package()
+    runner_module = _load_module(
+        "benchmarks.mcp_tools.bench_external_matrix",
+        ROOT / "benchmarks" / "mcp_tools" / "bench_external_matrix.py",
+    )
+    status_file = tmp_path / "atelier.status.json"
+    status_file.write_text(
+        (
+            '{"current":"atelier substring_search/case-1 iter 1/1","done":7,'
+            '"shard":"atelier","status":"running","title":"running",'
+            '"total":10,"updated_at":1}'
+        ),
+        encoding="utf-8",
+    )
+
+    status = runner_module._render_provider_progress(
+        {"atelier": status_file},
+        completed_shards=0,
+        total_shards=2,
+        total_cases=20,
+    )
+
+    assert "\n" not in status
+    assert "shards 0/2" in status
+    assert "cases 7/20" in status
+    assert "atelier 7/10 running" in status
 
 
 def test_balanced_case_subset_round_robins_families() -> None:

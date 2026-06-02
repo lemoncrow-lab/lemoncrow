@@ -245,9 +245,9 @@ def _event_dict(event: Any) -> dict[str, Any]:
     return {"summary": str(event)}
 
 
-_RECENT_TURNS_TOKEN_BUDGET = 20_000  # legacy constant kept for back-compat
-_RECENT_TURNS_TOKEN_BUDGET_MIN = 10_000  # floor for read-only sessions
-_RECENT_TURNS_TOKEN_BUDGET_MAX = 40_000  # ceiling for heavy edit/debug sessions
+_RECENT_TURNS_TOKEN_BUDGET = 12_000  # default target for compact recent-turn retention
+_RECENT_TURNS_TOKEN_BUDGET_MIN = 8_000  # floor for read-only sessions
+_RECENT_TURNS_TOKEN_BUDGET_MAX = 24_000  # ceiling for heavy edit/debug sessions
 _CHARS_PER_TOKEN = 4  # rough estimate used for budget enforcement
 
 # How far back we look when scoring session complexity (in events)
@@ -369,10 +369,10 @@ def _dynamic_turn_budget(
     # Verbosity: average chars per event
     avg_chars = sum(len(str(e.get("summary", ""))) for e in window) / len(window)
 
-    base = 10_000
-    edit_bonus = int(edit_density * 18_000)
-    error_bonus = int(error_density * 8_000)
-    verbose_bonus = int(min(avg_chars / 400, 1.0) * 4_000)
+    base = 8_000
+    edit_bonus = int(edit_density * 10_000)
+    error_bonus = int(error_density * 4_000)
+    verbose_bonus = int(min(avg_chars / 400, 1.0) * 2_000)
 
     budget = base + edit_bonus + error_bonus + verbose_bonus
 
@@ -495,7 +495,7 @@ def _claude_md_excerpt(workspace_root: Path | None) -> str | None:
     for root in roots:
         path = root / "CLAUDE.md"
         if path.is_file():
-            return f"CLAUDE.md excerpt:\n{_truncate(path.read_text(encoding='utf-8', errors='replace'), 2_000)}"
+            return f"CLAUDE.md excerpt:\n{_truncate(path.read_text(encoding='utf-8', errors='replace'), 800)}"
     return None
 
 
@@ -523,19 +523,23 @@ def _handover_context(
     excerpt = _claude_md_excerpt(workspace_root)
     if excerpt:
         context.append(excerpt)
-    for event in ledger.events:
+    file_edit_context: list[str] = []
+    for event in reversed(ledger.events):
         data = _event_dict(event)
         if str(data.get("kind", "")) != "file_edit":
             continue
         payload = data.get("payload", {})
         if isinstance(payload, dict) and payload.get("diff"):
-            context.append(
+            file_edit_context.append(
                 _truncate(
                     f"Snippet for {payload.get('path', 'unknown')}:\n{payload.get('diff', '')}",
-                    1_500,
+                    800,
                 )
             )
-    context.extend(f"Recent turn: {turn}" for turn in compact_state.recent_turns[-3:])
+        if len(file_edit_context) >= 2:
+            break
+    context.extend(reversed(file_edit_context))
+    context.extend(f"Recent turn: {turn}" for turn in compact_state.recent_turns[-2:])
     return context
 
 

@@ -31,9 +31,7 @@ def test_unknown_trigger_is_noop() -> None:
 
 
 def test_session_warm_injects_lessons() -> None:
-    cap = AutopilotCapability(
-        AutopilotConfig(), lessons_fn=lambda: ["prefer uv run", "hard-remove not deprecate"]
-    )
+    cap = AutopilotCapability(AutopilotConfig(), lessons_fn=lambda: ["prefer uv run", "hard-remove not deprecate"])
     action = cap.on_event(AutopilotEvent("session_start", {"cwd": "/repo"}))
     assert action.kind == "inject" and action.behavior == "session_warm"
     assert "prefer uv run" in action.content and action.injected_tokens > 0
@@ -60,16 +58,12 @@ def test_scoped_inject_noop_without_provider() -> None:
 def _inject_cap() -> AutopilotCapability:
     return AutopilotCapability(
         AutopilotConfig(),
-        scoped_pull_fn=lambda prompt, files: SimpleNamespace(
-            chunks=[SimpleNamespace(symbol="alpha", path="src/a.py")]
-        ),
+        scoped_pull_fn=lambda prompt, files: SimpleNamespace(chunks=[SimpleNamespace(symbol="alpha", path="src/a.py")]),
     )
 
 
 def test_gate_skips_meta_prompt() -> None:
-    action = _inject_cap().on_event(
-        AutopilotEvent("user_prompt", {"prompt": "what is prompt-gating?"})
-    )
+    action = _inject_cap().on_event(AutopilotEvent("user_prompt", {"prompt": "what is prompt-gating?"}))
     assert action.kind == "noop" and action.reason == "not_coding_prompt"
 
 
@@ -80,12 +74,8 @@ def test_gate_skips_chat_prompt() -> None:
 
 
 def test_scoped_inject_caps_chunks() -> None:
-    many = SimpleNamespace(
-        chunks=[SimpleNamespace(symbol=f"s{i}", path=f"f{i}.py") for i in range(40)]
-    )
-    cap = AutopilotCapability(
-        AutopilotConfig(max_inject_chunks=8), scoped_pull_fn=lambda p, f: many
-    )
+    many = SimpleNamespace(chunks=[SimpleNamespace(symbol=f"s{i}", path=f"f{i}.py") for i in range(40)])
+    cap = AutopilotCapability(AutopilotConfig(max_inject_chunks=8), scoped_pull_fn=lambda p, f: many)
     action = cap.on_event(AutopilotEvent("user_prompt", {"prompt": "refactor the parser module"}))
     assert action.kind == "inject"
     assert sum(1 for line in action.content.splitlines() if line.startswith("- ")) == 8
@@ -93,20 +83,14 @@ def test_scoped_inject_caps_chunks() -> None:
 
 def test_gate_allows_coding_prompt() -> None:
     # coding verb
-    a1 = _inject_cap().on_event(
-        AutopilotEvent("user_prompt", {"prompt": "fix the failing auth flow"})
-    )
+    a1 = _inject_cap().on_event(AutopilotEvent("user_prompt", {"prompt": "fix the failing auth flow"}))
     # code signal (filename / identifier)
-    a2 = _inject_cap().on_event(
-        AutopilotEvent("user_prompt", {"prompt": "what does tool_smart_read in a.py do"})
-    )
+    a2 = _inject_cap().on_event(AutopilotEvent("user_prompt", {"prompt": "what does tool_smart_read in a.py do"}))
     assert a1.kind == "inject" and a2.kind == "inject"
 
 
 def test_counterexamples_injected() -> None:
-    ce = Counterexample(
-        check="typecheck", severity="error", file_path="a.py", line=1, diagnostic="bad"
-    )
+    ce = Counterexample(check="typecheck", severity="error", file_path="a.py", line=1, diagnostic="bad")
     cap = AutopilotCapability(AutopilotConfig(), verify_fn=lambda files: [ce])
     action = cap.on_event(AutopilotEvent("post_edit", {"touched_files": ["a.py"]}))
     assert action.kind == "inject" and "<counterexample" in action.content
@@ -141,9 +125,7 @@ def test_counterexample_repeats_trigger_rescue_on_third_attempt() -> None:
 
 
 def test_counterexample_clean_run_resets_budget() -> None:
-    ce = Counterexample(
-        check="typecheck", severity="error", file_path="a.py", line=1, diagnostic="bad"
-    )
+    ce = Counterexample(check="typecheck", severity="error", file_path="a.py", line=1, diagnostic="bad")
     calls = {"count": 0}
 
     def fake_verify(files: list[str]) -> list[Counterexample]:
@@ -164,12 +146,8 @@ def test_counterexample_clean_run_resets_budget() -> None:
 
 
 def test_counterexample_budgets_track_signatures_independently() -> None:
-    ce_a = Counterexample(
-        check="typecheck", severity="error", file_path="a.py", line=1, diagnostic="bad a"
-    )
-    ce_b = Counterexample(
-        check="typecheck", severity="error", file_path="b.py", line=2, diagnostic="bad b"
-    )
+    ce_a = Counterexample(check="typecheck", severity="error", file_path="a.py", line=1, diagnostic="bad a")
+    ce_b = Counterexample(check="typecheck", severity="error", file_path="b.py", line=2, diagnostic="bad b")
     calls = {"count": 0}
 
     def fake_verify(files: list[str]) -> list[Counterexample]:
@@ -190,9 +168,7 @@ def test_counterexample_budgets_track_signatures_independently() -> None:
 def test_verify_provider_defaults_typecheck_for_python(monkeypatch: Any) -> None:
     seen: dict[str, Any] = {}
 
-    def fake_run(
-        self: Any, *, scope_files: list[str], checks: tuple[str, ...]
-    ) -> list[Counterexample]:
+    def fake_run(self: Any, *, scope_files: list[str], checks: tuple[str, ...]) -> list[Counterexample]:
         seen["scope_files"] = scope_files
         seen["checks"] = checks
         return []
@@ -211,9 +187,7 @@ def test_verify_provider_defaults_typecheck_for_python(monkeypatch: Any) -> None
 def test_verify_provider_adds_semantic_when_task_intent_present(monkeypatch: Any) -> None:
     seen: dict[str, Any] = {}
 
-    def fake_run(
-        self: Any, *, scope_files: list[str], checks: tuple[str, ...]
-    ) -> list[Counterexample]:
+    def fake_run(self: Any, *, scope_files: list[str], checks: tuple[str, ...]) -> list[Counterexample]:
         seen["scope_files"] = scope_files
         seen["checks"] = checks
         seen["task_intent"] = self._task_intent
@@ -233,9 +207,7 @@ def test_verify_provider_adds_semantic_when_task_intent_present(monkeypatch: Any
 def test_verify_provider_respects_typecheck_and_tests_env_overrides(monkeypatch: Any) -> None:
     seen: dict[str, Any] = {}
 
-    def fake_run(
-        self: Any, *, scope_files: list[str], checks: tuple[str, ...]
-    ) -> list[Counterexample]:
+    def fake_run(self: Any, *, scope_files: list[str], checks: tuple[str, ...]) -> list[Counterexample]:
         seen["checks"] = checks
         return []
 
@@ -298,12 +270,8 @@ def test_workflow_progression_is_monotonic() -> None:
         state,
         config,
     )
-    execution, _, _ = advance_workflow_state(
-        "post_edit", {"touched_files": ["src/a.py"]}, planning, config
-    )
-    steady, _, _ = advance_workflow_state(
-        "user_prompt", {"prompt": "read the docs"}, execution, config
-    )
+    execution, _, _ = advance_workflow_state("post_edit", {"touched_files": ["src/a.py"]}, planning, config)
+    steady, _, _ = advance_workflow_state("user_prompt", {"prompt": "read the docs"}, execution, config)
 
     assert planning.current_step == "planning"
     assert emit_advisory is True
@@ -336,9 +304,7 @@ def test_run_autopilot_event_persists_workflow_state_and_advisory_once(
     assert payload["workflow"]["advisory_emitted_steps"] == ["planning"]
 
 
-def test_run_autopilot_event_persists_counterexample_budget(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
+def test_run_autopilot_event_persists_counterexample_budget(tmp_path: Path, monkeypatch: Any) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / ".atelier"))

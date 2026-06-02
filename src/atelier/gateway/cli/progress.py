@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from threading import Event, Lock, Thread
+from typing import TextIO
 
 
 class ProgressReporter:
     """Print progress with elapsed time and a simple ETA."""
 
-    def __init__(self, suite: str, total: int | None = None, heartbeat_seconds: int = 30) -> None:
+    def __init__(
+        self,
+        suite: str,
+        total: int | None = None,
+        heartbeat_seconds: int = 30,
+        *,
+        in_place: bool = True,
+        stream: TextIO | None = None,
+    ) -> None:
         self.suite = suite
         self.total = total if total and total > 0 else None
         self.done = 0
@@ -20,6 +30,9 @@ class ProgressReporter:
         self._stop = Event()
         self._lock = Lock()
         self._heartbeat: Thread | None = None
+        self._in_place = in_place
+        self._stream = stream or sys.stderr
+        self._line_active = False
 
     def start(self, title: str, *, current: str = "") -> None:
         self.current = current
@@ -40,6 +53,7 @@ class ProgressReporter:
         if self.total is not None:
             self.done = max(self.done, self.total)
         self._emit(title)
+        self._finish_line()
 
     def _emit(self, title: str) -> None:
         with self._lock:
@@ -59,7 +73,22 @@ class ProgressReporter:
                 parts.append(f"eta {_fmt_duration(eta)}")
             if self.current:
                 parts.append(f"current {self.current}")
-            print(" | ".join(parts), flush=True)
+            line = " | ".join(parts)
+            if self._in_place:
+                self._stream.write("\r\x1b[2K" + line)
+                self._stream.flush()
+                self._line_active = True
+            else:
+                print(line, file=self._stream, flush=True)
+
+    def _finish_line(self) -> None:
+        if not self._in_place:
+            return
+        with self._lock:
+            if self._line_active:
+                self._stream.write("\n")
+                self._stream.flush()
+                self._line_active = False
 
     def _start_heartbeat(self) -> None:
         if self._heartbeat_seconds <= 0 or self._heartbeat is not None:

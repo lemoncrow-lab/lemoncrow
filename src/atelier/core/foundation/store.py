@@ -343,9 +343,7 @@ class ContextStore:
             with contextlib.suppress(sqlite3.OperationalError):
                 conn.execute("ALTER TABLE raw_artifacts ADD COLUMN source_file_mtime TEXT")
             with contextlib.suppress(sqlite3.OperationalError):
-                conn.execute(
-                    "ALTER TABLE raw_artifacts ADD COLUMN payload TEXT NOT NULL DEFAULT '{}'"
-                )
+                conn.execute("ALTER TABLE raw_artifacts ADD COLUMN payload TEXT NOT NULL DEFAULT '{}'")
 
             # Data recovery: Infer host from ID prefix for existing imported runs
 
@@ -357,9 +355,7 @@ class ContextStore:
             )
 
             for h in SUPPORTED_SESSION_IMPORT_HOSTS:
-                conn.execute(
-                    "UPDATE traces SET host = ? WHERE id LIKE ? AND host IS NULL", (h, f"{h}-%")
-                )
+                conn.execute("UPDATE traces SET host = ? WHERE id LIKE ? AND host IS NULL", (h, f"{h}-%"))
 
             # Strip legacy fields (e.g. run_id) from stored trace payloads so old
             # data doesn't crash Trace.model_validate_json() during FTS reindex.
@@ -404,8 +400,7 @@ class ContextStore:
         from atelier.infra.storage.migrations import SQLITE_MIGRATIONS, read_migration
 
         conn.executescript(
-            "CREATE TABLE IF NOT EXISTS _schema_migrations"
-            " (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL);"
+            "CREATE TABLE IF NOT EXISTS _schema_migrations" " (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL);"
         )
         applied = {row[0] for row in conn.execute("SELECT name FROM _schema_migrations").fetchall()}
         for name in SQLITE_MIGRATIONS:
@@ -421,8 +416,7 @@ class ContextStore:
                     if "duplicate column name" not in msg and "already exists" not in msg:
                         raise
             conn.execute(
-                "INSERT OR IGNORE INTO _schema_migrations (name, applied_at)"
-                " VALUES (?, datetime('now'))",
+                "INSERT OR IGNORE INTO _schema_migrations (name, applied_at)" " VALUES (?, datetime('now'))",
                 (name,),
             )
             conn.commit()
@@ -436,9 +430,7 @@ class ContextStore:
         conn.execute(TRACE_FTS_DDL)
         return True
 
-    def _reindex_traces_fts_if_needed(
-        self, conn: sqlite3.Connection, *, force: bool = False
-    ) -> None:
+    def _reindex_traces_fts_if_needed(self, conn: sqlite3.Connection, *, force: bool = False) -> None:
         trace_count = conn.execute("SELECT COUNT(*) FROM traces").fetchone()[0]
         fts_count = conn.execute("SELECT COUNT(*) FROM traces_fts").fetchone()[0]
         if not force and trace_count == fts_count:
@@ -450,9 +442,7 @@ class ContextStore:
         with closing(conn.cursor()) as cur:
             cur.execute("DELETE FROM traces_fts")
             for row in rows:
-                self._update_trace_fts(
-                    cur, Trace.model_validate_json(coerce_trace_json(row["payload"]))
-                )
+                self._update_trace_fts(cur, Trace.model_validate_json(coerce_trace_json(row["payload"])))
 
     def _build_trace_search_document(self, trace: Trace) -> tuple[str, ...]:
         reasoning = "\n".join(trace.reasoning)
@@ -473,11 +463,7 @@ class ContextStore:
                 command_parts.append(command)
                 continue
             command_parts.append(
-                "\n".join(
-                    part
-                    for part in [command.command, command.stdout or "", command.stderr or ""]
-                    if part
-                )
+                "\n".join(part for part in [command.command, command.stdout or "", command.stderr or ""] if part)
             )
         commands = "\n\n".join(command_parts)
 
@@ -501,9 +487,7 @@ class ContextStore:
         for validation in trace.validation_results:
             status = "passed" if validation.passed else "failed"
             validation_parts.append(
-                " ".join(
-                    part for part in [validation.name, status, validation.detail or ""] if part
-                )
+                " ".join(part for part in [validation.name, status, validation.detail or ""] if part)
             )
         validations = "\n".join(validation_parts)
 
@@ -660,9 +644,7 @@ class ContextStore:
 
     def get_block(self, block_id: str) -> ReasonBlock | None:
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT payload FROM reasonblocks WHERE id = ?", (block_id,)
-            ).fetchone()
+            row = conn.execute("SELECT payload FROM reasonblocks WHERE id = ?", (block_id,)).fetchone()
         if row is None:
             return None
         return ReasonBlock.model_validate_json(row["payload"])
@@ -807,9 +789,7 @@ class ContextStore:
             self._save_sync_manifest("blocks", fresh)
 
         if self.rubrics_dir.exists():
-            rubric_paths = sorted(self.rubrics_dir.rglob("*.yaml")) + sorted(
-                self.rubrics_dir.rglob("*.yml")
-            )
+            rubric_paths = sorted(self.rubrics_dir.rglob("*.yaml")) + sorted(self.rubrics_dir.rglob("*.yml"))
             prev = self._load_sync_manifest("rubrics")
             fresh_rubrics: dict[str, int] = {}
 
@@ -1193,9 +1173,7 @@ class ContextStore:
 
     def get_raw_artifact(self, artifact_id: str) -> RawArtifact | None:
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT payload FROM raw_artifacts WHERE id = ?", (artifact_id,)
-            ).fetchone()
+            row = conn.execute("SELECT payload FROM raw_artifacts WHERE id = ?", (artifact_id,)).fetchone()
         if row is None:
             return None
         return RawArtifact.model_validate_json(row["payload"])
@@ -1529,9 +1507,7 @@ class ContextStore:
             if candidate.proposed_block is not None
             else None
         )
-        embedding_json = (
-            json.dumps(candidate.embedding, ensure_ascii=False) if candidate.embedding else None
-        )
+        embedding_json = json.dumps(candidate.embedding, ensure_ascii=False) if candidate.embedding else None
         with self._connect() as conn:
             conn.execute(
                 """
@@ -1585,9 +1561,7 @@ class ContextStore:
 
     def get_lesson_candidate(self, lesson_id: str) -> LessonCandidate | None:
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM lesson_candidate WHERE id = ?", (lesson_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM lesson_candidate WHERE id = ?", (lesson_id,)).fetchone()
         if row is None:
             return None
         return self._row_to_lesson_candidate(row)
@@ -1702,9 +1676,7 @@ class ContextStore:
 
     def get_consolidation_candidate(self, candidate_id: str) -> ConsolidationCandidate | None:
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM consolidation_candidate WHERE id = ?", (candidate_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM consolidation_candidate WHERE id = ?", (candidate_id,)).fetchone()
         return self._row_to_consolidation_candidate(row) if row is not None else None
 
     def _row_to_job(self, row: sqlite3.Row) -> dict[str, Any]:
@@ -1784,13 +1756,9 @@ class ContextStore:
             proposed_rubric_check=row["proposed_rubric_check"],
             evidence_trace_ids=json.loads(row["evidence_trace_ids"]),
             body=row["body"] if "body" in row_keys else "",
-            evidence=(
-                json.loads(row["evidence_json"] or "{}") if "evidence_json" in row_keys else {}
-            ),
+            evidence=(json.loads(row["evidence_json"] or "{}") if "evidence_json" in row_keys else {}),
             embedding=embedding,
-            embedding_provenance=(
-                row["embedding_provenance"] if "embedding_provenance" in row_keys else "legacy_stub"
-            ),
+            embedding_provenance=(row["embedding_provenance"] if "embedding_provenance" in row_keys else "legacy_stub"),
             confidence=float(row["confidence"]),
             status=row["status"],
             reviewer=row["reviewer"],

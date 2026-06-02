@@ -97,11 +97,7 @@ class BenchmarkEvidence:
     confidence: float = 0.95
 
     def configured(self) -> bool:
-        return (
-            bool(self.runs_path)
-            and self.baseline_cost_usd is not None
-            and self.candidate_cost_usd is not None
-        )
+        return bool(self.runs_path) and self.baseline_cost_usd is not None and self.candidate_cost_usd is not None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -383,9 +379,7 @@ def automation_from_config(data: dict[str, Any]) -> AutomationConfig:
             margin=max(0.0, _float(evidence_map.get("margin"), 0.05)),
             confidence=_float(evidence_map.get("confidence"), 0.95),
         ),
-        last_proposal_fingerprint=(
-            str(automation_map.get("last_proposal_fingerprint")).strip() or None
-        ),
+        last_proposal_fingerprint=(str(automation_map.get("last_proposal_fingerprint")).strip() or None),
         last_proposal_at=str(automation_map.get("last_proposal_at")).strip() or None,
     )
 

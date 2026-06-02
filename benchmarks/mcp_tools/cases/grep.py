@@ -16,6 +16,7 @@ from benchmarks.mcp_tools.harness import BenchCase
 from benchmarks.mcp_tools.repo_facts import (
     benchmark_repo_root,
     collect_symbol_facts,
+    stable_symbol_facts,
     unique_substring_queries,
     unique_symbol_facts,
 )
@@ -29,9 +30,7 @@ def _assert_meta(result: dict[str, object]) -> dict[str, object]:
     assert isinstance(meta, dict), "'_meta' must be a dict"
     assert "fileMatchCount" in meta, "_meta must have 'fileMatchCount'"
     file_match_count = meta["fileMatchCount"]
-    assert isinstance(file_match_count, int), (
-        f"fileMatchCount must be int, got {type(file_match_count).__name__}"
-    )
+    assert isinstance(file_match_count, int), f"fileMatchCount must be int, got {type(file_match_count).__name__}"
     assert file_match_count > 0, f"expected matches, got fileMatchCount={file_match_count}"
     return meta
 
@@ -41,9 +40,7 @@ def _assert_grep_paths(result: dict[str, object], expected_path: str) -> None:
     content = result.get("content", [])
     assert isinstance(content, list), "'content' must be a list"
     assert content, "expected non-empty content list"
-    assert any(expected_path in str(item) for item in content), (
-        f"paths-only grep must include {expected_path!r}"
-    )
+    assert any(expected_path in str(item) for item in content), f"paths-only grep must include {expected_path!r}"
 
 
 def _assert_grep_count(result: dict[str, object], expected_path: str) -> None:
@@ -51,9 +48,7 @@ def _assert_grep_count(result: dict[str, object], expected_path: str) -> None:
     content = result.get("content", [])
     assert isinstance(content, list), "'content' must be a list"
     assert content, "expected non-empty content list"
-    assert any(expected_path in str(item) for item in content), (
-        f"match-count grep must include {expected_path!r}"
-    )
+    assert any(expected_path in str(item) for item in content), f"match-count grep must include {expected_path!r}"
 
 
 def _assert_grep_ranked(result: dict[str, object], expected_path: str) -> None:
@@ -87,9 +82,10 @@ def _ranked_assert(expected_path: str) -> Callable[[dict[str, Any]], None]:
 
 
 def _build_grep_cases() -> list[BenchCase]:
-    symbol_facts, _ = collect_symbol_facts(benchmark_repo_root())
-    unique_symbols = unique_symbol_facts(symbol_facts)
-    substring_pairs = unique_substring_queries(unique_symbols)
+    repo_root = benchmark_repo_root()
+    symbol_facts, _ = collect_symbol_facts(repo_root)
+    unique_symbols = stable_symbol_facts(unique_symbol_facts(symbol_facts))
+    substring_pairs = unique_substring_queries(repo_root, unique_symbols)
 
     path_symbols = unique_symbols[:_TARGET_PER_MODE]
     count_symbols = unique_symbols[_TARGET_PER_MODE : _TARGET_PER_MODE * 2]
@@ -151,7 +147,6 @@ def _build_grep_cases() -> list[BenchCase]:
                     "matches",
                     "mode",
                     "next",
-                    "handles",
                     "context_budget_tokens",
                 ],
                 custom_assert=_ranked_assert(symbol.path),

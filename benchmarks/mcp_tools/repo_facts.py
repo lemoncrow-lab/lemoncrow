@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +40,19 @@ class RepoFileFact:
 class CallRelationFact:
     caller: SymbolFact
     callee: SymbolFact
+
+
+_GENERIC_SYMBOL_NAMES = {
+    "get",
+    "set",
+    "ok",
+    "stats",
+    "parts",
+    "values",
+    "archive",
+    "providers",
+}
+_IDENTIFIER_TOKEN_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z]|$)|[A-Z]?[a-z]+|\d+")
 
 
 class _SymbolCollector(ast.NodeVisitor):
@@ -152,22 +166,59 @@ def unique_symbol_facts(symbol_facts: Iterable[SymbolFact]) -> list[SymbolFact]:
 
 
 def unique_substring_queries(
+    repo_root: Path,
     symbol_facts: Iterable[SymbolFact],
+    *,
+    max_file_hits: int = 6,
 ) -> list[tuple[str, SymbolFact]]:
-    token_to_symbols: dict[str, list[SymbolFact]] = defaultdict(list)
+    token_to_symbols: dict[str, list[tuple[str, SymbolFact]]] = defaultdict(list)
     for symbol in symbol_facts:
-        tokens = [part for part in symbol.name.split("_") if len(part) >= 5]
+        seen_norms: set[str] = set()
+        tokens = _identifier_tokens(symbol.name)
         for token in tokens:
-            token_to_symbols[token.lower()].append(symbol)
+            token_norm = token.lower()
+            if token_norm == symbol.name.lower() or token_norm in seen_norms:
+                continue
+            seen_norms.add(token_norm)
+            token_to_symbols[token_norm].append((token, symbol))
+
+    file_texts = {
+        path.relative_to(repo_root).as_posix(): path.read_text(encoding="utf-8", errors="replace")
+        for path in repo_python_files(repo_root)
+    }
     pairs: list[tuple[str, SymbolFact]] = []
-    for token, symbols in sorted(token_to_symbols.items()):
+    for _token_norm, entries in sorted(token_to_symbols.items()):
+        symbols = {symbol for _token, symbol in entries}
         if len(symbols) != 1:
             continue
-        symbol = symbols[0]
-        if token == symbol.name.lower():
+        symbol = next(iter(symbols))
+        token = max((candidate for candidate, _symbol in entries), key=len)
+        file_hits = [relative_path for relative_path, text in file_texts.items() if token in text]
+        if symbol.path not in file_hits or len(file_hits) == 0 or len(file_hits) > max_file_hits:
             continue
         pairs.append((token, symbol))
+    pairs.sort(key=lambda item: (item[1].path, item[1].line, item[0].lower()))
     return pairs
+
+
+def stable_symbol_facts(
+    symbol_facts: Iterable[SymbolFact], *, require_dotted: bool = False, min_name_length: int = 5
+) -> list[SymbolFact]:
+    stable: list[SymbolFact] = []
+    for symbol in symbol_facts:
+        if len(symbol.name) < min_name_length:
+            continue
+        if symbol.name.lower() in _GENERIC_SYMBOL_NAMES:
+            continue
+        if require_dotted and "." not in symbol.qualified_name:
+            continue
+        stable.append(symbol)
+    stable.sort(key=lambda item: (item.path, item.line, item.qualified_name))
+    return stable
+
+
+def benchmark_query_text(symbol: SymbolFact) -> str:
+    return symbol.qualified_name if "." in symbol.qualified_name else symbol.name
 
 
 def symbols_with_text_references(
@@ -176,9 +227,7 @@ def symbols_with_text_references(
     *,
     minimum_mentions: int = 2,
 ) -> list[SymbolFact]:
-    files = [
-        path.read_text(encoding="utf-8", errors="replace") for path in repo_python_files(repo_root)
-    ]
+    files = [path.read_text(encoding="utf-8", errors="replace") for path in repo_python_files(repo_root)]
     referenced: list[SymbolFact] = []
     for symbol in symbols:
         mentions = sum(text.count(symbol.name) for text in files)
@@ -256,3 +305,9 @@ def _call_name(node: ast.AST) -> str | None:
     if isinstance(node, ast.Attribute):
         return node.attr
     return None
+
+
+def _identifier_tokens(name: str) -> list[str]:
+    if "_" in name:
+        return [part for part in name.split("_") if len(part) >= 5]
+    return [match.group(0) for match in _IDENTIFIER_TOKEN_RE.finditer(name) if len(match.group(0)) >= 5]

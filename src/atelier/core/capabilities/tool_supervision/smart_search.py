@@ -97,9 +97,7 @@ def _safe_fts_query(query: str) -> str:
     return " OR ".join(terms[:8])
 
 
-def _fts_rank(
-    repo_root: Path, search_path: Path, query: str, *, max_files: int
-) -> dict[str, float]:
+def _fts_rank(repo_root: Path, search_path: Path, query: str, *, max_files: int) -> dict[str, float]:
     fts_query = _safe_fts_query(query)
     if not fts_query:
         return {}
@@ -115,11 +113,7 @@ def _fts_rank(
                 content = file_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            rel = (
-                str(file_path.relative_to(repo_root))
-                if file_path.is_relative_to(repo_root)
-                else str(file_path)
-            )
+            rel = str(file_path.relative_to(repo_root)) if file_path.is_relative_to(repo_root) else str(file_path)
             conn.execute("INSERT INTO docs(path, content) VALUES(?, ?)", (rel, content[:200_000]))
         rows = conn.execute(
             "SELECT path, bm25(docs) AS rank FROM docs WHERE docs MATCH ? ORDER BY rank LIMIT ?",
@@ -286,11 +280,7 @@ def _claude_read_baseline_text(text: str) -> str:
 def _naive_bytes_for_matches(matches: list[dict[str, Any]], *, mode: SearchMode = "chunks") -> int:
     """Bytes in the closest Claude Code built-in baseline for these matches."""
     if mode != "full":
-        paths = [
-            str(match.get("path", ""))
-            for match in matches[:_CLAUDE_GREP_FILE_LIMIT]
-            if match.get("path")
-        ]
+        paths = [str(match.get("path", "")) for match in matches[:_CLAUDE_GREP_FILE_LIMIT] if match.get("path")]
         return len("\n".join(paths))
 
     total = 0
@@ -357,9 +347,7 @@ def smart_search(
         cache = _load_cache(repo_root)
         cached = cache.get(cache_key)
         if isinstance(cached, dict):
-            cached_matches = [
-                match for match in cached.get("matches", []) if isinstance(match, dict)
-            ]
+            cached_matches = [match for match in cached.get("matches", []) if isinstance(match, dict)]
             return {
                 "matches": cached_matches[:max_files],
                 "mode": mode,
@@ -396,9 +384,7 @@ def smart_search(
             for match in matches[:max_files]:
                 raw_path = str(match.get("path", ""))
                 try:
-                    content = Path(raw_path).read_text(encoding="utf-8", errors="replace")[
-                        :max_chars_per_file
-                    ]
+                    content = Path(raw_path).read_text(encoding="utf-8", errors="replace")[:max_chars_per_file]
                 except OSError:
                     content = ""
                 full_matches.append({**match, "content": content, "snippets": []})
@@ -419,20 +405,12 @@ def smart_search(
             cache[cache_key] = response
             _save_cache(repo_root, cache)
         return response
-    paths = [
-        str(match.get("path", ""))
-        for match in payload.get("matches", [])
-        if isinstance(match, dict)
-    ]
+    paths = [str(match.get("path", "")) for match in payload.get("matches", []) if isinstance(match, dict)]
     rel_paths = [
-        str(Path(item).resolve().relative_to(repo_root))
-        if Path(item).resolve().is_relative_to(repo_root)
-        else item
+        str(Path(item).resolve().relative_to(repo_root)) if Path(item).resolve().is_relative_to(repo_root) else item
         for item in paths
     ]
-    fts_scores = _normalize_scores(
-        _fts_rank(repo_root, search_path, query, max_files=max_files * 2)
-    )
+    fts_scores = _normalize_scores(_fts_rank(repo_root, search_path, query, max_files=max_files * 2))
     semantic_scores = _normalize_scores(_semantic_rank(repo_root, rel_paths, query))
     graph_scores = _normalize_scores(_graph_rank(repo_root, seeds or rel_paths[:1]))
 
@@ -445,9 +423,7 @@ def smart_search(
         snippet_score = 0.0
         snippets = match.get("snippets")
         if isinstance(snippets, list) and snippets:
-            snippet_score = max(
-                float(item.get("score", 0.0)) for item in snippets if isinstance(item, dict)
-            )
+            snippet_score = max(float(item.get("score", 0.0)) for item in snippets if isinstance(item, dict))
         return (
             snippet_score
             + 0.35 * fts_scores.get(rel, fts_scores.get(raw_path, 0.0))
@@ -462,9 +438,7 @@ def smart_search(
         for match in matches[:max_files]:
             raw_path = str(match.get("path", ""))
             try:
-                content = Path(raw_path).read_text(encoding="utf-8", errors="replace")[
-                    :max_chars_per_file
-                ]
+                content = Path(raw_path).read_text(encoding="utf-8", errors="replace")[:max_chars_per_file]
             except OSError:
                 content = ""
             fm.append({**match, "content": content, "snippets": []})

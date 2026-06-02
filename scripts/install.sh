@@ -85,7 +85,7 @@ ATELIER_INSTALL_RECORD="${ATELIER_INSTALL_RECORD:-${HOME}/.atelier/install_dir}"
 ATELIER_NO_HOSTS="${ATELIER_NO_HOSTS:-0}"
 ATELIER_NO_SERVICECTL="${ATELIER_NO_SERVICECTL:-0}"
 ATELIER_SERVICECTL_INTERVAL_SECONDS="${ATELIER_SERVICECTL_INTERVAL_SECONDS:-60}"
-ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS="${ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS:-21600}"
+ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS="${ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS:-86400}"
 ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_NO_STACK="${ATELIER_NO_STACK:-0}"
 ATELIER_ADVANCED="${ATELIER_ADVANCED:-0}"
@@ -1400,15 +1400,18 @@ install_console_scripts() {
 
     mkdir -p "$ATELIER_BIN_DIR" "$ATELIER_TOOL_DIR"
     stop_existing_atelier_processes
-    # Gracefully remove old installation first — uv tool install --force
-    # sometimes fails with "Directory not empty" on Linux when the tool
-    # is in use.  Uninstall is idempotent and avoids the atomic-swap path.
+    
+    # Forcefully remove any existing manual wrappers to prevent uv collision
+    rm -f "${ATELIER_BIN_DIR}/atelier" "${ATELIER_BIN_DIR}/atelier-mcp" "${ATELIER_BIN_DIR}/atelier-mcp.real"
+
+    # Gracefully remove old installation first
     UV_TOOL_BIN_DIR="$ATELIER_BIN_DIR" \
         UV_TOOL_DIR="$ATELIER_TOOL_DIR" \
         uv tool uninstall atelier >/dev/null 2>&1 || true
+    
     UV_TOOL_BIN_DIR="$ATELIER_BIN_DIR" \
         UV_TOOL_DIR="$ATELIER_TOOL_DIR" \
-        uv tool install "$package_spec"
+        uv tool install "$package_spec" --force
 
     local mcp_path="$ATELIER_BIN_DIR/atelier-mcp"
     local wrapped_path="$ATELIER_BIN_DIR/atelier-mcp.real"

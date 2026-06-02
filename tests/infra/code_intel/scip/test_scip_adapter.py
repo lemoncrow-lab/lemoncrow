@@ -297,9 +297,7 @@ def test_scip_provider_routes_search_and_symbol_payloads(tmp_path: Path) -> None
     _write_scip_fixture(engine)
 
     hits = engine.search_symbols("OrderService", limit=5)
-    symbol = engine.tool_symbol(
-        qualified_name="OrderService", file_path="src/orders.py", budget_tokens=4000
-    )
+    symbol = engine.tool_symbol(qualified_name="OrderService", file_path="src/orders.py", budget_tokens=4000)
 
     assert hits
     assert hits[0].symbol_id == "scip-order-service"
@@ -426,9 +424,7 @@ def test_scip_reader_rejects_missing_or_malformed_index_sha_metadata(tmp_path: P
         reader.load(artifact_path)
 
 
-def test_scip_artifact_watcher_treats_branch_switch_as_change(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_scip_artifact_watcher_treats_branch_switch_as_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     git_dir = tmp_path / ".git"
     git_dir.mkdir()
     (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
@@ -456,9 +452,7 @@ def test_scip_artifact_watcher_treats_branch_switch_as_change(
     monkeypatch.setattr("atelier.infra.code_intel.scip.watcher.resolve_git_repo_state", fake_state)
     watcher = ScipArtifactWatcher(
         repo_root=tmp_path,
-        cache_root=lambda: (
-            tmp_path / ".atelier" / "cache" / "scip" / "repo" / f"{branch['name']}-key"
-        ),
+        cache_root=lambda: (tmp_path / ".atelier" / "cache" / "scip" / "repo" / f"{branch['name']}-key"),
         state_sync=state_sync,
     )
     first_path = tmp_path / ".atelier" / "cache" / "scip" / "repo" / "main-key" / "python.scip"
@@ -634,9 +628,7 @@ def test_scip_provider_falls_back_when_artifact_is_invalid(tmp_path: Path) -> No
     _write_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
     engine.index_repo()
-    artifact_path = (
-        engine.repo_root / ".atelier" / "cache" / "scip" / engine.repo_id / "python.scip"
-    )
+    artifact_path = engine.repo_root / ".atelier" / "cache" / "scip" / engine.repo_id / "python.scip"
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_text("{not json", encoding="utf-8")
 
@@ -658,9 +650,7 @@ def test_scip_refresh_invalidates_cached_search(tmp_path: Path) -> None:
 
     first = engine.tool_search("OrderService", limit=5, budget_tokens=4000)
     cached = engine.tool_search("OrderService", limit=5, budget_tokens=4000)
-    artifact_path.write_text(
-        artifact_path.read_text(encoding="utf-8").replace("scip-v1", "scip-v2"), encoding="utf-8"
-    )
+    artifact_path.write_text(artifact_path.read_text(encoding="utf-8").replace("scip-v1", "scip-v2"), encoding="utf-8")
     fresh = engine.tool_search("OrderService", limit=5, budget_tokens=4000)
 
     assert first["cache_hit"] is False
@@ -681,9 +671,7 @@ def test_scip_refresh_invalidates_cached_search_for_new_engine_instance(tmp_path
     artifact_path = _write_scip_fixture(engine, symbol_id="scip-v1")
 
     cached = engine.tool_search("OrderService", limit=5, budget_tokens=4000)
-    artifact_path.write_text(
-        artifact_path.read_text(encoding="utf-8").replace("scip-v1", "scip-v2"), encoding="utf-8"
-    )
+    artifact_path.write_text(artifact_path.read_text(encoding="utf-8").replace("scip-v1", "scip-v2"), encoding="utf-8")
     fresh_engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
     fresh = fresh_engine.tool_search("OrderService", limit=5, budget_tokens=4000)
 

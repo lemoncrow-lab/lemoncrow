@@ -83,9 +83,7 @@ def _scoped_pull_provider(workspace: str) -> Any:
 
             engine = CodeContextEngine(Path(workspace))
             cap = ScopedContextCapability(engine)
-            return cap.pull(
-                Subtask(description=prompt, affected_paths=list(files), budget_tokens=1200)
-            )
+            return cap.pull(Subtask(description=prompt, affected_paths=list(files), budget_tokens=1200))
         except Exception:
             logging.exception("Recovered from broad exception handler")
             return None
@@ -194,9 +192,7 @@ def run_autopilot_event(trigger: str, payload: dict[str, Any]) -> AutopilotActio
     """Resolve roots from env, build the capability, and evaluate one event."""
     try:
         store_root = (
-            os.environ.get("ATELIER_ROOT")
-            or os.environ.get("ATELIER_STORE_ROOT")
-            or str(Path.home() / ".atelier")
+            os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or str(Path.home() / ".atelier")
         )
         workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
         session_state = _read_session_state(store_root, workspace)

@@ -73,6 +73,7 @@ function installSwarmFetchMock(launchBodies: unknown[]) {
               runner: "claude",
               runs: 3,
               continuous: true,
+              max_waves: 5,
               keep_worktrees: true,
               effort: "high",
             },
@@ -257,6 +258,7 @@ describe("Swarm page", () => {
       spec_content: null,
       provider: "cli",
       runner: "claude",
+      max_waves: 5,
     });
   });
 
@@ -334,6 +336,7 @@ describe("Swarm page", () => {
       runner_model: null,
       runner_options: "",
       runs: 3,
+      max_waves: 5,
       effort: "high",
       provider_api_key: "sk-test-key",
       provider_base_url: "https://openrouter.example/v1",

@@ -125,10 +125,7 @@ def test_prefix_hash_matches_golden_sha256() -> None:
     ]
     compiled = compile_prompt(blocks)
     assert compiled.prefix_end_index == 1
-    assert (
-        compiled.stable_prefix_hash
-        == "7628695eb2a0a8545a423f23551f8dc0eb8c06bcc967d7ab6a5c899fa23f1e4c"
-    )
+    assert compiled.stable_prefix_hash == "7628695eb2a0a8545a423f23551f8dc0eb8c06bcc967d7ab6a5c899fa23f1e4c"
 
 
 def test_prefix_end_index_when_no_stable_blocks() -> None:

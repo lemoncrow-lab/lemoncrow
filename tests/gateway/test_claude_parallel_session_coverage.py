@@ -17,12 +17,8 @@ def _write_jsonl(path: Path, events: list[dict[str, object]]) -> None:
 
 def test_find_claude_sessions_discovers_project_jsonl_files(tmp_path: Path) -> None:
     root = tmp_path / ".claude" / "projects"
-    _write_jsonl(
-        root / "workspace-a" / "session-a.jsonl", [{"type": "meta", "sessionId": "session-a"}]
-    )
-    _write_jsonl(
-        root / "workspace-b" / "session-b.jsonl", [{"type": "meta", "sessionId": "session-b"}]
-    )
+    _write_jsonl(root / "workspace-a" / "session-a.jsonl", [{"type": "meta", "sessionId": "session-a"}])
+    _write_jsonl(root / "workspace-b" / "session-b.jsonl", [{"type": "meta", "sessionId": "session-b"}])
 
     sessions = list(find_claude_sessions(root))
 
@@ -41,9 +37,7 @@ def test_claude_import_session_merges_subagent_jsonls(tmp_path: Path) -> None:
     filename_session_id = "parent-session"
     logical_session_id = "logical-session"
     root_jsonl = tmp_path / workspace_slug / f"{filename_session_id}.jsonl"
-    subagent_jsonl = (
-        tmp_path / workspace_slug / filename_session_id / "subagents" / "subagent-worker.jsonl"
-    )
+    subagent_jsonl = tmp_path / workspace_slug / filename_session_id / "subagents" / "subagent-worker.jsonl"
 
     _write_jsonl(
         root_jsonl,
@@ -79,9 +73,7 @@ def test_claude_import_session_merges_subagent_jsonls(tmp_path: Path) -> None:
     result = importer.import_session(workspace_slug, root_jsonl, force=True)
 
     assert result is not None
-    artifacts = store.list_raw_artifacts(
-        source="claude", source_session_id=logical_session_id, limit=10
-    )
+    artifacts = store.list_raw_artifacts(source="claude", source_session_id=logical_session_id, limit=10)
     assert [artifact.relative_path for artifact in artifacts] == [
         f"{filename_session_id}/subagents/subagent-worker.jsonl",
         f"{filename_session_id}.jsonl",

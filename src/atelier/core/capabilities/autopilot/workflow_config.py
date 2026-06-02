@@ -99,9 +99,7 @@ def workflow_state_from_mapping(
     sticky = max(0, int(data.get("sticky_window") or cfg.step(current).sticky_window))
     emitted_raw = data.get("advisory_emitted_steps") or ()
     emitted = tuple(
-        normalize_workflow_step(str(step))
-        for step in emitted_raw
-        if normalize_workflow_step(str(step)) in _STEP_RANK
+        normalize_workflow_step(str(step)) for step in emitted_raw if normalize_workflow_step(str(step)) in _STEP_RANK
     )
     return WorkflowState(
         current_step=current,

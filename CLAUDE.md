@@ -75,13 +75,13 @@ Session state is persisted to `~/.atelier/workspaces/<hash>/session_state.json`.
 
 All runtime state lives under `~/.atelier/` (or `$ATELIER_ROOT`):
 
-| Path                                   | Contents                                                                                     |
-| -------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `runs/<session_id>.json`               | Run ledger — events, traces, token stats                                                     |
-| `session_stats/<uuid>.json`            | Per-session savings keyed by Claude Code UUID                                                |
-| `live_savings_events.jsonl`            | Append-only savings event log (uses internal Atelier session IDs, **not** Claude Code UUIDs) |
-| `workspaces/<hash>/session_state.json` | Hook-to-hook state for a workspace                                                           |
-| `smart_state.json`                     | Cumulative savings counters                                                                  |
+| Path                                   | Contents                                                                                    |
+| -------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `runs/<session_id>.json`               | Run ledger — events, traces, token stats                                                    |
+| `session_stats/<uuid>.json`            | Per-session savings keyed by Claude Code UUID                                               |
+| `live_savings_events.jsonl`            | Append-only savings event log (uses internal Atelier session IDs,**not** Claude Code UUIDs) |
+| `workspaces/<hash>/session_state.json` | Hook-to-hook state for a workspace                                                          |
+| `smart_state.json`                     | Cumulative savings counters                                                                 |
 
 ## Source of Truth Hierarchy
 
@@ -94,17 +94,66 @@ Generated files must never be edited directly — edit the source and regenerate
 
 ## Coding Guidelines
 
-Behavioral guidelines to reduce common LLM coding mistakes. Bias toward caution over speed; use judgment for trivial tasks.
+### 1. Think Before Coding
 
-**1. Think Before Coding** — state assumptions explicitly; if uncertain, ask; if multiple interpretations exist, present them; push back when a simpler approach exists.
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-**2. Simplicity First** — minimum code that solves the problem; no speculative features, abstractions for single-use code, or error handling for impossible scenarios; if 200 lines could be 50, rewrite it.
+Before implementing:
 
-**3. Surgical Changes** — touch only what you must; don't improve adjacent code, refactor things that aren't broken, or delete unrelated dead code; match existing style; remove only the imports/variables/functions that _your_ changes made unused.
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
 
-**4. Goal-Driven Execution** — transform tasks into verifiable goals before implementing; for multi-step work, state a brief plan with per-step verify checks; loop until verified.
+### 2. Simplicity First
 
-See [docs/agent-os/coding-guidelines.md](docs/agent-os/coding-guidelines.md) for the full reference.
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+### 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
 ## Validation by Change Surface
 
@@ -121,13 +170,13 @@ See [docs/agent-os/coding-guidelines.md](docs/agent-os/coding-guidelines.md) for
 
 When spawning sub-agents via the `Agent` tool, always pick the narrowest type:
 
-| Role                                                      | subagent_type     | When                                                    |
-| --------------------------------------------------------- | ----------------- | ------------------------------------------------------- |
-| Code-review **finder** (read, search, grep — never edits) | `atelier:explore` | All Phase 1 / Angle A–G finder agents in `/code-review` |
-| Code-review **verifier** (applies rubric, never edits)    | `atelier:review`  | All Phase 2 verifier agents in `/code-review`           |
-| Read-only research / exploration                          | `atelier:explore` | Any agent that only reads files, symbols, or web pages  |
-| Coding, edits, fixes                                      | `atelier:code`    | Any agent that writes or modifies files                 |
-| Repeated failure / rescue                                 | `atelier:repair`  | When the same approach fails twice                      |
+| Role                                                     | subagent_type     | When                                                    |
+| -------------------------------------------------------- | ----------------- | ------------------------------------------------------- |
+| Code-review**finder** (read, search, grep — never edits) | `atelier:explore` | All Phase 1 / Angle A–G finder agents in `/code-review` |
+| Code-review**verifier** (applies rubric, never edits)    | `atelier:review`  | All Phase 2 verifier agents in `/code-review`           |
+| Read-only research / exploration                         | `atelier:explore` | Any agent that only reads files, symbols, or web pages  |
+| Coding, edits, fixes                                     | `atelier:code`    | Any agent that writes or modifies files                 |
+| Repeated failure / rescue                                | `atelier:repair`  | When the same approach fails twice                      |
 
 **Never** use the default (`claude`) agent for a task that fits one of the typed roles above — the default has write access it doesn't need and costs more.
 

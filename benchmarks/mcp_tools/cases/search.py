@@ -15,6 +15,7 @@ from benchmarks.mcp_tools.repo_facts import (
     benchmark_repo_root,
     collect_repo_file_facts,
     collect_symbol_facts,
+    stable_symbol_facts,
     unique_substring_queries,
     unique_symbol_facts,
 )
@@ -24,14 +25,10 @@ _TARGET_PER_MODE = 150
 
 def _assert_search_common(result: dict[str, object], expected_mode: str) -> None:
     assert "mode" in result, "search response must have 'mode'"
-    assert result["mode"] == expected_mode, (
-        f"expected {expected_mode!r} mode, got {result['mode']!r}"
-    )
+    assert result["mode"] == expected_mode, f"expected {expected_mode!r} mode, got {result['mode']!r}"
 
 
-def _assert_search_chunks(
-    result: dict[str, object], expected_path: str, expected_needle: str
-) -> None:
+def _assert_search_chunks(result: dict[str, object], expected_path: str, expected_needle: str) -> None:
     _assert_search_common(result, "chunks")
     assert "backend" in result, "chunks response must have 'backend'"
     assert "cache_hit" in result, "chunks response must have 'cache_hit'"
@@ -56,9 +53,7 @@ def _assert_search_map(result: dict[str, object], expected_path: str) -> None:
     assert expected_path in str(ranked_files), f"map response must include {expected_path!r}"
 
 
-def _chunks_assert(
-    expected_path: str, expected_needle: str
-) -> Callable[[dict[str, Any]], None]:
+def _chunks_assert(expected_path: str, expected_needle: str) -> Callable[[dict[str, Any]], None]:
     def _assert(result: dict[str, Any]) -> None:
         _assert_search_chunks(result, expected_path, expected_needle)
 
@@ -84,8 +79,8 @@ def _seed_files(expected_path: str, all_paths: list[str]) -> list[str]:
 def _build_search_cases() -> list[BenchCase]:
     repo_root = benchmark_repo_root()
     symbol_facts, _ = collect_symbol_facts(repo_root)
-    unique_symbols = unique_symbol_facts(symbol_facts)
-    substring_pairs = unique_substring_queries(unique_symbols)
+    unique_symbols = stable_symbol_facts(unique_symbol_facts(symbol_facts))
+    substring_pairs = unique_substring_queries(repo_root, unique_symbols)
     file_paths = [fact.path for fact in collect_repo_file_facts(repo_root)]
 
     chunk_symbols = unique_symbols[:75]
@@ -94,9 +89,7 @@ def _build_search_cases() -> list[BenchCase]:
 
     assert len(chunk_symbols) == 75, "not enough unique symbols for chunk search benchmark"
     assert len(chunk_substrings) == 75, "not enough unique substrings for chunk search benchmark"
-    assert len(map_symbols) == _TARGET_PER_MODE, (
-        "not enough unique symbols for map search benchmark"
-    )
+    assert len(map_symbols) == _TARGET_PER_MODE, "not enough unique symbols for map search benchmark"
 
     cases: list[BenchCase] = []
     for index, symbol in enumerate(chunk_symbols, start=1):

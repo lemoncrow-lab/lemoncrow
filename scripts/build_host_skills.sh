@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build_host_skills.sh — Generate host skill bundles from integrations/skills
+# build_host_skills.sh — Generate host skill bundles from the shared packaged skill bundle
 #
 # Usage:
 #   bash scripts/build_host_skills.sh --host codex
@@ -56,7 +56,7 @@ fi
 python3 "$RENDER_SCRIPT" >/dev/null
 
 if [[ ! -d "$SKILLS_SRC" ]]; then
-    echo "Shared skills directory not found: $SKILLS_SRC" >&2
+    echo "Shared packaged skills directory not found: $SKILLS_SRC" >&2
     exit 1
 fi
 

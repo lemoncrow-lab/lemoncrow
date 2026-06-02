@@ -56,35 +56,35 @@ class SearchReranker:
         max_latency_ms: int | None = None,
         scorer: _RerankScorer | None = None,
     ) -> None:
-        self.model = (
-            model or os.getenv("ATELIER_CODE_RERANKER_MODEL") or DEFAULT_CODE_RERANKER_MODEL
-        ).strip()
+        self.model = (model or os.getenv("ATELIER_CODE_RERANKER_MODEL") or DEFAULT_CODE_RERANKER_MODEL).strip()
         self.host = _resolve_host(host or os.getenv("ATELIER_CODE_RERANKER_HOST"))
         self.endpoint = f"{self.host}/api/rerank"
         self.min_candidates = max(
             2,
-            min_candidates
-            if min_candidates is not None
-            else _int_env(
-                "ATELIER_CODE_RERANKER_MIN_CANDIDATES",
-                default=_DEFAULT_MIN_CANDIDATES,
-                minimum=2,
+            (
+                min_candidates
+                if min_candidates is not None
+                else _int_env(
+                    "ATELIER_CODE_RERANKER_MIN_CANDIDATES",
+                    default=_DEFAULT_MIN_CANDIDATES,
+                    minimum=2,
+                )
             ),
         )
         self.top_n = max(
             2,
-            top_n
-            if top_n is not None
-            else _int_env("ATELIER_CODE_RERANKER_TOP_N", default=_DEFAULT_TOP_N, minimum=2),
+            top_n if top_n is not None else _int_env("ATELIER_CODE_RERANKER_TOP_N", default=_DEFAULT_TOP_N, minimum=2),
         )
         self.max_latency_ms = max(
             _DEFAULT_TIMEOUT_FLOOR_MS,
-            max_latency_ms
-            if max_latency_ms is not None
-            else _int_env(
-                "ATELIER_CODE_RERANKER_MAX_LATENCY_MS",
-                default=_DEFAULT_MAX_LATENCY_MS,
-                minimum=_DEFAULT_TIMEOUT_FLOOR_MS,
+            (
+                max_latency_ms
+                if max_latency_ms is not None
+                else _int_env(
+                    "ATELIER_CODE_RERANKER_MAX_LATENCY_MS",
+                    default=_DEFAULT_MAX_LATENCY_MS,
+                    minimum=_DEFAULT_TIMEOUT_FLOOR_MS,
+                )
             ),
         )
         self.enabled = bool(self.model) and _bool_env("ATELIER_CODE_RERANKER_ENABLED", default=True)
@@ -124,9 +124,7 @@ class SearchReranker:
 
         started_at = time.perf_counter()
         rerank_window = ordered_hits[: self.top_n]
-        documents = [
-            self._candidate_text(symbol, source_loader=source_loader) for symbol in rerank_window
-        ]
+        documents = [self._candidate_text(symbol, source_loader=source_loader) for symbol in rerank_window]
         remaining_ms = self.max_latency_ms - ((time.perf_counter() - started_at) * 1000.0)
         if remaining_ms <= _DEFAULT_TIMEOUT_FLOOR_MS:
             self._emit(
@@ -170,9 +168,7 @@ class SearchReranker:
                 item[1].symbol_id,
             ),
         )
-        reranked_hits = [
-            symbol.model_copy(update={"score": float(scores[index])}) for index, symbol in ranked
-        ]
+        reranked_hits = [symbol.model_copy(update={"score": float(scores[index])}) for index, symbol in ranked]
         elapsed_ms = (time.perf_counter() - started_at) * 1000.0
         self._emit(
             status="used",
@@ -192,11 +188,7 @@ class SearchReranker:
         source_loader: Callable[[SymbolRecord], str],
     ) -> str:
         if symbol.provenance == "commit" or symbol.kind == "commit":
-            text = "\n".join(
-                part
-                for part in (symbol.qualified_name, symbol.signature, symbol.doc_summary)
-                if part
-            )
+            text = "\n".join(part for part in (symbol.qualified_name, symbol.signature, symbol.doc_summary) if part)
         else:
             text = render_embedding_text(symbol, source_text=source_loader(symbol))
         compact = " ".join(text.split()).strip()
@@ -215,9 +207,7 @@ class SearchReranker:
             compact = compact[:_MAX_DOCUMENT_CHARS]
         return compact
 
-    def _score_via_ollama(
-        self, query: str, documents: list[str], timeout_seconds: float
-    ) -> list[float]:
+    def _score_via_ollama(self, query: str, documents: list[str], timeout_seconds: float) -> list[float]:
         request = Request(
             self.endpoint,
             data=json.dumps(
@@ -231,9 +221,7 @@ class SearchReranker:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        payload = self._request_json(
-            request, timeout_seconds=max(timeout_seconds, _DEFAULT_TIMEOUT_FLOOR_MS / 1000.0)
-        )
+        payload = self._request_json(request, timeout_seconds=max(timeout_seconds, _DEFAULT_TIMEOUT_FLOOR_MS / 1000.0))
         return self._parse_scores(payload, expected=len(documents))
 
     def _request_json(self, request: Request, *, timeout_seconds: float) -> dict[str, object]:

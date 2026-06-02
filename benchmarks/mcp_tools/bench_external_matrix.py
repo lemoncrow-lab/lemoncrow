@@ -71,6 +71,20 @@ SURFACE_AUDIT: dict[str, list[dict[str, str | bool]]] = {
         {"surface": "search:substring", "family": "substring_search", "benchmarked": True},
         {"surface": "search:nohit", "family": "nohit_search", "benchmarked": True},
     ],
+    "zoekt": [
+        {"surface": "search:exact", "family": "exact_search", "benchmarked": True},
+        {"surface": "search:substring", "family": "substring_search", "benchmarked": True},
+        {"surface": "search:nohit", "family": "nohit_search", "benchmarked": True},
+    ],
+    "atelier-serena": [
+        {"surface": "search_for_pattern:exact:compact", "family": "exact_search", "benchmarked": True},
+        {
+            "surface": "search_for_pattern:substring:compact",
+            "family": "substring_search",
+            "benchmarked": True,
+        },
+        {"surface": "search_for_pattern:nohit:compact", "family": "nohit_search", "benchmarked": True},
+    ],
     "serena": [
         {"surface": "find_symbol", "family": "exact_symbol", "benchmarked": True},
         {"surface": "search_for_pattern:exact", "family": "exact_search", "benchmarked": True},
@@ -82,6 +96,11 @@ SURFACE_AUDIT: dict[str, list[dict[str, str | bool]]] = {
         {"surface": "get_symbols_overview", "family": "file_outline", "benchmarked": True},
         {"surface": "search_for_pattern:nohit", "family": "nohit_search", "benchmarked": True},
         {"surface": "find_referencing_symbols", "family": "graph", "benchmarked": False},
+    ],
+    "atelier-codegraph": [
+        {"surface": "query:search:compact", "family": "exact_search", "benchmarked": True},
+        {"surface": "query:substring:compact", "family": "substring_search", "benchmarked": True},
+        {"surface": "query:nohit:compact", "family": "nohit_search", "benchmarked": True},
     ],
     "codegraph": [
         {"surface": "query:exact", "family": "exact_symbol", "benchmarked": True},
@@ -123,7 +142,10 @@ CACHE_SCHEMA = "provider-cache-v1"
 DEFAULT_PROVIDER_TOOLS = (
     "atelier",
     "atelier-zoekt",
+    "zoekt",
+    "atelier-serena",
     "serena",
+    "atelier-codegraph",
     "codegraph",
     "code-index-mcp",
     "jcodemunch-mcp",
@@ -196,6 +218,31 @@ class CaseBenchResult:
     error: str = ""
 
 
+class ProviderShardStatusReporter(ProgressReporter):
+    """Child-process progress reporter that writes provider status JSON."""
+
+    def __init__(self, shard_name: str, total: int, status_file: Path) -> None:
+        super().__init__("providers", total=total, heartbeat_seconds=0)
+        self.shard_name = shard_name
+        self.status_file = status_file
+
+    def _emit(self, title: str) -> None:
+        self._last_title = title
+        payload = {
+            "shard": self.shard_name,
+            "status": "complete" if self.total and self.done >= self.total else "running",
+            "title": title,
+            "current": self.current,
+            "done": self.done,
+            "total": self.total or 0,
+            "updated_at": time.time(),
+        }
+        self.status_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = self.status_file.with_suffix(".tmp")
+        temp_path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        temp_path.replace(self.status_file)
+
+
 class _RunnerBase:
     tool_name: str
     supported_families: set[str]
@@ -221,7 +268,6 @@ class AtelierRunner(_RunnerBase):
         self.cache_key = cache_key
         self.snapshot_root: Path | None = None
         self.tool_code: Any | None = None
-        self.zoekt_supervisor: Any | None = None
 
     def start(self) -> None:
         if str(self.repo_root) not in sys.path:
@@ -237,57 +283,11 @@ class AtelierRunner(_RunnerBase):
         runtime_root = Path(tempfile.mkdtemp(prefix="atelier-matrix-root-", dir=tool_workspace))
         configure_benchmark_runtime(runtime_root, workspace_root=self.snapshot_root)
         from atelier.gateway.adapters.mcp_server import tool_code
-        from atelier.infra.code_intel.zoekt.adapter import get_zoekt_supervisor
 
         self.tool_code = tool_code
-        self.zoekt_supervisor = get_zoekt_supervisor(self.snapshot_root)
-
-    def _run_compact_zoekt_case(self, case: ExternalBenchCase) -> tuple[str, str]:
-        assert self.snapshot_root is not None and self.zoekt_supervisor is not None
-        search_path = self.snapshot_root / "src" / "atelier"
-        request = {
-            "query": case.query,
-            "search_path": str(search_path),
-            "max_files": 8,
-            "max_chars_per_file": 160,
-            "include_outline": False,
-            "renderer": "compact",
-        }
-        result = self.zoekt_supervisor.search(
-            query=case.query,
-            search_path=search_path,
-            max_files=request["max_files"],
-            max_chars_per_file=request["max_chars_per_file"],
-            include_outline=request["include_outline"],
-        )
-        compact_matches = []
-        for match in result.matches[: request["max_files"]]:
-            snippets = []
-            for snippet in match.snippets[:1]:
-                text = " ".join(snippet.text.split())
-                snippets.append(
-                    {
-                        "line_start": snippet.line_start,
-                        "line_end": snippet.line_end,
-                        "text": text[:160],
-                    }
-                )
-            compact_matches.append(
-                {
-                    "path": str(Path(match.path).relative_to(self.snapshot_root)),
-                    "lang": match.lang,
-                    "snippets": snippets,
-                }
-            )
-        return json.dumps(request, ensure_ascii=False), json.dumps(
-            {"matches": compact_matches, "provenance": "atelier-zoekt", "view": "compact"},
-            ensure_ascii=False,
-        )
 
     def run_case(self, case: ExternalBenchCase) -> tuple[str, str]:
         assert self.snapshot_root is not None and self.tool_code is not None
-        if case.family == "substring_search":
-            return self._run_compact_zoekt_case(case)
         if case.family == "exact_symbol":
             request = {
                 "op": "symbol",
@@ -296,12 +296,15 @@ class AtelierRunner(_RunnerBase):
                 "budget_tokens": 4000,
             }
         elif case.family in {"exact_search", "substring_search", "nohit_search"}:
+            intent = "text" if case.family == "substring_search" else "symbol"
             request = {
                 "op": "search",
                 "repo_root": str(self.snapshot_root),
                 "query": case.query,
                 "mode": "lexical",
+                "intent": intent,
                 "limit": 20,
+                "file_glob": "src/atelier/**/*.py",
                 "budget_tokens": 4000,
             }
         elif case.family == "file_outline":
@@ -317,8 +320,8 @@ class AtelierRunner(_RunnerBase):
         return json.dumps(request, ensure_ascii=False), json.dumps(response, ensure_ascii=False)
 
 
-class AtelierZoektRunner(_RunnerBase):
-    tool_name = "atelier-zoekt"
+class ZoektRunner(_RunnerBase):
+    tool_name = "zoekt"
     supported_families = TOOL_SUPPORT[tool_name]
 
     def __init__(self, repo_root: Path, workspace_root: Path, *, cache_root: Path | None, cache_key: str) -> None:
@@ -340,7 +343,7 @@ class AtelierZoektRunner(_RunnerBase):
             cache_root=self.cache_root,
             cache_key=self.cache_key,
         )
-        runtime_root = Path(tempfile.mkdtemp(prefix="atelier-zoekt-matrix-root-", dir=tool_workspace))
+        runtime_root = Path(tempfile.mkdtemp(prefix=f"{self.tool_name}-matrix-root-", dir=tool_workspace))
         configure_benchmark_runtime(runtime_root, workspace_root=self.snapshot_root)
         from atelier.infra.code_intel.zoekt.adapter import (
             get_zoekt_supervisor,
@@ -352,19 +355,64 @@ class AtelierZoektRunner(_RunnerBase):
 
     def run_case(self, case: ExternalBenchCase) -> tuple[str, str]:
         assert self.snapshot_root is not None and self.supervisor is not None
+        search_path = self.snapshot_root / "src" / "atelier"
         request = {
             "query": case.query,
-            "search_path": str(self.snapshot_root),
+            "search_path": str(search_path),
             "max_files": 20,
             "max_chars_per_file": 600,
             "include_outline": False,
+            "result_mode": "expanded",
+            "context_lines": 2,
+            "max_snippets_per_file": 3,
+            "skip_noise": False,
+            "prefer_source": False,
         }
         result = self.supervisor.search(
             query=case.query,
-            search_path=self.snapshot_root,
+            search_path=search_path,
             max_files=request["max_files"],
             max_chars_per_file=request["max_chars_per_file"],
             include_outline=request["include_outline"],
+            result_mode="expanded",
+            context_lines=2,
+            max_snippets_per_file=3,
+            skip_noise=False,
+            prefer_source=False,
+        )
+        return json.dumps(request, ensure_ascii=False), json.dumps(asdict(result), ensure_ascii=False)
+
+
+class AtelierZoektRunner(ZoektRunner):
+    tool_name = "atelier-zoekt"
+    supported_families = TOOL_SUPPORT[tool_name]
+
+    def run_case(self, case: ExternalBenchCase) -> tuple[str, str]:
+        assert self.snapshot_root is not None and self.supervisor is not None
+        search_path = self.snapshot_root / "src" / "atelier"
+        request = {
+            "query": case.query,
+            "search_path": str(search_path),
+            "max_files": 8,
+            "max_chars_per_file": 160,
+            "include_outline": False,
+            "result_mode": "compact",
+            "context_lines": 0,
+            "max_snippets_per_file": 1,
+            "skip_noise": True,
+            "prefer_source": True,
+        }
+        result = self.supervisor.search(
+            query=case.query,
+            search_path=search_path,
+            max_files=request["max_files"],
+            max_chars_per_file=request["max_chars_per_file"],
+            include_outline=request["include_outline"],
+            result_mode="compact",
+            context_lines=0,
+            max_snippets_per_file=1,
+            skip_noise=True,
+            prefer_source=True,
         )
         return json.dumps(request, ensure_ascii=False), json.dumps(asdict(result), ensure_ascii=False)
 
@@ -425,6 +473,15 @@ class SerenaMatrixRunner(_RunnerBase):
         return json.dumps({"tool_name": tool_name, "params": params}, ensure_ascii=False), response
 
 
+class AtelierSerenaMatrixRunner(SerenaMatrixRunner):
+    tool_name = "atelier-serena"
+    supported_families = TOOL_SUPPORT[tool_name]
+
+    def run_case(self, case: ExternalBenchCase) -> tuple[str, str]:
+        request, output = super().run_case(case)
+        return request, _compact_provider_payload(self.tool_name, case, output)
+
+
 class CodeGraphRunner(_RunnerBase):
     tool_name = "codegraph"
     supported_families = TOOL_SUPPORT[tool_name]
@@ -470,6 +527,15 @@ class CodeGraphRunner(_RunnerBase):
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr[:1200] or proc.stdout[:1200])
         return json.dumps({"command": command}, ensure_ascii=False), proc.stdout
+
+
+class AtelierCodeGraphRunner(CodeGraphRunner):
+    tool_name = "atelier-codegraph"
+    supported_families = TOOL_SUPPORT[tool_name]
+
+    def run_case(self, case: ExternalBenchCase) -> tuple[str, str]:
+        request, output = super().run_case(case)
+        return request, _compact_provider_payload(self.tool_name, case, output)
 
 
 class CodeIndexMatrixRunner(_RunnerBase):
@@ -893,6 +959,142 @@ def _payload_looks_empty(payload: str) -> bool:
     return any(marker.lower() in compact.lower() for marker in empty_markers)
 
 
+def _compact_provider_payload(tool: str, case: ExternalBenchCase, output: str) -> str:
+    """Compact provider-native output into an Atelier-style benchmark payload."""
+    if case.family == "nohit_search":
+        return output[:1200]
+    query = case.query.lower()
+    selected: list[tuple[float, object]] = []
+
+    def _interesting_text(value: str) -> bool:
+        lowered = value.lower()
+        return query in lowered or "src/atelier" in lowered
+
+    def _append(item: object, *, path: str = "", text: str = "") -> None:
+        score = _compact_item_score(query, path, text)
+        selected.append((score, item))
+
+    def _walk_path_mapping(value: dict[str, object]) -> bool:
+        handled = False
+        for key, item in value.items():
+            if "/" not in key:
+                continue
+            handled = True
+            snippets: list[str] = []
+            if isinstance(item, list):
+                for entry in item:
+                    compact = " ".join(str(entry).split())
+                    if compact and _interesting_text(f"{key} {compact}"):
+                        snippets.append(compact[:240])
+                    if len(snippets) >= 3:
+                        break
+            else:
+                compact = " ".join(str(item).split())
+                if compact:
+                    snippets.append(compact[:240])
+            if snippets:
+                _append({"path": key, "snippets": snippets}, path=key, text=" ".join(snippets))
+        return handled
+
+    def _walk(value: object) -> None:
+        if len(selected) >= 80:
+            return
+        if isinstance(value, dict):
+            if _walk_path_mapping(value):
+                return
+            blob = json.dumps(value, ensure_ascii=False)
+            if _interesting_text(blob):
+                compact = _shrink_mapping(value)
+                _append(compact, text=json.dumps(compact, ensure_ascii=False))
+                return
+            for child in value.values():
+                _walk(child)
+            return
+        if isinstance(value, list):
+            for child in value:
+                _walk(child)
+                if len(selected) >= 80:
+                    break
+            return
+        if isinstance(value, str) and _interesting_text(value):
+            compact = " ".join(value.split())[:240]
+            _append(compact, text=compact)
+
+    try:
+        parsed = json.loads(output)
+    except json.JSONDecodeError:
+        parsed = None
+    if parsed is not None:
+        _walk(parsed)
+    else:
+        for line in output.splitlines():
+            compact = " ".join(line.split())
+            if compact and _interesting_text(compact):
+                _append(compact[:240], text=compact)
+            if len(selected) >= 80:
+                break
+        if not selected:
+            for line in output.splitlines()[:20]:
+                compact = " ".join(line.split())[:240]
+                if compact:
+                    _append(compact, text=compact)
+    selected_items = [item for _, item in sorted(selected, key=lambda pair: pair[0], reverse=True)[:40]]
+
+    return json.dumps(
+        {
+            "provider": tool,
+            "query": case.query,
+            "view": "atelier-compact",
+            "items": selected_items,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _compact_item_score(query: str, path: str, text: str) -> float:
+    score = 0.0
+    haystack = f"{path} {text}".lower()
+    if query and query in haystack:
+        score += 2.0
+    if path.startswith("src/atelier/"):
+        score += 3.0
+    elif path.startswith("src/"):
+        score += 1.0
+    if "def " in haystack and query in haystack:
+        score += 2.0
+    if "class " in haystack and query in haystack:
+        score += 2.0
+    return score
+
+
+def _shrink_mapping(value: dict[str, object]) -> dict[str, object]:
+    keep = {
+        "file",
+        "file_path",
+        "filename",
+        "kind",
+        "line",
+        "line_number",
+        "line_start",
+        "line_end",
+        "name",
+        "path",
+        "qualified_name",
+        "signature",
+        "symbol",
+        "text",
+    }
+    compact: dict[str, object] = {}
+    for key, item in value.items():
+        if key.lower() not in keep:
+            continue
+        if isinstance(item, str):
+            compact[key] = " ".join(item.split())[:240]
+        else:
+            compact[key] = item
+    return compact or {"text": json.dumps(value, ensure_ascii=False)[:300]}
+
+
 def score_case(case: ExternalBenchCase, output: str) -> float:
     if case.family == "nohit_search":
         return 1.0 if _payload_looks_empty(output) else 0.0
@@ -926,8 +1128,20 @@ def _runner_specs(
             AtelierZoektRunner(repo_root, workspace_root, cache_root=cache_root, cache_key=cache_key),
         ),
         (
+            "zoekt",
+            ZoektRunner(repo_root, workspace_root, cache_root=cache_root, cache_key=cache_key),
+        ),
+        (
+            "atelier-serena",
+            AtelierSerenaMatrixRunner(repo_root, workspace_root, cache_root=cache_root, cache_key=cache_key),
+        ),
+        (
             "serena",
             SerenaMatrixRunner(repo_root, workspace_root, cache_root=cache_root, cache_key=cache_key),
+        ),
+        (
+            "atelier-codegraph",
+            AtelierCodeGraphRunner(repo_root, workspace_root, cache_root=cache_root, cache_key=cache_key),
         ),
         (
             "codegraph",
@@ -963,6 +1177,7 @@ def run_case_matrix(
     cases: list[ExternalBenchCase],
     iterations: int,
     selected_tools: set[str],
+    progress: ProgressReporter | None = None,
 ) -> list[CaseBenchResult]:
     results: list[CaseBenchResult] = []
     cache_key = repo_cache_key(repo_root)
@@ -972,11 +1187,11 @@ def run_case_matrix(
         if tool_name in selected_tools
     ]
     units_per_case = max(iterations, 1)
-    progress = ProgressReporter("providers", total=len(runner_specs) * len(cases) * units_per_case)
-    progress.start("starting provider benchmark", current=f"{len(runner_specs)} tools")
+    reporter = progress or ProgressReporter("providers", total=len(runner_specs) * len(cases) * units_per_case)
+    reporter.start("starting provider benchmark", current=f"{len(runner_specs)} tools")
     for tool_name, runner in runner_specs:
         try:
-            progress.phase("starting provider", current=tool_name)
+            reporter.phase("starting provider", current=tool_name)
             runner.start()
         except Exception as exc:
             for case in cases:
@@ -995,7 +1210,7 @@ def run_case_matrix(
                         error=str(exc),
                     )
                 )
-                progress.step(
+                reporter.step(
                     "provider startup failed",
                     current=f"{tool_name} {case.case_id}",
                     advance=units_per_case,
@@ -1018,7 +1233,7 @@ def run_case_matrix(
                             query=case.query,
                         )
                     )
-                    progress.step(
+                    reporter.step(
                         "skipping unsupported case",
                         current=f"{tool_name} {case.case_id}",
                         advance=units_per_case,
@@ -1031,7 +1246,7 @@ def run_case_matrix(
                     last_output = ""
                     scores: list[float] = []
                     for iteration in range(iterations):
-                        progress.phase(
+                        reporter.phase(
                             "running provider case",
                             current=(f"{tool_name} {case.family}/{case.case_id} " f"iter {iteration + 1}/{iterations}"),
                         )
@@ -1040,7 +1255,7 @@ def run_case_matrix(
                         times.append((time.perf_counter() - t0) * 1000)
                         tokens.append(token_count(last_output))
                         scores.append(score_case(case, last_output))
-                        progress.step(
+                        reporter.step(
                             "running provider case",
                             current=(f"{tool_name} {case.family}/{case.case_id} " f"iter {iteration + 1}/{iterations}"),
                         )
@@ -1078,15 +1293,15 @@ def run_case_matrix(
                         )
                     )
                     if remaining_units > 0:
-                        progress.step(
+                        reporter.step(
                             "provider case failed",
                             current=f"{tool_name} {case.family}/{case.case_id}",
                             advance=remaining_units,
                         )
         finally:
-            progress.phase("stopping provider", current=tool_name)
+            reporter.phase("stopping provider", current=tool_name)
             runner.stop()
-    progress.finish("provider benchmark complete")
+    reporter.finish("provider benchmark complete")
     return results
 
 
@@ -1261,6 +1476,50 @@ def write_summary_csv(summary: list[dict[str, object]], path: Path) -> None:
             writer.writerow(row)
 
 
+def _to_int(value: object) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+
+
+def _read_provider_status_file(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        return dict(json.loads(path.read_text(encoding="utf-8")))
+    except json.JSONDecodeError:
+        return None
+
+
+def _render_provider_progress(
+    status_files: dict[str, Path],
+    *,
+    completed_shards: int,
+    total_shards: int,
+    total_cases: int,
+) -> str:
+    statuses: list[dict[str, Any]] = []
+    for tool_name, status_file in sorted(status_files.items()):
+        status = _read_provider_status_file(status_file)
+        if status is None:
+            continue
+        status["tool"] = tool_name
+        statuses.append(status)
+    if not statuses:
+        return ""
+    completed_cases = sum(_to_int(status.get("done")) for status in statuses)
+    parts = [f"shards {completed_shards}/{total_shards} | " f"cases {completed_cases}/{total_cases}"]
+    for status in statuses:
+        current = str(status.get("current") or "").strip()
+        parts.append(
+            f"{status['tool']} {_to_int(status.get('done'))}/"
+            f"{_to_int(status.get('total'))} {status.get('status', 'running')}"
+            + (f" current {current}" if current else "")
+        )
+    return " ; ".join(parts)
+
+
 def _run_parallel_tool_matrix(
     *,
     repo_root: Path,
@@ -1274,15 +1533,22 @@ def _run_parallel_tool_matrix(
     selected_tools: set[str],
     selected_families: set[str],
     jobs: int,
+    total_units: int,
 ) -> list[CaseBenchResult]:
     shard_root = workspace_root / "provider-shards"
     shard_root.mkdir(parents=True, exist_ok=True)
+    log_root = shard_root / "logs"
+    log_root.mkdir(parents=True, exist_ok=True)
     tool_names = sorted(selected_tools)
-    commands: list[tuple[str, list[str], Path]] = []
+    commands: list[tuple[str, list[str], Path, Path, Path]] = []
+    status_files: dict[str, Path] = {}
     for tool_name in tool_names:
         tool_workspace_root = shard_root / tool_name
         tool_workspace_root.mkdir(parents=True, exist_ok=True)
         tool_json_out = tool_workspace_root / "results.json"
+        tool_log = log_root / f"{tool_name}.log"
+        status_file = shard_root / f"{tool_name}.status.json"
+        status_files[tool_name] = status_file
         tool_cmd = [
             sys.executable,
             "-m",
@@ -1311,15 +1577,19 @@ def _run_parallel_tool_matrix(
             "1",
             "--code-index-repo",
             str(code_index_repo),
+            "--progress-file",
+            str(status_file),
+            "--shard-name",
+            tool_name,
         ]
         if max_cases is not None:
             tool_cmd.extend(["--max-cases", str(max_cases)])
-        commands.append((tool_name, tool_cmd, tool_json_out))
+        commands.append((tool_name, tool_cmd, tool_json_out, tool_log, status_file))
 
     progress = ProgressReporter("providers", total=len(commands))
     progress.start("starting parallel provider benchmark", current=f"{len(commands)} tools x {jobs} jobs")
 
-    def _run_child(tool_name: str, command: list[str], json_path: Path) -> tuple[str, Path]:
+    def _run_child(tool_name: str, command: list[str], json_path: Path, log_path: Path) -> tuple[str, Path]:
         completed = subprocess.run(
             command,
             cwd=repo_root,
@@ -1327,9 +1597,24 @@ def _run_parallel_tool_matrix(
             text=True,
             check=False,
         )
+        log_path.write_text(
+            "\n".join(
+                [
+                    "$ " + " ".join(command),
+                    "",
+                    "[stdout]",
+                    completed.stdout,
+                    "",
+                    "[stderr]",
+                    completed.stderr,
+                ]
+            ),
+            encoding="utf-8",
+        )
         if completed.returncode != 0:
             raise RuntimeError(
                 f"Provider shard {tool_name} failed with exit code {completed.returncode}\n"
+                f"Log: {log_path}\n"
                 f"STDOUT:\n{completed.stdout[-4000:]}\nSTDERR:\n{completed.stderr[-4000:]}"
             )
         if not json_path.is_file():
@@ -1339,15 +1624,35 @@ def _run_parallel_tool_matrix(
     results: list[CaseBenchResult] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(jobs, len(commands))) as executor:
         futures = {
-            executor.submit(_run_child, tool_name, command, json_path): tool_name
-            for tool_name, command, json_path in commands
+            executor.submit(_run_child, tool_name, command, json_path, log_path): tool_name
+            for tool_name, command, json_path, log_path, _status_file in commands
         }
-        for future in concurrent.futures.as_completed(futures):
-            tool_name, json_path = future.result()
+        completed_jsons: list[Path] = []
+        last_snapshot = ""
+        pending = set(futures)
+        while pending:
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=1.0,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            snapshot = _render_provider_progress(
+                status_files,
+                completed_shards=len(completed_jsons),
+                total_shards=len(commands),
+                total_cases=total_units,
+            )
+            if snapshot and snapshot != last_snapshot:
+                progress.phase("running provider shards", current=snapshot)
+                last_snapshot = snapshot
+            for future in done:
+                tool_name, json_path = future.result()
+                completed_jsons.append(json_path)
+                progress.step("provider shard complete", current=tool_name)
+        for json_path in completed_jsons:
             payload = json.loads(json_path.read_text(encoding="utf-8"))
             for item in payload.get("results", []):
                 results.append(CaseBenchResult(**item))
-            progress.step("provider shard complete", current=tool_name)
     progress.finish("parallel provider benchmark complete")
     results.sort(key=lambda item: (item.tool, item.family, item.case_id))
     return results
@@ -1393,6 +1698,8 @@ def main() -> None:
         "--families",
         default=",".join(DEFAULT_CASE_QUOTAS),
     )
+    parser.add_argument("--progress-file", default="")
+    parser.add_argument("--shard-name", default="")
     parser.add_argument("--install", action="store_true")
     parser.add_argument("--write-manifest-only", action="store_true")
     args = parser.parse_args()
@@ -1430,7 +1737,7 @@ def main() -> None:
     resolved_jobs = args.jobs
     if resolved_jobs <= 0:
         detected = max(os.cpu_count() or 1, 1)
-        resolved_jobs = max(1, min(len(selected_tools), 4, max(1, detected // 2)))
+        resolved_jobs = max(1, min(len(selected_tools), 32, detected))
     if resolved_jobs > 1 and len(selected_tools) > 1:
         results = _run_parallel_tool_matrix(
             repo_root=repo_root,
@@ -1444,8 +1751,16 @@ def main() -> None:
             selected_tools=selected_tools,
             selected_families=selected_families,
             jobs=resolved_jobs,
+            total_units=len(selected_tools) * len(selected_cases) * max(args.iterations, 1),
         )
     else:
+        progress: ProgressReporter | None = None
+        if args.progress_file:
+            progress = ProviderShardStatusReporter(
+                str(args.shard_name or ",".join(sorted(selected_tools))),
+                total=len(selected_tools) * len(selected_cases) * max(args.iterations, 1),
+                status_file=Path(str(args.progress_file)).expanduser().resolve(),
+            )
         results = run_case_matrix(
             repo_root=repo_root,
             workspace_root=workspace_root,
@@ -1454,6 +1769,7 @@ def main() -> None:
             cases=selected_cases,
             iterations=args.iterations,
             selected_tools=selected_tools,
+            progress=progress,
         )
     summary = summarize_results(results)
     payload = {

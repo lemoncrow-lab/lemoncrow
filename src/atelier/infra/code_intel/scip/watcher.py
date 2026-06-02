@@ -145,9 +145,7 @@ def resolve_git_repo_state(repo_root: Path) -> GitRepoState:
             head_ref = head_raw[len(_HEAD_REF_PREFIX) :].strip()
             if head_ref:
                 ref_path = _resolve_head_ref_path(git_dir, common_dir, head_ref)
-                head_sha = _read_ref_sha(ref_path) or _lookup_packed_ref(
-                    common_dir / "packed-refs", head_ref
-                )
+                head_sha = _read_ref_sha(ref_path) or _lookup_packed_ref(common_dir / "packed-refs", head_ref)
         elif _GIT_SHA_RE.fullmatch(head_raw):
             head_sha = head_raw
     identity = head_ref or (f"detached-{head_sha[:12]}" if head_sha else "unknown")
@@ -300,9 +298,7 @@ class ScipArtifactWatcher:
         active_cache_root = self._cache_root().resolve()
         self._events.drain()
         self._events.sync_paths(_watch_paths(repo_state, active_cache_root))
-        return self._state_sync(
-            self._state_key, _watch_signature(repo_state, active_cache_root, artifact_paths)
-        )
+        return self._state_sync(self._state_key, _watch_signature(repo_state, active_cache_root, artifact_paths))
 
 
 __all__ = ["GitRepoState", "ScipArtifactWatcher", "resolve_git_repo_state"]

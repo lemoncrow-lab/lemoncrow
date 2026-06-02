@@ -11,9 +11,7 @@ from subprocess import CompletedProcess
 from ..counterexample import Counterexample
 
 _Runner = Callable[[Sequence[str], Path], CompletedProcess[str]]
-_LINE = re.compile(
-    r"^(?P<file>[^:]+):(?P<line>\d+):(?:\d+:)?\s*(?P<sev>error|warning|note):\s*(?P<msg>.*)$"
-)
+_LINE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):(?:\d+:)?\s*(?P<sev>error|warning|note):\s*(?P<msg>.*)$")
 
 
 def _repro_command(targets: Sequence[str]) -> str:

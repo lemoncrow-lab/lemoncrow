@@ -213,9 +213,7 @@ def _servicectl_import_sessions(store: ContextStore) -> dict[str, int]:
     from atelier.gateway.hosts.session_parsers.registry import iter_importer_classes
 
     counts: dict[str, int] = {}
-    importers: list[tuple[str, Any]] = [
-        (host, importer_cls(store)) for host, importer_cls in iter_importer_classes()
-    ]
+    importers: list[tuple[str, Any]] = [(host, importer_cls(store)) for host, importer_cls in iter_importer_classes()]
     all_imported_ids = []
     for host, importer in importers:
         try:
@@ -272,9 +270,7 @@ def _servicectl_collect_external_analytics(
 
     persisted: list[dict[str, Any]] = []
     for period in _normalize_external_analytics_periods(periods):
-        batch = run_external_reports(
-            tool="all", period=period, cwd=Path.cwd(), include_optimize=True
-        )
+        batch = run_external_reports(tool="all", period=period, cwd=Path.cwd(), include_optimize=True)
         persisted.extend(persist_external_reports(store, batch, source="servicectl"))
     return persisted
 
@@ -333,9 +329,7 @@ def _servicectl_check_and_apply_updates(root: Path) -> bool:
             subprocess.run(["systemctl", "--user", "restart", STACK_UNIT], check=False)
         elif _is_macos() and (LAUNCHD_USER_DIR / f"{STACK_LABEL}.plist").exists():
             logger.info("Auto-update: update applied (launchd). Triggering stack restart...")
-            subprocess.run(
-                ["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/{STACK_LABEL}"], check=False
-            )
+            subprocess.run(["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/{STACK_LABEL}"], check=False)
 
         logger.info("Auto-update: update applied successfully. Exiting for restart.")
         return True
@@ -367,9 +361,7 @@ def _servicectl_tick(
     store = create_store(root)
     store.init()
     worker = Worker(store=store)
-    normalized_external_analytics_periods = _normalize_external_analytics_periods(
-        external_analytics_periods
-    )
+    normalized_external_analytics_periods = _normalize_external_analytics_periods(external_analytics_periods)
 
     # Refresh host agent detection status for the Docker service
     with suppress(Exception):
@@ -390,10 +382,7 @@ def _servicectl_tick(
             except ValueError:
                 last_update_at = None
 
-        if (
-            last_update_at is None
-            or (now - last_update_at).total_seconds() >= auto_update_interval_seconds
-        ):
+        if last_update_at is None or (now - last_update_at).total_seconds() >= auto_update_interval_seconds:
             if _servicectl_check_and_apply_updates(root):
                 # Process will exit if update was applied (Restart=always will pick it up)
                 sys.exit(0)
@@ -432,9 +421,7 @@ def _servicectl_tick(
     elif session_import_interval_seconds == 0 or last_session_import_at is None:
         import_due = True
     else:
-        import_due = (
-            now - last_session_import_at
-        ).total_seconds() >= session_import_interval_seconds
+        import_due = (now - last_session_import_at).total_seconds() >= session_import_interval_seconds
     imported_sessions: dict[str, int] = {}
     if import_due:
         imported_sessions = _servicectl_import_sessions(store)
@@ -509,14 +496,10 @@ def _servicectl_tick(
         "last_tick_at": now.isoformat(),
         "last_processed_jobs": processed,
         "last_enqueued_jobs": enqueued,
-        "last_imported_sessions": imported_sessions
-        if import_due
-        else state.get("last_imported_sessions", {}),
+        "last_imported_sessions": imported_sessions if import_due else state.get("last_imported_sessions", {}),
         "last_session_import_at": periodic.get(SESSION_IMPORT_KEY),
         "last_external_analytics_runs": (
-            external_analytics_runs
-            if external_analytics_due
-            else state.get("last_external_analytics_runs", [])
+            external_analytics_runs if external_analytics_due else state.get("last_external_analytics_runs", [])
         ),
         "last_external_analytics_periods": list(normalized_external_analytics_periods),
         "last_external_analytics_at": periodic.get(EXTERNAL_ANALYTICS_KEY),

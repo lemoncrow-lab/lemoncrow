@@ -172,8 +172,7 @@ def _attempt_self_correction(case_root: Path, case: SeededTypeErrorCase) -> tupl
 
     initial_counterexamples = _typecheck_counterexamples(case_root, case.name)
     detected = any(
-        ce.check == "typecheck" and Path(str(ce.file_path)).name == case.name
-        for ce in initial_counterexamples
+        ce.check == "typecheck" and Path(str(ce.file_path)).name == case.name for ce in initial_counterexamples
     )
 
     current = case.source

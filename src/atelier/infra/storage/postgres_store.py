@@ -359,8 +359,7 @@ class PostgresStore:
     ) -> None:
         if _psycopg is None:
             raise RuntimeError(
-                "psycopg (v3) is required for Postgres storage. "
-                "Install it with: uv add 'psycopg[binary]'"
+                "psycopg (v3) is required for Postgres storage. " "Install it with: uv add 'psycopg[binary]'"
             )
 
         self._url = database_url or os.environ.get("ATELIER_DATABASE_URL", "")
@@ -369,9 +368,7 @@ class PostgresStore:
 
         _vs_env = os.environ.get("ATELIER_VECTOR_SEARCH_ENABLED", "false").lower()
         self._vector_search = (
-            vector_search_enabled
-            if vector_search_enabled is not None
-            else _vs_env in ("1", "true", "yes")
+            vector_search_enabled if vector_search_enabled is not None else _vs_env in ("1", "true", "yes")
         )
         self._embedding_dim = embedding_dim or int(os.environ.get("ATELIER_EMBEDDING_DIM", "1536"))
 
@@ -1062,35 +1059,19 @@ class PostgresStore:
             domain=d["domain"],
             situation=d["situation"],
             status=d["status"],
-            task_types=(
-                json.loads(d["task_types"]) if isinstance(d["task_types"], str) else d["task_types"]
-            ),
+            task_types=(json.loads(d["task_types"]) if isinstance(d["task_types"], str) else d["task_types"]),
             triggers=json.loads(d["triggers"]) if isinstance(d["triggers"], str) else d["triggers"],
             file_patterns=(
-                json.loads(d["file_patterns"])
-                if isinstance(d["file_patterns"], str)
-                else d["file_patterns"]
+                json.loads(d["file_patterns"]) if isinstance(d["file_patterns"], str) else d["file_patterns"]
             ),
             tool_patterns=(
-                json.loads(d["tool_patterns"])
-                if isinstance(d["tool_patterns"], str)
-                else d["tool_patterns"]
+                json.loads(d["tool_patterns"]) if isinstance(d["tool_patterns"], str) else d["tool_patterns"]
             ),
-            dead_ends=(
-                json.loads(d["dead_ends"]) if isinstance(d["dead_ends"], str) else d["dead_ends"]
-            ),
-            procedure=(
-                json.loads(d["procedure"]) if isinstance(d["procedure"], str) else d["procedure"]
-            ),
-            verification=(
-                json.loads(d["verification"])
-                if isinstance(d["verification"], str)
-                else d["verification"]
-            ),
+            dead_ends=(json.loads(d["dead_ends"]) if isinstance(d["dead_ends"], str) else d["dead_ends"]),
+            procedure=(json.loads(d["procedure"]) if isinstance(d["procedure"], str) else d["procedure"]),
+            verification=(json.loads(d["verification"]) if isinstance(d["verification"], str) else d["verification"]),
             failure_signals=(
-                json.loads(d["failure_signals"])
-                if isinstance(d["failure_signals"], str)
-                else d["failure_signals"]
+                json.loads(d["failure_signals"]) if isinstance(d["failure_signals"], str) else d["failure_signals"]
             ),
             when_not_to_apply=d.get("when_not_to_apply") or "",
             usage_count=d.get("usage_count", 0),
@@ -1217,9 +1198,7 @@ class PostgresStore:
                 else d.get("block_if_missing", [])
             ),
             warning_checks=(
-                json.loads(d["warning_checks"])
-                if isinstance(d["warning_checks"], str)
-                else d.get("warning_checks", [])
+                json.loads(d["warning_checks"]) if isinstance(d["warning_checks"], str) else d.get("warning_checks", [])
             ),
             escalation_conditions=(
                 json.loads(d["escalation_conditions"])
@@ -1276,9 +1255,7 @@ class PostgresStore:
 
     # ----- run_ledger convenience ------------------------------------------ #
 
-    def upsert_run_ledger(
-        self, session_id: str, task: str, state: dict[str, Any], domain: str | None = None
-    ) -> None:
+    def upsert_run_ledger(self, session_id: str, task: str, state: dict[str, Any], domain: str | None = None) -> None:
         """Upsert a run_ledger row."""
         now = datetime.now(UTC).isoformat()
         with self._connect() as conn:
@@ -1303,9 +1280,7 @@ class PostgresStore:
     def get_run_ledger(self, session_id: str) -> dict[str, Any] | None:
         """Return a run_ledger row as a dict, or None."""
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM run_ledgers WHERE session_id = %s", (session_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM run_ledgers WHERE session_id = %s", (session_id,)).fetchone()
         if row is None:
             return None
         d = dict(row)

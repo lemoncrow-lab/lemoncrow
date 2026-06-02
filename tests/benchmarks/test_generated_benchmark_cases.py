@@ -34,6 +34,10 @@ def test_generated_repo_backed_case_counts() -> None:
     route_module = _load("benchmarks.mcp_tools.cases.route")
     compact_module = _load("benchmarks.mcp_tools.cases.compact")
     rescue_module = _load("benchmarks.mcp_tools.cases.rescue")
+    edit_module = _load("benchmarks.mcp_tools.cases.edit")
+    shell_module = _load("benchmarks.mcp_tools.cases.shell")
+    sql_module = _load("benchmarks.mcp_tools.cases.sql")
+    trace_module = _load("benchmarks.mcp_tools.cases.trace")
     verify_module = _load("benchmarks.mcp_tools.cases.verify")
 
     assert len(read_module.READ_CASES) == 300
@@ -45,6 +49,10 @@ def test_generated_repo_backed_case_counts() -> None:
     assert len(route_module.ROUTE_CASES) == 300
     assert len(compact_module.COMPACT_CASES) == 300
     assert len(rescue_module.RESCUE_CASES) == 300
+    assert len(edit_module.EDIT_CASES) >= 20
+    assert len(shell_module.SHELL_CASES) >= 15
+    assert len(sql_module.SQL_CASES) >= 10
+    assert len(trace_module.TRACE_CASES) >= 8
     assert len(verify_module.VERIFY_CASES) == 300
 
 
@@ -52,7 +60,14 @@ def test_generated_public_code_tool_counts() -> None:
     code_module = _load("benchmarks.mcp_tools.cases.code")
     counts: dict[str, int] = {}
     for case in code_module.CODE_CASES:
-        tool_name = str(case.args.get("_tool") or ("symbols" if case.op not in {"node", "callers", "callees", "usages", "impact", "explore", "pattern"} else case.op))
+        tool_name = str(
+            case.args.get("_tool")
+            or (
+                "symbols"
+                if case.op not in {"node", "callers", "callees", "usages", "impact", "explore", "pattern"}
+                else case.op
+            )
+        )
         counts[tool_name] = counts.get(tool_name, 0) + 1
 
     assert counts["symbols"] >= 300
@@ -75,6 +90,10 @@ def test_generated_case_labels_are_unique() -> None:
         _load("benchmarks.mcp_tools.cases.route"),
         _load("benchmarks.mcp_tools.cases.compact"),
         _load("benchmarks.mcp_tools.cases.rescue"),
+        _load("benchmarks.mcp_tools.cases.edit"),
+        _load("benchmarks.mcp_tools.cases.shell"),
+        _load("benchmarks.mcp_tools.cases.sql"),
+        _load("benchmarks.mcp_tools.cases.trace"),
         _load("benchmarks.mcp_tools.cases.verify"),
     ]
     for module, attr in [
@@ -87,7 +106,11 @@ def test_generated_case_labels_are_unique() -> None:
         (modules[6], "ROUTE_CASES"),
         (modules[7], "COMPACT_CASES"),
         (modules[8], "RESCUE_CASES"),
-        (modules[9], "VERIFY_CASES"),
+        (modules[9], "EDIT_CASES"),
+        (modules[10], "SHELL_CASES"),
+        (modules[11], "SQL_CASES"),
+        (modules[12], "TRACE_CASES"),
+        (modules[13], "VERIFY_CASES"),
     ]:
         labels = [case.label for case in getattr(module, attr)]
         assert len(labels) == len(set(labels)), f"{attr} labels must be unique"

@@ -314,12 +314,12 @@ def test_swarm_start_forwards_evaluator_controls(monkeypatch: object, tmp_path: 
             "--runner-model",
             "gpt-5.4",
             "--continuous",
+            "--max-waves",
+            "6",
             "--evaluator-backend",
             "ollama",
             "--evaluator-model",
             "claude-opus-4.8",
-            "--max-idle-waves",
-            "5",
             "--max-evaluator-failures",
             "4",
         ],
@@ -329,7 +329,7 @@ def test_swarm_start_forwards_evaluator_controls(monkeypatch: object, tmp_path: 
     assert result.exit_code == 0
     assert captured["evaluator_backend"] == "ollama"
     assert captured["evaluator_model"] == "claude-opus-4.8"
-    assert captured["max_no_progress_waves"] == 5
+    assert captured["max_waves"] == 6
     assert captured["max_evaluator_failures"] == 4
 
 
@@ -520,7 +520,7 @@ def test_swarm_status_reads_state(monkeypatch: object, tmp_path: Path) -> None:
     assert "selected model is invalid" in result.output
 
 
-def test_launch_swarm_children_continues_until_idle_budget(monkeypatch: object, tmp_path: Path) -> None:
+def test_launch_swarm_children_stops_on_first_no_improvement_wave(monkeypatch: object, tmp_path: Path) -> None:
     root = tmp_path / "atelier-root"
     state_path = tmp_path / "state.json"
     state = SwarmRunState(
@@ -541,7 +541,6 @@ def test_launch_swarm_children_continues_until_idle_budget(monkeypatch: object, 
         runs=2,
         max_runs=2,
         keep_worktrees=True,
-        max_no_progress_waves=2,
     )
     save_swarm_state(state_path, state)
 
@@ -560,7 +559,6 @@ def test_launch_swarm_children_continues_until_idle_budget(monkeypatch: object, 
         call_count["count"] += 1
         state.convergence_status = "stagnating"
         state.convergence_summary = "No materially new ideas this wave."
-        state.consecutive_no_progress_waves = call_count["count"]
         wave.status = "no-improvement"
         wave.summary = state.convergence_summary
         return False
@@ -580,10 +578,67 @@ def test_launch_swarm_children_continues_until_idle_budget(monkeypatch: object, 
 
     completed = launch_swarm_children(root, state_path)
 
+    assert call_count["count"] == 1
+    assert completed.status == "success"
+    assert "No materially new ideas this wave." in completed.stop_reason
+    assert completed.current_wave == 1
+
+
+def test_launch_swarm_children_stops_at_max_waves(monkeypatch: object, tmp_path: Path) -> None:
+    root = tmp_path / "atelier-root"
+    state_path = tmp_path / "state.json"
+    state = SwarmRunState(
+        run_id="swarm-123",
+        status="pending",
+        mode="continuous",
+        repo_root=str(tmp_path),
+        base_worktree=str(tmp_path),
+        base_ref="HEAD",
+        worktree_pool=str(tmp_path / "pool"),
+        integration_worktree=str(tmp_path / "pool" / "integration"),
+        integration_base_ref="HEAD",
+        spec_source_path=str(tmp_path / "program.md"),
+        copied_spec_path=str(tmp_path / "program.md"),
+        runner_name="copilot",
+        child_command=["copilot"],
+        runs=3,
+        max_runs=3,
+        max_waves=2,
+        keep_worktrees=True,
+        max_evaluator_failures=99,
+    )
+    save_swarm_state(state_path, state)
+
+    def _prepare(state: SwarmRunState, _root: Path, wave_index: int) -> SwarmWaveState:
+        wave = SwarmWaveState(wave_index=wave_index, max_runs=3, planned_runs=3)
+        state.current_wave = wave_index
+        state.waves.append(wave)
+        return wave
+
+    def _run_wave(_root: Path, run_state_path: Path, _wave_index: int) -> SwarmRunState:
+        return SwarmRunState.model_validate_json(run_state_path.read_text(encoding="utf-8"))
+
+    call_count = {"count": 0}
+
+    def _apply(state: SwarmRunState, _children: list[SwarmChildState], wave: SwarmWaveState) -> bool:
+        call_count["count"] += 1
+        child_id = f"wave-{wave.wave_index:02d}-run-01"
+        state.accepted_child_ids.append(child_id)
+        wave.accepted_child_ids = [child_id]
+        wave.status = "applied"
+        state.convergence_status = "continue"
+        return True
+
+    monkeypatch.setattr("atelier.core.capabilities.swarm.capability._prepare_wave", _prepare)
+    monkeypatch.setattr("atelier.core.capabilities.swarm.capability._run_wave_children", _run_wave)
+    monkeypatch.setattr("atelier.core.capabilities.swarm.capability.apply_wave_candidates", _apply)
+
+    completed = launch_swarm_children(root, state_path)
+
     assert call_count["count"] == 2
     assert completed.status == "success"
-    assert "stagnating" in completed.stop_reason.lower()
     assert completed.current_wave == 2
+    assert "max_waves=2" in completed.stop_reason
 
 
 def test_swarm_list_prints_known_runs(monkeypatch: object, tmp_path: Path) -> None:

@@ -15,9 +15,7 @@ from atelier.core.foundation.store import ContextStore
 from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
 
 
-def _block(
-    bid: str = "b1", domain: str = "coding", title: str = "Title", **kw: object
-) -> ReasonBlock:
+def _block(bid: str = "b1", domain: str = "coding", title: str = "Title", **kw: object) -> ReasonBlock:
     base: dict[str, Any] = dict(
         id=bid,
         title=title,

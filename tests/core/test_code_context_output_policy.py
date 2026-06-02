@@ -33,11 +33,11 @@ def test_hard_cap_chars_truncates_and_marks_suffix() -> None:
 
 
 def test_resolve_output_policy_has_locked_phase1_caps() -> None:
-    assert resolve_output_policy("search").max_total_tokens == 1800
-    assert resolve_output_policy("relation").max_total_tokens == 2200
-    assert resolve_output_policy("context").max_total_tokens == 6500
-    assert resolve_output_policy("outline").max_total_tokens == 3000
-    assert resolve_output_policy("node").max_total_tokens == 2500
+    assert resolve_output_policy("search").max_total_tokens == 1400
+    assert resolve_output_policy("relation").max_total_tokens == 1700
+    assert resolve_output_policy("context").max_total_tokens == 5000
+    assert resolve_output_policy("outline").max_total_tokens == 2400
+    assert resolve_output_policy("node").max_total_tokens == 1800
 
 
 def test_tool_specific_hard_caps_are_enforced(tmp_path: Path) -> None:

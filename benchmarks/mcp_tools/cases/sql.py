@@ -1,26 +1,11 @@
-"""Benchmark cases for the `sql` MCP tool.
-
-Savings come from structured dispatch: one call handles connect+overview,
-schema inspection, batched queries, and linting vs N separate raw queries
-or repeated schema reads.
-
-Baseline estimates:
-  - connect:     manual DB path discovery + sqlite3 call (~300 tokens overhead)
-  - query-batch: N separate query calls, each with framing (~150 * N tokens)
-  - lint:        agent reads file, strips comments, runs regex check (~200 tokens)
-
-SQL_TEST_DB env var must point to a SQLite DB created by the bench fixture.
-"""
+"""Benchmark cases for the `sql` MCP tool."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from benchmarks.mcp_tools.harness import BenchCase
-
-# ---------------------------------------------------------------------------
-# Assertions
-# ---------------------------------------------------------------------------
 
 
 def _assert_connect(result: dict[str, Any]) -> None:
@@ -31,20 +16,29 @@ def _assert_connect(result: dict[str, Any]) -> None:
     assert len(overview["tables"]) >= 1, "DB must have at least one table"
 
 
-def _assert_query_result(result: dict[str, Any]) -> None:
-    assert not result.get("isError"), f"query must not error, got: {result}"
-    assert "results" in result, f"query must return results, got: {list(result)}"
-    assert len(result["results"]) >= 1, "results must have at least one output"
-    r0 = result["results"][0]
-    assert "rows" in r0, f"result must have rows, got: {list(r0)}"
+def _assert_query_rows(min_rows: int = 1, max_rows: int | None = None) -> Callable[[dict[str, Any]], None]:
+    def _assert(result: dict[str, Any]) -> None:
+        assert not result.get("isError"), f"query must not error, got: {result}"
+        assert "results" in result, f"query must return results, got: {list(result)}"
+        rows = result["results"][0]["rows"]
+        assert len(rows) >= min_rows, f"expected at least {min_rows} rows, got {len(rows)}"
+        if max_rows is not None:
+            assert len(rows) <= max_rows, f"expected at most {max_rows} rows, got {len(rows)}"
+
+    return _assert
 
 
-def _assert_batch_query(result: dict[str, Any]) -> None:
-    assert not result.get("isError"), f"batch query must not error, got: {result}"
-    assert "results" in result, f"batch must return results, got: {list(result)}"
-    assert len(result["results"]) == 2, f"batch of 2 queries must return 2 results, got {len(result['results'])}"
-    for r in result["results"]:
-        assert not r.get("isError"), f"each batch result must not error, got: {r}"
+def _assert_batch_query(expected_results: int) -> Callable[[dict[str, Any]], None]:
+    def _assert(result: dict[str, Any]) -> None:
+        assert not result.get("isError"), f"batch query must not error, got: {result}"
+        assert "results" in result, f"batch must return results, got: {list(result)}"
+        assert (
+            len(result["results"]) == expected_results
+        ), f"batch of {expected_results} queries must return {expected_results} results, got {len(result['results'])}"
+        for item in result["results"]:
+            assert not item.get("isError"), f"each batch result must not error, got: {item}"
+
+    return _assert
 
 
 def _assert_lint_ok(result: dict[str, Any]) -> None:
@@ -56,21 +50,17 @@ def _assert_lint_fail(result: dict[str, Any]) -> None:
     assert result.get("isError") or result.get("ok") is False, f"lint of invalid SQL must flag error, got: {result}"
 
 
-# ---------------------------------------------------------------------------
-# Cases  (SQL_TEST_DB is injected by bench_sql.py via args substitution)
-# ---------------------------------------------------------------------------
+def _assert_query_error(result: dict[str, Any]) -> None:
+    assert result.get("isError"), f"query should error, got: {result}"
+
 
 SQL_CASES: list[BenchCase] = [
     BenchCase(
         op="sql",
         label="sql/connect",
-        args={
-            "action": "connect",
-            "connection_string": "__SQL_TEST_DB__",
-        },
+        args={"action": "connect", "connection_string": "__SQL_TEST_DB__"},
         assert_keys=["overview"],
         custom_assert=_assert_connect,
-        # baseline: manual sqlite3.connect + cursor + fetchall to get tables (~300 tokens)
         baseline_tokens=300,
     ),
     BenchCase(
@@ -82,13 +72,50 @@ SQL_CASES: list[BenchCase] = [
             "connection_string": "__SQL_TEST_DB__",
         },
         assert_keys=["results"],
-        custom_assert=_assert_query_result,
-        # baseline: raw sqlite3 execute + fetchall + manual dict build (~150 tokens)
+        custom_assert=_assert_query_rows(),
         baseline_tokens=150,
     ),
     BenchCase(
         op="sql",
-        label="sql/query-batch",
+        label="sql/query-filtered",
+        args={
+            "action": "query",
+            "sql": "SELECT id, email FROM users WHERE name = 'Alice'",
+            "connection_string": "__SQL_TEST_DB__",
+        },
+        assert_keys=["results"],
+        custom_assert=_assert_query_rows(1, 1),
+        baseline_tokens=170,
+    ),
+    BenchCase(
+        op="sql",
+        label="sql/query-count",
+        args={
+            "action": "query",
+            "sql": "SELECT COUNT(*) AS total FROM users",
+            "connection_string": "__SQL_TEST_DB__",
+        },
+        assert_keys=["results"],
+        custom_assert=_assert_query_rows(1, 1),
+        baseline_tokens=150,
+    ),
+    BenchCase(
+        op="sql",
+        label="sql/query-max-rows",
+        args={
+            "action": "query",
+            "sql": "SELECT id, name FROM users ORDER BY id",
+            "connection_string": "__SQL_TEST_DB__",
+            "max_rows": 2,
+            "auto_limit": True,
+        },
+        assert_keys=["results"],
+        custom_assert=_assert_query_rows(1, 2),
+        baseline_tokens=160,
+    ),
+    BenchCase(
+        op="sql",
+        label="sql/query-batch/02",
         args={
             "action": "query",
             "queries": [
@@ -98,13 +125,28 @@ SQL_CASES: list[BenchCase] = [
             "connection_string": "__SQL_TEST_DB__",
         },
         assert_keys=["results"],
-        custom_assert=_assert_batch_query,
-        # baseline: 2 separate query calls, each ~150 tokens
+        custom_assert=_assert_batch_query(2),
         baseline_tokens=300,
     ),
     BenchCase(
         op="sql",
-        label="sql/lint-valid",
+        label="sql/query-batch/03",
+        args={
+            "action": "query",
+            "queries": [
+                {"name": "ids", "sql": "SELECT id FROM users ORDER BY id"},
+                {"name": "emails", "sql": "SELECT email FROM users ORDER BY id"},
+                {"name": "count", "sql": "SELECT COUNT(*) AS total FROM users"},
+            ],
+            "connection_string": "__SQL_TEST_DB__",
+        },
+        assert_keys=["results"],
+        custom_assert=_assert_batch_query(3),
+        baseline_tokens=450,
+    ),
+    BenchCase(
+        op="sql",
+        label="sql/lint-valid/basic",
         args={
             "action": "lint",
             "sql": "SELECT id, name FROM users WHERE id = 1",
@@ -112,12 +154,23 @@ SQL_CASES: list[BenchCase] = [
         },
         assert_keys=["ok"],
         custom_assert=_assert_lint_ok,
-        # baseline: agent manually strips comments + checks statement count (~200 tokens)
         baseline_tokens=200,
     ),
     BenchCase(
         op="sql",
-        label="sql/lint-multi-statement-fail",
+        label="sql/lint-valid/order",
+        args={
+            "action": "lint",
+            "sql": "SELECT id, email FROM users ORDER BY email DESC",
+            "connection_string": "__SQL_TEST_DB__",
+        },
+        assert_keys=["ok"],
+        custom_assert=_assert_lint_ok,
+        baseline_tokens=200,
+    ),
+    BenchCase(
+        op="sql",
+        label="sql/lint-invalid/multi-statement",
         args={
             "action": "lint",
             "sql": "SELECT 1; SELECT 2",
@@ -125,7 +178,27 @@ SQL_CASES: list[BenchCase] = [
         },
         assert_keys=[],
         custom_assert=_assert_lint_fail,
-        # correctness only
+        baseline_tokens=0,
+    ),
+    BenchCase(
+        op="sql",
+        label="sql/query-disallow-write",
+        args={
+            "action": "query",
+            "sql": "INSERT INTO users VALUES (4, 'Dan', 'dan@example.com')",
+            "connection_string": "__SQL_TEST_DB__",
+            "allow_writes": False,
+        },
+        assert_keys=[],
+        custom_assert=_assert_query_error,
+        baseline_tokens=0,
+    ),
+    BenchCase(
+        op="sql",
+        label="sql/query-missing-sql",
+        args={"action": "query", "connection_string": "__SQL_TEST_DB__"},
+        assert_keys=[],
+        custom_assert=_assert_query_error,
         baseline_tokens=0,
     ),
 ]

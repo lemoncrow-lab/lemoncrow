@@ -115,15 +115,11 @@ class ScipIndexer:
 
         spec = scip_binary_spec(language)
         if spec is None:
-            return ScipIndexResult(
-                language=language, status="unsupported", message="unsupported language"
-            )
+            return ScipIndexResult(language=language, status="unsupported", message="unsupported language")
         bootstrap = ensure_scip_binary(language)
         if bootstrap.binary is None:
             if bootstrap.status == "bootstrap_unavailable":
-                return ScipIndexResult(
-                    language=language, status="bootstrap_unavailable", message=bootstrap.message
-                )
+                return ScipIndexResult(language=language, status="bootstrap_unavailable", message=bootstrap.message)
             if bootstrap.status == "user_toolchain_required":
                 return ScipIndexResult(
                     language=language,
@@ -159,9 +155,7 @@ class ScipIndexer:
                 timeout=timeout_seconds,
             )
         except subprocess.TimeoutExpired:
-            return ScipIndexResult(
-                language=language, status="timeout", command=command, message="indexer timed out"
-            )
+            return ScipIndexResult(language=language, status="timeout", command=command, message="indexer timed out")
 
         if completed.returncode != 0:
             return ScipIndexResult(

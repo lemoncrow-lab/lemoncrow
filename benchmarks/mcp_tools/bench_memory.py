@@ -37,13 +37,14 @@ def memory_tool_fn(bench_workspace: Path) -> Any:
     def _call(args: dict[str, Any]) -> Any:
         payload = dict(args)
         archive_text = payload.pop("_archive_text", None)
+        archive_source = str(payload.pop("_archive_source", "tool_output"))
         archive_source_ref = payload.pop("_archive_source_ref", "")
         archive_tags = payload.pop("_archive_tags", None)
         if isinstance(archive_text, str) and archive_text:
             mcp_server._memory_archive(
                 agent_id=payload.get("agent_id"),
                 text=archive_text,
-                source="benchmark",
+                source=archive_source,
                 source_ref=str(archive_source_ref),
                 tags=list(archive_tags or []),
             )

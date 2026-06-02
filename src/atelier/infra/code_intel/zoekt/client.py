@@ -39,9 +39,7 @@ class ZoektClient:
             "index_age_seconds": health.index_age_seconds,
         }
 
-    def search(
-        self, query: str, *, num_matches: int = 50, file_glob: str | None = None
-    ) -> list[ZoektFileResult]:
+    def search(self, query: str, *, num_matches: int = 50, file_glob: str | None = None) -> list[ZoektFileResult]:
         payload = self.server.raw_search({"Q": query})
         result_payload = payload.get("Result") or {}
         if not isinstance(result_payload, dict):
@@ -67,11 +65,7 @@ class ZoektClient:
                 line_start = int(raw.get("LineStart", 0))
                 encoded_line = str(raw.get("Line") or "")
                 try:
-                    line_text = (
-                        base64.b64decode(encoded_line)
-                        .decode("utf-8", errors="replace")
-                        .rstrip("\n")
-                    )
+                    line_text = base64.b64decode(encoded_line).decode("utf-8", errors="replace").rstrip("\n")
                 except (ValueError, TypeError):
                     line_text = ""
                 line_fragments = raw.get("LineFragments")
@@ -91,9 +85,7 @@ class ZoektClient:
                 for fragment in line_fragments:
                     if not isinstance(fragment, dict):
                         continue
-                    byte_start = _int_value(
-                        fragment.get("Offset", fragment.get("LineOffset", line_start))
-                    )
+                    byte_start = _int_value(fragment.get("Offset", fragment.get("LineOffset", line_start)))
                     byte_end = byte_start + _int_value(fragment.get("MatchLength", 0))
                     matches.append(
                         ZoektClientMatch(

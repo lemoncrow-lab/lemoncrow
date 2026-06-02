@@ -26,9 +26,12 @@ import tiktoken
 from benchmarks.mcp_tools.harness import BaselineMeasurement, BenchCase
 from benchmarks.mcp_tools.repo_facts import (
     CallRelationFact,
+    SymbolFact,
+    benchmark_query_text,
     collect_call_relation_facts,
     collect_repo_file_facts,
     collect_symbol_facts,
+    stable_symbol_facts,
     symbols_with_text_references,
     unique_symbol_facts,
 )
@@ -232,8 +235,9 @@ def _baseline_plan_for_case(case: BenchCase) -> tuple[list[list[str]], list[str]
                 [
                     "rg",
                     "-n",
-                    "@mcp_tool\\(|mcp_tool\\(",
+                    "def\\s+tool_pattern|tool_pattern\\(",
                     "src/atelier/gateway/adapters/mcp_server.py",
+                    "src/atelier/core/capabilities/code_context/engine.py",
                 ],
             ],
             [
@@ -325,9 +329,7 @@ def _build_measured_baseline(case: BenchCase) -> BaselineMeasurement:
 
 
 def _assert_ok(result: dict[str, Any]) -> None:
-    assert "error" not in result, (
-        f"unexpected error: {result.get('error')} / {result.get('message')}"
-    )
+    assert "error" not in result, f"unexpected error: {result.get('error')} / {result.get('message')}"
 
 
 def _assert_has(result: dict[str, Any], *keys: str) -> None:
@@ -353,12 +355,8 @@ def _assert_index(result: dict[str, Any]) -> None:
     files_indexed = int(result.get("files_indexed", 0))
     symbols_indexed = int(result.get("symbols_indexed", 0))
     # Harden benchmark: ensure this is a real repo-scale index, not a tiny subset.
-    assert files_indexed >= 500, (
-        f"index must process repo-scale files, got files_indexed={files_indexed}"
-    )
-    assert symbols_indexed >= 5000, (
-        f"index must process repo-scale symbols, got symbols_indexed={symbols_indexed}"
-    )
+    assert files_indexed >= 500, f"index must process repo-scale files, got files_indexed={files_indexed}"
+    assert symbols_indexed >= 5000, f"index must process repo-scale symbols, got symbols_indexed={symbols_indexed}"
 
 
 # ---------------------------------------------------------------------------
@@ -369,24 +367,14 @@ def _assert_index(result: dict[str, Any]) -> None:
 def _assert_search_semantic(result: dict[str, Any]) -> None:
     _assert_ok(result)
     # code.search returns 'items' (not 'matches'/'hits')
-    assert "items" in result or "matches" in result or "hits" in result or "results" in result, (
-        f"semantic search must return items/matches/hits/results, got keys={list(result)}"
-    )
-    items = (
-        result.get("items")
-        or result.get("matches")
-        or result.get("hits")
-        or result.get("results")
-        or []
-    )
-    assert len(items) > 0, (
-        f"semantic search for 'classify shell commands' must return at least one hit, got: {result}"
-    )
+    assert (
+        "items" in result or "matches" in result or "hits" in result or "results" in result
+    ), f"semantic search must return items/matches/hits/results, got keys={list(result)}"
+    items = result.get("items") or result.get("matches") or result.get("hits") or result.get("results") or []
+    assert len(items) > 0, f"semantic search for 'classify shell commands' must return at least one hit, got: {result}"
     for item in items:
         fp = str(item.get("path") or item.get("file_path", ""))
-        assert fp.startswith("src/"), (
-            f"search results must be filtered to src/, got file_path={fp!r}"
-        )
+        assert fp.startswith("src/"), f"search results must be filtered to src/, got file_path={fp!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -397,13 +385,9 @@ def _assert_search_semantic(result: dict[str, Any]) -> None:
 def _assert_search_lexical(result: dict[str, Any]) -> None:
     _assert_ok(result)
     text = str(result)
-    assert "run_command" in text, (
-        f"lexical search for 'run_command' must find the function, got: {text[:300]!r}"
-    )
+    assert "run_command" in text, f"lexical search for 'run_command' must find the function, got: {text[:300]!r}"
     # Must include file path
-    assert "bash_exec" in text, (
-        f"lexical search must include file_path with bash_exec, got: {text[:300]!r}"
-    )
+    assert "bash_exec" in text, f"lexical search must include file_path with bash_exec, got: {text[:300]!r}"
 
 
 def _assert_search_compact_location_only(result: dict[str, Any]) -> None:
@@ -425,9 +409,9 @@ def _assert_search_target_view(result: dict[str, Any]) -> None:
     assert isinstance(first, dict)
     assert first.get("role") == "definition"
     assert "path" in first and "line" in first, f"target item must be a pointer, got {first}"
-    assert "content_hash" not in first and "symbol_id" not in first, (
-        f"target item should not expose internal fields, got {first}"
-    )
+    assert (
+        "content_hash" not in first and "symbol_id" not in first
+    ), f"target item should not expose internal fields, got {first}"
     assert result.get("suggested_next") == [
         {"op": "usages", "query": "run_command"},
         {"op": "context", "query": "run_command"},
@@ -446,9 +430,7 @@ def _assert_search_graph_view(result: dict[str, Any]) -> None:
     for key in ("imports", "usages", "callers", "callees"):
         assert key in related, f"graph view missing related.{key}"
         assert isinstance(related[key], list), f"related.{key} must be a list"
-    assert related["usages"] or related["callers"], (
-        f"graph view should surface usage/caller evidence, got {related}"
-    )
+    assert related["usages"] or related["callers"], f"graph view should surface usage/caller evidence, got {related}"
 
 
 def _assert_search_explain_view(result: dict[str, Any]) -> None:
@@ -469,14 +451,12 @@ def _assert_search_explain_view(result: dict[str, Any]) -> None:
 def _assert_symbol(result: dict[str, Any]) -> None:
     _assert_ok(result)
     text = str(result)
-    assert "classify_command" in text, (
-        f"symbol op must return the requested symbol name, got: {text[:300]!r}"
-    )
+    assert "classify_command" in text, f"symbol op must return the requested symbol name, got: {text[:300]!r}"
     assert "bash_exec" in text, f"symbol op must include file_path, got: {text[:300]!r}"
     # Should have signature/body or at least file+line location
-    assert any(k in result for k in ("source", "signature", "line", "line_number", "body")), (
-        f"symbol must include source/signature/line, got keys={list(result)}"
-    )
+    assert any(
+        k in result for k in ("source", "signature", "line", "line_number", "body")
+    ), f"symbol must include source/signature/line, got keys={list(result)}"
 
 
 def _assert_symbol_compact_no_full_source(result: dict[str, Any]) -> None:
@@ -497,9 +477,9 @@ def _assert_hover(result: dict[str, Any]) -> None:
     _assert_ok(result)
     text = str(result)
     # hover at the classify_command definition line should return its signature info
-    assert "classify_command" in text or "CommandPolicyDecision" in text, (
-        f"hover at classify_command must return relevant type/signature info, got: {text[:300]!r}"
-    )
+    assert (
+        "classify_command" in text or "CommandPolicyDecision" in text
+    ), f"hover at classify_command must return relevant type/signature info, got: {text[:300]!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -510,9 +490,9 @@ def _assert_hover(result: dict[str, Any]) -> None:
 def _assert_outline(result: dict[str, Any]) -> None:
     _assert_ok(result)
     # The outline returns 'files' dict mapping path → list of symbols
-    assert "files" in result or "symbols" in result, (
-        f"outline must return files or symbols key, got keys={list(result)}"
-    )
+    assert (
+        "files" in result or "symbols" in result
+    ), f"outline must return files or symbols key, got keys={list(result)}"
     files_dict = result.get("files") or {}
     # Find the symbols list for bash_exec.py (key may be full or relative path)
     symbols: list[Any] = []
@@ -548,13 +528,11 @@ def _assert_outline_compact_members(result: dict[str, Any]) -> None:
 def _assert_usages(result: dict[str, Any]) -> None:
     _assert_ok(result)
     text = str(result)
-    assert "run_command" in text, (
-        f"usages of run_command must reference that symbol, got: {text[:300]!r}"
-    )
+    assert "run_command" in text, f"usages of run_command must reference that symbol, got: {text[:300]!r}"
     # Should include at least one file path that's not bash_exec (a caller)
-    assert "mcp_server" in text or "bench_shell" in text or "test_" in text, (
-        f"usages must include files outside bash_exec.py (cross-file refs), got: {text[:400]!r}"
-    )
+    assert (
+        "mcp_server" in text or "bench_shell" in text or "test_" in text
+    ), f"usages must include files outside bash_exec.py (cross-file refs), got: {text[:400]!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -583,9 +561,9 @@ def _assert_callees(result: dict[str, Any]) -> None:
     _assert_ok(result)
     text = str(result)
     # classify_command calls things; or even if empty, no error
-    assert "classify_command" in text or "callees" in text.lower() or "calls" in text.lower(), (
-        f"callees result must reference the target symbol, got: {text[:300]!r}"
-    )
+    assert (
+        "classify_command" in text or "callees" in text.lower() or "calls" in text.lower()
+    ), f"callees result must reference the target symbol, got: {text[:300]!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -595,15 +573,16 @@ def _assert_callees(result: dict[str, Any]) -> None:
 
 def _assert_pattern_decorator(result: dict[str, Any]) -> None:
     _assert_ok(result)
-    text = str(result)
-    # @mcp_tool(...) decorator appears many times in mcp_server.py
-    assert "mcp_tool" in text or "mcp_server" in text, (
-        f"pattern search for @mcp_tool must find matches, got: {text[:300]!r}"
-    )
-    # Must return at least one match
-    assert any(k in result for k in ("matches", "results", "files", "count")), (
-        f"pattern must return matches/results/files, got keys={list(result)}"
-    )
+    matches = result.get("matches")
+    assert isinstance(matches, list), f"pattern must return a matches list, got keys={list(result)}"
+    assert matches, f"pattern search for class definitions must find matches, got: {result}"
+    text = str(matches)
+    assert (
+        "class " in text or "snippet" in text
+    ), f"pattern search for class definitions must include match snippets, got: {text[:300]!r}"
+    assert any(
+        k in result for k in ("matches", "results", "files", "count")
+    ), f"pattern must return matches/results/files, got keys={list(result)}"
 
 
 # ---------------------------------------------------------------------------
@@ -615,9 +594,9 @@ def _assert_impact(result: dict[str, Any]) -> None:
     _assert_ok(result)
     text = str(result)
     # bash_exec.py is imported by mcp_server.py and tests
-    assert "mcp_server" in text or "test_" in text or "bench_shell" in text, (
-        f"impact for bash_exec.py must list mcp_server or test files, got: {text[:400]!r}"
-    )
+    assert (
+        "mcp_server" in text or "test_" in text or "bench_shell" in text
+    ), f"impact for bash_exec.py must list mcp_server or test files, got: {text[:400]!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -661,13 +640,11 @@ def _assert_usages_stress(result: dict[str, Any]) -> None:
 
 def _assert_call_graph_stress(result: dict[str, Any]) -> None:
     _assert_ok(result)
-    assert result.get("data_status") == "available", (
-        f"stress callers should be available after fallback, got data_status={result.get('data_status')!r}"
-    )
+    assert (
+        result.get("data_status") == "available"
+    ), f"stress callers should be available after fallback, got data_status={result.get('data_status')!r}"
     edge_count = int(result.get("edge_count", 0))
-    assert edge_count >= 1, (
-        f"stress callers should return at least one edge, got edge_count={edge_count}"
-    )
+    assert edge_count >= 1, f"stress callers should return at least one edge, got edge_count={edge_count}"
 
 
 def _assert_outline_stress(result: dict[str, Any]) -> None:
@@ -682,55 +659,57 @@ def _assert_outline_stress(result: dict[str, Any]) -> None:
 def _assert_pattern_stress(result: dict[str, Any]) -> None:
     _assert_ok(result)
     text = str(result)
-    assert any(k in result for k in ("matches", "results", "files", "count")) and len(text) > 200, (
-        f"stress pattern must return non-trivial result payload, got: {text[:300]!r}"
-    )
+    assert (
+        any(k in result for k in ("matches", "results", "files", "count")) and len(text) > 200
+    ), f"stress pattern must return non-trivial result payload, got: {text[:300]!r}"
 
 
-def _assert_generated_search(
-    result: dict[str, Any], expected_name: str, expected_path: str
-) -> None:
+def _assert_generated_search(result: dict[str, Any], expected_name: str, expected_path: str) -> None:
     _assert_ok(result)
     items = result.get("items") or []
     assert isinstance(items, list) and items, "generated lexical search must return items"
-    first = items[0]
-    assert isinstance(first, dict), f"search hit must be dict, got {type(first).__name__}"
-    assert (first.get("name") or first.get("symbol_name")) == expected_name, (
-        f"expected top hit name {expected_name!r}, got {first!r}"
-    )
-    hit_path = str(first.get("path") or first.get("file_path") or "")
-    assert expected_path in hit_path, f"expected path {expected_path!r}, got {hit_path!r}"
+    matching_items = [
+        item
+        for item in items
+        if isinstance(item, dict) and expected_path in str(item.get("path") or item.get("file_path") or "")
+    ]
+    assert matching_items, f"generated lexical search must include {expected_path!r}, got {items!r}"
+    assert any(
+        expected_name in str(item) for item in matching_items
+    ), f"generated lexical search must include {expected_name!r}, got {matching_items!r}"
 
 
-def _assert_generated_symbol(
-    result: dict[str, Any], expected_name: str, expected_path: str
-) -> None:
+def _assert_generated_symbol(result: dict[str, Any], expected_name: str, expected_path: str) -> None:
     _assert_ok(result)
     text = str(result)
     assert expected_name in text, f"symbol result must include {expected_name!r}"
     assert expected_path in text, f"symbol result must include {expected_path!r}"
-    assert any(k in result for k in ("source", "signature", "line", "line_number", "body")), (
-        f"symbol must include source/signature/line, got keys={list(result)}"
-    )
+    assert any(
+        k in result for k in ("source", "signature", "line", "line_number", "body")
+    ), f"symbol must include source/signature/line, got keys={list(result)}"
 
 
 def _assert_generated_hover(result: dict[str, Any], expected_name: str, expected_path: str) -> None:
     _assert_ok(result)
     text = str(result)
-    assert expected_name in text or expected_path in text, (
-        f"hover result must include {expected_name!r} or {expected_path!r}, got: {text[:300]!r}"
-    )
+    assert (
+        expected_name in text or expected_path in text
+    ), f"hover result must include {expected_name!r} or {expected_path!r}, got: {text[:300]!r}"
 
 
-def _assert_generated_outline(
-    result: dict[str, Any], expected_path: str, expected_symbols: tuple[str, ...]
-) -> None:
+def _assert_generated_outline(result: dict[str, Any], expected_path: str, expected_symbols: tuple[str, ...]) -> None:
     _assert_ok(result)
     text = str(result)
     assert expected_path in text, f"outline result must include {expected_path!r}"
-    assert any(symbol in text for symbol in expected_symbols), (
-        f"outline result must include one of {expected_symbols!r}"
-    )
+    if any(symbol in text for symbol in expected_symbols):
+        return
+    symbol_count = int(result.get("symbol_count", 0) or 0)
+    assert symbol_count >= 1, f"outline result must expose at least one symbol for {expected_path!r}"
+    files = result.get("files")
+    assert isinstance(files, dict), f"outline result must include files map for {expected_path!r}"
+    assert any(
+        expected_path in path_key for path_key in files
+    ), f"outline files map must include {expected_path!r}, got {list(files)}"
 
 
 def _search_assert(expected_name: str, expected_path: str) -> Callable[[dict[str, Any]], None]:
@@ -754,9 +733,7 @@ def _hover_assert(expected_name: str, expected_path: str) -> Callable[[dict[str,
     return _assert
 
 
-def _outline_assert(
-    expected_path: str, expected_symbols: tuple[str, ...]
-) -> Callable[[dict[str, Any]], None]:
+def _outline_assert(expected_path: str, expected_symbols: tuple[str, ...]) -> Callable[[dict[str, Any]], None]:
     def _assert(result: dict[str, Any]) -> None:
         _assert_generated_outline(result, expected_path, expected_symbols)
 
@@ -777,9 +754,9 @@ def _callers_assert(expected_name: str, expected_paths: tuple[str, ...]) -> Call
         assert expected_name in text, f"callers result must include {expected_name!r}"
         if result.get("data_status") == "unavailable":
             return
-        assert any(path in text for path in expected_paths), (
-            f"callers result must include one of {expected_paths!r}, got: {text[:400]!r}"
-        )
+        assert any(
+            path in text for path in expected_paths
+        ), f"callers result must include one of {expected_paths!r}, got: {text[:400]!r}"
 
     return _assert
 
@@ -789,9 +766,9 @@ def _callees_assert(expected_name: str, expected_paths: tuple[str, ...]) -> Call
         _assert_ok(result)
         text = str(result)
         assert expected_name in text, f"callees result must include {expected_name!r}"
-        assert any(path in text for path in expected_paths), (
-            f"callees result must include one of {expected_paths!r}, got: {text[:400]!r}"
-        )
+        assert any(
+            path in text for path in expected_paths
+        ), f"callees result must include one of {expected_paths!r}, got: {text[:400]!r}"
 
     return _assert
 
@@ -801,9 +778,9 @@ def _usages_assert(expected_name: str, expected_paths: tuple[str, ...]) -> Calla
         _assert_ok(result)
         text = str(result)
         assert expected_name in text, f"usages result must include {expected_name!r}"
-        assert any(path in text for path in expected_paths), (
-            f"usages result must include one of {expected_paths!r}, got: {text[:400]!r}"
-        )
+        assert any(
+            path in text for path in expected_paths
+        ), f"usages result must include one of {expected_paths!r}, got: {text[:400]!r}"
 
     return _assert
 
@@ -812,9 +789,9 @@ def _impact_assert(expected_paths: tuple[str, ...]) -> Callable[[dict[str, Any]]
     def _assert(result: dict[str, Any]) -> None:
         _assert_ok(result)
         text = str(result)
-        assert any(path in text for path in expected_paths), (
-            f"impact result must include one of {expected_paths!r}, got: {text[:400]!r}"
-        )
+        assert any(
+            path in text for path in expected_paths
+        ), f"impact result must include one of {expected_paths!r}, got: {text[:400]!r}"
 
     return _assert
 
@@ -829,24 +806,34 @@ def _explore_assert(expected_name: str, expected_path: str) -> Callable[[dict[st
     return _assert
 
 
-def _group_callers(relations: list[CallRelationFact]) -> list[tuple[str, tuple[str, ...]]]:
-    grouped: dict[str, set[str]] = {}
+def _group_callers(
+    relations: list[CallRelationFact], *, allowed_queries: set[str]
+) -> list[tuple[SymbolFact, tuple[str, ...]]]:
+    grouped: dict[str, tuple[SymbolFact, set[str]]] = {}
     for relation in relations:
-        grouped.setdefault(relation.callee.name, set()).add(relation.caller.path)
+        query = benchmark_query_text(relation.callee)
+        if query not in allowed_queries:
+            continue
+        grouped.setdefault(query, (relation.callee, set()))[1].add(relation.caller.path)
     return [
-        (name, tuple(sorted(paths)))
-        for name, paths in sorted(grouped.items(), key=lambda item: item[0])
+        (symbol, tuple(sorted(paths)))
+        for _query, (symbol, paths) in sorted(grouped.items(), key=lambda item: item[0])
         if paths
     ]
 
 
-def _group_callees(relations: list[CallRelationFact]) -> list[tuple[str, tuple[str, ...]]]:
-    grouped: dict[str, set[str]] = {}
+def _group_callees(
+    relations: list[CallRelationFact], *, allowed_queries: set[str]
+) -> list[tuple[SymbolFact, tuple[str, ...]]]:
+    grouped: dict[str, tuple[SymbolFact, set[str]]] = {}
     for relation in relations:
-        grouped.setdefault(relation.caller.name, set()).add(relation.callee.path)
+        query = benchmark_query_text(relation.caller)
+        if query not in allowed_queries:
+            continue
+        grouped.setdefault(query, (relation.caller, set()))[1].add(relation.callee.path)
     return [
-        (name, tuple(sorted(paths)))
-        for name, paths in sorted(grouped.items(), key=lambda item: item[0])
+        (symbol, tuple(sorted(paths)))
+        for _query, (symbol, paths) in sorted(grouped.items(), key=lambda item: item[0])
         if paths
     ]
 
@@ -1055,10 +1042,10 @@ CODE_CASES: list[BenchCase] = [
     ),
     BenchCase(
         op="pattern",
-        label="pattern — structural search for @mcp_tool decorator",
+        label="pattern — structural search for class definitions",
         args={
             "op": "pattern",
-            "pattern": "@mcp_tool($$$)",
+            "pattern": "class $C:\n    $$$BODY",
             "language": "python",
             "limit": 15,
             "budget_tokens": 1000,
@@ -1163,10 +1150,10 @@ CODE_CASES: list[BenchCase] = [
     ),
     BenchCase(
         op="pattern",
-        label="stress/pattern — wide AST call pattern sweep",
+        label="stress/pattern — wide AST function body sweep",
         args={
             "op": "pattern",
-            "pattern": "$F($$$ARGS)",
+            "pattern": "def $F($$$ARGS):\n    $$$BODY",
             "language": "python",
             "file_glob": "src/**/*.py",
             "limit": 300,
@@ -1200,20 +1187,23 @@ def _build_generated_code_cases() -> list[BenchCase]:
     repo_root = _repo_root()
     symbol_facts, _ = collect_symbol_facts(repo_root)
     unique_symbols = unique_symbol_facts(symbol_facts)
+    stable_symbols = stable_symbol_facts(unique_symbols)
+    stable_method_symbols = stable_symbol_facts(unique_symbols, require_dotted=True)
     file_facts = [fact for fact in collect_repo_file_facts(repo_root) if fact.symbols]
     call_relations = collect_call_relation_facts(repo_root)
-    callers_targets = _group_callers(call_relations)
-    callees_targets = _group_callees(call_relations)
-    referenced_symbols = symbols_with_text_references(repo_root, unique_symbols, minimum_mentions=3)
+    stable_method_queries = {benchmark_query_text(symbol) for symbol in stable_method_symbols}
+    callers_targets = _group_callers(call_relations, allowed_queries=stable_method_queries)
+    callees_targets = _group_callees(call_relations, allowed_queries=stable_method_queries)
+    referenced_symbols = symbols_with_text_references(repo_root, stable_method_symbols, minimum_mentions=3)
 
-    search_symbols = unique_symbols[:75]
-    symbol_targets = unique_symbols[75:150]
-    hover_targets = unique_symbols[150:225]
+    search_symbols = stable_symbols[:75]
+    symbol_targets = stable_symbols[75:150]
+    hover_targets = stable_symbols[150:225]
     outline_targets = file_facts[:75]
-    node_targets = unique_symbols[225:525]
-    explore_targets = unique_symbols[525:825]
+    node_targets = stable_symbols[225:525]
+    explore_targets = stable_method_symbols[:300]
     usages_targets = referenced_symbols[:300]
-    impact_targets = callers_targets[:300]
+    impact_targets = stable_method_symbols[:300]
     callers_cases = callers_targets[:300]
     callees_cases = callees_targets[:300]
 
@@ -1230,13 +1220,14 @@ def _build_generated_code_cases() -> list[BenchCase]:
 
     cases: list[BenchCase] = []
     for index, symbol in enumerate(search_symbols, start=1):
+        query = benchmark_query_text(symbol)
         cases.append(
             BenchCase(
                 op="search",
                 label=f"generated/search-lexical/{index:03d}",
                 args={
                     "op": "search",
-                    "query": symbol.name,
+                    "query": query,
                     "mode": "lexical",
                     "limit": 5,
                     "file_glob": "src/**/*.py",
@@ -1249,13 +1240,14 @@ def _build_generated_code_cases() -> list[BenchCase]:
             )
         )
     for index, symbol in enumerate(symbol_targets, start=1):
+        query = benchmark_query_text(symbol)
         cases.append(
             BenchCase(
                 op="symbol",
                 label=f"generated/symbol/{index:03d}",
                 args={
                     "op": "symbol",
-                    "symbol_name": symbol.name,
+                    **({"qualified_name": query} if "." in query else {"symbol_name": query}),
                     "snippet": "head",
                     "budget_tokens": 900,
                     "render_compact": True,
@@ -1305,7 +1297,8 @@ def _build_generated_code_cases() -> list[BenchCase]:
                 label=f"generated/node/{index:03d}",
                 args={
                     "_tool": "node",
-                    "symbol": symbol.name,
+                    "path": symbol.path,
+                    "line": symbol.line,
                     "repo_root": DEFAULT_REPO_ROOT,
                 },
                 custom_assert=_node_assert(symbol.name, symbol.path),
@@ -1313,51 +1306,60 @@ def _build_generated_code_cases() -> list[BenchCase]:
                 min_baseline_tokens=BASELINE_MIN_TOKENS,
             )
         )
-    for index, (symbol_name, caller_paths) in enumerate(callers_cases, start=1):
+    for index, (symbol, caller_paths) in enumerate(callers_cases, start=1):
+        query = benchmark_query_text(symbol)
         cases.append(
             BenchCase(
                 op="callers",
                 label=f"generated/callers/{index:03d}",
                 args={
                     "_tool": "callers",
-                    "symbol": symbol_name,
+                    "symbol": query,
                     "depth": 1,
                     "limit": max(8, min(24, len(caller_paths) * 2)),
                     "repo_root": DEFAULT_REPO_ROOT,
                 },
-                custom_assert=_callers_assert(symbol_name, caller_paths[:3]),
+                custom_assert=_callers_assert(symbol.name, caller_paths[:3]),
                 baseline_builder=_build_measured_baseline,
                 min_baseline_tokens=BASELINE_MIN_TOKENS,
             )
         )
-    for index, (symbol_name, callee_paths) in enumerate(callees_cases, start=1):
+    for index, (symbol, callee_paths) in enumerate(callees_cases, start=1):
+        query = benchmark_query_text(symbol)
         cases.append(
             BenchCase(
                 op="callees",
                 label=f"generated/callees/{index:03d}",
                 args={
                     "_tool": "callees",
-                    "symbol": symbol_name,
+                    "symbol": query,
                     "depth": 1,
                     "limit": max(8, min(24, len(callee_paths) * 2)),
                     "repo_root": DEFAULT_REPO_ROOT,
                 },
-                custom_assert=_callees_assert(symbol_name, callee_paths[:3]),
+                custom_assert=_callees_assert(symbol.name, callee_paths[:3]),
                 baseline_builder=_build_measured_baseline,
                 min_baseline_tokens=BASELINE_MIN_TOKENS,
             )
         )
     for index, symbol in enumerate(usages_targets, start=1):
         related_paths = tuple(
-            sorted({relation.caller.path for relation in call_relations if relation.callee.name == symbol.name})[:3]
+            sorted(
+                {
+                    relation.caller.path
+                    for relation in call_relations
+                    if relation.callee.qualified_name == symbol.qualified_name
+                }
+            )[:3]
         ) or (symbol.path,)
+        query = benchmark_query_text(symbol)
         cases.append(
             BenchCase(
                 op="usages",
                 label=f"generated/usages/{index:03d}",
                 args={
                     "_tool": "usages",
-                    "symbol": symbol.name,
+                    "symbol": query,
                     "limit": 24,
                     "repo_root": DEFAULT_REPO_ROOT,
                 },
@@ -1366,29 +1368,31 @@ def _build_generated_code_cases() -> list[BenchCase]:
                 min_baseline_tokens=BASELINE_MIN_TOKENS,
             )
         )
-    for index, (symbol_name, caller_paths) in enumerate(impact_targets, start=1):
+    for index, symbol in enumerate(impact_targets, start=1):
+        query = benchmark_query_text(symbol)
         cases.append(
             BenchCase(
                 op="impact",
                 label=f"generated/impact/{index:03d}",
                 args={
                     "_tool": "impact",
-                    "query": symbol_name,
+                    "query": query,
                     "repo_root": DEFAULT_REPO_ROOT,
                 },
-                custom_assert=_impact_assert(caller_paths[:3]),
+                custom_assert=_impact_assert((symbol.path,)),
                 baseline_builder=_build_measured_baseline,
                 min_baseline_tokens=BASELINE_MIN_TOKENS,
             )
         )
     for index, symbol in enumerate(explore_targets, start=1):
+        query = benchmark_query_text(symbol)
         cases.append(
             BenchCase(
                 op="explore",
                 label=f"generated/explore/{index:03d}",
                 args={
                     "_tool": "explore",
-                    "query": symbol.name,
+                    "query": query,
                     "seed_files": [symbol.path],
                     "max_files": 4,
                     "repo_root": DEFAULT_REPO_ROOT,

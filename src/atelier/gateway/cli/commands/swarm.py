@@ -106,6 +106,13 @@ def swarm_list(ctx: click.Context, as_json: bool) -> None:
     help="Keep launching new waves until a wave produces no accepted improvements or the swarm is explicitly stopped.",
 )
 @click.option(
+    "--max-waves",
+    default=0,
+    show_default=True,
+    type=int,
+    help="Hard cap on waves for continuous mode. Use 0 for no explicit cap.",
+)
+@click.option(
     "--evaluator-backend",
     type=click.Choice(["auto", "disabled", "ollama", "openai", "litellm"], case_sensitive=False),
     default="auto",
@@ -115,13 +122,6 @@ def swarm_list(ctx: click.Context, as_json: bool) -> None:
 @click.option(
     "--evaluator-model",
     help="Optional model override for the semantic evaluator.",
-)
-@click.option(
-    "--max-idle-waves",
-    default=3,
-    show_default=True,
-    type=int,
-    help="How many consecutive no-improvement waves continuous mode tolerates before stopping.",
 )
 @click.option(
     "--max-evaluator-failures",
@@ -161,9 +161,9 @@ def swarm_start(
     validation_commands: tuple[str, ...],
     detach: bool,
     continuous: bool,
+    max_waves: int,
     evaluator_backend: str,
     evaluator_model: str | None,
-    max_idle_waves: int,
     max_evaluator_failures: int,
     runner: str | None,
     runner_model: str | None,
@@ -181,8 +181,8 @@ def swarm_start(
 
     if runs < 1:
         raise click.ClickException("--runs must be >= 1")
-    if max_idle_waves < 1:
-        raise click.ClickException("--max-idle-waves must be >= 1")
+    if max_waves < 0:
+        raise click.ClickException("--max-waves must be >= 0")
     if max_evaluator_failures < 1:
         raise click.ClickException("--max-evaluator-failures must be >= 1")
     repo_root = discover_repo_root(Path.cwd())
@@ -221,10 +221,10 @@ def swarm_start(
         keep_worktrees=not cleanup,
         detached=detach,
         continuous=continuous,
+        max_waves=max_waves if continuous else 1,
         launch_provider="cli",
         evaluator_backend=cast(SwarmEvaluatorBackend, evaluator_backend),
         evaluator_model=evaluator_model or "",
-        max_no_progress_waves=max_idle_waves,
         max_evaluator_failures=max_evaluator_failures,
     )
     if detach:
@@ -310,6 +310,7 @@ def swarm_export(ctx: click.Context, run_id: str, as_json: bool) -> None:
 @click.argument("run_id")
 @click.option("--wave", "wave_index", type=int, help="Limit to accepted commits from one wave.")
 @click.option("--child-id", help="Limit to one accepted child.")
+@click.option("--execute", is_flag=True, help="Actually execute the transplant commands.")
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable apply instructions.")
 @click.pass_context
 def swarm_apply(
@@ -317,9 +318,10 @@ def swarm_apply(
     run_id: str,
     wave_index: int | None,
     child_id: str | None,
+    execute: bool,
     as_json: bool,
 ) -> None:
-    """Print transplant commands for accepted commits without mutating the repo."""
+    """Show or execute transplant commands for accepted commits."""
 
     state_path = resolve_state_path(ctx.obj["root"], run_id)
     if not state_path.exists():
@@ -332,17 +334,63 @@ def swarm_apply(
     if as_json:
         _emit(payload, as_json=True)
         return
-    selected_commits = cast(list[Any], payload["selected_commits"])
+
+    selected_commits = cast(list[dict[str, Any]], payload["selected_commits"])
     commands = cast(list[str], payload["commands"])
+
+    if not selected_commits:
+        click.echo("No accepted commits found to apply.")
+        return
+
     lines = [
         f"run_id: {state.run_id}",
         f"base_snapshot_ref: {state.base_snapshot_ref}",
         f"selected_commits: {len(selected_commits)}",
-        "commands:",
+        "\nCOMMIT SUMMARIES:",
     ]
+
+    for commit in selected_commits:
+        header = f"  - {commit['child_id']} ({commit['commit_ref'][:8]})"
+        if commit.get("score") is not None:
+            header += f" score={commit['score']:.1f}"
+        lines.append(header)
+        if commit.get("summary"):
+            for s_line in commit["summary"].strip().splitlines():
+                lines.append(f"    {s_line}")
+
+    lines.append("\nCOMMANDS:")
     for command in commands or ["(none)"]:
         lines.append(f"  - {command}")
+
     click.echo("\n".join(lines))
+
+    if execute:
+        if not commands:
+            click.echo("\nNothing to execute.")
+            return
+
+        click.echo("\nExecuting transplant commands...")
+        import subprocess
+
+        for command in commands:
+            click.echo(f"  > {command}")
+            try:
+                # We use shell=True because commands are formatted strings with paths and multiple refs
+                subprocess.run(command, shell=True, check=True, cwd=ctx.obj["root"])
+            except subprocess.CalledProcessError as exc:
+                raise click.ClickException(f"Command failed: {command}\n{exc}") from exc
+        click.echo("\nSuccessfully applied all changes.")
+    else:
+        # Show the user how to actually apply the changes
+        click.echo("\nTo apply these changes to your current repository, run:")
+        click.echo(f"  uv run atelier --root {ctx.obj['root']} swarm apply {run_id} --execute")
+        click.echo(
+            "\nThis will execute the git cherry-pick and git apply commands sequentially in your current repository."
+        )
+        click.echo("\nWarning: Before running with --execute, please make sure your working directory is clean")
+        click.echo(
+            "(commit or stash your current changes) to avoid potential merge conflicts during the cherry-pick process."
+        )
 
 
 @swarm_group.command("stop")

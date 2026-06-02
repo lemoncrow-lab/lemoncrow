@@ -54,8 +54,10 @@ def _patch_paths(args: dict[str, Any], workspace: Path) -> dict[str, Any]:
     }
     for edit in patched.get("edits", []):
         fp = edit.get("file_path", "")
-        if fp in subs:
-            edit["file_path"] = subs[fp]
+        if isinstance(fp, str):
+            for placeholder, resolved in subs.items():
+                if placeholder in fp:
+                    edit["file_path"] = fp.replace(placeholder, resolved)
     return patched
 
 

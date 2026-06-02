@@ -2,6 +2,11 @@
 
 Atelier tools are **not optional wrappers**. They are the reason this repo exists. Using native tools here is eating your own savings.
 
+Shared docs use plain tool names like `context`, `read`, `search`, and `trace`.
+Some hosts display those same tools as handles like `mcp__atelier__context` and
+`mcp__atelier__read`. When you need the exact callable name, use the one shown by
+your host.
+
 | Instead of | Use | Why | Measured |
 |---|---|---|---|
 | `Read(file)` | `mcp__atelier__read` | outline-first; large files return structure without bytes | **Measured token savings (cl100k_base) from `tests/benchmarks/test_read_ab_real.py`:** Ruby 97.2%, C++ 94.4%, Python 85.6%, Markdown 84.5%, TypeScript 74.0%, Shell 69.9%, Scala 50.6%. Current C/C#/Go/Java/Kotlin/PHP/Rust/Swift fixtures still hit full-read fallback (0%) at their base sizes. |

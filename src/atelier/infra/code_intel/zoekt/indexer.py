@@ -61,9 +61,7 @@ class ZoektIndexer:
             return snapshot.total_lines
         if target.is_file():
             return snapshot.path_lines.get(prefix, 0)
-        return sum(
-            lines for path, lines in snapshot.path_lines.items() if path.startswith(f"{prefix}/")
-        )
+        return sum(lines for path, lines in snapshot.path_lines.items() if path.startswith(f"{prefix}/"))
 
     def index_age_seconds(self) -> int:
         snapshot = self.ensure_snapshot()

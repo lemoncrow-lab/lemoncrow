@@ -12,7 +12,7 @@ Main Atelier coding mode. Use it for edits, refactors, bug fixes, and implementa
 
 1. **Context**: Call `context` with `task`, `domain`, `files`, `tools`, and `errors` before exploratory reads or edits.
 2. **Implement**: Use Atelier MCP tools for file I/O, search, code intelligence, edits, and shell work. Treat native host tools as disabled-by-policy unless the Atelier equivalent returns `noop`, is hidden, or is unavailable. Call `route` or `rescue` when the same approach fails twice.
-3. **Record**: Call `record` or `trace` when the task is done.
+3. **Record**: Call `trace` when the task is done.
 ## Autopilot (automatic context)
 
 Atelier may auto-provide context so you do not have to ask for it:
@@ -36,41 +36,16 @@ Never use the default (`claude`) agent for a task that fits one of the typed rol
 
 ## Tool discipline
 
-- Use `mcp__atelier__node`, `mcp__atelier__callers`, `mcp__atelier__callees`, `mcp__atelier__impact`, or `mcp__atelier__explore` first for code intelligence.
-- Use `mcp__atelier__grep` or `mcp__atelier__search` first for regex, glob, ranked discovery, and file/path lookup.
-- Use `mcp__atelier__read` first for file reads and exact ranges.
-- Use `mcp__atelier__edit` first for deterministic writes and grouped edits.
-- Use `mcp__atelier__shell` only for commands with no better Atelier equivalent, such as git, build, test, and package-manager commands.
+- Shared docs use plain tool names. Some hosts display these tools as `mcp__atelier__...`; when you need the exact callable name, use the one shown by your host.
+- Use `node`, `callers`, `callees`, `impact`, or `explore` first for code intelligence.
+- Use `grep` or `search` first for regex, glob, ranked discovery, and file/path lookup.
+- Use `read` first for file reads and exact ranges.
+- Use `edit` first for deterministic writes and grouped edits.
+- Use `shell` only for commands with no better Atelier equivalent, such as git, build, test, and package-manager commands.
 - If you ever fall back to a native host tool, explain why the Atelier equivalent was unavailable, hidden, or returned `noop`.
 ## Coding guidelines
 
-### 1. Think before coding
-
-- State assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them instead of silently picking one.
-- If a simpler approach exists, say so.
-- If something is unclear, stop and name the ambiguity.
-
-### 2. Simplicity first
-
-- Solve only the requested problem.
-- Avoid speculative abstractions.
-- Avoid configurability that was not requested.
-- If 200 lines can be 50, rewrite it.
-
-### 3. Surgical changes
-
-- Touch only what is needed for the task.
-- Match the existing local style.
-- Clean up only the unused code your own change created.
-- Do not refactor unrelated code just because it is nearby.
-
-### 4. Goal-driven execution
-
-- Turn the request into verifiable success criteria.
-- For fixes, reproduce the failure and then make the reproducer pass.
-- For behavior changes, add focused verification at the right boundary.
-- Before concluding, run the narrowest set of checks that actually proves the change.
+{{CODING_GUIDELINES}}
 
 ## Budget optimizer
 
@@ -80,10 +55,9 @@ Never use the default (`claude`) agent for a task that fits one of the typed rol
 - Restate working context in under 10 bullets before editing or after compaction.
 - If more than 10 minutes pass without an edit, restate the expected deliverable.
 - If the same approach fails twice, call `rescue` or change approach; do not retry a third time.
-- **Context threshold**: When the status line shows `ctx ≥ 70%`, immediately call `mcp__atelier__compact` then tell the user: "Context is at [N]% — run `/compact` now to avoid a full-window rebuild. I'll continue after." Do not proceed with multi-step work until the user confirms or compacts.
+- **Context threshold**: When the status line shows `ctx ≥ 70%`, immediately call `compact` then tell the user: "Context is at [N]% — run `/compact` now to avoid a full-window rebuild. I'll continue after." Do not proceed with multi-step work until the user confirms or compacts.
 
 ## Native fallback
 
 If an Atelier MCP tool returns `noop`, is hidden, or is unavailable, use native host file reads, workspace search, shell `rg`, or `grep`.
 Always return findings instead of waiting for tool availability to improve.
-

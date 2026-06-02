@@ -347,7 +347,7 @@ def begin_browser_login(
     fp = _fingerprint()
     chosen_state = state or _fingerprint(f"state:{fp}:{_iso_now()}")
     port = callback_port or 49152 + (int(fp[:4], 16) % (65535 - 49152))
-    base = (app_url or os.environ.get("ATELIER_APP_URL") or "https://atelier.local").rstrip("/")
+    base = (app_url or os.environ.get("ATELIER_APP_URL") or "https://127.0.0.1:8787").rstrip("/")
     url = f"{base}/auth?callback_port={port}&state={chosen_state}&fp={fp}"
     pending = {
         "url": url,
@@ -365,7 +365,7 @@ def share_referral(root: str | Path, *, app_url: str | None = None) -> dict[str,
     if not status.get("authenticated"):
         return {"is_error": True, "message": "Log in or start a local trial before sharing."}
     code = str(status.get("referralCode") or f"ATELIER-{_fingerprint(str(status.get('userId')))[:6].upper()}")
-    base = (app_url or os.environ.get("ATELIER_APP_URL") or "https://atelier.local").rstrip("/")
+    base = (app_url or os.environ.get("ATELIER_APP_URL") or "https:// 127.0.0.1:8787").rstrip("/")
     text = f"Use code {code} for Atelier: {base}?ref={code}"
     return {"code": code, "url": f"{base}?ref={code}", "text": text}
 
@@ -834,17 +834,13 @@ def _merge_session_start_stdout(*items: Any) -> dict[str, Any] | str:
 def _codex_session_start_tool_policy() -> dict[str, Any]:
     return {
         "hookSpecificOutput": {"hookEventName": "SessionStart"},
-        "message": "Atelier policy: for coding tasks call mcp__atelier__context first and use Atelier MCP tools before native Codex tools.",
+        "message": "Atelier policy: use Atelier tools first and keep responses delivery-focused.",
         "additionalContext": "\n".join(
             [
                 "Codex Atelier tool policy:",
-                "- Call mcp__atelier__context before exploratory reads or edits on coding tasks.",
-                "- Use mcp__atelier__node / callers / callees / impact / explore for code intelligence before native search loops.",
-                "- Use mcp__atelier__grep or mcp__atelier__search instead of native Grep/Glob or shell rg/grep/find.",
-                "- Use mcp__atelier__read instead of native Read or shell cat/sed/head for file reads.",
-                "- Use mcp__atelier__edit instead of native Edit/Write/MultiEdit for file changes.",
-                "- Use mcp__atelier__shell only for commands without a better Atelier equivalent (git, make, uv, npm, pytest).",
-                "- Treat native Codex Read/Edit/Write/MultiEdit/Bash/Grep/Glob as disabled-by-policy unless the Atelier equivalent is hidden, unavailable, or returned noop.",
+                "- Call `context` before exploratory reads or edits on coding tasks. Use the host-displayed handle if it adds an `mcp__atelier__` prefix.",
+                "- Prefer Atelier read/search/edit/code-intel tools; use native Codex tools only when the Atelier equivalent is hidden, unavailable, or returned noop.",
+                "- Keep replies concise and delivery-focused unless the user explicitly asks for a walkthrough.",
             ]
         ),
     }
@@ -961,17 +957,7 @@ def build_codex_post_tool_use_savings_output(root: str | Path, payload: dict[str
     if not _is_atelier_tool(tool_name):
         return _codex_native_tool_nudge(root, payload)
     stats = update_session_stats(root, payload)
-    session_id = str(payload.get("session_id") or "default")
-    from atelier.core.capabilities.savings_summary import compute_savings_summary
-
-    summary = compute_savings_summary(session_id, atelier_root=root)
-    calls = int(summary.smart_calls)
-    tokens = int(summary.ctx_saved)
-    saved_usd = float(summary.saved_usd)
-    output: dict[str, Any] = {
-        "systemMessage": (f"Atelier saved ${saved_usd:.4f} · {tokens:,} tokens · {calls} calls in this session."),
-        "stats": stats,
-    }
+    output: dict[str, Any] = {"stats": stats}
     progress = build_session_progress_optimization_output(root, payload)
     if not progress.get("no_output"):
         message = progress.get("message")
@@ -980,6 +966,8 @@ def build_codex_post_tool_use_savings_output(root: str | Path, payload: dict[str
         context = progress.get("additionalContext")
         if isinstance(context, str) and context.strip():
             output["additionalContext"] = context
+    if len(output) == 1:
+        output["no_output"] = True
     return output
 
 

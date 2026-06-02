@@ -324,9 +324,7 @@ def test_stack_start_spawns_native_runner(tmp_path: Path, monkeypatch: pytest.Mo
             self.pid = 2468
 
     monkeypatch.setattr("atelier.gateway.cli.commands.stack.subprocess.Popen", FakePopen)
-    monkeypatch.setattr(
-        "atelier.gateway.cli.commands.stack._pid_is_running", lambda pid: pid == 2468
-    )
+    monkeypatch.setattr("atelier.gateway.cli.commands.stack._pid_is_running", lambda pid: pid == 2468)
 
     res = _invoke(tmp_path / "a", "stack", "start", "--with-docs")
 
@@ -342,9 +340,7 @@ def test_stack_start_spawns_native_runner(tmp_path: Path, monkeypatch: pytest.Mo
     assert "docs are no longer part of the managed stack" in res.output
 
 
-def test_background_install_writes_native_stack_unit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_background_install_writes_native_stack_unit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "a"
     unit_dir = tmp_path / "systemd-user"
     commands: list[list[str]] = []
@@ -410,9 +406,7 @@ def test_background_install_skips_activation_when_user_systemd_bus_is_unavailabl
     assert not any(cmd[:3] == ["systemctl", "--user", "restart"] for cmd in commands)
 
 
-def test_background_install_writes_openmemory_unit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_background_install_writes_openmemory_unit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "a"
     unit_dir = tmp_path / "systemd-user"
     commands: list[list[str]] = []
@@ -446,9 +440,7 @@ def test_background_install_writes_openmemory_unit(
     assert any(cmd[:3] == ["systemctl", "--user", "restart"] for cmd in commands)
 
 
-def test_stop_stack_processes_kills_process_groups(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_stop_stack_processes_kills_process_groups(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "a"
     stack_dir = root / "stack"
     stack_dir.mkdir(parents=True)
@@ -469,9 +461,7 @@ def test_stop_stack_processes_kills_process_groups(
         "atelier.infra.runtime.stack_lifecycle.os.killpg",
         _mock_killpg,
     )
-    monkeypatch.setattr(
-        "atelier.infra.runtime.stack_lifecycle._pid_is_running", lambda pid: pid not in killed
-    )
+    monkeypatch.setattr("atelier.infra.runtime.stack_lifecycle._pid_is_running", lambda pid: pid not in killed)
 
     from atelier.infra.runtime.stack_lifecycle import _stop_stack_processes
 
@@ -559,9 +549,7 @@ def test_servicectl_start_writes_pidfile(tmp_path: Path, monkeypatch: pytest.Mon
             self.pid = 4321
 
     monkeypatch.setattr("atelier.gateway.cli.commands.servicectl.subprocess.Popen", FakePopen)
-    monkeypatch.setattr(
-        "atelier.infra.runtime.servicectl_lifecycle._pid_is_running", lambda pid: pid == 4321
-    )
+    monkeypatch.setattr("atelier.infra.runtime.servicectl_lifecycle._pid_is_running", lambda pid: pid == 4321)
 
     res = _invoke(
         root,
@@ -594,11 +582,7 @@ def test_servicectl_tick_imports_only_new_or_updated_sessions(
     root = tmp_path / "a"
     _invoke(root, "init")
 
-    codex_file = (
-        tmp_path
-        / "codex"
-        / "rollout-2026-05-09T12-00-00-11111111-2222-3333-4444-555555555555.jsonl"
-    )
+    codex_file = tmp_path / "codex" / "rollout-2026-05-09T12-00-00-11111111-2222-3333-4444-555555555555.jsonl"
     codex_file.parent.mkdir(parents=True, exist_ok=True)
     codex_file.write_text(
         "\n".join(

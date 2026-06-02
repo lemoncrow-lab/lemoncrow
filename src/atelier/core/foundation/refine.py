@@ -51,9 +51,7 @@ def grow_or_create(
     target, score = _best_match(incoming, existing, embedder)
     if target is None:
         return GrowResult(block=incoming, merged=False, target_id=None, score=score)
-    return GrowResult(
-        block=merge_blocks(target, incoming), merged=True, target_id=target.id, score=score
-    )
+    return GrowResult(block=merge_blocks(target, incoming), merged=True, target_id=target.id, score=score)
 
 
 def merge_blocks(target: ReasonBlock, incoming: ReasonBlock) -> ReasonBlock:

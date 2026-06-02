@@ -114,14 +114,13 @@ def _token_estimate(text: str) -> int:
 def _response_payload(result: Any) -> dict[str, Any]:
     compacted = result.compacted
     recovery = result.recovery_hint
-    rendered = f"{compacted}\n\nRecovery: {recovery}"
     return {
         "decision": "approve",
         "toolOutput": compacted,
         "replacement_output": compacted,
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
-            "additionalContext": rendered,
+            "additionalContext": f"Tool output compacted to save context. Recovery: {recovery}",
         },
         "atelierCompactToolOutput": result.model_dump(mode="json"),
     }

@@ -53,9 +53,7 @@ class RetryBudget:
             return cls(max_attempts=max_attempts)
         attempts_raw = payload.get("attempts_by_key")
         attempts = (
-            {str(key): int(value) for key, value in attempts_raw.items()}
-            if isinstance(attempts_raw, dict)
-            else {}
+            {str(key): int(value) for key, value in attempts_raw.items()} if isinstance(attempts_raw, dict) else {}
         )
         used = payload.get("used")
         if not isinstance(used, int):

@@ -48,10 +48,7 @@ def _write_symbol_file(root: Path, rel: str, symbol_name: str) -> None:
 
 
 def test_search_reranker_reorders_top_window_and_preserves_tail() -> None:
-    hits = [
-        _make_symbol(f"s{index}", file_path=f"src/s{index}.py", score=index / 100.0)
-        for index in range(1, 8)
-    ]
+    hits = [_make_symbol(f"s{index}", file_path=f"src/s{index}.py", score=index / 100.0) for index in range(1, 8)]
     reranker = SearchReranker(
         model="test-reranker",
         top_n=6,
@@ -65,9 +62,7 @@ def test_search_reranker_reorders_top_window_and_preserves_tail() -> None:
         hits,
         mode="hybrid",
         scope="repo",
-        source_loader=lambda symbol: (
-            f"def {symbol.symbol_name}() -> str:\n    return '{symbol.symbol_name}'\n"
-        ),
+        source_loader=lambda symbol: (f"def {symbol.symbol_name}() -> str:\n    return '{symbol.symbol_name}'\n"),
     )
 
     assert [symbol.symbol_id for symbol in reranked] == ["s6", "s5", "s4", "s2", "s3", "s1", "s7"]
@@ -99,9 +94,7 @@ def test_search_reranker_is_noop_when_backend_unavailable() -> None:
     assert [symbol.symbol_id for symbol in reranked] == ["alpha", "beta"]
 
 
-def test_search_symbols_reranks_after_filters_before_final_limit(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_search_symbols_reranks_after_filters_before_final_limit(tmp_path: Path, monkeypatch) -> None:
     for name in ("local1", "local2", "local3", "local4", "local5", "local6"):
         _write_symbol_file(tmp_path, f"src/{name}.py", name)
 
@@ -127,9 +120,7 @@ def test_search_symbols_reranks_after_filters_before_final_limit(
     )
 
     monkeypatch.setattr(engine.intel_store, "search_symbols", lambda *_args, **_kwargs: local_hits)
-    monkeypatch.setattr(
-        engine, "_search_symbols_semantic_local", lambda *_args, **_kwargs: local_hits
-    )
+    monkeypatch.setattr(engine, "_search_symbols_semantic_local", lambda *_args, **_kwargs: local_hits)
     monkeypatch.setattr(engine, "_search_commit_chunks", lambda *_args, **_kwargs: [commit_hit])
     monkeypatch.setattr(
         engine._semantic_ranker,
@@ -198,9 +189,7 @@ def test_tool_search_cache_keys_include_rerank_fingerprint(tmp_path: Path, monke
     monkeypatch.setattr(engine, "_sync_symbol_intel", lambda: None)
 
     calls = {"count": 0}
-    helper_symbol = _make_symbol(
-        "helper", file_path="src/helper.py", symbol_name="helper", score=0.8
-    )
+    helper_symbol = _make_symbol("helper", file_path="src/helper.py", symbol_name="helper", score=0.8)
 
     def _fake_search_symbols(*_args, **_kwargs) -> list[SymbolRecord]:
         calls["count"] += 1

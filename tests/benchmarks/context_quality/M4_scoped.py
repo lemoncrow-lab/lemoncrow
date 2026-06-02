@@ -140,9 +140,7 @@ def _collect_repo_history_queries(repo_root: Path, *, limit: int = 5) -> list[Re
         code_files = [
             path
             for path in record.files_touched
-            if path.startswith(_CODE_PREFIXES)
-            and path.endswith(_CODE_SUFFIXES)
-            and (repo_root / path).exists()
+            if path.startswith(_CODE_PREFIXES) and path.endswith(_CODE_SUFFIXES) and (repo_root / path).exists()
         ]
         if 2 <= len(code_files) <= 5 and not record.message.lower().startswith(("docs", "chore")):
             selected_files = code_files[:3]
@@ -413,9 +411,7 @@ def test_m4_repo_history_precision_recall() -> None:
             f"recall={verdict['recall']:.2f} :: {verdict['summary']}"
         )
 
-    assert commit_hit_rate >= 0.7, (
-        f"real-history M4 commit hit rate {commit_hit_rate:.2f} below 0.70 target"
-    )
+    assert commit_hit_rate >= 0.7, f"real-history M4 commit hit rate {commit_hit_rate:.2f} below 0.70 target"
     assert mean_precision >= 0.45, f"real-history M4 precision {mean_precision:.2f} below 0.45 target"
     assert mean_recall >= 0.55, f"real-history M4 recall {mean_recall:.2f} below 0.55 target"
 

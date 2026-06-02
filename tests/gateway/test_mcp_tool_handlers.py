@@ -109,9 +109,7 @@ def _write_gateway_scip_fixture(
 ) -> Path:
     engine = CodeContextEngine(repo_root)
     symbol_source = source or (repo_root / file_path).read_text(encoding="utf-8")
-    caller_source = (
-        (repo_root / "b.py").read_text(encoding="utf-8") if (repo_root / "b.py").exists() else ""
-    )
+    caller_source = (repo_root / "b.py").read_text(encoding="utf-8") if (repo_root / "b.py").exists() else ""
     artifact_dir = ScipIndexer(repo_root, engine.repo_id).cache_root
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifact_path: Path = artifact_dir / artifact_name
@@ -212,9 +210,7 @@ def _write_bootstrap_fixture_repo(root: Path) -> None:
     )
 
 
-def _write_workspace_fixture_repo(
-    root: Path, *, module_name: str, class_name: str = "SharedConfig"
-) -> None:
+def _write_workspace_fixture_repo(root: Path, *, module_name: str, class_name: str = "SharedConfig") -> None:
     (root / "src").mkdir(parents=True, exist_ok=True)
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "src" / "config.py").write_text(
@@ -283,9 +279,7 @@ def test_initialize_returns_server_info() -> None:
 
 
 def test_notifications_initialized_returns_none() -> None:
-    resp = _handle(
-        {"jsonrpc": "2.0", "id": None, "method": "notifications/initialized", "params": {}}
-    )
+    resp = _handle({"jsonrpc": "2.0", "id": None, "method": "notifications/initialized", "params": {}})
     assert resp is None
 
 
@@ -312,14 +306,10 @@ def test_tools_list_only_product_tools_without_dev_mode(
     assert names == STABLE_LLM_TOOLS
     assert not (names & DEV_LLM_TOOLS)
     assert "route" in names
-    assert all(
-        "passive" not in tool["description"] for tool in tools if tool["name"] in STABLE_LLM_TOOLS
-    )
+    assert all("passive" not in tool["description"] for tool in tools if tool["name"] in STABLE_LLM_TOOLS)
 
 
-def test_memory_tool_call_works_without_dev_mode(
-    store_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_memory_tool_call_works_without_dev_mode(store_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _ = store_root
     monkeypatch.delenv("ATELIER_DEV_MODE", raising=False)
     monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
@@ -351,9 +341,7 @@ def test_memory_tool_call_works_without_dev_mode(
     assert "passages" in recalled
 
 
-def test_cli_tools_list_respects_stable_and_dev_modes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cli_tools_list_respects_stable_and_dev_modes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ATELIER_DEV_MODE", raising=False)
     runner = CliRunner()
 
@@ -367,9 +355,7 @@ def test_cli_tools_list_respects_stable_and_dev_modes(
     assert "ATELIER_DEV_MODE" not in os.environ
 
 
-def test_cli_tools_call_invokes_stable_tool(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cli_tools_call_invokes_stable_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ATELIER_DEV_MODE", raising=False)
     runner = CliRunner()
 
@@ -526,9 +512,7 @@ def test_context_worker_tick_persists_bootstrap_blocks_without_blocking_initial_
     bootstrap_count = 0
     for _ in range(3):
         blocks = make_memory_store(store_root).list_pinned_blocks(plan.agent_id)
-        bootstrap_count = len(
-            [block for block in blocks if block.label.startswith(f"bootstrap/{plan.repo_id}/")]
-        )
+        bootstrap_count = len([block for block in blocks if block.label.startswith(f"bootstrap/{plan.repo_id}/")])
         if bootstrap_count == 4:
             break
         mcp_server._run_worker_tick_safe(store_root)
@@ -824,14 +808,10 @@ def test_model_recommendation_fallback_records_route_decision(
     assert route_decisions[-1].payload["kind"] == "route_decision"
 
 
-def test_compact_session_op_emits_session_compaction_savings(
-    monkeypatch: pytest.MonkeyPatch, store_root: Path
-) -> None:
+def test_compact_session_op_emits_session_compaction_savings(monkeypatch: pytest.MonkeyPatch, store_root: Path) -> None:
     _ = store_root
     events: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
-    )
+    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
     led = mcp_server._get_ledger()
     led.token_count = 48_000
     for idx in range(4):
@@ -853,9 +833,7 @@ def test_compact_advise_emits_session_compaction_savings_when_auto_compacting(
 ) -> None:
     _ = store_root
     events: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        mcp_server, "_append_live_savings_event", lambda event: events.append(event)
-    )
+    monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
     led = mcp_server._get_ledger()
     led.token_count = 160_000
     for idx in range(16):
@@ -894,15 +872,11 @@ def test_smart_read_and_search_surfaces(store_root: Path, tmp_path: Path) -> Non
     assert grep_payload
     assert "_meta" not in grep_payload
 
-    legacy_payload = _result(
-        _call("grep", {"path": str(target), "content_regex": "needle", "include_meta": True})
-    )
+    legacy_payload = _result(_call("grep", {"path": str(target), "content_regex": "needle", "include_meta": True}))
     assert "meta: files=1" in legacy_payload
 
 
-def test_smart_edit_surface_applies_patch(
-    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_smart_edit_surface_applies_patch(store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _ = store_root
     monkeypatch.chdir(tmp_path)
     target = Path("edit.txt")
@@ -1035,9 +1009,7 @@ def test_smart_edit_records_workspace_relative_diff_after_hooks(
 @pytest.mark.skip(
     reason="SCIP routing for engine.tool_search() under field-shortening migration; tracked for post-launch hardening (see docs/launch-readiness.md)."
 )
-def test_code_context_external_scope_surface_returns_external_hits_only(
-    store_root: Path, tmp_path: Path
-) -> None:
+def test_code_context_external_scope_surface_returns_external_hits_only(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     _write_gateway_scip_fixture(
@@ -1051,9 +1023,7 @@ def test_code_context_external_scope_surface_returns_external_hits_only(
     )
 
     repo_payload = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "get"})
-    external_payload = tool_code(
-        {"op": "search", "repo_root": str(tmp_path), "query": "get", "scope": "external"}
-    )
+    external_payload = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "get", "scope": "external"})
 
     assert repo_payload["items"] == []
     assert [item["qualified_name"] for item in external_payload["items"]] == ["requests.get"]
@@ -1103,9 +1073,7 @@ def test_code_context_workspace_search_returns_repo_tagged_hits_and_repo_filter(
     _write_workspace_fixture_repo(billing_root, module_name="billing")
     _write_workspace_fixture_config(tmp_path, billing_root)
 
-    payload = tool_code(
-        {"op": "search", "repo_root": str(tmp_path), "query": "SharedConfig", "budget_tokens": 4000}
-    )
+    payload = tool_code({"op": "search", "repo_root": str(tmp_path), "query": "SharedConfig", "budget_tokens": 4000})
     billing_only = tool_code(
         {
             "op": "search",
@@ -1145,9 +1113,7 @@ def test_code_context_workspace_symbol_filter_and_external_origin_metadata(
         source="def get(url: str) -> str:\n    return url\n",
     )
 
-    default_symbol = tool_code(
-        {"op": "symbol", "repo_root": str(tmp_path), "symbol_name": "SharedConfig"}
-    )
+    default_symbol = tool_code({"op": "symbol", "repo_root": str(tmp_path), "symbol_name": "SharedConfig"})
     billing_symbol = tool_code(
         {
             "op": "symbol",
@@ -1190,9 +1156,7 @@ def test_repo_map_surface(store_root: Path, tmp_path: Path) -> None:
 def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
-    (tmp_path / "b.py").write_text(
-        "from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8"
-    )
+    (tmp_path / "b.py").write_text("from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8")
 
     indexed = _result(_call("symbols", {"op": "index", "repo_root": str(tmp_path)}))
     _m = re.search(r"symbols=(\d+)", indexed)
@@ -1200,14 +1164,10 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     assert int(_m.group(1)) >= 2
     assert "provenance: local" in indexed
 
-    searched = _result(
-        _call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"})
-    )
+    searched = _result(_call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
     assert searched and "no matches" not in searched
     assert "snippet:" not in searched
-    cached_search = _result(
-        _call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"})
-    )
+    cached_search = _result(_call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
     assert "provenance: cached" in cached_search
 
     symbol = _result(
@@ -1224,9 +1184,7 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     assert "def alpha" in symbol
     assert "provenance: local" in symbol
 
-    outline = _result(
-        _call("symbols", {"op": "outline", "repo_root": str(tmp_path), "file_path": "a.py"})
-    )
+    outline = _result(_call("symbols", {"op": "outline", "repo_root": str(tmp_path), "file_path": "a.py"}))
     assert "a.py" in outline
     assert "provenance: local" in outline
 
@@ -1249,9 +1207,7 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     assert "target_type: file" in impact
     assert "provenance: local" in impact
 
-    symbol_impact = _result(
-        _call("symbols", {"op": "impact", "repo_root": str(tmp_path), "query": "alpha"})
-    )
+    symbol_impact = _result(_call("symbols", {"op": "impact", "repo_root": str(tmp_path), "query": "alpha"}))
     assert "target_type: symbol" in symbol_impact
     assert "target: symbol" in symbol_impact
     assert "affected_files:" in symbol_impact
@@ -1260,39 +1216,25 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
 @pytest.mark.skip(
     reason="SCIP cache-invalidation surface under field-shortening migration; tracked for post-launch hardening (see docs/launch-readiness.md)."
 )
-def test_code_context_mcp_routes_scip_and_invalidates_cache(
-    store_root: Path, tmp_path: Path
-) -> None:
+def test_code_context_mcp_routes_scip_and_invalidates_cache(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     artifact_path = _write_gateway_scip_fixture(tmp_path, symbol_id="scip-alpha-v1")
 
-    first = _result(
-        _call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"})
-    )
-    cached = _result(
-        _call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"})
-    )
+    first = _result(_call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
+    cached = _result(_call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
     artifact_path.write_text(
         artifact_path.read_text(encoding="utf-8").replace("scip-alpha-v1", "scip-alpha-v2"),
         encoding="utf-8",
     )
-    fresh = _result(
-        _call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"})
-    )
+    fresh = _result(_call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
 
     assert first["provenance"] == "scip" if isinstance(first, dict) else "provenance: scip" in first
-    assert (
-        cached["provenance"] == "cached"
-        if isinstance(cached, dict)
-        else "provenance: cached" in cached
-    )
+    assert cached["provenance"] == "cached" if isinstance(cached, dict) else "provenance: cached" in cached
     assert fresh["provenance"] == "scip" if isinstance(fresh, dict) else "provenance: scip" in fresh
 
 
-def test_code_context_search_surface_supports_snippet_scope_and_glob(
-    store_root: Path, tmp_path: Path
-) -> None:
+def test_code_context_search_surface_supports_snippet_scope_and_glob(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "src").mkdir()
     (tmp_path / "tests").mkdir()
@@ -1324,8 +1266,7 @@ def test_code_context_search_surface_supports_snippet_scope_and_glob(
     assert "provenance_breakdown" not in payload
     assert payload["items"][0]["path"] == "src/orders.py"
     assert (
-        payload["items"][0]["snippet"]
-        == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
+        payload["items"][0]["snippet"] == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
     )
 
 
@@ -1476,9 +1417,7 @@ def test_tool_code_include_churn_remains_additive_for_non_blame_ops(
 ) -> None:
     fake_engine = MagicMock()
     fake_engine.tool_search.return_value = {
-        "items": [
-            {"symbol_name": "OrderService", "file_path": "src/orders.py", "provenance": "local"}
-        ],
+        "items": [{"symbol_name": "OrderService", "file_path": "src/orders.py", "provenance": "local"}],
         "cache_hit": False,
         "provenance": "local",
         "tokens_saved": 10,
@@ -1532,9 +1471,7 @@ def test_code_context_usages_surface_groups_references(store_root: Path, tmp_pat
         encoding="utf-8",
     )
 
-    payload = _result(
-        _call("symbols", {"op": "usages", "repo_root": str(tmp_path), "query": "OrderService"})
-    )
+    payload = _result(_call("symbols", {"op": "usages", "repo_root": str(tmp_path), "query": "OrderService"}))
 
     assert "group_by: file" in payload
     assert "OrderService" in payload
@@ -1545,14 +1482,10 @@ def test_code_context_usages_surface_groups_references(store_root: Path, tmp_pat
 def test_code_context_call_graph_surface_is_additive(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
-    (tmp_path / "b.py").write_text(
-        "from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8"
-    )
+    (tmp_path / "b.py").write_text("from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8")
     _write_gateway_scip_fixture(tmp_path, symbol_id="scip-alpha", include_call_graph=True)
 
-    callers = _result(
-        _call("symbols", {"op": "callers", "repo_root": str(tmp_path), "query": "alpha"})
-    )
+    callers = _result(_call("symbols", {"op": "callers", "repo_root": str(tmp_path), "query": "alpha"}))
     callees = _result(
         _call(
             "symbols",
@@ -1566,9 +1499,7 @@ def test_code_context_call_graph_surface_is_additive(store_root: Path, tmp_path:
     assert "snapshot.direction: callees" in callees
 
 
-def test_code_context_mcp_falls_back_when_scip_artifact_is_invalid(
-    store_root: Path, tmp_path: Path
-) -> None:
+def test_code_context_mcp_falls_back_when_scip_artifact_is_invalid(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     engine = CodeContextEngine(tmp_path)
@@ -1576,9 +1507,7 @@ def test_code_context_mcp_falls_back_when_scip_artifact_is_invalid(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     (artifact_dir / "python.scip").write_text("{invalid json", encoding="utf-8")
 
-    searched = _result(
-        _call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"})
-    )
+    searched = _result(_call("symbols", {"op": "search", "repo_root": str(tmp_path), "query": "alpha"}))
 
     assert "alpha" in searched
     assert "provenance: scip" not in searched
@@ -1638,9 +1567,7 @@ def test_code_context_pattern_search_surface_is_cached(
     assert cached["provenance"] == "cached"
 
 
-def test_code_context_cache_diagnostics_surface_is_additive(
-    store_root: Path, tmp_path: Path
-) -> None:
+def test_code_context_cache_diagnostics_surface_is_additive(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
@@ -1675,9 +1602,7 @@ def test_code_context_cache_diagnostics_surface_is_additive(
         )
     )
 
-    status = _result(
-        _call("symbols", {"op": "cache_status", "repo_root": str(tmp_path), "budget_tokens": 200})
-    )
+    status = _result(_call("symbols", {"op": "cache_status", "repo_root": str(tmp_path), "budget_tokens": 200}))
     invalidated = _result(
         _call(
             "symbols",
@@ -1715,9 +1640,7 @@ def test_code_context_pattern_rewrite_reindexes_changed_files(
 
     reindexed: list[list[str]] = []
 
-    monkeypatch.setattr(
-        "atelier.core.capabilities.code_context.engine.AstGrepAdapter.rewrite", fake_rewrite
-    )
+    monkeypatch.setattr("atelier.core.capabilities.code_context.engine.AstGrepAdapter.rewrite", fake_rewrite)
     monkeypatch.setattr(
         CodeContextEngine,
         "_reindex_files",
@@ -1808,9 +1731,7 @@ def test_batch_edit_and_rich_edit_share_path_safety_constant() -> None:
     from atelier.core.capabilities.tool_supervision.path_safety import PROTECTED_PARTS
 
     # Neither module should define its own _PROTECTED_PARTS
-    assert not hasattr(batch_edit, "_PROTECTED_PARTS"), (
-        "batch_edit still has local _PROTECTED_PARTS"
-    )
+    assert not hasattr(batch_edit, "_PROTECTED_PARTS"), "batch_edit still has local _PROTECTED_PARTS"
     assert not hasattr(rich_edit, "_PROTECTED_PARTS"), "rich_edit still has local _PROTECTED_PARTS"
 
     # Both modules reference the shared path_safety.PROTECTED_PARTS constant
@@ -1832,12 +1753,10 @@ def test_trace_compact_receipt_always_present(store_root: Path) -> None:
             },
         )
     )
-    assert payload.get("event_recorded") is True, (
-        f"'event_recorded' missing or False in trace receipt: {payload}"
-    )
-    assert isinstance(payload.get("trace_id"), str) and payload["trace_id"], (
-        f"'trace_id' missing or empty in trace receipt: {payload}"
-    )
+    assert payload.get("event_recorded") is True, f"'event_recorded' missing or False in trace receipt: {payload}"
+    assert (
+        isinstance(payload.get("trace_id"), str) and payload["trace_id"]
+    ), f"'trace_id' missing or empty in trace receipt: {payload}"
 
 
 def test_route_decide_summary_is_present(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1882,6 +1801,4 @@ def test_shell_failure_preserves_tail(tmp_path: Path, monkeypatch: pytest.Monkey
     assert result["exit_code"] == 1
     stdout = result["stdout"]
     # The last line must be visible (line-299)
-    assert "line-299" in stdout, (
-        f"tail not preserved for failing command; stdout tail:\n{stdout[-500:]}"
-    )
+    assert "line-299" in stdout, f"tail not preserved for failing command; stdout tail:\n{stdout[-500:]}"

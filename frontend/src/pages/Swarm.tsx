@@ -216,6 +216,7 @@ export default function Swarm() {
   const [runnerOptions, setRunnerOptions] = useState("");
   const [launchRuns, setLaunchRuns] = useState(3);
   const [continuous, setContinuous] = useState(true);
+  const [maxWaves, setMaxWaves] = useState(5);
   const [keepWorktrees, setKeepWorktrees] = useState(true);
   const [effort, setEffort] = useState("high");
   const [logs, setLogs] = useState("");
@@ -261,6 +262,7 @@ export default function Swarm() {
         setRunner(payload.defaults.runner);
         setLaunchRuns(payload.defaults.runs);
         setContinuous(payload.defaults.continuous);
+        setMaxWaves(payload.defaults.max_waves ?? 5);
         setKeepWorktrees(payload.defaults.keep_worktrees);
         setEffort(payload.defaults.effort);
         setModelValue("");
@@ -439,6 +441,7 @@ export default function Swarm() {
         runner_options: isCliProvider ? runnerOptions : "",
         runs: launchRuns,
         continuous,
+        max_waves: continuous ? maxWaves : 1,
         keep_worktrees: keepWorktrees,
         effort,
         provider_api_key: provider === "openai" ? providerApiKey || null : null,
@@ -744,7 +747,7 @@ export default function Swarm() {
                 </div>
               ) : null}
 
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-4">
                 <div className="space-y-2">
                   <FieldLabel>Runs / wave</FieldLabel>
                   <Input
@@ -754,6 +757,22 @@ export default function Swarm() {
                     value={String(launchRuns)}
                     onChange={(event) =>
                       setLaunchRuns(Number(event.target.value || 1))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel className="flex items-center gap-1">
+                    Max waves
+                    <HoverHint text="Hard stop for continuous runs. Set 0 only when you want an unbounded run." />
+                  </FieldLabel>
+                  <Input
+                    id="swarm-max-waves"
+                    type="number"
+                    min={0}
+                    value={String(maxWaves)}
+                    disabled={!continuous}
+                    onChange={(event) =>
+                      setMaxWaves(Number(event.target.value || 0))
                     }
                   />
                 </div>

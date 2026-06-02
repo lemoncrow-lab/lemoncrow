@@ -100,9 +100,7 @@ def _write_external_scip_fixture(repo_root: Path) -> None:
             }
         ],
     }
-    (artifact_dir / "external-python.scip").write_text(
-        json.dumps(payload, sort_keys=True), encoding="utf-8"
-    )
+    (artifact_dir / "external-python.scip").write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
 
 
 def _record_trace(atelier_root: Path) -> str:
@@ -132,9 +130,7 @@ def run_external_scope_bench(work_dir: Path | None = None) -> ExternalScopeBench
 
     with _workspace_env(repo_root, atelier_root):
         mcp_server._reset_runtime_cache_for_testing()
-        repo_payload = tool_code(
-            {"op": "search", "repo_root": str(repo_root), "query": "get", "budget_tokens": 1200}
-        )
+        repo_payload = tool_code({"op": "search", "repo_root": str(repo_root), "query": "get", "budget_tokens": 1200})
         external_payload = tool_code(
             {
                 "op": "search",

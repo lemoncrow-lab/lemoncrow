@@ -146,6 +146,13 @@ import: ## Import sessions and external tool snapshots: make import [f=1]
 		LOCAL=1 $(ATELIER_CMD) --root "$(ATELIER_STORE)" external-report --tool all --period "$$period" --persist || true; \
 	done
 
+flow-dump: ## Extract chat from a .flow file or directory: make flow-dump path=/path/to/file_or_dir
+	@if [ -z "$(path)" ]; then \
+		echo "Error: 'path' argument is required. Usage: make flow-dump path=/path/to/file_or_dir"; \
+		exit 1; \
+	fi
+	uv run --project benchmarks python scripts/extract_flow.py $(path)
+
 clean: ## Remove build artifacts, caches, and coverage data
 	rm -rf .pytest_cache .ruff_cache .mypy_cache htmlcov .coverage build dist *.egg-info
 	find . -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
