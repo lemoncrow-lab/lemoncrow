@@ -757,6 +757,7 @@ def optimize_compress_context(file: Path, do_write: bool) -> None:
 def savings_detail(ctx: click.Context, as_json: bool, limit: int) -> None:
     """Per-operation cost-delta breakdown (last_cost - new_cost, baseline %)."""
     require_pro("savings_dashboard", "Full savings breakdown")
+    from atelier.core.capabilities.savings_summary import _fmt_pct, _fmt_usd
     from atelier.infra.runtime.cost_tracker import CostTracker
 
     tracker = CostTracker(ctx.obj["root"])
@@ -774,7 +775,7 @@ def savings_detail(ctx: click.Context, as_json: bool, limit: int) -> None:
     click.echo(
         f"Tracked operations: {summary['operations_tracked']}  "
         f"calls={summary['total_calls']}  "
-        f"saved=${summary['saved_usd']:.4f} ({summary['saved_pct']}%)"
+        f"saved={_fmt_usd(summary['saved_usd'])} ({_fmt_pct(summary['saved_pct'])})"
     )
     click.echo("-" * 92)
     click.echo(
@@ -785,9 +786,9 @@ def savings_detail(ctx: click.Context, as_json: bool, limit: int) -> None:
     for r in rows:
         click.echo(
             f"{r['op_key']:18} {r['calls_count']:>5} "
-            f"{r['baseline_cost_usd']:>10.4f} {r['last_cost_usd']:>10.4f} "
-            f"{r['current_cost_usd']:>10.4f} {r['delta_vs_last_usd']:>10.4f} "
-            f"{r['delta_vs_base_usd']:>10.4f} {r['pct_vs_base']:>6.1f}  "
+            f"{_fmt_usd(r['baseline_cost_usd']):>10} {_fmt_usd(r['last_cost_usd']):>10} "
+            f"{_fmt_usd(r['current_cost_usd']):>10} {_fmt_usd(r['delta_vs_last_usd']):>10} "
+            f"{_fmt_usd(r['delta_vs_base_usd']):>10} {_fmt_pct(r['pct_vs_base']):>6}  "
             f"{r.get('domain', '-')}"
         )
 

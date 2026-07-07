@@ -23,7 +23,7 @@ import {
   cx,
 } from "../components/WorkbenchUI";
 import { useTimeRange } from "../lib/TimeRangeContext";
-import { fmtUsd } from "../lib/format";
+import { fmtPct, fmtTok, fmtUsd } from "../lib/format";
 
 const COMPACTION_LABELS: Record<string, string> = {
   prompt_cache_reorder: "Prompt-cache reorder",
@@ -41,21 +41,13 @@ type SessionEvidence = OptimizationRecommendationSession & {
   estimatedTokensSaved: number;
 };
 
-function fmtTokens(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
-  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return value.toLocaleString();
-}
-
 function fmtDeltaPercent(value: number): string {
   const sign = value > 0 ? "+" : "";
-  return `${sign}${(value * 100).toFixed(1)}%`;
+  return `${sign}${fmtPct(value * 100)}`;
 }
 
 function fmtPercent(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
+  return fmtPct(value * 100);
 }
 
 function fmtSignedUsd(value: number): string {
@@ -555,7 +547,7 @@ function SessionsBehindRecommendation({
                 <MetricCard
                   label="Estimated savings"
                   value={fmtUsd(session.estimatedUsdSaved)}
-                  detail={fmtTokens(session.estimatedTokensSaved)}
+                  detail={fmtTok(session.estimatedTokensSaved)}
                   tone="emerald"
                 />
                 <MetricCard
@@ -909,7 +901,7 @@ function OptimizationComparison({
             <div>
               <div className="text-xs text-neutral-400">Avg Tokens</div>
               <div className="text-xl font-semibold text-neutral-100">
-                {fmtTokens(impact.before.avg_tokens)}
+                {fmtTok(impact.before.avg_tokens)}
               </div>
             </div>
             <div>
@@ -941,7 +933,7 @@ function OptimizationComparison({
             <div>
               <div className="text-xs text-neutral-400">Avg Tokens</div>
               <div className="text-xl font-semibold text-neutral-100">
-                {fmtTokens(impact.after.avg_tokens)}
+                {fmtTok(impact.after.avg_tokens)}
               </div>
             </div>
             <div>
@@ -1036,7 +1028,7 @@ function SupportingEvidence({
         </div>
         <MetricCard
           label="Reread savings"
-          value={fmtTokens(summary.reread_telemetry.total_tokens_saved)}
+          value={fmtTok(summary.reread_telemetry.total_tokens_saved)}
           detail={fmtUsd(summary.reread_telemetry.total_cost_saved_usd)}
           tone="cyan"
         />
@@ -1092,7 +1084,7 @@ function SupportingEvidence({
               <div
                 key={item.id}
                 className="border border-neutral-800 bg-black/20 p-3"
-                title={`${fmtTokens(item.tokens_saved)} saved across ${item.session_count.toLocaleString()} sessions`}
+                title={`${fmtTok(item.tokens_saved)} saved across ${item.session_count.toLocaleString()} sessions`}
               >
                 <div className="text-sm font-semibold text-neutral-100">
                   {item.title}
@@ -1129,7 +1121,7 @@ function SupportingEvidence({
                 summary.external_optimizations.payload.overview
                   .estimated_usd_saved
               )}
-              detail={fmtTokens(
+              detail={fmtTok(
                 summary.external_optimizations.payload.overview
                   .estimated_tokens_saved
               )}
@@ -1342,7 +1334,14 @@ export default function Optimizations() {
                   const savings =
                     summary.advisor.baseline_weekly_cost_usd -
                     candidate.weekly_cost_usd;
-                  const isSaving = savings > 0.01;
+                  const totalSaved = candidate.total_saved_usd ?? savings;
+                  const isSaving = totalSaved > 0.01;
+                  // Breakdown rows only reconcile to totalSaved on payloads
+                  // that carry the per-component fields -- older cached
+                  // advisor_history entries lack them, so skip the rows
+                  // rather than show misleading $0.00 lines under a nonzero
+                  // (lump-fallback) total.
+                  const hasBreakdown = candidate.total_saved_usd !== undefined;
                   return (
                     <>
                       <div
@@ -1352,11 +1351,39 @@ export default function Optimizations() {
                         )}
                       >
                         {isSaving ? "+" : ""}
-                        {fmtUsd(Math.max(0, savings))}
+                        {fmtUsd(Math.max(0, totalSaved))}
                       </div>
                       <div className="mt-1 text-xs text-neutral-400">
                         savings / week
                       </div>
+                      {hasBreakdown && (
+                        <div className="mt-3 space-y-1 border-t border-neutral-800 pt-3 text-xs">
+                          <div className="flex justify-between text-neutral-400">
+                            <span>Read</span>
+                            <span className="font-mono text-neutral-300">
+                              {fmtSignedUsd(candidate.read_saved_usd ?? 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-neutral-400">
+                            <span>Carry</span>
+                            <span className="font-mono text-neutral-300">
+                              {fmtSignedUsd(candidate.carry_saved_usd ?? 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-neutral-400">
+                            <span>Output</span>
+                            <span className="font-mono text-neutral-300">
+                              {fmtSignedUsd(candidate.output_saved_usd ?? 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-neutral-400">
+                            <span>Routing</span>
+                            <span className="font-mono text-neutral-300">
+                              {fmtSignedUsd(candidate.routing_saved_usd ?? 0)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </>
                   );
                 })()}

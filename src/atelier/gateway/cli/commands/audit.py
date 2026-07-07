@@ -16,6 +16,7 @@ from typing import Any
 
 import click
 
+from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
 from atelier.gateway.cli.commands.sessions import (
     _FLEET_SAVED_TOKENS_PER_CALL,
     _ROUTABLE_BUILTIN,
@@ -341,42 +342,24 @@ def _compute_savings_estimate(item: AuditItem) -> None:
     item.net_benefit_usd = item.potential_usd_saved - item.context_cost_usd
 
 
-def _fmt_compact(n: int) -> str:
-    """Format token counts compactly."""
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}K"
-    return str(n)
-
-
-def _fmt_usd(v: float) -> str:
-    """Format USD."""
-    if abs(v) >= 1:
-        return f"${v:,.2f}"
-    if abs(v) >= 0.01:
-        return f"${v:,.4f}"
-    return f"${v:.6f}"
-
-
 def _compute_next_action(item: AuditItem) -> str:
     """Generate a specific next-action recommendation."""
     if item.recommendation == "DISABLE":
         if item.source_type == "mcp_server":
             return (
                 f"Set `alwaysLoad: false` for `{item.name}` in .mcp.json. "
-                f"Saves ~{_fmt_compact(item.est_context_tokens)} tok/turn "
+                f"Saves ~{_fmt_tok(item.est_context_tokens)} tok/turn "
                 f"({_fmt_usd(item.context_cost_usd)} over window)."
             )
         if item.name == "AGENTS.md":
             return (
                 f"Remove unused skill entries from AGENTS.md. "
-                f"Saves ~{_fmt_compact(item.est_context_tokens)} tok/turn "
+                f"Saves ~{_fmt_tok(item.est_context_tokens)} tok/turn "
                 f"({_fmt_usd(item.context_cost_usd)} over window)."
             )
         return (
             f"Remove `{item.name}` from skills/ directory. "
-            f"Saves ~{_fmt_compact(item.est_context_tokens)} tok/turn "
+            f"Saves ~{_fmt_tok(item.est_context_tokens)} tok/turn "
             f"({_fmt_usd(item.context_cost_usd)} over window)."
         )
 
@@ -483,7 +466,7 @@ def _render_audit_rich(
         _chip("to DISABLE", f"{disable_count}", "bright_red"),
         _chip("to CONSIDER", f"{consider_count}", "bright_yellow"),
         _chip("KEEP", f"{keep_count}", "bright_green"),
-        _chip("Recoverable/Turn", f"{_fmt_compact(recoverable_tokens)} tok", "bright_cyan"),
+        _chip("Recoverable/Turn", f"{_fmt_tok(recoverable_tokens)} tok", "bright_cyan"),
     )
     console.print(chip_grid)
     console.print()
@@ -604,8 +587,8 @@ def _render_audit_rich(
         f"  [dim]  CONSIDER       [/]  [bright_yellow]{consider_count}[/]",
         f"  [dim]  KEEP           [/]  [bright_green]{keep_count}[/]",
         "",
-        f"  [dim]Recoverable/turn [/]  [bright_cyan]{_fmt_compact(recoverable_tokens)} tok[/]",
-        f"  [dim]  per session    [/]  [dim]~{_fmt_compact(recoverable_tokens // max(1, total_sessions))} tok[/]",
+        f"  [dim]Recoverable/turn [/]  [bright_cyan]{_fmt_tok(recoverable_tokens)} tok[/]",
+        f"  [dim]  per session    [/]  [dim]~{_fmt_tok(recoverable_tokens // max(1, total_sessions))} tok[/]",
     ]
 
     right_lines = [
@@ -640,9 +623,9 @@ def _render_text(items: list[AuditItem]) -> str:
         used_str = "YES" if item.used else "no"
         ar = f"{item.atelier_calls}/{item.routable_calls}" if item.atelier_calls or item.routable_calls else ""
         net_str = (
-            f"+{_fmt_compact(item.net_benefit_tokens)}"
+            f"+{_fmt_tok(item.net_benefit_tokens)}"
             if item.net_benefit_tokens > 0
-            else str(_fmt_compact(item.net_benefit_tokens))
+            else str(_fmt_tok(item.net_benefit_tokens))
         )
         rec = item.recommendation
         rec_display = rec

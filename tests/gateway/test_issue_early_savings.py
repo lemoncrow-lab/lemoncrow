@@ -71,9 +71,9 @@ def test_statusline_does_not_borrow_from_stale_bridge_in_new_main_session(tmp_pa
     # Run statusline for the NEW session (no parent relationship possible)
     output = _run_statusline(tmp_path, _payload(new_sid), env_extra={"CLAUDE_WORKSPACE_ROOT": str(workspace)})
 
-    # It should report 0 savings, not the stale session's $0.002.
-    assert "$0.002" not in output
-    assert "$0.000(I:" in output
+    # It should report 0 savings, not the stale session's $0.0018.
+    assert "$0.0018" not in output
+    assert "$0.0000(I:" in output
 
 
 def test_statusline_borrows_for_subagents_via_transcript(tmp_path: Path) -> None:
@@ -104,7 +104,7 @@ def test_statusline_borrows_for_subagents_via_transcript(tmp_path: Path) -> None
     output = _run_statusline(tmp_path, _payload(subagent_sid), env_extra=env)
 
     # It SHOULD borrow the 603 savings from the parent transcript
-    assert "$0.002" in output
+    assert "$0.0018" in output
 
 
 def test_statusline_hides_savings_until_real_token_usage(tmp_path: Path) -> None:
@@ -127,8 +127,8 @@ def test_statusline_hides_savings_until_real_token_usage(tmp_path: Path) -> None
     env = {"CLAUDE_CONFIG_DIR": str(config_dir)}
 
     zero = _run_statusline(tmp_path, _payload(sid, input_tokens=0), env_extra=env)
-    assert "$0.000(I:0" in zero
+    assert "$0.0000(I:0" in zero
 
     active = _run_statusline(tmp_path, _payload(sid, input_tokens=1200), env_extra=env)
-    assert "$0.000(I:1k" in active
-    assert "$0.002(R:603)" in active
+    assert "$0.0000(I:1.2k" in active
+    assert "$0.0018(R:603)" in active

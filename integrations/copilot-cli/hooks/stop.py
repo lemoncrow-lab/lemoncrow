@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """agentStop hook for GitHub Copilot CLI.
 
-Reads events.jsonl for token/tool stats and a workspace-scoped side log for
-Atelier savings, then prints a formatted session summary.
+Reads events.jsonl for token/tool stats and delegates to the shared Atelier
+savings computation (the same one Claude Code's stop hook uses) for the
+per-session savings breakdown.
 
 Payload from Copilot CLI: {sessionId, transcriptPath, stopReason, timestamp, cwd}
 """
@@ -14,6 +15,27 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
+except ImportError:
+    # This hook has no PYTHONPATH guarantee the way the Claude/Codex plugin
+    # hooks do (their installers wire it up; copilot-cli's does not) -- fall
+    # back to the same two formatting rules rather than crash the recap.
+    def _fmt_tok(n: int) -> str:
+        n = int(n or 0)
+        if n >= 1_000_000:
+            return f"{n / 1_000_000:.2f}M"
+        if n >= 1_000:
+            return f"{n / 1_000:.1f}k"
+        return str(n)
+
+    def _fmt_usd(v: float) -> str:
+        v = float(v or 0.0)
+        if abs(v) < 1:
+            return f"${v:.4f}"
+        return f"${v:,.2f}"
+
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -23,56 +45,20 @@ def _atelier_root() -> Path:
     return Path(os.environ.get("ATELIER_ROOT", "") or Path.home() / ".atelier")
 
 
-def _workspace_key(path: str) -> str:
-    import re
-    from hashlib import sha256
-    from pathlib import Path as _Path
+def _session_id(payload: dict[str, Any]) -> str:
+    """Resolve the copilot-cli session id for the savings-sidecar lookup.
 
-    resolved = _Path(path).expanduser().resolve()
-    home = _Path.home().resolve()
-    try:
-        parts = resolved.relative_to(home).parts
-    except ValueError:
-        parts = [p for p in resolved.parts if p and p != "/"]
-    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
-    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
-    if len(label) > 120:
-        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
-    return label or sha256(str(resolved).encode()).hexdigest()[:12]
-
-
-def _session_savings_path(workspace: str) -> Path:
-    """Resolve the per-session savings path, mirroring the MCP writer.
-
-    Delegates host segregation to the canonical `session_dir()` helper
-    (`atelier.core.foundation.paths`) rather than re-deriving
-    `_get_host_session_sidecar_path()` /`_workspace_savings_path()` from
-    mcp_server.py by hand. The old fallback to CLAUDE_CODE_SESSION_ID "for
-    parity" was itself a real cross-host collision bug: a copilot-cli session
-    and a Claude Code session that happened to share an id (or a stale
-    CLAUDE_CODE_SESSION_ID left over in the environment) would silently
-    corrupt each other's savings.jsonl. Only GITHUB_COPILOT_SESSION_ID
-    identifies a copilot-cli session. The host is hardcoded to "copilot" (not
-    `detect_host()`) since this file is only ever invoked by copilot-cli.
-
-    1. If GITHUB_COPILOT_SESSION_ID is set ->
-       session_dir(root, "copilot", sid) / "savings.jsonl".
-    2. Else workspaces/<sha256(resolve(ATELIER_WORKSPACE_ROOT or cwd))[:12]>/
-       session_savings.jsonl. The hash input is ATELIER_WORKSPACE_ROOT or the
-       cwd -- NOT payload["cwd"] -- so it agrees with the MCP when the env var
-       is present.
+    ``GITHUB_COPILOT_SESSION_ID`` is what the MCP writer keys the per-session
+    ``savings.jsonl`` sidecar on (see
+    ``mcp_server.py:_get_host_session_sidecar_path``); the payload's own
+    ``sessionId`` (present on every agentStop call, mirrored by the sibling
+    ``post_tool_use_failure.py`` hook) is the fallback for when the env var
+    isn't propagated to this hook's process.
     """
-    sid = os.environ.get("GITHUB_COPILOT_SESSION_ID", "").strip()
-    if sid:
-        try:
-            from atelier.core.foundation.paths import session_dir
-        except ImportError:
-            pass
-        else:
-            return session_dir(_atelier_root(), "copilot", sid) / "savings.jsonl"
-    workspace = str(Path(os.environ.get("ATELIER_WORKSPACE_ROOT") or workspace).resolve())
-    h = _workspace_key(workspace)
-    return _atelier_root() / "workspaces" / h / "session_savings.jsonl"
+    return (
+        os.environ.get("GITHUB_COPILOT_SESSION_ID", "").strip()
+        or str(payload.get("sessionId") or payload.get("session_id") or "").strip()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -139,35 +125,47 @@ def _read_events_stats(transcript_path: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Savings side log
+# Savings summary
 # ---------------------------------------------------------------------------
 
+_ZERO_SAVINGS: dict[str, Any] = {
+    "saved_usd": 0.0,
+    "tokens_saved": 0,
+    "calls_avoided": 0,
+    "carry_usd": 0.0,
+    "carry_tokens": 0,
+    "output_usd": 0.0,
+    "output_tokens": 0,
+    "routing_usd": 0.0,
+}
 
-def _read_workspace_savings(workspace: str) -> dict[str, float]:
-    path = _session_savings_path(workspace)
-    tokens_saved = 0
-    calls_saved = 0
-    usd_saved = 0.0
-    if path.exists():
-        for raw in path.read_text(encoding="utf-8").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                entry = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            # Field names match the MCP writer's savings rows
-            # ({tokens, calls, cost_saved_usd, calls_usd}); the pre-priced USD
-            # is summed directly so the summary never shows a stale $0.
-            tokens_saved += int(entry.get("tokens") or 0)
-            calls_saved += int(entry.get("calls") or 0)
-            usd_saved += float(entry.get("cost_saved_usd") or 0) + float(entry.get("calls_usd") or 0)
-            # Compaction-credit rows carry their pre-priced dollars under "usd"
-            # (mirror savings_summary.py); add it so those dollars aren't dropped.
-            if entry.get("kind") == "compaction":
-                usd_saved += float(entry.get("usd") or 0)
-    return {"tokens_saved": tokens_saved, "calls_saved": calls_saved, "usd_saved": usd_saved}
+
+def _read_workspace_savings(session_id: str, workspace: str) -> dict[str, Any]:
+    """Session savings breakdown via the shared computation.
+
+    Delegates to ``compute_savings_summary`` -- the same function Claude
+    Code's stop hook uses -- instead of hand-summing raw ``savings.jsonl``
+    rows itself. The old per-row reader here could only total tokens and
+    pre-priced dollars, so it structurally could never show carry/output/
+    routing; this gets the same components Claude Code's recap has.
+    """
+    if not session_id:
+        return dict(_ZERO_SAVINGS)
+    try:
+        from atelier.core.capabilities.savings_summary import compute_savings_summary
+    except ImportError:
+        return dict(_ZERO_SAVINGS)
+    summary = compute_savings_summary(session_id, atelier_root=_atelier_root(), workspace=workspace)
+    return {
+        "saved_usd": float(summary.saved_usd),
+        "tokens_saved": int(summary.ctx_saved),
+        "calls_avoided": int(summary.smart_calls),
+        "carry_usd": float(summary.carry_usd),
+        "carry_tokens": int(summary.carry_tokens),
+        "output_usd": float(summary.output_saved_usd),
+        "output_tokens": int(summary.output_saved_tokens),
+        "routing_usd": float(summary.routing_saved_usd),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -175,18 +173,7 @@ def _read_workspace_savings(workspace: str) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
-def _fmt_tok(n: int) -> str:
-    n = int(n or 0)
-    if n >= 1_000_000_000:
-        return f"{n / 1_000_000_000:.1f}B"
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}k"
-    return str(n)
-
-
-def _format_summary(stats: dict[str, Any], savings: dict[str, float]) -> str:
+def _format_summary(stats: dict[str, Any], savings: dict[str, Any]) -> str:
     out = stats["output_tokens"]
     calls = stats["tool_calls"]
     tools_used = stats["tools_used"]
@@ -195,9 +182,14 @@ def _format_summary(stats: dict[str, Any], savings: dict[str, float]) -> str:
     top = sorted(tools_used.items(), key=lambda x: -x[1])[:4]
     tools_str = " · ".join(f"{n}×{cnt}" for n, cnt in top) if top else "none"  # noqa: RUF001
 
+    saved_usd = float(savings.get("saved_usd") or 0.0)
     tokens_saved = int(savings.get("tokens_saved") or 0)
-    calls_saved = int(savings.get("calls_saved") or 0)
-    usd_saved = float(savings.get("usd_saved") or 0.0)
+    calls_avoided = int(savings.get("calls_avoided") or 0)
+    routing_usd = float(savings.get("routing_usd") or 0.0)
+    carry_usd = float(savings.get("carry_usd") or 0.0)
+    carry_tokens = int(savings.get("carry_tokens") or 0)
+    output_usd = float(savings.get("output_usd") or 0.0)
+    output_tokens = int(savings.get("output_tokens") or 0)
 
     lines = [f"tool calls: {calls}"]
 
@@ -213,7 +205,20 @@ def _format_summary(stats: dict[str, Any], savings: dict[str, float]) -> str:
     else:
         lines.append(f"tokens out: {_fmt_tok(out)}")
 
-    lines.append(f"savings: ${usd_saved:.4f} · {tokens_saved:,} tokens saved · {calls_saved} calls avoided")
+    # Component set/suppression mirrors Claude Code's stop hook exactly:
+    # Output/Carry/Routing lines are omitted when exactly 0; the headline
+    # total and calls-avoided always show.
+    savings_line = f"savings: {_fmt_usd(saved_usd)} · {_fmt_tok(tokens_saved)} tok · {calls_avoided} calls avoided"
+    if output_usd > 0:
+        out_tokens_str = f"/{_fmt_tok(output_tokens)} tok" if output_tokens > 0 else ""
+        savings_line += f" · O {_fmt_usd(output_usd)}{out_tokens_str}"
+    if carry_usd > 0:
+        carry_tokens_str = f"/{_fmt_tok(carry_tokens)} tok" if carry_tokens > 0 else ""
+        savings_line += f" · carry {_fmt_usd(carry_usd)}{carry_tokens_str}"
+    if routing_usd > 0:
+        savings_line += f" · routing {_fmt_usd(routing_usd)}"
+    lines.append(savings_line)
+
     lines.append(f"top tools: {tools_str}")
 
     return "\n".join(lines)
@@ -239,7 +244,7 @@ def main() -> int:
     )
 
     stats = _read_events_stats(transcript_path)
-    savings = _read_workspace_savings(workspace)
+    savings = _read_workspace_savings(_session_id(payload), workspace)
 
     if stats["tool_calls"] == 0 and stats["output_tokens"] == 0:
         return 0

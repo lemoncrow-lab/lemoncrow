@@ -57,6 +57,7 @@ from atelier.core.capabilities.optimization.optimizer import (
     append_history,
     load_history,
     optimize_from_traces,
+    potential_savings_breakdown,
 )
 from atelier.core.capabilities.optimization.policy import (
     AutomationConfig,
@@ -97,6 +98,7 @@ __all__ = [
     "load_history",
     "load_terminalbench_records",
     "optimize_from_traces",
+    "potential_savings_breakdown",
     "preset_policy",
     "run_optimization_cycle",
     "save_automation_config",

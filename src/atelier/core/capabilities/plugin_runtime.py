@@ -1456,6 +1456,8 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     routing_saved_usd = float(cost.get("routing_saved_usd", 0.0) or 0.0)
     carry_usd = float(cost.get("carry_usd", 0.0) or 0.0)
     carry_tokens = int(cost.get("carry_tokens", 0) or 0)
+    output_saved_usd = float(cost.get("output_saved_usd", 0.0) or 0.0)
+    output_saved_tokens = int(cost.get("output_saved_tokens", 0) or 0)
     compactions = int(session.get("compactions", 0) or 0)
     inp = int(usage.get("input_tokens", 0) or 0)
     out = int(usage.get("output_tokens", 0) or 0)
@@ -1523,10 +1525,20 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
         )
     cost_prefix = "cost: " if real_cost > 0 else "est. cost: ~"
     lines.append(f"{cost_prefix}${estimated_cost:.4f}")
-    lines.append(
-        f"savings: ${saved_usd:.4f} · {tokens_saved:,} tokens saved · {calls_avoided} calls avoided · "
-        f"routing ${routing_saved_usd:.4f} · carry ${carry_usd:.4f} / {carry_tokens:,} tokens"
-    )
+    # Component set/suppression/carry-format mirror Claude Code's stop hook
+    # exactly: Output/Carry/Routing are omitted when exactly $0 (Codex used to
+    # always show routing/carry even at $0.0000, and never showed Output at
+    # all); the headline total and calls-avoided always show.
+    savings_line = f"savings: ${saved_usd:.4f} · {tokens_saved:,} tokens saved · {calls_avoided} calls avoided"
+    if output_saved_usd > 0:
+        out_tok = f"/{output_saved_tokens:,} tok" if output_saved_tokens > 0 else ""
+        savings_line += f" · O ${output_saved_usd:.4f}{out_tok}"
+    if carry_usd > 0:
+        carry_tok = f"/{carry_tokens:,} tok" if carry_tokens > 0 else ""
+        savings_line += f" · carry ${carry_usd:.4f}{carry_tok}"
+    if routing_saved_usd > 0:
+        savings_line += f" · routing ${routing_saved_usd:.4f}"
+    lines.append(savings_line)
     if compactions > 0:
         lines.append(f"compactions: {compactions}")
     lines.append(f"tools: {_codex_tools_text(session.get('tools_used'))}")
@@ -3503,6 +3515,8 @@ def build_savings_report(
         )
         carry_usd = float(summary.carry_usd)
         carry_tokens = int(summary.carry_tokens)
+        output_saved_usd = float(summary.output_saved_usd)
+        output_saved_tokens = int(summary.output_saved_tokens)
         live = {
             "calls_saved": calls_avoided,
             "tokens_saved": tokens_saved,
@@ -3510,6 +3524,8 @@ def build_savings_report(
             "routing_saved_usd": round(routing_saved_usd, 6),
             "carry_usd": round(carry_usd, 6),
             "carry_tokens": carry_tokens,
+            "output_saved_usd": round(output_saved_usd, 6),
+            "output_saved_tokens": output_saved_tokens,
         }
     else:
         # All-sessions view: realized savings come from the per-session ledger
@@ -3523,6 +3539,11 @@ def build_savings_report(
         routing_saved_usd = float(analytics.get("routing_saved_usd", 0.0) or 0.0)
         carry_usd = 0.0
         carry_tokens = 0
+        # Output isn't broken out by aggregate_window_savings/the analytics
+        # log today -- keep this payload shape symmetric with the per-session
+        # branch above (0 rather than a missing key).
+        output_saved_usd = 0.0
+        output_saved_tokens = 0
         live = {
             "calls_saved": calls_avoided,
             "tokens_saved": tokens_saved,
@@ -3530,6 +3551,8 @@ def build_savings_report(
             "routing_saved_usd": round(routing_saved_usd, 6),
             "carry_usd": round(carry_usd, 6),
             "carry_tokens": carry_tokens,
+            "output_saved_usd": round(output_saved_usd, 6),
+            "output_saved_tokens": output_saved_tokens,
         }
 
     if session_id:
@@ -3539,6 +3562,8 @@ def build_savings_report(
             "routing_saved_usd": round(routing_saved_usd, 6),
             "carry_usd": round(carry_usd, 6),
             "carry_tokens": carry_tokens,
+            "output_saved_usd": round(output_saved_usd, 6),
+            "output_saved_tokens": output_saved_tokens,
             "total_calls": int(session.get("total_tool_calls", 0) or 0),
         }
     else:
@@ -3548,6 +3573,8 @@ def build_savings_report(
             "routing_saved_usd": round(routing_saved_usd, 6),
             "carry_usd": round(carry_usd, 6),
             "carry_tokens": carry_tokens,
+            "output_saved_usd": round(output_saved_usd, 6),
+            "output_saved_tokens": output_saved_tokens,
             "total_calls": int(session.get("total_tool_calls", 0) or 0),
         }
 

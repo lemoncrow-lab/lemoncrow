@@ -195,7 +195,10 @@ def session_report_cmd(
             raise SystemExit(1)
         session_id = files[0].parent.name
 
-    report = load_report(session_id, root)
+    # Single-session view: cheap to also compute the transcript-based carry
+    # component here (unlike the bulk /v1/sessions and insights aggregation
+    # paths, which default this off -- see build_report's docstring).
+    report = load_report(session_id, root, include_carry_credit=True)
     if report is None:
         click.echo(f"Session '{session_id}' not found in {root / 'sessions'}.", err=True)
         raise SystemExit(1)
@@ -417,22 +420,25 @@ def _claude_transcript_block(session_id: str) -> TranscriptSavingsBlock | None:
 def _claude_live_savings_summary(
     session_id: str,
     root: Path,
-) -> tuple[float, int, int, float, int, float]:
+) -> tuple[float, int, int, float, int, float, float]:
     """Authoritative Claude savings from the same source as statusline/Stop.
 
     Returns ``(saved_usd, saved_tokens, calls_avoided, carry_usd,
-    carry_tokens, est_cost_usd)``. All values are zero when no local sidecar is
-    available, so callers can fall back to the portable transcript block.
+    carry_tokens, est_cost_usd, read_saved_usd)``. All values are zero when no
+    local sidecar is available, so callers can fall back to the portable
+    transcript block. ``read_saved_usd`` is an informational subcomponent
+    already folded inside ``saved_usd`` (same convention as
+    ``SavingsSummary.saved_usd``/``total_saved_usd``) -- never add it on top.
     """
     if not session_id:
-        return 0.0, 0, 0, 0.0, 0, 0.0
+        return 0.0, 0, 0, 0.0, 0, 0.0, 0.0
     try:
         from atelier.core.capabilities.savings_summary import compute_savings_summary
 
         summary = compute_savings_summary(session_id, atelier_root=root)
     except Exception:
         logging.exception("failed to read Claude savings summary for session=%s", session_id)
-        return 0.0, 0, 0, 0.0, 0, 0.0
+        return 0.0, 0, 0, 0.0, 0, 0.0, 0.0
     return (
         float(summary.saved_usd or 0.0),
         int(summary.ctx_saved or 0),
@@ -440,6 +446,7 @@ def _claude_live_savings_summary(
         float(summary.carry_usd or 0.0),
         int(summary.carry_tokens or 0),
         float(summary.est_cost_usd or 0.0),
+        float(summary.read_saved_usd or 0.0),
     )
 
 
@@ -1008,6 +1015,7 @@ def _build_session_row(trace: Trace, store: ContextStore, host_name: str, root: 
     saved_tokens = 0
     calls_avoided = 0
     block_tool_calls = 0
+    read_saved_usd = 0.0
     if host_name == "claude":
         block = _claude_transcript_block(sid)
         if block is not None:
@@ -1032,15 +1040,22 @@ def _build_session_row(trace: Trace, store: ContextStore, host_name: str, root: 
         # The stop-hook block freezes at the session's last clean Stop event.
         # Prefer the live summary when present, and take saved+carry together so
         # stats do not mix two different calculation epochs.
-        live_saved_usd, live_saved_tokens, live_calls, live_carry_usd, live_carry_tokens, live_cost = (
-            _claude_live_savings_summary(sid, root)
-        )
+        (
+            live_saved_usd,
+            live_saved_tokens,
+            live_calls,
+            live_carry_usd,
+            live_carry_tokens,
+            live_cost,
+            live_read_saved_usd,
+        ) = _claude_live_savings_summary(sid, root)
         if live_saved_tokens > 0 or live_calls > 0 or live_carry_usd > 0:
             saved_usd = live_saved_usd
             saved_tokens = live_saved_tokens
             calls_avoided = live_calls
             carry_usd = live_carry_usd
             carry_tokens = live_carry_tokens
+            read_saved_usd = live_read_saved_usd
             if live_cost > total_cost_usd:
                 total_cost_usd = live_cost
                 estimated_cost_usd = live_cost
@@ -1148,6 +1163,10 @@ def _build_session_row(trace: Trace, store: ContextStore, host_name: str, root: 
         "calls_avoided": int(calls_avoided),
         "carry_usd": round(carry_usd, 6),
         "carry_tokens": int(carry_tokens),
+        # Informational subcomponent already folded inside saved_usd (see
+        # _claude_live_savings_summary) -- claude-host rows only; other hosts
+        # have no read-savings estimate path.
+        "read_saved_usd": round(read_saved_usd, 6),
         "savings_estimated": savings_estimated,
         "tool_calls": _tool_call_total(trace),
         "subagents": subagents,
@@ -1177,6 +1196,8 @@ def _print_session_row(row: dict[str, Any], verbose: bool) -> None:
     from rich.console import Console
     from rich.markup import escape as _re
 
+    from atelier.core.capabilities.savings_summary import _fmt_pct, _fmt_tok, _fmt_usd
+
     console = Console(highlight=False)
     created = str(row["created_at"])[:19].replace("T", " ") if row["created_at"] else "-"
     sid = str(row["session_id"]) if row["session_id"] else "-"
@@ -1189,10 +1210,10 @@ def _print_session_row(row: dict[str, Any], verbose: bool) -> None:
     detail.append(
         (
             "tokens",
-            f"[white]in={_fmt_tok_compact(int(row['input_tokens']))}[/]"
-            f"  [bright_cyan]cR={_fmt_tok_compact(int(row['cache_read_tokens']))}[/]"
-            f"  [bright_blue]cW={_fmt_tok_compact(int(row['cache_write_tokens']))}[/]"
-            f"  [white]out={_fmt_tok_compact(int(row['output_tokens']))}[/]",
+            f"[white]in={_fmt_tok(int(row['input_tokens']))}[/]"
+            f"  [bright_cyan]cR={_fmt_tok(int(row['cache_read_tokens']))}[/]"
+            f"  [bright_blue]cW={_fmt_tok(int(row['cache_write_tokens']))}[/]"
+            f"  [white]out={_fmt_tok(int(row['output_tokens']))}[/]",
         )
     )
 
@@ -1200,9 +1221,9 @@ def _print_session_row(row: dict[str, Any], verbose: bool) -> None:
     detail.append(
         (
             "cost",
-            f"[bright_red]${float(row['cost_usd']):.4f}[/]  "
-            f"[dim](in ${float(row['cost_input_usd']):.4f} · cR ${float(row['cost_cache_read_usd']):.4f}"
-            f" · cW ${float(row['cost_cache_write_usd']):.4f} · out ${float(row['cost_output_usd']):.4f})[/]",
+            f"[bright_red]{_fmt_usd(float(row['cost_usd']))}[/]  "
+            f"[dim](in {_fmt_usd(float(row['cost_input_usd']))} · cR {_fmt_usd(float(row['cost_cache_read_usd']))}"
+            f" · cW {_fmt_usd(float(row['cost_cache_write_usd']))} · out {_fmt_usd(float(row['cost_output_usd']))})[/]",
         )
     )
 
@@ -1212,12 +1233,12 @@ def _print_session_row(row: dict[str, Any], verbose: bool) -> None:
     est = float(row["estimated_cost_usd"])
     rep = float(row["reported_cost_usd"])
     if est > 0 and rep > 0 and abs(est - rep) / max(est, rep) > 0.25:
-        detail.append(("cost-check", f"[yellow]estimated ${est:.4f} vs host-reported ${rep:.4f}[/]"))
+        detail.append(("cost-check", f"[yellow]estimated {_fmt_usd(est)} vs host-reported {_fmt_usd(rep)}[/]"))
 
     # subagents
     if int(row["subagents"]) > 0:
         sub_cost = float(row["subagent_cost_usd"])
-        cost_detail = f" · [dim]≈${sub_cost:.4f} (included in cost)[/]" if sub_cost > 0 else ""
+        cost_detail = f" · [dim]≈{_fmt_usd(sub_cost)} (included in cost)[/]" if sub_cost > 0 else ""
         subagent_names: dict[str, int] = row.get("subagent_names") or {}
         if subagent_names:
             name_parts = [f"{n}x{c}" for n, c in sorted(subagent_names.items(), key=lambda x: -x[1])]
@@ -1231,20 +1252,25 @@ def _print_session_row(row: dict[str, Any], verbose: bool) -> None:
     # savings
     saved = float(row["saved_usd"])
     carry = float(row["carry_usd"])
+    read_saved = float(row.get("read_saved_usd") or 0.0)
     row_cost = float(row["cost_usd"])
     savings_parts: list[str] = []
     if saved > 0 or int(row["saved_tokens"]) > 0 or int(row["calls_avoided"]) > 0:
-        sp = [f"[bright_green]${saved:.4f}[/]"]
+        sp = [f"[bright_green]{_fmt_usd(saved)}[/]"]
         if int(row["saved_tokens"]) > 0:
-            sp.append(f"[bright_green]{_fmt_tok_compact(int(row['saved_tokens']))} tok saved[/]")
+            sp.append(f"[bright_green]{_fmt_tok(int(row['saved_tokens']))} tok saved[/]")
         if int(row["calls_avoided"]) > 0:
             sp.append(f"[bright_green]{int(row['calls_avoided'])} calls avoided[/]")
         savings_parts.append(" · ".join(sp))
+    # read_saved_usd is an informational subcomponent already folded inside
+    # `saved` above (see _claude_live_savings_summary) -- shown, never summed.
+    if read_saved > 0:
+        savings_parts.append(f"[cyan]read {_fmt_usd(read_saved)}[/]")
     if carry > 0:
-        savings_parts.append(f"[magenta]carry ${carry:.4f} · {_fmt_tok_compact(int(row['carry_tokens']))} tok[/]")
+        savings_parts.append(f"[magenta]carry {_fmt_usd(carry)} · {_fmt_tok(int(row['carry_tokens']))} tok[/]")
     if row_cost > 0 and (saved + carry) > 0:
         baseline = row_cost + saved + carry
-        savings_parts.append(f"[dim]baseline ≈${baseline:.4f} (-{100 * (saved + carry) / baseline:.1f}%)[/]")
+        savings_parts.append(f"[dim]baseline ≈{_fmt_usd(baseline)} (-{_fmt_pct(100 * (saved + carry) / baseline)})[/]")
     if savings_parts:
         detail.append(("savings", "  ·  ".join(savings_parts)))
 
@@ -1271,13 +1297,13 @@ def _print_session_row(row: dict[str, Any], verbose: bool) -> None:
     # potential
     if float(row["potential_saved_usd"]) > 0 or float(row["potential_carry_usd"]) > 0:
         pot = (
-            f"[yellow]saved ${float(row['potential_saved_usd']):.4f}"
-            f" ({_fmt_tok_compact(int(row['potential_tokens_saved']))} tok)[/]"
+            f"[yellow]saved {_fmt_usd(float(row['potential_saved_usd']))}"
+            f" ({_fmt_tok(int(row['potential_tokens_saved']))} tok)[/]"
         )
         if float(row["potential_carry_usd"]) > 0:
             pot += (
-                f" + [magenta]carry ${float(row['potential_carry_usd']):.4f}"
-                f" ({_fmt_tok_compact(int(row['potential_carry_tokens']))} tok)[/]"
+                f" + [magenta]carry {_fmt_usd(float(row['potential_carry_usd']))}"
+                f" ({_fmt_tok(int(row['potential_carry_tokens']))} tok)[/]"
             )
         detail.append(("potential", pot + "[dim]  via Atelier[/]"))
 

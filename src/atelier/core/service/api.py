@@ -70,7 +70,7 @@ from atelier.core.service.schemas import (
 )
 
 if TYPE_CHECKING:
-    pass
+    from atelier.core.capabilities.optimization.optimizer import Candidate, OptimizationResult
 
 logger = logging.getLogger(__name__)
 
@@ -2173,11 +2173,12 @@ def _savings_summary_payload(
             "live_saved_usd": round(live_cost_saved, 6),
             "ops_saved_usd": ops_saved_usd,
             "carry_usd": window_summary.carry_usd,
-            "ledger_saved_usd": window_summary.saved_usd,
-            "ledger_saved_pct": window_summary.saved_pct,
+            "carry_tokens": window_summary.carry_tokens,
+            "read_saved_usd": round(window_summary.read_saved_usd, 6),
+            "total_saved_usd": round(window_summary.total_saved_usd, 6),
             "ledger_tokens_saved": window_summary.tokens_saved,
             "ledger_calls_saved": window_summary.calls_saved,
-            "ledger_routing_usd": window_summary.routing_usd,
+            "routing_saved_usd": window_summary.routing_usd,
             "top_sources": top_sources[:10],
             "cost_only_sources": cost_only_sources[:10],
             "latest_benchmark": _latest_savings_benchmark(root),
@@ -2566,12 +2567,14 @@ def _savings_summary_payload(
             "live_calls_saved": live_calls_saved,
             "live_time_saved_ms": live_time_saved_ms,
             "live_saved_usd": live_cost_saved,
+            "ops_saved_usd": ops_saved_usd,
             "carry_usd": window_summary.carry_usd,
-            "ledger_saved_usd": window_summary.saved_usd,
-            "ledger_saved_pct": window_summary.saved_pct,
+            "carry_tokens": window_summary.carry_tokens,
+            "read_saved_usd": round(window_summary.read_saved_usd, 6),
+            "total_saved_usd": round(window_summary.total_saved_usd, 6),
             "ledger_tokens_saved": window_summary.tokens_saved,
             "ledger_calls_saved": window_summary.calls_saved,
-            "ledger_routing_usd": window_summary.routing_usd,
+            "routing_saved_usd": window_summary.routing_usd,
             "top_sources": top_sources,
             "cost_only_sources": [],
             "latest_benchmark": _latest_savings_benchmark(root),
@@ -2640,11 +2643,12 @@ def _savings_summary_payload(
         "live_saved_usd": round(live_cost_saved, 6),
         "ops_saved_usd": ops_saved_usd,
         "carry_usd": window_summary.carry_usd,
-        "ledger_saved_usd": window_summary.saved_usd,
-        "ledger_saved_pct": window_summary.saved_pct,
+        "carry_tokens": window_summary.carry_tokens,
+        "read_saved_usd": round(window_summary.read_saved_usd, 6),
+        "total_saved_usd": round(window_summary.total_saved_usd, 6),
         "ledger_tokens_saved": window_summary.tokens_saved,
         "ledger_calls_saved": window_summary.calls_saved,
-        "ledger_routing_usd": window_summary.routing_usd,
+        "routing_saved_usd": window_summary.routing_usd,
         "top_sources": top_sources[:10],
         "cost_only_sources": cost_only_sources[:10],
         "latest_benchmark": _latest_savings_benchmark(root),
@@ -3002,6 +3006,22 @@ def _optimization_implementation_gaps() -> list[dict[str, Any]]:
     ]
 
 
+def _candidate_potential_breakdown(advisor: OptimizationResult, candidate: Candidate) -> dict[str, float]:
+    """Read/Carry/Output/Routing/Total breakdown for one advisor candidate.
+
+    Uses the advisor's clamped `weekly_savings_usd` as Total for the
+    recommended candidate (matching the CLI's rendering); every other
+    candidate's Total is its own raw delta against the baseline weekly cost.
+    """
+    from atelier.core.capabilities.optimization import potential_savings_breakdown
+
+    if candidate.id == advisor.recommended_candidate_id:
+        total_saved_usd = advisor.weekly_savings_usd
+    else:
+        total_saved_usd = advisor.baseline_weekly_cost_usd - candidate.weekly_cost_usd
+    return potential_savings_breakdown(candidate, advisor.baseline_weekly_cost_usd, total_saved_usd)
+
+
 def _optimizations_summary_payload(root: Path, store: ContextStore, *, window_days: int) -> dict[str, Any]:
     from atelier.core.capabilities.optimization import (
         load_current_policy,
@@ -3024,6 +3044,9 @@ def _optimizations_summary_payload(root: Path, store: ContextStore, *, window_da
         current_policy=load_current_policy(root),
         days=window_days,
     )
+    advisor_dict = advisor.to_dict()
+    for candidate_payload, candidate in zip(advisor_dict["candidates"], advisor.candidates, strict=True):
+        candidate_payload.update(_candidate_potential_breakdown(advisor, candidate))
     advisor_history = load_history(root, limit=6)
     from atelier.core.foundation.paths import resolve_workspace_root
 
@@ -3073,7 +3096,7 @@ def _optimizations_summary_payload(root: Path, store: ContextStore, *, window_da
         "budget_rules": session_optimization_rules(),
         "implemented_levers": implemented_levers,
         "implementation_gaps": _optimization_implementation_gaps(),
-        "advisor": advisor.to_dict(),
+        "advisor": advisor_dict,
         "advisor_history": advisor_history,
         "recommendations": recommendations,
         "context_audit": context_audit,

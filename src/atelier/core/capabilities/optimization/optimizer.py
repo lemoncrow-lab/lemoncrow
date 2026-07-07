@@ -61,6 +61,7 @@ class Candidate:
     escalation_rate: float
     compaction_breakdown: dict[str, float]
     routing_breakdown: dict[str, float]
+    routing_saved_usd: float
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -72,6 +73,7 @@ class Candidate:
             "escalation_rate": self.escalation_rate,
             "compaction_breakdown": dict(self.compaction_breakdown),
             "routing_breakdown": dict(self.routing_breakdown),
+            "routing_saved_usd": self.routing_saved_usd,
         }
 
 
@@ -114,6 +116,45 @@ class OptimizationResult:
             "golden": self.golden.to_dict(),
             "estimation": _estimation_metadata(),
         }
+
+
+def potential_savings_breakdown(
+    candidate: Candidate,
+    baseline_weekly_cost_usd: float,
+    weekly_savings_usd: float,
+) -> dict[str, float]:
+    """Map a Candidate's compaction/routing figures onto the shared
+    Read / Carry / Output / Routing / Total savings-component model, mirroring
+    the realized-savings breakdown in savings_summary.py.
+
+    - Read savings: prompt-cache reordering + retrieval filtering (both cut
+      read-side cost).
+    - Carry credit: dedup + lossy summary (both cut what's carried forward
+      across turns).
+    - Output savings: always 0.0 -- the advisor has no output-verbosity policy
+      lever today. This is a known, deliberate gap, not a bug.
+    - Routing savings: the candidate's precomputed `routing_saved_usd`.
+    - Total: the caller-supplied weekly savings figure (e.g. `OptimizationResult
+      .weekly_savings_usd` for the recommended candidate, or
+      `baseline_weekly_cost_usd - candidate.weekly_cost_usd` for any other
+      candidate). `baseline_weekly_cost_usd` is accepted for parity with that
+      total and possible future use; the four components below are derived
+      solely from the candidate's own breakdowns.
+    """
+    _ = baseline_weekly_cost_usd
+    read_saved_usd = candidate.compaction_breakdown.get(
+        "prompt_cache_reorder", 0.0
+    ) + candidate.compaction_breakdown.get("retrieval_filter", 0.0)
+    carry_saved_usd = candidate.compaction_breakdown.get("dedup", 0.0) + candidate.compaction_breakdown.get(
+        "lossy_summary", 0.0
+    )
+    return {
+        "read_saved_usd": round(read_saved_usd, 6),
+        "carry_saved_usd": round(carry_saved_usd, 6),
+        "output_saved_usd": 0.0,
+        "routing_saved_usd": round(candidate.routing_saved_usd, 6),
+        "total_saved_usd": round(weekly_savings_usd, 6),
+    }
 
 
 def _trace_created_after(trace: Trace, cutoff: datetime) -> bool:
@@ -163,7 +204,8 @@ def _candidate_for_policy(
     labels: list[ComplexityLabel],
     weekly_scale: float,
     baseline_quality: float,
-    baseline_weekly_cost_usd: float,
+    current_pre_compaction_weekly_cost_usd: float,
+    current_compaction_dollars: dict[str, float],
 ) -> Candidate:
     total_cost = 0.0
     total_quality_penalty = 0.0
@@ -173,6 +215,15 @@ def _candidate_for_policy(
         routing_counts[tier] += 1
         total_cost += _trace_cost(trace) * _TIER_COST_FACTOR[tier]
         total_quality_penalty += _TIER_QUALITY_PENALTY[(tier, label)]
+
+    # Isolate the $/week attributable to routing tier choice alone, before the
+    # compaction discount is applied below -- diffed against the same
+    # pre-compaction quantity for the current policy's routing. For the
+    # "current" candidate itself this is identical to
+    # current_pre_compaction_weekly_cost_usd, so routing_saved_usd is exactly
+    # 0.0 -- current vs. current has no routing delta.
+    pre_compaction_weekly_cost_usd = total_cost * weekly_scale
+    routing_saved_usd = round(current_pre_compaction_weekly_cost_usd - pre_compaction_weekly_cost_usd, 6)
 
     enabled = _compaction_enabled(policy)
     compaction_fraction = sum(_COMPACTION_SAVINGS[key] for key, value in enabled.items() if value)
@@ -186,9 +237,18 @@ def _candidate_for_policy(
     task_count = max(1, len(traces))
     estimated_quality = max(0.0, baseline_quality - (total_quality_penalty / task_count) - compaction_penalty)
     routing_breakdown = {tier: round(count / task_count, 4) for tier, count in sorted(routing_counts.items())}
+    # Each lever's $/week credit is this candidate's own pre-compaction cost
+    # times its savings factor, minus what the current policy already banks
+    # from that same lever -- an incremental delta vs. current, not a gross
+    # figure. This keeps every candidate's breakdown (read + carry + output +
+    # routing) summing exactly to its own weekly_savings_usd, including the
+    # "current" candidate itself (whose pre-compaction cost and enabled
+    # levers are, by construction, identical to the current-policy
+    # reference), which nets to 0.0 for every lever with no special-casing.
     compaction_breakdown = {
         item.id: round(
-            baseline_weekly_cost_usd * _COMPACTION_SAVINGS[item.id] if enabled.get(item.id, False) else 0.0,
+            (pre_compaction_weekly_cost_usd * _COMPACTION_SAVINGS[item.id] if enabled.get(item.id, False) else 0.0)
+            - current_compaction_dollars.get(item.id, 0.0),
             6,
         )
         for item in ALL_COMPACTION_TYPES
@@ -207,24 +267,7 @@ def _candidate_for_policy(
         escalation_rate=round(escalation, 4),
         compaction_breakdown=compaction_breakdown,
         routing_breakdown=routing_breakdown,
-    )
-
-
-def _current_candidate(
-    *,
-    policy: Policy,
-    baseline_weekly_cost_usd: float,
-    baseline_quality: float,
-) -> Candidate:
-    return Candidate(
-        id="current",
-        policy=identify_policy(policy, name=f"{policy.name} (current)", preset=policy.preset),
-        weekly_cost_usd=round(baseline_weekly_cost_usd, 6),
-        estimated_quality=round(baseline_quality, 4),
-        latency_mult=1.0,
-        escalation_rate=0.08,
-        compaction_breakdown={item.id: 0.0 for item in ALL_COMPACTION_TYPES},
-        routing_breakdown={},
+        routing_saved_usd=routing_saved_usd,
     )
 
 
@@ -309,14 +352,37 @@ def optimize_from_traces(
     replayable = [trace for trace in filtered if trace.status in {"success", "partial", "failed"}]
     complexities = [score_trace_complexity(trace).label for trace in replayable]
     bucket_counts: dict[str, int] = {str(key): value for key, value in Counter(complexities).items()}
-    baseline_total = sum(_trace_cost(trace) for trace in replayable)
     weekly_scale = 7.0 / max(1, days)
-    baseline_weekly = round(baseline_total * weekly_scale, 6)
     baseline_quality = sum(_status_quality(trace) for trace in replayable) / len(replayable) if replayable else 0.0
-    current = _current_candidate(
-        policy=current_policy,
-        baseline_weekly_cost_usd=baseline_weekly,
+
+    # The current policy is the pricing reference every candidate (including
+    # itself) is diffed against for both routing-tier cost and compaction $
+    # credit, so it must be priced through the exact same _candidate_for_policy
+    # formula as every other candidate -- never as raw observed spend, which
+    # would mix an actual-cost number with every other candidate's
+    # stylized-model number and make weekly_savings_usd not apples-to-apples.
+    current_enabled = _compaction_enabled(current_policy)
+    current_pre_compaction_weekly_cost_usd = round(
+        sum(
+            _trace_cost(trace) * _TIER_COST_FACTOR[_route_tier(current_policy, label)]
+            for trace, label in zip(replayable, complexities, strict=True)
+        )
+        * weekly_scale,
+        6,
+    )
+    current_compaction_dollars = {
+        key: (current_pre_compaction_weekly_cost_usd * _COMPACTION_SAVINGS[key] if value else 0.0)
+        for key, value in current_enabled.items()
+    }
+    current = _candidate_for_policy(
+        candidate_id="current",
+        policy=identify_policy(current_policy, name=f"{current_policy.name} (current)", preset=current_policy.preset),
+        traces=replayable,
+        labels=complexities,
+        weekly_scale=weekly_scale,
         baseline_quality=baseline_quality,
+        current_pre_compaction_weekly_cost_usd=current_pre_compaction_weekly_cost_usd,
+        current_compaction_dollars=current_compaction_dollars,
     )
     golden = run_golden_suite(current_policy)
     candidates = [current]
@@ -330,7 +396,8 @@ def optimize_from_traces(
                     labels=complexities,
                     weekly_scale=weekly_scale,
                     baseline_quality=baseline_quality,
-                    baseline_weekly_cost_usd=baseline_weekly,
+                    current_pre_compaction_weekly_cost_usd=current_pre_compaction_weekly_cost_usd,
+                    current_compaction_dollars=current_compaction_dollars,
                 )
             )
 
@@ -348,7 +415,7 @@ def optimize_from_traces(
             replayable_tasks=len(replayable),
             weekly_savings_usd=0.0,
             quality_delta=0.0,
-            baseline_weekly_cost_usd=baseline_weekly,
+            baseline_weekly_cost_usd=current.weekly_cost_usd,
             has_recommendation=False,
             message=INSUFFICIENT_HISTORY_MESSAGE,
             bucket_counts=bucket_counts,
@@ -369,7 +436,10 @@ def optimize_from_traces(
         preset="recommended",
     )
     confidence, confidence_reason = _confidence(len(replayable), bucket_counts)
-    weekly_savings = max(0.0, baseline_weekly - recommended_candidate.weekly_cost_usd)
+    # Both sides of this diff are now priced through the identical stylized
+    # formula (_candidate_for_policy), so weekly_savings_usd is apples-to-
+    # apples -- see the invariant enforced in potential_savings_breakdown().
+    weekly_savings = max(0.0, current.weekly_cost_usd - recommended_candidate.weekly_cost_usd)
     quality_delta = recommended_candidate.estimated_quality - current.estimated_quality
     return OptimizationResult(
         current_policy=current_policy,
@@ -383,7 +453,7 @@ def optimize_from_traces(
         replayable_tasks=len(replayable),
         weekly_savings_usd=round(weekly_savings, 6),
         quality_delta=round(quality_delta, 4),
-        baseline_weekly_cost_usd=baseline_weekly,
+        baseline_weekly_cost_usd=current.weekly_cost_usd,
         has_recommendation=recommended_candidate.id != "current",
         message="Recommendation is advisory and must be explicitly applied.",
         bucket_counts=bucket_counts,

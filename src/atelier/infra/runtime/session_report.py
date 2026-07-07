@@ -27,6 +27,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
+
 if TYPE_CHECKING:
     from atelier.infra.runtime.run_ledger import RunLedger
 
@@ -366,6 +368,14 @@ class SessionReport:
     context_compression_savings_usd: float = 0.0
     context_compression_tool_calls: int = 0
     tool_savings: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    # Canonical Read/Carry/Output components -- sourced from the shared
+    # compute_savings_summary in build_report, never reimplemented here.
+    # Carry credit is a recurring re-read credit across future turns (not a
+    # one-time bucket), same convention as SavingsSummary.carry_usd.
+    read_saved_usd: float = 0.0
+    output_saved_usd: float = 0.0
+    carry_usd: float = 0.0
+    carry_tokens: int = 0
 
     @property
     def is_running(self) -> bool:
@@ -377,8 +387,19 @@ class SessionReport:
 # --------------------------------------------------------------------------- #
 
 
-def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
-    """Build a ``SessionReport`` from a run-ledger *snapshot* dict."""
+def build_report(snapshot: dict[str, Any], root: Path, *, include_carry_credit: bool = False) -> SessionReport:
+    """Build a ``SessionReport`` from a run-ledger *snapshot* dict.
+
+    ``include_carry_credit`` gates the one EXPENSIVE component: carry credit
+    requires per-session transcript access (glob + parse), unlike
+    read/output savings which are cheap sidecar-file reads. Defaults to
+    ``False`` so bulk callers that build a report per session in a loop
+    (``insights.build_insights``, the ``/v1/sessions`` list endpoint) don't
+    pay a per-session transcript scan multiplied by session count -- exactly
+    the class of regression those callers' own caching comments already
+    guard against. Pass ``True`` only for single/few-session detail views
+    (``atelier session report <id>``, the dashboard's small recent-runs list).
+    """
     from atelier.infra.runtime.cost_tracker import CostTracker
 
     session_id = str(snapshot.get("session_id") or "")
@@ -476,7 +497,37 @@ def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
     # --- context compression savings (per-tool read/grep/search/shell) ---
     compression_count, compression_saved, compression_rows = _read_context_compression_savings(session_id, root)
 
-    total_saved = round(routing_saved + compact_saved + compression_saved, 6)
+    # --- read/output/carry components (canonical Read/Carry/Output/Routing
+    # model) -- sourced directly from the shared per-lever sidecar readers
+    # (same ones compute_savings_summary uses) so carry/read/output logic is
+    # never reimplemented here. KNOWN DUPLICATION (follow-up): compression_saved
+    # above independently re-scans the same sessions/<id>/savings.jsonl sidecar
+    # through the same _price_savings_row rule, rather than this file sourcing
+    # everything from one place. read_saved_usd/output_saved_usd are
+    # informational subcomponents already folded inside compression_saved --
+    # do not add them into total_saved below, that would double-count (mirrors
+    # SavingsSummary.saved_usd/total_saved_usd); carry_usd is the one component
+    # genuinely absent before this change, so it IS added (when computed).
+    from atelier.core.capabilities.savings_summary import (
+        _read_session_output_style,
+        _read_session_read_savings,
+    )
+
+    _, read_saved_usd_raw = _read_session_read_savings(session_id, root)
+    _, output_saved_usd_raw = _read_session_output_style(session_id, root)
+    read_saved_usd = round(float(read_saved_usd_raw), 6)
+    output_saved_usd = round(float(output_saved_usd_raw), 6)
+
+    carry_usd = 0.0
+    carry_tokens = 0
+    if include_carry_credit:
+        from atelier.core.capabilities.savings_summary import compute_savings_summary
+
+        summary = compute_savings_summary(session_id, atelier_root=root)
+        carry_usd = round(float(summary.carry_usd), 6)
+        carry_tokens = int(summary.carry_tokens)
+
+    total_saved = round(routing_saved + compact_saved + compression_saved + carry_usd, 6)
 
     # --- per-tool breakdown ---
     top_tools = CostTracker.per_tool_cost_breakdown(raw_events)
@@ -528,16 +579,20 @@ def build_report(snapshot: dict[str, Any], root: Path) -> SessionReport:
         context_compression_tool_calls=compression_count,
         tool_savings=compression_rows,
         total_atelier_savings_usd=total_saved,
+        read_saved_usd=read_saved_usd,
+        output_saved_usd=output_saved_usd,
+        carry_usd=carry_usd,
+        carry_tokens=carry_tokens,
         top_tools_by_cost=top_tools[:5],
     )
 
 
-def build_report_from_ledger(ledger: RunLedger, root: Path) -> SessionReport:
+def build_report_from_ledger(ledger: RunLedger, root: Path, *, include_carry_credit: bool = False) -> SessionReport:
     """Build a ``SessionReport`` directly from a live ``RunLedger``."""
-    return build_report(ledger.snapshot(), root)
+    return build_report(ledger.snapshot(), root, include_carry_credit=include_carry_credit)
 
 
-def load_report(session_id: str, root: Path) -> SessionReport | None:
+def load_report(session_id: str, root: Path, *, include_carry_credit: bool = False) -> SessionReport | None:
     """Load and build a report from a persisted run file, or *None* if not found."""
     from atelier.core.foundation.paths import find_session_dir
 
@@ -549,7 +604,7 @@ def load_report(session_id: str, root: Path) -> SessionReport | None:
         snapshot = json.loads(run_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    return build_report(snapshot, root)
+    return build_report(snapshot, root, include_carry_credit=include_carry_credit)
 
 
 def list_run_files(root: Path, *, since: datetime | None = None) -> list[Path]:
@@ -580,14 +635,6 @@ def _fmt_duration(seconds: float, running: bool) -> str:
     h, rem = divmod(int(seconds), 3600)
     m = rem // 60
     return f"{h}h {m}m"
-
-
-def _fmt_tok(n: int) -> str:
-    return f"{n:,}"
-
-
-def _fmt_cost(v: float) -> str:
-    return f"${v:.2f}"
 
 
 def render_text(report: SessionReport, *, no_color: bool = False) -> str:
@@ -638,7 +685,7 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
         if not show:
             return ""
         tok_str = _fmt_tok(tok).rjust(col_w)
-        cost_str = _fmt_cost(cost).rjust(cost_w)
+        cost_str = _fmt_usd(cost).rjust(cost_w)
         return f"  {label:<20}{tok_str}  →  {cost_str}"
 
     lines.append(cost_row("Input tokens:", report.input_tokens, report.input_token_cost_usd))
@@ -647,16 +694,22 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
     lines.append(cost_row("Cache reads:", report.cache_read_tokens, report.cache_read_cost_usd))
     lines.append(cost_row("Output tokens:", report.output_tokens, report.output_token_cost_usd))
     lines.append("  " + "─" * 37)
-    lines.append(f"  {'Total:':<32}{_fmt_cost(report.total_cost_usd).rjust(cost_w)}")
+    lines.append(f"  {'Total:':<32}{_fmt_usd(report.total_cost_usd).rjust(cost_w)}")
     lines.append("")
 
     # savings
     lines.append("Atelier savings")
+    if report.read_saved_usd > 0:
+        lines.append(f"  Read savings:            {_fmt_usd(report.read_saved_usd)}")
+    if report.output_saved_usd > 0:
+        lines.append(f"  Output savings:          {_fmt_usd(report.output_saved_usd)}")
+    if report.carry_usd > 0:
+        lines.append(f"  Carry credit:            {_fmt_usd(report.carry_usd)}  ({_fmt_tok(report.carry_tokens)} tok)")
     if report.routing_downtiered_turns:
         lines.append(
             f"  Routing recommendations: {report.routing_downtiered_turns} turn"
             f"{'s' if report.routing_downtiered_turns != 1 else ''} downtiered"
-            f"  →  saved {_fmt_cost(report.routing_savings_usd)}"
+            f"  →  saved {_fmt_usd(report.routing_savings_usd)}"
         )
     else:
         lines.append("  Routing recommendations: none this session")
@@ -674,13 +727,13 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
         lines.append(
             f"  Compaction ({report.compact_events} event"
             f"{'s' if report.compact_events != 1 else ''})"
-            f"  →  avoided ~{_fmt_cost(report.compact_savings_estimate_usd)} in resend cost"
+            f"  →  avoided ~{_fmt_usd(report.compact_savings_estimate_usd)} in resend cost"
         )
     else:
         lines.append("  Compaction: none this session")
 
     lines.append("  " + "─" * 37)
-    lines.append(f"  {'Total saved this session:':<32}{_fmt_cost(report.total_atelier_savings_usd).rjust(cost_w)}")
+    lines.append(f"  {'Total saved this session:':<32}{_fmt_usd(report.total_atelier_savings_usd).rjust(cost_w)}")
     lines.append("")
 
     # top tools
@@ -689,7 +742,7 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
         lines.append(f"Top {n} costliest tool{'s' if n != 1 else ''} this session")
         for tool_name, count, cost in report.top_tools_by_cost:
             lines.append(
-                f"  {tool_name:<16}{count:>5} call{'s' if count != 1 else ''}   {_fmt_cost(cost).rjust(cost_w)}"
+                f"  {tool_name:<16}{count:>5} call{'s' if count != 1 else ''}   {_fmt_usd(cost).rjust(cost_w)}"
             )
 
     return "\n".join(lines)
