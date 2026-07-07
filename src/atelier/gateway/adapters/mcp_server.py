@@ -10782,7 +10782,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         },
         "timeout": {
             "type": "integer",
-            "default": 1800,
+            "default": 120,
             "description": "Soft budget (s) -- past it, returns an overrunning handle instead of blocking; doesn't kill.",
         },
         "bg": {
@@ -10817,7 +10817,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
 )
 def tool_bash(
     command: str = "",
-    timeout: int = 1800,
+    timeout: int = 120,
     cwd: str | None = None,
     max_lines: int = 200,
     max_output_tokens: int | None = None,
