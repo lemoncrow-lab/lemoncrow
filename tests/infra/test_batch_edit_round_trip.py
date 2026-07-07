@@ -58,6 +58,39 @@ def test_applied_hunk_structure(tmp_path: Path) -> None:
     assert isinstance(hunk["line_start"], int)
 
 
+def test_replace_trailing_newline_line_end_inclusive(tmp_path: Path) -> None:
+    """A multi-line replace whose old_string ends with a newline reports the
+    inclusive last replaced line, not the line after the block (WP-22 off-by-one)."""
+    f = tmp_path / "c.txt"
+    _write(f, "line1\nline2\nline3\n")
+
+    result = apply_batch_edit(
+        [{"path": str(f), "op": "replace", "old_string": "line2\nline3\n", "new_string": "X\n"}],
+        atomic=True,
+        repo_root=tmp_path,
+    )
+
+    hunk = result["applied"][0]["hunks"][0]
+    assert hunk["line_start"] == 2
+    assert hunk["line_end"] == 3  # spans lines 2-3 inclusive, not 4 (past EOF)
+
+
+def test_replace_single_line_trailing_newline_line_end(tmp_path: Path) -> None:
+    """A single-line replace ending with a newline reports line_end == line_start."""
+    f = tmp_path / "d.txt"
+    _write(f, "line1\nline2\nline3\n")
+
+    result = apply_batch_edit(
+        [{"path": str(f), "op": "replace", "old_string": "line2\n", "new_string": "X\n"}],
+        atomic=True,
+        repo_root=tmp_path,
+    )
+
+    hunk = result["applied"][0]["hunks"][0]
+    assert hunk["line_start"] == 2
+    assert hunk["line_end"] == 2
+
+
 # --------------------------------------------------------------------------- #
 # Idempotency and backup cleanup                                             #
 # --------------------------------------------------------------------------- #
