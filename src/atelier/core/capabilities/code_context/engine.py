@@ -514,6 +514,10 @@ _DEFINITION_KINDS = frozenset(
 )
 # Kinds probed by query-driven family completion (the definition families a query names).
 _QUERY_PROBE_KINDS = ("class", "function", "method")
+# A #define line, tolerating the variable whitespace after '#' that C header-guard
+# nesting produces (e.g. kernel style '#  define likely(x) ...' inside #ifndef).
+# See call_graph_centrality's macro-callee exclusion.
+_MACRO_DEFINE_RE = re.compile(r"^#\s*define\b")
 
 
 def _explore_skeleton_enabled() -> bool:
@@ -2415,7 +2419,7 @@ def _process_one_file(
     if language == "python" and py_tree is not None:
         references, call_edges = _extract_python_reference_index_worker(rel, source, extracted, tree=py_tree)
     elif tag_list:
-        references = _extract_tag_reference_index_worker(rel, source, tag_list, extracted)
+        references, call_edges = _extract_tag_reference_index_worker(rel, source, tag_list, extracted)
 
     return _FileIndexData(
         rel=rel,
@@ -2612,24 +2616,59 @@ def _extract_tag_reference_index_worker(
     source: str,
     tags: list[Tag],
     symbols: list[_ExtractedSymbol],
-) -> list[_IndexedReference]:
-    """Index reference tags for any tree-sitter language.
+) -> tuple[list[_IndexedReference], list[_IndexedCallEdge]]:
+    """Index reference and call tags for any tree-sitter language.
 
     Mirrors the Python AST reference worker, reusing the tree-sitter tags already
     parsed for symbol extraction, so query-time find_references is a pure index
-    lookup instead of re-parsing the whole repo.
+    lookup instead of re-parsing the whole repo. `call` tags become call_edges
+    (caller = the enclosing function-like symbol), feeding call-graph PageRank
+    and caller-count popularity for every tags-indexed language -- previously
+    Python-only, which left the call graph empty on C/C++/Go/Rust/Java/Ruby.
     """
     lines = source.splitlines()
+    _CALLER_KINDS = {"function", "async_function", "method"}
 
-    def containing(line: int) -> _ExtractedSymbol | None:
-        candidates = [sym for sym in symbols if sym.start_line <= line <= sym.end_line]
+    def containing(line: int, kinds: set[str] | None = None) -> _ExtractedSymbol | None:
+        candidates = [
+            sym for sym in symbols if sym.start_line <= line <= sym.end_line and (kinds is None or sym.kind in kinds)
+        ]
         if not candidates:
             return None
         return sorted(candidates, key=lambda item: (item.end_line - item.start_line, -item.start_line))[0]
 
     references: list[_IndexedReference] = []
+    call_edges: list[_IndexedCallEdge] = []
     seen: set[tuple[str, int, int]] = set()
+    seen_edges: set[tuple[str, int, int, str]] = set()
     for tag in tags:
+        if tag.kind == "call":
+            line = tag.line
+            if line <= 0:
+                continue
+            caller = containing(line, _CALLER_KINDS)
+            if caller is None:
+                continue  # top-level call (module init, macro at file scope): no caller
+            line_text = lines[line - 1] if 1 <= line <= len(lines) else ""
+            column = max(1, line_text.find(tag.name) + 1) if line_text else 1
+            edge_key = (caller.qualified_name, line, column, tag.name)
+            if edge_key in seen_edges:
+                continue
+            seen_edges.add(edge_key)
+            call_edges.append(
+                _IndexedCallEdge(
+                    caller_symbol_name=caller.name,
+                    caller_qualified_name=caller.qualified_name,
+                    caller_file_path=rel,
+                    caller_start_line=caller.start_line,
+                    caller_end_line=caller.end_line,
+                    callee_name=tag.name,
+                    call_line=line,
+                    call_column=column,
+                    snippet=line_text.strip(),
+                )
+            )
+            continue
         if tag.kind != "reference":
             continue
         name = tag.name
@@ -2655,7 +2694,7 @@ def _extract_tag_reference_index_worker(
                 snippet=line_text.strip(),
             )
         )
-    return references
+    return references, call_edges
 
 
 def _python_call_name_worker(node: ast.AST) -> str | None:
@@ -12360,8 +12399,33 @@ class CodeContextEngine:
                 """,
                 (self.repo_id,),
             ).fetchall()
-        edges = [(str(row["caller_qualified_name"]), str(row["callee_name"])) for row in rows]
+            # Preprocessor macros (C/C++ #define) parse as ordinary call_expression
+            # nodes -- BUG_ON/WARN_ON/ASSERT/likely/unlikely are indistinguishable
+            # from real function calls at the tree-sitter level, so they flood in
+            # as callees from every corner of the codebase. That fan-in is exactly
+            # what centrality is supposed to reward, so an unfiltered graph ranks
+            # macros as the most "important" symbols in the repo -- pure noise: a
+            # macro invocation is not a call to importable, navigable code. Exclude
+            # any callee whose name is defined via #define anywhere in this repo
+            # (signature heuristic -- avoids a schema change; macros are typically
+            # ALL_CAPS or short lowercase wrappers, name alone can't tell them apart
+            # from real functions, but the #define signature can). Broad '#' prefix
+            # fetch + Python regex, not a strict SQL LIKE '#define%': kernel-style
+            # header-guard-nested macros are written '#  define foo(x)' (variable
+            # whitespace after '#', e.g. every likely()/unlikely() in
+            # linux/compiler.h) and a plain LIKE prefix silently misses every one.
+            macro_rows = conn.execute(
+                "SELECT DISTINCT symbol_name, signature FROM symbols WHERE repo_id = ? AND signature LIKE '#%'",
+                (self.repo_id,),
+            ).fetchall()
+        macro_names = {str(row["symbol_name"]) for row in macro_rows if _MACRO_DEFINE_RE.match(str(row["signature"]))}
+        edges = [
+            (str(row["caller_qualified_name"]), str(row["callee_name"]))
+            for row in rows
+            if str(row["callee_name"]) not in macro_names
+        ]
         result = compute_call_graph_centrality(edges, limit=limit)
+        result["excluded_macro_callees"] = len(macro_names)
         result["index_version"] = version
         if use_cache:
             with self._centrality_cache_lock:

@@ -11,9 +11,21 @@ graph storage; the caller passes edges read straight from that table.
 Metrics (cheap, deterministic, dependency-free):
 
 * ``in_degree`` / ``out_degree`` / ``degree`` centrality (normalised by N-1).
-* ``eigenvector`` -- a bounded power-iteration approximation over the
-  undirected adjacency, so highly-called symbols that are themselves called by
-  important symbols rank above merely high-degree leaves.
+* ``eigenvector`` -- damped, out-degree-normalized directed PageRank (standard
+  formulation, with dangling-node mass redistribution). Field name kept as
+  ``eigenvector`` for output-shape compatibility with existing consumers.
+
+Why PageRank and not a plain eigenvector/degree walk: an earlier undirected,
+un-normalized power iteration spread each node's score to EVERY neighbour
+regardless of how many other neighbours that node had -- a caller with 2 call
+sites and a caller with 2,000 call sites contributed the SAME total score to a
+shared callee. On a real C codebase that ranked ubiquitous utility functions
+(``spin_unlock``, ``IS_ERR``, ``kfree`` -- called from everywhere) as the most
+"central" symbols in the repo, which is exactly backwards: being called from
+everywhere is what should be normalized away, not rewarded twice. Directed,
+out-degree-normalized PageRank fixes this at the algorithm level: a caller's
+vote is split across ITS OWN out-edges, so high-fan-out callers (which say
+little about any one callee) contribute less per edge than focused callers.
 
 The whole computation is O(iterations x edges); ``max_iterations`` is small and
 fixed, so it stays cheap even on large graphs.
@@ -35,6 +47,7 @@ def compute_call_graph_centrality(
     limit: int = 50,
     max_iterations: int = 50,
     tolerance: float = 1.0e-6,
+    damping: float = 0.85,
 ) -> dict[str, Any]:
     """Rank call-graph symbols by importance.
 
@@ -46,7 +59,8 @@ def compute_call_graph_centrality(
     """
     in_deg: dict[str, int] = {}
     out_deg: dict[str, int] = {}
-    adjacency: dict[str, set[str]] = {}
+    out_edges: dict[str, list[str]] = {}
+    nodes_set: set[str] = set()
     edge_count = 0
     for caller, callee in edges:
         if not caller or not callee or caller == callee:
@@ -54,18 +68,16 @@ def compute_call_graph_centrality(
         edge_count += 1
         out_deg[caller] = out_deg.get(caller, 0) + 1
         in_deg[callee] = in_deg.get(callee, 0) + 1
-        in_deg.setdefault(caller, in_deg.get(caller, 0))
-        out_deg.setdefault(callee, out_deg.get(callee, 0))
-        # Undirected adjacency for the eigenvector approximation.
-        adjacency.setdefault(caller, set()).add(callee)
-        adjacency.setdefault(callee, set()).add(caller)
+        nodes_set.add(caller)
+        nodes_set.add(callee)
+        out_edges.setdefault(caller, []).append(callee)
 
-    nodes = sorted(adjacency)
+    nodes = sorted(nodes_set)
     node_count = len(nodes)
     if node_count == 0:
         return {"node_count": 0, "edge_count": 0, "ranking": [], "truncated": False}
 
-    eigen = _power_iteration(nodes, adjacency, max_iterations=max_iterations, tolerance=tolerance)
+    rank = _pagerank(nodes, out_edges, max_iterations=max_iterations, tolerance=tolerance, damping=damping)
     norm = float(node_count - 1) if node_count > 1 else 1.0
 
     ranking: list[dict[str, Any]] = []
@@ -80,7 +92,7 @@ def compute_call_graph_centrality(
                 "degree": round((ind + outd) / norm, 4),
                 "in_degree_centrality": round(ind / norm, 4),
                 "out_degree_centrality": round(outd / norm, 4),
-                "eigenvector": round(eigen.get(symbol, 0.0), 6),
+                "eigenvector": round(rank.get(symbol, 0.0), 6),
             }
         )
     ranking.sort(
@@ -98,36 +110,63 @@ def compute_call_graph_centrality(
     }
 
 
-def _power_iteration(
+def _pagerank(
     nodes: list[str],
-    adjacency: dict[str, set[str]],
+    out_edges: dict[str, list[str]],
     *,
     max_iterations: int,
     tolerance: float,
+    damping: float,
 ) -> dict[str, float]:
-    """Bounded power iteration on the undirected adjacency -> eigenvector scores.
+    """Standard directed PageRank with dangling-node mass redistribution.
 
-    L1-normalised each step; stops early once the update is below ``tolerance``.
-    Disconnected graphs converge fine because the start vector is uniform.
+    Score flows caller -> callee, split EVENLY across a caller's own out-edges
+    (a caller with 50 call sites contributes far less per edge than one with 2
+    -- the out-degree normalization the old undirected walk never had, which
+    let pure fan-in dominate regardless of who was calling). A node with no
+    out-edges (a leaf callee, or a callee never itself observed calling
+    anything) is "dangling": its score is redistributed uniformly across ALL
+    nodes each iteration rather than lost -- the standard PageRank fix, else
+    rank mass leaks out of the graph and iteration never converges to a stable
+    total. L1 mass is conserved every iteration (sums to ~1 over all nodes),
+    so results are comparable across repos of different sizes without a
+    separate max-normalization step.
     """
     n = len(nodes)
-    score: dict[str, float] = {node: 1.0 / n for node in nodes}
+    if n == 0:
+        return {}
+    score: dict[str, float] = dict.fromkeys(nodes, 1.0 / n)
+    base = (1.0 - damping) / n
+    dangling = [node for node in nodes if not out_edges.get(node)]
+    dangling_set = set(dangling)
+    # Redistribution TARGETS exclude the dangling nodes themselves: a leaf that
+    # calls nothing (a pure sink -- an absorbing trap for the standard random-
+    # surfer model) would otherwise recycle a slice of its OWN just-leaked mass
+    # back to itself every iteration, self-reinforcing. Verified analytically on
+    # a 5-node toy graph (3 distinct callers -> hub -> 1 leaf) that including
+    # sinks in the redistribution target set lets the leaf's fixed-point rank
+    # OVERTAKE the hub's (0.380 vs 0.336) purely from this self-credit, even
+    # though the hub has 3x the leaf's in-degree and both its callers count --
+    # exactly backwards for code-navigation importance. The random-jump term
+    # (``base``) still reaches every node uniformly, unchanged; only a sink's
+    # OWN leaked mass is redirected to the rest of the graph instead of partly
+    # back to itself (and other sinks).
+    redistribution_targets = [node for node in nodes if node not in dangling_set] or nodes
     for _ in range(max(1, max_iterations)):
-        nxt: dict[str, float] = {node: 0.0 for node in nodes}
+        nxt: dict[str, float] = dict.fromkeys(nodes, base)
+        dangling_mass = sum(score[node] for node in dangling)
+        if dangling_mass:
+            share = damping * dangling_mass / len(redistribution_targets)
+            for node in redistribution_targets:
+                nxt[node] += share
         for node in nodes:
-            s = score[node]
-            if s == 0.0:
+            callees = out_edges.get(node)
+            if not callees:
                 continue
-            for neighbour in adjacency.get(node, ()):  # spread to neighbours
-                nxt[neighbour] += s
-        total = sum(nxt.values())
-        if total <= 0.0:
-            return score
-        delta = 0.0
-        for node in nodes:
-            normalised = nxt[node] / total
-            delta += abs(normalised - score[node])
-            nxt[node] = normalised
+            contrib = damping * score[node] / len(callees)
+            for callee in callees:
+                nxt[callee] += contrib
+        delta = sum(abs(nxt[node] - score[node]) for node in nodes)
         score = nxt
         if delta < tolerance:
             break
