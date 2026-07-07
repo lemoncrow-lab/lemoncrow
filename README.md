@@ -93,10 +93,10 @@ Measured on the same model, same tasks, and same environment:
 | SWE-bench Pro, 10 tasks x 5 reps                   |      **90.0% resolved** |                   88.0% |      **+2.0 pp** |
 | SWE-bench Pro cost                                 |    **$30.61** | $39.01 |       **21.5% cheaper** |                  |
 | Exploration tasks across 8 large repos             |     **$10.94** | $25.37 |         **57% cheaper** |                  |
-| Terminal-Bench 2.1, 89 tasks vs public leaderboard* | 74.2% resolved | 78.9% expected | -4.7 pp |
-| Terminal-Bench cost, 78/89 tasks w/ cost data*  | **$61.41** | $73.48 | **16.4% cheaper**† |
+| Terminal-Bench 2.1, 89 tasks vs public leaderboard* | 77.5% resolved | 78.9% expected | -1.4 pp |
+| Terminal-Bench cost, 83/89 tasks w/ cost data*  | **$75.87** | $96.02 | **21.0% cheaper**† |
 
-<sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Understates Atelier's savings floor -- 10 of the 11 tasks missing cost data are real, uncounted spend (harness killed the process on a timeout before it logged a final cost), not zero-cost runs; see BENCHMARKS.md.</sub>
+<sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Other 5 tasks in Atelier timeout and can't capture cost, not zero-cost runs; see BENCHMARKS.md.</sub>
 
 <p align="center">
   <img src="benchmarks/cost_vs_savings_scatter.svg" alt="Atelier vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, and Terminal-Bench" width="720">

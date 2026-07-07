@@ -295,7 +295,14 @@ def prepare_workspace(task: Task, workspace: Path | None = None) -> Path:
         src = Path(task.source[1])
         if not src.is_dir():
             raise FileNotFoundError(f"repo path missing for {task.id}: {src}")
-        shutil.copytree(src, ws, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
+        try:
+            shutil.copytree(src, ws, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
+        except shutil.Error as exc:
+            # copytree collects per-file errors (e.g. permission-denied on stray
+            # root-owned artifacts from prior containerized runs) but still
+            # completes the rest of the tree -- best-effort copy is fine here.
+            for copy_src, _copy_dst, copy_err in exc.args[0]:
+                print(f"  [warn] workspace copy skipped {copy_src}: {copy_err}", flush=True)
     elif kind == "workspace":
         src = task.workspace_src()
         if not src or not src.exists():
