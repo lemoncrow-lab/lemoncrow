@@ -2632,7 +2632,7 @@ def savings_frames(
     of freezing on whichever single frame was current at write time.
 
     Frames (non-empty only):
-      0  cost + I/C/O breakdown, then total saved (realized+output+routing+carry, usage-gated) w/ recycle+carry+routing breakdown (weighted 3x)
+      0  cost + I/C/O breakdown, then total saved (realized+output+routing+carry, usage-gated) w/ recycle+carry+output+routing breakdown (weighted 3x)
       1  1-day historical savings
       2  7-day historical savings
       3  30-day historical savings
@@ -2679,12 +2679,13 @@ def savings_frames(
     # has_icon=False → plain text; SEP is prepended so it doesn't abut ctx% directly.
     frames: list[tuple[bool, str]] = []
 
-    # Frame 0: $cost(I:.. C:.. O:..) ↓ $<total saved>(R:recycled C:carry Ro:routing) —
+    # Frame 0: $cost(I:.. C:.. O:..) ↓ $<total saved>(R:recycled C:carry O:output Ro:routing) —
     # cost segment is UNCHANGED. Savings + output-savings share + context-carry
     # counterfactual are folded into ONE trailing ↓ segment (previously two
     # separate ↓ savings / ♻ carry segments). R = tokens recycled into the
-    # realized savings (ctx_saved), C = carry tokens, Ro = routing $ already
-    # inside the total (via saved_usd) — each shown only when contributing.
+    # realized savings (ctx_saved), C = carry tokens, O = output-style tokens
+    # not emitted, Ro = routing $ already inside the total (via saved_usd) —
+    # each shown only when contributing.
     in_f, cache_f, out_f = _fmt_tok(eff_in), _fmt_tok(eff_cache), _fmt_tok(eff_out)
     has_usage = eff_in > 0 or eff_cache > 0
     display_cost = summary.est_cost_usd if summary.est_cost_usd > 0 else live_cost_usd
@@ -2699,9 +2700,14 @@ def savings_frames(
         combined += f" {C_GREEN}↓ {_fmt_usd(total_saved)}{C_DIM}(R:{_fmt_tok(summary.ctx_saved)}"
         if summary.carry_usd >= 0.001:
             combined += f" C:{_fmt_tok(summary.carry_tokens)}"
+        if summary.output_saved_usd >= 0.001:
+            # Telegraphic output-style savings — already inside total_saved via
+            # saved_usd (see the field's docstring: "shown as ↓O"), shown here
+            # as a breakdown of the total like R:/C:, not a separate addend.
+            combined += f" O:{_fmt_tok(summary.output_saved_tokens)}"
         if summary.routing_saved_usd > 0:
             # Already inside total_saved via saved_usd — shown as a breakdown
-            # of the total (like R:/C:), never a separate addend, so this no
+            # of the total (like R:/C:/O:), never a separate addend, so this no
             # longer reads as double-counted.
             combined += f" Ro:{_fmt_usd(summary.routing_saved_usd)}"
         combined += f"){C_RESET}"
