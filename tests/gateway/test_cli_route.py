@@ -93,6 +93,23 @@ def test_route_plan_returns_cross_vendor_recommendation(tmp_path: Path, monkeypa
     assert payload["fallback"] is not None
 
 
+def test_proof_run_survives_non_dict_smart_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hand-edited/corrupt ~/.atelier/smart_state.json holding a valid but
+    non-dict JSON value (null, list, string, number) must fall through to the
+    graceful ClickException, not crash with an uncaught AttributeError."""
+    root = tmp_path / ".atelier"
+    fake_home = tmp_path / "home"
+    (fake_home / ".atelier").mkdir(parents=True)
+    (fake_home / ".atelier" / "smart_state.json").write_text("null", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    res = _invoke(root, "proof", "run", "--session-id", "wp32-proof")
+
+    assert res.exit_code != 0
+    assert not isinstance(res.exception, AttributeError), res.exception
+    assert "Could not auto-measure context reduction" in res.output
+
+
 def test_route_status_reports_recommendation_count_and_savings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".atelier"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")

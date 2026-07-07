@@ -576,3 +576,26 @@ def test_rich_edit_ambiguous_normalized_match_fails_with_candidates(tmp_path: Pa
     assert result["failed"]
     assert "ambiguous" in result["failed"][0]["error"]
     assert path.read_text(encoding="utf-8") == original
+
+
+def test_rich_edit_trailing_newline_old_string_reports_inclusive_line_end(tmp_path: Path) -> None:
+    """An old_string ending in \\n must not push the reported line_end past the last changed line."""
+    path = tmp_path / "code.py"
+    path.write_text("line1\nline2\nline3\nline4\n", encoding="utf-8")
+
+    result = apply_rich_edits(
+        [
+            {
+                "file_path": "code.py",
+                "old_string": "line2\nline3\n",
+                "new_string": "REPLACED\n",
+            }
+        ],
+        repo_root=tmp_path,
+    )
+
+    assert result["failed"] == []
+    assert path.read_text(encoding="utf-8") == "line1\nREPLACED\nline4\n"
+    hunk = result["applied"][0]["hunks"][0]
+    # Lines 2-3 were replaced; line_end must be 3 (inclusive), not 4.
+    assert (hunk["line_start"], hunk["line_end"]) == (2, 3)

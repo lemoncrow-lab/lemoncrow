@@ -951,6 +951,30 @@ def test_range_edit_after_content_edit_same_file_fails_loudly(workspace: Path) -
     assert f.read_text(encoding="utf-8") == "a1\na2\na3\n"
 
 
+def test_range_old_string_edit_after_content_edit_same_file_fails_loudly(workspace: Path) -> None:
+    """Same hazard as test_range_edit_after_content_edit_same_file_fails_loudly,
+    but the second edit pairs the stale :Lx-Ly scope with old_string (falls into
+    _replace_in_scope instead of the pure-range splice path). Must get the same
+    loud rejection, not a confusing 'old_string not found in file'."""
+    f = workspace / "mix2.txt"
+    f.write_text("a1\na2\na3\n", encoding="utf-8")
+    _read("mix2.txt")
+
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [
+                {"file_path": "mix2.txt", "old_string": "a1\n", "new_string": "Z1\nZ1b\n"},
+                {"file_path": "mix2.txt:L3-L3", "old_string": "a3\n", "new_string": "Z3\n"},
+            ],
+        }
+    )
+
+    assert payload["rolled_back"] is True
+    assert "content-located edit" in payload["failed"][0]["error"]
+    assert f.read_text(encoding="utf-8") == "a1\na2\na3\n"
+
+
 def test_blind_range_edit_rejected_without_prior_read(workspace: Path) -> None:
     """No old anchor + file never served by read/code_search → reject, do not splice."""
     f = workspace / "unread.txt"

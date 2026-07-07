@@ -75,7 +75,9 @@ def _apply_replace(content: str, old_string: str, new_string: str) -> tuple[str,
     if idx == -1:
         raise ValueError("old_string not found in file")
     line_start = content[:idx].count("\n") + 1
-    line_end = line_start + old_string.count("\n")
+    # Inclusive last line: a trailing newline terminates the final replaced line
+    # rather than starting a new one, so count spanned lines, not raw newlines.
+    line_end = line_start + len(old_string.splitlines()) - 1
     new_content = content[:idx] + new_string + content[idx + len(old_string) :]
     return new_content, line_start, line_end
 
