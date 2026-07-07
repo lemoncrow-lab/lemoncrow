@@ -456,6 +456,32 @@ def test_opencode_install_passes_config_path_via_env_not_source_interpolation() 
     # Path is exported to the subprocess and read safely inside every heredoc.
     assert content.count('ATELIER_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}"') == 4
     assert content.count("os.environ['ATELIER_OC_FILE']") == 4
+    assert content.count("os.environ['ATELIER_OC_FILE']") == 4
+
+
+def test_claude_install_passes_workspace_paths_via_env_not_source_interpolation() -> None:
+    """Regression: CLAUDE_LOCAL_SETTINGS / WORKSPACE must not be interpolated into Python heredoc source.
+
+    A workspace path containing backslashes or single quotes (e.g. /tmp/a\\b, /home/o'brien)
+    broke `Path('${CLAUDE_LOCAL_SETTINGS}')`: Python parsed backslash escapes into a mangled,
+    nonexistent path (FileNotFoundError) or produced a SyntaxError, aborting the install under
+    set -e. The paths must be exported to the subprocess and read with os.environ inside the
+    heredoc, which must use a quoted delimiter to suppress shell interpolation.
+    """
+    content = (INTEGRATIONS / "claude" / "install.sh").read_text()
+    assert (
+        "Path('${CLAUDE_LOCAL_SETTINGS}')" not in content
+    ), "claude install.sh must not interpolate ${CLAUDE_LOCAL_SETTINGS} into Python source"
+    assert (
+        "CLAUDE_WORKSPACE_ROOT'] = '${WORKSPACE}'" not in content
+    ), "claude install.sh must not interpolate ${WORKSPACE} into Python source"
+    # Paths are exported to the subprocess and read safely inside a quoted heredoc.
+    assert (
+        'ATELIER_CLAUDE_LOCAL_SETTINGS="${CLAUDE_LOCAL_SETTINGS}" ATELIER_WORKSPACE="${WORKSPACE}" python3 - <<\'PYEOF\''
+        in content
+    )
+    assert "os.environ['ATELIER_CLAUDE_LOCAL_SETTINGS']" in content
+    assert "os.environ['ATELIER_WORKSPACE']" in content
 
 
 def test_install_codex_merges_existing_agents_file() -> None:
