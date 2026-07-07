@@ -1,10 +1,10 @@
 [project]
-name = "lemoncrow-integrations"
+name = "atelier-integrations"
 version = "0.1.0"
-description = "LemonCrow integration plugins and hooks"
+description = "Atelier integration plugins and hooks"
 requires-python = ">=3.12"
 dependencies = [
-    "lemoncrow",
+    "atelier",
 ]
 
 [build-system]
@@ -12,7 +12,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-lemoncrow = { workspace = true }
+atelier = { workspace = true }
 
 [tool.hatch.metadata]
 allow-direct-references = true

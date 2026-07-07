@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+# >>> atelier attribution >>>
+# Managed by Atelier (atelier init). Appends the co-author trailer unless already present.
+# Skips merge/squash commit messages.
+ATELIER_TRAILER="Co-Authored-By: atelier <293447754+atelier@users.noreply.github.com>"
+case "$2" in
+  merge|squash) ;;
+  *)
+    if ! grep -qF "$ATELIER_TRAILER" "$1" 2>/dev/null; then
+      printf '\n%s\n' "$ATELIER_TRAILER" >> "$1"
+    fi
+    ;;
+esac
+# <<< atelier attribution <<<

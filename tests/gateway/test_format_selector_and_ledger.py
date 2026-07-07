@@ -13,23 +13,23 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_token_ledger import load_tool_token_ledger
-from lemoncrow.gateway.adapters import mcp_server
-from lemoncrow.gateway.adapters.mcp_server import _handle
-from lemoncrow.pro.capabilities.tool_supervision.compact_output import columnar_decode
+from atelier.core.capabilities.tool_supervision.compact_output import columnar_decode
+from atelier.core.capabilities.tool_token_ledger import load_tool_token_ledger
+from atelier.gateway.adapters import mcp_server
+from atelier.gateway.adapters.mcp_server import _handle
 from tests.helpers import init_store_at
 
 
 @pytest.fixture()
 def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
-    monkeypatch.setenv("LEMONCROW_STORE_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_STORE_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
-    mcp_server._ledger._current_ledger = None
-    mcp_server._ledger._realtime_ctx = None
+    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    mcp_server._current_ledger = None
+    mcp_server._realtime_ctx = None
     return root
 
 
@@ -113,8 +113,7 @@ def test_ledger_records_per_tool_in_out_tokens(store_root: Path, tmp_path: Path)
     target = _grep_repo(tmp_path)
     _call("grep", {"path": str(target), "content_regex": "needle"})
     _call("read", {"path": str(target)})
-    # Second read via symbol lookup — 'force' was removed from the tool schema.
-    _call("read", {"symbol": "alpha", "files": [str(target)]})
+    _call("read", {"path": str(target), "force": True})
 
     ledger = load_tool_token_ledger(store_root)
     assert ledger.per_tool["grep"].calls == 1

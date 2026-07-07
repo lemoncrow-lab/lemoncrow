@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.pro.capabilities.tool_supervision.workspace_hygiene import (
+from atelier.core.capabilities.tool_supervision.workspace_hygiene import (
     scratch_leftovers,
     snapshot_workspace,
 )

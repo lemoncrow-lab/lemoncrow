@@ -7,7 +7,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-from lemoncrow.infra.runtime.run_ledger import RunLedger
+from atelier.infra.runtime.run_ledger import RunLedger
 
 
 class TestCompactAdviseLogic:

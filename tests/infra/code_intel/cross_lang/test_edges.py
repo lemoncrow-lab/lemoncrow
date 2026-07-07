@@ -3,8 +3,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from lemoncrow.pro.code_intel.cross_lang.edges import CrossLangEdge, CrossLangEdgeStore
-from lemoncrow.pro.code_intel.cross_lang.runner import CrossLangRunner
+from atelier.infra.code_intel.cross_lang.edges import CrossLangEdge, CrossLangEdgeStore
+from atelier.infra.code_intel.cross_lang.runner import CrossLangRunner
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:

@@ -1,0 +1,39 @@
+id: read-after-write-verification
+title: Read-After-Write Verification
+domain: state.change
+task_types: [integration_change, deploy, migration, config_change]
+triggers:
+  - write
+  - update
+  - publish
+  - mutate
+  - sync
+  - migration
+  - deploy
+tool_patterns:
+  - api.write
+  - db.write
+  - deploy.apply
+situation: >
+  A success response from a write path is not proof that observed state changed
+  as intended. Verification must happen through the authoritative read surface.
+dead_ends:
+  - trust success response as end state
+  - skip readback because the change seems small
+  - validate intent without observing actual state
+procedure:
+  - Capture pre-change state when the risk level makes recovery relevant.
+  - Apply the mutation.
+  - Re-read the affected state through the authoritative interface.
+  - Diff observed state against intended state.
+  - Stop and recover or escalate if drift remains.
+verification:
+  - Observed state matches intent.
+  - Pre-change state was captured when rollback matters.
+  - A downstream or user-visible check passed for risky changes.
+failure_signals:
+  - write succeeded but state did not change
+  - drift detected after mutation
+  - partial update observed
+when_not_to_apply: >
+  Read-only tasks or disposable local scratch changes with no lasting state.

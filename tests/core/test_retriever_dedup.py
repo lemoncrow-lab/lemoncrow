@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.core.foundation.renderer import render_block_for_agent
-from lemoncrow.infra.storage.bundle import StoreBundle
-from lemoncrow.pro.foundation.retriever import TaskContext, count_tokens, retrieve
+from atelier.core.foundation.models import Playbook
+from atelier.core.foundation.renderer import render_block_for_agent
+from atelier.core.foundation.retriever import TaskContext, count_tokens, retrieve
+from atelier.core.foundation.store import ContextStore
 
 
 def _block(
@@ -32,7 +32,7 @@ def _block(
     )
 
 
-def test_dedup_collapses_near_duplicate_pair(store: StoreBundle) -> None:
+def test_dedup_collapses_near_duplicate_pair(store: ContextStore) -> None:
     keeper = _block(
         "keeper",
         title="Keeper",
@@ -59,14 +59,14 @@ def test_dedup_collapses_near_duplicate_pair(store: StoreBundle) -> None:
         title="Distinct",
         procedure=["Measure compact rendered tokens", "Pack blocks under a fixed budget"],
     )
-    store.knowledge.upsert_block(keeper)
-    store.knowledge.upsert_block(duplicate)
-    store.knowledge.upsert_block(distinct)
+    store.upsert_block(keeper)
+    store.upsert_block(duplicate)
+    store.upsert_block(distinct)
 
     ctx = TaskContext(
         task="retriever playbook dedup",
         domain="coding",
-        files=["src/lemoncrow/core/foundation/retriever.py"],
+        files=["src/atelier/core/foundation/retriever.py"],
     )
 
     naive_ids = [s.block.id for s in retrieve(store, ctx, limit=5, dedup=False, token_budget=None)]
@@ -78,7 +78,7 @@ def test_dedup_collapses_near_duplicate_pair(store: StoreBundle) -> None:
     assert "duplicate" not in tuned_ids
 
 
-def test_token_budget_greedy_packs_highest_scoring_blocks(store: StoreBundle) -> None:
+def test_token_budget_greedy_packs_highest_scoring_blocks(store: ContextStore) -> None:
     top = _block(
         "top",
         title="Top",
@@ -95,14 +95,14 @@ def test_token_budget_greedy_packs_highest_scoring_blocks(store: StoreBundle) ->
         title="Small",
         procedure=["Fit the remaining token budget"],
     )
-    store.knowledge.upsert_block(top)
-    store.knowledge.upsert_block(large)
-    store.knowledge.upsert_block(small)
+    store.upsert_block(top)
+    store.upsert_block(large)
+    store.upsert_block(small)
 
     ctx = TaskContext(
         task="retriever playbook budget",
         domain="coding",
-        files=["src/lemoncrow/core/foundation/retriever.py"],
+        files=["src/atelier/core/foundation/retriever.py"],
     )
     budget = count_tokens(render_block_for_agent(top)) + count_tokens(render_block_for_agent(small))
     ids = [s.block.id for s in retrieve(store, ctx, limit=3, token_budget=budget, dedup=False)]

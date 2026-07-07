@@ -1,18 +1,18 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
-  "name": "lemoncrow",
+  "name": "atelier",
   "owner": {
-    "name": "LemonCrow Team",
-    "email": "support@lemoncrow.com"
+    "name": "Atelier Team",
+    "email": "atelier@example.com"
   },
   "plugins": [
     {
-      "name": "lemoncrow",
+      "name": "atelier",
       "source": "./",
       "description": "AI task/procedure/runtime layer for agentic workflows",
       "version": "0.1.0",
       "author": {
-        "name": "LemonCrow Team"
+        "name": "Atelier Team"
       },
       "category": "development"
     }

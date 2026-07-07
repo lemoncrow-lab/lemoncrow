@@ -1,0 +1,22 @@
+{
+  "model": "atelier/atelier",
+  "provider": {
+    "atelier": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Atelier",
+      "options": {
+        "baseURL": "http://127.0.0.1:8787/v1",
+        "apiKey": "local"
+      }
+    }
+  },
+  "mcp": {
+    "atelier": {
+      "type": "local",
+      "command": ["atelier", "mcp", "--host", "opencode"],
+      "environment": {
+        "ATELIER_WORKSPACE_ROOT": "<WORKSPACE_ROOT>"
+      }
+    }
+  }
+}

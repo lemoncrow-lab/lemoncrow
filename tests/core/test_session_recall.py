@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities import session_recall
-from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
+from atelier.core.capabilities import session_recall
+from atelier.gateway.hosts.session_parsers._session_parser import parse_session_turns
 
 
 class _FakeCap:
@@ -62,7 +62,7 @@ def test_session_snippets_extracts_user_and_assistant(tmp_path: Path) -> None:
 
 
 def test_index_sessions_incremental(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     project = tmp_path / "proj"
     project.mkdir()
     transcript = _transcript(
@@ -91,7 +91,7 @@ def test_index_sessions_incremental(tmp_path: Path) -> None:
 
 
 def test_index_reindexes_after_change(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     project = tmp_path / "proj"
     project.mkdir()
     transcript = _transcript(project / "abc.jsonl", [_msg("user", "first version of the session content")])
@@ -115,7 +115,7 @@ def test_recall_maps_passages(tmp_path: Path) -> None:
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
     cap = _FakeCap(recall_passages=[passage])
-    out = session_recall.recall(tmp_path / ".lemoncrow", "cache strategy", top_k=5, capability=cap)
+    out = session_recall.recall(tmp_path / ".atelier", "cache strategy", top_k=5, capability=cap)
     assert out == [
         {
             "text": "LRU cache TTL",
@@ -127,8 +127,8 @@ def test_recall_maps_passages(tmp_path: Path) -> None:
 
 
 def test_recall_uses_dedicated_recall_db(tmp_path: Path) -> None:
-    # Recall must write to its own recall.db, isolated from the main lemoncrow.db.
-    cap = session_recall._capability(tmp_path / ".lemoncrow")
+    # Recall must write to its own recall.db, isolated from the main atelier.db.
+    cap = session_recall._capability(tmp_path / ".atelier")
     assert cap._store.db_path.name == "recall.db"
 
 
@@ -141,7 +141,7 @@ def test_recall_fail_open(tmp_path: Path) -> None:
 
 
 def test_empty_session_marks_state_without_indexing(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     project = tmp_path / "proj"
     project.mkdir()
     transcript = _transcript(project / "empty.jsonl", [{"message": {"role": "system", "content": "noise"}}])
@@ -159,7 +159,7 @@ def test_index_sessions_budget_prefers_newest_unindexed(tmp_path: Path) -> None:
     # Regression: the per-run cap must apply to *unindexed* sessions, newest
     # first — not to the raw (arbitrary-order) path list, which used to let a
     # backlog of already-indexed sessions starve never-indexed ones.
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     project = tmp_path / "proj"
     project.mkdir()
     paths = []
@@ -255,100 +255,8 @@ def test_opencode_prose_snippets_via_parser() -> None:
     assert not any("internal reasoning" in s for s in snippets)  # thinking excluded
 
 
-def test_copilot_candidates_and_snippets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import time
-
-    session_dir = tmp_path / "cop-sess-1"
-    session_dir.mkdir()
-    (session_dir / "events.jsonl").write_text(
-        "\n".join(
-            [
-                json.dumps(
-                    {
-                        "type": "user.message",
-                        "data": {"content": "How do I index copilot sessions for recall coverage"},
-                    }
-                ),
-                json.dumps(
-                    {
-                        "type": "assistant.message",
-                        "data": {"content": "Copilot sessions are discovered from session-state dirs"},
-                    }
-                ),
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    from lemoncrow.gateway.hosts.session_parsers import copilot as copilot_parser
-
-    monkeypatch.setattr(copilot_parser, "find_copilot_sessions", lambda root=None: iter([session_dir]))
-
-    candidates = session_recall._copilot_candidates(cutoff=time.time() - 3600)
-    assert len(candidates) == 1
-    cand = candidates[0]
-    assert (cand.host, cand.session_id) == ("copilot", "cop-sess-1")
-    snippets = cand.load()
-    assert any("copilot sessions" in s.lower() for s in snippets)
-
-
-def test_cursor_candidates_and_snippets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import sqlite3
-    import time
-    from datetime import UTC, datetime
-
-    db_path = tmp_path / "state.vscdb"
-    conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)")
-    now_iso = datetime.now(UTC).isoformat()
-    conn.execute(
-        "INSERT INTO cursorDiskKV VALUES (?, ?)",
-        (
-            "bubbleId:comp-live:u1",
-            json.dumps(
-                {"type": 1, "text": "How is cursor recall coverage configured in LemonCrow", "createdAt": now_iso}
-            ),
-        ),
-    )
-    conn.execute(
-        "INSERT INTO cursorDiskKV VALUES (?, ?)",
-        (
-            "bubbleId:comp-live:a1",
-            json.dumps(
-                {
-                    "type": 2,
-                    "text": "Cursor sessions are read from the state.vscdb bubbles",
-                    "createdAt": now_iso,
-                }
-            ),
-        ),
-    )
-    # Stale session outside the window must be skipped.
-    conn.execute(
-        "INSERT INTO cursorDiskKV VALUES (?, ?)",
-        (
-            "bubbleId:comp-old:u1",
-            json.dumps(
-                {"type": 1, "text": "old prose long enough to snippet", "createdAt": "2020-01-01T00:00:00+00:00"}
-            ),
-        ),
-    )
-    conn.commit()
-    conn.close()
-
-    from lemoncrow.gateway.hosts.session_parsers import cursor as cursor_parser
-
-    monkeypatch.setattr(cursor_parser, "find_cursor_db", lambda root=None: db_path)
-
-    candidates = session_recall._cursor_candidates(cutoff=time.time() - 3600)
-    assert [c.session_id for c in candidates] == ["comp-live"]
-    snippets = candidates[0].load()
-    assert any(s.startswith("[user] How is cursor recall") for s in snippets)
-    assert any(s.startswith("[assistant] Cursor sessions are read") for s in snippets)
-
-
 def test_index_sessions_multi_host_tags_and_dedup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     candidates = [
         session_recall._Candidate(
             "codex-1", 100.0, "codex", "codex", lambda: ["[user] codex q", "[assistant] codex a"]

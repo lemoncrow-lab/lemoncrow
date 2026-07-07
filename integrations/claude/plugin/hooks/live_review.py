@@ -17,9 +17,29 @@ import sys
 from pathlib import Path
 
 
+def _workspace_key(path: str) -> str:
+    import re
+    from hashlib import sha256
+    from pathlib import Path as _Path
+
+    resolved = _Path(path).expanduser().resolve()
+    home = _Path.home().resolve()
+    try:
+        parts = resolved.relative_to(home).parts
+    except ValueError:
+        parts = [p for p in resolved.parts if p and p != "/"]
+    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
+    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
+    if len(label) > 120:
+        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
+    return label or sha256(str(resolved).encode()).hexdigest()[:12]
+
+
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "session_state.json"
+    h = _workspace_key(workspace)
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _read_session_state() -> dict:  # type: ignore[type-arg]
@@ -30,25 +50,23 @@ def _read_session_state() -> dict:  # type: ignore[type-arg]
         return {}
 
 
-def _lemoncrow_root() -> Path:
-    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
+def _atelier_root() -> Path:
+    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
     if root:
         return Path(root)
     state = _read_session_state()
-    if state.get("lemoncrow_root"):
-        return Path(state["lemoncrow_root"])
-    return Path.home() / ".lemoncrow"
+    if state.get("atelier_root"):
+        return Path(state["atelier_root"])
+    return Path.home() / ".atelier"
 
 
 def _spawn(session_id: str, mode: str, path: str, root: Path) -> None:
     """Detach a reviewer child. Never waits — returns control immediately."""
-    override = os.environ.get("LEMONCROW_REVIEWER_CHILD_CMD")
-    cmd = (
-        shlex.split(override) if override else [sys.executable, "-m", "lemoncrow.pro.capabilities.live_reviewer.child"]
-    )
+    override = os.environ.get("ATELIER_REVIEWER_CHILD_CMD")
+    cmd = shlex.split(override) if override else [sys.executable, "-m", "atelier.core.capabilities.live_reviewer.child"]
     cmd += ["--session", session_id, "--mode", mode, "--path", path, "--root", str(root)]
     env = dict(os.environ)
-    env["LEMONCROW_IN_REVIEW"] = "1"
+    env["ATELIER_IN_REVIEW"] = "1"
     subprocess.Popen(
         cmd,
         stdin=subprocess.DEVNULL,
@@ -60,21 +78,10 @@ def _spawn(session_id: str, mode: str, path: str, root: Path) -> None:
     )
 
 
-def _dormant() -> bool:
-    try:
-        from lemoncrow.core.capabilities.plugin_runtime import cap_exhausted
-
-        return bool(cap_exhausted(_lemoncrow_root()))
-    except Exception:
-        return False
-
-
 def main() -> int:
     # A reviewer's own activity must never trigger another reviewer.
-    if os.environ.get("LEMONCROW_IN_REVIEW"):
+    if os.environ.get("ATELIER_IN_REVIEW"):
         return 0
-    if _dormant():
-        return 0  # dormant: no live review (a Pro capability)
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except (json.JSONDecodeError, OSError):
@@ -89,11 +96,11 @@ def main() -> int:
         return 0
 
     try:
-        from lemoncrow.core.foundation.paths import session_dir
-        from lemoncrow.pro.capabilities.live_reviewer.edit_counter import count_file_edits
-        from lemoncrow.pro.capabilities.live_reviewer.settings import load_reviewer_settings
+        from atelier.core.capabilities.live_reviewer.edit_counter import count_file_edits
+        from atelier.core.capabilities.live_reviewer.settings import load_reviewer_settings
+        from atelier.core.foundation.paths import session_dir
 
-        root = _lemoncrow_root()
+        root = _atelier_root()
         settings = load_reviewer_settings(root)
         if not settings.enabled:
             return 0
@@ -105,7 +112,7 @@ def main() -> int:
             _spawn(session_id, "deep", edited, root)
         elif settings.live_reviewer:
             _spawn(session_id, "live", edited, root)
-    except Exception:
+    except Exception:  # noqa: BLE001 - hook must never block the turn
         return 0
     return 0
 

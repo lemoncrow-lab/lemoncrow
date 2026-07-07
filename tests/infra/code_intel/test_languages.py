@@ -6,7 +6,8 @@ import dataclasses
 
 import pytest
 
-from lemoncrow.infra.code_intel.languages import (
+from atelier.core.capabilities.semantic_file_memory.treesitter_ast import _LANG_CONFIG
+from atelier.infra.code_intel.languages import (
     ALL_LANGUAGES,
     EXTENSION_TO_LANGUAGE,
     FILENAME_TO_LANGUAGE,
@@ -14,7 +15,6 @@ from lemoncrow.infra.code_intel.languages import (
     language_by_name,
     language_for_path,
 )
-from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import _LANG_CONFIG
 
 # ---------------------------------------------------------------------------
 # Legacy expectation table — sourced verbatim from

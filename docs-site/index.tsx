@@ -1,34 +1,8 @@
 import type { ReactNode } from "react";
+import clsx from "clsx";
 import Link from "@docusaurus/Link";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import Layout from "@theme/Layout";
-
-const FEATURES = [
-  {
-    title: "Ranked code graph",
-    desc: "Symbols, callers, callees, usages, and repository history before broad file exploration.",
-  },
-  {
-    title: "Bounded context",
-    desc: "Exact ranges, outlines, duplicate suppression, and recoverable output spills.",
-  },
-  {
-    title: "Durable memory",
-    desc: "Compaction support, handover packets, and facts that survive the current conversation.",
-  },
-  {
-    title: "Verified execution",
-    desc: "Grounded edits, hooks, run ledgers, and outcome checks around the model you already use.",
-  },
-  {
-    title: "Host-neutral",
-    desc: "One runtime for Claude Code, Codex, Copilot, opencode, and MCP-compatible hosts.",
-  },
-  {
-    title: "Local-first",
-    desc: "Parsing, indexing, and the repository working set stay on your machine.",
-  },
-];
 
 function HomepageHeader() {
   const { siteConfig } = useDocusaurusContext();
@@ -41,13 +15,25 @@ function HomepageHeader() {
       }}
     >
       <div className="container" style={{ textAlign: "center" }}>
-        <img
-          src="/img/favicon.svg"
-          width="64"
-          height="64"
-          alt=""
-          style={{ marginBottom: "16px" }}
-        />
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 32 32"
+          fill="none"
+          style={{ width: "64px", height: "64px", marginBottom: "16px" }}
+        >
+          <rect width="32" height="32" rx="6" fill="#9B75D9" />
+          <text
+            x="16"
+            y="22"
+            fontFamily="Arial,sans-serif"
+            fontSize="18"
+            fontWeight="bold"
+            fill="white"
+            textAnchor="middle"
+          >
+            A
+          </text>
+        </svg>
         <h1
           style={{
             fontSize: "48px",
@@ -63,7 +49,7 @@ function HomepageHeader() {
           style={{
             fontSize: "20px",
             color: "var(--hero-subtext)",
-            maxWidth: "680px",
+            maxWidth: "600px",
             margin: "0 auto 32px",
             lineHeight: 1.6,
           }}
@@ -80,16 +66,16 @@ function HomepageHeader() {
         >
           <Link
             className="button button--secondary button--lg"
-            to="/installation"
+            to="/docs/installation"
           >
-            Install LemonCrow
+            Installation
           </Link>
           <Link
             className="button button--outline button--lg"
-            href="https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md"
+            href="https://github.com/atelier-ws/atelier"
             style={{ borderColor: "#9B75D9", color: "#9B75D9" }}
           >
-            Matched benchmarks
+            GitHub
           </Link>
         </div>
       </div>
@@ -100,13 +86,13 @@ function HomepageHeader() {
 export default function Home(): ReactNode {
   return (
     <Layout
-      title="LemonCrow — Context and Execution Runtime for Coding Agents"
-      description="Keep coding agents sharp on real codebases with a local code graph, exact-range tools, bounded output, durable memory, and verified execution."
+      title="Atelier — Agent Reasoning Runtime"
+      description="Structured procedure store for AI agents. Query procedures before and after complex tasks."
     >
       <HomepageHeader />
       <main>
         <section
-          style={{ padding: "60px 20px", maxWidth: "960px", margin: "0 auto" }}
+          style={{ padding: "60px 20px", maxWidth: "900px", margin: "0 auto" }}
         >
           <div
             style={{
@@ -115,9 +101,40 @@ export default function Home(): ReactNode {
               gap: "24px",
             }}
           >
-            {FEATURES.map((feature) => (
+            {[
+              {
+                icon: "🧠",
+                title: "Reason Blocks",
+                desc: "Reusable procedures agents query before and after tasks.",
+              },
+              {
+                icon: "📇",
+                title: "Traces",
+                desc: "Execution artifacts with full prompt/response capture.",
+              },
+              {
+                icon: "📏",
+                title: "Rubrics",
+                desc: "Domain verification gates for structured quality control.",
+              },
+              {
+                icon: "🤖",
+                title: "Agent Integrations",
+                desc: "Works with Claude Code, Codex, Copilot, opencode, Gemini.",
+              },
+              {
+                icon: "💰",
+                title: "Cost Tracking",
+                desc: "Token usage, model pricing, and savings analytics.",
+              },
+              {
+                icon: "🚨",
+                title: "Failure Analysis",
+                desc: "Cluster and analyse agent errors automatically.",
+              },
+            ].map((f) => (
               <div
-                key={feature.title}
+                key={f.title}
                 style={{
                   background: "var(--card-bg)",
                   border: "1px solid var(--card-border)",
@@ -125,6 +142,9 @@ export default function Home(): ReactNode {
                   padding: "24px",
                 }}
               >
+                <div style={{ fontSize: "28px", marginBottom: "12px" }}>
+                  {f.icon}
+                </div>
                 <h3
                   style={{
                     color: "var(--card-title)",
@@ -132,7 +152,7 @@ export default function Home(): ReactNode {
                     margin: "0 0 8px",
                   }}
                 >
-                  {feature.title}
+                  {f.title}
                 </h3>
                 <p
                   style={{
@@ -142,7 +162,7 @@ export default function Home(): ReactNode {
                     lineHeight: 1.6,
                   }}
                 >
-                  {feature.desc}
+                  {f.desc}
                 </p>
               </div>
             ))}

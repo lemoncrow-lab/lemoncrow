@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
+from atelier.core.capabilities.cross_vendor_routing.configuration import (
     RouteConfig,
     save_route_config,
 )
-from lemoncrow.pro.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
-from lemoncrow.pro.capabilities.owned_execution_routing import (
+from atelier.core.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
+from atelier.core.capabilities.owned_execution_routing import (
     CrossVendorRouter,
     OwnedExecutionRouteSelector,
     OwnedRouteRequest,

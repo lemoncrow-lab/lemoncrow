@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
-from lemoncrow.pro.runtime.outcome_capture import emit_typed_lesson_candidate
+from atelier.core.foundation.store import ContextStore
+from atelier.infra.runtime.outcome_capture import emit_typed_lesson_candidate
 
 
 def test_outcome_capture_emits_candidate_for_recurring_pattern(tmp_path) -> None:
-    store = build_sqlite_store_bundle(tmp_path)
+    store = ContextStore(tmp_path)
     store.init()
 
     candidate = emit_typed_lesson_candidate(
@@ -41,5 +41,5 @@ def test_outcome_capture_emits_candidate_for_recurring_pattern(tmp_path) -> None
     assert candidate is not None
     assert candidate.kind == "route-preference"
     assert candidate.evidence["typed_lesson"]["prefer"]["model"] == "gemini-flash"
-    stored = store.lessons.get_lesson_candidate(candidate.id)
+    stored = store.get_lesson_candidate(candidate.id)
     assert stored is not None

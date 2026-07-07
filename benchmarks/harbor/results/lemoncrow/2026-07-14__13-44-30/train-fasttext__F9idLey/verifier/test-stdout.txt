@@ -1,196 +1,0 @@
-Hit:1 http://deb.debian.org/debian bookworm InRelease
-Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
-Hit:3 http://deb.debian.org/debian-security bookworm-security InRelease
-Hit:4 https://deb.nodesource.com/node_20.x nodistro InRelease
-Fetched 55.4 kB in 0s (247 kB/s)
-Reading package lists...
-Reading package lists...
-Building dependency tree...
-Reading state information...
-curl is already the newest version (7.88.1-10+deb12u15).
-git is already the newest version (1:2.39.5-0+deb12u3).
-The following additional packages will be installed:
-  bzip2 dpkg dpkg-dev fakeroot libalgorithm-diff-perl
-  libalgorithm-diff-xs-perl libalgorithm-merge-perl libdpkg-perl libfakeroot
-  libfile-fcntllock-perl liblocale-gettext-perl liblzma5 xz-utils
-Suggested packages:
-  bzip2-doc debsig-verify debian-keyring sensible-utils bzr
-The following NEW packages will be installed:
-  build-essential bzip2 dpkg-dev fakeroot libalgorithm-diff-perl
-  libalgorithm-diff-xs-perl libalgorithm-merge-perl libdpkg-perl libfakeroot
-  libfile-fcntllock-perl liblocale-gettext-perl xz-utils
-The following packages will be upgraded:
-  dpkg liblzma5
-2 upgraded, 12 newly installed, 0 to remove and 22 not upgraded.
-Need to get 4472 kB of archives.
-After this operation, 5973 kB of additional disk space will be used.
-Get:1 http://deb.debian.org/debian bookworm/main amd64 dpkg amd64 1.21.23 [1568 kB]
-Get:2 http://deb.debian.org/debian bookworm/main amd64 liblocale-gettext-perl amd64 1.07-5 [15.4 kB]
-Get:3 http://deb.debian.org/debian bookworm/main amd64 liblzma5 amd64 5.4.1-1+deb12u1 [206 kB]
-Get:4 http://deb.debian.org/debian bookworm/main amd64 bzip2 amd64 1.0.8-5+b1 [49.8 kB]
-Get:5 http://deb.debian.org/debian bookworm/main amd64 xz-utils amd64 5.4.1-1+deb12u1 [471 kB]
-Get:6 http://deb.debian.org/debian bookworm/main amd64 libdpkg-perl all 1.21.23 [604 kB]
-Get:7 http://deb.debian.org/debian bookworm/main amd64 dpkg-dev all 1.21.23 [1354 kB]
-Get:8 http://deb.debian.org/debian bookworm/main amd64 build-essential amd64 12.9 [7704 B]
-Get:9 http://deb.debian.org/debian bookworm/main amd64 libfakeroot amd64 1.31-1.2 [28.3 kB]
-Get:10 http://deb.debian.org/debian bookworm/main amd64 fakeroot amd64 1.31-1.2 [66.9 kB]
-Get:11 http://deb.debian.org/debian bookworm/main amd64 libalgorithm-diff-perl all 1.201-1 [43.3 kB]
-Get:12 http://deb.debian.org/debian bookworm/main amd64 libalgorithm-diff-xs-perl amd64 0.04-8+b1 [11.4 kB]
-Get:13 http://deb.debian.org/debian bookworm/main amd64 libalgorithm-merge-perl all 0.08-5 [11.8 kB]
-Get:14 http://deb.debian.org/debian bookworm/main amd64 libfile-fcntllock-perl amd64 0.22-4+b1 [34.8 kB]
-debconf: delaying package configuration, since apt-utils is not installed
-Fetched 4472 kB in 0s (24.3 MB/s)
-(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 23076 files and directories currently installed.)
-Preparing to unpack .../dpkg_1.21.23_amd64.deb ...
-Unpacking dpkg (1.21.23) over (1.21.22) ...
-Setting up dpkg (1.21.23) ...
-Selecting previously unselected package liblocale-gettext-perl.
-(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 23076 files and directories currently installed.)
-Preparing to unpack .../liblocale-gettext-perl_1.07-5_amd64.deb ...
-Unpacking liblocale-gettext-perl (1.07-5) ...
-Preparing to unpack .../liblzma5_5.4.1-1+deb12u1_amd64.deb ...
-Unpacking liblzma5:amd64 (5.4.1-1+deb12u1) over (5.4.1-1) ...
-Setting up liblzma5:amd64 (5.4.1-1+deb12u1) ...
-Selecting previously unselected package bzip2.
-(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 23090 files and directories currently installed.)
-Preparing to unpack .../00-bzip2_1.0.8-5+b1_amd64.deb ...
-Unpacking bzip2 (1.0.8-5+b1) ...
-Selecting previously unselected package xz-utils.
-Preparing to unpack .../01-xz-utils_5.4.1-1+deb12u1_amd64.deb ...
-Unpacking xz-utils (5.4.1-1+deb12u1) ...
-Selecting previously unselected package libdpkg-perl.
-Preparing to unpack .../02-libdpkg-perl_1.21.23_all.deb ...
-Unpacking libdpkg-perl (1.21.23) ...
-Selecting previously unselected package dpkg-dev.
-Preparing to unpack .../03-dpkg-dev_1.21.23_all.deb ...
-Unpacking dpkg-dev (1.21.23) ...
-Selecting previously unselected package build-essential.
-Preparing to unpack .../04-build-essential_12.9_amd64.deb ...
-Unpacking build-essential (12.9) ...
-Selecting previously unselected package libfakeroot:amd64.
-Preparing to unpack .../05-libfakeroot_1.31-1.2_amd64.deb ...
-Unpacking libfakeroot:amd64 (1.31-1.2) ...
-Selecting previously unselected package fakeroot.
-Preparing to unpack .../06-fakeroot_1.31-1.2_amd64.deb ...
-Unpacking fakeroot (1.31-1.2) ...
-Selecting previously unselected package libalgorithm-diff-perl.
-Preparing to unpack .../07-libalgorithm-diff-perl_1.201-1_all.deb ...
-Unpacking libalgorithm-diff-perl (1.201-1) ...
-Selecting previously unselected package libalgorithm-diff-xs-perl:amd64.
-Preparing to unpack .../08-libalgorithm-diff-xs-perl_0.04-8+b1_amd64.deb ...
-Unpacking libalgorithm-diff-xs-perl:amd64 (0.04-8+b1) ...
-Selecting previously unselected package libalgorithm-merge-perl.
-Preparing to unpack .../09-libalgorithm-merge-perl_0.08-5_all.deb ...
-Unpacking libalgorithm-merge-perl (0.08-5) ...
-Selecting previously unselected package libfile-fcntllock-perl.
-Preparing to unpack .../10-libfile-fcntllock-perl_0.22-4+b1_amd64.deb ...
-Unpacking libfile-fcntllock-perl (0.22-4+b1) ...
-Setting up libfile-fcntllock-perl (0.22-4+b1) ...
-Setting up libalgorithm-diff-perl (1.201-1) ...
-Setting up bzip2 (1.0.8-5+b1) ...
-Setting up libfakeroot:amd64 (1.31-1.2) ...
-Setting up fakeroot (1.31-1.2) ...
-update-alternatives: using /usr/bin/fakeroot-sysv to provide /usr/bin/fakeroot (fakeroot) in auto mode
-update-alternatives: warning: skip creation of /usr/share/man/man1/fakeroot.1.gz because associated file /usr/share/man/man1/fakeroot-sysv.1.gz (of link group fakeroot) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/man1/faked.1.gz because associated file /usr/share/man/man1/faked-sysv.1.gz (of link group fakeroot) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/es/man1/fakeroot.1.gz because associated file /usr/share/man/es/man1/fakeroot-sysv.1.gz (of link group fakeroot) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/es/man1/faked.1.gz because associated file /usr/share/man/es/man1/faked-sysv.1.gz (of link group fakeroot) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/fr/man1/fakeroot.1.gz because associated file /usr/share/man/fr/man1/fakeroot-sysv.1.gz (of link group fakeroot) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/fr/man1/faked.1.gz because associated file /usr/share/man/fr/man1/faked-sysv.1.gz (of link group fakeroot) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/sv/man1/fakeroot.1.gz because associated file /usr/share/man/sv/man1/fakeroot-sysv.1.gz (of link group fakeroot) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/sv/man1/faked.1.gz because associated file /usr/share/man/sv/man1/faked-sysv.1.gz (of link group fakeroot) doesn't exist
-Setting up xz-utils (5.4.1-1+deb12u1) ...
-update-alternatives: using /usr/bin/xz to provide /usr/bin/lzma (lzma) in auto mode
-update-alternatives: warning: skip creation of /usr/share/man/man1/lzma.1.gz because associated file /usr/share/man/man1/xz.1.gz (of link group lzma) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/man1/unlzma.1.gz because associated file /usr/share/man/man1/unxz.1.gz (of link group lzma) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/man1/lzcat.1.gz because associated file /usr/share/man/man1/xzcat.1.gz (of link group lzma) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/man1/lzmore.1.gz because associated file /usr/share/man/man1/xzmore.1.gz (of link group lzma) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/man1/lzless.1.gz because associated file /usr/share/man/man1/xzless.1.gz (of link group lzma) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/man1/lzdiff.1.gz because associated file /usr/share/man/man1/xzdiff.1.gz (of link group lzma) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/man1/lzcmp.1.gz because associated file /usr/share/man/man1/xzcmp.1.gz (of link group lzma) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/man1/lzgrep.1.gz because associated file /usr/share/man/man1/xzgrep.1.gz (of link group lzma) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/man1/lzegrep.1.gz because associated file /usr/share/man/man1/xzegrep.1.gz (of link group lzma) doesn't exist
-update-alternatives: warning: skip creation of /usr/share/man/man1/lzfgrep.1.gz because associated file /usr/share/man/man1/xzfgrep.1.gz (of link group lzma) doesn't exist
-Setting up libdpkg-perl (1.21.23) ...
-Setting up libalgorithm-diff-xs-perl:amd64 (0.04-8+b1) ...
-Setting up liblocale-gettext-perl (1.07-5) ...
-Setting up libalgorithm-merge-perl (0.08-5) ...
-Setting up dpkg-dev (1.21.23) ...
-Setting up build-essential (12.9) ...
-Processing triggers for libc-bin (2.36-9+deb12u14) ...
-Cloning into '/opt/fastText'...
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/args.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/autotune.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/matrix.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/dictionary.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/loss.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/productquantizer.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/densematrix.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/quantmatrix.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/vector.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/model.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/utils.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/meter.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG -c src/fasttext.cc
-c++ -pthread -std=c++17 -march=native -O3 -funroll-loops -DNDEBUG args.o autotune.o matrix.o dictionary.o loss.o productquantizer.o densematrix.o quantmatrix.o vector.o model.o utils.o meter.o fasttext.o src/main.cc -o fasttext
-downloading uv 0.9.5 x86_64-unknown-linux-gnu
-no checksums to verify
-installing to /root/.local/bin
-  uv
-  uvx
-everything's installed!
-
-To add $HOME/.local/bin to your PATH, either restart your shell or run:
-
-    source $HOME/.local/bin/env (sh, bash, zsh)
-    source $HOME/.local/bin/env.fish (fish)
-tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
-Downloading pygments (1.2MiB)
- Downloading pygments
-Installed 6 packages in 10ms
-============================= test session starts ==============================
-platform linux -- Python 3.11.2, pytest-8.4.1, pluggy-1.6.0
-rootdir: /tests
-plugins: json-ctrf-0.3.5
-collected 2 items
-
-../tests/test_outputs.py F.                                              [100%]
-
-=================================== FAILURES ===================================
-________________________________ test_accuracy _________________________________
-
-    def test_accuracy():
-        """Test accuracy of the fasttext model on the test set using CLI tool."""
-        result = subprocess.run(
-            ["fasttext", "test", "/app/model.bin", "/tests/private_test.txt"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    
-        # Parse output format: "N\t10000\nP@1\t0.621\nR@1\t0.621"
-        accuracy = None
-        for line in result.stdout.split("\n"):
-            if line.startswith("P@1"):
-                parts = line.split("\t")
-                if len(parts) >= 2:
-                    accuracy = float(parts[1])
-                    break
-    
-        if accuracy is None:
-            raise AssertionError(
-                f"Could not parse accuracy from fasttext output.\nStdout: {result.stdout}\nStderr: {result.stderr}"
-            )
-    
->       assert accuracy >= ACCURACY_THRESHOLD, (
-            f"Accuracy {accuracy} is not at least {ACCURACY_THRESHOLD}"
-        )
-E       AssertionError: Accuracy 0.55 is not at least 0.62
-E       assert 0.55 >= 0.62
-
-/tests/test_outputs.py:33: AssertionError
-==================================== PASSES ====================================
-=========================== short test summary info ============================
-PASSED ../tests/test_outputs.py::test_model_size
-FAILED ../tests/test_outputs.py::test_accuracy - AssertionError: Accuracy 0.5...
-========================= 1 failed, 1 passed in 0.52s ==========================

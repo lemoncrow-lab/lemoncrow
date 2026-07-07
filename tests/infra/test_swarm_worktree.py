@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from lemoncrow.pro.runtime.swarm_worktree import SwarmWorktreeManager
+from atelier.infra.runtime.swarm_worktree import SwarmWorktreeManager
 
 
 def _git(repo: Path, *args: str) -> None:

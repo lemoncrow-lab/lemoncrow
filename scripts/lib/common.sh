@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# common.sh — Shared configuration and functions for the LemonCrow installers.
+# common.sh — Shared configuration and functions for the Atelier installers.
 #
 # This file is a LIBRARY. It must be SOURCED, not executed directly. It is
 # sourced by:
@@ -12,28 +12,28 @@
 # installers, and the run_setup() post-install orchestrator.
 #
 # Optional environment variables:
-#   LEMONCROW_REPO_URL   Git URL (default: https://github.com/lemoncrow-lab/lemoncrow.git)
-#   LEMONCROW_REF        Git ref to install (default: main)
-#   LEMONCROW_INSTALL_DIR Install location (default: current directory)
-#   LEMONCROW_BIN_DIR    Global bin dir for console scripts (default: ~/.local/bin)
-#   LEMONCROW_TOOL_DIR   uv tool environment dir (default: ~/.local/share/uv/tools)
-#   LEMONCROW_NO_HOSTS   If set to 1, skip agent-host integration install scripts
-#   LEMONCROW_NO_SERVICECTL If set to 1, skip starting the background service controller
-#   LEMONCROW_SERVICECTL_INTERVAL_SECONDS Poll interval for servicectl (default: 60)
-#   LEMONCROW_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS Periodic maintenance interval (default: 86400)
-#   LEMONCROW_DRY_RUN    If set to 1, print planned actions and exit
-#   LEMONCROW_NO_STACK   If set to 1, skip starting the visualization stack (service + frontend)
-#   LEMONCROW_ADVANCED   If set to 1, enable Docker sidecar install (requires --memory)
-#   LEMONCROW_MEMORY_BACKEND  Memory sidecar to install: letta | openmemory (default: none)
-#   LEMONCROW_ZOEKT      Install the persistent Zoekt code-search sidecar (default: 0; set 1 to opt in)
-#   LEMONCROW_INSTALL_RTK 1 = install rtk (command compactor) without prompting; 0 = never offer
+#   ATELIER_REPO_URL   Git URL (default: https://github.com/atelier-ws/atelier.git)
+#   ATELIER_REF        Git ref to install (default: main)
+#   ATELIER_INSTALL_DIR Install location (default: current directory)
+#   ATELIER_BIN_DIR    Global bin dir for console scripts (default: ~/.local/bin)
+#   ATELIER_TOOL_DIR   uv tool environment dir (default: ~/.local/share/uv/tools)
+#   ATELIER_NO_HOSTS   If set to 1, skip agent-host integration install scripts
+#   ATELIER_NO_SERVICECTL If set to 1, skip starting the background service controller
+#   ATELIER_SERVICECTL_INTERVAL_SECONDS Poll interval for servicectl (default: 60)
+#   ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS Periodic maintenance interval (default: 86400)
+#   ATELIER_DRY_RUN    If set to 1, print planned actions and exit
+#   ATELIER_NO_STACK   If set to 1, skip starting the visualization stack (service + frontend)
+#   ATELIER_ADVANCED   If set to 1, enable Docker sidecar install (requires --memory)
+#   ATELIER_MEMORY_BACKEND  Memory sidecar to install: letta | openmemory (default: none)
+#   ATELIER_ZOEKT      Install the persistent Zoekt code-search sidecar (default: 0; set 1 to opt in)
+#   ATELIER_INSTALL_RTK 1 = install rtk (command compactor) without prompting; 0 = never offer
 #                      (default: interactive y/N prompt when cargo exists and rtk is absent)
-#   LEMONCROW_VERBOSE    If set to 1, show verbose installation logs (default: 0)
-#   LEMONCROW_STRICT     If set to 1, treat selected post-install degradations as errors
-#   LEMONCROW_NON_INTERACTIVE If set to 1, disable all interactive prompts
-#   LEMONCROW_INSTALL_CLEAN_PROCESSES If set to 0, do not stop old LemonCrow processes before reinstall
-#   LEMONCROW_ZOEKT_AUTO_INSTALL If set to 1, non-interactive runs install local zoekt binaries when missing (default: 1)
-#   LEMONCROW_INSTALL_LOG_FILE Optional install log path (default: /tmp/lemoncrow-install.<ts>.<pid>.log)
+#   ATELIER_VERBOSE    If set to 1, show verbose installation logs (default: 0)
+#   ATELIER_STRICT     If set to 1, treat selected post-install degradations as errors
+#   ATELIER_NON_INTERACTIVE If set to 1, disable all interactive prompts
+#   ATELIER_INSTALL_CLEAN_PROCESSES If set to 0, do not stop old Atelier processes before reinstall
+#   ATELIER_ZOEKT_AUTO_INSTALL If set to 1, non-interactive runs install local zoekt binaries when missing (default: 1)
+#   ATELIER_INSTALL_LOG_FILE Optional install log path (default: /tmp/atelier-install.<ts>.<pid>.log)
 
 if [[ -t 1 ]]; then
     C_RESET="$(printf '\033[0m')"
@@ -66,72 +66,58 @@ if [[ -n "${FORCE_COLOR:-}${CLICOLOR_FORCE:-}" && -z "${NO_COLOR:-}" ]]; then
 fi
 C_FRAME="$C_DIM"
 ACTIVE_BAR="┃"
+LOCK_ICON="🔒︎"
 if [[ "${LC_ALL:-${LANG:-}}" != *"UTF-8"* && "${LC_ALL:-${LANG:-}}" != *"utf8"* ]]; then
     ACTIVE_BAR="|"
+    LOCK_ICON="lock"
 fi
 
-LEMONCROW_INSTALL_DIR="${LEMONCROW_INSTALL_DIR:-$(pwd)}"
-LEMONCROW_BIN_DIR="${LEMONCROW_BIN_DIR:-${HOME}/.lemoncrow/bin}"
-LEMONCROW_NODE_DIR="${LEMONCROW_NODE_DIR:-${HOME}/.lemoncrow/node}"
-LEMONCROW_TOOL_DIR="${LEMONCROW_TOOL_DIR:-${HOME}/.lemoncrow/uv-tools}"
-LEMONCROW_INSTALL_RECORD="${LEMONCROW_INSTALL_RECORD:-${HOME}/.lemoncrow/install_dir}"
-LEMONCROW_NO_HOSTS="${LEMONCROW_NO_HOSTS:-0}"
-LEMONCROW_NO_SERVICECTL="${LEMONCROW_NO_SERVICECTL:-0}"
-LEMONCROW_DRY_RUN="${LEMONCROW_DRY_RUN:-0}"
-
-persist_install_record() {
-    local record_dir
-    record_dir="$(dirname "$LEMONCROW_INSTALL_RECORD")"
-
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-        echo "[dry-run] mkdir -p $record_dir"
-        echo "[dry-run] printf '%s\\n' '$LEMONCROW_INSTALL_DIR' > '$LEMONCROW_INSTALL_RECORD'"
-        return
-    fi
-
-    mkdir -p "$record_dir"
-    printf '%s\n' "$LEMONCROW_INSTALL_DIR" > "$LEMONCROW_INSTALL_RECORD"
-}
-
-LEMONCROW_SERVICECTL_INTERVAL_SECONDS="${LEMONCROW_SERVICECTL_INTERVAL_SECONDS:-60}"
-LEMONCROW_SERVICECTL_INTERVAL_SECONDS="${LEMONCROW_SERVICECTL_INTERVAL_SECONDS:-60}"
-LEMONCROW_SERVICECTL_INTERVAL_SECONDS="${LEMONCROW_SERVICECTL_INTERVAL_SECONDS:-60}"
-LEMONCROW_NO_STACK="${LEMONCROW_NO_STACK:-0}"
-LEMONCROW_ADVANCED="${LEMONCROW_ADVANCED:-0}"
-LEMONCROW_MEMORY_BACKEND="${LEMONCROW_MEMORY_BACKEND:-}"   # letta | openmemory | (empty = none)
-LEMONCROW_TELEGRAPHIC="${LEMONCROW_TELEGRAPHIC:-}"         # ultra | lite | off (empty = prompt, default ultra)
-LEMONCROW_AUTO_OPTIMIZE="${LEMONCROW_AUTO_OPTIMIZE:-1}"   # 1 = enable periodic optimize automation
+ATELIER_INSTALL_DIR="${ATELIER_INSTALL_DIR:-$(pwd)}"
+ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.local/bin}"
+ATELIER_NODE_DIR="${ATELIER_NODE_DIR:-${HOME}/.local/node}"
+ATELIER_TOOL_DIR="${ATELIER_TOOL_DIR:-${HOME}/.local/share/uv/tools}"
+ATELIER_INSTALL_RECORD="${ATELIER_INSTALL_RECORD:-${HOME}/.atelier/install_dir}"
+ATELIER_NO_HOSTS="${ATELIER_NO_HOSTS:-0}"
+ATELIER_NO_SERVICECTL="${ATELIER_NO_SERVICECTL:-0}"
+ATELIER_SERVICECTL_INTERVAL_SECONDS="${ATELIER_SERVICECTL_INTERVAL_SECONDS:-60}"
+ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS="${ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS:-86400}"
+ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
+ATELIER_NO_STACK="${ATELIER_NO_STACK:-0}"
+ATELIER_ADVANCED="${ATELIER_ADVANCED:-0}"
+ATELIER_MEMORY_BACKEND="${ATELIER_MEMORY_BACKEND:-}"   # letta | openmemory | (empty = none)
+ATELIER_TELEGRAPHIC="${ATELIER_TELEGRAPHIC:-}"         # strict | mild | off (empty = prompt, default strict)
+ATELIER_AUTO_OPTIMIZE="${ATELIER_AUTO_OPTIMIZE:-1}"   # 1 = enable periodic optimize automation
 # Local knowledge extraction (opt-in; off by default to bound spend). Distils
 # review rules from .lessons into the reviewer overlay.
-[[ -n "${LEMONCROW_KB_EXTRACT+x}" ]] && LEMONCROW_KB_EXTRACT_PRESET=1 || LEMONCROW_KB_EXTRACT_PRESET=0
-LEMONCROW_KB_EXTRACT="${LEMONCROW_KB_EXTRACT:-0}"      # 1 = run knowledge extraction during setup
-LEMONCROW_KB_HOST="${LEMONCROW_KB_HOST:-auto}"        # auto | claude | codex | ollama
-LEMONCROW_KB_MODEL="${LEMONCROW_KB_MODEL:-}"          # model id (required for ollama)
-LEMONCROW_KB_MAX_SPEND="${LEMONCROW_KB_MAX_SPEND:-0.50}"  # hard USD cap per run (auto/claude)
+[[ -n "${ATELIER_KB_EXTRACT+x}" ]] && ATELIER_KB_EXTRACT_PRESET=1 || ATELIER_KB_EXTRACT_PRESET=0
+ATELIER_KB_EXTRACT="${ATELIER_KB_EXTRACT:-0}"      # 1 = run knowledge extraction during setup
+ATELIER_KB_HOST="${ATELIER_KB_HOST:-auto}"        # auto | claude | codex | ollama
+ATELIER_KB_MODEL="${ATELIER_KB_MODEL:-}"          # model id (required for ollama)
+ATELIER_KB_MAX_SPEND="${ATELIER_KB_MAX_SPEND:-0.50}"  # hard USD cap per run (auto/claude)
 # All-sessions Recall. Background-index past transcripts so recall spans every
 # session. On by default (the local embedder is free; set to 0 to disable).
 # Claude has no embeddings API, so it is not an embedder choice.
-[[ -n "${LEMONCROW_RECALL_INDEX+x}" ]] && LEMONCROW_RECALL_PRESET=1 || LEMONCROW_RECALL_PRESET=0
-LEMONCROW_RECALL_INDEX="${LEMONCROW_RECALL_INDEX:-1}"            # 1 = enable SessionStart background indexer (default)
-LEMONCROW_RECALL_EMBEDDER="${LEMONCROW_RECALL_EMBEDDER:-local}"  # local | openai (codex) | ollama
-LEMONCROW_RECALL_EMBED_MODEL="${LEMONCROW_RECALL_EMBED_MODEL:-}" # embed model (e.g. an ollama model name)
-LEMONCROW_ZOEKT="${LEMONCROW_ZOEKT:-0}"                    # default off; 1 = install the persistent Zoekt sidecar
+[[ -n "${ATELIER_RECALL_INDEX+x}" ]] && ATELIER_RECALL_PRESET=1 || ATELIER_RECALL_PRESET=0
+ATELIER_RECALL_INDEX="${ATELIER_RECALL_INDEX:-1}"            # 1 = enable SessionStart background indexer (default)
+ATELIER_RECALL_EMBEDDER="${ATELIER_RECALL_EMBEDDER:-local}"  # local | openai (codex) | ollama
+ATELIER_RECALL_EMBED_MODEL="${ATELIER_RECALL_EMBED_MODEL:-}" # embed model (e.g. an ollama model name)
+ATELIER_ZOEKT="${ATELIER_ZOEKT:-0}"                    # default off; 1 = install the persistent Zoekt sidecar
 # Pinned rtk release (external command compactor). Reproducible installs: bump
-# deliberately at LemonCrow release time. Explicitly-empty LEMONCROW_RTK_TAG=""
+# deliberately at Atelier release time. Explicitly-empty ATELIER_RTK_TAG=""
 # means unpinned default-branch HEAD (":-" would swallow the empty override).
-LEMONCROW_RTK_TAG="${LEMONCROW_RTK_TAG-v0.43.0}"
+ATELIER_RTK_TAG="${ATELIER_RTK_TAG-v0.43.0}"
 OS_NAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 BINARY_SUFFIX="${OS_NAME}-${ARCH}"
-LEMONCROW_REPO_URL="${LEMONCROW_REPO_URL:-https://github.com/lemoncrow-lab/lemoncrow.git}"
-LEMONCROW_REF="${LEMONCROW_REF:-main}"
-LEMONCROW_STRICT="${LEMONCROW_STRICT:-0}"
-LEMONCROW_VERBOSE="${LEMONCROW_VERBOSE:-0}"
-LEMONCROW_NON_INTERACTIVE="${LEMONCROW_NON_INTERACTIVE:-0}"
-LEMONCROW_INSTALL_CLEAN_PROCESSES="${LEMONCROW_INSTALL_CLEAN_PROCESSES:-1}"
-export LEMONCROW_VERBOSE
-LEMONCROW_ZOEKT_AUTO_INSTALL="${LEMONCROW_ZOEKT_AUTO_INSTALL:-1}"
-LEMONCROW_INSTALL_LOG_FILE="${LEMONCROW_INSTALL_LOG_FILE:-}"
+ATELIER_REPO_URL="${ATELIER_REPO_URL:-https://github.com/atelier-ws/atelier.git}"
+ATELIER_REF="${ATELIER_REF:-main}"
+ATELIER_STRICT="${ATELIER_STRICT:-0}"
+ATELIER_VERBOSE="${ATELIER_VERBOSE:-0}"
+ATELIER_NON_INTERACTIVE="${ATELIER_NON_INTERACTIVE:-0}"
+ATELIER_INSTALL_CLEAN_PROCESSES="${ATELIER_INSTALL_CLEAN_PROCESSES:-1}"
+export ATELIER_VERBOSE
+ATELIER_ZOEKT_AUTO_INSTALL="${ATELIER_ZOEKT_AUTO_INSTALL:-1}"
+ATELIER_INSTALL_LOG_FILE="${ATELIER_INSTALL_LOG_FILE:-}"
 INSTALL_ZOEKT_LOCAL=0
 INSTALL_RTK=0
 STACK_STARTED=0
@@ -155,8 +141,8 @@ HOST_SUMMARY=()
 _SPINNER_PID=""
 _SPINNER_MSG=""
 _SPINNER_ACTIVE=0
-LEMONCROW_SPINNER_PID_FILE="${TMPDIR:-/tmp}/lemoncrow-spinner.$$.pid"
-touch "$LEMONCROW_SPINNER_PID_FILE"
+ATELIER_SPINNER_PID_FILE="${TMPDIR:-/tmp}/atelier-spinner.$$.pid"
+touch "$ATELIER_SPINNER_PID_FILE"
 
 ORIGINAL_STDOUT_IS_TTY=0
 if [[ -t 1 ]]; then
@@ -165,22 +151,22 @@ fi
 # Save real terminal FD before tee redirect so spinner output never goes through the pipe buffer.
 exec 7>&1
 
-if [[ -z "$LEMONCROW_INSTALL_LOG_FILE" ]]; then
-    LEMONCROW_INSTALL_LOG_FILE="${TMPDIR:-/tmp}/lemoncrow-install.$(date +%Y%m%dT%H%M%S).$$.log"
+if [[ -z "$ATELIER_INSTALL_LOG_FILE" ]]; then
+    ATELIER_INSTALL_LOG_FILE="${TMPDIR:-/tmp}/atelier-install.$(date +%Y%m%dT%H%M%S).$$.log"
 fi
 
-mkdir -p "$(dirname "$LEMONCROW_INSTALL_LOG_FILE")" 2>/dev/null || true
-: >"$LEMONCROW_INSTALL_LOG_FILE" 2>/dev/null || true
-exec > >(tee -a "$LEMONCROW_INSTALL_LOG_FILE") 2>&1
+mkdir -p "$(dirname "$ATELIER_INSTALL_LOG_FILE")" 2>/dev/null || true
+: >"$ATELIER_INSTALL_LOG_FILE" 2>/dev/null || true
+exec > >(tee -a "$ATELIER_INSTALL_LOG_FILE") 2>&1
 
-trap '[[ -f "$LEMONCROW_SPINNER_PID_FILE" ]] && { _SPINNER_PID=$(cat "$LEMONCROW_SPINNER_PID_FILE" 2>/dev/null); [[ -n "$_SPINNER_PID" ]] && kill "$_SPINNER_PID" 2>/dev/null; rm -f "$LEMONCROW_SPINNER_PID_FILE"; } || true' EXIT INT TERM
+trap '[[ -f "$ATELIER_SPINNER_PID_FILE" ]] && { _SPINNER_PID=$(cat "$ATELIER_SPINNER_PID_FILE" 2>/dev/null); [[ -n "$_SPINNER_PID" ]] && kill "$_SPINNER_PID" 2>/dev/null; rm -f "$ATELIER_SPINNER_PID_FILE"; } || true' EXIT INT TERM
 
 log_raw() {
-    [[ "$LEMONCROW_VERBOSE" == "1" ]] && return 0
-    [[ -n "$1" ]] && printf "%s\n" "$1" >>"$LEMONCROW_INSTALL_LOG_FILE" || true
+    [[ "$ATELIER_VERBOSE" == "1" ]] && return 0
+    [[ -n "$1" ]] && printf "%s\n" "$1" >>"$ATELIER_INSTALL_LOG_FILE" || true
 }
 info()    { _spinner_pause; printf "%b│%b  ◇  %s\n" "$C_FRAME" "$C_RESET" "$*"; _spinner_resume; }
-verbose() { [[ "$LEMONCROW_VERBOSE" == "1" ]] && info "$@" || true; }
+verbose() { [[ "$ATELIER_VERBOSE" == "1" ]] && info "$@" || true; }
 warn()  {
     WARNINGS+=("$*")
     _spinner_pause
@@ -195,7 +181,7 @@ error() {
 }
 fail()  { error "$*"; exit 1; }
 degrade() {
-    if [[ "$LEMONCROW_STRICT" == "1" ]]; then
+    if [[ "$ATELIER_STRICT" == "1" ]]; then
         ERRORS+=("$*")
         FINAL_EXIT_CODE=1
         _spinner_pause
@@ -219,15 +205,15 @@ _spinner_run() {
         done
     ) &
     _SPINNER_PID=$!
-    echo "$_SPINNER_PID" > "$LEMONCROW_SPINNER_PID_FILE"
+    echo "$_SPINNER_PID" > "$ATELIER_SPINNER_PID_FILE"
 }
 _spinner_pause() {
-    _SPINNER_PID=$(cat "$LEMONCROW_SPINNER_PID_FILE" 2>/dev/null)
+    _SPINNER_PID=$(cat "$ATELIER_SPINNER_PID_FILE" 2>/dev/null)
     [[ -n "${_SPINNER_PID:-}" ]] || return 0
     kill "$_SPINNER_PID" 2>/dev/null || true
     wait "$_SPINNER_PID" 2>/dev/null || true
     _SPINNER_PID=""
-    echo "" > "$LEMONCROW_SPINNER_PID_FILE"
+    echo "" > "$ATELIER_SPINNER_PID_FILE"
     printf "\r\033[2K" >&7
 }
 _spinner_resume() { if [[ "${_SPINNER_ACTIVE:-0}" == "1" ]]; then _spinner_run; fi; }
@@ -255,7 +241,7 @@ spin() {
     log_raw "$_out"
     if [[ $_ret -eq 0 ]]; then
         _spinner_stop ok
-        if [[ "$LEMONCROW_VERBOSE" == "1" && -n "$_out" ]]; then
+        if [[ "$ATELIER_VERBOSE" == "1" && -n "$_out" ]]; then
             printf "%b│%b  %s\n" "$C_FRAME" "$C_RESET" "$_out"
         fi
     else
@@ -270,7 +256,7 @@ spin_tail() {
     local _msg="$1"; shift
     local _ret=0
     local _out_file
-    _out_file="$(mktemp "${TMPDIR:-/tmp}/lemoncrow-spin-tail.XXXXXX")"
+    _out_file="$(mktemp "${TMPDIR:-/tmp}/atelier-spin-tail.XXXXXX")"
 
     "$@" >"$_out_file" 2>&1 &
     local _pid=$!
@@ -346,7 +332,7 @@ spin_progress() {
     local _msg="$1"; shift
     local _ret=0
     local _out_file
-    _out_file="$(mktemp "${TMPDIR:-/tmp}/lemoncrow-progress.XXXXXX")"
+    _out_file="$(mktemp "${TMPDIR:-/tmp}/atelier-progress.XXXXXX")"
 
     if [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]]; then
         "$@" >"$_out_file" 2>&1 &
@@ -413,7 +399,7 @@ spin_progress() {
     rm -f "$_out_file"
 
     if [[ $_ret -eq 0 ]]; then
-        if [[ "$LEMONCROW_VERBOSE" == "1" && -n "$_out" ]]; then
+        if [[ "$ATELIER_VERBOSE" == "1" && -n "$_out" ]]; then
             printf "%b│%b  %s\n" "$C_FRAME" "$C_RESET" "$_out"
         fi
     else
@@ -426,11 +412,9 @@ print_installer_header() {
     local display_version=""
 
     # Fast path: running from a local checkout — read pyproject.toml directly.
-    # BASH_SOURCE[0] here resolves to this file (scripts/lib/common.sh), not
-    # the caller, so climb two levels (lib -> scripts -> repo root).
     if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
         local script_root
-        script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd)"
+        script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
         if [[ -f "$script_root/pyproject.toml" ]]; then
             display_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$script_root/pyproject.toml" | head -n 1)"
         fi
@@ -439,10 +423,10 @@ print_installer_header() {
     # Network path: fetch pyproject.toml from the same ref being installed.
     if [[ -z "$display_version" ]] && command -v curl >/dev/null 2>&1; then
         local owner_repo
-        owner_repo="$(printf "%s" "$LEMONCROW_REPO_URL" | sed -n 's#.*github\.com/\([^/]*/[^/]*\)\.git#\1#p')"
+        owner_repo="$(printf "%s" "$ATELIER_REPO_URL" | sed -n 's#.*github\.com/\([^/]*/[^/]*\)\.git#\1#p')"
         if [[ -n "$owner_repo" ]]; then
             display_version="$(
-                curl -sSL "https://raw.githubusercontent.com/${owner_repo}/${LEMONCROW_REF}/pyproject.toml" \
+                curl -sSL "https://raw.githubusercontent.com/${owner_repo}/${ATELIER_REF}/pyproject.toml" \
                     2>/dev/null | sed -n 's/^version = "\(.*\)"/\1/p' | head -n 1
             )"
         fi
@@ -452,7 +436,7 @@ print_installer_header() {
     display_version="${display_version:-unknown}"
 
     echo ""
-    printf "%b┌%b  LemonCrow v%s\n" "$C_FRAME" "$C_RESET" "$display_version"
+    printf "%b┌%b  Atelier v%s\n" "$C_FRAME" "$C_RESET" "$display_version"
     printf "%b│%b\n" "$C_FRAME" "$C_RESET"
 }
 
@@ -521,7 +505,7 @@ print_final_report() {
 }
 
 supports_interactive_selector() {
-    [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]] && return 1
+    [[ "$ATELIER_NON_INTERACTIVE" == "1" ]] && return 1
     [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" || -t 1 ]] || return 1
     has_interactive_input || return 1
     [[ -n "${TERM:-}" && "${TERM:-}" != "dumb" ]] || return 1
@@ -722,7 +706,7 @@ render_multi_select() {
         if [[ "$is_cursor" == "1" ]]; then
             prefix="${C_PURPLE}❯${C_RESET}"
             if [[ "$is_locked" == "1" ]]; then
-                marker="${C_DIM}◼${C_RESET}"
+                marker="${C_PURPLE}${LOCK_ICON}${C_RESET}"
             elif [[ "$is_selected" == "1" ]]; then
                 marker="${C_PURPLE}◼${C_RESET}"
             else
@@ -731,7 +715,7 @@ render_multi_select() {
         else
             prefix=" "
             if [[ "$is_locked" == "1" ]]; then
-                marker="${C_PURPLE}◼${C_RESET}"
+                marker="${C_DIM}${LOCK_ICON}${C_RESET}"
             elif [[ "$is_selected" == "1" ]]; then
                 marker="${C_PURPLE}◼${C_RESET}"
             else
@@ -739,7 +723,7 @@ render_multi_select() {
             fi
         fi
         if [[ "$is_locked" == "1" ]]; then
-            _menu_line "  ${prefix} ${marker}  ${name}${badge}"
+            _menu_line "  ${prefix} ${marker} ${name}${badge}"
         else
             _menu_line "  ${prefix} ${marker}  ${name}${badge}"
         fi
@@ -822,73 +806,73 @@ interactive_multi_select() {
 
 prompt_memory_selection() {
     # SQLite is the default memory backend. Docker sidecars are opt-in via
-    # --memory letta|openmemory or LEMONCROW_MEMORY_BACKEND.
+    # --memory letta|openmemory or ATELIER_MEMORY_BACKEND.
     return 0
 }
 
 prompt_auto_optimize_selection() {
-    if [[ "$LEMONCROW_NO_SERVICECTL" == "1" ]]; then
-        LEMONCROW_AUTO_OPTIMIZE=0
+    if [[ "$ATELIER_NO_SERVICECTL" == "1" ]]; then
+        ATELIER_AUTO_OPTIMIZE=0
         return 0
     fi
-    case "${LEMONCROW_AUTO_OPTIMIZE}" in
+    case "${ATELIER_AUTO_OPTIMIZE}" in
         0|1) ;;
-        *) LEMONCROW_AUTO_OPTIMIZE=1 ;;
+        *) ATELIER_AUTO_OPTIMIZE=1 ;;
     esac
 }
 
 prompt_telegraphic_selection() {
     # Reply-register level baked into installed agent personas.
-    # Flag/env wins; otherwise interactive selector; default ultra.
-    # Change later without reinstalling: `lc settings set cli.telegraphic <level>`.
-    case "$LEMONCROW_TELEGRAPHIC" in
-        ultra|lite|off) return 0 ;;
+    # Flag/env wins; otherwise interactive selector; default strict.
+    # Change later without reinstalling: `atelier settings set cli.telegraphic <level>`.
+    case "$ATELIER_TELEGRAPHIC" in
+        strict|mild|off) return 0 ;;
         "") ;;
-        *) fail "--telegraphic must be 'ultra', 'lite' or 'off', got: '$LEMONCROW_TELEGRAPHIC'" ;;
+        *) fail "--telegraphic must be 'strict', 'mild' or 'off', got: '$ATELIER_TELEGRAPHIC'" ;;
     esac
-    LEMONCROW_TELEGRAPHIC="ultra"
-    [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]] && return 0
+    ATELIER_TELEGRAPHIC="strict"
+    [[ "$ATELIER_NON_INTERACTIVE" == "1" ]] && return 0
     has_interactive_input || return 0
     supports_interactive_selector || return 0
     local tg_idx=0
     interactive_single_select \
-        "Agent reply style (change later: /lemoncrow set telegraphic <level>)?" \
+        "Agent reply style (change later: atelier settings set cli.telegraphic <level>)?" \
         tg_idx \
         0 \
-        "Ultra – maximal output compression" \
-        "Lite – concise, lighter register" \
+        "Strict – terse telegraphic template (default)" \
+        "Mild – concise, no strict template" \
         "Off – no reply-style instruction"
     case "$tg_idx" in
-        1) LEMONCROW_TELEGRAPHIC="lite" ;;
-        2) LEMONCROW_TELEGRAPHIC="off" ;;
-        *) LEMONCROW_TELEGRAPHIC="ultra" ;;
+        1) ATELIER_TELEGRAPHIC="mild" ;;
+        2) ATELIER_TELEGRAPHIC="off" ;;
+        *) ATELIER_TELEGRAPHIC="strict" ;;
     esac
 }
 
 persist_telegraphic_selection() {
     # Persist as the cli.telegraphic setting (<root>/plugin_settings.json —
-    # same store as `lc settings set`) BEFORE host wiring so staged agent
+    # same store as `atelier settings set`) BEFORE host wiring so staged agent
     # personas pick the level up; exported for the install-script hooks too
-    # (lemoncrow_apply_reply_register_level in lib/managed_context.sh).
-    export LEMONCROW_TELEGRAPHIC
-    [[ -n "$LEMONCROW_TELEGRAPHIC" ]] || return 0
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-        echo "[dry-run] persist cli.telegraphic='$LEMONCROW_TELEGRAPHIC' → plugin_settings.json"
+    # (atelier_apply_reply_register_level in lib/managed_context.sh).
+    export ATELIER_TELEGRAPHIC
+    [[ -n "$ATELIER_TELEGRAPHIC" ]] || return 0
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] persist cli.telegraphic='$ATELIER_TELEGRAPHIC' → plugin_settings.json"
         return 0
     fi
-    LEMONCROW_RR_LEVEL="$LEMONCROW_TELEGRAPHIC" python3 - <<'PYEOF' || true
+    ATELIER_RR_LEVEL="$ATELIER_TELEGRAPHIC" python3 - <<'PYEOF' || true
 import json
 import os
 from pathlib import Path
 
-root = Path(os.environ.get("LEMONCROW_ROOT", "").strip() or (Path.home() / ".lemoncrow"))
+root = Path(os.environ.get("ATELIER_ROOT", "").strip() or (Path.home() / ".atelier"))
 path = root / "plugin_settings.json"
 try:
     data = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(data, dict)
 except Exception:
     data = {}
-data["cli.telegraphic"] = os.environ["LEMONCROW_RR_LEVEL"]
+data["cli.telegraphic"] = os.environ["ATELIER_RR_LEVEL"]
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
 PYEOF
@@ -896,9 +880,9 @@ PYEOF
 
 # --- Companion-binary version reconcile -------------------------------------
 # Versions are pinned per release in versions.sh; what we last installed is
-# recorded in ~/.lemoncrow/companion_versions. A binary is (re)provisioned only
+# recorded in ~/.atelier/companion_versions. A binary is (re)provisioned only
 # when its pin changes (or it is missing) — an unchanged pin is a no-op.
-_companion_versions_file() { printf '%s' "${HOME}/.lemoncrow/companion_versions"; }
+_companion_versions_file() { printf '%s' "${HOME}/.atelier/companion_versions"; }
 
 _companion_recorded_version() {  # $1=key -> prints recorded value (empty if none)
     local f; f="$(_companion_versions_file)"
@@ -909,15 +893,15 @@ _companion_recorded_version() {  # $1=key -> prints recorded value (empty if non
 _companion_record_version() {  # $1=key $2=value
     local f tmp
     f="$(_companion_versions_file)"
-    mkdir -p "${HOME}/.lemoncrow" 2>/dev/null || true
-    tmp="$(mktemp "${TMPDIR:-/tmp}/lemoncrow-cv.XXXXXX")" || return 0
+    mkdir -p "${HOME}/.atelier" 2>/dev/null || true
+    tmp="$(mktemp "${TMPDIR:-/tmp}/atelier-cv.XXXXXX")" || return 0
     [[ -r "$f" ]] && grep -v "^$1=" "$f" > "$tmp" 2>/dev/null || true
     printf '%s=%s\n' "$1" "$2" >> "$tmp"
     mv "$tmp" "$f" 2>/dev/null || rm -f "$tmp"
 }
 
 prompt_local_zoekt_selection() {
-    if [[ "$LEMONCROW_ZOEKT" != "1" ]]; then
+    if [[ "$ATELIER_ZOEKT" != "1" ]]; then
         INSTALL_ZOEKT_LOCAL=0
         return 0
     fi
@@ -930,9 +914,9 @@ prompt_local_zoekt_selection() {
 
     # Reconcile to the release-pinned ref: (re)build when the binaries are missing
     # OR the pinned ref differs from the one last installed. Unchanged pin = no-op.
-    if [[ "$LEMONCROW_ZOEKT_AUTO_INSTALL" == "1" ]] \
+    if [[ "$ATELIER_ZOEKT_AUTO_INSTALL" == "1" ]] \
         && { [[ "$zoekt_all_present" == "0" ]] \
-          || [[ "$(_companion_recorded_version zoekt)" != "${LEMONCROW_PIN_ZOEKT:-latest}" ]]; }; then
+          || [[ "$(_companion_recorded_version zoekt)" != "${ATELIER_PIN_ZOEKT:-latest}" ]]; }; then
         INSTALL_ZOEKT_LOCAL=1
     else
         INSTALL_ZOEKT_LOCAL=0
@@ -948,29 +932,56 @@ _zoekt_all_local_binaries_present() {
 }
 
 prompt_rtk_selection() {
-    # rtk (external command compactor) — soft integration, same as ast-grep/jj:
-    # always attempted, never prompted. Opt out with LEMONCROW_INSTALL_RTK=0
-    # (runtime opt-out once installed: LEMONCROW_BASH_EXTERNAL_COMPACTORS=0).
-    [[ "${LEMONCROW_INSTALL_RTK:-}" == "0" ]] && return 0
-    INSTALL_RTK=1
+    # rtk (external command compactor) — soft integration, strictly opt-in.
+    # When on PATH, Atelier passes read-only git/gh/test/lint commands through
+    # it for token-compact output (runtime opt-out: ATELIER_BASH_EXTERNAL_COMPACTORS=0).
+    [[ "${ATELIER_INSTALL_RTK:-}" == "0" ]] && return 0
+    command -v rtk >/dev/null 2>&1 && { INSTALL_RTK=1; return 0; }
+    command -v cargo >/dev/null 2>&1 || return 0
+    if [[ "${ATELIER_INSTALL_RTK:-}" == "1" ]]; then
+        INSTALL_RTK=1
+        return 0
+    fi
+    # Never installed silently: non-interactive runs skip it (opt-in only).
+    [[ "$ATELIER_NON_INTERACTIVE" == "1" ]] && return 0
+    has_interactive_input || return 0
+
+    if supports_interactive_selector; then
+        local rtk_yn=1
+        interactive_single_select \
+            "Install rtk (optional — compacts git/test/lint output for agents)?" \
+            rtk_yn \
+            1 \
+            "Yes – cargo install rtk" \
+            "No"
+        [[ "$rtk_yn" == "0" ]] && INSTALL_RTK=1
+    else
+        local ans=""
+        printf "  ◇  Install rtk (optional — compacts git/test/lint output for agents)? [y/N] "
+        IFS= read -r ans </dev/tty 2>/dev/null || ans=""
+        case "$ans" in
+            y | Y | yes | YES) INSTALL_RTK=1 ;;
+            *) ;;
+        esac
+    fi
 }
 
-lemoncrow_install_attribution_hook() {
+atelier_install_attribution_hook() {
     local repo_dir="${1:-.}"
     local dry_run="${2:-false}"
     local hooks_dir hook trailer marker end_marker
 
-    trailer="Co-Authored-By: lemoncrow <302591943+lemoncrow-agent[bot]@users.noreply.github.com>"
-    marker="# >>> lemoncrow attribution >>>"
-    end_marker="# <<< lemoncrow attribution <<<"
+    trailer="Co-Authored-By: atelier <293447754+atelier@users.noreply.github.com>"
+    marker="# >>> atelier attribution >>>"
+    end_marker="# <<< atelier attribution <<<"
 
     if ! git -C "$repo_dir" rev-parse --git-dir >/dev/null 2>&1; then
-        warn "LemonCrow attribution skipped: ${repo_dir} is not a git repository"
+        warn "Atelier attribution skipped: ${repo_dir} is not a git repository"
         return 0
     fi
 
     hooks_dir="$(git -C "$repo_dir" rev-parse --git-path hooks 2>/dev/null)" || {
-        warn "LemonCrow attribution skipped: cannot resolve git hooks path for ${repo_dir}"
+        warn "Atelier attribution skipped: cannot resolve git hooks path for ${repo_dir}"
         return 0
     }
     case "$hooks_dir" in
@@ -980,39 +991,39 @@ lemoncrow_install_attribution_hook() {
     hook="${hooks_dir}/prepare-commit-msg"
 
     if [[ "$dry_run" == "true" ]]; then
-        echo "  [dry-run] install LemonCrow co-author hook at ${hook}"
+        echo "  [dry-run] install Atelier co-author hook at ${hook}"
         return 0
     fi
 
     mkdir -p "$hooks_dir"
     if [ -f "$hook" ] && grep -qF "$marker" "$hook"; then
-        info "LemonCrow co-author hook already installed at ${hook}"
+        info "Atelier co-author hook already installed at ${hook}"
         return 0
     fi
 
     if [ -f "$hook" ]; then
-        warn "existing prepare-commit-msg found; appending LemonCrow co-author block (${hook})"
+        warn "existing prepare-commit-msg found; appending Atelier co-author block (${hook})"
     else
         printf '#!/usr/bin/env bash\n\n' >"$hook"
     fi
 
     cat >>"$hook" <<EOF
 $marker
-# Managed by LemonCrow. Appends the co-author trailer unless already present.
+# Managed by Atelier. Appends the co-author trailer unless already present.
 # Skips merge/squash commit messages.
-LEMONCROW_TRAILER="$trailer"
+ATELIER_TRAILER="$trailer"
 case "\$2" in
   merge|squash) ;;
   *)
-    if ! grep -qF "\$LEMONCROW_TRAILER" "\$1" 2>/dev/null; then
-      printf '\n%s\n' "\$LEMONCROW_TRAILER" >> "\$1"
+    if ! grep -qF "\$ATELIER_TRAILER" "\$1" 2>/dev/null; then
+      printf '\n%s\n' "\$ATELIER_TRAILER" >> "\$1"
     fi
     ;;
 esac
 $end_marker
 EOF
     chmod +x "$hook"
-    info "installed LemonCrow co-author hook at ${hook}"
+    info "installed Atelier co-author hook at ${hook}"
 }
 
 has_flag() {
@@ -1060,12 +1071,12 @@ detect_hosts() {
     fi
 
     if command -v opencode >/dev/null 2>&1; then
-        HOST_SUMMARY+=("OpenCode (Ink LemonCrow provider) (detected)")
-        HOST_CHOICES+=("OpenCode (Ink LemonCrow provider)|detected")
+        HOST_SUMMARY+=("OpenCode (Ink Atelier provider) (detected)")
+        HOST_CHOICES+=("OpenCode (Ink Atelier provider)|detected")
         HOST_DEFAULT_SELECTION+=(1)
     else
-        HOST_SUMMARY+=("OpenCode (Ink LemonCrow provider) (not found)")
-        HOST_CHOICES+=("OpenCode (Ink LemonCrow provider)|not found")
+        HOST_SUMMARY+=("OpenCode (Ink Atelier provider) (not found)")
+        HOST_CHOICES+=("OpenCode (Ink Atelier provider)|not found")
         HOST_DEFAULT_SELECTION+=(0)
     fi
 
@@ -1085,9 +1096,9 @@ join_with_comma_space() {
 }
 
 host_wizard() {
-    [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]] && return 0
+    [[ "$ATELIER_NON_INTERACTIVE" == "1" ]] && return 0
     has_interactive_input || return 0
-    [[ "$LEMONCROW_NO_HOSTS" == "1" ]] && return 0
+    [[ "$ATELIER_NO_HOSTS" == "1" ]] && return 0
     contains_any_host_flag && return 0
     [[ ${#HOST_SCOPE_ARGS[@]} -gt 0 ]] && return 0
 
@@ -1101,12 +1112,12 @@ host_wizard() {
             SELECTED_ITEMS[$i]="${HOST_DEFAULT_SELECTION[$i]}"
         done
         interactive_multi_select \
-            "Which agents should LemonCrow configure?" \
+            "Which agents should Atelier configure?" \
             selected_host_indices \
             "preset" \
             "${HOST_CHOICES[@]}"
         if [[ -z "${selected_host_indices// }" ]]; then
-            LEMONCROW_NO_HOSTS=1
+            ATELIER_NO_HOSTS=1
         else
             local idx
             for idx in $selected_host_indices; do
@@ -1116,10 +1127,10 @@ host_wizard() {
                     2) HOST_FLAGS+=(--opencode) ;;
                 esac
             done
-            [[ ${#HOST_FLAGS[@]} -gt 0 ]] || LEMONCROW_NO_HOSTS=1
+            [[ ${#HOST_FLAGS[@]} -gt 0 ]] || ATELIER_NO_HOSTS=1
         fi
     else
-        echo "◇  Which agents should LemonCrow configure?"
+        echo "◇  Which agents should Atelier configure?"
         printf "│  1) %s\n" "${HOST_SUMMARY[0]}"
         printf "│  2) %s\n" "${HOST_SUMMARY[1]}"
         printf "│  3) %s\n" "${HOST_SUMMARY[2]}"
@@ -1147,26 +1158,26 @@ host_wizard() {
                         3) HOST_FLAGS+=(--opencode) ;;
                     esac
                 done
-                [[ ${#HOST_FLAGS[@]} -gt 0 ]] || LEMONCROW_NO_HOSTS=1
+                [[ ${#HOST_FLAGS[@]} -gt 0 ]] || ATELIER_NO_HOSTS=1
                 ;;
         esac
     fi
 
-    [[ "$LEMONCROW_NO_HOSTS" == "1" ]] && return 0
+    [[ "$ATELIER_NO_HOSTS" == "1" ]] && return 0
 
     # --- Optional agent roles ------------------------------------------------
     # `code` always ships (DEFAULT_ROLE_IDS); shown as an info line, not a
     # togglable item. The normal optional roles default to selected; high-autonomy
     # `auto` and minimal `bare` are available but start deselected. Read integrations/agents/*.md frontmatter straight off
-    # disk instead of shelling to the `lc` CLI: this runs from host_wizard,
-    # which fires before install_lemoncrow_from_wheel, so the CLI (and its
+    # disk instead of shelling to the `atelier` CLI: this runs from host_wizard,
+    # which fires before install_atelier_from_wheel, so the CLI (and its
     # tiktoken dependency) aren't installed yet. Cost here is a lightweight
-    # chars/4 estimate, not the exact tiktoken count `lc agent list`
+    # chars/4 estimate, not the exact tiktoken count `atelier agent list`
     # reports later once the CLI exists.
     local role_rows="" role_names=() role_labels=() code_cost="" _rw_name _rw_cost
-    role_rows="$(LEMONCROW_INSTALL_DIR="$LEMONCROW_INSTALL_DIR" python3 -c '
+    role_rows="$(ATELIER_INSTALL_DIR="$ATELIER_INSTALL_DIR" python3 -c '
 import glob, os
-root = os.environ["LEMONCROW_INSTALL_DIR"]
+root = os.environ["ATELIER_INSTALL_DIR"]
 for path in sorted(glob.glob(os.path.join(root, "integrations", "agents", "*.md"))):
     text = open(path, encoding="utf-8").read()
     if not text.startswith("---\n"):
@@ -1261,10 +1272,10 @@ for path in sorted(glob.glob(os.path.join(root, "integrations", "agents", "*.md"
 
     # --- Optional skills ------------------------------------------------------
     # Same rationale as agent roles above for reading straight off disk
-    # instead of shelling to `lc skill list` -- the CLI isn't installed
+    # instead of shelling to `atelier skill list` -- the CLI isn't installed
     # yet at this point in the wizard. The excluded set here mirrors the
     # dev-only HIDDEN_SKILLS list in scripts/build_host_skills.sh /
-    # src/lemoncrow/core/environment.py. Skills only apply to claude/codex.
+    # src/atelier/core/environment.py. Skills only apply to claude/codex.
     local offer_skills=0 _sk_flag
     if [[ ${#HOST_FLAGS[@]} -eq 0 ]]; then
         offer_skills=1
@@ -1275,11 +1286,11 @@ for path in sorted(glob.glob(os.path.join(root, "integrations", "agents", "*.md"
     fi
 
     if [[ "$offer_skills" == "1" ]]; then
-        local skill_rows="" skill_names=() skill_labels=() _sk_name _sk_cost lemoncrow_cost=""
-        skill_rows="$(LEMONCROW_INSTALL_DIR="$LEMONCROW_INSTALL_DIR" python3 -c '
+        local skill_rows="" skill_names=() skill_labels=() _sk_name _sk_cost
+        skill_rows="$(ATELIER_INSTALL_DIR="$ATELIER_INSTALL_DIR" python3 -c '
 import glob, os
-root = os.environ["LEMONCROW_INSTALL_DIR"]
-hidden = {"analyze-failures", "context", "evals", "rescue", "savings", "status", "record"}
+root = os.environ["ATELIER_INSTALL_DIR"]
+hidden = {"analyze-failures", "context", "evals", "rescue", "savings", "status", "record", "atelier"}
 for path in sorted(glob.glob(os.path.join(root, "integrations", "skills", "*", "SKILL.md"))):
     name = os.path.basename(os.path.dirname(path))
     if name in hidden:
@@ -1305,38 +1316,20 @@ for path in sorted(glob.glob(os.path.join(root, "integrations", "skills", "*", "
         if [[ -n "$skill_rows" ]]; then
             while IFS=$'\t' read -r _sk_name _sk_cost; do
                 [[ -n "$_sk_name" ]] || continue
-                if [[ "$_sk_name" == "lemoncrow" ]]; then
-                    lemoncrow_cost="$_sk_cost"
-                else
-                    skill_names+=("$_sk_name")
-                    skill_labels+=("${_sk_name}  ${C_DIM}~${_sk_cost} tok/turn${C_RESET}")
-                fi
+                skill_names+=("$_sk_name")
+                skill_labels+=("${_sk_name}  ${C_DIM}~${_sk_cost} tok/turn${C_RESET}")
             done <<< "$skill_rows"
-        fi
-        if [[ -n "$lemoncrow_cost" ]]; then
-            skill_names=("lemoncrow" "${skill_names[@]+"${skill_names[@]}"}")
-            skill_labels=("lemoncrow  ${C_DIM}~${lemoncrow_cost} tok/turn  always installed${C_RESET}" "${skill_labels[@]+"${skill_labels[@]}"}")
         fi
 
         if [[ ${#skill_names[@]} -gt 0 ]]; then
             local skills_csv=""
-            local skills_prompt="Complimentary Skills (Install later: /lemoncrow install skill <name>)"
+            local skills_prompt="Optional skills (you can also install later via /atelier)"
             if supports_interactive_selector; then
                 local selected_skills=""
-                SELECTED_ITEMS=()
-                LOCKED_ITEMS=()
-                local _sk_i
-                for _sk_i in "${!skill_names[@]}"; do
-                    if [[ "${skill_names[$_sk_i]}" == "lemoncrow" ]]; then
-                        SELECTED_ITEMS[$_sk_i]=1; LOCKED_ITEMS[$_sk_i]=1
-                    else
-                        SELECTED_ITEMS[$_sk_i]=1; LOCKED_ITEMS[$_sk_i]=0
-                    fi
-                done
                 interactive_multi_select \
                     "$skills_prompt" \
                     selected_skills \
-                    "preset" \
+                    "none" \
                     "${skill_labels[@]}"
                 local _sk_idx
                 for _sk_idx in $selected_skills; do
@@ -1348,25 +1341,14 @@ for path in sorted(glob.glob(os.path.join(root, "integrations", "skills", "*", "
                     _frame_line "  ${_sk_name}"
                 done
                 local skills_answer=""
-                printf "  Skills to add [all]: "
+                printf "  Skills to add [none]: "
                 IFS= read -r skills_answer </dev/tty 2>/dev/null || skills_answer=""
-                if [[ -z "$skills_answer" || "$skills_answer" == "all" ]]; then
-                    for _sk_name in "${skill_names[@]}"; do
-                        skills_csv+="${skills_csv:+,}${_sk_name}"
-                    done
-                else
-                    skills_csv="$(_filter_csv_against_set "$skills_answer" "${skill_names[@]}")"
-                    if [[ -n "$skills_csv" && ",${skills_csv}," != *,lemoncrow,* ]]; then
-                        skills_csv="lemoncrow,${skills_csv}"
-                    fi
-                fi
+                skills_csv="$(_filter_csv_against_set "$skills_answer" "${skill_names[@]}")"
             fi
             [[ -n "$skills_csv" ]] && HOST_EXTRA_ARGS+=(--include-skills "$skills_csv")
         fi
     fi
     # --- end optional skills ----------------------------------------------------
-
-    prompt_telegraphic_selection
 
     local scope_choice=0
     if supports_interactive_selector; then
@@ -1453,7 +1435,7 @@ format_host_status_label() {
 }
 
 ensure_local_zoekt_runtime() {    # Kept for legacy --zoekt-auto-install flag path; prefer install_local_zoekt_if_selected
-    local lemoncrow_cli="$1"
+    local atelier_cli="$1"
     local missing=()
     local name
     for name in zoekt-git-index zoekt-index zoekt zoekt-webserver; do
@@ -1462,15 +1444,15 @@ ensure_local_zoekt_runtime() {    # Kept for legacy --zoekt-auto-install flag pa
         fi
     done
     [[ ${#missing[@]} -eq 0 ]] && return
-    warn "Local Zoekt binaries missing — rerun the installer with LEMONCROW_ZOEKT_AUTO_INSTALL=1"
+    warn "Local Zoekt binaries missing — rerun the installer with ATELIER_ZOEKT_AUTO_INSTALL=1"
 }
 
-# Stop stale LemonCrow background/servicectl/stack processes before reinstalling so a
+# Stop stale Atelier background/servicectl/stack processes before reinstalling so a
 # new install never leaves an old binary serving requests. Does NOT kill the MCP
-# server launched by the host agent (lc mcp --host) — that process stays
+# server launched by the host agent (atelier mcp --host) — that process stays
 # alive and gets reloaded via /mcp reconnect on the next agent session.
-stop_existing_lemoncrow_processes() {
-    [[ "$LEMONCROW_INSTALL_CLEAN_PROCESSES" == "1" ]] || return 0
+stop_existing_atelier_processes() {
+    [[ "$ATELIER_INSTALL_CLEAN_PROCESSES" == "1" ]] || return 0
 
     local current_pid="$$"
     local parent_pid="${PPID:-}"
@@ -1478,23 +1460,23 @@ stop_existing_lemoncrow_processes() {
     local pid args
 
     local ps_out
-    ps_out="$(mktemp "${TMPDIR:-/tmp}/lemoncrow-ps.XXXXXX")"
+    ps_out="$(mktemp "${TMPDIR:-/tmp}/atelier-ps.XXXXXX")"
     ps -eo pid=,args= 2>/dev/null > "$ps_out" || true
     while read -r pid args; do
         [[ -n "${pid:-}" && -n "${args:-}" ]] || continue
         [[ "$pid" == "$current_pid" || "$pid" == "$parent_pid" ]] && continue
 
         # Kill servicectl and stack-run processes only. The MCP server
-        # (lc mcp --host) is deliberately left alive so the host agent
+        # (atelier mcp --host) is deliberately left alive so the host agent
         # doesn't lose connectivity mid-install; the user runs /mcp reconnect
         # afterwards if they want a fresh server process.
         case "$args" in
-            *"/lemoncrow --root "*servicectl*|\
-            *" lc --root "*servicectl*|\
-            *"/lemoncrow servicectl "*|\
-            *" lc servicectl "*|\
-            *"/lemoncrow stack run"*|\
-            *" lc stack run"*)
+            *"/atelier --root "*servicectl*|\
+            *" atelier --root "*servicectl*|\
+            *"/atelier servicectl "*|\
+            *" atelier servicectl "*|\
+            *"/atelier stack run"*|\
+            *" atelier stack run"*)
                 pids+=("$pid")
                 ;;
         esac
@@ -1503,12 +1485,12 @@ stop_existing_lemoncrow_processes() {
 
     [[ ${#pids[@]} -gt 0 ]] || return 0
 
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-        printf '[dry-run] stop stale LemonCrow processes: %s\n' "${pids[*]}"
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        printf '[dry-run] stop stale Atelier processes: %s\n' "${pids[*]}"
         return 0
     fi
 
-    verbose "Stopping stale LemonCrow processes before reinstall: ${pids[*]}"
+    verbose "Stopping stale Atelier processes before reinstall: ${pids[*]}"
     kill -TERM "${pids[@]}" 2>/dev/null || true
     sleep 1
     local alive=()
@@ -1522,73 +1504,6 @@ stop_existing_lemoncrow_processes() {
     fi
 }
 
-# Warn (never fail) when a foreign `lemoncrow`/`lc` executable — one we did not
-# install — is already on the user's PATH, so a shadowing surprise is visible
-# before we drop the LemonCrow console scripts into place. We never clobber a
-# foreign binary: our scripts land in our own bin dir; PATH order decides which
-# wins. Idempotent — our own previously-installed lemoncrow/lc resolve to our
-# bin dirs and are treated as ours, so re-runs stay quiet.
-warn_on_foreign_cli_collision() {
-    # Intentionally silent.  ensure_lc_alias() already skips creating
-    # the 'lc' symlink when a foreign binary occupies that name on PATH;
-    # no need to warn the user about it.
-    return 0
-}
-
-# Create the short `lc` alias as a symlink to the just-installed `lemoncrow`
-# binary. `lc` is NOT its own console_script entry point (pyproject.toml only
-# declares `lemoncrow`) -- there is nothing to drift or go missing
-# independently; `lc` is always exactly whatever `lemoncrow` resolves to,
-# guaranteed by construction rather than by two separately-generated scripts
-# staying in sync.
-#
-# Skipped entirely if a DIFFERENT (non-ours) `lc` is already on PATH -- never
-# clobber or shadow a tool the user already has installed under that name.
-# warn_on_foreign_cli_collision() already surfaced that case to the user;
-# this is the enforcement half.
-ensure_lc_alias() {
-    LC_ALIAS_AVAILABLE=0
-    local lemoncrow_bin="${LEMONCROW_BIN_DIR}/lemoncrow"
-    [[ -x "${lemoncrow_bin}" ]] || return 0
-
-    local found resolved dabs lemoncrow_real
-    lemoncrow_real="$(cd "${LEMONCROW_BIN_DIR}" 2>/dev/null && realpath lemoncrow 2>/dev/null || readlink -f "${lemoncrow_bin}" 2>/dev/null || echo "${lemoncrow_bin}")"
-    found="$(command -v lc 2>/dev/null || true)"
-    if [[ -n "${found}" ]]; then
-        resolved="$(cd "$(dirname "${found}")" 2>/dev/null && pwd -P)/$(basename "${found}")" 2>/dev/null || resolved="${found}"
-        dabs="$(cd "${LEMONCROW_BIN_DIR}" 2>/dev/null && pwd -P || echo "${LEMONCROW_BIN_DIR}")"
-        case "${resolved}" in
-            "${dabs}"/*) ;;  # already ours (a prior lc symlink here) -- fine to (re)link
-            *)
-                # Check if existing lc already resolves to lemoncrow
-                local existing_real
-                existing_real="$(cd "$(dirname "${found}")" 2>/dev/null && realpath "$(basename "${found}")" 2>/dev/null || readlink -f "${found}" 2>/dev/null || echo "${found}")"
-                if [[ "${existing_real}" == "${lemoncrow_real}" ]]; then
-                    verbose "'lc' already resolves to lemoncrow at ${found}"
-                    LC_ALIAS_AVAILABLE=1
-                    return 0
-                fi
-                verbose "Skipping 'lc' alias -- a different 'lc' is already on PATH: ${found}"
-                return 0
-                ;;
-        esac
-    fi
-
-    ln -sf "${lemoncrow_bin}" "${LEMONCROW_BIN_DIR}/lc"
-    LC_ALIAS_AVAILABLE=1
-
-    # Mirror into ~/.local/bin too: MCP host configs (Claude Code, opencode)
-    # spawn the bare `lc` command, and ~/.local/bin is on PATH far more
-    # reliably across non-login/GUI-spawned shells than LEMONCROW_BIN_DIR,
-    # whose PATH export only takes effect for shells started after the rc
-    # edit ran. Skip if something else already occupies the name there.
-    local local_bin="${HOME}/.local/bin"
-    if [[ ! -e "${local_bin}/lc" ]]; then
-        mkdir -p "${local_bin}" 2>/dev/null || true
-        ln -sf "${LEMONCROW_BIN_DIR}/lc" "${local_bin}/lc" 2>/dev/null || true
-    fi
-}
-
 # Install uv (Python package/tool manager) via the official installer.
 # Shared by ALL entry points: local.sh (source install), bundle.sh (wheel
 # install), and install.sh via its bundle.sh delegation.
@@ -1598,7 +1513,7 @@ install_uv_if_needed() {
     else
         need_cmd curl
         verbose "Installing uv (official installer)..."
-        if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+        if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
             echo "[dry-run] curl -LsSf https://astral.sh/uv/install.sh | sh"
         else
             # shellcheck disable=SC2016
@@ -1615,9 +1530,9 @@ install_uv_if_needed() {
 
     # Source installs pin the checkout to the supported runtime so uv never
     # selects a newer ABI. `uv python pin` writes ./.python-version, so only do
-    # it for a repo checkout (LEMONCROW_LOCAL=1). Binary installs pin per-install
-    # via LEMONCROW_PYTHON_VERSION inside bundle.sh's install_lemoncrow_from_wheel.
-    if [[ "${LEMONCROW_LOCAL:-0}" == "1" && "${LEMONCROW_DRY_RUN:-0}" != "1" ]]; then
+    # it for a repo checkout (ATELIER_LOCAL=1). Binary installs pin per-install
+    # via ATELIER_PYTHON_VERSION inside bundle.sh's install_atelier_from_wheel.
+    if [[ "${ATELIER_LOCAL:-0}" == "1" && "$ATELIER_DRY_RUN" != "1" ]]; then
         uv python install 3.13 >/dev/null 2>&1 || true
         uv python pin 3.13 >/dev/null 2>&1 || true
     fi
@@ -1625,7 +1540,7 @@ install_uv_if_needed() {
 
 # Install Node.js to ~/.local/node via official tarball (self-contained, no sudo)
 _install_node() {
-    local node_ver="${LEMONCROW_PIN_NODE:-v20.12.2}"
+    local node_ver="${ATELIER_PIN_NODE:-v20.12.2}"
     local arch os_low tarball os_name
     case "$(uname -m)" in
         x86_64)        arch="x64" ;;
@@ -1637,61 +1552,61 @@ _install_node() {
     [[ "$os_low" == "darwin" ]] && os_low="darwin"
 
     tarball="node-${node_ver}-${os_low}-${arch}.tar.gz"
-    mkdir -p "$LEMONCROW_NODE_DIR"
+    mkdir -p "$ATELIER_NODE_DIR"
     
     local tmp_tar
     tmp_tar="$(mktemp "${TMPDIR:-/tmp}/node-tarball.XXXXXX.tar.gz")"
     curl -sSL "https://nodejs.org/dist/${node_ver}/${tarball}" -o "$tmp_tar" || return 1
     
     if tar --help 2>&1 | grep -q "strip-components"; then
-        tar -xzf "$tmp_tar" -C "$LEMONCROW_NODE_DIR" --strip-components=1 || { rm -f "$tmp_tar"; return 1; }
+        tar -xzf "$tmp_tar" -C "$ATELIER_NODE_DIR" --strip-components=1 || { rm -f "$tmp_tar"; return 1; }
     else
         local tmp_dir
         tmp_dir="$(mktemp -d)"
         tar -xzf "$tmp_tar" -C "$tmp_dir" || { rm -f "$tmp_tar"; rm -rf "$tmp_dir"; return 1; }
-        mv "$tmp_dir"/node-*/* "$LEMONCROW_NODE_DIR/"
+        mv "$tmp_dir"/node-*/* "$ATELIER_NODE_DIR/"
         rm -rf "$tmp_dir"
     fi
     rm -f "$tmp_tar"
     
-    export PATH="${LEMONCROW_NODE_DIR}/bin:${PATH}"
+    export PATH="${ATELIER_NODE_DIR}/bin:${PATH}"
     command -v node >/dev/null 2>&1
     command -v npm >/dev/null 2>&1
 }
 
 install_node_if_needed() {
-    local node_user_bin="${LEMONCROW_NODE_DIR}/bin"
+    local node_user_bin="${ATELIER_NODE_DIR}/bin"
     if [[ -x "${node_user_bin}/node" && ":$PATH:" != *":${node_user_bin}:"* ]]; then
         export PATH="${node_user_bin}:${PATH}"
     fi
 
     if command -v npm >/dev/null 2>&1; then
-        # Reconcile only an LemonCrow-managed Node (under LEMONCROW_NODE_DIR) to the
+        # Reconcile only an Atelier-managed Node (under ATELIER_NODE_DIR) to the
         # release-pinned version when the pin changed from what we recorded. A
         # user/system Node is left untouched.
         local _node_path
         _node_path="$(command -v node 2>/dev/null || true)"
-        if [[ -n "$_node_path" && "$_node_path" == "${LEMONCROW_NODE_DIR}/"* \
-              && "$(_companion_recorded_version node)" != "${LEMONCROW_PIN_NODE:-v20.12.2}" \
-              && "$LEMONCROW_DRY_RUN" != "1" ]]; then
-            spin "Updating Node.js to ${LEMONCROW_PIN_NODE:-v20.12.2}" _install_node \
-                && _companion_record_version node "${LEMONCROW_PIN_NODE:-v20.12.2}" || true
+        if [[ -n "$_node_path" && "$_node_path" == "${ATELIER_NODE_DIR}/"* \
+              && "$(_companion_recorded_version node)" != "${ATELIER_PIN_NODE:-v20.12.2}" \
+              && "$ATELIER_DRY_RUN" != "1" ]]; then
+            spin "Updating Node.js to ${ATELIER_PIN_NODE:-v20.12.2}" _install_node \
+                && _companion_record_version node "${ATELIER_PIN_NODE:-v20.12.2}" || true
         fi
         verbose "Found npm: $(npm --version 2>/dev/null || echo unknown)"
         return
     fi
 
-    if [[ "$LEMONCROW_NO_STACK" == "1" ]]; then
+    if [[ "$ATELIER_NO_STACK" == "1" ]]; then
         return
     fi
 
     need_cmd curl
     verbose "npm not found — attempting local Node.js installation..."
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-        echo "[dry-run] install node ${LEMONCROW_PIN_NODE:-v20.12.2}"
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] install node ${ATELIER_PIN_NODE:-v20.12.2}"
     else
         spin "Installing Node.js" _install_node \
-            && _companion_record_version node "${LEMONCROW_PIN_NODE:-v20.12.2}" || true
+            && _companion_record_version node "${ATELIER_PIN_NODE:-v20.12.2}" || true
     fi
     
     if [[ -x "${node_user_bin}/node" && ":$PATH:" != *":${node_user_bin}:"* ]]; then
@@ -1701,7 +1616,7 @@ install_node_if_needed() {
 
 # Install Go to ~/.local/go via official tarball (self-contained, no sudo)
 _install_go() {
-    local go_ver arch os_low tarball pin="${LEMONCROW_PIN_GO:-latest}"
+    local go_ver arch os_low tarball pin="${ATELIER_PIN_GO:-latest}"
     if [[ "$pin" == "latest" || -z "$pin" ]]; then
         go_ver="$(curl -sSL 'https://go.dev/VERSION?m=text' 2>/dev/null | head -1)" || return 1
     else
@@ -1722,7 +1637,7 @@ _install_go() {
 }
 
 _install_zoekt_binaries() {
-    local ref="${LEMONCROW_PIN_ZOEKT:-latest}"
+    local ref="${ATELIER_PIN_ZOEKT:-latest}"
     go install "github.com/sourcegraph/zoekt/cmd/zoekt-git-index@${ref}" &&
         go install "github.com/sourcegraph/zoekt/cmd/zoekt-index@${ref}" &&
         go install "github.com/sourcegraph/zoekt/cmd/zoekt@${ref}" &&
@@ -1750,15 +1665,15 @@ _zoekt_provision_background() {
         export PATH="${go_path_bin}:${PATH}"
     fi
     if _install_zoekt_binaries; then
-        _companion_record_version zoekt "${LEMONCROW_PIN_ZOEKT:-latest}"
-        echo "Zoekt ${LEMONCROW_PIN_ZOEKT:-latest} installed"
+        _companion_record_version zoekt "${ATELIER_PIN_ZOEKT:-latest}"
+        echo "Zoekt ${ATELIER_PIN_ZOEKT:-latest} installed"
         # Build the trigram index immediately so search is ready without
-        # requiring a manual 'lc code index' re-run after installation.
-        local lemoncrow_bin="${LEMONCROW_BIN_DIR:-${HOME}/.local/bin}/lc"
-        if [[ -x "$lemoncrow_bin" ]]; then
+        # requiring a manual 'atelier code index' re-run after installation.
+        local atelier_bin="${ATELIER_BIN_DIR:-${HOME}/.local/bin}/atelier"
+        if [[ -x "$atelier_bin" ]]; then
             echo "Building Zoekt trigram index for $(pwd)..."
-            "$lemoncrow_bin" code index --no-stats 2>&1 \
-                || echo "Zoekt index build failed — will be built on next 'lc code index' run."
+            "$atelier_bin" code index --no-stats 2>&1 \
+                || echo "Zoekt index build failed — will be built on next 'atelier code index' run."
         fi
     else
         echo "Zoekt build failed — search stays on ripgrep. Re-run the installer to retry."
@@ -1768,18 +1683,18 @@ _zoekt_provision_background() {
 install_local_zoekt_if_selected() {
     [[ "$INSTALL_ZOEKT_LOCAL" != "1" ]] && return 0
 
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-        echo "[dry-run] background: install Go (if needed) + go install zoekt-{git-index,index,zoekt,webserver}@${LEMONCROW_PIN_ZOEKT:-latest}"
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] background: install Go (if needed) + go install zoekt-{git-index,index,zoekt,webserver}@${ATELIER_PIN_ZOEKT:-latest}"
         return 0
     fi
 
-    local log="${HOME}/.lemoncrow/zoekt_install.log"
-    mkdir -p "${HOME}/.lemoncrow"
+    local log="${HOME}/.atelier/zoekt_install.log"
+    mkdir -p "${HOME}/.atelier"
 
     # Fire-and-forget: a first-time build pulls Go (~150MB) and compiles four
     # binaries — minutes of work. Detach it so the installer never blocks. Search
     # uses ripgrep meanwhile. Once the binaries are ready, _zoekt_provision_background
-    # calls 'lc code index' to build the trigram index automatically, so the
+    # calls 'atelier code index' to build the trigram index automatically, so the
     # user never needs to re-run indexing manually. Progress and any failure land in $log.
     ( _zoekt_provision_background ) >"$log" 2>&1 </dev/null &
     disown 2>/dev/null || true
@@ -1787,7 +1702,7 @@ install_local_zoekt_if_selected() {
     info "Zoekt: building binaries and index in the background"
 }
 
-# Install jj (Jujutsu VCS). Best-effort: a failed install only warns — LemonCrow
+# Install jj (Jujutsu VCS). Best-effort: a failed install only warns — Atelier
 # works without jj.
 install_jj_if_needed() {
     if command -v jj >/dev/null 2>&1; then
@@ -1797,17 +1712,17 @@ install_jj_if_needed() {
         _spinner_stop ok
         return 0
     fi
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
         echo "[dry-run] install jj (Jujutsu) via brew or cargo"
         return 0
     fi
     case "$OS_NAME" in
         darwin)
             if command -v brew >/dev/null 2>&1; then
-                spin_tail "Installing jj (Jujutsu)" brew install jj \
+                spin "Installing jj (Jujutsu)" brew install jj \
                     || warn "jj install failed — continuing without it"
             elif command -v cargo >/dev/null 2>&1; then
-                spin_tail "Installing jj (Jujutsu)" cargo install --locked jj-cli \
+                spin "Installing jj (Jujutsu)" cargo install --locked jj-cli \
                     || warn "jj install failed — continuing without it"
             else
                 warn "Neither Homebrew nor cargo found. Install jj manually: https://martinvonz.github.io/jj/latest/install-and-setup"
@@ -1815,10 +1730,10 @@ install_jj_if_needed() {
             ;;
         linux)
             if command -v cargo >/dev/null 2>&1; then
-                spin_tail "Installing jj (Jujutsu)" cargo install --locked jj-cli \
+                spin "Installing jj (Jujutsu)" cargo install --locked jj-cli \
                     || warn "jj install failed — continuing without it"
             elif command -v brew >/dev/null 2>&1; then
-                spin_tail "Installing jj (Jujutsu)" brew install jj \
+                spin "Installing jj (Jujutsu)" brew install jj \
                     || warn "jj install failed — continuing without it"
             else
                 warn "cargo not found. Install jj manually: https://martinvonz.github.io/jj/latest/install-and-setup"
@@ -1828,23 +1743,12 @@ install_jj_if_needed() {
 }
 
 # Install rtk when prompt_rtk_selection opted in. Soft integration: a failed
-# install only warns — it must never fail the LemonCrow install. Pinned to
-# LEMONCROW_RTK_TAG so release-time installs are reproducible.
-# Bootstrap a minimal Rust toolchain via rustup when cargo is missing, so the
-# optional rtk install (`cargo install --git ...`) below has something to run.
-# Runs rustup's own installer, which persists PATH into the shell profile
-# itself. Failure here is soft: rtk stays skipped, nothing else in the
-# installer depends on cargo.
-_install_rustup() {
-    command -v curl >/dev/null 2>&1 || return 1
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-        | sh -s -- -y -q --default-toolchain stable --profile minimal
-}
-
+# install only warns — it must never fail the Atelier install. Pinned to
+# ATELIER_RTK_TAG so release-time installs are reproducible.
 install_rtk_if_selected() {
     [[ "$INSTALL_RTK" != "1" ]] && return 0
     local rtk_ref=()
-    [[ -n "${LEMONCROW_RTK_TAG}" ]] && rtk_ref=(--tag "${LEMONCROW_RTK_TAG}")
+    [[ -n "${ATELIER_RTK_TAG}" ]] && rtk_ref=(--tag "${ATELIER_RTK_TAG}")
     if command -v rtk >/dev/null 2>&1; then
         local ver
         ver="$(rtk --version 2>/dev/null || echo "present")"
@@ -1852,30 +1756,17 @@ install_rtk_if_selected() {
         _spinner_stop ok
         return 0
     fi
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-        echo "[dry-run] cargo install --git https://github.com/rtk-ai/rtk${LEMONCROW_RTK_TAG:+ --tag ${LEMONCROW_RTK_TAG}}"
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] cargo install --git https://github.com/rtk-ai/rtk${ATELIER_RTK_TAG:+ --tag ${ATELIER_RTK_TAG}}"
         return 0
     fi
-    if ! command -v cargo >/dev/null 2>&1; then
-        # spin_tail (not spin): rustup's download+extract takes a while with
-        # no output otherwise, which reads as a hung spinner.
-        spin_tail "Installing Rust toolchain (cargo, for rtk)" _install_rustup \
-            || warn "rustup install failed — install cargo manually from https://rustup.rs to enable rtk."
-        [[ -x "${HOME}/.cargo/bin/cargo" ]] && export PATH="${HOME}/.cargo/bin:${PATH}"
-    fi
-    if ! command -v cargo >/dev/null 2>&1; then
-        warn "cargo unavailable — skipping rtk (LemonCrow works without it)."
-        return 0
-    fi
-    # spin_tail: a from-source cargo build can take minutes; stream the
-    # "Compiling ..." lines so it doesn't look stuck.
-    spin_tail "Installing rtk ${LEMONCROW_RTK_TAG:-HEAD} (command compactor)" \
+    spin "Installing rtk ${ATELIER_RTK_TAG:-HEAD} (command compactor)" \
         cargo install --git https://github.com/rtk-ai/rtk ${rtk_ref[@]+"${rtk_ref[@]}"} \
-        || warn "rtk install failed — LemonCrow works without it (soft integration)."
+        || warn "rtk install failed — Atelier works without it (soft integration)."
 }
 
 run() {
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
         echo "[dry-run] $*"
     else
         "$@"
@@ -1886,7 +1777,7 @@ need_cmd() {
     command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
-# Downloads the pinned ast-grep binary to $1 and symlinks it into LEMONCROW_BIN_DIR.
+# Downloads the pinned ast-grep binary to $1 and symlinks it into ATELIER_BIN_DIR.
 # Wrapped in `spin` by install_code_tools so a download failure surfaces as a
 # visible line instead of a silent verbose-only message.
 _install_astgrep_binary() {
@@ -1929,61 +1820,9 @@ with zipfile.ZipFile(io.BytesIO(data)) as z:
 dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 PYEOF
     local ret=$?
-    # Symlink into LEMONCROW_BIN_DIR so shutil.which('ast-grep') finds it without
+    # Symlink into ATELIER_BIN_DIR so shutil.which('ast-grep') finds it without
     # needing an env-var export in the shell profile.
-    [[ $ret -eq 0 ]] && ln -sf "${astgrep_dest}" "${LEMONCROW_BIN_DIR}/ast-grep" 2>/dev/null
-    return $ret
-}
-
-# Downloads the pinned ripgrep binary to $1 and symlinks it into LEMONCROW_BIN_DIR.
-# rg backs the grep fallback in search_read/native_search when Zoekt isn't built;
-# only called when no system rg is found (install_code_tools checks first), so
-# this never shadows a newer system install.
-_install_ripgrep_binary() {
-    local rg_dest="$1"
-    python3 - "${rg_dest}" <<'PYEOF'
-import hashlib, io, platform, stat, sys, tarfile, urllib.request
-from pathlib import Path
-dest = Path(sys.argv[1])
-ARCH = {'amd64': 'x86_64', 'x64': 'x86_64', 'arm64': 'aarch64'}.get(
-    platform.machine().lower(), platform.machine().lower())
-VER = '14.1.1'
-ASSETS = {
-    'x86_64': (
-        f'https://github.com/BurntSushi/ripgrep/releases/download/{VER}/ripgrep-{VER}-x86_64-unknown-linux-musl.tar.gz',
-        '4cf9f2741e6c465ffdb7c26f38056a59e2a2544b51f7cc128ef28337eeae4d8e'),
-    'aarch64': (
-        f'https://github.com/BurntSushi/ripgrep/releases/download/{VER}/ripgrep-{VER}-aarch64-unknown-linux-gnu.tar.gz',
-        'c827481c4ff4ea10c9dc7a4022c8de5db34a5737cb74484d62eb94a95841ab2f'),
-    'Darwin-x86_64': (
-        f'https://github.com/BurntSushi/ripgrep/releases/download/{VER}/ripgrep-{VER}-x86_64-apple-darwin.tar.gz',
-        'fc87e78f7cb3fea12d69072e7ef3b21509754717b746368fd40d88963630e2b3'),
-    'Darwin-aarch64': (
-        f'https://github.com/BurntSushi/ripgrep/releases/download/{VER}/ripgrep-{VER}-aarch64-apple-darwin.tar.gz',
-        '24ad76777745fbff131c8fbc466742b011f925bfa4fffa2ded6def23b5b937be'),
-}
-os_prefix = 'Darwin-' if platform.system() == 'Darwin' else ''
-key = os_prefix + ARCH
-if key not in ASSETS:
-    sys.exit(f'no pinned ripgrep asset for {key!r}')
-url, sha256 = ASSETS[key]
-dest.parent.mkdir(parents=True, exist_ok=True)
-with urllib.request.urlopen(url, timeout=120) as r:
-    data = r.read()
-if hashlib.sha256(data).hexdigest() != sha256:
-    sys.exit('sha256 mismatch')
-with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as tf:
-    member = next((m for m in tf.getmembers() if Path(m.name).name == 'rg'), None)
-    if member is None:
-        sys.exit('rg binary not found in tarball')
-    extracted = tf.extractfile(member)
-    if extracted is None:
-        sys.exit('rg member is not a regular file')
-    dest.write_bytes(extracted.read())
-dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-PYEOF
-    local ret=$?
-    [[ $ret -eq 0 ]] && ln -sf "${rg_dest}" "${LEMONCROW_BIN_DIR}/rg" 2>/dev/null
+    [[ $ret -eq 0 ]] && ln -sf "${astgrep_dest}" "${ATELIER_BIN_DIR}/ast-grep" 2>/dev/null
     return $ret
 }
 
@@ -2000,12 +1839,12 @@ install_code_tools() {
     # eslint + ts-morph + typescript (TypeScript/JavaScript lint/type-check/rename tools)
     # require npm.
     if command -v npm >/dev/null 2>&1; then
-        mkdir -p "$LEMONCROW_NODE_DIR" "$LEMONCROW_NODE_DIR/bin"
-        if [[ -x "${LEMONCROW_NODE_DIR}/bin/eslint" && -x "${LEMONCROW_NODE_DIR}/bin/tsc" ]]; then
+        mkdir -p "$ATELIER_NODE_DIR" "$ATELIER_NODE_DIR/bin"
+        if [[ -x "${ATELIER_NODE_DIR}/bin/eslint" && -x "${ATELIER_NODE_DIR}/bin/tsc" ]]; then
             _SPINNER_MSG="JS/TS tooling already installed"
             _spinner_stop ok
         else
-            spin_tail "Installing JS/TS tooling" npm install -g --prefix "$LEMONCROW_NODE_DIR" --no-fund eslint ts-morph typescript
+            spin "Installing JS/TS tooling" npm install -g --prefix "$ATELIER_NODE_DIR" --no-fund eslint ts-morph typescript
         fi
     else
         warn "npm not found - skipping JS/TS tools. Install Node.js 20+ to enable."
@@ -2021,30 +1860,17 @@ install_code_tools() {
     # ast-grep binary (codemod tool dependency). Compiled Rust CLI; no pip wheel exists.
     # The managed bootstrap in binaries.py lazy-installs at first use, but that fails
     # in network-restricted environments (proxy CA not trusted by Python ssl). Install
-    # eagerly here so the binary is always available, and set LEMONCROW_AST_GREP_BIN to
+    # eagerly here so the binary is always available, and set ATELIER_AST_GREP_BIN to
     # the fixed path so discover_astgrep_binary() never needs to download at runtime.
     # Version/URL/SHA must stay in sync with:
-    #   src/lemoncrow/infra/code_intel/astgrep/binaries.py (_MANAGED_VERSION + _MANAGED_ASSETS)
+    #   src/atelier/infra/code_intel/astgrep/binaries.py (_MANAGED_VERSION + _MANAGED_ASSETS)
     if command -v python3 >/dev/null 2>&1; then
-        local astgrep_dest="${LEMONCROW_INSTALL_DIR}/.lemoncrow/ast-grep"
+        local astgrep_dest="${ATELIER_INSTALL_DIR}/.atelier/ast-grep"
         if [[ ! -x "${astgrep_dest}" ]]; then
             spin "Installing ast-grep" _install_astgrep_binary "${astgrep_dest}" \
                 || warn "ast-grep bootstrap failed -- codemod tool will lazy-install on first use"
         else
             _SPINNER_MSG="ast-grep already installed"
-            _spinner_stop ok
-        fi
-    fi
-
-    # ripgrep (grep fallback for search_read/native_search when Zoekt isn't
-    # built). Skip entirely when a system rg is already on PATH.
-    if ! command -v rg >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
-        local rg_dest="${LEMONCROW_INSTALL_DIR}/.lemoncrow/rg"
-        if [[ ! -x "${rg_dest}" ]]; then
-            spin "Installing ripgrep" _install_ripgrep_binary "${rg_dest}" \
-                || warn "ripgrep bootstrap failed -- search falls back to slower python grep"
-        else
-            _SPINNER_MSG="ripgrep already installed"
             _spinner_stop ok
         fi
     fi
@@ -2074,9 +1900,9 @@ _ensure_path_persistence() {
     local tmp_input tmp_output in_block line
 
     profile_file="$(_detect_shell_profile)"
-    sentinel_start="# >>> lemoncrow path setup >>>"
-    sentinel_end="# <<< lemoncrow path setup <<<"
-    node_user_bin="${LEMONCROW_NODE_DIR}/bin"
+    sentinel_start="# >>> atelier path setup >>>"
+    sentinel_end="# <<< atelier path setup <<<"
+    node_user_bin="${ATELIER_NODE_DIR}/bin"
 
     mkdir -p "$(dirname "$profile_file")" 2>/dev/null || true
     touch "$profile_file"
@@ -2087,7 +1913,7 @@ _ensure_path_persistence() {
     # Build the new sentinel block
     {
         printf '%s\n' "$sentinel_start"
-        printf 'export PATH="%s:$PATH"\n' "$LEMONCROW_BIN_DIR"
+        printf 'export PATH="%s:$PATH"\n' "$ATELIER_BIN_DIR"
         if [[ -d "$node_user_bin" ]]; then
             printf 'export PATH="%s:$PATH"\n' "$node_user_bin"
         fi
@@ -2116,44 +1942,27 @@ _ensure_path_persistence() {
 
     rm -f "$tmp_input" "$tmp_output"
 
-    printf "%b│%b  %b✓%b  %s\n" "$C_FRAME" "$C_RESET" "$C_GREEN" "$C_RESET" "Added LemonCrow directories to PATH in ${profile_file/#$HOME/~}"
-}
-
-# _capture_install_previous_version — preserve the executable version before
-# the installer replaces it. The shared writer runs after replacement, when
-# `lemoncrow --version` can only report the new version.
-_capture_install_previous_version() {
-    [[ -n "${LEMONCROW_PREVIOUS_VERSION:-}" ]] && return 0
-    local lemoncrow_bin="${LEMONCROW_BIN_DIR}/lemoncrow"
-    [[ -x "$lemoncrow_bin" ]] || lemoncrow_bin="lemoncrow"
-    command -v "$lemoncrow_bin" >/dev/null 2>&1 || return 0
-
-    local previous_version
-    previous_version=$("$lemoncrow_bin" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-    if [[ -n "$previous_version" ]]; then
-        export LEMONCROW_PREVIOUS_VERSION="$previous_version"
-    fi
-    return 0
+    info "Added Atelier directories to PATH in ${profile_file/#$HOME/~}"
 }
 
 # _write_install_update_state — record a version bump so the SessionStart hook
 # can show an update notification in Claude Code on the next session start.
-# Uses the version captured before replacement, then falls back to the last
-# known state for older install paths. Fresh installs and same-version
-# reinstalls do not notify. Fail-open: errors are silently swallowed.
+# Reads the previously known version from ~/.atelier/update_state.json and
+# only writes when the version actually changed (skips fresh installs and
+# same-version reinstalls). Fail-open: errors are silently swallowed.
 _write_install_update_state() {
-    [[ "${LEMONCROW_DRY_RUN:-0}" == "1" ]] && return 0
-    local lemoncrow_bin="${LEMONCROW_BIN_DIR}/lemoncrow"
-    command -v "$lemoncrow_bin" >/dev/null 2>&1 || lemoncrow_bin="lemoncrow"
-    command -v "$lemoncrow_bin" >/dev/null 2>&1 || return 0
+    [[ "${ATELIER_DRY_RUN:-0}" == "1" ]] && return 0
+    local atelier_bin="${ATELIER_BIN_DIR}/atelier"
+    command -v "$atelier_bin" >/dev/null 2>&1 || atelier_bin="atelier"
+    command -v "$atelier_bin" >/dev/null 2>&1 || return 0
 
     local new_ver
-    new_ver=$("$lemoncrow_bin" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+    new_ver=$("$atelier_bin" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
     [[ -n "$new_ver" ]] || return 0
 
-    local state_file="${HOME}/.lemoncrow/update_state.json"
-    local prev_ver="${LEMONCROW_PREVIOUS_VERSION:-}"
-    if [[ -z "$prev_ver" && -f "$state_file" ]]; then
+    local state_file="${HOME}/.atelier/update_state.json"
+    local prev_ver=""
+    if [[ -f "$state_file" ]]; then
         # current_version in the existing file is the version that was known
         # before this install (possibly already shown/notified to the user).
         prev_ver=$(python3 -c "
@@ -2166,9 +1975,9 @@ except Exception:
     fi
 
     local method="install"
-    [[ "${LEMONCROW_LOCAL:-0}" == "1" ]] && method="source"
+    [[ "${ATELIER_LOCAL:-0}" == "1" ]] && method="source"
 
-    mkdir -p "${HOME}/.lemoncrow"
+    mkdir -p "${HOME}/.atelier"
 
     if [[ -z "$prev_ver" ]]; then
         # Fresh install: seed the file so the NEXT upgrade can detect the diff.
@@ -2204,14 +2013,14 @@ pathlib.Path(sys.argv[4]).write_text(json.dumps(data, indent=2), encoding='utf-8
 }
 
 # run_setup — shared post-install steps invoked by BOTH installers after the
-# LemonCrow CLI is available at "$LEMONCROW_BIN_DIR/lemoncrow": code tools, memory /
+# Atelier CLI is available at "$ATELIER_BIN_DIR/atelier": code tools, memory /
 # zoekt selection, host integrations, init, indexing, optimize automation,
 # background services, PATH persistence, and the final report.
 prompt_knowledge_extraction() {
     # Opt-in. Honor an explicit env preset (CI / scripted installs); only ask
     # when interactive and the user hasn't already decided.
-    [[ "$LEMONCROW_KB_EXTRACT_PRESET" == "1" ]] && return 0
-    [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]] && return 0
+    [[ "$ATELIER_KB_EXTRACT_PRESET" == "1" ]] && return 0
+    [[ "$ATELIER_NON_INTERACTIVE" == "1" ]] && return 0
     has_interactive_input || return 0
 
     if supports_interactive_selector; then
@@ -2223,73 +2032,72 @@ prompt_knowledge_extraction() {
             "Yes – populate reviewer knowledge base" \
             "No"
         if [[ "$kb_yn" != "0" ]]; then
-            LEMONCROW_KB_EXTRACT=0
+            ATELIER_KB_EXTRACT=0
             return 0
         fi
-        LEMONCROW_KB_EXTRACT=1
+        ATELIER_KB_EXTRACT=1
 
         local backend_idx=0
         interactive_single_select \
             "Knowledge extraction backend?" \
             backend_idx \
             0 \
-            "auto (LemonCrow model)" \
+            "auto (Atelier model)" \
             "claude" \
             "codex" \
             "ollama"
         case "$backend_idx" in
-            1) LEMONCROW_KB_HOST=claude ;;
-            2) LEMONCROW_KB_HOST=codex ;;
-            3) LEMONCROW_KB_HOST=ollama ;;
-            *) LEMONCROW_KB_HOST=auto ;;
+            1) ATELIER_KB_HOST=claude ;;
+            2) ATELIER_KB_HOST=codex ;;
+            3) ATELIER_KB_HOST=ollama ;;
+            *) ATELIER_KB_HOST=auto ;;
         esac
     else
         local ans=""
         printf "  ◇  Auto-extract review rules from .lessons files? [y/N] "
         IFS= read -r ans </dev/tty 2>/dev/null || ans=""
         case "$ans" in
-            y | Y | yes | YES) LEMONCROW_KB_EXTRACT=1 ;;
-            *) LEMONCROW_KB_EXTRACT=0; return 0 ;;
+            y | Y | yes | YES) ATELIER_KB_EXTRACT=1 ;;
+            *) ATELIER_KB_EXTRACT=0; return 0 ;;
         esac
 
         local choice=""
-        printf "  ◇  Backend  1) auto (LemonCrow model)  2) claude  3) codex  4) ollama  [1] "
+        printf "  ◇  Backend  1) auto (Atelier model)  2) claude  3) codex  4) ollama  [1] "
         IFS= read -r choice </dev/tty 2>/dev/null || choice=""
         case "$choice" in
-            2) LEMONCROW_KB_HOST=claude ;;
-            3) LEMONCROW_KB_HOST=codex ;;
-            4) LEMONCROW_KB_HOST=ollama ;;
-            *) LEMONCROW_KB_HOST=auto ;;
+            2) ATELIER_KB_HOST=claude ;;
+            3) ATELIER_KB_HOST=codex ;;
+            4) ATELIER_KB_HOST=ollama ;;
+            *) ATELIER_KB_HOST=auto ;;
         esac
     fi
 
-    if [[ "$LEMONCROW_KB_HOST" == "ollama" ]]; then
+    if [[ "$ATELIER_KB_HOST" == "ollama" ]]; then
         local model=""
         printf "  ◇  Ollama model name [llama3.1]: "
         IFS= read -r model </dev/tty 2>/dev/null || model=""
-        LEMONCROW_KB_MODEL="${model:-llama3.1}"
+        ATELIER_KB_MODEL="${model:-llama3.1}"
     fi
 
-    if [[ "$LEMONCROW_KB_HOST" == "auto" || "$LEMONCROW_KB_HOST" == "claude" ]]; then
+    if [[ "$ATELIER_KB_HOST" == "auto" || "$ATELIER_KB_HOST" == "claude" ]]; then
         local cap=""
-        printf "  ◇  Max spend per run in USD [%s]: " "$LEMONCROW_KB_MAX_SPEND"
+        printf "  ◇  Max spend per run in USD [%s]: " "$ATELIER_KB_MAX_SPEND"
         IFS= read -r cap </dev/tty 2>/dev/null || cap=""
-        [[ -n "$cap" ]] && LEMONCROW_KB_MAX_SPEND="$cap"
+        [[ -n "$cap" ]] && ATELIER_KB_MAX_SPEND="$cap"
     fi
 }
 
 run_knowledge_extraction_if_selected() {
-    [[ "$LEMONCROW_KB_EXTRACT" == "1" ]] || return 0
-    local lemoncrow_bin="$LEMONCROW_BIN_DIR/lemoncrow"
-    [[ -x "$lemoncrow_bin" ]] || lemoncrow_bin="lemoncrow"
-    command -v "$lemoncrow_bin" >/dev/null 2>&1 || { degrade "knowledge extraction skipped (lemoncrow binary not found)"; return 0; }
-    step_start "Extracting knowledge from .lessons (host=$LEMONCROW_KB_HOST)"
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-        info "[dry-run] $lemoncrow_bin knowledge extract --host $LEMONCROW_KB_HOST --max-spend $LEMONCROW_KB_MAX_SPEND"
+    [[ "$ATELIER_KB_EXTRACT" == "1" ]] || return 0
+    local atelier_bin="$ATELIER_BIN_DIR/atelier"
+    [[ -x "$atelier_bin" ]] || atelier_bin="atelier"
+    step_start "Extracting knowledge from .lessons (host=$ATELIER_KB_HOST)"
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        info "[dry-run] $atelier_bin knowledge extract --host $ATELIER_KB_HOST --max-spend $ATELIER_KB_MAX_SPEND"
     else
-        local kb_args=(knowledge extract --host "$LEMONCROW_KB_HOST" --max-spend "$LEMONCROW_KB_MAX_SPEND")
-        [[ -n "$LEMONCROW_KB_MODEL" ]] && kb_args+=(--model "$LEMONCROW_KB_MODEL")
-        if ! "$lemoncrow_bin" "${kb_args[@]}"; then
+        local kb_args=(knowledge extract --host "$ATELIER_KB_HOST" --max-spend "$ATELIER_KB_MAX_SPEND")
+        [[ -n "$ATELIER_KB_MODEL" ]] && kb_args+=(--model "$ATELIER_KB_MODEL")
+        if ! "$atelier_bin" "${kb_args[@]}"; then
             degrade "knowledge extraction did not complete (continuing install)"
         fi
     fi
@@ -2300,30 +2108,29 @@ configure_recall_if_selected() {
     # Persist only when an explicit env preset was given, so a re-install never
     # resets a prior recall config. Without a preset, Recall stays on by default
     # (local embedder) via the runtime — no install-time prompt, no persistence.
-    [[ "$LEMONCROW_RECALL_PRESET" == "1" ]] || return 0
-    local lemoncrow_bin="$LEMONCROW_BIN_DIR/lemoncrow"
-    [[ -x "$lemoncrow_bin" ]] || lemoncrow_bin="lemoncrow"
-    command -v "$lemoncrow_bin" >/dev/null 2>&1 || { degrade "recall config skipped (lemoncrow binary not found)"; return 0; }
+    [[ "$ATELIER_RECALL_PRESET" == "1" ]] || return 0
+    local atelier_bin="$ATELIER_BIN_DIR/atelier"
+    [[ -x "$atelier_bin" ]] || atelier_bin="atelier"
     local auto_flag="--no-auto-index"
-    [[ "$LEMONCROW_RECALL_INDEX" == "1" ]] && auto_flag="--auto-index"
-    local rc_args=(recall config "$auto_flag" --embedder "$LEMONCROW_RECALL_EMBEDDER")
-    [[ -n "$LEMONCROW_RECALL_EMBED_MODEL" ]] && rc_args+=(--embed-model "$LEMONCROW_RECALL_EMBED_MODEL")
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-        info "[dry-run] $lemoncrow_bin ${rc_args[*]}"
+    [[ "$ATELIER_RECALL_INDEX" == "1" ]] && auto_flag="--auto-index"
+    local rc_args=(recall config "$auto_flag" --embedder "$ATELIER_RECALL_EMBEDDER")
+    [[ -n "$ATELIER_RECALL_EMBED_MODEL" ]] && rc_args+=(--embed-model "$ATELIER_RECALL_EMBED_MODEL")
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        info "[dry-run] $atelier_bin ${rc_args[*]}"
         return 0
     fi
-    if ! "$lemoncrow_bin" "${rc_args[@]}" >/dev/null 2>&1; then
+    if ! "$atelier_bin" "${rc_args[@]}" >/dev/null 2>&1; then
         degrade "recall config did not complete (continuing install)"
     fi
 }
 
-# _lemoncrow_list_rows <plain-text-cli-output>
+# _atelier_list_rows <plain-text-cli-output>
 # Parses "  [available] name   ~N tok/turn standing cost" lines from the
-# CLI's own `lc agent|skill list` output into "name<TAB>cost" rows.
+# CLI's own `atelier agent|skill list` output into "name<TAB>cost" rows.
 # Deliberately parses the plain listing (not --json) so the bootstrap never
 # needs a python3/jq dependency just to show token costs; the numbers still
 # come straight from the CLI, never hardcoded or recomputed here.
-_lemoncrow_list_rows() {
+_atelier_list_rows() {
     local line name cost
     while IFS= read -r line; do
         if [[ "$line" =~ ^[[:space:]]*\[(available|installed)\][[:space:]]+([A-Za-z0-9_-]+)[[:space:]]+~([0-9]+)\ tok ]]; then
@@ -2371,14 +2178,14 @@ run_setup() {
     persist_telegraphic_selection
 
     local stack_available=0
-    if [[ "$LEMONCROW_NO_STACK" != "1" ]] && command -v npm >/dev/null 2>&1; then
+    if [[ "$ATELIER_NO_STACK" != "1" ]] && command -v npm >/dev/null 2>&1; then
         stack_available=1
-    elif [[ "$LEMONCROW_NO_STACK" != "1" ]]; then
+    elif [[ "$ATELIER_NO_STACK" != "1" ]]; then
         warn "npm is required to run the optional visualization stack; skipping stack setup"
     fi
 
     local stack_expected=0
-    if [[ "$LEMONCROW_NO_SERVICECTL" != "1" && "$stack_available" == "1" ]] && { command -v systemctl >/dev/null 2>&1 || [[ "$(uname -s)" == "Darwin" ]]; }; then
+    if [[ "$ATELIER_NO_SERVICECTL" != "1" && "$stack_available" == "1" ]] && { command -v systemctl >/dev/null 2>&1 || [[ "$(uname -s)" == "Darwin" ]]; }; then
         stack_expected=1
     fi
 
@@ -2387,23 +2194,23 @@ run_setup() {
     step_done
 
     local selected_memory=""
-    if [[ "$LEMONCROW_ADVANCED" == "1" ]]; then
-        if [[ -z "$LEMONCROW_MEMORY_BACKEND" ]]; then
+    if [[ "$ATELIER_ADVANCED" == "1" ]]; then
+        if [[ -z "$ATELIER_MEMORY_BACKEND" ]]; then
             warn "--advanced set but no --memory selected; no memory sidecar will be installed"
-        elif [[ "$LEMONCROW_MEMORY_BACKEND" == "letta" ]]; then
+        elif [[ "$ATELIER_MEMORY_BACKEND" == "letta" ]]; then
             if command -v docker >/dev/null 2>&1; then
                 selected_memory="letta"
                 verbose "Memory sidecar: Letta (Docker)"
             else
                 warn "--memory letta requires Docker - skipping Letta sidecar"
             fi
-        elif [[ "$LEMONCROW_MEMORY_BACKEND" == "openmemory" ]]; then
+        elif [[ "$ATELIER_MEMORY_BACKEND" == "openmemory" ]]; then
             local _om_missing=()
             command -v docker >/dev/null 2>&1 || _om_missing+=("docker")
             command -v git >/dev/null 2>&1 || _om_missing+=("git")
             command -v make >/dev/null 2>&1 || _om_missing+=("make")
             local _has_llm=0
-            [[ -n "${LEMONCROW_OPENMEMORY_OPENAI_API_KEY:-}${OPENAI_API_KEY:-}" ]] && _has_llm=1
+            [[ -n "${ATELIER_OPENMEMORY_OPENAI_API_KEY:-}${OPENAI_API_KEY:-}" ]] && _has_llm=1
             command -v ollama >/dev/null 2>&1 && _has_llm=1
             [[ -n "${OLLAMA_HOST:-}" ]] && _has_llm=1
             [[ "$_has_llm" == "1" ]] || _om_missing+=("OPENAI_API_KEY or ollama")
@@ -2417,7 +2224,7 @@ run_setup() {
     fi
 
     local selected_zoekt=""
-    if [[ "$LEMONCROW_ZOEKT" == "1" ]]; then
+    if [[ "$ATELIER_ZOEKT" == "1" ]]; then
         if _zoekt_all_local_binaries_present; then
             selected_zoekt="1"
             verbose "Zoekt runtime: local binaries found on PATH"
@@ -2427,47 +2234,47 @@ run_setup() {
         fi
     fi
 
-    local memory_record="${HOME}/.lemoncrow/memory_backend"
+    local memory_record="${HOME}/.atelier/memory_backend"
     if [[ -n "$selected_memory" ]]; then
-        if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+        if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
             echo "[dry-run] printf '%s\\n' '$selected_memory' > '$memory_record'"
         else
-            mkdir -p "${HOME}/.lemoncrow"
+            mkdir -p "${HOME}/.atelier"
             printf '%s\n' "$selected_memory" > "$memory_record"
         fi
-    elif [[ -f "$memory_record" && "$LEMONCROW_DRY_RUN" != "1" ]]; then
+    elif [[ -f "$memory_record" && "$ATELIER_DRY_RUN" != "1" ]]; then
         : >"$memory_record"
     fi
 
-    local zoekt_record="${HOME}/.lemoncrow/zoekt_enabled"
+    local zoekt_record="${HOME}/.atelier/zoekt_enabled"
     if [[ "$selected_zoekt" == "1" ]]; then
-        if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+        if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
             echo "[dry-run] printf '1\\n' > '$zoekt_record'"
         else
-            mkdir -p "${HOME}/.lemoncrow"
+            mkdir -p "${HOME}/.atelier"
             printf '1\n' > "$zoekt_record"
         fi
-    elif [[ -f "$zoekt_record" && "$LEMONCROW_DRY_RUN" != "1" ]]; then
+    elif [[ -f "$zoekt_record" && "$ATELIER_DRY_RUN" != "1" ]]; then
         : >"$zoekt_record"
     fi
 
-    local node_user_bin="${LEMONCROW_NODE_DIR}/bin"
+    local node_user_bin="${ATELIER_NODE_DIR}/bin"
     _ensure_path_persistence
     # Re-export for this session too
-    if [[ ":$PATH:" != *":$LEMONCROW_BIN_DIR:"* ]]; then
-        export PATH="${LEMONCROW_BIN_DIR}:${PATH}"
+    if [[ ":$PATH:" != *":$ATELIER_BIN_DIR:"* ]]; then
+        export PATH="${ATELIER_BIN_DIR}:${PATH}"
     fi
     if [[ -d "$node_user_bin" && ":$PATH:" != *":$node_user_bin:"* ]]; then
         export PATH="${node_user_bin}:${PATH}"
     fi
 
-    local lemoncrow_cli="$LEMONCROW_BIN_DIR/lemoncrow"
+    local atelier_cli="$ATELIER_BIN_DIR/atelier"
 
     if [[ "$INSTALL_ZOEKT_LOCAL" == "1" ]]; then
         install_local_zoekt_if_selected
     fi
 
-    if [[ "$LEMONCROW_NO_HOSTS" != "1" ]]; then
+    if [[ "$ATELIER_NO_HOSTS" != "1" ]]; then
         step_start "Installing host integrations"
         local host_install_args=()
         local passthrough
@@ -2492,7 +2299,7 @@ run_setup() {
             host_install_args+=("${HOST_EXTRA_ARGS[@]}")
         fi
         local project_workspace=""
-        if [[ "${LEMONCROW_LOCAL}" == "1" ]]; then
+        if [[ "${ATELIER_LOCAL}" == "1" ]]; then
             local local_repo_root=""
             if local_repo_root="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null)"; then
                 project_workspace="$local_repo_root"
@@ -2513,28 +2320,28 @@ run_setup() {
             local agents_install_args=(--workspace "$project_workspace")
             has_flag "--dry-run" && agents_install_args+=(--dry-run)
             has_flag "--print-only" && agents_install_args+=(--print-only)
-            if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-                echo "[dry-run] bash $LEMONCROW_INSTALL_DIR/scripts/install_agents.sh ${agents_install_args[*]}"
+            if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+                echo "[dry-run] bash $ATELIER_INSTALL_DIR/scripts/install_agents.sh ${agents_install_args[*]}"
             else
-                if [[ "$LEMONCROW_VERBOSE" == "1" ]]; then
-                    bash "$LEMONCROW_INSTALL_DIR/scripts/install_agents.sh" "${agents_install_args[@]}"
+                if [[ "$ATELIER_VERBOSE" == "1" ]]; then
+                    bash "$ATELIER_INSTALL_DIR/scripts/install_agents.sh" "${agents_install_args[@]}"
                 else
-                    bash "$LEMONCROW_INSTALL_DIR/scripts/install_agents.sh" "${agents_install_args[@]}" >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1
+                    bash "$ATELIER_INSTALL_DIR/scripts/install_agents.sh" "${agents_install_args[@]}" >>"$ATELIER_INSTALL_LOG_FILE" 2>&1
                 fi
             fi
         fi
-        if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-            echo "[dry-run] bash $LEMONCROW_INSTALL_DIR/scripts/install_hosts.sh ${host_install_args[*]+${host_install_args[*]}}"
+        if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+            echo "[dry-run] bash $ATELIER_INSTALL_DIR/scripts/install_hosts.sh ${host_install_args[*]+${host_install_args[*]}}"
         else
             local host_output host_output_file host_ret
-            host_output_file="${TMPDIR:-/tmp}/lemoncrow-hosts.$(date +%Y%m%dT%H%M%S).$$.log"
-            : >"$host_output_file" 2>/dev/null || host_output_file="$(mktemp "${TMPDIR:-/tmp}/lemoncrow-hosts.XXXXXX")"
+            host_output_file="${TMPDIR:-/tmp}/atelier-hosts.$(date +%Y%m%dT%H%M%S).$$.log"
+            : >"$host_output_file" 2>/dev/null || host_output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-hosts.XXXXXX")"
             set +e
-            if [[ "$LEMONCROW_VERBOSE" == "1" ]]; then
+            if [[ "$ATELIER_VERBOSE" == "1" ]]; then
                 if [[ -n "$C_RESET" ]]; then
-                    FORCE_COLOR=1 bash "$LEMONCROW_INSTALL_DIR/scripts/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | tee "$host_output_file"
+                    FORCE_COLOR=1 bash "$ATELIER_INSTALL_DIR/scripts/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | tee "$host_output_file"
                 else
-                    bash "$LEMONCROW_INSTALL_DIR/scripts/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | tee "$host_output_file"
+                    bash "$ATELIER_INSTALL_DIR/scripts/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | tee "$host_output_file"
                 fi
                 host_ret=${PIPESTATUS[0]}
             else
@@ -2547,9 +2354,9 @@ run_setup() {
                 fi
                 _SPINNER_MSG="Installing host integrations"                _SPINNER_ACTIVE=1
                 _spinner_run
-                LEMONCROW_HOST_STATUS_STREAM=1 bash "$LEMONCROW_INSTALL_DIR/scripts/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | while IFS= read -r line; do
+                ATELIER_HOST_STATUS_STREAM=1 bash "$ATELIER_INSTALL_DIR/scripts/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | while IFS= read -r line; do
                     printf "%s\n" "$line" >>"$host_output_file"
-                    if [[ "$line" =~ ^@@LEMONCROW_HOST_STATUS@@[[:space:]]+([A-Z]+)[[:space:]]+(.+)$ ]]; then
+                    if [[ "$line" =~ ^@@ATELIER_HOST_STATUS@@[[:space:]]+([A-Z]+)[[:space:]]+(.+)$ ]]; then
                         local status="${BASH_REMATCH[1]}"
                         local hname="${BASH_REMATCH[2]}"
                         case "$status" in
@@ -2613,12 +2420,12 @@ run_setup() {
                 # even when sub-scripts don't stream verbose output.
                 if [[ -s "$host_output_file" ]]; then
                     # Write host details to log file, not terminal — the
-                    # @@LEMONCROW_HOST_STATUS@@ lines are internal markers.
+                    # @@ATELIER_HOST_STATUS@@ lines are internal markers.
                     {
                         printf -- "Host install details (from %s):\n" "$host_output_file"
                         cat "$host_output_file"
                         printf -- "--- end host output ---\n"
-                    } >>"$LEMONCROW_INSTALL_LOG_FILE"
+                    } >>"$ATELIER_INSTALL_LOG_FILE"
                 fi
             fi
             if [[ -f "$host_output_file" ]]; then
@@ -2626,17 +2433,17 @@ run_setup() {
             fi
         fi
         # Persist host detection results for the local service/UI surfaces
-        if [[ "$LEMONCROW_DRY_RUN" != "1" && -f "$LEMONCROW_INSTALL_DIR/scripts/status.sh" ]]; then
-            bash "$LEMONCROW_INSTALL_DIR/scripts/status.sh" --write >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
+        if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
+            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write >>"$ATELIER_INSTALL_LOG_FILE" 2>&1 \
                 || degrade "Failed to persist host detection status"
         fi
         step_done
     else
         step_start "Installing host integrations"
-        info "Skipped (LEMONCROW_NO_HOSTS=1)"
+        info "Skipped (ATELIER_NO_HOSTS=1)"
         # Still persist current detection state even when skipping install
-        if [[ "$LEMONCROW_DRY_RUN" != "1" && -f "$LEMONCROW_INSTALL_DIR/scripts/status.sh" ]]; then
-            bash "$LEMONCROW_INSTALL_DIR/scripts/status.sh" --write >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
+        if [[ "$ATELIER_DRY_RUN" != "1" && -f "$ATELIER_INSTALL_DIR/scripts/status.sh" ]]; then
+            bash "$ATELIER_INSTALL_DIR/scripts/status.sh" --write >>"$ATELIER_INSTALL_LOG_FILE" 2>&1 \
                 || degrade "Failed to persist host detection status"
         fi
         step_done
@@ -2644,14 +2451,52 @@ run_setup() {
 
     local index_target=""
     local repo_root=""
+    local index_skipped=0
     if repo_root="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null)"; then
         index_target="$repo_root"
     fi
 
     step_start "Initializing"
-
-    if [[ "$LEMONCROW_NO_SERVICECTL" != "1" ]]; then
+    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] $atelier_cli init --no-index"
+        if [[ -n "$index_target" ]]; then
+            info "Detected project repo: $index_target"
+            echo "[dry-run] $atelier_cli code index --repo-root $index_target"
+        else
+            info "Detected project root: not found (no git repository in current directory)"
+            echo "[dry-run] skip code index (run inside a git repo)"
+        fi
+        if [[ "$ATELIER_AUTO_OPTIMIZE" == "1" ]]; then
+            echo "[dry-run] $atelier_cli optimize auto enable"
+        else
+            echo "[dry-run] $atelier_cli optimize auto disable"
+        fi
+    else
+        spin "Initializing agent runtime" "$atelier_cli" init --no-index
+        if [[ -n "$index_target" ]]; then
+            info "Detected project root: $index_target"
+            if ATELIER_INDEX_LOCK_TIMEOUT_S=120 "$atelier_cli" code index --repo-root "$index_target" --frame-prefix "│  " --no-stats 2>&7; then
+                printf "%b│%b  %b✓%b  Code index ready\n" "$C_FRAME" "$C_RESET" "$C_GREEN" "$C_RESET"
+            else
+                degrade "Initial code indexing failed; Atelier will continue and autosync will retry."
+            fi
+        else
+            index_skipped=1
+            info "Index target: not detected (no git repository in current directory)"
+            info "Skipped code indexing (no git repository detected)."
+        fi
+        if [[ "$ATELIER_AUTO_OPTIMIZE" == "1" ]]; then
+            "$atelier_cli" optimize auto enable >>"$ATELIER_INSTALL_LOG_FILE" 2>&1 \
+                || degrade "Failed to persist auto optimize settings"
+        else
+            "$atelier_cli" optimize auto disable >>"$ATELIER_INSTALL_LOG_FILE" 2>&1 \
+                || degrade "Failed to persist auto optimize settings"
+        fi
+    fi
+    step_done
+    if [[ "$ATELIER_NO_SERVICECTL" != "1" ]]; then
         if command -v systemctl >/dev/null 2>&1 || [[ "$(uname -s)" == "Darwin" ]]; then
+            verbose "Registering Atelier services with background manager..."
             local background_args=()
             if [[ "$stack_available" == "1" ]]; then
                 background_args+=("--with-stack")
@@ -2664,56 +2509,37 @@ run_setup() {
                 background_args+=("--with-zoekt")
             fi
 
-            if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-                echo "[dry-run] $LEMONCROW_BIN_DIR/lemoncrow background install ${background_args[*]}"
+            if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+                echo "[dry-run] $ATELIER_BIN_DIR/atelier background install ${background_args[*]}"
             else
-                "$LEMONCROW_BIN_DIR/lemoncrow" background install "${background_args[@]}" >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1
-            fi
-            printf "%b│%b  ✓  Background service controller registered (systemd)\n" "$C_FRAME" "$C_RESET"
-            if [[ "$stack_available" == "1" ]]; then
-                printf "%b│%b  ✓  HTTP visualization service registered (systemd)\n" "$C_FRAME" "$C_RESET"
-            fi
-            case "$selected_memory" in
-                letta) printf "%b│%b  ✓  Letta memory service registered (systemd)\n" "$C_FRAME" "$C_RESET" ;;
-                openmemory) printf "%b│%b  ✓  OpenMemory service registered (systemd)\n" "$C_FRAME" "$C_RESET" ;;
-            esac
-            if [[ "$selected_zoekt" == "1" ]]; then
-                printf "%b│%b  ✓  Zoekt code search service registered (systemd)\n" "$C_FRAME" "$C_RESET"
+                "$ATELIER_BIN_DIR/atelier" background install "${background_args[@]}" >>"$ATELIER_INSTALL_LOG_FILE" 2>&1
             fi
         else
-            if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-                echo "[dry-run] $LEMONCROW_BIN_DIR/lemoncrow servicectl start --interval-seconds $LEMONCROW_SERVICECTL_INTERVAL_SECONDS --maintenance-interval-seconds $LEMONCROW_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS"
+            verbose "Starting Atelier background service controller (loose process)..."
+            if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+                echo "[dry-run] $ATELIER_BIN_DIR/atelier servicectl start --interval-seconds $ATELIER_SERVICECTL_INTERVAL_SECONDS --maintenance-interval-seconds $ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS"
             else
-                "$LEMONCROW_BIN_DIR/lemoncrow" servicectl start \
-                    --interval-seconds "$LEMONCROW_SERVICECTL_INTERVAL_SECONDS" \
-                    --maintenance-interval-seconds "$LEMONCROW_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS" >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1
+                "$ATELIER_BIN_DIR/atelier" servicectl start \
+                    --interval-seconds "$ATELIER_SERVICECTL_INTERVAL_SECONDS" \
+                    --maintenance-interval-seconds "$ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS" >>"$ATELIER_INSTALL_LOG_FILE" 2>&1
             fi
-            printf "%b│%b  ✓  Background service controller started\n" "$C_FRAME" "$C_RESET"
 
             if [[ "$stack_available" == "1" ]]; then
-                if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-                    echo "[dry-run] $LEMONCROW_BIN_DIR/lcd start"
+                verbose "Starting Atelier HTTP service..."
+                if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+                    echo "[dry-run] $ATELIER_BIN_DIR/atelierd start"
                 else
-                    "$LEMONCROW_BIN_DIR/lcd" start &
+                    "$ATELIER_BIN_DIR/atelierd" start &
                     STACK_STARTED=1
                 fi
-                printf "%b│%b  ✓  HTTP visualization service started\n" "$C_FRAME" "$C_RESET"
             fi
         fi
     else
-        printf "%b│%b  ○  Background services skipped (LEMONCROW_NO_SERVICECTL=1)\n" "$C_FRAME" "$C_RESET"
+        verbose "Skipping background services because ATELIER_NO_SERVICECTL=1"
     fi
 
-    if [[ "$LEMONCROW_RECALL_PRESET" == "1" ]]; then
-        configure_recall_if_selected
-        printf "%b│%b  ✓  Recall configured\n" "$C_FRAME" "$C_RESET"
-    fi
-    step_done
-
-    # Knowledge extraction from .lessons prints its own named step box (only
-    # when selected) -- kept outside "Initializing" rather than folded in, so
-    # it stays a separately-titled, independently-ticked step.
     run_knowledge_extraction_if_selected
+    configure_recall_if_selected
     _write_install_update_state
 
     print_final_report
@@ -2737,47 +2563,26 @@ run_setup() {
 
     if [[ "$STACK_STARTED" == "1" || "$stack_expected" == "1" ]]; then
         printf "%b📊 Visualization stack:%b\n" "$C_PURPLE" "$C_RESET"
-        printf "  frontend: %bhttp://localhost:${LEMONCROW_FRONTEND_PORT:-3125}%b\n" "$C_PURPLE" "$C_RESET"
-        printf "  service:  %bhttp://localhost:${LEMONCROW_SERVICE_PORT:-8787}%b\n\n" "$C_PURPLE" "$C_RESET"
+        printf "  frontend: %bhttp://localhost:3125%b\n" "$C_PURPLE" "$C_RESET"
+        printf "  service:  %bhttp://localhost:8787%b\n\n" "$C_PURPLE" "$C_RESET"
     fi
-    
-    # `lemoncrow init` registers this project locally. It runs fully offline with
-    # no account and no login prompt, so it is safe to run non-interactively.
-    # (stdout/stderr reconnect to fd 7 — the real terminal saved before the
-    # `exec > >(tee ...)` redirect — so init's output reaches the user directly.)
-    local cli="lemoncrow"
-    [[ "${LC_ALIAS_AVAILABLE:-0}" == "1" ]] && cli="lc"
-    if [[ -n "$index_target" ]]; then
-        printf "%bInitializing this project:%b\n\n" "$C_PURPLE" "$C_RESET"
-        if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-            echo "[dry-run] $lemoncrow_cli init"
-        else
-            "$lemoncrow_cli" init >&7 2>&7 || true
-        fi
-        printf "\n"
-    fi
-
-    local code_display="${LEMONCROW_BIN_DIR}/lemoncrow"
+    local code_display="$ATELIER_INSTALL_DIR"
     code_display="${code_display/#$HOME/~}"
     printf "%b📁 Your files:%b\n\n" "$C_PURPLE" "$C_RESET"
-    printf "   LemonCrow dir:   %s\n" "~/.lemoncrow"
+    printf "   Atelier dir:   %s\n" "~/.atelier"
     printf "   Binary:        %s\n\n" "$code_display"    
     printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
     printf "%b🚀 Commands:%b\n\n" "$C_PURPLE" "$C_RESET"
-    printf "   %b%s%b init                Initialize LemonCrow for a new project\n" "$C_PURPLE" "$cli" "$C_RESET"
-    printf "   %b%s%b status              View active runs\n" "$C_PURPLE" "$cli" "$C_RESET"
-    printf "   %b%s%b import              Import past agent sessions\n" "$C_PURPLE" "$cli" "$C_RESET"
-    printf "   %b%s%b memory recall       Search memory\n" "$C_PURPLE" "$cli" "$C_RESET"
-    printf "   %b%s%b code index          Index current repository\n" "$C_PURPLE" "$cli" "$C_RESET"
-    printf "   %b%s%b doctor              Check service status\n\n" "$C_PURPLE" "$cli" "$C_RESET"
+    printf "   %batelier%b init                Initialize Atelier for a new project\n" "$C_PURPLE" "$C_RESET"
+    printf "   %batelier%b status              View active runs\n" "$C_PURPLE" "$C_RESET"
+    printf "   %batelier%b import              Import past agent sessions\n" "$C_PURPLE" "$C_RESET"
+    printf "   %batelier%b memory recall       Search memory\n" "$C_PURPLE" "$C_RESET"
+    printf "   %batelier%b code index          Index current repository\n" "$C_PURPLE" "$C_RESET"
+    printf "   %batelierd%b status             Check service status\n\n" "$C_PURPLE" "$C_RESET"
     if [[ ${#WARNINGS[@]} -gt 0 || ${#ERRORS[@]} -gt 0 ]]; then
-        printf "   installer log: %s\n\n" "$LEMONCROW_INSTALL_LOG_FILE"
+        printf "   installer log: %s\n\n" "$ATELIER_INSTALL_LOG_FILE"
     fi
     printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
-
-    # Open-source runtime: no account, no savings cap, and no login prompt.
-    # Local savings are tracked and shown regardless (see `lc session stats`).
-    printf "%b💰 Savings tracking:%b all local. '%s account login' to opt in to see savings online.\n\n" "$C_PURPLE" "$C_RESET" "$cli"
 
     return "$FINAL_EXIT_CODE"
 }

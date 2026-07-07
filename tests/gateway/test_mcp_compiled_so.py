@@ -9,10 +9,10 @@ got str", "dict object expected; got str", ...).  ``mcp_server._handle`` even
 carries a comment naming this exact failure mode.
 
 Every other MCP test runs the editable ``.py`` path only:
-  * ``test_mcp_stdio_smoke`` drives ``uv run lemoncrow mcp`` (editable install)
+  * ``test_mcp_stdio_smoke`` drives ``uv run atelier mcp`` (editable install)
   * ``test_mcp_jsonrpc_e2e`` calls ``_handle`` in-process (editable import)
 Neither can catch compiled-only failures.  This module builds the *real* mypyc
-wheel, installs it into an isolated venv, and drives the shipped ``lemoncrow mcp``
+wheel, installs it into an isolated venv, and drives the shipped ``atelier mcp``
 stdio server over JSON-RPC -- the only faithful way to exercise the ``.so``.
 
 For every registered tool we send a ``tools/call`` with native-typed arguments
@@ -23,21 +23,19 @@ failing on the stringified one (the ``.py``-works/``.so``-fails divergence).
 
 These are slow -- the mypyc build takes minutes -- and gated behind
 ``@pytest.mark.slow`` (the whole module via ``pytestmark``).  When the host
-cannot build the wheel (no ``uv``/compiler) the tests SKIP with a clear reason
-rather than error.
+cannot build the wheel (no ``uv``/compiler, or ``ATELIER_SKIP_MYPYC`` produced a
+pure-python wheel) the tests SKIP with a clear reason rather than error.
 """
 
 from __future__ import annotations
 
 import contextlib
 import dataclasses
-import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
-import time
 from pathlib import Path
 from typing import Any
 
@@ -46,8 +44,8 @@ import pytest
 # Editable import -- used ONLY to enumerate the registered tool surface and read
 # each tool's published input schema.  The handlers themselves are exercised in
 # the compiled subprocess, never here.
-from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
-from lemoncrow.gateway.adapters.mcp_server import TOOLS
+from atelier.core.environment import HIDDEN_LLM_TOOLS
+from atelier.gateway.adapters.mcp_server import TOOLS
 
 pytestmark = pytest.mark.slow
 
@@ -67,7 +65,6 @@ _COPY_IGNORE = shutil.ignore_patterns(
     "venv",
     "node_modules",
     "__pycache__",
-    "benchmarks",
     "build",
     "dist",
     "bundle",
@@ -79,15 +76,9 @@ _COPY_IGNORE = shutil.ignore_patterns(
 )
 
 
-@dataclasses.dataclass(frozen=True)
-class _CompiledWheel:
-    path: Path
-    private_key_hex: str
-
-
 @dataclasses.dataclass
 class _CompiledServer:
-    lemoncrow_bin: str
+    atelier_bin: str
     env: dict[str, str]
     workspace: Path
 
@@ -98,7 +89,7 @@ class _CompiledServer:
 
 
 @pytest.fixture(scope="session")
-def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> _CompiledWheel:
+def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Build the mypyc-compiled wheel from a throwaway copy of the repo.
 
     The hatch build hook mutates ``src/`` in place (deletes ``.py`` for each
@@ -109,44 +100,13 @@ def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> _CompiledWheel:
     if shutil.which("uv") is None:
         pytest.skip("uv not on PATH; cannot build the mypyc wheel")
 
-    build_base = tmp_path_factory.mktemp("lemoncrow_build")
+    build_base = tmp_path_factory.mktemp("atelier_build")
     repo_copy = build_base / "src"
     shutil.copytree(REPO_ROOT, repo_copy, ignore=_COPY_IGNORE, ignore_dangling_symlinks=True)
-
-    # The isolated compiled process cannot inherit pytest monkeypatches. Give
-    # this temporary wheel a generated pinned key, then seed a genuinely signed
-    # verdict below. Production source and keys are never changed.
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-    private_key = Ed25519PrivateKey.generate()
-    private_key_hex = private_key.private_bytes(
-        serialization.Encoding.Raw,
-        serialization.PrivateFormat.Raw,
-        serialization.NoEncryption(),
-    ).hex()
-    public_key_hex = (
-        private_key.public_key()
-        .public_bytes(
-            serialization.Encoding.Raw,
-            serialization.PublicFormat.Raw,
-        )
-        .hex()
-    )
-    gate_path = repo_copy / "src/lemoncrow/pro/capabilities/licensing_gate.py"
-    original_gate_source = gate_path.read_text(encoding="utf-8")
-    gate_source = re.sub(
-        r'_DEFAULT_PUBLIC_KEY_HEX = "[0-9a-f]{64}"',
-        f'_DEFAULT_PUBLIC_KEY_HEX = "{public_key_hex}"',
-        original_gate_source,
-        count=1,
-    )
-    assert gate_source != original_gate_source, "compiled gate key constant not found"
-    gate_path.write_text(gate_source, encoding="utf-8")
     out_dir = build_base / "wheel"
 
-    # Must compile -- a pure-python wheel cannot exercise the .so path.
-    env = {**os.environ, "LEMONCROW_ENABLE_MYPYC": "1"}
+    # Must NOT skip mypyc -- a pure-python wheel cannot exercise the .so path.
+    env = {k: v for k, v in os.environ.items() if k != "ATELIER_SKIP_MYPYC"}
     proc = subprocess.run(
         ["uv", "build", "--wheel", "--out-dir", str(out_dir)],
         cwd=str(repo_copy),
@@ -162,27 +122,24 @@ def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> _CompiledWheel:
         # whole suite red.
         pytest.skip(f"mypyc wheel build failed (toolchain or mypyc-incompatible module):\n{proc.stderr[-2000:]}")
 
-    wheels = sorted(out_dir.glob("lemoncrow-*.whl"))
+    wheels = sorted(out_dir.glob("atelier-*.whl"))
     if not wheels:
         pytest.skip("`uv build --wheel` produced no wheel")
     wheel = wheels[-1]
 
     # A genuinely compiled wheel carries a platform/abi tag, e.g.
-    # ``lemoncrow-0.3.5-cp312-cp312-linux_x86_64.whl``.  A pure-python wheel
+    # ``atelier-0.3.5-cp312-cp312-linux_x86_64.whl``.  A pure-python wheel
     # (``...-py3-none-any.whl``) means mypyc did not run -- it would give false
     # assurance, so skip instead.
     if wheel.name.endswith("-py3-none-any.whl"):
         pytest.skip(f"wheel is pure-python ({wheel.name}); mypyc compilation did not run")
-    return _CompiledWheel(path=wheel, private_key_hex=private_key_hex)
+    return wheel
 
 
 @pytest.fixture(scope="session")
-def compiled_server(
-    compiled_wheel: _CompiledWheel,
-    tmp_path_factory: pytest.TempPathFactory,
-) -> _CompiledServer:
+def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFactory) -> _CompiledServer:
     """Install the compiled wheel into an isolated venv and prepare its runtime."""
-    venv_dir = tmp_path_factory.mktemp("lemoncrow_venv") / "venv"
+    venv_dir = tmp_path_factory.mktemp("atelier_venv") / "venv"
     create = subprocess.run(
         ["uv", "venv", str(venv_dir)],
         capture_output=True,
@@ -193,7 +150,7 @@ def compiled_server(
         pytest.skip(f"`uv venv` failed:\n{create.stderr[-2000:]}")
 
     venv_python = venv_dir / "bin" / "python"
-    lemoncrow_bin = venv_dir / "bin" / "lemoncrow"
+    atelier_bin = venv_dir / "bin" / "atelier"
 
     # The coercion layer lives in the core server modules, so a minimal extra set
     # is enough to start the server and dispatch every tool; tools whose optional
@@ -205,7 +162,7 @@ def compiled_server(
             "install",
             "--python",
             str(venv_python),
-            f"{compiled_wheel.path}[mcp,smart,memory]",
+            f"{compiled_wheel}[mcp,smart,memory]",
         ],
         capture_output=True,
         text=True,
@@ -213,44 +170,18 @@ def compiled_server(
     )
     if install.returncode != 0:
         pytest.skip(f"compiled wheel install failed:\n{install.stderr[-2000:]}")
-    if not lemoncrow_bin.exists():
-        pytest.skip("lemoncrow console script missing from venv after install")
+    if not atelier_bin.exists():
+        pytest.skip("atelier console script missing from venv after install")
 
     # Confirm the installed package is actually compiled (.so present, not .py).
     so_files = list(venv_dir.rglob("mcp_server*.so"))
     if not so_files:
         pytest.skip("installed wheel has no mcp_server .so; not a compiled build")
 
-    root = tmp_path_factory.mktemp("lemoncrow_root") / ".lemoncrow"
-    from lemoncrow.core.capabilities.licensing import cap_verdict, store
-
-    device_hash = hashlib.sha256(
-        store.load_or_create_device_id().encode("utf-8"),
-    ).hexdigest()
-    now = int(time.time())
-    cap_token = cap_verdict.sign_cap_token(
-        {
-            "v": 2,
-            "typ": "cap",
-            "account_id": "anon:compiled-test",
-            "device_id": device_hash,
-            "plan": "free",
-            "savings_over_cap": False,
-            "monthly_savings_usd": 0.0,
-            "cap_usd": 20.0,
-            "issued_at": now,
-            "expires_at": now + 3600,
-        },
-        private_key_hex=compiled_wheel.private_key_hex,
-    )
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "subscription.json").write_text(
-        json.dumps({"capVerdictToken": cap_token}),
-        encoding="utf-8",
-    )
-    config_dir = tmp_path_factory.mktemp("lemoncrow_cfg") / ".claude"
+    root = tmp_path_factory.mktemp("atelier_root") / ".atelier"
+    config_dir = tmp_path_factory.mktemp("atelier_cfg") / ".claude"
     config_dir.mkdir(parents=True, exist_ok=True)
-    workspace = tmp_path_factory.mktemp("lemoncrow_ws")
+    workspace = tmp_path_factory.mktemp("atelier_ws")
     (workspace / "sample.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     (workspace / "edit_target.txt").write_text("alpha\n", encoding="utf-8")
 
@@ -263,13 +194,13 @@ def compiled_server(
 
     env = {
         **os.environ,
-        "LEMONCROW_ROOT": str(root),
+        "ATELIER_ROOT": str(root),
         "CLAUDE_WORKSPACE_ROOT": str(workspace),
         "CLAUDE_CONFIG_DIR": str(config_dir),
         # Put the venv first so any subprocess the server spawns is the compiled one.
         "PATH": f"{venv_dir / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
     }
-    return _CompiledServer(lemoncrow_bin=str(lemoncrow_bin), env=env, workspace=workspace)
+    return _CompiledServer(atelier_bin=str(atelier_bin), env=env, workspace=workspace)
 
 
 # --------------------------------------------------------------------------- #
@@ -291,7 +222,7 @@ _INITIALIZE = {
 def _run_server(
     server: _CompiledServer, calls: list[dict[str, Any]], timeout: int = 120
 ) -> tuple[dict[Any, dict[str, Any]], subprocess.CompletedProcess[str]]:
-    """Spawn ``lemoncrow mcp``, feed initialize + ``calls``, return {id: response}.
+    """Spawn ``atelier mcp``, feed initialize + ``calls``, return {id: response}.
 
     Strict framing gate (matches test_mcp_stdio_smoke): every non-empty stdout
     line MUST be a JSON object, else the server printed something off-protocol.
@@ -299,7 +230,7 @@ def _run_server(
     requests = [_INITIALIZE, *calls]
     payload = "\n".join(json.dumps(r) for r in requests) + "\n"
     proc = subprocess.run(
-        [server.lemoncrow_bin, "mcp"],
+        [server.atelier_bin, "mcp"],
         input=payload,
         text=True,
         capture_output=True,
@@ -432,7 +363,7 @@ def test_compiled_server_handshake_and_tools_list(compiled_server: _CompiledServ
         [{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}],
     )
     assert 1 in responses, f"no initialize response; stderr:\n{proc.stderr[-1500:]}"
-    assert responses[1]["result"]["serverInfo"]["name"] == "lemoncrow"
+    assert responses[1]["result"]["serverInfo"]["name"] == "atelier"
     assert 2 in responses, f"no tools/list response; stderr:\n{proc.stderr[-1500:]}"
 
     names = {tool["name"] for tool in responses[2]["result"]["tools"]}

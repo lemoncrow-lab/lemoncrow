@@ -5,7 +5,7 @@ from __future__ import annotations
 import fnmatch
 from dataclasses import dataclass
 
-from lemoncrow.pro.capabilities.scoped_context import ScopedContextCapability, Subtask
+from atelier.core.capabilities.scoped_context import ScopedContextCapability, Subtask
 
 
 @dataclass

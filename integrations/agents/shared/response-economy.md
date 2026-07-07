@@ -1,0 +1,2 @@
+- **Byte-exact technical content.** Code, commands, paths, identifiers, error messages — never compressed, elided, or paraphrased.
+- **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, and multi-step sequences where brevity risks misordering.

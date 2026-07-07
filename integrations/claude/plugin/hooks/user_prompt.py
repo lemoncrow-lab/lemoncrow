@@ -45,9 +45,29 @@ _MAX_PROMPT_BYTES = 8192  # 8 KB
 # ---------------------------------------------------------------------------
 
 
+def _workspace_key(path: str) -> str:
+    import re
+    from hashlib import sha256
+    from pathlib import Path as _Path
+
+    resolved = _Path(path).expanduser().resolve()
+    home = _Path.home().resolve()
+    try:
+        parts = resolved.relative_to(home).parts
+    except ValueError:
+        parts = [p for p in resolved.parts if p and p != "/"]
+    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
+    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
+    if len(label) > 120:
+        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
+    return label or sha256(str(resolved).encode()).hexdigest()[:12]
+
+
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "session_state.json"
+    h = _workspace_key(workspace)
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _read_session_state() -> dict:  # type: ignore[type-arg]
@@ -83,14 +103,14 @@ def _write_session_state(state: dict[str, Any]) -> None:
                 Path(tmp_path).unlink(missing_ok=True)
 
 
-def _lemoncrow_root() -> Path:
-    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
+def _atelier_root() -> Path:
+    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
     if root:
         return Path(root)
     state = _read_session_state()
-    if state.get("lemoncrow_root"):
-        return Path(state["lemoncrow_root"])
-    return Path.home() / ".lemoncrow"
+    if state.get("atelier_root"):
+        return Path(state["atelier_root"])
+    return Path.home() / ".atelier"
 
 
 # ---------------------------------------------------------------------------
@@ -100,10 +120,10 @@ def _lemoncrow_root() -> Path:
 
 def _append_prompt_event(session_id: str, prompt: str) -> None:
     try:
-        from lemoncrow.core.foundation.paths import session_dir
+        from atelier.core.foundation.paths import session_dir
     except ImportError:
         return
-    run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
+    run_file = session_dir(_atelier_root(), "claude", session_id) / "run.json"
     if not run_file.exists():
         return
 
@@ -170,8 +190,8 @@ def _persist_last_user_prompt(prompt: str) -> None:
 # The live window occupancy is read from the transcript's real ``usage``
 # numbers (input + cache_read + cache_creation), matching what Claude Code's
 # own status-line gauge reports. Window capacity and all pricing come from the
-# live rate card (LemonCrow pricing / LiteLLM) — no static tables here.
-# LEMONCROW_CONTEXT_WINDOW_TOKENS overrides the window when set. NEVER size
+# live rate card (atelier pricing / LiteLLM) — no static tables here.
+# ATELIER_CONTEXT_WINDOW_TOKENS overrides the window when set. NEVER size
 # against transcript *file bytes*: the JSONL is cumulative (tool dumps,
 # compacted-away turns, JSON overhead) and vastly exceeds the live window,
 # which is what produced bogus ~100% warnings.
@@ -230,11 +250,11 @@ _PATH_STOPWORDS = frozenset(
 def _context_window_tokens(model: str | None) -> int:
     """Resolve the context-window capacity for *model*.
 
-    Precedence: LEMONCROW_CONTEXT_WINDOW_TOKENS env override > live rate card
+    Precedence: ATELIER_CONTEXT_WINDOW_TOKENS env override > live rate card
     (LiteLLM ``max_input_tokens``). Returns 0 when unknown — callers omit the
     percentage rather than guess against a wrong window.
     """
-    override = os.environ.get("LEMONCROW_CONTEXT_WINDOW_TOKENS", "").strip()
+    override = os.environ.get("ATELIER_CONTEXT_WINDOW_TOKENS", "").strip()
     if override:
         with contextlib.suppress(ValueError):
             value = int(override)
@@ -247,14 +267,14 @@ def _context_window_tokens(model: str | None) -> int:
 
 
 def _model_pricing(model: str | None):  # type: ignore[no-untyped-def]
-    """Live rate card for *model*, or None when lemoncrow/pricing is unavailable."""
+    """Live rate card for *model*, or None when atelier/pricing is unavailable."""
     try:
-        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from atelier.core.capabilities.pricing import get_model_pricing
 
         pricing = get_model_pricing(model or "")
         if pricing.known and pricing.cache_read > 0:
             return pricing
-    except Exception:
+    except Exception:  # noqa: BLE001 - hook must fail open without atelier installed
         pass
     return None
 
@@ -393,9 +413,9 @@ def _recent_working_set(session_id: str | None) -> set[str]:
     if not session_id:
         return set()
     try:
-        from lemoncrow.core.foundation.paths import session_dir
+        from atelier.core.foundation.paths import session_dir
 
-        run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
+        run_file = session_dir(_atelier_root(), "claude", session_id) / "run.json"
         data = json.loads(run_file.read_text("utf-8"))
     except (ImportError, OSError, ValueError, TypeError):
         return set()
@@ -454,11 +474,11 @@ def _append_compaction_savings_row(model: str | None, session_id: str) -> None:
         if not session_id:
             return
         try:
-            from lemoncrow.core.foundation.paths import session_dir
+            from atelier.core.foundation.paths import session_dir
 
-            path = session_dir(_lemoncrow_root(), "claude", session_id) / "savings.jsonl"
+            path = session_dir(_atelier_root(), "claude", session_id) / "savings.jsonl"
         except ImportError:
-            path = _lemoncrow_root() / "sessions" / session_id / "savings.jsonl"
+            path = _atelier_root() / "sessions" / session_id / "savings.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         row = {
             "kind": "compaction",
@@ -541,7 +561,7 @@ def _check_noop_cap(prompt: str) -> bool:
                 state["noop_continue_count"] = 0
                 _write_session_state(state)
         return False
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -618,7 +638,7 @@ def _maybe_emit_compaction_advice(
         state["last_user_prompt"] = last_user_prompt
         _write_session_state(state)
         return msg
-    except Exception:
+    except Exception:  # noqa: BLE001 - hook fails open; always persist last_user_prompt
         _persist_last_user_prompt(last_user_prompt)
         return None
 
@@ -640,7 +660,7 @@ def _emit_ui_messages(ui_messages: list[str], additional_context: str | None = N
 
 
 # ---------------------------------------------------------------------------
-# Prompt front-loading (opt-in via LEMONCROW_FRONTLOAD=1)
+# Prompt front-loading (opt-in via ATELIER_FRONTLOAD=1)
 #
 # For a structural prompt ("how does X work", "trace the flow", "what calls Y")
 # run one indexed code_search server-side and inject the result BEFORE the
@@ -664,7 +684,7 @@ _FRONTLOAD_TIMEOUT_S = 8
 
 def _frontload_context(prompt: str, payload: dict[str, Any]) -> str | None:
     """Return injected indexed context for a structural prompt, else None."""
-    if os.environ.get("LEMONCROW_FRONTLOAD") != "1":
+    if os.environ.get("ATELIER_FRONTLOAD") != "1":
         return None
     if prompt.lstrip().startswith("/") or _NOOP_PROMPT in prompt:
         return None
@@ -679,7 +699,7 @@ def _frontload_context(prompt: str, payload: dict[str, Any]) -> str | None:
     old_handler = signal.signal(signal.SIGALRM, _timeout)
     signal.alarm(_FRONTLOAD_TIMEOUT_S)
     try:
-        from lemoncrow.pro.capabilities.code_context.engine import (
+        from atelier.core.capabilities.code_context.engine import (
             CodeContextEngine,
             _default_db_path,
         )
@@ -696,11 +716,11 @@ def _frontload_context(prompt: str, payload: dict[str, Any]) -> str | None:
         if len(body) > _FRONTLOAD_MAX_CHARS:
             body = body[:_FRONTLOAD_MAX_CHARS] + "…(truncated; call code_search for the rest)"
         return (
-            '<lemoncrow_context note="Indexed context front-loaded for this prompt '
+            '<atelier_context note="Indexed context front-loaded for this prompt '
             '— treat this source as already read; call code_search for more.">\n'
-            f"{body}\n</lemoncrow_context>"
+            f"{body}\n</atelier_context>"
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None  # fail-open — the prompt must go through untouched
     finally:
         signal.alarm(0)
@@ -756,14 +776,14 @@ def main() -> int:
     # post-clear turn, before any tool call of that turn can misattribute.
     if session_id:
         with contextlib.suppress(Exception):
-            from lemoncrow.core.foundation.session_window import (
+            from atelier.core.foundation.session_window import (
                 register_window_session,
                 workspace_hash,
             )
 
             _ws = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
             register_window_session(
-                _lemoncrow_root(),
+                _atelier_root(),
                 workspace_hash(_ws),
                 session_id=session_id,
                 source="prompt",
@@ -777,9 +797,9 @@ def main() -> int:
         # question needs fresh exploration, so the old "searches/reads, 0
         # edits" count must not carry over and misfire.
         with contextlib.suppress(Exception):
-            from lemoncrow.core.capabilities.plugin_runtime import update_session_stats
+            from atelier.core.capabilities.plugin_runtime import update_session_stats
 
-            update_session_stats(_lemoncrow_root(), payload)
+            update_session_stats(_atelier_root(), payload)
     ui_messages: list[str] = []
     # Folds the last_user_prompt persist into a single session-state RMW.
     compact_msg = _maybe_emit_compaction_advice(prompt, transcript_path, stored_prompt, session_id)

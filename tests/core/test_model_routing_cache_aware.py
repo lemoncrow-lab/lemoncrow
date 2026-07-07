@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.pricing import ModelPricing
-from lemoncrow.pro.capabilities.model_routing import (
+from atelier.core.capabilities.model_routing import (
     DEFAULT_STICKINESS_WINDOW,
     ModelRecommendation,
     ModelRouter,
@@ -12,7 +11,8 @@ from lemoncrow.pro.capabilities.model_routing import (
     reset_stickiness,
     start_stickiness,
 )
-from lemoncrow.pro.capabilities.prefix_cache.planner import PrefixCachePlan
+from atelier.core.capabilities.prefix_cache.planner import PrefixCachePlan
+from atelier.core.capabilities.pricing import ModelPricing
 
 
 def _plan(prefix_hash: str, prefix_tokens: int = 100_000) -> PrefixCachePlan:

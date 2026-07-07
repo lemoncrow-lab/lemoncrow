@@ -1,3 +1,0 @@
-scope,n_tasks,n_trials_or_tasks,n_pass,n_fail,n_no_data,pass_rate,total_input_tokens,total_output_tokens,total_cache_tokens,total_tokens,total_cost_usd,total_duration_seconds,total_duration_hours
-all_reps,89,445,351,91,3,0.7888,174804998,8089069,161931526,182894067,286.92,244953,68.04
-one_run,89,89,70.2,18.8,,0.7888,34961004,1617812,32386306,36578816,72.48,48991,13.61

@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from lemoncrow.core.foundation.memory_models import ArchivalPassage
-from lemoncrow.pro.capabilities.archival_recall.ranking import rank_archival_passages
-from lemoncrow.pro.capabilities.memory.staleness import (
+from atelier.core.capabilities.archival_recall.ranking import rank_archival_passages
+from atelier.core.capabilities.memory.staleness import (
     CalibratedAction,
     ChangeType,
     StalenessAction,
     calibrate_staleness,
     should_auto_invalidate,
 )
+from atelier.core.foundation.memory_models import ArchivalPassage
 
 _T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -26,7 +26,7 @@ def _passage(
 ) -> ArchivalPassage:
     return ArchivalPassage(
         id=pid,
-        agent_id="lemoncrow:code",
+        agent_id="atelier:code",
         text=text,
         embedding_provenance="none",
         source="user",

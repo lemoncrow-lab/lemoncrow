@@ -47,7 +47,7 @@ def sql_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def sql_tool_fn() -> Any:
-    from lemoncrow.gateway.adapters.mcp_server import tool_sql
+    from atelier.gateway.adapters.mcp_server import tool_sql
 
     return tool_sql
 
@@ -128,8 +128,8 @@ def test_sql_op_saves_tokens(case: BenchCase, sql_bench_results: list[CaseResult
         pytest.skip(f"skipping savings check: op failed: {result.failure}")
     if result.baseline_tokens == 0:
         pytest.skip("no measured baseline")
-    if result.lemoncrow_tokens >= result.baseline_tokens:
+    if result.atelier_tokens >= result.baseline_tokens:
         pytest.skip(
             f"[{case.label}] no savings (measured, report-only): "
-            f"lemoncrow={result.lemoncrow_tokens} >= baseline={result.baseline_tokens}"
+            f"atelier={result.atelier_tokens} >= baseline={result.baseline_tokens}"
         )

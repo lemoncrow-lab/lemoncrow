@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.pro.foundation.watchdogs import (
+from atelier.core.foundation.models import Playbook
+from atelier.core.foundation.watchdogs import (
     ContextBloat,
     HighRiskAction,
     KnownDeadEnd,

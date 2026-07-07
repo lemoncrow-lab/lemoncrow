@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lemoncrow.core.foundation.models import Trace
-from lemoncrow.core.runtime import LemonCrowRuntimeCore
-from lemoncrow.infra.runtime.run_ledger import RunLedger
+from atelier.core.foundation.models import Trace
+from atelier.core.runtime import AtelierRuntimeCore
+from atelier.infra.runtime.run_ledger import RunLedger
 from tests.helpers import init_store_at
 
 
 def test_context_reuse_returns_ranked_procedures(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
-    rt = LemonCrowRuntimeCore(root)
+    rt = AtelierRuntimeCore(root)
 
     context = rt.get_context(
         task="Apply a live state change safely",
@@ -25,9 +25,9 @@ def test_context_reuse_returns_ranked_procedures(tmp_path: Path) -> None:
 
 
 def test_semantic_memory_read_and_search(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
-    rt = LemonCrowRuntimeCore(root)
+    rt = AtelierRuntimeCore(root)
 
     target = tmp_path / "sample.py"
     target.write_text(
@@ -52,9 +52,9 @@ def test_semantic_memory_read_and_search(tmp_path: Path) -> None:
 
 
 def test_summarize_memory_after_repeated_failures(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
-    rt = LemonCrowRuntimeCore(root)
+    rt = AtelierRuntimeCore(root)
 
     ledger = RunLedger(root=root, agent="test", task="t", domain="d")
     ledger.record_command("pytest", ok=False, error_signature="same")
@@ -68,11 +68,11 @@ def test_summarize_memory_after_repeated_failures(tmp_path: Path) -> None:
 
 
 def test_failure_analysis_clusters_and_matches(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
-    rt = LemonCrowRuntimeCore(root)
+    rt = AtelierRuntimeCore(root)
 
-    rt.store.history.record_trace(
+    rt.store.record_trace(
         Trace(
             id=Trace.make_id("Fix auth", "codex"),
             agent="codex",
@@ -83,7 +83,7 @@ def test_failure_analysis_clusters_and_matches(tmp_path: Path) -> None:
             commands_run=["pytest -q"],
         )
     )
-    rt.store.history.record_trace(
+    rt.store.record_trace(
         Trace(
             id=Trace.make_id("Fix auth retry", "codex"),
             agent="codex",
@@ -106,9 +106,9 @@ def test_failure_analysis_clusters_and_matches(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_and_smart_edit(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
-    rt = LemonCrowRuntimeCore(root)
+    rt = AtelierRuntimeCore(root)
 
     rt.smart_search("shopify", limit=3)
     rt.smart_search("shopify", limit=3)
@@ -121,17 +121,17 @@ def test_tool_supervision_and_smart_edit(tmp_path: Path) -> None:
     file_path.write_text("hello world", encoding="utf-8")
     result = rt.smart_edit(
         [
-            {"path": str(file_path), "find": "world", "replace": "lemoncrow"},
+            {"path": str(file_path), "find": "world", "replace": "atelier"},
         ]
     )
     assert result["applied"] == 1
-    assert file_path.read_text(encoding="utf-8") == "hello lemoncrow"
+    assert file_path.read_text(encoding="utf-8") == "hello atelier"
 
 
 def test_smart_edit_fuzzy_and_bash_intercept(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
-    rt = LemonCrowRuntimeCore(root)
+    rt = AtelierRuntimeCore(root)
 
     file_path = tmp_path / "fuzzy.txt"
     file_path.write_text("publish_product_by_gid\n", encoding="utf-8")
@@ -155,9 +155,9 @@ def test_smart_edit_fuzzy_and_bash_intercept(tmp_path: Path) -> None:
 
 
 def test_sql_inspect_and_runtime_benchmark_metrics(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
-    rt = LemonCrowRuntimeCore(root)
+    rt = AtelierRuntimeCore(root)
 
     sql = "SELECT * FROM catalog.products JOIN sales.orders ON products.id = orders.product_id"
     inspected = rt.sql_inspect(sql=sql)

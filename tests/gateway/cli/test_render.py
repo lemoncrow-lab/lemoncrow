@@ -7,16 +7,16 @@ from io import StringIO
 
 from rich.console import Console
 
-from lemoncrow.gateway.cli.events import (
+from atelier.gateway.cli.events import (
     AssistantMessage,
-    LemonCrowEvent,
+    AtelierEvent,
     RuntimeErrorEvent,
 )
-from lemoncrow.gateway.cli.render import EventRenderer
+from atelier.gateway.cli.render import EventRenderer
 from tests.gateway.cli.test_events import _all_events
 
 
-def _render(event: LemonCrowEvent) -> str:
+def _render(event: AtelierEvent) -> str:
     buf = StringIO()
     console = Console(file=buf, force_terminal=False, width=80)
     renderer = EventRenderer(console)

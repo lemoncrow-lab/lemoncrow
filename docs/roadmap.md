@@ -1,16 +1,18 @@
-# LemonCrow Roadmap
+# Atelier Roadmap
 
-> LemonCrow is in low-maintenance mode. There is no committed roadmap and no
-> release schedule. This page records what has shipped and lists possible
-> technical directions as non-promises — not planned deliverables or dates.
+> Last revised 2026-06-15. Cadence: reviewed every 2 weeks.
 
-The sections below separate shipped capabilities from ideas that may or may not
-be pursued on a best-effort basis. Nothing here is a commitment.
+This roadmap tracks shipped capabilities against what's in active development. Detailed execution specs are maintained internally.
 
 ## Shipped capabilities
 
-### Context & memory
+### Model routing
+- Per-turn model routing (`ModelRouter`) with session-phase awareness
+- Cross-vendor routing — scores across available providers per turn
+- Complexity scoring, cache-cost awareness, stickiness, success prediction
+- Quality-aware routing with execution contracts
 
+### Context & memory
 - Dynamic context compaction with LLM hints (task type, risk level, must-keep)
 - Sleeptime summarization and deduplication
 - Persistent memory store (SQLite/PostgreSQL) with archival recall
@@ -19,14 +21,12 @@ be pursued on a best-effort basis. Nothing here is a commitment.
 - Symbol-based memory recall
 
 ### Cost tracking
-
 - Per-session cost reports with actual vs counterfactual costs
-- `lc savings` and `lc dashboard` commands
+- `atelier savings` and `atelier dashboard` commands
 - Aggregate cost and token savings with reset support
 - Counterfactual pricing engine
 
 ### Code intelligence
-
 - Symbol-first code index with multi-language support
 - AST pattern matching (ast-grep) with rewrite support
 - Call graph (callers/callees) with centrality scoring
@@ -37,50 +37,36 @@ be pursued on a best-effort basis. Nothing here is a commitment.
 - Repo-map with PageRank
 
 ### CLI & service surface
-
 - MCP server (local and remote modes)
 - OpenAI-compatible `/v1/chat/completions` gateway
 - Runtime commands: runs, ledger, swarm, lessons, benchmarks
-- Outcome capture for agent-run evaluation
-- `lc insights` weekly summary with spend trends and opportunities
+- Outcome capture (feedback loop for routing decisions)
+- `atelier insights` weekly summary with spend trends and opportunities
 - Lesson promotion with PR bot
 - Live reviewer agent
 - Background services with auto-update
 
 ### Host integrations
-
 - Claude Code, Codex, Copilot, OpenCode, Cursor, Antigravity, Hermes
 - SDK adapters (Anthropic tools, OpenAI SDK hooks, LangChain middleware)
 
 ### Storage & telemetry
-
 - SQLite and PostgreSQL storage backends
 - pgvector for embedding similarity search
 - OpenTelemetry → PostHog + GCP, local-first, anonymous
 
-## Product direction
+## Active development
 
-LemonCrow is not building a general-purpose organizational knowledge warehouse. External systems such as Jira, Confluence, GitHub, and repositories remain sources of truth. The direction is the execution last mile:
-
-\`code + ticket + docs → task working set → agent run → tests/review → source-linked memory\`
-
-Future team context must be reviewable, permission-aware, tied to source and commit provenance, checked for staleness, and promoted from verified outcomes rather than raw transcripts. These are direction statements, not shipped-feature claims.
-
-## Possible directions (non-promises)
-
-These are directions that may be explored on a best-effort basis. They are not
-commitments, dated deliverables, or shipped features.
-
-| Area                  | Description                                                                              |
-| --------------------- | ---------------------------------------------------------------------------------------- |
-| Model routing         | Provider/model evaluation and reliability work                                          |
-| Optimization advisor  | `lc optimize` with compaction type taxonomy, golden tests, policy presets, shadow runner |
-| Cross-machine sync    | Encrypted workspace sync across machines                                                 |
-| Web dashboard         | Browser-based spend trends and management                                                |
-| Benchmark publication | One-command export to publishable JSON + markdown                                        |
+| Area | Description |
+|------|-------------|
+| Optimization advisor | `atelier optimize` with compaction type taxonomy, golden tests, policy presets, shadow runner |
+| Cross-machine sync | Encrypted workspace sync across machines |
+| Web dashboard | Browser-based spend trends and management |
+| Benchmark publication | One-command export to publishable JSON + markdown |
 
 ## Not planned
 
 - Custom models, fine-tuning, or in-house embeddings
 - IDE plugins
+- Enterprise sales motion before Team tier is repeating
 - Mobile companion

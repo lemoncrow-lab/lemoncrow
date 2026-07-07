@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.infra.internal_llm.exceptions import OllamaUnavailable
-from lemoncrow.pro.capabilities.code_context import CodeContextEngine
-from lemoncrow.pro.capabilities.code_context.models import SymbolRecord
-from lemoncrow.pro.capabilities.code_context.rerank import SearchReranker
+from atelier.core.capabilities.code_context import CodeContextEngine
+from atelier.core.capabilities.code_context.models import SymbolRecord
+from atelier.core.capabilities.code_context.rerank import SearchReranker
+from atelier.infra.internal_llm.exceptions import OllamaUnavailable
 
 
 def _make_symbol(

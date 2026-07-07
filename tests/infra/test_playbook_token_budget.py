@@ -4,17 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.core.foundation.renderer import render_block_for_agent
-from lemoncrow.infra.storage.bundle import StoreBundle, build_sqlite_store_bundle
-from lemoncrow.pro.foundation.retriever import TaskContext, count_tokens, retrieve
+from atelier.core.foundation.models import Playbook
+from atelier.core.foundation.renderer import render_block_for_agent
+from atelier.core.foundation.retriever import TaskContext, count_tokens, retrieve
+from atelier.core.foundation.store import ContextStore
 
 TASK = "live state change resolved from url slug verification drift"
 
 
 @pytest.fixture()
-def seeded_store(tmp_path: Path) -> StoreBundle:
-    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
+def seeded_store(tmp_path: Path) -> ContextStore:
+    store = ContextStore(tmp_path / "atelier")
     store.init()
     source = Playbook(
         id="canonical-identifier-over-display-name",
@@ -44,7 +44,7 @@ def seeded_store(tmp_path: Path) -> StoreBundle:
         required_rubrics=["rubric_state_change_safety"],
         when_not_to_apply="Pure read-only exploration where no state mutation or rollback will happen.",
     )
-    store.knowledge.upsert_block(source)
+    store.upsert_block(source)
     for idx in range(6):
         clone = source.model_copy(
             update={
@@ -54,7 +54,7 @@ def seeded_store(tmp_path: Path) -> StoreBundle:
                 "failure_count": idx + 3,
             }
         )
-        store.knowledge.upsert_block(clone)
+        store.upsert_block(clone)
 
     return store
 
@@ -63,7 +63,7 @@ def _tokens(blocks: list[Playbook]) -> int:
     return sum(count_tokens(render_block_for_agent(block)) for block in blocks)
 
 
-def test_dedup_and_budget_cut_tokens_at_least_30pct(seeded_store: StoreBundle) -> None:
+def test_dedup_and_budget_cut_tokens_at_least_30pct(seeded_store: ContextStore) -> None:
     ctx = TaskContext(
         task=TASK,
         domain="state.change",
