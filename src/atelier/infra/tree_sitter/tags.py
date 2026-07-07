@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from atelier.infra.code_intel.languages import language_for_path
 
-TagKind = Literal["definition", "reference"]
+TagKind = Literal["definition", "reference", "call"]
 _LEGACY_REGEX_LANGUAGES = frozenset({"javascript", "typescript", "go", "rust"})
 _DATA_LANGUAGES = frozenset({"json", "toml", "yaml"})
 # Markup / style / prose languages: references are not meaningful code symbols.
@@ -121,6 +121,16 @@ def _first_descendant(node: Any, kinds: frozenset[str]) -> Any | None:
     return None
 
 
+def _last_descendant(node: Any, kinds: frozenset[str]) -> Any | None:
+    """Rightmost matching descendant: for `obj->ops->submit(...)` the callee
+    identifier is the LAST field_identifier, not the first (`obj`)."""
+    last = None
+    for candidate in _walk(node):
+        if _kind(candidate) in kinds:
+            last = candidate
+    return last
+
+
 def _definition_name_node(node: Any, language: str) -> Any | None:
     kind = _kind(node)
     if language == "bash":
@@ -167,6 +177,28 @@ def _definition_name_node(node: Any, language: str) -> Any | None:
 # body (field/enumerator list); bodyless occurrences are type REFERENCES
 # (`struct foo *x`, `enum bar baz;`).
 _BODYLESS_REFERENCE_KINDS = frozenset({"struct_specifier", "union_specifier", "enum_specifier", "class_specifier"})
+
+# Call-expression node kinds per language -> child fields naming the callee
+# (tried in order). Emits `call` tags (callee name + call site) from the same
+# parse that produces definition/reference tags; the engine folds them into
+# call_edges, which feed call-graph PageRank and caller-count popularity.
+# Python has its own richer AST path; a language absent here simply produces
+# no call tags. Only field-based resolution is used -- guessing the callee
+# from bare descendants would pick up argument identifiers.
+_CALL_NODE_FIELDS: dict[str, dict[str, tuple[str, ...]]] = {
+    "c": {"call_expression": ("function",)},
+    "cpp": {"call_expression": ("function",)},
+    "go": {"call_expression": ("function",)},
+    "rust": {"call_expression": ("function",), "macro_invocation": ("macro",)},
+    "java": {"method_invocation": ("name",), "object_creation_expression": ("type",)},
+    "ruby": {"call": ("method",)},
+    "javascript": {"call_expression": ("function",), "new_expression": ("constructor",)},
+    "typescript": {"call_expression": ("function",), "new_expression": ("constructor",)},
+    "csharp": {"invocation_expression": ("function",), "object_creation_expression": ("type",)},
+    "php": {"function_call_expression": ("function",), "member_call_expression": ("name",)},
+    "scala": {"call_expression": ("function",)},
+    "lua": {"function_call": ("name",)},
+}
 
 _LOCAL_SCOPE_KINDS: dict[str, frozenset[str]] = {
     "c": frozenset({"compound_statement"}),
@@ -256,9 +288,28 @@ def _treesitter_tags(path: Path, text: str, language: str) -> list[Tag] | None:
         seen.add(key)
         tags.append(Tag(name, kind, str(path), _line_for_byte(offsets, start), (start, end), node_kind=_kind(node)))
 
+    call_fields = _CALL_NODE_FIELDS.get(language, {})
     if language not in _NO_REFERENCE_LANGUAGES:
         for node in _walk(root):
-            if _kind(node) not in _IDENTIFIER_KINDS:
+            node_kind = _kind(node)
+            fields = call_fields.get(node_kind)
+            if fields:
+                callee_node = None
+                for field in fields:
+                    field_node = _child_by_field_name(node, field)
+                    if field_node is not None:
+                        callee_node = _last_descendant(field_node, _IDENTIFIER_KINDS) or field_node
+                        break
+                if callee_node is not None:
+                    callee = _node_text(source, callee_node)
+                    if callee:
+                        start, end = _byte_range(callee_node)
+                        call_kind: TagKind = "call"
+                        call_key = (callee, call_kind, start, end)
+                        if call_key not in seen:
+                            seen.add(call_key)
+                            tags.append(Tag(callee, call_kind, str(path), _line_for_byte(offsets, start), (start, end)))
+            if node_kind not in _IDENTIFIER_KINDS:
                 continue
             start, end = _byte_range(node)
             name = _node_text(source, node)
