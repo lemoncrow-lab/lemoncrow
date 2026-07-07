@@ -3,7 +3,7 @@
 
 Fires after Edit, Write, or MultiEdit. Computes the diff and appends a
 ``file_edit`` event to the session's ``run.json`` (see
-``lemoncrow.core.foundation.paths.session_dir``) so it shows up in the LemonCrow
+``atelier.core.foundation.paths.session_dir``) so it shows up in the Atelier
 traces dashboard.
 
 Fail-open: any error exits silently (code 0) — never blocks the agent.
@@ -27,9 +27,29 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 
+def _workspace_key(path: str) -> str:
+    import re
+    from hashlib import sha256
+    from pathlib import Path as _Path
+
+    resolved = _Path(path).expanduser().resolve()
+    home = _Path.home().resolve()
+    try:
+        parts = resolved.relative_to(home).parts
+    except ValueError:
+        parts = [p for p in resolved.parts if p and p != "/"]
+    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
+    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
+    if len(label) > 120:
+        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
+    return label or sha256(str(resolved).encode()).hexdigest()[:12]
+
+
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "session_state.json"
+    h = _workspace_key(workspace)
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _read_session_state() -> dict:  # type: ignore[type-arg]
@@ -42,14 +62,14 @@ def _read_session_state() -> dict:  # type: ignore[type-arg]
         return {}
 
 
-def _lemoncrow_root() -> Path:
-    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
+def _atelier_root() -> Path:
+    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
     if root:
         return Path(root)
     state = _read_session_state()
-    if state.get("lemoncrow_root"):
-        return Path(state["lemoncrow_root"])
-    return Path.home() / ".lemoncrow"
+    if state.get("atelier_root"):
+        return Path(state["atelier_root"])
+    return Path.home() / ".atelier"
 
 
 # ---------------------------------------------------------------------------
@@ -135,10 +155,10 @@ _MAX_DIFF_CHARS = 4000
 def _append_file_edit_event(session_id: str, file_path: str, diff: str) -> None:
     """Append a file_edit event to the session's run.json atomically."""
     try:
-        from lemoncrow.core.foundation.paths import session_dir
+        from atelier.core.foundation.paths import session_dir
     except ImportError:
         return
-    run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
+    run_file = session_dir(_atelier_root(), "claude", session_id) / "run.json"
     if not run_file.exists():
         return
 
@@ -190,36 +210,18 @@ def _append_file_edit_event(session_id: str, file_path: str, diff: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _jj_snapshot_nudge() -> None:
-    """jj lazily snapshots the working copy on the *next* jj invocation, not on
-    the file write itself -- so an edit sits unprotected in jj's history until
-    something else happens to call jj. Fire a cheap, silent `jj status` right
-    after each edit to close that gap. Fail-open: no .jj dir, no jj binary, or
-    any error -> silently skipped, never blocks the agent."""
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    if not (Path(workspace) / ".jj").exists():
-        return
-    try:
-        subprocess.run(
-            ["jj", "status"],
-            cwd=workspace,
-            capture_output=True,
-            timeout=5,
-        )
-    except (subprocess.SubprocessError, OSError):
-        pass
-
-
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except (json.JSONDecodeError, OSError):
-        return 0
+        return 0  # fail-open
+
     tool_name: str = payload.get("tool_name", "") or ""
     if tool_name not in ("Edit", "Write", "MultiEdit"):
         return 0
-    _jj_snapshot_nudge()
+
     tool_input: dict[str, Any] = payload.get("tool_input", {}) or {}
+
     try:
         file_path, diff = _compute_diff(tool_name, tool_input)
         if not file_path or not diff:

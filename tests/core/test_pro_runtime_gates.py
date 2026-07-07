@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.licensing import entitlements
-from lemoncrow.core.service import code_warm
-from lemoncrow.pro.capabilities.optimization.policy import load_current_policy
+from atelier.core.capabilities.licensing import entitlements
+from atelier.core.capabilities.optimization.policy import load_current_policy
+from atelier.core.service import code_warm
 from tests.helpers import deny_oauth, grant_oauth_pro
 
 
@@ -45,13 +45,11 @@ def test_code_warmer_warms_all_repos_without_pro(monkeypatch: pytest.MonkeyPatch
     assert len(warmer._fired) == 3  # unlimited_repos is free: no per-repo cap
 
 
-def test_signed_out_policy_is_balanced(tmp_path: Path) -> None:
-    # Signed out is fully unlocked now (autouse _clean denies OAuth but every
-    # feature is granted locally), so the savings engine runs the optimized
-    # "balanced" preset rather than the old unoptimized Free baseline.
+def test_free_policy_is_unoptimized(tmp_path: Path) -> None:
+    # No license/overlay (autouse _clean) -> the savings engine is off.
     policy = load_current_policy(tmp_path)
-    assert policy.preset == "balanced"
-    assert policy.name != "Free (unoptimized)"
+    assert policy.preset == "custom"
+    assert policy.compaction.trigger_at_context_fraction == 1.0
 
 
 def test_pro_policy_is_balanced(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -65,18 +63,18 @@ def _big_python_src() -> str:
 
 
 def test_read_uses_source_projection_without_pro(monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.gateway.adapters import mcp_server
+    from atelier.gateway.adapters import mcp_server
 
-    monkeypatch.setenv("LEMONCROW_AUTO_COMPACT_OUTPUT", "1")
-    monkeypatch.setenv("LEMONCROW_MCP_COMPACT_RESULT_CHARS", "2000")
+    monkeypatch.setenv("ATELIER_AUTO_COMPACT_OUTPUT", "1")
+    monkeypatch.setenv("ATELIER_MCP_COMPACT_RESULT_CHARS", "2000")
     out = mcp_server._auto_compact_result_text(_big_python_src(), "read", {"path": "mod.py"})
-    assert "projection:python" in out  # source_projection is free: AST projection applies
+    assert "source_projection:python" in out  # source_projection is free: AST projection applies
 
 
 def test_free_context_compression_is_passthrough() -> None:
     from typing import ClassVar
 
-    from lemoncrow.pro.capabilities.context_compression.capability import ContextCompressionCapability
+    from atelier.core.capabilities.context_compression.capability import ContextCompressionCapability
 
     class _Ledger:
         session_id = "s"
@@ -87,12 +85,11 @@ def test_free_context_compression_is_passthrough() -> None:
     assert result.reduction_pct == 0.0  # Free: no license -> passthrough, no compression
 
 
-def test_scoped_context_pull_is_no_longer_locked() -> None:
-    # Pull-mode scoped context used to be Pro-gated: tool_get_context(mode="pull")
-    # called licensing.require("scoped_context"), which raised FeatureLocked when
-    # signed out. That gate is neutralized now — require never raises and the
-    # feature resolves as granted locally.
-    from lemoncrow.core.capabilities import licensing
+def test_free_scoped_context_pull_is_locked() -> None:
+    from atelier.core.capabilities.licensing import FeatureLocked
+    from atelier.gateway.adapters import mcp_server
 
-    assert licensing.require("scoped_context") is None  # never raises FeatureLocked
-    assert licensing.has_feature("scoped_context") is True
+    with pytest.raises(FeatureLocked) as exc_info:
+        mcp_server.tool_get_context({"task": "x", "mode": "pull"})
+    assert exc_info.value.feature == "scoped_context"
+    assert "Atelier Pro" in str(exc_info.value)

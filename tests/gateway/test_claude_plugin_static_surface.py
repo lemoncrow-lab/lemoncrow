@@ -5,7 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from lemoncrow.core.capabilities.default_definitions import build_default_registry
+from atelier.core.capabilities.default_definitions import build_default_registry
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = ROOT / "integrations" / "claude" / "plugin"
@@ -35,15 +35,14 @@ def _frontmatter(path: Path) -> str:
     return text.split("---", 2)[1]
 
 
-def test_plugin_does_not_bundle_its_own_mcp_server() -> None:
-    """The plugin must NOT ship .mcp.json -- see install_claude.sh's matching
-    structural-validation guard for why (duplicate plugin:lemoncrow:lc
-    namespace / doubled token cost)."""
-    assert not (PLUGIN / ".mcp.json").exists(), (
-        "integrations/claude/plugin/.mcp.json must not exist -- bundling it "
-        "reintroduces the plugin:lemoncrow:lc / mcp__plugin_lemoncrow_lc__* "
-        "duplicate-namespace regression"
-    )
+def test_plugin_mcp_server_is_loaded_at_session_start() -> None:
+    config = json.loads((PLUGIN / ".mcp.json").read_text(encoding="utf-8"))
+    server = config["mcpServers"]["atelier"]
+    assert server["type"] == "stdio"
+    assert server["alwaysLoad"] is True
+    assert server["command"] == "atelier"
+    assert server["args"] == ["mcp", "--host", "claude"]
+    assert server["env"]["CLAUDE_PLUGIN_ROOT"] == "${CLAUDE_PLUGIN_ROOT}"
 
 
 def test_plugin_no_longer_ships_dev_agent_variants() -> None:
@@ -68,7 +67,7 @@ def test_editing_personas_carry_fixme_must_act_rule() -> None:
 def test_read_only_personas_carry_no_edit_discipline() -> None:
     for role in sorted(READ_ONLY_ROLES):
         body = (PLUGIN / "agents" / f"{role}.md").read_text(encoding="utf-8")
-        for edit_marker in ("edits[]", "bulk edit", "lemoncrow:explore` / `"):
+        for edit_marker in ("edits[]", "bulk edit", "atelier:explore` / `"):
             assert edit_marker not in body, f"{role}: edit-centric rule leaked into read-only persona: {edit_marker!r}"
 
 
@@ -90,7 +89,7 @@ def test_plugin_skills_are_packaged_locally() -> None:
         text=True,
     ).stdout.splitlines()
     found = {Path(line).parent.name for line in tracked if line.strip()}
-    assert found == {"orchestrate", "swarm", "benchmark", "perf-review", "recall", "ux-review", "lemoncrow"}
+    assert found == {"orchestrate", "swarm", "benchmark", "perf-review", "recall", "ux-review", "atelier"}
 
     canonical = {p.parent.name for p in (ROOT / "integrations" / "skills").glob("*/SKILL.md")}
     assert found <= canonical, "plugin bundle skills must be copies of integrations/skills sources"
@@ -107,7 +106,7 @@ def test_plugin_agent_set_matches_canonical_registry() -> None:
     assert "general" in expected
 
 
-def test_generated_host_agents_keep_lemoncrow_wording() -> None:
+def test_generated_host_agents_keep_atelier_wording() -> None:
     registry = build_default_registry(ROOT)
 
     for role_id in registry.surfaced_role_ids("claude_agent"):
@@ -146,7 +145,7 @@ def test_generated_claude_agents_project_turn_defaults_without_pinning_model() -
 def test_claude_workflow_model_config_inherits_runtime_and_normalizes_ids(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    settings_dir = workspace / ".lemoncrow"
+    settings_dir = workspace / ".atelier"
     settings_dir.mkdir(parents=True, exist_ok=True)
     (settings_dir / "settings.json").write_text(
         json.dumps(

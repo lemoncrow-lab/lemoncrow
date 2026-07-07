@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.gateway.adapters import mcp_server
-from lemoncrow.gateway.sdk.mcp import _LoopbackTransport
+from atelier.gateway.adapters import mcp_server
+from atelier.gateway.sdk.mcp import _LoopbackTransport
 
 
 def test_previously_unreachable_tools_are_registered() -> None:

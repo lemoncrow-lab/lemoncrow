@@ -435,7 +435,7 @@ export interface ConversationEntry {
   tool_name?: string;
   tool_use_id?: string;
   arguments?: unknown;
-  // Per-call LemonCrow savings written by the MCP server to its host sidecar.
+  // Per-call Atelier savings written by the MCP server to its host sidecar.
   // Same data the statusline aggregates — attached per-tool by the backend.
   // `usd` is priced at the row's captured model input rate (already summed
   // across grouped turns).
@@ -730,17 +730,17 @@ export interface SavingsBenchmark {
   model: string;
   n_prompts: number;
   total_tokens_baseline: number;
-  total_tokens_lc: number;
+  total_tokens_atelier: number;
   tokens_saved: number;
   reduction_pct: number;
   total_cost_baseline_usd: number;
-  total_cost_lemoncrow_usd: number;
+  total_cost_atelier_usd: number;
   cost_saved_usd: number;
   total_time_baseline_ms: number;
-  total_time_lemoncrow_ms: number;
+  total_time_atelier_ms: number;
   time_saved_ms: number;
   baseline_success_rate: number;
-  lemoncrow_success_rate: number;
+  atelier_success_rate: number;
 }
 
 export interface SavingsSummaryV2 {
@@ -766,12 +766,11 @@ export interface SavingsSummaryV2 {
   live_saved_usd?: number;
   ops_saved_usd?: number;
   carry_usd?: number;
-  carry_tokens?: number;
-  read_saved_usd?: number;
-  total_saved_usd?: number;
+  ledger_saved_usd?: number;
+  ledger_saved_pct?: number;
   ledger_tokens_saved?: number;
   ledger_calls_saved?: number;
-  routing_saved_usd?: number;
+  ledger_routing_usd?: number;
   top_sources?: SavingsSource[];
   tool_aggregates?: SavingsToolAggregate[];
   session_proof?: SavingsProofSession[];
@@ -853,18 +852,6 @@ export interface OptimizationAdvisorCandidate {
   escalation_rate: number;
   compaction_breakdown: Record<string, number>;
   routing_breakdown: Record<string, number>;
-  // $/week attributable to routing tier choice alone (isolated from
-  // compaction). Optional so older cached advisor-history entries recorded
-  // before this field existed still type-check.
-  routing_saved_usd?: number;
-  // Read/Carry/Output/Routing/Total mapping of the above breakdowns onto the
-  // same component model used by realized savings (see Savings.tsx). Only
-  // present on payloads built by `_optimizations_summary_payload` (the
-  // /v1/optimizations/summary route) -- optional for the same reason.
-  read_saved_usd?: number;
-  carry_saved_usd?: number;
-  output_saved_usd?: number;
-  total_saved_usd?: number;
 }
 
 export interface OptimizationAdvisorGolden {
@@ -1171,7 +1158,7 @@ export interface HostAdapter {
   // own start time). See _host_import_stats() in api.py.
   last_import_at?: string | null;
   imported_session_count?: number;
-  lemoncrow_version?: string | null;
+  atelier_version?: string | null;
   description?: string | null;
   install_command?: string | null;
 }
@@ -1295,7 +1282,7 @@ export interface SessionSummary {
   raw_artifact_ids?: string[];
   total_turns: number;
   total_cost_usd: number;
-  total_lemoncrow_savings_usd: number;
+  total_atelier_savings_usd: number;
   label: string | null;
   models_used: Record<string, number>;
   input_tokens?: number;
@@ -1379,7 +1366,7 @@ export interface InsightsWindow {
   session_count: number;
   total_duration_seconds: number;
   total_cost_usd: number;
-  total_lemoncrow_savings_usd: number;
+  total_atelier_savings_usd: number;
   cost_by_vendor: Record<string, number>;
   cost_by_tool: Record<string, number>;
   cost_by_model: Record<string, number>;
@@ -1482,7 +1469,7 @@ export interface DashboardTopSession {
   input_tokens: number;
   output_tokens: number;
   cached_tokens: number;
-  lemoncrow_savings_usd?: number;
+  atelier_savings_usd?: number;
 }
 
 export interface DashboardTool {
@@ -1574,7 +1561,7 @@ export interface AnalyticsDashboard {
     total_cost: number;
     projected_monthly_cost: number;
     total_sessions: number;
-    total_lemoncrow_savings_usd?: number;
+    total_atelier_savings_usd?: number;
     savings_pct?: number;
   };
   daily: DashboardDaily[];
@@ -1673,107 +1660,6 @@ export interface TraceListResponse {
   };
 }
 
-export interface CodeMapProject {
-  root: string;
-  label: string;
-  indexed: boolean;
-  active: boolean;
-}
-
-export interface CodeMapNode {
-  id: string;
-  label: string;
-  qualified_name: string;
-  path: string;
-  kind: string;
-  language?: string;
-  line: number;
-  end_line: number;
-  score?: number | null;
-  degree?: number;
-  focus?: boolean;
-  provenance?: string;
-  node_type?: "symbol" | "file" | "community";
-  file_type?: string;
-  aggregate_count?: number;
-  community?: string;
-  color?: string;
-}
-
-export interface CodeMapEdge {
-  id: string;
-  source: string;
-  target: string;
-  kind: "calls" | string;
-  depth: number;
-  weight?: number;
-}
-
-export interface CodeMapGraph {
-  repo_id?: string;
-  focus: string | null;
-  nodes: CodeMapNode[];
-  edges: CodeMapEdge[];
-  truncated: boolean;
-  depth?: number;
-}
-
-export interface CodeMapOverview {
-  project: { root: string; label: string };
-  index: {
-    files_indexed?: number;
-    symbols_indexed?: number;
-    imports_indexed?: number;
-    last_indexed_at?: string | null;
-    index_age_seconds?: number | null;
-  };
-  graph: CodeMapGraph;
-}
-
-export interface CodeMapFacet {
-  id: string;
-  label: string;
-  count: number;
-  color?: string;
-}
-
-export interface CodeMapFull extends CodeMapOverview {
-  total_symbols: number;
-  total_files: number;
-  truncated: boolean;
-  groups: CodeMapFacet[];
-  file_types: CodeMapFacet[];
-  languages: CodeMapFacet[];
-}
-
-export interface CodeMapSymbol extends CodeMapNode {
-  signature: string;
-  source: string;
-  source_truncated: boolean;
-}
-
-export type CodeMapActivityKind = "search" | "read" | "edit" | "verify";
-
-export interface CodeMapActivityEvent {
-  id: string;
-  session_id: string;
-  kind: CodeMapActivityKind;
-  at: string;
-  label: string;
-  path?: string;
-  query?: string;
-  line?: number;
-  status?: "passed" | "failed";
-  symbol_ids?: string[];
-}
-
-export interface CodeMapActivityResponse {
-  session_id: string | null;
-  status: string;
-  cursor?: string | null;
-  events: CodeMapActivityEvent[];
-}
-
 export const api = {
   granularAnalytics: (
     agent?: string,
@@ -1848,60 +1734,6 @@ export const api = {
   },
   trace: (id: string) => get<Trace>(`/v1/traces/${id}`),
   ledger: (session_id: string) => get<any>(`/ledgers/${session_id}`),
-  codeMapProjects: () =>
-    get<{ projects: CodeMapProject[] }>("/v1/code-map/projects"),
-  codeMapOverview: (projectRoot?: string) => {
-    const params = new URLSearchParams();
-    if (projectRoot) params.set("project_root", projectRoot);
-    const query = params.toString();
-    return get<CodeMapOverview>(
-      `/v1/code-map/overview${query ? `?${query}` : ""}`
-    );
-  },
-  codeMapFull: (projectRoot?: string) => {
-    const params = new URLSearchParams();
-    if (projectRoot) params.set("project_root", projectRoot);
-    const query = params.toString();
-    return get<CodeMapFull>(`/v1/code-map/full${query ? `?${query}` : ""}`);
-  },
-  codeMapSearch: (query: string, projectRoot?: string, limit = 20) => {
-    const params = new URLSearchParams({ q: query, limit: String(limit) });
-    if (projectRoot) params.set("project_root", projectRoot);
-    return get<{ query: string; results: CodeMapNode[] }>(
-      `/v1/code-map/search?${params.toString()}`
-    );
-  },
-  codeMapNeighborhood: (
-    symbolId: string,
-    projectRoot?: string,
-    depth = 1,
-    limit = 80
-  ) => {
-    const params = new URLSearchParams({
-      symbol_id: symbolId,
-      depth: String(depth),
-      limit: String(limit),
-    });
-    if (projectRoot) params.set("project_root", projectRoot);
-    return get<CodeMapGraph>(`/v1/code-map/neighborhood?${params.toString()}`);
-  },
-  codeMapSymbol: (symbolId: string, projectRoot?: string) => {
-    const params = new URLSearchParams({ symbol_id: symbolId });
-    if (projectRoot) params.set("project_root", projectRoot);
-    return get<CodeMapSymbol>(`/v1/code-map/symbol?${params.toString()}`);
-  },
-  codeMapActivity: (
-    projectRoot?: string,
-    after?: string | null,
-    limit = 60
-  ) => {
-    const params = new URLSearchParams({ limit: String(limit) });
-    if (projectRoot) params.set("project_root", projectRoot);
-    if (after) params.set("after", after);
-    return get<CodeMapActivityResponse>(
-      `/v1/code-map/activity?${params.toString()}`
-    );
-  },
   clusters: () => get<Cluster[]>("/clusters"),
   blocks: () => get<Playbook[]>("/blocks"),
   block: (id: string) => get<Playbook>(`/blocks/${id}`),

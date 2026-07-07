@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from lemoncrow.gateway.cli.progress import ProgressReporter
+from atelier.gateway.cli.progress import ProgressReporter
 
 from benchmarks.mcp_tools._env import configure_benchmark_runtime
 from benchmarks.mcp_tools.cases.rescue import RESCUE_CASES
@@ -24,9 +24,9 @@ def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def make_rescue_tool_fn(base_root: Path) -> Any:
-    from lemoncrow.core.foundation.models import Playbook, Trace
-    from lemoncrow.gateway.adapters import mcp_server
-    from lemoncrow.infra.storage.factory import create_store
+    from atelier.core.foundation.models import Playbook, Trace
+    from atelier.core.foundation.store import ContextStore
+    from atelier.gateway.adapters import mcp_server
 
     repo_root = Path(__file__).resolve().parents[2]
 
@@ -37,12 +37,12 @@ def make_rescue_tool_fn(base_root: Path) -> Any:
         case_root = base_root / payload.get("task", "case").replace("/", "-").replace(" ", "-")[:80]
         configure_benchmark_runtime(case_root, workspace_root=repo_root)
         mcp_server._reset_runtime_cache_for_testing()
-        store = create_store(Path(mcp_server._lemoncrow_root()))
+        store = ContextStore(Path(mcp_server._atelier_root()))
         store.init()
         for block in seed_playbooks:
-            store.knowledge.upsert_block(Playbook.model_validate(block), write_markdown=False)
+            store.upsert_block(Playbook.model_validate(block), write_markdown=False)
         for trace in seed_traces:
-            store.history.record_trace(Trace.model_validate(trace), write_json=False)
+            store.record_trace(Trace.model_validate(trace), write_json=False)
         return mcp_server.tool_rescue_failure(payload)
 
     return _call
@@ -88,6 +88,6 @@ def test_rescue_saves_tokens(case: BenchCase, rescue_report: ToolReport) -> None
     result = _find(rescue_report.results, case.label)
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
-    assert result.lemoncrow_tokens < result.baseline_tokens, (
-        f"[{case.label}] no savings: lemoncrow={result.lemoncrow_tokens} >= baseline={result.baseline_tokens}"
-    )
+    assert (
+        result.atelier_tokens < result.baseline_tokens
+    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={result.baseline_tokens}"

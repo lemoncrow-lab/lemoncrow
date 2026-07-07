@@ -1,11 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import {
   Brain,
   GitBranch,
   LayoutGrid,
   Moon,
-  Network,
   Play,
   Settings,
   Sun,
@@ -18,7 +17,6 @@ import Costs from "./pages/Costs";
 import Swarms from "./pages/Swarms";
 import System from "./pages/System";
 import { Button, Select, cx } from "./components/WorkbenchUI";
-import { ErrorBoundary } from "./components/ErrorBoundary";
 import { applyTheme, getInitialTheme, type Theme } from "./lib/theme";
 import { useTimeRange, TIME_RANGE_OPTIONS } from "./lib/TimeRangeContext";
 
@@ -31,16 +29,11 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/overview", label: "Overview", icon: LayoutGrid },
   { to: "/sessions", label: "Sessions", icon: Play },
-  { to: "/map", label: "Map", icon: Network },
   { to: "/swarms", label: "Swarms", icon: GitBranch },
   { to: "/costs", label: "Costs", icon: Wallet },
   { to: "/knowledge", label: "Knowledge", icon: Brain },
   { to: "/system", label: "System", icon: Settings },
 ];
-
-// Sigma/WebGL and the layout worker are map-only dependencies. Keep them out
-// of the analytics dashboard's initial bundle.
-const CodeMap = lazy(() => import("./pages/CodeMap"));
 
 /**
  * Reusable dismissible notification banner. The mechanism is intentionally kept
@@ -105,7 +98,7 @@ export default function App() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-4">
             <h1 className="text-lg font-bold tracking-wide text-brand">
-              ❯ LEMONCROW
+              ❯ ATELIER - The Agents Runtime
             </h1>
           </div>
           <div className="flex items-center gap-3">
@@ -160,48 +153,32 @@ export default function App() {
 
       <main className="min-h-[calc(100vh-180px)] bg-gradient-to-br from-neutral-950 to-neutral-950/80">
         <div className="">
-          <ErrorBoundary label="Page">
-            <Routes>
-              <Route path="/" element={<Navigate to="/overview" replace />} />
-              <Route path="/overview" element={<Overview />} />
-              <Route path="/sessions" element={<Sessions />} />
-              <Route path="/sessions/:id" element={<Sessions />} />
-              <Route
-                path="/map"
-                element={
-                  <Suspense
-                    fallback={
-                      <div className="flex min-h-[560px] items-center justify-center text-sm text-neutral-300">
-                        Loading code map…
-                      </div>
-                    }
-                  >
-                    <CodeMap />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/knowledge"
-                element={<Navigate to="/knowledge/blocks" replace />}
-              />
-              <Route path="/knowledge/:section" element={<Learnings />} />
-              <Route
-                path="/knowledge/:section/:rubricId"
-                element={<Learnings />}
-              />
-              <Route
-                path="/costs"
-                element={<Navigate to="/costs/spend" replace />}
-              />
-              <Route path="/costs/:section" element={<Costs />} />
-              <Route path="/swarms" element={<Swarms />} />
-              <Route
-                path="/system"
-                element={<Navigate to="/system/health" replace />}
-              />
-              <Route path="/system/:section" element={<System />} />
-            </Routes>
-          </ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<Navigate to="/overview" replace />} />
+            <Route path="/overview" element={<Overview />} />
+            <Route path="/sessions" element={<Sessions />} />
+            <Route path="/sessions/:id" element={<Sessions />} />
+            <Route
+              path="/knowledge"
+              element={<Navigate to="/knowledge/blocks" replace />}
+            />
+            <Route path="/knowledge/:section" element={<Learnings />} />
+            <Route
+              path="/knowledge/:section/:rubricId"
+              element={<Learnings />}
+            />
+            <Route
+              path="/costs"
+              element={<Navigate to="/costs/spend" replace />}
+            />
+            <Route path="/costs/:section" element={<Costs />} />
+            <Route path="/swarms" element={<Swarms />} />
+            <Route
+              path="/system"
+              element={<Navigate to="/system/health" replace />}
+            />
+            <Route path="/system/:section" element={<System />} />
+          </Routes>
         </div>
       </main>
     </div>

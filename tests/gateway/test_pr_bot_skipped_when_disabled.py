@@ -6,26 +6,23 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from lemoncrow.core.foundation.lesson_models import LessonCandidate
-from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.gateway.cli import cli
-from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from atelier.core.foundation.lesson_models import LessonCandidate
+from atelier.core.foundation.models import Playbook
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.cli import cli
 
 
 def test_pr_bot_skips_when_disabled_without_side_effects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     runner = CliRunner()
 
     # Run outside a git repo so `init` skips the ~40s code-index bootstrap and
     # project-setup writes; this test only needs an initialized store.
     monkeypatch.chdir(tmp_path)
-    from tests.helpers import grant_oauth_pro
-
-    grant_oauth_pro(monkeypatch)
     init = runner.invoke(cli, ["--root", str(root), "init"])
     assert init.exit_code == 0, init.output
 
-    store = build_sqlite_store_bundle(root)
+    store = ContextStore(root)
     block = Playbook(
         id="rb.lesson.disabled",
         title="Disabled path block",
@@ -47,10 +44,10 @@ def test_pr_bot_skips_when_disabled_without_side_effects(tmp_path: Path, monkeyp
         confidence=0.8,
         status="approved",
     )
-    store.lessons.upsert_lesson_candidate(lesson)
+    store.upsert_lesson_candidate(lesson)
 
     env = {
-        "LEMONCROW_LESSON_PR_BOT_ENABLED": "",
+        "ATELIER_LESSON_PR_BOT_ENABLED": "",
         "GITHUB_TOKEN": "",
     }
     res = runner.invoke(

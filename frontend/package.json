@@ -1,5 +1,5 @@
 {
-  "name": "@lemoncrow/frontend",
+  "name": "atelier-frontend",
   "version": "0.3.1",
   "private": true,
   "type": "module",
@@ -11,16 +11,12 @@
     "test": "node ./scripts/run-vitest.mjs"
   },
   "dependencies": {
-    "graphology": "^0.26.0",
-    "graphology-layout-forceatlas2": "^0.10.1",
     "lucide-react": "^1.16.0",
     "posthog-js": "^1.150.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
-    "react-router-dom": "^6.26.0",
-    "sigma": "^3.0.3",
-    "three": "^0.185.1"
+    "react-router-dom": "^6.26.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
@@ -29,7 +25,6 @@
     "@types/node": "^20.19.39",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@types/three": "^0.185.1",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
     "jsdom": "^25.0.1",

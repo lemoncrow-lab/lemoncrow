@@ -7,7 +7,7 @@ routine, generic hosts (antigravity, cursor) were imported directly by each
 presenter with different pre-filtering -- the JSON path applied --since only
 as a post-filter external to the scan function while the text path never
 applied --since to generic hosts at all, and neither respected --id
-consistently. `lc session list` vs `lc session list --json` could
+consistently. `atelier session list` vs `atelier session list --json` could
 therefore show different sessions for the identical query.
 """
 
@@ -19,10 +19,10 @@ from typing import Any, ClassVar
 
 import pytest
 
-from lemoncrow.core.foundation.models import Trace
-from lemoncrow.gateway.cli.commands import sessions as sessions_cmd
-from lemoncrow.gateway.hosts.session_parsers import registry as registry_module
-from lemoncrow.infra.storage.bundle import StoreBundle
+from atelier.core.foundation.models import Trace
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.cli.commands import sessions as sessions_cmd
+from atelier.gateway.hosts.session_parsers import registry as registry_module
 
 _NOW = datetime.now(UTC)
 
@@ -40,7 +40,7 @@ class _FakeGenericImporter:
     # 5 sessions, newest first: s0 is today, s4 is 4 days old.
     _SESSIONS: ClassVar[list[tuple[str, datetime]]] = [(f"s{i}", _NOW - timedelta(days=i)) for i in range(5)]
 
-    def __init__(self, store: StoreBundle) -> None:
+    def __init__(self, store: ContextStore) -> None:
         self.store = store
 
     def import_all(self, path: Path | None = None, *, force: bool = False, limit: int | None = None) -> list[str]:
@@ -57,7 +57,7 @@ class _FakeGenericImporter:
                 host="fakehost",
                 created_at=created_at,
             )
-            self.store.history.record_trace(trace, write_json=False)
+            self.store.record_trace(trace, write_json=False)
             ids.append(sid)
         return ids
 

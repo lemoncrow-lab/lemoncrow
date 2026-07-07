@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
-from lemoncrow.gateway.cli import cli
+from atelier.gateway.cli import cli
 from tests.helpers import init_store_at
 
 
@@ -19,10 +19,10 @@ def test_telemetry_status_writes_local_event_and_show_outputs_send_payloads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
-    monkeypatch.setenv("LEMONCROW_TELEMETRY", "0")
+    monkeypatch.setenv("ATELIER_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
+    monkeypatch.setenv("ATELIER_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
+    monkeypatch.setenv("ATELIER_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
+    monkeypatch.setenv("ATELIER_TELEMETRY", "0")
 
     root = tmp_path / "a"
     init_store_at(str(root))
@@ -40,21 +40,13 @@ def test_telemetry_status_writes_local_event_and_show_outputs_send_payloads(
 
 
 def test_telemetry_toggles_and_reset_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_ALLOW_IN_TESTS", "1")
-    monkeypatch.delenv("LEMONCROW_TELEMETRY", raising=False)
+    monkeypatch.setenv("ATELIER_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
+    monkeypatch.setenv("ATELIER_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
+    monkeypatch.setenv("ATELIER_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
+    monkeypatch.delenv("ATELIER_TELEMETRY", raising=False)
+
     root = tmp_path / "a"
     init_store_at(str(root))
-    remote_on = _invoke(root, "telemetry", "remote", "on")
-    assert remote_on.exit_code == 0, remote_on.output
-    remote_status = _invoke(root, "telemetry", "remote", "status")
-    assert remote_status.exit_code == 0, remote_status.output
-    assert remote_status.output.strip() == "anonymous remote telemetry: on"
-    remote_off = _invoke(root, "telemetry", "remote", "off")
-    assert remote_off.exit_code == 0, remote_off.output
-    assert "anonymous remote telemetry: off" in remote_off.output
     lexical = _invoke(root, "telemetry", "lexical", "off")
     assert lexical.exit_code == 0, lexical.output
     reset = _invoke(root, "telemetry", "reset-id")

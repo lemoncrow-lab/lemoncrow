@@ -2,49 +2,49 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "LemonCrow: Copilot Preflight",
+      "label": "Atelier: Copilot Preflight",
       "type": "shell",
       "command": "bash",
       "args": [
         "-lc",
-        "lemoncrow tools call context --args \"{\\\"task\\\":\\\"$1\\\"}\\\" --json",
+        "atelier tools call context --args \"{\\\"task\\\":\\\"$1\\\"}\" --json",
         "bash",
-        "${input:lemoncrowTask}",
-        "${input:lemoncrowStep1}",
-        "${input:lemoncrowStep2}"
+        "${input:atelierTask}",
+        "${input:atelierStep1}",
+        "${input:atelierStep2}"
       ],
       "problemMatcher": []
     },
     {
-      "label": "LemonCrow: Task Context",
+      "label": "Atelier: Task Context",
       "type": "shell",
       "command": "bash",
       "args": [
         "-lc",
-        "lemoncrow tools call context --args \"{\\\"task\\\":\\\"$1\\\"}\\\" --json",
+        "atelier tools call context --args \"{\\\"task\\\":\\\"$1\\\"}\" --json",
         "bash",
-        "${input:lemoncrowTask}",
-        "${input:lemoncrowStep1}",
-        "${input:lemoncrowStep2}"
+        "${input:atelierTask}",
+        "${input:atelierStep1}",
+        "${input:atelierStep2}"
       ],
       "problemMatcher": []
     },
     {
-      "label": "LemonCrow: Record Trace",
+      "label": "Atelier: Record Trace",
       "type": "shell",
-      "command": "lemoncrow",
-      "args": ["runs", "record", "--task", "${input:lemoncrowTask}", "--status", "partial", "--json"],
+      "command": "atelier",
+      "args": ["runs", "record", "--task", "${input:atelierTask}", "--status", "partial", "--json"],
       "problemMatcher": []
     },
     {
-      "label": "LemonCrow: Session Summary",
+      "label": "Atelier: Session Summary",
       "type": "shell",
-      "command": "lemoncrow",
+      "command": "atelier",
       "args": ["session", "report", "--no-color"],
       "problemMatcher": []
     },
     {
-      "label": "LemonCrow: Worktree Bootstrap",
+      "label": "Atelier: Worktree Bootstrap",
       "type": "shell",
       "command": "bash",
       "args": [
@@ -54,36 +54,36 @@
       "problemMatcher": []
     },
     {
-      "label": "LemonCrow: Runtime Evidence",
+      "label": "Atelier: Runtime Evidence",
       "type": "shell",
       "command": "bash",
       "args": [
         "-lc",
-        "uv run python scripts/runtime_evidence.py --base-url \"${input:lemoncrowBaseUrl}\""
+        "uv run python scripts/runtime_evidence.py --base-url \"${input:atelierBaseUrl}\""
       ],
       "problemMatcher": []
     }
   ],
   "inputs": [
     {
-      "id": "lemoncrowTask",
+      "id": "atelierTask",
       "type": "promptString",
-      "description": "LemonCrow task description"
+      "description": "Atelier task description"
     },
     {
-      "id": "lemoncrowStep1",
+      "id": "atelierStep1",
       "type": "promptString",
       "description": "Plan step 1"
     },
     {
-      "id": "lemoncrowStep2",
+      "id": "atelierStep2",
       "type": "promptString",
       "description": "Plan step 2"
     },
     {
-      "id": "lemoncrowBaseUrl",
+      "id": "atelierBaseUrl",
       "type": "promptString",
-      "description": "LemonCrow service base URL",
+      "description": "Atelier service base URL",
       "default": "http://127.0.0.1:8787"
     }
   ]

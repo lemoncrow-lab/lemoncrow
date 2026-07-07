@@ -1,4 +1,4 @@
-"""One-command Multi-SWE-bench A/B: vanilla Claude Code vs LemonCrow, in-container.
+"""One-command Multi-SWE-bench A/B: vanilla Claude Code vs Atelier, in-container.
 
 Pipeline (single command):
   load+filter instances -> build per-arm overlays -> run each (instance, arm,
@@ -6,8 +6,8 @@ Pipeline (single command):
   the official multi_swe_bench harness -> reuse run.py savings/report/CSV.
 
 The arms differ only in overlay contents + claude flags (baseline = vanilla
-Claude Code; lemoncrow = + LemonCrow plugin/MCP), same model, same instance -- the
-clean isolation that attributes any cost/quality delta to LemonCrow alone.
+Claude Code; atelier = + Atelier plugin/MCP), same model, same instance -- the
+clean isolation that attributes any cost/quality delta to Atelier alone.
 
 Example:
   uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
@@ -54,7 +54,7 @@ FLASH_URL = (
     "https://huggingface.co/datasets/ByteDance-Seed/Multi-SWE-bench-flash/resolve/main/multi_swe_bench_flash.jsonl"
 )
 DATA_DIR = Path(__file__).parent / "data"
-ARMS = ("baseline", "lemoncrow")
+ARMS = ("baseline", "atelier")
 
 
 def ensure_flash() -> Path:
@@ -79,7 +79,7 @@ def _patch_path(out_dir: Path, inst: Any, arm: str, rep: int) -> Path:
     return out_dir / f"{inst.instance_id}_{arm}_rep{rep}.patch"
 
 
-def _prebuild_overlays(instances: list[Any], arms: list[str], driver: str = "claude") -> None:
+def _prebuild_overlays(instances: list[Any], arms: list[str]) -> None:
     """Build every needed overlay serially up front so parallel runs don't race.
 
     One instance's broken/unusual base image (e.g. missing apt-get -- a non-
@@ -92,13 +92,13 @@ def _prebuild_overlays(instances: list[Any], arms: list[str], driver: str = "cla
     seen: set[tuple[str, bool]] = set()
     for inst in instances:
         for arm in arms:
-            key = (inst.image, arm == "lemoncrow")
+            key = (inst.image, arm == "atelier")
             if key in seen:
                 continue
             seen.add(key)
             print(f"[overlay] ensuring {arm} overlay for {inst.image}", flush=True)
             try:
-                incontainer.ensure_overlay(inst.image, lc=(arm == "lemoncrow"), driver=driver)
+                incontainer.ensure_overlay(inst.image, atelier=(arm == "atelier"))
             except Exception as exc:
                 print(f"[overlay] FAILED for {arm}/{inst.image}: {exc} -- skipping, will error at run time", flush=True)
 
@@ -312,15 +312,13 @@ def run(args: argparse.Namespace) -> int:
     print(f"[run] {len(instances)} instance(s) x {len(args.arms)} arm(s) x {args.reps} rep(s)", flush=True)
     print(f"[run] results -> {out_dir}", flush=True)
 
-    _prebuild_overlays(instances, args.arms, args.driver)
+    _prebuild_overlays(instances, args.arms)
 
     agent_env = _load_benchmark_env()
     # Rotate container runs across the available OAuth tokens, capping each at
     # --jobs-per-token concurrent runs via a slot queue. With both tokens set and
     # the default cap of 4, total parallelism is 8 (4 per token).
-    # OAuth-token rotation is claude-only; cursor authenticates from auth.json and
-    # parallelizes via --jobs.
-    tokens = [] if args.driver == "cursor" else _resolve_oauth_tokens(agent_env)
+    tokens = _resolve_oauth_tokens(agent_env)
     per_token = max(1, args.jobs_per_token)
     token_slots: queue.Queue[str] | None = None
     if tokens:
@@ -339,7 +337,7 @@ def run(args: argparse.Namespace) -> int:
     jobs = [(inst, arm, rep) for inst in instances for arm in args.arms for rep in range(1, args.reps + 1)]
     # --resume: reuse a prior (task, arm, rep) result when its patch artifact is
     # still present, so a re-run re-executes only the missing/stripped jobs (e.g.
-    # keep valid baseline runs, re-run lemoncrow after a fix) without re-paying.
+    # keep valid baseline runs, re-run atelier after a fix) without re-paying.
     prior = _load_prior_results(out_dir) if getattr(args, "resume", False) else {}
     results: list[ArmResult] = []
     reused_rows: list[ArmResult] = []
@@ -368,7 +366,7 @@ def run(args: argparse.Namespace) -> int:
             pending.append(job)
     if prior:
         # Carry forward prior rows outside this run's scope so a narrower resume
-        # (e.g. -a lemoncrow only) never drops the rows it isn't re-running.
+        # (e.g. -a atelier only) never drops the rows it isn't re-running.
         covered = {(i.instance_id, a, r) for (i, a, r) in jobs}
         preserved = [res for key, res in prior.items() if key not in covered]
         results.extend(preserved)
@@ -401,7 +399,6 @@ def run(args: argparse.Namespace) -> int:
                 inst,
                 arm,
                 rep,
-                driver=args.driver,
                 model=args.model,
                 out_dir=out_dir,
                 timeout=args.timeout,
@@ -480,7 +477,7 @@ def run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="SWE A/B: vanilla Claude Code vs LemonCrow, in-container (multi-swe-bench or swe-bench)"
+        description="SWE A/B: vanilla Claude Code vs Atelier, in-container (multi-swe-bench or swe-bench)"
     )
     p.add_argument(
         "--suite",
@@ -498,13 +495,6 @@ def main() -> int:
     p.add_argument("--limit", type=int, default=None, help="Max total instances")
     p.add_argument("--instances", nargs="*", default=None, help="Explicit instance ids to run")
     p.add_argument("-a", "--arms", nargs="*", default=list(ARMS), choices=ARMS)
-    p.add_argument(
-        "--driver",
-        choices=["claude", "cursor"],
-        default="claude",
-        help="Agent CLI run inside each container: claude (default) or cursor-agent. "
-        "cursor requires a host `cursor-agent login` (auth.json is mounted in).",
-    )
     p.add_argument("--reps", type=int, default=1)
     p.add_argument("--model", default="claude-opus-4-8")
     p.add_argument(

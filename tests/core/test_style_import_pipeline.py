@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
-from lemoncrow.infra.storage.bundle import StoreBundle
-from lemoncrow.pro.capabilities.style_import.importer import import_files
+from atelier.core.capabilities.style_import.importer import import_files
+from atelier.core.foundation.store import ContextStore
+from atelier.infra.embeddings.null_embedder import NullEmbedder
 
 
 def _chat(messages: list[dict[str, str]], json_schema: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -22,7 +22,7 @@ def _chat(messages: list[dict[str, str]], json_schema: dict[str, Any] | None = N
     }
 
 
-def test_style_import_writes_lesson_candidates(store: StoreBundle, tmp_path: Path) -> None:
+def test_style_import_writes_lesson_candidates(store: ContextStore, tmp_path: Path) -> None:
     guide = tmp_path / "CONTRIBUTING.md"
     guide.write_text(
         "## API Rules\nUse schemas at boundaries.\n\n## Test Rules\nAdd focused tests.\n",
@@ -40,7 +40,7 @@ def test_style_import_writes_lesson_candidates(store: StoreBundle, tmp_path: Pat
     )
 
     assert len(candidates) == 2
-    inbox = store.lessons.list_lesson_candidates(domain="coding", status="inbox")
+    inbox = store.list_lesson_candidates(domain="coding", status="inbox")
     assert len(inbox) == 2
     assert inbox[0].evidence["source"] == "style-guide-import"
     assert inbox[0].proposed_block is not None

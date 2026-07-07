@@ -1,6 +1,6 @@
-# LemonCrow Harbor Eval
+# Atelier Harbor Eval
 
-Run LemonCrow on official [Harbor](https://harborframework.com) benchmark datasets
+Run Atelier on official [Harbor](https://harborframework.com) benchmark datasets
 (including terminal-bench-core) for cost-quality comparison.
 
 ## Prerequisites
@@ -12,33 +12,33 @@ Run LemonCrow on official [Harbor](https://harborframework.com) benchmark datase
 ## Quick start
 
 ```bash
-# The default arm (Claude Code CLI + LemonCrow plugin) reads OAuth tokens
+# The default arm (Claude Code CLI + Atelier plugin) reads OAuth tokens
 # from benchmarks/harbor/.env (CLAUDE_CODE_OAUTH_TOKEN_1/_2).
 
 # Quick smoke test (3 tasks, 1 attempt):
-lc benchmark harbor --limit 3 --attempts 1 -y
+atelier benchmark harbor --limit 3 --attempts 1 -y
 
-# A/B comparison (LemonCrow augmentation on vs off):
-lc benchmark harbor -y
-lc benchmark harbor --baseline -y
+# A/B comparison (atelier augmentation on vs off):
+atelier benchmark harbor -y
+atelier benchmark harbor --baseline -y
 
 # With Bedrock credentials:
 export AWS_BEARER_TOKEN_BEDROCK=...
 export AWS_REGION=us-east-1
-lc benchmark harbor --agent lemoncrow-bedrock --limit 5 -y
+atelier benchmark harbor --agent atelier-bedrock --limit 5 -y
 ```
 
 ## Command reference
 
 ```
-lc benchmark harbor [OPTIONS]
+atelier benchmark harbor [OPTIONS]
 
 Options:
   -d, --dataset TEXT        Harbor dataset (default: terminal-bench/terminal-bench-2-1)
   --limit INTEGER           Max tasks to run (default: all)
-  --agent TEXT              Agent arm: lemoncrow | lemoncrow-bedrock | lemoncrow-claude-code (default)
+  --agent TEXT              Agent arm: atelier | atelier-bedrock | atelier-claude-code (default)
   --baseline                Run baseline arm (bench_mode=off, no plugin)
-  --model TEXT              Model override (default: LEMONCROW_BENCH_MODEL)
+  --model TEXT              Model override (default: ATELIER_BENCH_MODEL)
   -n, --attempts INTEGER    Attempts per task for pass@k scoring (default: 5)
   -c, --concurrent INTEGER  Max concurrent trials (default: slots x tokens)
   --resume TEXT             Resume an existing job dir
@@ -50,20 +50,20 @@ Options:
 
 | Arm | Description |
 |-----|-------------|
-| `lemoncrow-claude-code` | Claude Code CLI + LemonCrow plugin (default) |
-| `lc` | Direct API with LemonCrow augmentation |
-| `lemoncrow-bedrock` | LemonCrow via AWS Bedrock |
-| `--baseline` flag | `bench_mode=off` — baseline without the LemonCrow plugin |
+| `atelier-claude-code` | Claude Code CLI + Atelier plugin (default) |
+| `atelier` | Direct API with Atelier augmentation |
+| `atelier-bedrock` | Atelier via AWS Bedrock |
+| `--baseline` flag | `bench_mode=off` — baseline without the Atelier plugin |
 
-The two-arm comparison proves LemonCrow's value-add over a clean baseline.
+The two-arm comparison proves Atelier's value-add over a clean baseline.
 
 ## Custom Harbor agent
 
-The adapter is at `benchmarks/harbor/lemoncrow_agent.py`. Run it directly:
+The adapter is at `benchmarks/harbor/atelier_agent.py`. Run it directly:
 
 ```bash
 harbor run -d "terminal-bench/terminal-bench-core@0.1.1" \
-    --agent benchmarks.harbor.lemoncrow_agent:LemonCrowHarborAgent \
+    --agent benchmarks.harbor.atelier_agent:AtelierHarborAgent \
     --limit 5
 ```
 
@@ -71,35 +71,32 @@ harbor run -d "terminal-bench/terminal-bench-core@0.1.1" \
 
 | Command | Purpose |
 |---------|---------|
-| `lc benchmark mini --dry-run` | Offline schema validation, no Docker needed |
-| `lc benchmark mini --limit 5` | Live local repo tasks, cheap, no Docker |
-| `lc benchmark harbor --limit 5` | Official Harbor datasets in Docker containers |
+| `atelier benchmark mini --dry-run` | Offline schema validation, no Docker needed |
+| `atelier benchmark mini --limit 5` | Live local repo tasks, cheap, no Docker |
+| `atelier benchmark harbor --limit 5` | Official Harbor datasets in Docker containers |
 | `make proof-cost-quality` | Deterministic proof gate (zero live calls) |
 
-Start with `lc benchmark mini --dry-run` to verify setup, then escalate to
-`lc benchmark harbor` for credible published results.
+Start with `atelier benchmark mini --dry-run` to verify setup, then escalate to
+`atelier benchmark harbor` for credible published results.
 
 ## Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `CLAUDE_CODE_OAUTH_TOKEN_1/_2` | For default arm | Claude Code OAuth tokens, in `benchmarks/harbor/.env` |
-| `ANTHROPIC_API_KEY` | For `lc` arm | Anthropic API key |
-| `AWS_BEARER_TOKEN_BEDROCK` | For `lemoncrow-bedrock` arm | Bedrock bearer token |
-| `AWS_REGION` | For `lemoncrow-bedrock` arm | AWS region |
-| `LEMONCROW_BENCH_VERSION` | No | LemonCrow version to install (default: latest) |
-| `LEMONCROW_BENCH_MODEL` | No | Model override for the run |
-| `LEMONCROW_BENCH_RTK_VERSION` | No | Pin the [rtk](https://github.com/rtk-ai/rtk) external-compactor binary version (default: latest) |
-
-LemonCrow runs fully locally inside each task container — no account, login,
-device registration, or credentials are required to benchmark.
+| `ANTHROPIC_API_KEY` | For `atelier` arm | Anthropic API key |
+| `AWS_BEARER_TOKEN_BEDROCK` | For `atelier-bedrock` arm | Bedrock bearer token |
+| `AWS_REGION` | For `atelier-bedrock` arm | AWS region |
+| `ATELIER_BENCH_VERSION` | No | Atelier version to install (default: latest) |
+| `ATELIER_BENCH_MODEL` | No | Model override for the run |
+| `ATELIER_BENCH_RTK_VERSION` | No | Pin the [rtk](https://github.com/rtk-ai/rtk) external-compactor binary version (default: latest) |
 
 ## Token compaction (rtk)
 
 Container setup best-effort installs [rtk](https://github.com/rtk-ai/rtk), a
-binary LemonCrow's bash tool soft-detects on PATH (see `external_compactors.py`)
+binary Atelier's bash tool soft-detects on PATH (see `external_compactors.py`)
 and uses to compress git/gh/pytest/lint/etc. output before it reaches the
 model, cutting benchmark token cost for free. It is purely additive: a slow or
 failed download never fails the trial, it just leaves the run on the plain
-shell path (same fallback `lc doctor` reports for a local dev machine
+shell path (same fallback `atelier doctor` reports for a local dev machine
 without rtk installed).

@@ -11,11 +11,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import pytest
 from click.testing import CliRunner, Result
 
-from lemoncrow.gateway.cli import cli
-from lemoncrow.gateway.cli.app import (
+from atelier.gateway.cli import cli
+from atelier.gateway.cli.app import (
     _IMPORT_PROGRESS_LOGGER,
     _ensure_import_progress_logging,
 )
@@ -40,10 +39,7 @@ def _invoke(root: Path, *args: str) -> Result:
     return runner.invoke(cli, ["--root", str(root), *args])
 
 
-def test_import_progress_lands_on_stderr_not_stdout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from tests.helpers import grant_oauth_pro
-
-    grant_oauth_pro(monkeypatch)
+def test_import_progress_lands_on_stderr_not_stdout(tmp_path: Path) -> None:
     root = tmp_path / "store"
     _invoke(root, "init", "--no-index")
     sessions = _make_claude_fixture(tmp_path)
@@ -56,7 +52,7 @@ def test_import_progress_lands_on_stderr_not_stdout(tmp_path: Path, monkeypatch:
     assert "claude: discovered sessions" in result.stderr
 
     # Import progress text must NOT leak onto stdout.
-    assert "[lc]" not in result.stdout
+    assert "[atelier]" not in result.stdout
     assert "discovering sessions" not in result.stdout
 
     # User-facing result line stays on stdout.
@@ -67,7 +63,7 @@ def test_import_progress_handler_is_idempotent() -> None:
     progress_logger = logging.getLogger(_IMPORT_PROGRESS_LOGGER)
 
     def _flagged_handler_count() -> int:
-        return sum(1 for h in progress_logger.handlers if getattr(h, "_lemoncrow_import_progress_handler", False))
+        return sum(1 for h in progress_logger.handlers if getattr(h, "_atelier_import_progress_handler", False))
 
     _ensure_import_progress_logging()
     after_first = _flagged_handler_count()

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install_hosts.sh — Install LemonCrow into all available agent CLIs
+# install_hosts.sh — Install Atelier into all available agent CLIs
 #
 # When run without flags in an interactive terminal, prompts the user to
 # select which AI coding agents to install and whether to install globally
@@ -15,8 +15,6 @@
 #   --opencode     Only install opencode
 #   --copilot      Only install Copilot
 #   --antigravity  Only install Antigravity / agy
-#   --cursor       Only install Cursor
-#   --hermes       Only install Hermes Agent
 #   --dry-run      Pass through to all install scripts
 #   --print-only   Pass through to all install scripts
 #   --strict       Pass through; scripts exit nonzero if CLI absent
@@ -61,8 +59,8 @@ if [[ "${LC_ALL:-${LANG:-}}" != *"UTF-8"* && "${LC_ALL:-${LANG:-}}" != *"utf8"* 
     ACTIVE_BAR="|"
 fi
 
-LEMONCROW_VERBOSE="${LEMONCROW_VERBOSE:-0}"
-LEMONCROW_HOST_INSTALL_TIMEOUT_SECONDS="${LEMONCROW_HOST_INSTALL_TIMEOUT_SECONDS:-180}"
+ATELIER_VERBOSE="${ATELIER_VERBOSE:-0}"
+ATELIER_HOST_INSTALL_TIMEOUT_SECONDS="${ATELIER_HOST_INSTALL_TIMEOUT_SECONDS:-180}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_BUILDER="${SCRIPT_DIR}/build_host_skills.sh"
 print_message() {
@@ -71,7 +69,7 @@ print_message() {
     printf "%b%s%b\n" "$color" "$*" "$C_RESET"
 }
 
-verbose() { [[ "$LEMONCROW_VERBOSE" == "1" ]] && printf "%s\n" "$*" || true; }
+verbose() { [[ "$ATELIER_VERBOSE" == "1" ]] && printf "%s\n" "$*" || true; }
 
 has_interactive_input() {
     [[ -t 0 ]] || { [[ -e /dev/tty ]] && : </dev/tty; } 2>/dev/null
@@ -104,8 +102,6 @@ host_is_detected() {
         opencode) command -v opencode >/dev/null 2>&1 ;;
         copilot) command -v code >/dev/null 2>&1 ;;
         antigravity) command -v antigravity >/dev/null 2>&1 || command -v agy >/dev/null 2>&1 ;;
-        cursor) command -v cursor >/dev/null 2>&1 || command -v cursor-agent >/dev/null 2>&1 || [ -d "${HOME}/.cursor" ] ;;
-        hermes) command -v hermes >/dev/null 2>&1 || [ -f "${HERMES_HOME:-${HOME}/.hermes}/config.yaml" ] ;;
         *) return 1 ;;
     esac
 }
@@ -116,8 +112,6 @@ enable_detected_hosts_by_default() {
     host_is_detected opencode && DO_OPENCODE=true
     host_is_detected copilot && DO_COPILOT=true
     host_is_detected antigravity && DO_ANTIGRAVITY=true
-    host_is_detected cursor && DO_CURSOR=true
-    host_is_detected hermes && DO_HERMES=true
     return 0
 }
 
@@ -125,7 +119,7 @@ run_host_installer() {
     local script="$1"
     shift
 
-    if [[ ! "${LEMONCROW_HOST_INSTALL_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] || [[ "${LEMONCROW_HOST_INSTALL_TIMEOUT_SECONDS}" -le 0 ]]; then
+    if [[ ! "${ATELIER_HOST_INSTALL_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] || [[ "${ATELIER_HOST_INSTALL_TIMEOUT_SECONDS}" -le 0 ]]; then
         bash "$script" "$@"
         return
     fi
@@ -149,7 +143,7 @@ run_host_installer() {
         }
 
         local $SIG{ALRM} = sub {
-            print STDERR "[lemoncrow:install] ERROR: host installer timed out after ${timeout}s\n";
+            print STDERR "[atelier:install] ERROR: host installer timed out after ${timeout}s\n";
             kill "TERM", $pid;
             sleep 2;
             kill "KILL", $pid;
@@ -166,7 +160,7 @@ run_host_installer() {
             exit(128 + ($status & 127));
         }
         exit($status >> 8);
-    ' "${LEMONCROW_HOST_INSTALL_TIMEOUT_SECONDS}" bash "$script" "$@"
+    ' "${ATELIER_HOST_INSTALL_TIMEOUT_SECONDS}" bash "$script" "$@"
 }
 
 print_active_line() {
@@ -178,15 +172,15 @@ print_frame_line() {
 }
 
 _SPINNER_PID=""
-LEMONCROW_SPINNER_PID_FILE="${TMPDIR:-/tmp}/lemoncrow-spinner-agent.$$.pid"
-touch "$LEMONCROW_SPINNER_PID_FILE"
-trap '[[ -f "$LEMONCROW_SPINNER_PID_FILE" ]] && { _SPINNER_PID=$(cat "$LEMONCROW_SPINNER_PID_FILE" 2>/dev/null); [[ -n "$_SPINNER_PID" ]] && kill "$_SPINNER_PID" 2>/dev/null; rm -f "$LEMONCROW_SPINNER_PID_FILE"; } || true' EXIT INT TERM
+ATELIER_SPINNER_PID_FILE="${TMPDIR:-/tmp}/atelier-spinner-agent.$$.pid"
+touch "$ATELIER_SPINNER_PID_FILE"
+trap '[[ -f "$ATELIER_SPINNER_PID_FILE" ]] && { _SPINNER_PID=$(cat "$ATELIER_SPINNER_PID_FILE" 2>/dev/null); [[ -n "$_SPINNER_PID" ]] && kill "$_SPINNER_PID" 2>/dev/null; rm -f "$ATELIER_SPINNER_PID_FILE"; } || true' EXIT INT TERM
 
 spinner_start() {
     local msg="$1"
-    [[ "${LEMONCROW_HOST_STATUS_STREAM:-0}" != "1" ]] || return 0
+    [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]] || return 0
     [[ -t 1 && -n "${TERM:-}" && "${TERM:-}" != "dumb" ]] || return 0
-    [[ "${LEMONCROW_VERBOSE:-0}" != "1" ]] || return 0
+    [[ "${ATELIER_VERBOSE:-0}" != "1" ]] || return 0
     local _frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
     (
         local _i=0
@@ -198,18 +192,18 @@ spinner_start() {
         done
     ) &
     _SPINNER_PID=$!
-    echo "$_SPINNER_PID" > "$LEMONCROW_SPINNER_PID_FILE"
+    echo "$_SPINNER_PID" > "$ATELIER_SPINNER_PID_FILE"
 }
 
 spinner_finish() {
     local state="$1"
     local msg="$2"
-    _SPINNER_PID=$(cat "$LEMONCROW_SPINNER_PID_FILE" 2>/dev/null)
+    _SPINNER_PID=$(cat "$ATELIER_SPINNER_PID_FILE" 2>/dev/null)
     [[ -n "${_SPINNER_PID:-}" ]] || return 0
     kill "$_SPINNER_PID" 2>/dev/null || true
     wait "$_SPINNER_PID" 2>/dev/null || true
     _SPINNER_PID=""
-    echo "" > "$LEMONCROW_SPINNER_PID_FILE"
+    echo "" > "$ATELIER_SPINNER_PID_FILE"
     printf "\r\033[2K"
     case "$state" in
         ok)   printf "%b│%b  %b✓%b  %s\n" "$C_DIM" "$C_RESET" "$C_GREEN" "$C_RESET" "$msg" ;;
@@ -224,8 +218,6 @@ DO_CODEX=false
 DO_OPENCODE=false
 DO_COPILOT=false
 DO_ANTIGRAVITY=false
-DO_CURSOR=false
-DO_HERMES=false
 EXPLICIT=false
 PASSTHROUGH=()
 CLAUDE_EXTRA_ARGS=()
@@ -234,14 +226,12 @@ OPENCODE_EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --all)       EXPLICIT=true; DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_COPILOT=true; DO_ANTIGRAVITY=true; DO_CURSOR=true; DO_HERMES=true ;;
+        --all)       EXPLICIT=true; DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_COPILOT=true; DO_ANTIGRAVITY=true ;;
         --claude)    EXPLICIT=true; DO_CLAUDE=true ;;
         --codex)     EXPLICIT=true; DO_CODEX=true ;;
         --opencode)  EXPLICIT=true; DO_OPENCODE=true ;;
         --copilot)   EXPLICIT=true; DO_COPILOT=true ;;
         --antigravity) EXPLICIT=true; DO_ANTIGRAVITY=true ;;
-        --cursor)    EXPLICIT=true; DO_CURSOR=true ;;
-        --hermes)    EXPLICIT=true; DO_HERMES=true ;;
         --dry-run|--print-only|--strict) PASSTHROUGH+=("$1") ;;
         --workspace)
             if [ $# -lt 2 ]; then
@@ -291,20 +281,18 @@ done
 if ! $EXPLICIT && has_interactive_input && [[ -t 1 ]]; then
     echo ""
     print_message "$C_PURPLE" "══════════════════════════════════════════════"
-    print_message "$C_PURPLE" " LemonCrow — Agent Installation"
+    print_message "$C_PURPLE" " Atelier — Agent Installation"
     print_message "$C_PURPLE" "══════════════════════════════════════════════"
     echo ""
 
     # ── Runtime selection ──────────────────────────────────────────────────
-    echo "  Which AI coding agents would you like to install LemonCrow for?"
+    echo "  Which AI coding agents would you like to install Atelier for?"
     echo ""
     echo "  ${C_PURPLE}1${C_RESET}) Claude Code"
     echo "  ${C_PURPLE}2${C_RESET}) OpenCode"
     echo "  ${C_PURPLE}3${C_RESET}) Codex CLI"
     echo "  ${C_PURPLE}4${C_RESET}) Copilot"
     echo "  ${C_PURPLE}5${C_RESET}) Antigravity"
-    echo "  ${C_PURPLE}6${C_RESET}) Cursor"
-    echo "  ${C_PURPLE}7${C_RESET}) Hermes"
     echo "  ${C_PURPLE}a${C_RESET}) All"
     echo "  ${C_PURPLE}n${C_RESET}) None (skip agent installs)"
     echo ""
@@ -313,10 +301,10 @@ if ! $EXPLICIT && has_interactive_input && [[ -t 1 ]]; then
     runtime_answer="${runtime_answer:-a}"
 
     # Reset all to false — user picks explicitly
-    DO_CLAUDE=false; DO_CODEX=false; DO_OPENCODE=false; DO_COPILOT=false; DO_ANTIGRAVITY=false; DO_CURSOR=false; DO_HERMES=false
+    DO_CLAUDE=false; DO_CODEX=false; DO_OPENCODE=false; DO_COPILOT=false; DO_ANTIGRAVITY=false
     case "$runtime_answer" in
         a|A|all|ALL)
-            DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_COPILOT=true; DO_ANTIGRAVITY=true; DO_CURSOR=true; DO_HERMES=true
+            DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_COPILOT=true; DO_ANTIGRAVITY=true
             echo "  → All agents"
             ;;
         n|N|none|NONE|skip|SKIP|0)
@@ -332,8 +320,6 @@ if ! $EXPLICIT && has_interactive_input && [[ -t 1 ]]; then
                     3) DO_CODEX=true ;;
                     4) DO_COPILOT=true ;;
                     5) DO_ANTIGRAVITY=true ;;
-                    6) DO_CURSOR=true ;;
-                    7) DO_HERMES=true ;;
                     *) echo "  ${C_YELLOW}Unknown choice: $choice${C_RESET}" ;;
                 esac
             done
@@ -343,8 +329,6 @@ if ! $EXPLICIT && has_interactive_input && [[ -t 1 ]]; then
             $DO_CODEX     && selected="$selected codex"
             $DO_COPILOT   && selected="$selected copilot"
             $DO_ANTIGRAVITY && selected="$selected antigravity"
-            $DO_CURSOR    && selected="$selected cursor"
-            $DO_HERMES    && selected="$selected hermes"
             echo "  → Selected:${selected:- none}"
             ;;
     esac
@@ -353,7 +337,7 @@ if ! $EXPLICIT && has_interactive_input && [[ -t 1 ]]; then
 
     # ── Scope selection ────────────────────────────────────────────────────
     # Only prompt for scope if at least one runtime was selected
-    if $DO_CLAUDE || $DO_CODEX || $DO_OPENCODE || $DO_COPILOT || $DO_ANTIGRAVITY || $DO_CURSOR || $DO_HERMES; then
+    if $DO_CLAUDE || $DO_CODEX || $DO_OPENCODE || $DO_COPILOT || $DO_ANTIGRAVITY; then
         echo "  ${C_YELLOW}Install scope:${C_RESET}"
         echo ""
         echo "  ${C_PURPLE}1${C_RESET}) Global — available in all projects"
@@ -439,15 +423,15 @@ stream_colored_output() {
     local line
     while IFS= read -r line; do
         printf "%s\n" "$line" >>"$output_file"
-        if [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]]; then
+        if [[ "${ATELIER_VERBOSE:-0}" == "1" ]]; then
             print_colored_line "$line"
         fi
     done
 }
 
 emit_host_status() {
-    [[ "${LEMONCROW_HOST_STATUS_STREAM:-0}" == "1" ]] || return 0
-    printf "@@LEMONCROW_HOST_STATUS@@ %s %s\n" "$1" "$2"
+    [[ "${ATELIER_HOST_STATUS_STREAM:-0}" == "1" ]] || return 0
+    printf "@@ATELIER_HOST_STATUS@@ %s %s\n" "$1" "$2"
 }
 
 print_issue_group() {
@@ -488,10 +472,10 @@ run_installer() {
     spinner_start "Installing on ${host}"
     if [[ -n "${_SPINNER_PID:-}" ]]; then
         spinner_started=1
-    elif [[ "${LEMONCROW_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+    elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
         print_active_line "Installing on ${host}"
     fi
-    output_file="$(mktemp "${TMPDIR:-/tmp}/lemoncrow-${host}.XXXXXX")"
+    output_file="$(mktemp "${TMPDIR:-/tmp}/atelier-${host}.XXXXXX")"
     set +e
     if [[ "$host" == "claude" ]]; then
         run_host_installer "$script" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" "${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}" 2>&1 | stream_colored_output "$output_file"
@@ -513,7 +497,7 @@ run_installer() {
         emit_host_status "SKIPPED" "$host (CLI not found)"
         if [[ "$spinner_started" == "1" ]]; then
             spinner_finish skip "Skipped ${host} (CLI not found)"
-        elif [[ "${LEMONCROW_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+        elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
             print_frame_line "Skipped ${host} (CLI not found)"
         fi
     elif [ $ret -ne 0 ]; then
@@ -521,7 +505,7 @@ run_installer() {
         emit_host_status "FAILED" "$host"
         if [[ "$spinner_started" == "1" ]]; then
             spinner_finish err "Failed ${host}"
-        elif [[ "${LEMONCROW_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+        elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
             print_frame_line "Failed ${host}"
         fi
         # Always show the captured output on failure so the user can see why.
@@ -537,7 +521,7 @@ run_installer() {
         emit_host_status "WARN" "$host"
         if [[ "$spinner_started" == "1" ]]; then
             spinner_finish warn "Completed ${host} with warnings"
-        elif [[ "${LEMONCROW_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+        elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
             print_frame_line "Completed ${host} with warnings"
         fi
     else
@@ -545,7 +529,7 @@ run_installer() {
         emit_host_status "OK" "$host"
         if [[ "$spinner_started" == "1" ]]; then
             spinner_finish ok "Completed ${host}"
-        elif [[ "${LEMONCROW_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+        elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
             print_frame_line "Completed ${host}"
         fi
     fi
@@ -559,10 +543,10 @@ if has_passthrough "--workspace"; then
     spinner_start "Installing universal agents (AGENTS.md)"
     if [[ -n "${_SPINNER_PID:-}" ]]; then
         spinner_started=1
-    elif [[ "${LEMONCROW_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+    elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
         print_active_line "Installing universal agents (AGENTS.md)"
     fi
-    UNIVERSAL_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/lemoncrow-agents.XXXXXX")"
+    UNIVERSAL_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/atelier-agents.XXXXXX")"
     set +e
     bash "${SCRIPT_DIR}/install_agents.sh" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1 | stream_colored_output "$UNIVERSAL_OUTPUT_FILE"
     UNIVERSAL_RET=${PIPESTATUS[0]}
@@ -575,7 +559,7 @@ if has_passthrough "--workspace"; then
         emit_host_status "WARN" "agents"
         if [[ "$spinner_started" == "1" ]]; then
             spinner_finish warn "Completed universal agents with warnings"
-        elif [[ "${LEMONCROW_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+        elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
             print_frame_line "Completed universal agents with warnings"
         fi
     elif [ $UNIVERSAL_RET -ne 0 ]; then
@@ -583,7 +567,7 @@ if has_passthrough "--workspace"; then
         emit_host_status "FAILED" "agents"
         if [[ "$spinner_started" == "1" ]]; then
             spinner_finish err "Failed universal agents"
-        elif [[ "${LEMONCROW_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+        elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
             print_frame_line "Failed universal agents"
         fi
     else
@@ -591,7 +575,7 @@ if has_passthrough "--workspace"; then
         emit_host_status "OK" "agents"
         if [[ "$spinner_started" == "1" ]]; then
             spinner_finish ok "Completed universal agents"
-        elif [[ "${LEMONCROW_HOST_STATUS_STREAM:-0}" != "1" ]]; then
+        elif [[ "${ATELIER_HOST_STATUS_STREAM:-0}" != "1" ]]; then
             print_frame_line "Completed universal agents"
         fi
     fi
@@ -602,12 +586,10 @@ $DO_CODEX     && run_installer codex
 $DO_OPENCODE  && run_installer opencode
 $DO_COPILOT   && run_installer copilot
 $DO_ANTIGRAVITY && run_installer antigravity
-$DO_CURSOR    && run_installer cursor
-$DO_HERMES    && run_installer hermes
 
 echo ""
 print_message "$C_PURPLE" "══════════════════════════════════════════════"
-print_message "$C_PURPLE" " LemonCrow Install Summary"
+print_message "$C_PURPLE" " Atelier Install Summary"
 print_message "$C_PURPLE" "══════════════════════════════════════════════"
 for h in "${PASS[@]+"${PASS[@]}"}"; do printf "  %bOK%b       %s\n" "$C_GREEN" "$C_RESET" "$h"; done
 for h in "${WARN[@]+"${WARN[@]}"}"; do printf "  %bWARN%b     %s\n" "$C_YELLOW" "$C_RESET" "$h"; done

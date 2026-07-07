@@ -3,13 +3,13 @@ import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
 
 const config: Config = {
-  title: "LemonCrow",
-  tagline: "Keep coding agents sharp on real codebases",
+  title: "Atelier",
+  tagline: "Open-Source Runtime Engineering for Agents",
   favicon: "img/favicon.svg",
-  url: "https://docs.lemoncrow.com",
+  url: "https://docs.atelier.ws",
   baseUrl: "/",
-  organizationName: "lemoncrow",
-  projectName: "lemoncrow",
+  organizationName: "atelier-ws",
+  projectName: "atelier",
   onBrokenLinks: "warn",
   i18n: {
     defaultLocale: "en",
@@ -22,13 +22,13 @@ const config: Config = {
         docs: {
           routeBasePath: "/",
           sidebarPath: "./sidebars.ts",
-          editUrl: "https://github.com/lemoncrow-lab/lemoncrow/edit/main/docs/",
+          editUrl: "https://github.com/atelier-ws/atelier/edit/main/docs/",
         },
         blog: {
           showReadingTime: true,
           blogTitle: "Benchmarks",
           blogDescription:
-            "A/B benchmark reports comparing LemonCrow-on vs LemonCrow-off",
+            "A/B benchmark reports comparing Atelier-on vs Atelier-off",
           postsPerPage: "ALL",
         },
         theme: {
@@ -38,15 +38,18 @@ const config: Config = {
     ],
   ],
   themeConfig: {
-    image: "img/og.png",
+    image: "img/atelier-logo.svg",
     colorMode: {
       defaultMode: "light",
-      respectPrefersColorScheme: false,
+      respectPrefersColorScheme: true,
       disableSwitch: false,
     },
     navbar: {
-      // No title/logo config -- src/theme/Logo renders the chip+wordmark
-      // lockup directly, matching landing/src/components/Nav.tsx.
+      title: "Atelier",
+      logo: {
+        alt: "Atelier Logo",
+        src: "img/atelier-logo.svg",
+      },
       items: [
         {
           type: "docSidebar",
@@ -55,23 +58,24 @@ const config: Config = {
           label: "Docs",
         },
         {
-          href: "https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md",
+          to: "/blog",
           label: "Benchmarks",
           position: "left",
         },
         {
-          type: "custom-githubStars",
+          href: "https://atelier.ws",
+          label: "Website",
           position: "right",
         },
         {
-          href: "https://github.com/lemoncrow-lab/lemoncrow",
+          href: "https://github.com/atelier-ws/atelier",
           label: "GitHub",
           position: "right",
-          className: "header-github-link",
         },
       ],
     },
     footer: {
+      style: "dark",
       links: [
         {
           title: "Docs",
@@ -94,19 +98,13 @@ const config: Config = {
         {
           title: "More",
           items: [
-            {
-              label: "GitHub",
-              href: "https://github.com/lemoncrow-lab/lemoncrow",
-            },
-            { label: "Privacy", to: "/privacy" },
-            {
-              label: "License",
-              href: "https://github.com/lemoncrow-lab/lemoncrow/blob/main/LICENSE",
-            },
+            { label: "Atelier Website", href: "https://atelier.ws" },
+            { label: "GitHub", href: "https://github.com/atelier-ws/atelier" },
+            { label: "Contact", href: "mailto:contact@atelier.ws" },
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} LemonCrow. Open source under Apache-2.0.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Atelier. Open source under MIT License.`,
     },
     prism: {
       theme: prismThemes.github,

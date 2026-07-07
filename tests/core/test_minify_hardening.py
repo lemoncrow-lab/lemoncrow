@@ -21,16 +21,16 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.infra.code_intel.languages import (
+from atelier.core.capabilities.source_projection import build_minified_projection
+from atelier.core.capabilities.source_projection.minify import _parser_for
+from atelier.infra.code_intel.languages import (
     ALL_LANGUAGES,
     LANGUAGES,
     language_by_name,
     language_for_path,
 )
-from lemoncrow.pro.capabilities.source_projection import build_minified_projection
-from lemoncrow.pro.capabilities.source_projection.minify import _parser_for
 
-_CORPUS = Path(__file__).resolve().parent / "_corpus"
+_CORPUS = Path("/home/pankaj/Projects/eval/internal/daemon/testdata/with_comments")
 
 
 def _reparses_clean(content: str, lang: str) -> bool:

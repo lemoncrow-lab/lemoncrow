@@ -11,14 +11,14 @@ from types import ModuleType
 
 import pytest
 
-from lemoncrow.core.capabilities.pricing import get_model_pricing
+from atelier.core.capabilities.pricing import get_model_pricing
 
 _STOP = Path("integrations/claude/plugin/hooks/stop.py")
 MODEL = "claude-sonnet-4-5"
 
 
 def _load_stop() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("lemoncrow_stop_hook_savings", _STOP)
+    spec = importlib.util.spec_from_file_location("atelier_stop_hook_savings", _STOP)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -26,7 +26,7 @@ def _load_stop() -> ModuleType:
 
 
 def _seed_sidecar(root: Path, sid: str) -> Path:
-    from lemoncrow.core.foundation.paths import session_dir
+    from atelier.core.foundation.paths import session_dir
 
     d = session_dir(root, "claude", sid)
     d.mkdir(parents=True, exist_ok=True)
@@ -55,8 +55,8 @@ def _write_transcript(tmp_path: Path, prose_chars: int, code_chars: int) -> str:
 
 
 def test_output_style_row_credits_prose_not_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_OUTPUT_STYLE_RATIO", "1.5")
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+    monkeypatch.setenv("ATELIER_OUTPUT_STYLE_RATIO", "1.5")
     stop = _load_stop()
     sid = "sid-out"
     sidecar = _seed_sidecar(tmp_path, sid)
@@ -81,8 +81,8 @@ def test_output_style_row_credits_prose_not_code(tmp_path: Path, monkeypatch: py
 
 
 def test_output_style_disabled_at_ratio_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_OUTPUT_STYLE_RATIO", "1.0")
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+    monkeypatch.setenv("ATELIER_OUTPUT_STYLE_RATIO", "1.0")
     stop = _load_stop()
     sid = "sid-off"
     sidecar = _seed_sidecar(tmp_path, sid)
@@ -119,7 +119,7 @@ def test_rtk_total_tokens_saved_parses_variants() -> None:
 
 
 def test_credit_rtk_gain_with_fake_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
     workspace = tmp_path / "ws"
     workspace.mkdir()
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
@@ -145,10 +145,8 @@ def test_credit_rtk_gain_with_fake_binary(tmp_path: Path, monkeypatch: pytest.Mo
     # Per-workspace marker: a second Stop fire credits nothing new.
     stop._credit_rtk_gain(sid, {"last_model": MODEL})
     assert len([r for r in _rows(sidecar) if r.get("kind") == "external_compactor"]) == 1
-    from lemoncrow.core.foundation.paths import workspace_key
-
     marker = json.loads((tmp_path / "rtk_gain_state.json").read_text(encoding="utf-8"))
-    assert marker["credited_by_workspace"][workspace_key(str(workspace))] == 5000
+    assert marker["credited_by_workspace"][stop._workspace_key(str(workspace))] == 5000
     # A different workspace has its own counter — project A's rtk tokens are
     # never attributed to project B's sessions.
     other = tmp_path / "other"
@@ -160,9 +158,9 @@ def test_credit_rtk_gain_with_fake_binary(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_output_style_default_ratio_is_bench_measured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Default ratio = 2.09: prose-only telegraphic Q&A ratio, no turn-cut overlap."""
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.delenv("LEMONCROW_OUTPUT_STYLE_RATIO", raising=False)
+    """Default ratio = 1.88: prose-only swe-lite ratio net of the turn-cut share."""
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+    monkeypatch.delenv("ATELIER_OUTPUT_STYLE_RATIO", raising=False)
     stop = _load_stop()
     sid = "sid-out-default"
     sidecar = _seed_sidecar(tmp_path, sid)
@@ -172,9 +170,9 @@ def test_output_style_default_ratio_is_bench_measured(tmp_path: Path, monkeypatc
 
     rows = [r for r in _rows(sidecar) if r.get("kind") == "output_style"]
     assert len(rows) == 1
-    assert rows[0]["ratio"] == pytest.approx(2.09)
-    # ~1000 prose tokens x (2.09 - 1) ≈ 1090 avoided output tokens.
-    assert 1050 <= rows[0]["tokens"] <= 1130
+    assert rows[0]["ratio"] == pytest.approx(1.88)
+    # ~1000 prose tokens x (1.88 - 1) ≈ 880 avoided output tokens.
+    assert 850 <= rows[0]["tokens"] <= 910
 
 
 def test_output_style_basis_excludes_thinking_and_codeish_lines(
@@ -183,8 +181,8 @@ def test_output_style_basis_excludes_thinking_and_codeish_lines(
     """Fixed output never enters the basis: thinking blocks and bare
     code/diff/JSON lines are style-invariant, so crediting them would apply
     the measured prose ratio to a quantity it was never measured on."""
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.delenv("LEMONCROW_OUTPUT_STYLE_RATIO", raising=False)
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+    monkeypatch.delenv("ATELIER_OUTPUT_STYLE_RATIO", raising=False)
     stop = _load_stop()
     sid = "sid-out-fixed"
     sidecar = _seed_sidecar(tmp_path, sid)
@@ -207,69 +205,10 @@ def test_output_style_basis_excludes_thinking_and_codeish_lines(
     assert [r for r in _rows(sidecar) if r.get("kind") == "output_style"] == []
 
 
-def test_input_style_row_credits_cache_read_delta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_INPUT_STYLE_RATIO", "1.5")
-    stop = _load_stop()
-    sid = "sid-in"
-    sidecar = _seed_sidecar(tmp_path, sid)
-    stats = {"last_model": MODEL, "cache_read_tokens": 100_000}
-
-    stop._write_input_style_row(sid, stats)
-
-    in_rows = [r for r in _rows(sidecar) if r.get("kind") == "input_style"]
-    assert len(in_rows) == 1
-    row = in_rows[0]
-    # 100k cache-read tokens x (1.5 - 1) = 50k credited tokens.
-    assert row["tokens"] == 50_000
-    pricing = get_model_pricing(MODEL)
-    assert pricing is not None
-    expected = pricing.request_cost_usd(cache_read_tokens=row["tokens"])
-    assert row["cost_saved_usd"] == pytest.approx(expected, rel=1e-3)
-
-    # Second Stop fire at the SAME cumulative cache_read_tokens: no new row.
-    stop._write_input_style_row(sid, stats)
-    assert len([r for r in _rows(sidecar) if r.get("kind") == "input_style"]) == 1
-
-    # Third fire with more cache-read consumed: only the incremental delta credits.
-    stop._write_input_style_row(sid, {**stats, "cache_read_tokens": 140_000})
-    in_rows = [r for r in _rows(sidecar) if r.get("kind") == "input_style"]
-    assert len(in_rows) == 2
-    # 40k delta x 0.5 = 20k credited tokens.
-    assert in_rows[1]["tokens"] == 20_000
-
-
-def test_input_style_disabled_at_ratio_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_INPUT_STYLE_RATIO", "1.0")
-    stop = _load_stop()
-    sid = "sid-in-off"
-    sidecar = _seed_sidecar(tmp_path, sid)
-    stop._write_input_style_row(sid, {"last_model": MODEL, "cache_read_tokens": 100_000})
-    assert [r for r in _rows(sidecar) if r.get("kind") == "input_style"] == []
-
-
-def test_input_style_default_ratio_is_bench_measured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Default ratio = 1.16: swe50 per-turn cache-read leanness, net of turn_cut."""
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.delenv("LEMONCROW_INPUT_STYLE_RATIO", raising=False)
-    stop = _load_stop()
-    sid = "sid-in-default"
-    sidecar = _seed_sidecar(tmp_path, sid)
-
-    stop._write_input_style_row(sid, {"last_model": MODEL, "cache_read_tokens": 100_000})
-
-    rows = [r for r in _rows(sidecar) if r.get("kind") == "input_style"]
-    assert len(rows) == 1
-    assert rows[0]["ratio"] == pytest.approx(1.16)
-    # 100k cache-read tokens x (1.16 - 1) ≈ 16k avoided cache-read tokens.
-    assert 15_950 <= rows[0]["tokens"] <= 16_000
-
-
 def test_turn_cut_row_tops_up_to_bench_floor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """turn_cut credits target = turns x 0.642 minus ledger calls; converges."""
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.delenv("LEMONCROW_TURN_CUT_RATIO", raising=False)
+    """turn_cut credits target = turns x 0.236 minus ledger calls; converges."""
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+    monkeypatch.delenv("ATELIER_TURN_CUT_RATIO", raising=False)
     stop = _load_stop()
     sid = "sid-turncut"
     sidecar = _seed_sidecar(tmp_path, sid)
@@ -283,7 +222,7 @@ def test_turn_cut_row_tops_up_to_bench_floor(tmp_path: Path, monkeypatch: pytest
 
     rows = [r for r in _rows(sidecar) if r.get("kind") == "turn_cut"]
     assert len(rows) == 1
-    assert rows[0]["calls"] == int(50 * 0.642) - 3  # bench floor minus explicit per-call credits
+    assert rows[0]["calls"] == int(50 * 0.236) - 3  # bench floor minus explicit per-call credits
     pricing = get_model_pricing(MODEL)
     assert pricing is not None
     # Priced like the dispatcher's avoided-call rule: ctx re-send + a turn of output.
@@ -301,21 +240,21 @@ def test_turn_cut_row_tops_up_to_bench_floor(tmp_path: Path, monkeypatch: pytest
     # Session grows → only the growth is credited (prior turn_cut rows count).
     stop._write_turn_cut_row(sid, dict(stats, turns=100))
     rows = [r for r in _rows(sidecar) if r.get("kind") == "turn_cut"]
-    assert sum(r["calls"] for r in rows) == int(100 * 0.642) - 3
+    assert sum(r["calls"] for r in rows) == int(100 * 0.236) - 3
 
 
 def test_turn_cut_disabled_and_never_guesses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
     stop = _load_stop()
     sid = "sid-turncut-off"
     sidecar = _seed_sidecar(tmp_path, sid)
     stats = {"turns": 50, "cache_read_tokens": 5_000_000, "output_tokens": 50_000, "last_model": MODEL}
     # ratio <= 0 disables
-    monkeypatch.setenv("LEMONCROW_TURN_CUT_RATIO", "0")
+    monkeypatch.setenv("ATELIER_TURN_CUT_RATIO", "0")
     stop._write_turn_cut_row(sid, stats)
     assert [r for r in _rows(sidecar) if r.get("kind") == "turn_cut"] == []
     # unknown model → no row, never guess a rate
-    monkeypatch.delenv("LEMONCROW_TURN_CUT_RATIO", raising=False)
+    monkeypatch.delenv("ATELIER_TURN_CUT_RATIO", raising=False)
     stop._write_turn_cut_row(sid, dict(stats, last_model="mystery-model-9"))
     assert [r for r in _rows(sidecar) if r.get("kind") == "turn_cut"] == []
 
@@ -327,14 +266,14 @@ def test_refresh_statusline_frames_writes_sidecar_at_stop(tmp_path: Path, monkey
     output_style (↓O) and cost/carry rows written by THIS hook would otherwise
     stay invisible exactly while the user sits at the prompt.
     """
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
     stop = _load_stop()
     sid = "sid-frames"
     _seed_sidecar(tmp_path, sid)
 
     stop._refresh_statusline_frames(sid)
 
-    from lemoncrow.core.foundation.paths import find_session_dir
+    from atelier.core.foundation.paths import find_session_dir
 
     d = find_session_dir(tmp_path, sid)
     assert d is not None
@@ -347,8 +286,8 @@ def test_refresh_statusline_frames_writes_sidecar_at_stop(tmp_path: Path, monkey
 
 
 def test_credit_rtk_gain_disabled_by_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_RTK_GAIN_CREDIT", "0")
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+    monkeypatch.setenv("ATELIER_RTK_GAIN_CREDIT", "0")
     stop = _load_stop()
     sid = "sid-rtk-off"
     sidecar = _seed_sidecar(tmp_path, sid)

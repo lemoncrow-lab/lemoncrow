@@ -8,13 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.service import code_warm
+from atelier.core.service import code_warm
 
 
 @pytest.fixture(autouse=True)
 def _reset_stdio_state(monkeypatch: pytest.MonkeyPatch) -> None:
     """Reset the module-level stdio warmer state and enable warming."""
-    monkeypatch.delenv("LEMONCROW_SERVICE_CODE_WARM", raising=False)
+    monkeypatch.delenv("ATELIER_SERVICE_CODE_WARM", raising=False)
     monkeypatch.setattr(code_warm, "_stdio_warmed", None, raising=False)
 
 
@@ -55,10 +55,14 @@ def test_warm_invoked_once_per_workspace(monkeypatch: pytest.MonkeyPatch, tmp_pa
 def test_warm_skips_ephemeral_workspace_with_existing_index(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Temp workspaces are indexed once, never re-warmed (issue: daemon
     restarts re-fired multi-hour index builds for /tmp bench clones)."""
+    from atelier.core.foundation.paths import workspace_key
+
     fired = _patch_fire(monkeypatch)
+    store_root = tmp_path / "store"
+    monkeypatch.setattr(code_warm, "default_store_root", lambda: store_root)
     ws = tmp_path / "idx_ws_bench"
     ws.mkdir()
-    db_dir = ws.resolve() / ".lemoncrow" / "workspace"
+    db_dir = store_root / "workspaces" / workspace_key(ws.resolve())
     db_dir.mkdir(parents=True)
     (db_dir / "code_context.sqlite").touch()
     assert code_warm.warm_stdio_workspace(ws) is False  # already indexed: skip
@@ -84,7 +88,7 @@ def test_warm_failure_is_non_fatal(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
 
 def test_warm_disabled_via_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     fired = _patch_fire(monkeypatch)
-    monkeypatch.setenv("LEMONCROW_SERVICE_CODE_WARM", "0")
+    monkeypatch.setenv("ATELIER_SERVICE_CODE_WARM", "0")
 
     assert code_warm.warm_stdio_workspace(tmp_path) is False
     assert len(fired) == 0
@@ -163,14 +167,11 @@ def test_discover_workspaces_prunes_reused_non_mcp_pid(monkeypatch: pytest.Monke
 
 def test_stdio_warm_hook_is_fail_open(monkeypatch: pytest.MonkeyPatch) -> None:
     """The mcp_server startup hook swallows warming errors."""
-    from lemoncrow.gateway.adapters import mcp_server
+    from atelier.gateway.adapters import mcp_server
 
     def _boom(workspace: object) -> bool:
         raise RuntimeError("warm exploded")
 
     monkeypatch.setattr(code_warm, "warm_stdio_workspace", _boom, raising=True)
-    # Skip the account-activation gate: no need to exercise the real OAuth
-    # flow (network + browser) just to test fail-open error handling here.
-    monkeypatch.setattr(mcp_server, "_ensure_account_activated", lambda root: True, raising=True)
     # Must not raise.
     mcp_server._warm_stdio_code_index()

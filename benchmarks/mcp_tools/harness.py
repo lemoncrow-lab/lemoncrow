@@ -30,9 +30,9 @@ class BenchCase:
     assert_keys: list[str] = field(default_factory=list)
     # Exact key=value pairs to assert in response
     assert_values: dict[str, Any] = field(default_factory=dict)
-    # Human-readable description of what agent would do without LemonCrow
+    # Human-readable description of what agent would do without Atelier
     baseline_description: str = ""
-    # Fixed baseline token cost without LemonCrow (what agent would read/write).
+    # Fixed baseline token cost without Atelier (what agent would read/write).
     # Use baseline_builder for measured dynamic baselines.
     baseline_tokens: int = 0
     # Optional callable to construct a measured baseline payload.
@@ -57,7 +57,7 @@ class BenchCase:
 class CaseResult:
     case: BenchCase
     response: Any
-    lemoncrow_tokens: int
+    atelier_tokens: int
     baseline_tokens: int
     quality_score: float
     input_file_tokens: int
@@ -70,7 +70,7 @@ class CaseResult:
 
     @property
     def tokens_saved(self) -> int:
-        return max(0, self.baseline_tokens - self.lemoncrow_tokens)
+        return max(0, self.baseline_tokens - self.atelier_tokens)
 
     @property
     def savings_pct(self) -> float:
@@ -80,7 +80,7 @@ class CaseResult:
 
     @property
     def effective_tokens(self) -> float:
-        return self.lemoncrow_tokens / max(self.quality_score, 0.1)
+        return self.atelier_tokens / max(self.quality_score, 0.1)
 
 
 @dataclass
@@ -140,24 +140,12 @@ def run_case(
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         # Use baseline_tokens (not 0) so a crash doesn't look like 100% savings.
-        # The agent would still have to use the baseline on failure. Cases with
-        # a measured baseline leave the static field at 0, so run the builder
-        # here too; fall back to min_baseline_tokens if it also fails.
-        failed_baseline_tokens = case.baseline_tokens
-        if case.baseline_builder is not None:
-            try:
-                measurement = case.baseline_builder(case)
-                if isinstance(measurement, BaselineMeasurement):
-                    failed_baseline_tokens = _tokens(measurement.payload)
-                else:
-                    failed_baseline_tokens = _tokens(measurement)
-            except Exception:
-                failed_baseline_tokens = max(case.baseline_tokens, case.min_baseline_tokens)
+        # The agent would still have to use the baseline on failure.
         return CaseResult(
             case=case,
             response={},
-            lemoncrow_tokens=failed_baseline_tokens,
-            baseline_tokens=failed_baseline_tokens,
+            atelier_tokens=case.baseline_tokens,
+            baseline_tokens=case.baseline_tokens,
             quality_score=case.quality_score,
             input_file_tokens=0,
             baseline_commands=[],
@@ -168,7 +156,7 @@ def run_case(
             failure=f"exception: {exc}",
         )
     elapsed_ms = (time.perf_counter() - t0) * 1000
-    lemoncrow_tokens = _tokens(response) if response is not None else 4  # "null" is 4 chars
+    atelier_tokens = _tokens(response) if response is not None else 4  # "null" is 4 chars
     baseline_tokens = case.baseline_tokens
     input_file_tokens = 0
     baseline_commands: list[str] = []
@@ -185,7 +173,7 @@ def run_case(
 
     if isinstance(response, dict):
         probe_failure, spill_probe_tokens, spill_probe_hits = _probe_spilled_artifact(response, case)
-        lemoncrow_tokens += spill_probe_tokens
+        atelier_tokens += spill_probe_tokens
     else:
         probe_failure = ""
 
@@ -200,7 +188,7 @@ def run_case(
     return CaseResult(
         case=case,
         response=response if response is not None else {},
-        lemoncrow_tokens=lemoncrow_tokens,
+        atelier_tokens=atelier_tokens,
         baseline_tokens=baseline_tokens,
         quality_score=case.quality_score,
         input_file_tokens=input_file_tokens,

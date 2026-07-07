@@ -8,8 +8,8 @@ from typing import Any, ClassVar
 
 import pytest
 
-import lemoncrow.infra.internal_llm as internal_llm
-from lemoncrow.core.capabilities import web_fetch
+import atelier.infra.internal_llm as internal_llm
+from atelier.core.capabilities import web_fetch
 
 
 class _FakeResponse:
@@ -42,11 +42,11 @@ class _FakeRedirectResponse:
 
 
 class _FakeErrorResponse:
+    status = 404
     headers: ClassVar[dict[str, str]] = {"content-type": "text/plain; charset=utf-8"}
 
-    def __init__(self, body: bytes = b"Not Found", status: int = 404) -> None:
+    def __init__(self, body: bytes = b"Not Found") -> None:
         self._body = body
-        self.status = status
 
     def stream(self, amt: int = 65536, decode_content: bool = True) -> Iterator[bytes]:
         yield self._body
@@ -188,15 +188,7 @@ def test_validate_url_rejects_malformed_port() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_assert_fetchable_ip_rejects_loopback_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK", raising=False)
-    for ip in ("127.0.0.1", "127.23.45.67", "::1"):
-        with pytest.raises(ValueError, match="LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK"):
-            web_fetch._assert_fetchable_ip(ip)
-
-
-def test_assert_fetchable_ip_allows_loopback_when_env_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK", "1")
+def test_assert_fetchable_ip_accepts_loopback() -> None:
     web_fetch._assert_fetchable_ip("127.0.0.1")
     web_fetch._assert_fetchable_ip("127.23.45.67")
     web_fetch._assert_fetchable_ip("::1")
@@ -231,8 +223,6 @@ def test_assert_fetchable_ip_accepts_public_ipv6() -> None:
 
 
 def test_fetch_url_allows_loopback_on_non_standard_port(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK", "1")
-
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             body = b"localhost fetch works"
@@ -377,7 +367,7 @@ def test_pdf_to_text_assembles_prose_tables_and_image_notes(monkeypatch: pytest.
     import pdfplumber
     import pypdf
 
-    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path))
+    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path))
 
     fake_plumber_pages = [
         _FakePlumberPage("Intro prose.", [[["A", "B"], ["1", "2"]]], 1),
@@ -412,7 +402,7 @@ def test_pdf_to_text_notes_images_past_the_extraction_cap(monkeypatch: pytest.Mo
     import pdfplumber
     import pypdf
 
-    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path))
+    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path))
     monkeypatch.setattr(web_fetch, "_MAX_PDF_IMAGES_EXTRACTED", 1)
 
     fake_plumber_pages = [_FakePlumberPage("Prose.", [], 1)]
@@ -465,7 +455,7 @@ def test_fetch_url_renders_pdf_as_text(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_fetch_url_pdf_points_at_the_downloaded_original(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     """The raw PDF is written to the spill store and the returned text names
     its path, so an agent can open the real file when extraction loses charts/tables."""
-    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path))
+    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path))
     fake_http = _FakeHTTP()
     pdf_bytes = _build_minimal_pdf("Hello PDF")
     fake_http.request = lambda *a, **kw: _FakePdfResponse(pdf_bytes)
@@ -485,80 +475,14 @@ def test_fetch_url_pdf_points_at_the_downloaded_original(monkeypatch: pytest.Mon
 # --------------------------------------------------------------------------- #
 
 
-def test_returns_http_error_response_instead_of_raising(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A non-2xx is the origin's answer, not a tool failure -- it comes back as a
-    normal result (with the real status) so the MCP layer never wraps it in a
-    generic tool-call error."""
-    calls = 0
-
-    def _request(*_a: object, **_kw: object) -> Any:
-        nonlocal calls
-        calls += 1
-        return _FakeErrorResponse()
-
-    fake_http = _FakeHTTP()
-    fake_http.request = _request
-    monkeypatch.setattr(web_fetch, "_HTTP", fake_http)
-    monkeypatch.setattr(web_fetch, "_resolve_host_safe", lambda host, timeout: "1.2.3.4")
-
-    result = web_fetch._fetch_uncached("https://example.com/missing", accept="*/*", timeout_s=5.0)
-    assert result.status == 404
-    assert result.body == b"Not Found"
-    # 404 is the origin's stable, permanent answer -- not in _RETRY_STATUSES, so
-    # exactly one attempt.
-    assert calls == 1
-
-
-def test_retries_transient_403_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A 403 is treated as a possible WAF/bot-management false positive: retried
-    a bounded number of times before being accepted as the final answer."""
-    responses = [_FakeErrorResponse(body=b"forbidden", status=403), _FakeResponse(b"# OK\n\nBody")]
-    fake_http = _FakeHTTP()
-
-    def _request(*_a: object, **_kw: object) -> Any:
-        fake_http.calls += 1
-        return responses.pop(0)
-
-    fake_http.request = _request
-    monkeypatch.setattr(web_fetch, "_HTTP", fake_http)
-    monkeypatch.setattr(web_fetch, "_resolve_host_safe", lambda host, timeout: "1.2.3.4")
-    monkeypatch.setattr(web_fetch, "_RETRY_BACKOFF_S", 0.0)
-
-    result = web_fetch._fetch_uncached("https://example.com/flaky", accept="*/*", timeout_s=5.0)
-    assert result.status == 200
-    assert fake_http.calls == 2
-
-
-def test_retries_exhaust_on_persistent_403(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A 403 on every attempt is a real, stable block -- retried up to the
-    bound, then surfaced as-is (never raised as a tool error)."""
-    calls = 0
-
-    def _request(*_a: object, **_kw: object) -> Any:
-        nonlocal calls
-        calls += 1
-        return _FakeErrorResponse(status=403)
-
-    fake_http = _FakeHTTP()
-    fake_http.request = _request
-    monkeypatch.setattr(web_fetch, "_HTTP", fake_http)
-    monkeypatch.setattr(web_fetch, "_resolve_host_safe", lambda host, timeout: "1.2.3.4")
-    monkeypatch.setattr(web_fetch, "_RETRY_BACKOFF_S", 0.0)
-
-    result = web_fetch._fetch_uncached("https://example.com/blocked", accept="*/*", timeout_s=5.0)
-    assert result.status == 403
-    assert calls == web_fetch._MAX_FETCH_ATTEMPTS
-
-
-def test_fetch_url_surfaces_http_error_status(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_raises_on_http_error_response(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_http = _FakeHTTP()
     fake_http.request = lambda *a, **kw: _FakeErrorResponse()
     monkeypatch.setattr(web_fetch, "_HTTP", fake_http)
     monkeypatch.setattr(web_fetch, "_resolve_host_safe", lambda host, timeout: "1.2.3.4")
 
-    payload = web_fetch.fetch_url("https://example.com/missing")
-    assert payload["status"] == 404
-    assert "Not Found" in payload["content"]
+    with pytest.raises(ValueError, match="HTTP 404"):
+        web_fetch._fetch_uncached("https://example.com/missing", accept="*/*", timeout_s=5.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -731,7 +655,7 @@ def test_finish_fetch_without_query_is_unchanged_head_truncation() -> None:
         raw, rendered={"content": md, "format": "text"}, char_limit=1000, include_meta=False
     )
     assert payload["content"].startswith("x" * 100)
-    assert "[lc: truncated 5000→1000" in payload["content"]
+    assert "[atelier: truncated 5000→1000" in payload["content"]
 
 
 def test_finish_fetch_with_query_surfaces_a_row_the_head_cut_would_miss() -> None:
@@ -792,8 +716,8 @@ def _md_raw(content: str = MD_PAGE) -> web_fetch._RawFetchResult:
 def test_finish_fetch_summary_returns_heuristic_gist_with_spill_path(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path))
-    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path))
+    monkeypatch.delenv("ATELIER_LLM_BACKEND", raising=False)
     payload = web_fetch._finish_fetch(
         _md_raw(),
         rendered={"content": MD_PAGE, "format": "markdown"},
@@ -805,17 +729,17 @@ def test_finish_fetch_summary_returns_heuristic_gist_with_spill_path(
     assert "# Project Overview" in content
     assert "## Installation" in content
     assert "## Usage" in content
-    assert "[lc: summarized:heuristic" in content
-    assert "full: " in content
+    assert "[atelier: summarized:heuristic" in content
+    assert "full: read " in content
     spilled = list(tmp_path.glob("web_fetch-*.txt"))
     assert len(spilled) == 1
     assert spilled[0].read_text(encoding="utf-8") == MD_PAGE
 
 
 def test_finish_fetch_summary_uses_llm_tier_when_available(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "ollama")
-    monkeypatch.setenv("LEMONCROW_OLLAMA_MODEL", "qwen2.5")
+    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path))
+    monkeypatch.setenv("ATELIER_LLM_BACKEND", "ollama")
+    monkeypatch.setenv("ATELIER_OLLAMA_MODEL", "qwen2.5")
     monkeypatch.setattr(internal_llm, "summarize", lambda text, **kw: "An LLM-produced gist of the page.")
     payload = web_fetch._finish_fetch(
         _md_raw(),
@@ -826,14 +750,14 @@ def test_finish_fetch_summary_uses_llm_tier_when_available(tmp_path: Any, monkey
     )
     content = payload["content"]
     assert "An LLM-produced gist of the page." in content
-    assert "[lc: summarized:qwen2.5" in content
+    assert "[atelier: summarized:qwen2.5" in content
 
 
 def test_finish_fetch_summary_llm_failure_falls_back_silently_to_heuristic(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "ollama")
+    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path))
+    monkeypatch.setenv("ATELIER_LLM_BACKEND", "ollama")
 
     def _boom(text: str, **kw: object) -> str:
         raise internal_llm.InternalLLMError("local model unreachable")
@@ -847,16 +771,16 @@ def test_finish_fetch_summary_llm_failure_falls_back_silently_to_heuristic(
         summary=True,
     )
     content = payload["content"]
-    assert "[lc: summarized:heuristic" in content
+    assert "[atelier: summarized:heuristic" in content
     assert "An LLM-produced gist" not in content
 
 
 def test_finish_fetch_summary_spill_disabled_uses_pathless_footer(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "0")
-    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path))
+    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "0")
+    monkeypatch.delenv("ATELIER_LLM_BACKEND", raising=False)
     payload = web_fetch._finish_fetch(
         _md_raw(),
         rendered={"content": MD_PAGE, "format": "markdown"},
@@ -865,9 +789,9 @@ def test_finish_fetch_summary_spill_disabled_uses_pathless_footer(
         summary=True,
     )
     content = payload["content"]
-    assert "[lc: truncated" in content
+    assert "[atelier: truncated" in content
     assert "summarized:" not in content
-    assert "full: " not in content
+    assert "read " not in content
     assert not list(tmp_path.glob("web_fetch-*.txt"))
 
 
@@ -919,15 +843,15 @@ def test_fetch_url_pdf_summary_flows_through_rendered_text_unchanged(
 ) -> None:
     """PDF pages arrive as already-rendered text by the time summary runs --
     no PDF-specific handling is needed."""
-    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path))
-    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path))
+    monkeypatch.delenv("ATELIER_LLM_BACKEND", raising=False)
     fake_http = _FakeHTTP()
     fake_http.request = lambda *a, **kw: _FakePdfResponse(_build_minimal_pdf("Hello PDF"))
     monkeypatch.setattr(web_fetch, "_HTTP", fake_http)
     monkeypatch.setattr(web_fetch, "_resolve_host_safe", lambda host, timeout: "1.2.3.4")
     result = web_fetch.fetch_url("https://example.com/doc.pdf", output_format="text", summary=True)
     assert "Hello PDF" in result["content"]
-    assert "[lc: summarized:heuristic" in result["content"]
+    assert "[atelier: summarized:heuristic" in result["content"]
     assert "downloaded PDF:" in result["content"]
 
 

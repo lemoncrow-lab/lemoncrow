@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.pro.capabilities.code_context import CodeContextEngine
+from atelier.core.capabilities.code_context import CodeContextEngine
 
 
 def test_tool_explore_caps_merged_source_sections(tmp_path: Path) -> None:

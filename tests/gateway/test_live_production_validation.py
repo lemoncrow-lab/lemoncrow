@@ -18,11 +18,11 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.infra.internal_llm import ollama_client
-from lemoncrow.infra.internal_llm.ollama_client import OllamaUnavailable
-from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
-from lemoncrow.pro.capabilities.context_compression.sleeptime import summarize_ledger
-from lemoncrow.pro.capabilities.tool_supervision.compact_output import compact
+from atelier.core.capabilities.context_compression.sleeptime import summarize_ledger
+from atelier.core.capabilities.tool_supervision.compact_output import compact
+from atelier.infra.internal_llm import ollama_client
+from atelier.infra.internal_llm.ollama_client import OllamaUnavailable
+from atelier.infra.storage.sqlite_store import SQLiteStore
 
 pytestmark = pytest.mark.slow
 
@@ -86,16 +86,16 @@ def _live_service(root: Path) -> Any:
     base_url = f"http://127.0.0.1:{port}"
     env = {
         **os.environ,
-        "LEMONCROW_ROOT": str(root),
-        "LEMONCROW_REQUIRE_AUTH": "false",
-        "LEMONCROW_OLLAMA_MODEL": "llama3.2:latest",
+        "ATELIER_ROOT": str(root),
+        "ATELIER_REQUIRE_AUTH": "false",
+        "ATELIER_OLLAMA_MODEL": "llama3.2:latest",
     }
     process = subprocess.Popen(
         [
             sys.executable,
             "-m",
             "uvicorn",
-            "lemoncrow.core.service.api:app",
+            "atelier.core.service.api:app",
             "--host",
             "127.0.0.1",
             "--port",
@@ -131,7 +131,7 @@ def _prepare_install_source(tmp_path: Path) -> tuple[Path, str]:
         ignore=shutil.ignore_patterns(
             ".git",
             ".venv",
-            ".lemoncrow",
+            ".atelier",
             "node_modules",
             "__pycache__",
             ".pytest_cache",
@@ -143,13 +143,13 @@ def _prepare_install_source(tmp_path: Path) -> tuple[Path, str]:
     branch = "install-test"
     subprocess.run(["git", "-C", str(source), "init", "-b", branch], check=True, capture_output=True, text=True)
     subprocess.run(
-        ["git", "-C", str(source), "config", "user.email", "tests@lemoncrow.local"],
+        ["git", "-C", str(source), "config", "user.email", "tests@atelier.local"],
         check=True,
         capture_output=True,
         text=True,
     )
     subprocess.run(
-        ["git", "-C", str(source), "config", "user.name", "LemonCrow Tests"],
+        ["git", "-C", str(source), "config", "user.name", "Atelier Tests"],
         check=True,
         capture_output=True,
         text=True,
@@ -176,9 +176,9 @@ def _start_container(name: str, tag: str, root: Path, port: int) -> subprocess.C
             "-p",
             f"{port}:8787",
             "-e",
-            "LEMONCROW_ROOT=/app/.lemoncrow",
+            "ATELIER_ROOT=/app/.atelier",
             "-v",
-            f"{root}:/app/.lemoncrow",
+            f"{root}:/app/.atelier",
             tag,
         ],
         check=True,
@@ -188,7 +188,7 @@ def _start_container(name: str, tag: str, root: Path, port: int) -> subprocess.C
 
 
 def test_real_ollama_model_backed_paths() -> None:
-    os.environ["LEMONCROW_OLLAMA_MODEL"] = "llama3.2:latest"
+    os.environ["ATELIER_OLLAMA_MODEL"] = "llama3.2:latest"
     try:
         try:
             payload = ollama_client.chat(
@@ -199,7 +199,7 @@ def test_real_ollama_model_backed_paths() -> None:
             assert payload.get("procedural") is True
 
             summary = ollama_client.summarize(
-                "LemonCrow recorded a trace, verified it with pytest, and persisted it to sqlite.",
+                "Atelier recorded a trace, verified it with pytest, and persisted it to sqlite.",
                 model="llama3.2:latest",
                 max_tokens=128,
             )
@@ -226,18 +226,18 @@ def test_real_ollama_model_backed_paths() -> None:
         except OllamaUnavailable as exc:
             pytest.skip(f"Ollama unavailable: {exc}")
     finally:
-        os.environ.pop("LEMONCROW_OLLAMA_MODEL", None)
+        os.environ.pop("ATELIER_OLLAMA_MODEL", None)
 
 
 def test_live_service_concurrency_and_race_behavior(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
-    build_sqlite_store_bundle(root).init()
+    root = tmp_path / ".atelier"
+    SQLiteStore(root).init()
 
     with _live_service(root) as (_, base_url):
         status, block = _request_json(
             "POST",
             f"{base_url}/v1/memory/blocks",
-            {"agent_id": "lemoncrow:code", "label": "race", "value": "v1", "actor": "test"},
+            {"agent_id": "atelier:code", "label": "race", "value": "v1", "actor": "test"},
         )
         assert status == 200
         version = int(block["version"])
@@ -247,7 +247,7 @@ def test_live_service_concurrency_and_race_behavior(tmp_path: Path) -> None:
                 "POST",
                 f"{base_url}/v1/memory/blocks",
                 {
-                    "agent_id": "lemoncrow:code",
+                    "agent_id": "atelier:code",
                     "label": "race",
                     "value": value,
                     "expected_version": version,
@@ -263,7 +263,7 @@ def test_live_service_concurrency_and_race_behavior(tmp_path: Path) -> None:
 
         status, final_block = _request_json(
             "GET",
-            f"{base_url}/v1/memory/blocks?agent_id=lemoncrow:code&label=race",
+            f"{base_url}/v1/memory/blocks?agent_id=atelier:code&label=race",
         )
         assert status == 200
         assert final_block["value"] in {"winner-a", "winner-b"}
@@ -287,13 +287,13 @@ def test_live_service_concurrency_and_race_behavior(tmp_path: Path) -> None:
         trace_ids = {payload["id"] for _, payload in trace_results}
         assert len(trace_ids) == 24
 
-    traces = build_sqlite_store_bundle(root).history.list_traces(limit=100)
+    traces = SQLiteStore(root).list_traces(limit=100)
     assert len([trace for trace in traces if trace.task.startswith("concurrent-trace-")]) == 24
 
 
 def test_service_restart_preserves_traces_after_crash(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
-    build_sqlite_store_bundle(root).init()
+    root = tmp_path / ".atelier"
+    SQLiteStore(root).init()
 
     with _live_service(root) as (process, base_url):
         status, payload = _request_json(
@@ -327,17 +327,17 @@ def test_real_installer_runs_in_target_directory(tmp_path: Path) -> None:
 
     env = {
         **os.environ,
-        "LEMONCROW_REPO_URL": source.as_uri(),
-        "LEMONCROW_REF": branch,
-        "LEMONCROW_INSTALL_DIR": str(install_dir),
-        "LEMONCROW_BIN_DIR": str(bin_dir),
-        "LEMONCROW_TOOL_DIR": str(tmp_path / "uv-tools"),
-        "LEMONCROW_NO_HOSTS": "1",
+        "ATELIER_REPO_URL": source.as_uri(),
+        "ATELIER_REF": branch,
+        "ATELIER_INSTALL_DIR": str(install_dir),
+        "ATELIER_BIN_DIR": str(bin_dir),
+        "ATELIER_TOOL_DIR": str(tmp_path / "uv-tools"),
+        "ATELIER_NO_HOSTS": "1",
         # Prevent install.sh from overwriting the real systemd/launchd unit
-        # files and ~/.lemoncrow/install_dir with paths pointing to this test's
+        # files and ~/.atelier/install_dir with paths pointing to this test's
         # tmp directories.
-        "LEMONCROW_NO_SERVICECTL": "1",
-        "LEMONCROW_INSTALL_RECORD": str(tmp_path / "install_dir"),
+        "ATELIER_NO_SERVICECTL": "1",
+        "ATELIER_INSTALL_RECORD": str(tmp_path / "install_dir"),
     }
     result = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts" / "install.sh")],
@@ -348,10 +348,10 @@ def test_real_installer_runs_in_target_directory(tmp_path: Path) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert (bin_dir / "lemoncrow").exists()
+    assert (bin_dir / "atelier").exists()
 
     help_result = subprocess.run(
-        [str(bin_dir / "lemoncrow"), "--help"],
+        [str(bin_dir / "atelier"), "--help"],
         cwd=workspace,
         capture_output=True,
         text=True,
@@ -361,7 +361,7 @@ def test_real_installer_runs_in_target_directory(tmp_path: Path) -> None:
     assert "Usage:" in help_result.stdout
 
     mcp_result = subprocess.run(
-        [str(bin_dir / "lemoncrow"), "mcp"],
+        [str(bin_dir / "atelier"), "mcp"],
         cwd=workspace,
         input="\n".join(
             [
@@ -389,11 +389,11 @@ def test_real_installer_runs_in_target_directory(tmp_path: Path) -> None:
 
 
 def test_docker_deploy_load_latency_and_stability(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
-    build_sqlite_store_bundle(root).init()
+    root = tmp_path / ".atelier"
+    SQLiteStore(root).init()
 
-    tag = f"lemoncrow-api-test:{uuid.uuid4().hex[:8]}"
-    name = f"lemoncrow-api-test-{uuid.uuid4().hex[:8]}"
+    tag = f"atelier-api-test:{uuid.uuid4().hex[:8]}"
+    name = f"atelier-api-test-{uuid.uuid4().hex[:8]}"
     port = _free_port()
     build = subprocess.run(
         ["docker", "build", "-f", str(REPO_ROOT / "Dockerfile.api"), "-t", tag, str(REPO_ROOT)],
@@ -419,7 +419,7 @@ def test_docker_deploy_load_latency_and_stability(tmp_path: Path) -> None:
             except (urllib.error.URLError, TimeoutError):
                 pass
             time.sleep(1)
-        assert healthy, "dockerized lemoncrow service never became healthy"
+        assert healthy, "dockerized atelier service never became healthy"
 
         latencies: list[float] = []
 

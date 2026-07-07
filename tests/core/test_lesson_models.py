@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from lemoncrow.core.foundation.lesson_models import LessonCandidate, LessonPromotion
+from atelier.core.foundation.lesson_models import LessonCandidate, LessonPromotion
 
 
 def test_lesson_candidate_rejects_extra_fields() -> None:

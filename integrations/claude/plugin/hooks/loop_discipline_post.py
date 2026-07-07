@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: record edited file paths.
+"""PostToolUse hook: record edited file basenames.
 
-Runs on every PostToolUse and filters internally to the LemonCrow edit tool
-(name-agnostic across hosts). It records the resolved paths of files edited
-this session (basename only when resolution fails) so the PreToolUse
-read-after-edit guard (pre_tool_discipline.py) can spot a redundant full
-re-read. Fail-open: any error exits 0 and prints nothing.
+Runs on every PostToolUse and filters internally to the Atelier edit tool
+(name-agnostic across hosts). It records the basenames of files edited this
+session so the PreToolUse read-after-edit guard (pre_tool_discipline.py) can
+spot a redundant full re-read. Fail-open: any error exits 0 and prints nothing.
 
 The cycle-cap that previously lived here was removed: a soft nudge was ignored
 and a hard block backfired in benchmarks (task3 78 turns vs 55). Cost is
@@ -17,81 +16,54 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import re
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
 
-def _agent_key(payload: dict[str, Any]) -> str:
-    """Per-agent state key so a read-only sub-agent never inherits another
-    agent's edits, and its edits never falsely block the parent.
-
-    Sub-agents (Task / workflow fan-out) carry a unique ``agent_id`` in every
-    hook payload; the top-level agent omits it and falls back to ``session_id``
-    (sub-agents share the parent's session_id, so that alone cannot separate
-    them). Read identically by the PreToolUse guard so record and check align.
-    """
-    raw = payload.get("agent_id") or payload.get("session_id") or "main"
-    return re.sub(r"[^A-Za-z0-9._-]", "-", str(raw)) or "main"
+def _root() -> Path:
+    raw = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
+    return Path(raw) if raw else Path.home() / ".atelier"
 
 
-def _state_dir() -> Path:
+def _workspace_key(path: str) -> str:
+    import re
+    from hashlib import sha256
+    from pathlib import Path as _Path
+
+    resolved = _Path(path).expanduser().resolve()
+    home = _Path.home().resolve()
+    try:
+        parts = resolved.relative_to(home).parts
+    except ValueError:
+        parts = [p for p in resolved.parts if p and p != "/"]
+    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
+    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
+    if len(label) > 120:
+        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
+    return label or sha256(str(resolved).encode()).hexdigest()[:12]
+
+
+def _state_path() -> Path:
     # Key by workspace so concurrent/sequential tasks never share state.
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "loop_discipline"
+    h = _workspace_key(workspace)
+    return _root() / "workspaces" / h / "loop_discipline.json"
 
 
-def _state_path(agent_key: str) -> Path:
-    return _state_dir() / f"{agent_key}.json"
-
-
-def _prune(ttl_seconds: float = 86_400.0) -> None:
-    """Delete per-agent state files untouched within ttl. Sub-agent files are
-    ephemeral -- one per sub-agent -- so without this they accumulate forever.
-    The current agent's file was just written (mtime=now) so is never pruned.
-    """
-    with contextlib.suppress(OSError):
-        now = time.time()
-        for f in _state_dir().glob("*.json"):
-            with contextlib.suppress(OSError):
-                if now - f.stat().st_mtime > ttl_seconds:
-                    f.unlink()
-
-
-def _load(agent_key: str) -> dict[str, Any]:
+def _load() -> dict[str, Any]:
     with contextlib.suppress(OSError, json.JSONDecodeError):
-        data = json.loads(_state_path(agent_key).read_text("utf-8"))
+        data = json.loads(_state_path().read_text("utf-8"))
         if isinstance(data, dict):
             return data
     return {}
 
 
-def _save(agent_key: str, state: dict[str, Any]) -> None:
+def _save(state: dict[str, Any]) -> None:
     with contextlib.suppress(OSError):
-        p = _state_path(agent_key)
+        p = _state_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(state), encoding="utf-8")
-
-
-def _record_key(target: str) -> str:
-    """Resolved absolute path for an edit target; basename as last resort.
-
-    Strips '#fragment' and ':Lx-Ly' range suffixes (same pattern as
-    rich_edit._parse_target), then resolves workspace-relative so the
-    read-after-edit guard compares full paths -- utils.py in two different
-    packages must not collide on basename.
-    """
-    bare = re.sub(r":L?\d+(?:-L?\d+)?$", "", target.split("#")[0], flags=re.I)
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    try:
-        p = Path(bare).expanduser()
-        if not p.is_absolute():
-            p = Path(workspace) / p
-        return str(p.resolve())
-    except (OSError, RuntimeError, ValueError):
-        return Path(bare).name
 
 
 def _is_edit(name: str, ti: dict[str, Any]) -> bool:
@@ -117,22 +89,20 @@ def _edit_targets(ti: dict[str, Any]) -> list[str]:
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
-    except Exception:
+    except Exception:  # noqa: BLE001 - lifecycle hooks must be fail-open
         return 0
     name = str(payload.get("tool_name") or "")
     ti = payload.get("tool_input") or {}
     if not isinstance(ti, dict) or not _is_edit(name, ti):
         return 0
     try:
-        agent_key = _agent_key(payload)
-        state = _load(agent_key)
+        state = _load()
         edited = set(state.get("edited_paths") or [])
         for target in _edit_targets(ti):
-            edited.add(_record_key(target))
+            edited.add(Path(target.split("#")[0]).name)
         state["edited_paths"] = sorted(edited)[-80:]
-        _save(agent_key, state)
-        _prune()
-    except Exception:
+        _save(state)
+    except Exception:  # noqa: BLE001 - lifecycle hooks must be fail-open
         pass
     return 0
 

@@ -9,11 +9,10 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities.pricing import get_model_pricing
-from lemoncrow.core.capabilities.savings_summary import (
+from atelier.core.capabilities.pricing import get_model_pricing
+from atelier.core.capabilities.savings_summary import (
     _carry_credit,
     _read_claude_session_savings,
-    compute_savings_summary,
     read_transcript_stats,
 )
 
@@ -21,7 +20,7 @@ MODEL = "claude-sonnet-4-5"
 
 
 def _write_sidecar(root: Path, session_id: str, rows: list[dict[str, Any]]) -> None:
-    from lemoncrow.core.foundation.paths import session_dir
+    from atelier.core.foundation.paths import session_dir
 
     d = session_dir(root, "claude", session_id)
     d.mkdir(parents=True, exist_ok=True)
@@ -42,66 +41,6 @@ def _usage_line(msg_id: str, ts: str) -> dict[str, Any]:
             },
         },
     }
-
-
-@pytest.mark.parametrize(
-    ("model", "input_rate"),
-    (("gpt-5.6-sol", 5.00), ("gpt-5.6-terra", 2.50), ("gpt-5.6-luna", 1.00)),
-)
-def test_legacy_saved_tokens_reprice_with_gpt_5_6_models(model: str, input_rate: float) -> None:
-    from lemoncrow.core.capabilities.savings_summary import _price_savings_row
-
-    tokens, usd, calls, calls_usd, unpriced = _price_savings_row({"tokens": 1_000_000, "model": model})
-    assert (tokens, calls, calls_usd, unpriced) == (1_000_000, 0, 0.0, 0)
-    assert usd == pytest.approx(input_rate)
-
-
-def test_large_writer_accumulated_input_style_row_is_not_discarded(tmp_path: Path) -> None:
-    tokens = 7_214_776
-    usd = 3.607388
-    _write_sidecar(
-        tmp_path,
-        "s1",
-        [{"kind": "input_style", "tokens": tokens, "cost_saved_usd": usd, "model": MODEL}],
-    )
-
-    priced, calls, total_usd, unpriced = _read_claude_session_savings("s1", tmp_path)
-    assert (priced, calls, unpriced) == (tokens, 0, 0)
-    assert total_usd == pytest.approx(usd)
-
-    summary = compute_savings_summary("s1", lemoncrow_root=tmp_path)
-    assert summary.ctx_saved == tokens
-    assert summary.saved_usd == pytest.approx(usd)
-    assert summary.input_saved_tokens == tokens
-    assert summary.input_saved_usd == pytest.approx(usd)
-
-
-def test_codex_unknown_model_savings_use_transcript_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.core.foundation.paths import session_dir
-
-    session_id = "codex-session"
-    codex_home = tmp_path / ".codex"
-    transcript = codex_home / "sessions" / "2026" / "07" / "11" / "rollout-codex-session.jsonl"
-    transcript.parent.mkdir(parents=True)
-    transcript.write_text(
-        "\n".join(
-            json.dumps(line)
-            for line in (
-                {"type": "session_meta", "payload": {"session_id": session_id}},
-                {"type": "turn_context", "payload": {"model": "gpt-5.6-terra"}},
-            )
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-    sidecar = session_dir(tmp_path, "codex", session_id) / "savings.jsonl"
-    sidecar.parent.mkdir(parents=True)
-    sidecar.write_text(json.dumps({"tool": "read", "tokens": 1_000_000, "model": ""}) + "\n", encoding="utf-8")
-
-    summary = compute_savings_summary(session_id, lemoncrow_root=tmp_path)
-
-    assert summary.ctx_saved == 1_000_000
-    assert summary.saved_usd == pytest.approx(2.5)
 
 
 def test_read_claude_session_savings_includes_calls_usd(tmp_path: Path) -> None:
@@ -135,7 +74,7 @@ def test_read_claude_session_savings_excludes_compaction_rows(tmp_path: Path) ->
 
 
 def test_routing_rows_summed_separately_from_context(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.savings_summary import _read_session_routing_usd
+    from atelier.core.capabilities.savings_summary import _read_session_routing_usd
 
     _write_sidecar(
         tmp_path,
@@ -166,7 +105,7 @@ def test_carry_credit_counts_only_later_turns(tmp_path: Path) -> None:
         [
             # 1000 tokens saved before two later turns -> 2 carry turns.
             {"tool": "read", "tokens": 1000, "calls": 0, "model": MODEL, "ts": row_ts},
-            # Compaction rows reset the window; they are not LemonCrow savings.
+            # Compaction rows reset the window; they are not Atelier savings.
             {"kind": "compaction", "tokens": 50_000, "usd": 0.01, "model": MODEL, "ts": row_ts},
             # Unknown-model rows contribute nothing (never guess a rate).
             {"tool": "grep", "tokens": 1000, "calls": 0, "model": "mystery-model-x", "ts": row_ts},
@@ -349,7 +288,7 @@ def test_read_transcript_stats_includes_subagent_usage(tmp_path: Path) -> None:
 
 
 def test_price_avoided_calls_usd_uses_cache_read_rate() -> None:
-    from lemoncrow.gateway.adapters.mcp_server import _price_avoided_calls_usd
+    from atelier.gateway.adapters.mcp_server import _price_avoided_calls_usd
 
     pricing = get_model_pricing(MODEL)
     assert pricing is not None
@@ -371,7 +310,7 @@ def test_price_avoided_calls_usd_uses_cache_read_rate() -> None:
 
 
 def test_savings_price_at_premium_when_long_context() -> None:
-    from lemoncrow.gateway.adapters.mcp_server import (
+    from atelier.gateway.adapters.mcp_server import (
         _price_avoided_calls_usd,
         _price_tokens_saved_usd,
         _savings_long_context,
@@ -420,41 +359,10 @@ def test_carry_credit_ignores_avoided_calls(tmp_path: Path) -> None:
     assert carry_usd == pytest.approx(pricing.request_cost_usd(cache_read_tokens=2000), abs=1e-9)
 
 
-def test_carry_credit_ignores_input_style_and_turn_cut_rows(tmp_path: Path) -> None:
-    """input_style and turn_cut rows are recurring, per-turn credits re-earned
-    fresh at every Stop fire (input_style: this turn's resend-volume gap;
-    turn_cut: priced via calls/calls_usd, never a token that entered context).
-    Neither represents a token newly written into context, so carrying them
-    forward would compound the same per-turn gap on every later turn as well
-    -- only real realized/output-style rows (genuine avoided context writes)
-    should carry."""
-    base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-    def at(minutes: int) -> str:
-        return (base + timedelta(minutes=minutes)).isoformat()
-
-    _write_sidecar(
-        tmp_path,
-        "s1",
-        [
-            {"kind": "input_style", "tokens": 50_000, "cost_saved_usd": 0.05, "model": MODEL, "ts": at(0)},
-            {"kind": "turn_cut", "calls": 5, "calls_usd": 0.10, "model": MODEL, "ts": at(0)},
-            {"tool": "read", "tokens": 1000, "calls": 0, "model": MODEL, "ts": at(1)},
-        ],
-    )
-    turn_ts = [at(0), at(3), at(4)]
-    carry_tokens, carry_usd = _carry_credit("s1", tmp_path, turn_ts)
-    pricing = get_model_pricing(MODEL)
-    assert pricing is not None
-    # Only the 1000-token realized row carries, over its 2 later real turns;
-    # the 50k input_style tokens and the turn_cut calls add nothing.
-    assert carry_tokens == 2000
-    assert carry_usd == pytest.approx(pricing.request_cost_usd(cache_read_tokens=2000), abs=1e-9)
-
-
-def test_carry_credit_caps_large_writer_accumulated_row_at_context_window(tmp_path: Path) -> None:
-    """Writer-owned rows can exceed 2M, while per-turn carry still cannot
-    exceed the model's context window."""
+def test_carry_credit_caps_resident_at_context_window(tmp_path: Path) -> None:
+    """Tokens carried into any single later turn cannot exceed the model's
+    context window: a session that saved more than a window's worth before a
+    turn is capped at the window, not credited the unbounded cumulative sum."""
     base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     pricing = get_model_pricing(MODEL)
     assert pricing is not None and pricing.context_window > 0
@@ -465,15 +373,17 @@ def test_carry_credit_caps_large_writer_accumulated_row_at_context_window(tmp_pa
         [
             {
                 "tool": "read",
-                "tokens": 3_000_000,
+                "tokens": window,
                 "calls": 0,
                 "model": MODEL,
-                "ts": (base + timedelta(seconds=1)).isoformat(),
+                "ts": (base + timedelta(seconds=i)).isoformat(),
             }
+            for i in range(1, 4)  # 3 x window tokens saved before the turn
         ],
     )
     turn_ts = [(base + timedelta(minutes=1)).isoformat()]
     carry_tokens, carry_usd = _carry_credit("s1", tmp_path, turn_ts)
+    # One later turn: resident capped at one window, not 3x the window.
     assert carry_tokens == window
     assert carry_usd == pytest.approx(pricing.request_cost_usd(cache_read_tokens=window), abs=1e-9)
 
@@ -540,7 +450,7 @@ def test_carry_credit_prices_long_context_rows_at_premium(tmp_path: Path) -> Non
 
 
 def test_cliff_credit_reprices_turns_kept_under_threshold(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.savings_summary import _cliff_credit
+    from atelier.core.capabilities.savings_summary import _cliff_credit
 
     base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -550,11 +460,11 @@ def test_cliff_credit_reprices_turns_kept_under_threshold(tmp_path: Path) -> Non
     _write_sidecar(
         tmp_path,
         "s1",
-        [{"tool": "read", "tokens": 3_000_000, "calls": 0, "model": MODEL, "ts": at(1)}],
+        [{"tool": "read", "tokens": 10_000, "calls": 0, "model": MODEL, "ts": at(1)}],
     )
     pricing = get_model_pricing(MODEL)
     assert pricing is not None and pricing.long_context_threshold() == 200_000
-    # 196k actual + the accumulated saving crosses 200k: the whole request would have
+    # 196k actual + 10k saved = 206k > 200k: the whole request would have
     # billed premium — credit the premium-minus-base delta on actual usage.
     turn = {"ts": at(2), "model": MODEL, "in": 1000, "out": 100, "cR": 190_000, "cW": 5000}
     expected = pricing.request_cost_usd(
@@ -564,10 +474,9 @@ def test_cliff_credit_reprices_turns_kept_under_threshold(tmp_path: Path) -> Non
     )
     assert expected > 0
     assert _cliff_credit("s1", tmp_path, [turn]) == pytest.approx(expected, abs=1e-6)
-    # A genuinely small saving would not cross the threshold: no credit.
+    # Would not have crossed even with the saved tokens: no credit.
     small = {"ts": at(2), "model": MODEL, "in": 1000, "out": 100, "cR": 100_000, "cW": 5000}
-    small_rows = [{"tool": "read", "tokens": 10_000, "calls": 0, "model": MODEL, "ts": at(1)}]
-    assert _cliff_credit("s1", tmp_path, [small], rows=small_rows) == 0.0
+    assert _cliff_credit("s1", tmp_path, [small]) == 0.0
     # Already over the threshold: billed premium for real; savings rows are
     # premium-priced at write time instead — nothing to credit here.
     over = {"ts": at(2), "model": MODEL, "in": 1000, "out": 100, "cR": 210_000, "cW": 5000}
@@ -588,12 +497,10 @@ def test_sidecar_and_identity_route_to_live_window_session_after_clear(
     """
     import json
 
-    from lemoncrow.core.foundation import session_window as sw
-    from lemoncrow.gateway.adapters import mcp_server as m
-    from lemoncrow.gateway.adapters.mcp import ledger as mcp_ledger
+    from atelier.core.foundation import session_window as sw
+    from atelier.gateway.adapters import mcp_server as m
 
-    monkeypatch.setattr(m, "_lemoncrow_root", lambda: tmp_path)
-    monkeypatch.setattr(mcp_ledger, "_lemoncrow_root", lambda: tmp_path)
+    monkeypatch.setattr(m, "_atelier_root", lambda: tmp_path)
     workspace = tmp_path / "ws"
     workspace.mkdir()
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
@@ -602,9 +509,9 @@ def test_sidecar_and_identity_route_to_live_window_session_after_clear(
     # Anchor both resolvers to one fixed window and reset the MCP-side caches so
     # the monkeypatched window id / file are re-read.
     monkeypatch.setattr(sw, "host_window_id", lambda *a, **k: (4242, 99))
-    monkeypatch.setattr(mcp_ledger, "_MCP_WINDOW_ID", None)
-    monkeypatch.setattr(mcp_ledger, "_MCP_WINDOW_ID_RESOLVED", False)
-    monkeypatch.setattr(mcp_ledger, "_WINDOW_SID_CACHE", None)
+    monkeypatch.setattr(m, "_MCP_WINDOW_ID", None, raising=False)
+    monkeypatch.setattr(m, "_MCP_WINDOW_ID_RESOLVED", False, raising=False)
+    monkeypatch.setattr(m, "_WINDOW_SID_CACHE", None, raising=False)
 
     # MCP launched in 'launch-sid'; the user then /cleared into 'active-sid',
     # which SessionStart recorded in this window's own identity file.
@@ -614,7 +521,7 @@ def test_sidecar_and_identity_route_to_live_window_session_after_clear(
     win_file.write_text(json.dumps({"session_id": "active-sid"}), encoding="utf-8")
 
     # Identity (ledger/telemetry) and savings BOTH follow the live window id.
-    from lemoncrow.core.foundation.paths import session_dir
+    from atelier.core.foundation.paths import session_dir
 
     assert m._claude_session_id() == "active-sid"
     assert m._get_host_session_sidecar_path() == session_dir(tmp_path, "claude", "active-sid") / "savings.jsonl"
@@ -622,7 +529,7 @@ def test_sidecar_and_identity_route_to_live_window_session_after_clear(
     # Before SessionStart writes this window's file (first calls / hookless
     # launchers), fall back to the launch env var so early savings still record.
     win_file.unlink()
-    monkeypatch.setattr(mcp_ledger, "_WINDOW_SID_CACHE", None)
+    monkeypatch.setattr(m, "_WINDOW_SID_CACHE", None, raising=False)
     monkeypatch.setattr(m, "_SAVINGS_SIDECAR_PATH_BY_SID", {}, raising=False)
     assert m._get_host_session_sidecar_path() == session_dir(tmp_path, "claude", "launch-sid") / "savings.jsonl"
 
@@ -639,11 +546,11 @@ def test_append_savings_unresolved_session_routes_to_quarantine_ledger(
     """
     import json
 
-    from lemoncrow.core.capabilities.savings_summary import _scan_savings_files
-    from lemoncrow.core.foundation.paths import find_session_dir
-    from lemoncrow.gateway.adapters import mcp_server as m
+    from atelier.core.capabilities.savings_summary import _scan_savings_files
+    from atelier.core.foundation.paths import find_session_dir
+    from atelier.gateway.adapters import mcp_server as m
 
-    monkeypatch.setattr(m, "_lemoncrow_root", lambda: tmp_path)
+    monkeypatch.setattr(m, "_atelier_root", lambda: tmp_path)
     workspace = tmp_path / "ws"
     workspace.mkdir()
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))

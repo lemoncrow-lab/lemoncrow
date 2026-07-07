@@ -1,21 +1,18 @@
-# LemonCrow Documentation
+# Atelier Documentation
 
-Welcome to [LemonCrow](https://github.com/lemoncrow-lab/lemoncrow) — the open-source (Apache-2.0), local-first context and execution runtime for coding agents. LemonCrow is a fully local, account-free tool in low-maintenance mode.
+Welcome to [Atelier](https://atelier.ws) — the open-source runtime engineering platform for AI agents.
 
-LemonCrow keeps existing agents sharp on real codebases with a ranked code graph, exact-range tools, bounded output, durable memory, verification, and auditable runtime controls across Claude Code, Codex, Copilot, opencode, LangChain, and MCP-compatible hosts.
+Atelier is an MCP server + SDK middleware that gives every agent shared procedures, code intelligence, cost tracking, and cross-vendor routing — across Claude Code, Codex, Copilot, LangChain, and any MCP host.
 
 ## Quick Links
 
-| Section                                           | Description                                                                                           |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| [Installation](./installation.md)                 | Install script, background services, modes, storage, and uninstall                                    |
-| [Privacy & Network](./privacy.md)                 | What runs locally, network behavior, and telemetry (off by default, opt-in)                           |
-| [Licensing](./licensing.md)                       | Apache-2.0 in full and the optional (gates-nothing) account                                           |
-| [CLI Reference](./cli.md)                         | Current public CLI reference                                                                          |
-| [Benchmark Results](./benchmarks/results.md)      | Every suite, every number, every raw-run link -- and the retrieval eval vs 10 named code-search tools |
-| [Troubleshooting](./troubleshooting.md)           | Common install, runtime, and background service issues                                                |
-| [Self-hosting notes](./production-readiness.md)   | Optional operational notes for running the local service yourself                                     |
-| [Maintenance-mode transition](./maintenance-mode-transition.md) | Background on the move to a fully local, account-free runtime                            |
+| Section                                           | Description                                             |
+| ------------------------------------------------- | ------------------------------------------------------- |
+| [Installation](./installation.md)                 | Install script, background services, modes, and storage |
+| [Plans & Pricing](./pricing.md)                   | Free vs Pro / Team / Enterprise, billing, activation    |
+| [CLI Reference](./cli.md)                         | Current public CLI reference                            |
+| [Troubleshooting](./troubleshooting.md)           | Common install, runtime, and background service issues  |
+| [Production Readiness](./production-readiness.md) | Production and self-hosted deployment checklist         |
 
 ## Host Integrations
 
@@ -47,4 +44,4 @@ LemonCrow keeps existing agents sharp on real codebases with a ranked code graph
 
 ---
 
-**Links:** [GitHub](https://github.com/lemoncrow-lab/lemoncrow) · [Privacy](./privacy.md) · [License](../LICENSE)
+**Links:** [Website](https://atelier.ws) · [GitHub](https://github.com/atelier-ws/atelier) · [Contact](mailto:contact@atelier.ws)

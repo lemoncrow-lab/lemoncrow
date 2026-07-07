@@ -1,6 +1,6 @@
-# LemonCrow MCP
+# Atelier MCP
 
-LemonCrow's MCP server is the host-neutral transport for context retrieval,
+Atelier's MCP server is the host-neutral transport for context retrieval,
 rescue, trace recording, rubric gates, memory, and code-aware helper tools.
 
 ## Start Modes
@@ -8,27 +8,26 @@ rescue, trace recording, rubric gates, memory, and code-aware helper tools.
 ### Installed product
 
 ```bash
-lc mcp
+atelier mcp
 ```
 
 ### Source checkout
 
 ```bash
-cd lemoncrow
-uv run lemoncrow mcp
+cd atelier
+uv run atelier mcp
 ```
 
 ### Remote service-backed mode
 
-Set `LEMONCROW_SERVICE_URL` (plus `LEMONCROW_API_KEY` if the service requires auth)
-to route the supported core calls through the HTTP service. Remote mode is
-enabled whenever `LEMONCROW_SERVICE_URL` is set; unset it to run fully local.
+Set `ATELIER_MCP_MODE=remote` plus `ATELIER_SERVICE_URL` and `ATELIER_API_KEY`
+to route the supported core calls through the HTTP service.
 
 ## Active vs. Passive Mode
 
-LemonCrow distinguishes between developer mode and passive compatibility mode.
+Atelier distinguishes between developer mode and passive compatibility mode.
 
-- With `LEMONCROW_DEV_MODE=1`, the stdio MCP server exposes the full active tool surface.
+- With `ATELIER_DEV_MODE=1`, the stdio MCP server exposes the full active tool surface.
 - Without developer mode, `record` remains active and the host may still see some
   compatibility tools as passive `noop` surfaces, but context/retrieval/edit
   workflows are intentionally not active.
@@ -37,7 +36,7 @@ LemonCrow distinguishes between developer mode and passive compatibility mode.
 
 ## Active Tool Names
 
-With `LEMONCROW_DEV_MODE=1`, the current stdio MCP registry exposes these tool
+With `ATELIER_DEV_MODE=1`, the current stdio MCP registry exposes these tool
 names:
 
 - `context`
@@ -63,7 +62,7 @@ names:
 
 ## Remote Mode Coverage
 
-In remote MCP mode, LemonCrow currently forwards the core service-backed flows for:
+In remote MCP mode, Atelier currently forwards the core service-backed flows for:
 
 - context retrieval via `/v1/reasoning/context`
 - rescue via `/v1/reasoning/rescue`
@@ -78,11 +77,11 @@ Installed-product config:
 ```json
 {
   "mcpServers": {
-    "lc": {
-      "command": "lc mcp",
+    "atelier": {
+      "command": "atelier mcp",
       "env": {
-        "LEMONCROW_ROOT": "~/.lemoncrow",
-        "LEMONCROW_WORKSPACE_ROOT": "."
+        "ATELIER_ROOT": "~/.atelier",
+        "ATELIER_WORKSPACE_ROOT": "."
       }
     }
   }
@@ -94,13 +93,13 @@ Source-checkout config:
 ```json
 {
   "mcpServers": {
-    "lc": {
+    "atelier": {
       "command": "uv",
-      "args": ["run", "lc mcp"],
-      "cwd": "/abs/path/to/lemoncrow",
+      "args": ["run", "atelier mcp"],
+      "cwd": "/abs/path/to/atelier",
       "env": {
-        "LEMONCROW_ROOT": "~/.lemoncrow",
-        "LEMONCROW_WORKSPACE_ROOT": "."
+        "ATELIER_ROOT": "~/.atelier",
+        "ATELIER_WORKSPACE_ROOT": "."
       }
     }
   }
@@ -109,6 +108,6 @@ Source-checkout config:
 
 ## Embedding via SDK
 
-When you want the MCP contract in-process, use `LemonCrowClient.mcp()` from the
+When you want the MCP contract in-process, use `AtelierClient.mcp()` from the
 Python SDK. It mirrors the same tool semantics and dev-mode gating rules as the
 stdio server.

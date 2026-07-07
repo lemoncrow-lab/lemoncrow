@@ -1,1 +1,0 @@
-- When using subagents use `lemoncrow:*` agents. general-purpose = `lemoncrow:general`, Explore = `lemoncrow:explore`, Web/Research = `lemoncrow:research`.

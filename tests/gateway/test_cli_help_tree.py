@@ -16,7 +16,7 @@ from __future__ import annotations
 import click
 from click.testing import CliRunner
 
-from lemoncrow.gateway.cli import cli
+from atelier.gateway.cli import cli
 
 
 def _walk(cmd: click.Command, path: list[str], out: list[str]) -> None:
@@ -39,7 +39,7 @@ def _walk(cmd: click.Command, path: list[str], out: list[str]) -> None:
 def render_help_tree() -> str:
     """Render the full recursive ``--help`` tree as a deterministic string."""
     out: list[str] = []
-    _walk(cli, ["lc"], out)
+    _walk(cli, ["atelier"], out)
     return "\n\n=====\n\n".join(out)
 
 
@@ -66,13 +66,13 @@ def test_help_tree_contains_expected_public_groups() -> None:
     """Core public groups must appear in the rendered tree."""
     tree = render_help_tree()
     for group in ("benchmark", "stack", "servicectl", "ledger"):
-        assert f"lc {group}\n" in tree, f"missing group: {group}"
+        assert f"atelier {group}\n" in tree, f"missing group: {group}"
 
 
 def test_help_tree_includes_hidden_command_paths() -> None:
     """Hidden commands are walked too -- assert their explicit paths exist."""
     tree = render_help_tree()
-    for hidden_path in ("lc stack run\n", "lc servicectl run\n", "lc systemd\n"):
+    for hidden_path in ("atelier stack run\n", "atelier servicectl run\n", "atelier systemd\n"):
         assert hidden_path in tree, f"missing hidden path: {hidden_path!r}"
 
     # And they must be directly resolvable via get_command recursion.
@@ -92,21 +92,21 @@ def test_help_tree_excludes_mcp_only_entries() -> None:
     """
     tree = render_help_tree()
     for mcp_only in (
-        "lc context\n",
-        "lc rescue\n",
-        "lc verify\n",
-        "lc read\n",
-        "lc edit\n",
-        "lc search\n",
+        "atelier context\n",
+        "atelier rescue\n",
+        "atelier verify\n",
+        "atelier read\n",
+        "atelier edit\n",
+        "atelier search\n",
     ):
         assert mcp_only not in tree, f"leaked MCP-only command: {mcp_only!r}"
 
     # The live ``route``/``memory`` groups must remain present.
-    assert "lc route\n" in tree
-    assert "lc memory\n" in tree
+    assert "atelier route\n" in tree
+    assert "atelier memory\n" in tree
 
 
 def test_top_level_help_still_succeeds() -> None:
-    """`lc --help` must still exit 0 on the rendered CLI."""
+    """`atelier --help` must still exit 0 on the rendered CLI."""
     result = CliRunner().invoke(cli, ["--help"])
     assert result.exit_code == 0, result.output

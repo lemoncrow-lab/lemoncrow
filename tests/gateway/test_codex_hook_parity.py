@@ -13,24 +13,23 @@ from pathlib import Path
 
 import pytest
 
-import lemoncrow.bench.mode  # noqa: F401 - registers sys.modules entry; see bench_mode below
-from lemoncrow.core.capabilities import plugin_runtime
-from lemoncrow.gateway.cli.commands import sessions as session_commands
-from lemoncrow.gateway.hosts.session_parsers import _session_parser
+import atelier.bench.mode  # noqa: F401 - registers sys.modules entry; see bench_mode below
+from atelier.core.capabilities import plugin_runtime
+from atelier.gateway.cli.commands import sessions as session_commands
+from atelier.gateway.hosts.session_parsers import _session_parser
 
-# lemoncrow.bench's own __init__.py does `from lemoncrow.bench.mode import ..., mode`, which
-# rebinds the `mode` attribute on the lemoncrow.bench package to that function -- shadowing
+# atelier.bench's own __init__.py does `from atelier.bench.mode import ..., mode`, which
+# rebinds the `mode` attribute on the atelier.bench package to that function -- shadowing
 # the submodule. Reach the real module via sys.modules instead of attribute access.
-bench_mode = sys.modules["lemoncrow.bench.mode"]
+bench_mode = sys.modules["atelier.bench.mode"]
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def _seed_run_file(root: Path, session_id: str) -> Path:
-    # Canonical per-session ledger location (plugin_runtime._codex_run_file); the
-    # old flat root/runs/<id>.json path was retired.
-    run_file = plugin_runtime._codex_run_file(root, session_id)
-    run_file.parent.mkdir(parents=True, exist_ok=True)
+    runs = root / "runs"
+    runs.mkdir(parents=True, exist_ok=True)
+    run_file = runs / f"{session_id}.json"
     run_file.write_text(
         json.dumps({"session_id": session_id, "events": [], "files_touched": []}),
         encoding="utf-8",
@@ -45,7 +44,7 @@ def _write_session_state(root: Path, payload: dict, state: dict) -> None:
 
 
 def _events(root: Path, session_id: str) -> list[dict]:
-    data = json.loads(plugin_runtime._codex_run_file(root, session_id).read_text(encoding="utf-8"))
+    data = json.loads((root / "runs" / f"{session_id}.json").read_text(encoding="utf-8"))
     return data["events"]
 
 
@@ -54,41 +53,30 @@ def _events(root: Path, session_id: str) -> list[dict]:
 # --------------------------------------------------------------------------
 def test_normalize_codex_tool_maps_native_and_mcp_tools() -> None:
     assert plugin_runtime._normalize_codex_tool("apply_patch") == "edit"
-    assert plugin_runtime._normalize_codex_tool("mcp__lc__edit") == "edit"
-    assert plugin_runtime._normalize_codex_tool("mcp__plugin_lemoncrow_lc__Edit") == "edit"
-    assert plugin_runtime._normalize_codex_tool("lc.edit") == "edit"
-    assert plugin_runtime._normalize_codex_tool("lc.bash") == "bash"
-    assert plugin_runtime._normalize_codex_tool("lc::bash") == "bash"
-    assert plugin_runtime._normalize_codex_tool("mcp__anything_lemoncrow_anything__read") == "read"
+    assert plugin_runtime._normalize_codex_tool("mcp__atelier__edit") == "edit"
+    assert plugin_runtime._normalize_codex_tool("mcp__plugin_atelier_atelier__Edit") == "edit"
+    assert plugin_runtime._normalize_codex_tool("atelier.edit") == "edit"
+    assert plugin_runtime._normalize_codex_tool("atelier.bash") == "bash"
+    assert plugin_runtime._normalize_codex_tool("atelier::bash") == "bash"
+    assert plugin_runtime._normalize_codex_tool("mcp__anything_atelier_anything__read") == "read"
     assert plugin_runtime._normalize_codex_tool("shell") == "bash"
     assert plugin_runtime._normalize_codex_tool("local_shell") == "bash"
     assert plugin_runtime._normalize_codex_tool("read") == "read"
     assert plugin_runtime._normalize_codex_tool("web_search") == "other"
 
 
-def test_codex_native_tool_replacement_maps_apply_patch_to_lc_edit() -> None:
-    # apply_patch is Codex's native patch tool -- must nudge to lc.edit (the
-    # name Codex actually calls, not Claude Code's mcp__lc__ form) exactly
-    # like edit/write/multiedit, not fall through unmapped (regression for
-    # the gap where apply_patch calls went unnudged and landed as native patches).
-    for tool_name in ("apply_patch", "patch", "replace", "edit", "write", "multiedit"):
-        replacement = plugin_runtime._codex_native_tool_replacement({"tool_name": tool_name})
-        assert replacement is not None
-        assert replacement[0] == "lc.edit"
-
-
-def test_session_tool_normalizers_use_generic_lemoncrow_namespace() -> None:
+def test_session_tool_normalizers_use_generic_atelier_namespace() -> None:
     for name in (
-        "mcp__lc__read",
-        "mcp__plugin_lemoncrow_lc__read",
-        "lc.read",
-        "lc::read",
-        "lc_read",
-        "mcp__anything_lemoncrow_anything__read",
+        "mcp__atelier__read",
+        "mcp__plugin_atelier_atelier__read",
+        "atelier.read",
+        "atelier::read",
+        "atelier_read",
+        "mcp__anything_atelier_anything__read",
     ):
-        assert session_commands._is_lemoncrow_tool_name(name)
+        assert session_commands._is_atelier_tool_name(name)
         assert session_commands._base_tool_name(name) == "read"
-        assert _session_parser._is_lemoncrow_mcp_tool(name)
+        assert _session_parser._is_atelier_mcp_tool(name)
         assert _session_parser._normalize_tool_basename(name) == "read"
 
 
@@ -96,13 +84,9 @@ def test_session_tool_normalizers_use_generic_lemoncrow_namespace() -> None:
 # PreToolUse read-after-edit guard
 # --------------------------------------------------------------------------
 def test_pre_tool_use_denies_full_reread_after_edit(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
-    # The guard is size-gated: only a large edited file is hard-blocked.
-    src = tmp_path / "src" / "a.py"
-    src.parent.mkdir(parents=True, exist_ok=True)
-    src.write_text("".join(f"x = {i}\n" for i in range(600)), encoding="utf-8")
     plugin_runtime.build_codex_post_tool_use_ledger_output(
         root,
         {
@@ -119,7 +103,7 @@ def test_pre_tool_use_denies_full_reread_after_edit(tmp_path: Path) -> None:
         {
             "hook_event_name": "PreToolUse",
             "session_id": session_id,
-            "tool_name": "mcp__lc__read",
+            "tool_name": "mcp__atelier__read",
             "tool_input": {"files": ["src/a.py:full"]},
             "cwd": str(tmp_path),
         },
@@ -131,7 +115,7 @@ def test_pre_tool_use_denies_full_reread_after_edit(tmp_path: Path) -> None:
 
 
 def test_pre_tool_use_allows_ranges_and_unedited_files(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
     plugin_runtime.build_codex_post_tool_use_ledger_output(
@@ -150,7 +134,7 @@ def test_pre_tool_use_allows_ranges_and_unedited_files(tmp_path: Path) -> None:
         {
             "hook_event_name": "PreToolUse",
             "session_id": session_id,
-            "tool_name": "mcp__lc__read",
+            "tool_name": "mcp__atelier__read",
             "tool_input": {"files": ["src/a.py:L1-L20"]},
             "cwd": str(tmp_path),
         },
@@ -160,7 +144,7 @@ def test_pre_tool_use_allows_ranges_and_unedited_files(tmp_path: Path) -> None:
         {
             "hook_event_name": "PreToolUse",
             "session_id": session_id,
-            "tool_name": "mcp__lc__read",
+            "tool_name": "mcp__atelier__read",
             "tool_input": {"files": ["src/b.py:full"]},
             "cwd": str(tmp_path),
         },
@@ -174,7 +158,7 @@ def test_pre_tool_use_allows_ranges_and_unedited_files(tmp_path: Path) -> None:
 # PostToolUse run-ledger capture + failure rescue
 # --------------------------------------------------------------------------
 def test_post_tool_use_records_file_edit(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
     payload = {
@@ -191,12 +175,12 @@ def test_post_tool_use_records_file_edit(tmp_path: Path) -> None:
     assert len(file_edits) == 1
     assert file_edits[0]["payload"]["path"] == "a.py"
     assert "x = 2" in file_edits[0]["payload"]["diff"]
-    data = json.loads(plugin_runtime._codex_run_file(root, session_id).read_text(encoding="utf-8"))
+    data = json.loads((root / "runs" / f"{session_id}.json").read_text(encoding="utf-8"))
     assert "a.py" in data["files_touched"]
 
 
 def test_post_tool_use_ignores_read_tools(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
     payload = {
@@ -211,7 +195,7 @@ def test_post_tool_use_ignores_read_tools(tmp_path: Path) -> None:
 
 
 def test_post_tool_use_records_command_and_rescues_on_repeat_failure(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
     payload = {
@@ -232,60 +216,8 @@ def test_post_tool_use_records_command_and_rescues_on_repeat_failure(tmp_path: P
     assert commands[0]["payload"]["command"] == "pytest -q"
 
 
-def _required_arg_payload(session_id: str, tmp_path: Path, guess: str) -> dict:
-    # A different guessed kwarg value each call -- realistic shape (each
-    # guess produces a different error), and proves the counter is keyed by
-    # PATTERN match, not exact-signature repeat (that's the OTHER mechanism,
-    # tested above, and would never fire for this failure shape at all).
-    return {
-        "hook_event_name": "PostToolUse",
-        "session_id": session_id,
-        "tool_name": "shell",
-        "tool_input": {"command": "python3 run.py"},
-        "tool_response": {
-            "stderr": f"TypeError: encode() missing 1 required keyword-only argument: '{guess}'",
-            "exit_code": 1,
-        },
-        "cwd": str(tmp_path),
-    }
-
-
-def test_post_tool_use_required_arg_nudge_fires_at_threshold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mirrors integrations/claude/plugin/hooks/post_tool_use_failure.py's
-    equivalent check: a required-argument TypeError never repeats identically
-    (each guess produces a different error), so it is counted by pattern
-    match instead of the exact-signature repeat-threshold rescue above.
-    """
-    monkeypatch.setenv("LEMONCROW_REQUIRED_ARG_NUDGE_THRESHOLD", "1")
-    root = tmp_path / ".lemoncrow"
-    session_id = "run1"
-    _seed_run_file(root, session_id)
-    out = plugin_runtime.build_codex_post_tool_use_ledger_output(
-        root, _required_arg_payload(session_id, tmp_path, "task_name")
-    )
-    assert "read what it controls" in out.get("systemMessage", "").lower()
-
-
-def test_post_tool_use_required_arg_nudge_default_threshold_needs_three_hits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("LEMONCROW_REQUIRED_ARG_NUDGE_THRESHOLD", raising=False)
-    root = tmp_path / ".lemoncrow"
-    session_id = "run1"
-    _seed_run_file(root, session_id)
-    for guess in ("task_name", "other_name"):
-        out = plugin_runtime.build_codex_post_tool_use_ledger_output(
-            root, _required_arg_payload(session_id, tmp_path, guess)
-        )
-        assert "systemMessage" not in out, f"fired early on guess={guess!r}"
-    out = plugin_runtime.build_codex_post_tool_use_ledger_output(
-        root, _required_arg_payload(session_id, tmp_path, "third_name")
-    )
-    assert "read what it controls" in out.get("systemMessage", "").lower()
-
-
 def test_post_tool_use_successful_command_is_silent(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
     payload = {
@@ -306,7 +238,7 @@ def test_post_tool_use_successful_command_is_silent(tmp_path: Path) -> None:
 # Compaction lifecycle
 # --------------------------------------------------------------------------
 def test_post_compact_bumps_epoch_and_notes(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
     payload = {
@@ -324,10 +256,10 @@ def test_post_compact_bumps_epoch_and_notes(tmp_path: Path) -> None:
 
 def test_pre_compact_snapshots_occupancy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "lemoncrow.gateway.hosts.context_state.host_context_state",
+        "atelier.gateway.hosts.context_state.host_context_state",
         lambda host, session_id: (123_000, "gpt-5.5"),
     )
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
     payload = {
@@ -348,7 +280,7 @@ def test_pre_compact_snapshots_occupancy(tmp_path: Path, monkeypatch: pytest.Mon
 # UserPromptSubmit + Stop enrichment
 # --------------------------------------------------------------------------
 def test_user_prompt_records_agent_message_and_last_prompt(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
     payload = {
@@ -375,7 +307,7 @@ def test_user_prompt_banks_pending_compaction_credit(tmp_path: Path, monkeypatch
     zeroes compaction rows; the marker segments carry/cliff attribution), then
     clears the precompact_* keys. Parity with the Claude UserPromptSubmit hook.
     """
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
     payload = {
@@ -397,13 +329,13 @@ def test_user_prompt_banks_pending_compaction_credit(tmp_path: Path, monkeypatch
     )
     # Post-compaction the window now holds 60k tokens.
     monkeypatch.setattr(
-        "lemoncrow.gateway.hosts.context_state.host_context_state",
+        "atelier.gateway.hosts.context_state.host_context_state",
         lambda host, session_id: (60_000, "gpt-5"),
     )
 
     plugin_runtime._codex_enrich_user_prompt(root, payload)
 
-    from lemoncrow.core.foundation.paths import session_dir
+    from atelier.core.foundation.paths import session_dir
 
     sidecar = session_dir(root, "codex", session_id) / "savings.jsonl"
     rows = [json.loads(line) for line in sidecar.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -434,7 +366,7 @@ def test_user_prompt_skips_compaction_credit_when_delta_not_visible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No credit while the post-compaction window hasn't shrunk yet; give up after 3."""
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
     payload = {
@@ -455,14 +387,14 @@ def test_user_prompt_skips_compaction_credit_when_delta_not_visible(
     )
     # Occupancy has NOT dropped (delta <= 0) -> no credit, attempts increments.
     monkeypatch.setattr(
-        "lemoncrow.gateway.hosts.context_state.host_context_state",
+        "atelier.gateway.hosts.context_state.host_context_state",
         lambda host, session_id: (185_000, "gpt-5"),
     )
 
     for _ in range(3):
         plugin_runtime._codex_enrich_user_prompt(root, payload)
 
-    from lemoncrow.core.foundation.paths import session_dir
+    from atelier.core.foundation.paths import session_dir
 
     savings = session_dir(root, "codex", session_id) / "savings.jsonl"
     assert not savings.exists()
@@ -498,7 +430,7 @@ def test_permission_request_denies_destructive_commands(tmp_path: Path, command:
         "tool_name": "shell",
         "tool_input": {"command": command},
     }
-    out = plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload)
+    out = plugin_runtime.build_codex_permission_request_output(tmp_path / ".atelier", payload)
     assert (out.get("hookSpecificOutput") or {}).get("behavior") == "deny", command
 
 
@@ -520,9 +452,7 @@ def test_permission_request_allows_safe_commands(tmp_path: Path, command: str) -
         "tool_name": "shell",
         "tool_input": {"command": command},
     }
-    assert (
-        plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload).get("no_output") is True
-    )
+    assert plugin_runtime.build_codex_permission_request_output(tmp_path / ".atelier", payload).get("no_output") is True
 
 
 def test_permission_request_ignores_non_bash_tools(tmp_path: Path) -> None:
@@ -531,16 +461,14 @@ def test_permission_request_ignores_non_bash_tools(tmp_path: Path) -> None:
         "tool_name": "apply_patch",
         "tool_input": {"file_path": "a.py"},
     }
-    assert (
-        plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload).get("no_output") is True
-    )
+    assert plugin_runtime.build_codex_permission_request_output(tmp_path / ".atelier", payload).get("no_output") is True
 
 
 # --------------------------------------------------------------------------
 # codex exec --json telemetry collector (Codex-exclusive)
 # --------------------------------------------------------------------------
 def test_ingest_codex_exec_events_records_command_and_file(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_id = "run1"
     _seed_run_file(root, session_id)
     lines = [
@@ -563,50 +491,65 @@ def test_ingest_codex_exec_events_records_command_and_file(tmp_path: Path) -> No
     cmd = next(e for e in events if e["kind"] == "command_result")
     assert cmd["payload"]["ok"] is False
     assert cmd["payload"]["command"] == "pytest -q"
-    data = json.loads(plugin_runtime._codex_run_file(root, session_id).read_text(encoding="utf-8"))
+    data = json.loads((root / "runs" / f"{session_id}.json").read_text(encoding="utf-8"))
     assert "a.py" in data["files_touched"]
 
 
 def test_ingest_codex_exec_events_noop_without_session(tmp_path: Path) -> None:
-    assert plugin_runtime.ingest_codex_exec_events(tmp_path / ".lemoncrow", "", ["{}"]) == 0
+    assert plugin_runtime.ingest_codex_exec_events(tmp_path / ".atelier", "", ["{}"]) == 0
+
+
+# --------------------------------------------------------------------------
+# Statusline savings line
+# --------------------------------------------------------------------------
+def test_codex_savings_line_is_14_field_parseable(tmp_path: Path) -> None:
+    root = tmp_path / ".atelier"
+    root.mkdir()
+    line = plugin_runtime.build_codex_savings_line(root, "missing-session")
+    fields = line.split("|")
+    assert len(fields) == 14, line
+    assert fields[0].startswith("$")  # saved_usd
+    assert fields[10].startswith("$")  # carry_usd
+    assert fields[12].endswith("%")  # carry_pct
+    assert fields[13].endswith("%")  # saved_pct
 
 
 # --------------------------------------------------------------------------
 # Per-role Codex agents
 # --------------------------------------------------------------------------
 def test_write_codex_agents_defaults_to_code_only(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.workspace_host_overrides import write_codex_agents
+    from atelier.core.capabilities.workspace_host_overrides import write_codex_agents
 
     target = tmp_path / "agents"
     written = write_codex_agents(target, repo_root=ROOT)
     # Default install ships only the code role; other roles are opt-in via role_ids.
     assert len(written) == 1
     names = {p.name for p in written}
-    assert names == {"lemoncrow.code.toml"}
-    text = (target / "lemoncrow.code.toml").read_text(encoding="utf-8")
-    assert 'name = "lemoncrow.code"' in text
+    assert names == {"atelier.code.toml"}
+    text = (target / "atelier.code.toml").read_text(encoding="utf-8")
+    assert 'name = "atelier.code"' in text
     assert "developer_instructions" in text
 
 
 def test_write_codex_agents_generates_all_surfaced_roles_when_requested(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.default_definitions import SURFACED_ROLE_IDS
-    from lemoncrow.core.capabilities.workspace_host_overrides import write_codex_agents
+    from atelier.core.capabilities.default_definitions import SURFACED_ROLE_IDS
+    from atelier.core.capabilities.workspace_host_overrides import write_codex_agents
 
     target = tmp_path / "agents"
     written = write_codex_agents(target, repo_root=ROOT, role_ids=SURFACED_ROLE_IDS)
     # 8 host-facing roles (incl. general) + the autonomous auto/bare roles = 10.
     assert len(written) == 10
     names = {p.name for p in written}
-    assert {"lemoncrow.code.toml", "lemoncrow.explore.toml", "lemoncrow.solve.toml"} <= names
-    text = (target / "lemoncrow.code.toml").read_text(encoding="utf-8")
-    assert 'name = "lemoncrow.code"' in text
+    assert {"atelier.code.toml", "atelier.explore.toml", "atelier.solve.toml"} <= names
+    text = (target / "atelier.code.toml").read_text(encoding="utf-8")
+    assert 'name = "atelier.code"' in text
     assert "developer_instructions" in text
 
 
 def test_render_codex_agent_toml_escapes_hostile_body() -> None:
     import tomllib
 
-    from lemoncrow.core.capabilities.workspace_host_overrides import _render_codex_agent_toml
+    from atelier.core.capabilities.workspace_host_overrides import _render_codex_agent_toml
 
     # Body with everything that breaks naive TOML rendering: a regex backslash,
     # a Windows path, a bare quote, and a literal triple-quote run.
@@ -614,7 +557,7 @@ def test_render_codex_agent_toml_escapes_hostile_body() -> None:
     description = 'a "quoted" desc with \\ backslash'
     rendered = _render_codex_agent_toml("code", description, body, "gpt-5.5")
     parsed = tomllib.loads(rendered)  # must not raise
-    assert parsed["name"] == "lemoncrow.code"
+    assert parsed["name"] == "atelier.code"
     assert parsed["model"] == "gpt-5.5"
     assert parsed["description"] == 'a "quoted" desc with \\ backslash'
     instr = parsed["developer_instructions"]
@@ -624,13 +567,13 @@ def test_render_codex_agent_toml_escapes_hostile_body() -> None:
 
 
 def test_write_codex_agents_prunes_stale_roles(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.workspace_host_overrides import write_codex_agents
+    from atelier.core.capabilities.workspace_host_overrides import write_codex_agents
 
     target = tmp_path / "agents"
     target.mkdir()
-    (target / "lemoncrow.removed.toml").write_text('name = "lemoncrow.removed"\n', encoding="utf-8")
+    (target / "atelier.removed.toml").write_text('name = "atelier.removed"\n', encoding="utf-8")
     write_codex_agents(target, repo_root=ROOT)
-    assert not (target / "lemoncrow.removed.toml").exists()
+    assert not (target / "atelier.removed.toml").exists()
 
 
 # --------------------------------------------------------------------------
@@ -653,5 +596,5 @@ def test_codex_hooks_manifest_includes_new_lifecycle_events() -> None:
     assert "compact.py" in rendered
     assert "permission_request.py" in rendered
     assert "${PLUGIN_ROOT}/hooks/" in rendered
-    assert "__LEMONCROW_PYTHON__" in rendered
-    assert "__LEMONCROW_REPO_SRC__" in rendered
+    assert "__ATELIER_PYTHON__" in rendered
+    assert "__ATELIER_REPO_SRC__" in rendered

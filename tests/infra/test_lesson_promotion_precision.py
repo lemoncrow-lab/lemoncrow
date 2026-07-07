@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.foundation.models import Playbook, Trace
-from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
-from lemoncrow.infra.storage.vector import generate_embedding
-from lemoncrow.pro.capabilities.lesson_promotion import LessonPromoterCapability
+from atelier.core.capabilities.lesson_promotion import LessonPromoterCapability
+from atelier.core.foundation.models import Playbook, Trace
+from atelier.core.foundation.store import ContextStore
+from atelier.infra.storage.vector import generate_embedding
 
 
 class _FixtureEmbedder:
@@ -25,12 +25,13 @@ def _fixture_path() -> Path:
 
 def test_lesson_promotion_precision_on_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.lesson_promotion.capability.draft_lesson_body",
+        "atelier.core.capabilities.lesson_promotion.capability.draft_lesson_body",
         lambda traces: "fixture lesson body",
     )
-    store = build_sqlite_store_bundle(tmp_path / ".lemoncrow")
+    store = ContextStore(tmp_path / ".atelier")
     store.init()
-    store.knowledge.upsert_block(
+    # Seed one existing block so edit_block candidates have a meaningful target.
+    store.upsert_block(
         Playbook(
             id="rb-permission-precheck",
             title="Permission precheck before writes",
@@ -42,9 +43,12 @@ def test_lesson_promotion_precision_on_fixture(tmp_path: Path, monkeypatch: pyte
         ),
         write_markdown=False,
     )
+
     promoter = LessonPromoterCapability(store, embedder=_FixtureEmbedder(), cluster_threshold=0.45)
+
     predicted = 0
     correct = 0
+
     with _fixture_path().open("r", encoding="utf-8") as handle:
         for index, line in enumerate(handle):
             if index >= 20:
@@ -52,13 +56,14 @@ def test_lesson_promotion_precision_on_fixture(tmp_path: Path, monkeypatch: pyte
             row = json.loads(line)
             expected_kind = row.pop("expected_kind", "")
             trace = Trace.model_validate(row)
-            store.history.record_trace(trace, write_json=False)
+            store.record_trace(trace, write_json=False)
             candidate = promoter.ingest_trace(trace)
             if candidate is None:
                 continue
             predicted += 1
             if expected_kind and candidate.kind == expected_kind:
                 correct += 1
+
     assert predicted > 0
     precision = correct / predicted
     assert precision >= 0.7, f"precision={precision:.3f}, correct={correct}, predicted={predicted}"

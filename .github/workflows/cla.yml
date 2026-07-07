@@ -21,16 +21,16 @@ jobs:
           (github.event.comment.body == 'recheck' ||
            github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') ||
           github.event_name == 'pull_request_target'
-        uses: contributor-assistant/github-action@v2.6.2
+        uses: contributor-assistant/github-action@v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           path-to-signatures: signatures/version1/cla.json
-          path-to-document: https://github.com/lemoncrow-lab/lemoncrow/blob/main/CLA.md
+          path-to-document: https://github.com/atelier-ws/atelier/blob/main/CLA.md
           branch: main
           # Accounts that never need to sign (bots, and add the maintainer's
           # GitHub username here to skip self-signing on direct PRs).
-          allowlist: lemoncrow,dependabot[bot]
+          allowlist: atelier,dependabot[bot]
           custom-pr-sign-comment: "I have read the CLA Document and I hereby sign the CLA"
-          custom-notsigned-prcomment: "Thanks for your pull request! Before it can be merged, please read our [Contributor License Agreement](https://github.com/lemoncrow-lab/lemoncrow/blob/main/CLA.md) and sign it by posting the exact comment below."
+          custom-notsigned-prcomment: "Thanks for your pull request! Before it can be merged, please read our [Contributor License Agreement](https://github.com/atelier-ws/atelier/blob/main/CLA.md) and sign it by posting the exact comment below."
           custom-allsigned-prcomment: "All contributors have signed the CLA. ✅"

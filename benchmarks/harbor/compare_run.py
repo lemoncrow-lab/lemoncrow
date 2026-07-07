@@ -3,14 +3,14 @@
 
 Saves you re-deriving the breakdown by hand. Shows, for every task the RUN
 actually finished, its mean cost + pass rate next to an optional second run
-(--vs) and the baseline's own raw per-task cost, sorted by cost delta
-(cheapest-vs-reference first).
+(--vs) and the normalized baseline, sorted by cost delta (cheapest-vs-reference
+first).
 
 Usage:
     uv run python benchmarks/harbor/compare_run.py [RUN] [--vs OTHER] [--all]
 
 RUN / OTHER accept an absolute path to a run dir, a bare timestamp under
-benchmarks/harbor/results/lemoncrow/, or 'latest' (RUN defaults to 'latest').
+benchmarks/harbor/results/atelier/, or 'latest' (RUN defaults to 'latest').
 The cost-delta column compares RUN to OTHER when --vs is given, else to baseline.
 
 Examples:
@@ -18,7 +18,7 @@ Examples:
     uv run python benchmarks/harbor/compare_run.py
     # a worktree run vs the R10 run
     uv run python benchmarks/harbor/compare_run.py \
-        /home/.../lemoncrow-r6-repro/benchmarks/harbor/results/lemoncrow/2026-07-04__09-28-38 \
+        /home/.../atelier-r6-repro/benchmarks/harbor/results/atelier/2026-07-04__09-28-38 \
         --vs 2026-07-04__03-33-24
 """
 
@@ -33,8 +33,8 @@ from collections import defaultdict
 from pathlib import Path
 
 HARBOR = Path(__file__).resolve().parent
-RESULTS = HARBOR / "results" / "lemoncrow"
-BASELINE = HARBOR / "results" / "baseline" / "tbench_opus48_claudecode_2.1.205_per_task.csv"
+RESULTS = HARBOR / "results" / "atelier"
+BASELINE = HARBOR / "results" / "baseline" / "normalized_cost.csv"
 
 
 def resolve(ref: str | None) -> Path:
@@ -97,7 +97,7 @@ def main() -> None:
     ap.add_argument(
         "--vs",
         default="auto",
-        help="second run to compare against: 'auto' = latest other run in results/lemoncrow (default, "
+        help="second run to compare against: 'auto' = latest other run in results/atelier (default, "
         "typically the current-commit run), a path/timestamp, or 'none' for baseline-only",
     )
     ap.add_argument("--all", action="store_true", help="show every baseline task, not just those RUN finished")
@@ -114,7 +114,8 @@ def main() -> None:
     R = load(run)
     OT = load(other) if other else {}
     base = {
-        row["task"]: (float(row["avg_cost_usd"]), float(row["pass_rate"])) for row in csv.DictReader(BASELINE.open())
+        row["task"]: (float(row["cost_norm_blended_1h"]), float(row["pass_rate"]))
+        for row in csv.DictReader(BASELINE.open())
     }
 
     tasks = sorted(base) if args.all else sorted(t for t in R if any(rw is not None for _, rw in R[t]))

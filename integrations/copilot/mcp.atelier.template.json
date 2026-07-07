@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "atelier": {
+      "command": "atelier",
+      "args": ["mcp", "--host", "copilot"],
+      "env": {
+        "ATELIER_WORKSPACE_ROOT": "<WORKSPACE_ROOT>"
+      }
+    }
+  }
+}

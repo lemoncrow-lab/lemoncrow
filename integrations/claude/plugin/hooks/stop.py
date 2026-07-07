@@ -6,7 +6,7 @@ Reads the hook payload (stdin: JSON with session_id, transcript_path).
 Behavior:
 1. Discussion-only session (no code-editing tools used in the transcript) →
    show plain stats under a "Session stats:" header.
-2. Code work happened → show stats under an "lc session complete." header.
+2. Code work happened → show stats under an "Atelier session complete." header.
 
 Token and tool-call counts are read directly from the Claude Code
 transcript JSONL at `transcript_path`.
@@ -21,14 +21,13 @@ import logging
 import os
 import sys
 import tempfile
-import time
 from pathlib import Path
 from typing import Any
 
 # Route hook logs to a file so tracebacks never leak to Claude Code's
 # hook stderr pipeline. Fall back to NullHandler if the path can't be opened.
 _log_path = (
-    Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
+    Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
     / "stop_hook.log"
 )
 try:
@@ -61,9 +60,29 @@ CODE_EDITING_TOOLS: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 
 
+def _workspace_key(path: str) -> str:
+    import re
+    from hashlib import sha256
+    from pathlib import Path as _Path
+
+    resolved = _Path(path).expanduser().resolve()
+    home = _Path.home().resolve()
+    try:
+        parts = resolved.relative_to(home).parts
+    except ValueError:
+        parts = [p for p in resolved.parts if p and p != "/"]
+    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
+    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
+    if len(label) > 120:
+        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
+    return label or sha256(str(resolved).encode()).hexdigest()[:12]
+
+
 def _state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "session_state.json"
+    h = _workspace_key(workspace)
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _load_state() -> dict[str, Any]:
@@ -83,24 +102,24 @@ def _load_state() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _lemoncrow_root() -> Path:
+def _atelier_root() -> Path:
     state = _load_state()
-    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
+    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
     if root:
         return Path(root)
-    if state.get("lemoncrow_root"):
-        return Path(state["lemoncrow_root"])
-    return Path.home() / ".lemoncrow"
+    if state.get("atelier_root"):
+        return Path(state["atelier_root"])
+    return Path.home() / ".atelier"
 
 
 def _sessions_root() -> Path:
-    """Session store root -- the plain lemoncrow root, matching the MCP writer and the
+    """Session store root -- the plain atelier root, matching the MCP writer and the
     sibling hooks (session_start / post_tool_use). Sessions are keyed by a globally
     unique id, so they are NOT workspace-scoped: the previous ``workspaces/<key>``
     path silently missed the canonical run.json (its ``if not exists: return`` guards
-    no-op'd) whenever LEMONCROW_WORKSPACE_ROOT/CLAUDE_WORKSPACE_ROOT was set, dropping
+    no-op'd) whenever ATELIER_WORKSPACE_ROOT/CLAUDE_WORKSPACE_ROOT was set, dropping
     the session-end token event, cost row, and enrichment writes."""
-    return _lemoncrow_root()
+    return _atelier_root()
 
 
 def _write_token_event(stats: dict[str, Any], session_id: str | None = None) -> None:
@@ -112,7 +131,7 @@ def _write_token_event(stats: dict[str, Any], session_id: str | None = None) -> 
     if not session_id:
         return
     try:
-        from lemoncrow.core.foundation.paths import session_dir
+        from atelier.core.foundation.paths import session_dir
 
         run_file = session_dir(_sessions_root(), "claude", session_id) / "run.json"
     except ImportError:
@@ -174,7 +193,7 @@ def _write_token_event(stats: dict[str, Any], session_id: str | None = None) -> 
 
 def _is_real_model_id(raw: object) -> bool:
     try:
-        from lemoncrow.core.capabilities.savings_summary import is_real_model
+        from atelier.core.capabilities.savings_summary import is_real_model
 
         return is_real_model(raw)
     except (ImportError, ModuleNotFoundError):
@@ -183,7 +202,7 @@ def _is_real_model_id(raw: object) -> bool:
 
 def _resolve_model_id(raw: str | None) -> str:
     try:
-        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
+        from atelier.core.capabilities.savings_summary import resolve_model_id
 
         return resolve_model_id(raw or "")
     except (ImportError, ModuleNotFoundError):
@@ -199,7 +218,7 @@ def _estimate_cost_usd(
     cache_write_tokens: int,
 ) -> float:
     try:
-        from lemoncrow.core.capabilities.savings_summary import estimate_cost_usd
+        from atelier.core.capabilities.savings_summary import estimate_cost_usd
 
         return estimate_cost_usd(
             model_id=model_id,
@@ -220,7 +239,7 @@ def _read_transcript_stats(transcript_path: str) -> dict[str, Any] | None:
     has always returned.
     """
     try:
-        from lemoncrow.core.capabilities.savings_summary import TranscriptStats, read_transcript_stats
+        from atelier.core.capabilities.savings_summary import TranscriptStats, read_transcript_stats
     except (ImportError, ModuleNotFoundError):
         return None
     stats: TranscriptStats | None = read_transcript_stats(transcript_path)
@@ -419,10 +438,33 @@ def _extract_edited_paths(transcript_path: str) -> list[str]:
     return seen
 
 
-def _format_deferred_edits(_transcript_path: str) -> None:
-    """No-op: post-edit formatting is disabled everywhere (edit-time and Stop).
-    Kept as a stable call site / no-arg contract for main() and existing tests."""
-    return
+def _format_deferred_edits(transcript_path: str) -> None:
+    """When ATELIER_DEFER_EDIT_HOOKS was on, the edit tool skipped the mutating
+    format / organize-imports steps so the formatter could not reflow files
+    mid-session and break the agent's read anchors. Run them once now, at Stop,
+    over the files edited this session. Fail-open: never break the Stop hook."""
+    if os.environ.get("ATELIER_DEFER_EDIT_HOOKS", "0").strip().lower() not in {"1", "true", "on", "yes"}:
+        return
+    paths = _extract_edited_paths(transcript_path)
+    if not paths:
+        return
+    try:
+        from atelier.core.capabilities.tool_supervision.post_edit_hooks import (
+            HookConfig,
+            run_post_edit_hooks,
+        )
+
+        root = Path(os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd()))
+        resolved = [str(root / pp if not Path(pp).is_absolute() else Path(pp)) for pp in paths]
+        resolved = [pp for pp in resolved if Path(pp).exists()]
+        if resolved:
+            run_post_edit_hooks(
+                resolved,
+                repo_root=root,
+                config=HookConfig(run_lint_autofix=False, run_diagnostics=False),
+            )
+    except Exception:
+        logger.exception("Failed to run deferred format at Stop")
 
 
 def _write_session_enrichment(
@@ -440,7 +482,7 @@ def _write_session_enrichment(
     if not session_id:
         return
     try:
-        from lemoncrow.core.foundation.paths import session_dir
+        from atelier.core.foundation.paths import session_dir
 
         run_file = session_dir(_sessions_root(), "claude", session_id) / "run.json"
     except ImportError:
@@ -497,9 +539,9 @@ def _load_session_aggregate(session_id: str) -> dict[str, Any]:
     if not session_id:
         return {}
     try:
-        from lemoncrow.core.capabilities.plugin_runtime import aggregate_session_stats
+        from atelier.core.capabilities.plugin_runtime import aggregate_session_stats
 
-        aggregate = aggregate_session_stats(_lemoncrow_root(), session_id=session_id)
+        aggregate = aggregate_session_stats(_atelier_root(), session_id=session_id)
         return aggregate if isinstance(aggregate, dict) else {}
     except Exception:
         logger.exception("Failed to load session aggregate")
@@ -575,7 +617,7 @@ def _is_task_session(stats: dict[str, Any] | None, session_aggregate: dict[str, 
 
     A session that only called Read, Bash (read-only), Glob, WebFetch,
     WebSearch, or had zero tool calls is classified as a "discussion" session
-    and does not require an LemonCrow trace.
+    and does not require an Atelier trace.
     """
     if session_aggregate and int(session_aggregate.get("edit_tool_calls", 0) or 0) > 0:
         return True
@@ -601,7 +643,7 @@ def _write_session_cost(
     if not session_id or cost_usd <= 0:
         return
     try:
-        from lemoncrow.core.foundation.paths import session_dir
+        from atelier.core.foundation.paths import session_dir
 
         path = session_dir(_sessions_root(), "claude", session_id) / "savings.jsonl"
     except ImportError:
@@ -622,7 +664,7 @@ def _write_session_cost(
 
 def _sidecar_path(session_id: str) -> Path | None:
     try:
-        from lemoncrow.core.foundation.paths import session_dir
+        from atelier.core.foundation.paths import session_dir
 
         return session_dir(_sessions_root(), "claude", session_id) / "savings.jsonl"
     except ImportError:
@@ -640,15 +682,16 @@ def _refresh_statusline_frames(session_id: str) -> None:
     """
     if not session_id:
         return
+    import time
 
-    from lemoncrow.core.capabilities.savings_summary import savings_frames
-    from lemoncrow.core.foundation.paths import find_session_dir
+    from atelier.core.capabilities.savings_summary import savings_frames
+    from atelier.core.foundation.paths import find_session_dir
 
     root = _sessions_root()
     seg_dir = find_session_dir(root, session_id)
     if seg_dir is None:
         return
-    frames = savings_frames(session_id=session_id, lemoncrow_root=root)
+    frames = savings_frames(session_id=session_id, atelier_root=root)
     if not frames:
         return
     (seg_dir / "statusline_frames").write_text("\n".join(frames) + "\n", encoding="utf-8")
@@ -656,22 +699,46 @@ def _refresh_statusline_frames(session_id: str) -> None:
     (seg_dir / "statusline_segment").write_text(frames[int(time.time() // 5) % len(frames)], encoding="utf-8")
 
 
+_CODE_FENCE_RE = None  # compiled lazily; stop.py imports re only where needed
+_CODEISH_LINE_RE = None  # bare code/diff/JSON lines outside fences — same filter the bench ratio used
+
+
+def _compressible_prose_chars(text: str) -> int:
+    """Chars of genuinely compressible prose: fences gone, code-ish lines gone.
+
+    MUST mirror the filter used to measure the bench ratio (swe-lite
+    2026-07-06): the ratio was computed on both arms' output after stripping
+    fenced blocks AND bare code/diff/JSON-looking lines, so the runtime basis
+    has to strip identically or the credit is applied to a different quantity
+    than the one the ratio was measured on.
+    """
+    stripped = _CODE_FENCE_RE.sub("", text)
+    return sum(len(line) for line in stripped.splitlines() if line.strip() and not _CODEISH_LINE_RE.match(line))
+
+
 def _prose_output_tokens(transcript_path: str) -> int:
     """Estimated compressible PROSE output tokens (reply text blocks only).
 
-    Host-specific measurement: parses THIS Claude session's transcript for
-    assistant text blocks (THINKING blocks excluded -- reasoning volume is
-    style-invariant). Claude Code writes one transcript line per content block
-    sharing the message id, so blocks are keyed by msg_id and deduped by
-    (msg_id, text-hash) in the shared core. The fence/code-ish stripping and
-    token math live in ``plugin_runtime.prose_output_tokens`` so every host
-    (Claude, Codex, OpenCode) measures prose identically. Fail-open: 0 when the
-    transcript or the shared core is unavailable.
+    Fixed output is excluded on purpose — telegraphic style compresses the
+    reply, nothing else — so the basis drops: fenced code blocks, bare
+    code/diff/JSON lines, and THINKING blocks entirely (reasoning volume is
+    style-invariant — both bench arms think the same; only reply prose
+    differed). Claude Code writes one transcript line per content block
+    sharing the message id; blocks are deduped by (msg_id, text-hash) so a
+    re-emitted snapshot line never double-counts.
     """
+    import re
+
+    global _CODE_FENCE_RE, _CODEISH_LINE_RE
+    if _CODE_FENCE_RE is None:
+        _CODE_FENCE_RE = re.compile(r"```.*?(?:```|$)", re.DOTALL)
+    if _CODEISH_LINE_RE is None:
+        _CODEISH_LINE_RE = re.compile(r"^\s*(\+|\-|@@|\{|\}|\[|def |class |import |from \S+ import|#|\$|>>>|\.\.\.)")
     p = Path(transcript_path) if transcript_path else None
     if p is None or not p.exists():
         return 0
-    blocks: list[tuple[str, str]] = []
+    chars = 0
+    seen: set[tuple[str, int]] = set()
     try:
         with p.open(encoding="utf-8", errors="replace") as f:
             for raw in f:
@@ -695,15 +762,16 @@ def _prose_output_tokens(transcript_path: str) -> int:
                     if not isinstance(block, dict) or block.get("type") != "text":
                         continue
                     text = str(block.get("text") or "")
-                    if text:
-                        blocks.append((mid, text))
+                    if not text:
+                        continue
+                    key = (mid, hash(text))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    chars += _compressible_prose_chars(text)
     except OSError:
         return 0
-    try:
-        from lemoncrow.core.capabilities.plugin_runtime import prose_output_tokens
-    except ImportError:
-        return 0
-    return prose_output_tokens(blocks)
+    return chars // 4
 
 
 def _write_output_style_row(session_id: str, stats: dict[str, Any], transcript_path: str) -> None:
@@ -714,86 +782,158 @@ def _write_output_style_row(session_id: str, stats: dict[str, Any], transcript_p
     (ratio - 1), priced at the output rate plus a cache write (the avoided
     prose would have re-entered context). Code output and code fences are
     excluded from the basis. Incremental per Stop fire via the cumulative
-    marker on the last ``output_style`` row. ``LEMONCROW_OUTPUT_STYLE_RATIO``
-    (<=1 disables) defaults to 2.09 -- measured AND reconciled, not guessed.
-    Matched telegraphic Q&A head-to-head (2026-07-08, opus-4-8, 20 prompts x
-    5 reps x 2 arms = 200 runs; prose isolated on both arms by stripping
-    fences/code-ish lines/the session-title JSON turn): baseline reply prose
-    is 2.09x LemonCrow's pooled (40.3k vs 19.2k tokens). Supersedes swe-lite's
-    smaller 10-instance measurement. No turn-cut overlap to net out here
-    (unlike swe-lite): baseline's extra turns are 100% the benchmark
-    harness's title-generation turn (LemonCrow skips it outright, 0/100 vs
-    100/100 runs); once that's excluded from both arms, answering-turn
-    counts are flat (138 vs 142), so none of the prose delta double-counts
-    with the turn_cut row -- the pooled ratio applies directly. Per-prompt
-    ratios ranged 1.37x-8.33x across the 20 prompts (median 1.85x). Raw data:
-    benchmarks/codebench/results/telegraphic_2026_07_08_5rep/.
+    marker on the last ``output_style`` row. ``ATELIER_OUTPUT_STYLE_RATIO``
+    (<=1 disables) defaults to 1.88 -- measured AND reconciled, not guessed.
+    Matched swe-lite head-to-head (2026-07-06, opus-4-8, 10 instances,
+    prose isolated on both arms by stripping fences/code-ish lines/tool
+    args): baseline reply prose is 2.73x atelier's (10.1k vs 3.7k tokens).
+    But part of baseline's extra output lives in the turns the turn_cut row
+    already prices (29 avoided turns x 319 avg output = 9.3k of the 12.5k
+    total output delta), so the prose credit takes only the residual:
+    12.5k - 9.3k = 3.2k over the 3.7k atelier prose basis -> 1.88. The two
+    credits together reconcile exactly to the measured end-to-end output
+    delta; 2.73 is the correct value only when turn-cut crediting is off.
     """
-    # Prose measurement stays host-local (parses this session's transcript);
-    # the pricing/ledger logic is shared plugin-level code so every host credits
-    # output-style identically.
-    prose_tokens = _prose_output_tokens(transcript_path)
-    try:
-        from lemoncrow.core.capabilities.plugin_runtime import write_stop_hook_output_style_row
-    except ImportError:
+    if not session_id:
         return
-    write_stop_hook_output_style_row(_lemoncrow_root(), session_id, stats, prose_tokens, agent="claude")
+    try:
+        ratio = float(os.environ.get("ATELIER_OUTPUT_STYLE_RATIO", "1.88"))
+    except ValueError:
+        return
+    if ratio <= 1.0:
+        return
+    path = _sidecar_path(session_id)
+    if path is None or not path.exists():
+        return  # no sidecar → session not Atelier-instrumented; nothing to fold into
+    prose_tokens = _prose_output_tokens(transcript_path)
+    if prose_tokens <= 0:
+        return
+    prev_cum = 0
+    with contextlib.suppress(OSError):
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("kind") == "output_style":
+                prev_cum = max(prev_cum, int(row.get("cum_prose_tokens") or 0))
+    delta = prose_tokens - prev_cum
+    if delta <= 0:
+        return
+    saved = int(delta * (ratio - 1.0))
+    if saved <= 0:
+        return
+    try:
+        from atelier.core.capabilities.pricing import get_model_pricing
+        from atelier.core.capabilities.savings_summary import resolve_model_id
+
+        model = str(stats.get("last_model") or stats.get("model") or "")
+        pricing = get_model_pricing(resolve_model_id(model)) if model else None
+        if pricing is None or not pricing.known or pricing.output <= 0:
+            return  # never guess a rate
+        usd = pricing.request_cost_usd(output_tokens=saved, cache_write_tokens=saved)
+    except Exception:
+        logger.exception("Failed to price output-style row")
+        return
+    row_out = {
+        "kind": "output_style",
+        "tokens": int(saved),
+        "cost_saved_usd": round(usd, 6),
+        "model": model,
+        "ratio": ratio,
+        "cum_prose_tokens": int(prose_tokens),
+        "ts": datetime.datetime.now(datetime.UTC).isoformat(),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row_out) + "\n")
 
 
 # Avoided host turns per executed turn, measured on the matched swe-lite
 # head-to-head (2026-07-06, opus-4-8, 10 instances, reconciled reps):
-# baseline needed 152 median turns where LemonCrow needed 123 — (152-123)/123.
-# Avoided host turns per executed turn, measured on the swe50 head-to-head
-# (2026-06-30, opus-4-8, 50 SWE-bench instances x 5 reps x 2 arms, 489
-# successful runs -- supersedes the smaller 10-instance swe-lite sample):
-# baseline needed 28.59 avg turns/run where LemonCrow needed 17.41 --
-# (28.59-17.41)/17.41. Per-task median across the 50 tasks is 0.695,
-# consistent with this pooled figure. Raw data:
-# benchmarks/codebench/results/swe50_2026_06_30/.
-_TURN_CUT_RATIO_DEFAULT = 0.642
+# baseline needed 152 median turns where atelier needed 123 — (152-123)/123.
+_TURN_CUT_RATIO_DEFAULT = 0.236
 
 
 def _write_turn_cut_row(session_id: str, stats: dict[str, Any]) -> None:
     """Bench-calibrated turn-cut credit (``kind == "turn_cut"``).
 
-    Thin wrapper over the shared, host-agnostic implementation
-    ``plugin_runtime.write_stop_hook_turn_cut_row`` (``agent="claude"``): Claude
-    and every other host now credit turn cuts through one code path, so this
-    hook and the OpenCode/Codex idle handlers can never drift. The default
-    ratio (``_TURN_CUT_RATIO_DEFAULT`` above) and the full pricing derivation
-    are the canonical reference the shared writer mirrors. Fail-open: an
-    installed package predating the shared writer no-ops instead of crashing
-    Stop.
+    Per-call ``calls`` credits (read batching, code_search netting, code-intel
+    deferral) only capture the directly observable slice of the turn cut; the
+    measured cut on identical tasks is larger. This row tops the session up to
+    the bench-measured floor: ``target = turns x ratio`` minus every avoided
+    call already in the ledger — same counterfactual, so never double-counted,
+    and sessions whose explicit credits already exceed the bench ratio get
+    nothing extra. Self-converging across Stop fires: prior turn_cut rows
+    count toward the target.
+
+    Each avoided turn is priced exactly like the dispatcher's avoided-call
+    rule: one context re-send at the cache-read rate (session's measured
+    average context per turn) plus one turn of average output (output rate,
+    re-entering context at the cache-write rate). Unknown model → no row,
+    never guess a rate. ``ATELIER_TURN_CUT_RATIO`` overrides; <=0 disables.
     """
-    try:
-        from lemoncrow.core.capabilities.plugin_runtime import write_stop_hook_turn_cut_row
-    except ImportError:
+    if not session_id:
         return
-    write_stop_hook_turn_cut_row(_lemoncrow_root(), session_id, stats, agent="claude")
-
-
-# Baseline's avg cache-read per turn vs LemonCrow's, measured on the same
-# swe50 head-to-head as turn_cut above: 26.1k vs 22.4k tokens/turn -- 1.163x.
-# See _write_input_style_row's docstring for the full derivation and the
-# cross-check against Harbor's independent Terminal-Bench-2.1 suite.
-_INPUT_STYLE_RATIO_DEFAULT = 1.16
-
-
-def _write_input_style_row(session_id: str, stats: dict[str, Any]) -> None:
-    """Credit leaner per-turn context: cache-read tokens NOT re-sent.
-
-    Thin wrapper over the shared, host-agnostic implementation
-    ``plugin_runtime.write_stop_hook_input_style_row`` (``agent="claude"``) so
-    all hosts share one code path. The default ratio
-    (``_INPUT_STYLE_RATIO_DEFAULT`` above) and the full derivation are the
-    canonical reference the shared writer mirrors. Fail-open: an installed
-    package predating the shared writer no-ops.
-    """
     try:
-        from lemoncrow.core.capabilities.plugin_runtime import write_stop_hook_input_style_row
-    except ImportError:
+        ratio = float(os.environ.get("ATELIER_TURN_CUT_RATIO", str(_TURN_CUT_RATIO_DEFAULT)))
+    except ValueError:
         return
-    write_stop_hook_input_style_row(_lemoncrow_root(), session_id, stats, agent="claude")
+    if ratio <= 0:
+        return
+    path = _sidecar_path(session_id)
+    if path is None or not path.exists():
+        return  # no sidecar → session not Atelier-instrumented; no turn cut to credit
+    turns = int(stats.get("turns") or 0)
+    if turns <= 0:
+        return
+    target = int(turns * ratio)
+    if target <= 0:
+        return
+    credited = 0
+    with contextlib.suppress(OSError):
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                credited += max(0, int(row.get("calls") or 0))
+    delta = target - credited
+    if delta <= 0:
+        return
+    avg_ctx = int(stats.get("cache_read_tokens") or 0) // turns
+    avg_out = int(stats.get("output_tokens") or 0) // turns
+    if avg_ctx <= 0 and avg_out <= 0:
+        return
+    try:
+        from atelier.core.capabilities.pricing import get_model_pricing
+        from atelier.core.capabilities.savings_summary import resolve_model_id
+
+        model = str(stats.get("last_model") or stats.get("model") or "")
+        pricing = get_model_pricing(resolve_model_id(model)) if model else None
+        if pricing is None or not pricing.known or pricing.cache_read <= 0:
+            return  # never guess a rate
+        usd = pricing.request_cost_usd(
+            cache_read_tokens=delta * avg_ctx,
+            output_tokens=delta * avg_out,
+            cache_write_tokens=delta * avg_out,
+        )
+    except Exception:
+        logger.exception("Failed to price turn-cut row")
+        return
+    if usd <= 0:
+        return
+    row_out = {
+        "kind": "turn_cut",
+        "calls": int(delta),
+        "calls_usd": round(usd, 6),
+        "model": model,
+        "ratio": ratio,
+        "turns": turns,
+        "ts": datetime.datetime.now(datetime.UTC).isoformat(),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row_out) + "\n")
 
 
 def _rtk_total_tokens_saved(payload: Any) -> int:
@@ -805,16 +945,32 @@ def _rtk_total_tokens_saved(payload: Any) -> int:
     take the maximum — totals dominate per-command entries. Percentage fields
     are excluded.
     """
-    from lemoncrow.core.capabilities.plugin_runtime import rtk_total_tokens_saved
-
-    return rtk_total_tokens_saved(payload)
+    best = 0
+    stack = [payload]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                lk = str(key).lower()
+                if isinstance(value, (dict, list)):
+                    stack.append(value)
+                    continue
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    continue
+                if "pct" in lk or "percent" in lk:
+                    continue
+                if "sav" in lk and ("token" in lk or "total" in lk or lk == "saved"):
+                    best = max(best, int(value))
+        elif isinstance(node, list):
+            stack.extend(node)
+    return best
 
 
 def _credit_rtk_gain(session_id: str, stats: dict[str, Any]) -> None:
     """Fold rtk's own measured savings into the ledger as a bash row.
 
     When the external-compactor integration routes bash commands through an
-    installed ``rtk`` binary, LemonCrow never sees the raw output — rtk does,
+    installed ``rtk`` binary, Atelier never sees the raw output — rtk does,
     and records raw-vs-filtered tokens in its gain ledger. ``rtk gain`` is
     PROJECT-scoped (cwd), so the probe runs from this session's workspace and
     the cumulative marker in ``rtk_gain_state.json`` is keyed per workspace:
@@ -823,21 +979,81 @@ def _credit_rtk_gain(session_id: str, stats: dict[str, Any]) -> None:
     is credited exactly once across that project's sessions. Credit the delta
     since the last credit as a measured ``external_compactor`` row (priced at
     the input rate — content that would have entered context once).
-    ``LEMONCROW_RTK_GAIN_CREDIT=0`` disables.
+    ``ATELIER_RTK_GAIN_CREDIT=0`` disables.
     """
-    try:
-        from lemoncrow.core.capabilities.plugin_runtime import credit_rtk_gain
-    except ImportError:
+    if not session_id or os.environ.get("ATELIER_RTK_GAIN_CREDIT", "1") == "0":
+        return
+    import shutil
+    import subprocess
+
+    rtk_bin = shutil.which("rtk")
+    if not rtk_bin:
+        return
+    path = _sidecar_path(session_id)
+    if path is None or not path.exists():
         return
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
-    credit_rtk_gain(_lemoncrow_root(), session_id, stats, workspace=workspace, agent="claude")
+    ws_key = _workspace_key(workspace)
+    try:
+        proc = subprocess.run(
+            [rtk_bin, "gain", "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=workspace,
+        )
+        payload = json.loads(proc.stdout or "{}")
+    except Exception:
+        logger.exception("rtk gain probe failed")
+        return
+    total = _rtk_total_tokens_saved(payload)
+    marker = _atelier_root() / "rtk_gain_state.json"
+    credited_map: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        raw_marker = json.loads(marker.read_text(encoding="utf-8"))
+        if isinstance(raw_marker, dict) and isinstance(raw_marker.get("credited_by_workspace"), dict):
+            credited_map = raw_marker["credited_by_workspace"]
+    credited = int(credited_map.get(ws_key) or 0)
+    if total < credited:
+        credited = 0  # rtk ledger was reset; start over rather than under-credit forever
+    delta = total - credited
+    usd = 0.0
+    if delta > 0:
+        try:
+            from atelier.core.capabilities.pricing import get_model_pricing
+            from atelier.core.capabilities.savings_summary import resolve_model_id
+
+            model = str(stats.get("last_model") or stats.get("model") or "")
+            pricing = get_model_pricing(resolve_model_id(model)) if model else None
+            if pricing is not None and pricing.known and pricing.input > 0:
+                usd = pricing.request_cost_usd(input_tokens=delta)
+            else:
+                return  # never guess a rate
+        except Exception:
+            logger.exception("Failed to price rtk gain row")
+            return
+        row = {
+            "kind": "external_compactor",
+            "tool": "bash",
+            "tokens": int(delta),
+            "cost_saved_usd": round(usd, 6),
+            "model": model,
+            "ts": datetime.datetime.now(datetime.UTC).isoformat(),
+        }
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row) + "\n")
+    credited_map[ws_key] = int(max(total, credited))
+    tmp = marker.with_suffix(".tmp")
+    with contextlib.suppress(OSError):
+        tmp.write_text(json.dumps({"credited_by_workspace": credited_map}), encoding="utf-8")
+        tmp.replace(marker)
 
 
 def _load_session_savings(session_id: str, transcript_path: str = "") -> dict[str, Any]:
     """Return session savings summary for the Claude session.
 
     Delegates to ``compute_savings_summary`` — the same function behind the
-    statusline's ``lc savings --segment`` — so the statusline
+    statusline's ``atelier savings --segment`` — so the statusline
     figure and this stop-hook summary are always derived from the same
     source (``sessions/<session_id>/savings.jsonl``, priced per-row
     at the model captured when each row was written).
@@ -854,9 +1070,9 @@ def _load_session_savings(session_id: str, transcript_path: str = "") -> dict[st
     if not session_id:
         return zero
     try:
-        from lemoncrow.core.capabilities.savings_summary import compute_savings_summary
+        from atelier.core.capabilities.savings_summary import compute_savings_summary
 
-        summary = compute_savings_summary(session_id, lemoncrow_root=_lemoncrow_root())
+        summary = compute_savings_summary(session_id, atelier_root=_atelier_root())
         return {
             "saved_usd": float(summary.saved_usd),
             "routing_usd": float(summary.routing_saved_usd),
@@ -873,50 +1089,23 @@ def _load_session_savings(session_id: str, transcript_path: str = "") -> dict[st
         return zero
 
 
+def _fmt_tok(n: int) -> str:
+    """Compact token count: 87645 → 87.6k, 24063189 → 24.1M, 4110167440 → 4.1B."""
+    n = int(n or 0)
+    if n >= 1_000_000_000:
+        return f"{n / 1_000_000_000:.1f}B"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    return str(n)
+
+
 def _format_stats(
     stats: dict[str, Any],
     savings: dict[str, Any] | None = None,
     real_cost: bool = False,
 ) -> str:
-    # Shared token-count formatter (savings_summary.py) -- this file used to
-    # carry its own hand-rolled duplicate (with a 1-decimal-M/extra-B-tier
-    # scheme that had drifted from the canonical 2-decimal-M formatter every
-    # other Python savings surface uses); import it instead of redefining it.
-    try:
-        from lemoncrow.core.capabilities.savings_summary import (
-            _fmt_tok,
-            _fmt_usd,
-            estimate_time_saved_seconds,
-            fmt_duration,
-        )
-    except ImportError:
-        # This hook script is synced from the dev repo independently of the
-        # installed `lc` package (uv tool / pip) -- an older installed
-        # package predating these private helpers must not crash Stop on
-        # every turn. Fall back to the same formatting inline.
-        def _fmt_usd(v: float) -> str:
-            return f"${float(v or 0.0):,.2f}"
-
-        def _fmt_tok(n: int) -> str:
-            n = int(n or 0)
-            if n >= 1_000_000:
-                return f"{n / 1_000_000:.2f}M"
-            if n >= 1000:
-                return f"{n / 1000:.1f}k"
-            return str(n)
-
-        def estimate_time_saved_seconds(*, calls_avoided: int, output_saved_tokens: int = 0) -> float:
-            return max(0, int(calls_avoided or 0)) * 4.5 + max(0, int(output_saved_tokens or 0)) / 50.0
-
-        def fmt_duration(seconds: float) -> str:
-            s = max(0.0, float(seconds or 0.0))
-            if s < 60:
-                return f"{int(s)}s"
-            if s < 3600:
-                return f"{round(s / 60)}m"
-            hours = s / 3600.0
-            return f"{hours:.1f}h" if hours < 10 else f"{round(hours)}h"
-
     inp = int(stats.get("input_tokens", 0) or 0)
     out = int(stats.get("output_tokens", 0) or 0)
     cache_read = int(stats.get("cache_read_tokens", 0) or 0)
@@ -930,7 +1119,7 @@ def _format_stats(
     top = sorted(stats.get("tools_used", {}).items(), key=lambda x: -x[1])[:4]
     tools_str = " · ".join(f"{n}×{c}" for n, c in top) if top else "none"  # noqa: RUF001
 
-    cost_prefix = "cost: " if real_cost else "est. cost: "
+    cost_prefix = "cost: " if real_cost else "est. cost: ~"
     # One-line tokens with all 4 Anthropic billing categories. No separate
     # cache line — cW (cache write, expensive at ~$6.25/M for Opus) and cR
     # (cache read, cheap at $0.50/M) get equal billing prominence so users
@@ -968,18 +1157,15 @@ def _format_stats(
     carry_tokens = int(savings.get("carry_tokens", 0) or 0)
     output_usd = float(savings.get("output_usd", 0.0) or 0.0)
     output_tokens = int(savings.get("output_tokens", 0) or 0)
-    savings_line = f"savings: {_fmt_usd(saved_usd)} · {_fmt_tok(tokens_saved)} tok · {calls_avoided} calls avoided"
+    savings_line = f"savings: ${saved_usd:.4f} · {tokens_saved:,} tok · {calls_avoided} calls avoided"
     if output_usd > 0:
-        out_tokens_str = f"/{_fmt_tok(output_tokens)} tok" if output_tokens > 0 else ""
-        savings_line += f" · O {_fmt_usd(output_usd)}{out_tokens_str}"
+        out_tokens_str = f"/{output_tokens:,} tok" if output_tokens > 0 else ""
+        savings_line += f" · O ${output_usd:.4f}{out_tokens_str}"
     if carry_usd > 0:
-        carry_tokens_str = f"/{_fmt_tok(carry_tokens)} tok" if carry_tokens > 0 else ""
-        savings_line += f" · carry {_fmt_usd(carry_usd)}{carry_tokens_str}"
+        carry_tokens_str = f"/{carry_tokens:,} tok" if carry_tokens > 0 else ""
+        savings_line += f" · carry ${carry_usd:.4f}{carry_tokens_str}"
     if routing_usd > 0:
-        savings_line += f" · routing {_fmt_usd(routing_usd)}"
-    faster_s = estimate_time_saved_seconds(calls_avoided=calls_avoided, output_saved_tokens=output_tokens)
-    if faster_s >= 60:
-        savings_line += f" · ~{fmt_duration(faster_s)} faster"
+        savings_line += f" · routing ${routing_usd:.4f}"
     lines.append(savings_line)
 
     lines.append(f"top tools: {tools_str}")
@@ -996,13 +1182,13 @@ def _format_review_findings(session_id: str) -> str:
     if not session_id:
         return ""
     try:
-        from lemoncrow.pro.capabilities.live_reviewer.sink import (
+        from atelier.core.capabilities.live_reviewer.sink import (
             latest_unconsumed,
             mark_consumed,
         )
     except ImportError:
         return ""
-    root = _lemoncrow_root()
+    root = _atelier_root()
     pending = latest_unconsumed(root, session_id)
     if not pending:
         return ""
@@ -1010,7 +1196,7 @@ def _format_review_findings(session_id: str) -> str:
     needs_fix = [row for row in pending if row.get("verdict") == "NEEDS_FIX"]
     if not needs_fix:
         return ""
-    lines = ["", "Code review (lc) — NEEDS_FIX:"]
+    lines = ["", "Code review (atelier) — NEEDS_FIX:"]
     for row in needs_fix[:5]:
         paths = ", ".join(str(p) for p in (row.get("paths") or []))
         missing = str(row.get("missing") or "").strip().replace("\n", " ")
@@ -1032,7 +1218,7 @@ def main() -> int:
 
     session_id: str = payload.get("session_id", "") or ""
     transcript_path: str = payload.get("transcript_path", "") or ""
-    # Deferred-format pass: when LEMONCROW_DEFER_EDIT_HOOKS moved format off the
+    # Deferred-format pass: when ATELIER_DEFER_EDIT_HOOKS moved format off the
     # per-edit path, format the session's edited files once now (fail-open).
     with contextlib.suppress(Exception):
         _format_deferred_edits(transcript_path)
@@ -1052,12 +1238,10 @@ def main() -> int:
         with contextlib.suppress(Exception):
             _write_token_event(stats, session_id)
 
-    # ── Fold output-style + input-style + external-compactor (rtk) savings into
-    # the ledger FIRST, so this Stop's own summary already includes them.
+    # ── Fold output-style + external-compactor (rtk) savings into the ledger
+    # FIRST, so this Stop's own summary already includes them.
     with contextlib.suppress(Exception):
         _write_output_style_row(session_id, stats or {}, transcript_path)
-    with contextlib.suppress(Exception):
-        _write_input_style_row(session_id, stats or {})
     with contextlib.suppress(Exception):
         _write_turn_cut_row(session_id, stats or {})
     with contextlib.suppress(Exception):
@@ -1070,7 +1254,7 @@ def main() -> int:
 
     # Public rollup: no longer pushed from here. The servicectl daemon's daily
     # tick computes it directly from the same savings.jsonl ledger written
-    # below (see lemoncrow.core.service.telemetry.public_rollup), so there is
+    # below (see atelier.core.service.telemetry.public_rollup), so there is
     # nothing to send on every Stop -- the hook now touches neither the
     # network nor a side queue file for this.
 
@@ -1118,7 +1302,7 @@ def main() -> int:
     # valid here, unlike PreToolUse/PostToolUse/UserPromptSubmit/PostToolBatch.)
     if stats and stats["total_tokens"] > 0:
         summary = _format_stats(stats, savings, real_cost=real_cost)
-        print(json.dumps({"systemMessage": f"lc session complete.\n{summary}{review_suffix}"}))
+        print(json.dumps({"systemMessage": f"Atelier session complete.\n{summary}{review_suffix}"}))
     return 0
 
 

@@ -15,25 +15,25 @@ from typing import Any, ClassVar
 import pytest
 import yaml
 
-from lemoncrow.core.foundation.models import CommandRecord, Trace
-from lemoncrow.gateway.hosts.session_parsers.antigravity import AntigravityImporter
-from lemoncrow.gateway.hosts.session_parsers.claude import ClaudeImporter
-from lemoncrow.gateway.hosts.session_parsers.codex import CodexImporter
-from lemoncrow.gateway.hosts.session_parsers.copilot import CopilotImporter
-from lemoncrow.gateway.hosts.session_parsers.cursor import CursorImporter
-from lemoncrow.gateway.hosts.session_parsers.opencode import OpenCodeImporter
-from lemoncrow.infra.runtime.session_report import load_report
-from lemoncrow.infra.storage.bundle import StoreBundle
+from atelier.core.foundation.models import CommandRecord, Trace
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.hosts.session_parsers.antigravity import AntigravityImporter
+from atelier.gateway.hosts.session_parsers.claude import ClaudeImporter
+from atelier.gateway.hosts.session_parsers.codex import CodexImporter
+from atelier.gateway.hosts.session_parsers.copilot import CopilotImporter
+from atelier.gateway.hosts.session_parsers.cursor import CursorImporter
+from atelier.gateway.hosts.session_parsers.opencode import OpenCodeImporter
+from atelier.infra.runtime.session_report import load_report
 
 # =========================================================================
 # Helpers
 # =========================================================================
 
 
-def _get_trace(store: StoreBundle, host: str) -> Trace:
+def _get_trace(store: ContextStore, host: str) -> Trace:
     """Return the most recent trace for *host*."""
 
-    traces = store.history.list_traces(host=host, limit=1)
+    traces = store.list_traces(host=host, limit=1)
     assert len(traces) == 1, f"Expected 1 trace for host={host}, got {len(traces)}"
     return traces[0]
 
@@ -98,7 +98,7 @@ class TestClaudeImporterTokens:
         },
     ]
 
-    def test_claude_token_fields(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_claude_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "test-session-uuid.jsonl"
         jsonl_path.write_text("\n".join(json.dumps(e, ensure_ascii=False) for e in self.FIXTURE_EVENTS))
 
@@ -123,12 +123,12 @@ class TestClaudeImporterTokens:
         assert trace.usage_entries
         assert trace.usage_entries[0].cost_usd > 0
 
-        report = load_report("test-session-uuid", store.history.root)
+        report = load_report("test-session-uuid", store.root)
         assert report is not None
         assert report.total_cost_usd > 0
         assert report.started_model == "claude-sonnet-4-6"
 
-    def test_claude_prefers_embedded_session_id_over_filename(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_claude_prefers_embedded_session_id_over_filename(self, store: ContextStore, tmp_path: Path) -> None:
         logical_session_id = "logical-session-claude-1"
         filename_session_id = "filename-session-uuid"
         fixture_events = [
@@ -155,12 +155,12 @@ class TestClaudeImporterTokens:
         assert trace.session_id == logical_session_id
         assert trace.id == f"claude-test-slug-{filename_session_id}"
 
-        artifacts = store.history.list_raw_artifacts(source="claude", source_session_id=logical_session_id, limit=10)
+        artifacts = store.list_raw_artifacts(source="claude", source_session_id=logical_session_id, limit=10)
         assert len(artifacts) == 1
         assert artifacts[0].relative_path == f"{filename_session_id}.jsonl"
         assert artifacts[0].source_path == str(jsonl_path)
 
-    def test_claude_ignores_synthetic_usage_tokens(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_claude_ignores_synthetic_usage_tokens(self, store: ContextStore, tmp_path: Path) -> None:
         fixture_events = [
             {
                 "type": "assistant",
@@ -204,11 +204,11 @@ class TestClaudeImporterTokens:
         assert trace.cached_input_tokens == 20
         assert trace.cache_creation_input_tokens == 5
 
-    def test_claude_redacts_and_truncates_bash_tool_result(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_claude_redacts_and_truncates_bash_tool_result(self, store: ContextStore, tmp_path: Path) -> None:
         """Regression test: the tool_result handler used to REPLACE the
         redacted tool_use command with an unredacted, untruncated
         CommandRecord built from raw stdout/stderr — landing raw secrets in
-        lemoncrow.db/FTS plus unbounded bloat. Command and streams must stay
+        atelier.db/FTS plus unbounded bloat. Command and streams must stay
         redacted, and streams must be capped like codex's 1024-byte cap.
         """
         secret_stdout = "ghp_" + "b" * 36 + (" filler" * 400)
@@ -261,7 +261,9 @@ class TestClaudeImporterTokens:
         assert "ghp_" not in record.stdout
         assert "<redacted-github-token>" in record.stdout
 
-    def test_claude_does_not_record_raw_artifact_on_mid_parse_failure(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_claude_does_not_record_raw_artifact_on_mid_parse_failure(
+        self, store: ContextStore, tmp_path: Path
+    ) -> None:
         """Regression test: the raw artifact used to be recorded (bumping
         source_file_mtime) BEFORE the JSONL was fully parsed into a Trace. A
         mid-parse exception then left the mtime bumped, so the session was
@@ -290,7 +292,7 @@ class TestClaudeImporterTokens:
             importer.import_session("test-slug", jsonl_path, force=True)
 
         artifact_id = f"claude-test-slug-{jsonl_path.stem}"
-        assert store.history.get_raw_artifact(artifact_id) is None
+        assert store.get_raw_artifact(artifact_id) is None
 
 
 # =========================================================================
@@ -372,7 +374,7 @@ class TestCodexImporterTokens:
         ),
     ]
 
-    def test_codex_token_fields(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_codex_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         jsonl_path = tmp_path / "rollout-2026-05-09T12-00-00-test-session.jsonl"
         jsonl_path.write_text("\n".join(self.FIXTURE_LINES))
 
@@ -397,7 +399,7 @@ class TestCodexImporterTokens:
         #   tool.output_tokens (exec_command) = dist_in = 200 // 1 = 200
         _assert_tool_tokens(trace, "exec_command", input_t=60, output_t=200)
 
-    def test_codex_flat_recovers_model_and_usage(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_codex_flat_recovers_model_and_usage(self, store: ContextStore, tmp_path: Path) -> None:
         fixture_lines = [
             json.dumps(
                 {
@@ -454,7 +456,7 @@ class TestCodexImporterTokens:
         assert trace.cache_creation_input_tokens == 0
         assert trace.user_prompt_tokens > 0
 
-    def test_codex_mixed_model_sessions_leave_trace_model_blank(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_codex_mixed_model_sessions_leave_trace_model_blank(self, store: ContextStore, tmp_path: Path) -> None:
         fixture_lines = [
             json.dumps(
                 {
@@ -499,7 +501,7 @@ class TestCodexImporterTokens:
         assert usage_by_model["gpt-5.4"].output_tokens == 60
         assert usage_by_model["gpt-5.4-mini"].output_tokens == 30
 
-    def test_codex_event_msg_dedupes_repeated_token_rows(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_codex_event_msg_dedupes_repeated_token_rows(self, store: ContextStore, tmp_path: Path) -> None:
         first_turn = json.dumps(
             {
                 "type": "event_msg",
@@ -546,7 +548,7 @@ class TestCodexImporterTokens:
         assert usage_by_model["gpt-5.4"].input_tokens == 200
         assert usage_by_model["gpt-5.4-mini"].output_tokens == 30
 
-    def test_codex_dedupes_paired_exec_command_and_exec_command_end(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_codex_dedupes_paired_exec_command_and_exec_command_end(self, store: ContextStore, tmp_path: Path) -> None:
         """Regression test: newer Format-A rollouts persist BOTH
         response_item.function_call(exec_command) AND
         event_msg.exec_command_end for the SAME call — every shell command
@@ -690,7 +692,7 @@ class TestCopilotImporterTokens:
         }
     )
 
-    def test_copilot_token_fields(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_copilot_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         session_dir = tmp_path / "copilot-session-abc123"
         session_dir.mkdir(parents=True)
 
@@ -716,7 +718,7 @@ class TestCopilotImporterTokens:
         #   tool.output_tokens (edit) = resultForLlmLength // 4 = 400 // 4 = 100
         _assert_tool_tokens(trace, "edit", input_t=80, output_t=100)
 
-    def test_copilot_dedupes_repeated_event_rows(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_copilot_dedupes_repeated_event_rows(self, store: ContextStore, tmp_path: Path) -> None:
         session_dir = tmp_path / "copilot-session-duplicate-rows"
         session_dir.mkdir(parents=True)
 
@@ -736,7 +738,7 @@ class TestCopilotImporterTokens:
         assert len(trace.usage_entries) == 1
         assert edit_tools and edit_tools[0].count == 1
 
-    def test_copilot_falls_back_to_assistant_output_tokens(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_copilot_falls_back_to_assistant_output_tokens(self, store: ContextStore, tmp_path: Path) -> None:
         session_dir = tmp_path / "copilot-session-fallback"
         session_dir.mkdir(parents=True)
 
@@ -818,7 +820,7 @@ class TestCopilotImporterTokens:
         _assert_tool_tokens(trace, "edit", input_t=80, output_t=100)
 
     def test_copilot_uses_assistant_message_model_when_selected_model_is_auto(
-        self, store: StoreBundle, tmp_path: Path
+        self, store: ContextStore, tmp_path: Path
     ) -> None:
         session_dir = tmp_path / "copilot-session-auto-model"
         session_dir.mkdir(parents=True)
@@ -869,7 +871,7 @@ class TestCopilotImporterTokens:
         assert len(trace.usage_entries) == 1
         assert trace.usage_entries[0].model == "claude-sonnet-4.6"
 
-    def test_copilot_mixed_model_sessions_leave_trace_model_blank(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_copilot_mixed_model_sessions_leave_trace_model_blank(self, store: ContextStore, tmp_path: Path) -> None:
         session_dir = tmp_path / "copilot-session-mixed"
         session_dir.mkdir(parents=True)
 
@@ -920,7 +922,7 @@ class TestCopilotImporterTokens:
         assert usage_by_model["gpt-5.4"].input_tokens == 300
         assert usage_by_model["gpt-5.4-mini"].output_tokens == 30
 
-    def test_copilot_transcript_without_verified_parent_is_raw_only(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_copilot_transcript_without_verified_parent_is_raw_only(self, store: ContextStore, tmp_path: Path) -> None:
         transcript_path = tmp_path / "orphan-transcript.jsonl"
         transcript_path.write_text(
             "\n".join(
@@ -956,11 +958,11 @@ class TestCopilotImporterTokens:
             )
         )
 
-        store.history.record_trace(
+        store.record_trace(
             Trace(
                 id="copilot-transcript-orphan-transcript",
                 session_id="orphan-transcript",
-                agent="lemoncrow:code",
+                agent="atelier:code",
                 host="copilot",
                 domain="coding",
                 task="legacy standalone transcript",
@@ -973,15 +975,15 @@ class TestCopilotImporterTokens:
         result = importer.import_transcript_file(transcript_path, force=True)
 
         assert result is None
-        assert store.history.list_traces(host="copilot", limit=10) == []
-        assert store.history.get_trace("copilot-transcript-orphan-transcript") is None
+        assert store.list_traces(host="copilot", limit=10) == []
+        assert store.get_trace("copilot-transcript-orphan-transcript") is None
 
-        artifacts = store.history.list_raw_artifacts(source="copilot", source_session_id="orphan-transcript", limit=10)
+        artifacts = store.list_raw_artifacts(source="copilot", source_session_id="orphan-transcript", limit=10)
         assert [artifact.id for artifact in artifacts] == ["copilot-transcript-orphan-transcript"]
 
     def test_copilot_transcript_attaches_after_parent_session_is_imported(
         self,
-        store: StoreBundle,
+        store: ContextStore,
         tmp_path: Path,
     ) -> None:
         workspace_root = tmp_path / "workspace"
@@ -1053,11 +1055,11 @@ class TestCopilotImporterTokens:
         assert parent_id is not None
         assert transcript_id == "copilot-transcript-attached-transcript"
 
-        parent_trace = store.history.get_trace(parent_id)
+        parent_trace = store.get_trace(parent_id)
         assert parent_trace is not None
         assert parent_trace.workspace_path == str(workspace_root)
 
-        transcript_trace = store.history.get_trace(transcript_id)
+        transcript_trace = store.get_trace(transcript_id)
         assert transcript_trace is not None
         assert transcript_trace.session_id == "logical-session-1"
         assert transcript_trace.workspace_path == str(workspace_root)
@@ -1065,13 +1067,13 @@ class TestCopilotImporterTokens:
         assert transcript_trace.output_tokens == 0
         assert transcript_trace.usage_entries == []
 
-        traces = store.history.list_traces(host="copilot", limit=10)
+        traces = store.list_traces(host="copilot", limit=10)
         assert len(traces) == 2
         assert {trace.session_id for trace in traces} == {"logical-session-1"}
 
     def test_copilot_import_all_reconciles_stored_orphan_transcript(
         self,
-        store: StoreBundle,
+        store: ContextStore,
         tmp_path: Path,
     ) -> None:
         transcript_path = tmp_path / "stale-transcript.jsonl"
@@ -1112,11 +1114,11 @@ class TestCopilotImporterTokens:
         importer = CopilotImporter(store)
         assert importer.import_transcript_file(transcript_path, force=True) is None
 
-        store.history.record_trace(
+        store.record_trace(
             Trace(
                 id="copilot-transcript-stale-transcript",
                 session_id="stale-transcript",
-                agent="lemoncrow:code",
+                agent="atelier:code",
                 host="copilot",
                 domain="coding",
                 task="legacy standalone transcript",
@@ -1129,7 +1131,7 @@ class TestCopilotImporterTokens:
 
         importer.import_all(tmp_path, force=True)
 
-        assert store.history.get_trace("copilot-transcript-stale-transcript") is None
+        assert store.get_trace("copilot-transcript-stale-transcript") is None
 
 
 # =========================================================================
@@ -1138,7 +1140,7 @@ class TestCopilotImporterTokens:
 
 
 class TestAntigravityImporterTokens:
-    def test_antigravity_dedupes_repeated_cache_calls(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_antigravity_dedupes_repeated_cache_calls(self, store: ContextStore, tmp_path: Path) -> None:
         call = {
             "id": "call-1",
             "timestamp": "2026-05-14T09:00:00Z",
@@ -1176,7 +1178,7 @@ class TestAntigravityImporterTokens:
 
 
 class TestCursorImporterTokens:
-    def test_cursor_uses_rich_text_and_normalizes_placeholder_models(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_cursor_uses_rich_text_and_normalizes_placeholder_models(self, store: ContextStore, tmp_path: Path) -> None:
         db_path = tmp_path / "state.vscdb"
         with sqlite3.connect(db_path) as conn:
             conn.execute("CREATE TABLE cursorDiskKV (key TEXT, value TEXT)")
@@ -1268,7 +1270,7 @@ class TestCursorImporterTokens:
         assert trace.usage_entries[0].source_id == "a-assistant-bubble"
         assert trace.usage_entries[0].cost_usd == 0.0
 
-    def test_cursor_does_not_fabricate_cost_from_long_response_text(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_cursor_does_not_fabricate_cost_from_long_response_text(self, store: ContextStore, tmp_path: Path) -> None:
         """A long assistant reply with no tokenCount must not turn into a
         non-trivial char/4 token estimate billed at a real model's rate."""
         db_path = tmp_path / "state.vscdb"
@@ -1300,7 +1302,7 @@ class TestCursorImporterTokens:
         assert trace.output_tokens == 0
         assert trace.usage_entries[0].cost_usd == 0.0
 
-    def test_cursor_import_all_limit_returns_newest_sessions_first(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_cursor_import_all_limit_returns_newest_sessions_first(self, store: ContextStore, tmp_path: Path) -> None:
         db_path = tmp_path / "state.vscdb"
         with sqlite3.connect(db_path) as conn:
             conn.execute("CREATE TABLE cursorDiskKV (key TEXT, value TEXT)")
@@ -1330,7 +1332,7 @@ class TestCursorImporterTokens:
 
         assert results == ["cursor-composer-new", "cursor-composer-mid"]
 
-    def test_cursor_sets_workspace_path_from_workspace_storage(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_cursor_sets_workspace_path_from_workspace_storage(self, store: ContextStore, tmp_path: Path) -> None:
         cursor_root = tmp_path / "Cursor"
         global_storage = cursor_root / "User" / "globalStorage"
         global_storage.mkdir(parents=True)
@@ -1368,7 +1370,7 @@ class TestCursorImporterTokens:
         results = importer.import_all(root=db_path, force=True)
         assert results == ["cursor-ws-composer"]
 
-        trace = store.history.get_trace("cursor-ws-composer")
+        trace = store.get_trace("cursor-ws-composer")
         assert trace is not None
         assert trace.workspace_path == "/home/user/myproject"
 
@@ -1506,7 +1508,7 @@ class TestOpenCodeImporterTokens:
         finally:
             conn.close()
 
-    def test_opencode_token_fields(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_opencode_token_fields(self, store: ContextStore, tmp_path: Path) -> None:
         db_path = tmp_path / "opencode.db"
         self._create_db(db_path)
 
@@ -1540,7 +1542,7 @@ class TestOpenCodeImporterTokens:
         #   tool.output_tokens (Bash) = dist_in = 130 // 1 = 130
         _assert_tool_tokens(trace, "Bash", input_t=50, output_t=130)
 
-    def test_opencode_reimport_uses_time_updated_not_time_created(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_opencode_reimport_uses_time_updated_not_time_created(self, store: ContextStore, tmp_path: Path) -> None:
         """An active session keeps landing new turns under the same id with a
         bumped time_updated but an unchanged (immutable) time_created.
         import_session must treat that as new content, not silently skip it
@@ -1563,7 +1565,7 @@ class TestOpenCodeImporterTokens:
         third = importer.import_session(updated_row, db_path, force=False)
         assert third is None
 
-    def test_opencode_import_all_limit_returns_newest_sessions_first(self, store: StoreBundle, tmp_path: Path) -> None:
+    def test_opencode_import_all_limit_returns_newest_sessions_first(self, store: ContextStore, tmp_path: Path) -> None:
         db_path = tmp_path / "opencode.db"
         conn = sqlite3.connect(str(db_path))
         conn.executescript("""
@@ -1602,6 +1604,6 @@ class TestOpenCodeImporterTokens:
 
         assert result == ["opencode-s-active", "opencode-s-mid"]
 
-        active_trace = store.history.get_trace("opencode-s-active")
+        active_trace = store.get_trace("opencode-s-active")
         assert active_trace is not None
         assert active_trace.workspace_path == "/repo/active"

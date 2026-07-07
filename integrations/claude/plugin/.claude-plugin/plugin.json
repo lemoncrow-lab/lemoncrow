@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-plugin.json",
-  "name": "lemoncrow",
+  "name": "atelier",
   "version": "0.1.0",
   "description": "AI task/procedure/runtime layer for agentic workflows",
   "keywords": [
@@ -10,6 +10,6 @@
     "tool-cache"
   ],
   "author": {
-    "name": "LemonCrow Team"
+    "name": "Atelier Team"
   }
 }

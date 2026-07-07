@@ -1,30 +1,112 @@
-"""Stop hook: verify-before-done (Claude Code).
+"""Stop hook: verify-before-done.
 
-Thin host adapter over ``lemoncrow.pro.capabilities.verify_gate``. This file
-owns only the Claude-Code-specific concern -- parsing the transcript JSONL into
-host-neutral :class:`VerifySignals` -- then delegates the decision to the shared
-core so Codex/OpenCode reuse identical logic off their own run ledgers.
+A code change is not done until the project's own tests have been *run* against
+it. This hook nudges once when a session edited source files but the transcript
+shows no test-runner invocation.
 
-See ``verify_gate`` for the full rationale (real-test-runner bar, completeness
-detectors A/B, fire-once state) and the LEMONCROW_VERIFY_* opt-outs. Bounded and
-fail-open: fires at most once per session (returns immediately when
-``stop_hook_active`` is set) and any error exits 0 without blocking.
+Only a real test runner counts -- an ad-hoc ``python -c`` / ``python repro.py``
+snippet does NOT. A snippet checks only what the author thought to check, so it
+sails past regressions in neighboring code the change quietly broke; the project
+suite catches them.
+
+Beyond "did you run tests", two *completeness* checks run regardless of whether
+tests were run -- because running the existing suite cannot catch a fix that is
+correct-but-incomplete when the discriminating test is withheld (e.g. SWE-bench
+FAIL_TO_PASS tests injected only at grade time):
+
+  A. Contract-change caller sweep. If an edit flips a method's decorator from
+     ``@staticmethod`` to ``@classmethod``, every bare ``name(...)`` call site
+     that was NOT updated to ``self.``/``cls.`` still hard-binds the old class.
+     (Born from sympy-12489: ``Permutation._af_new`` converted, 13 operator
+     call sites left bare -> subclassing still broken.)
+
+  B. Second-path coverage. If the issue text says the bug "also reproduces"
+     via a second named entry point (e.g. ``scatterplot``) but the change
+     touches only ONE source module, the parallel code path is likely unfixed
+     and untested. (Born from seaborn-3187: only ``_core/scales.py`` edited,
+     the classic ``seaborn/utils.py`` legend path left broken.)
+
+Generic and language-agnostic where possible; A/B are intentionally narrow and
+high-precision so a complete fix is not blocked. Bounded and fail-open by design
+-- fires at most once per session (returns immediately when ``stop_hook_active``
+is set) and any error exits 0 without blocking. Opt out entirely with
+ATELIER_VERIFY_BEFORE_DONE=0; opt out of the completeness checks alone with
+ATELIER_VERIFY_COMPLETENESS=0.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.pro.capabilities.verify_gate import (
-    VerifySignals,
-    disabled,
-    is_code_path,
-    is_verifiable_path,
+_CODE_SUFFIXES = frozenset(
+    {
+        ".py",
+        ".pyi",
+        ".ipynb",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".ts",
+        ".tsx",
+        ".go",
+        ".rs",
+        ".rb",
+        ".php",
+        ".java",
+        ".kt",
+        ".kts",
+        ".scala",
+        ".c",
+        ".cc",
+        ".cpp",
+        ".cxx",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".swift",
+        ".m",
+        ".mm",
+        ".ex",
+        ".exs",
+        ".erl",
+        ".clj",
+        ".hs",
+        ".ml",
+        ".lua",
+        ".dart",
+        ".sh",
+    }
 )
-from lemoncrow.pro.capabilities.verify_gate import decide as decide_signals
+_TEST_RUN = re.compile(r"""(?xi)
+    \b(
+        pytest | py\.test | nose2? | tox | nox
+      | unittest | runtests
+      | go\s+test | cargo\s+test | cargo\s+nextest | dotnet\s+test | mix\s+test | phpunit
+      | jest | vitest | mocha | ava | rspec | minitest | ctest
+      | bazel\s+test | ([./\w]*gradlew|gradle|mvn)\b[^\n]*\btest
+      | (npm|pnpm|yarn|bun)\s+(run\s+\S+|test)
+      | (rake|bundle\s+exec)\b[^\n]*\b(test|spec|rspec)
+      | manage\.py\s+test
+      | make\s+(?:test|check) | rails\s+test
+    )\b
+    """)
+
+
+def _disabled() -> bool:
+    v = os.environ.get("ATELIER_VERIFY_BEFORE_DONE")
+    return v is not None and v.strip().lower() in {"0", "false", "off", "no"}
+
+
+def _completeness_disabled() -> bool:
+    v = os.environ.get("ATELIER_VERIFY_COMPLETENESS")
+    return v is not None and v.strip().lower() in {"0", "false", "off", "no"}
 
 
 def _is_edit_tool(name: str) -> bool:
@@ -68,6 +150,23 @@ def _edit_diffs(tool_input: dict[str, Any]) -> list[tuple[str, str, str]]:
     return out
 
 
+def _is_code_path(path: str) -> bool:
+    return Path(path.split("#")[0]).suffix.lower() in _CODE_SUFFIXES
+
+
+def _is_test_path(path: str) -> bool:
+    low = path.replace("\\", "/").lower()
+    base = Path(low).name
+    return (
+        "/tests/" in low
+        or "/test/" in low
+        or low.startswith("tests/")
+        or low.startswith("test/")
+        or base.startswith("test_")
+        or base.endswith("_test.py")
+    )
+
+
 def _block_text(entry: dict[str, Any]) -> str:
     """Concatenate the text of a user message (the issue prompt lives here)."""
     message = entry.get("message")
@@ -87,54 +186,27 @@ def _block_text(entry: dict[str, Any]) -> str:
 
 def scan_transcript(transcript_path: str | None) -> tuple[list[str], bool]:
     """Return (edited code files, whether a behavioral check was executed)."""
-    signals = scan_transcript_rich(transcript_path)
-    return signals.edited, signals.verified
+    edited, verified, _diffs, _prompt = scan_transcript_rich(transcript_path)
+    return edited, verified
 
 
-def scan_transcript_rich(transcript_path: str | None) -> VerifySignals:
-    """Parse a Claude Code transcript JSONL into host-neutral VerifySignals.
-
-    ANY bash/shell run counts as verification when it happened AFTER the last
-    code edit (a pre-edit run proves nothing about the change) and, when the
-    outcome is detectable via the tool_result ``is_error`` flag, only when it
-    succeeded. A run with no visible result is counted (fail-open). The old
-    bar (only a recognized test-runner command counts) misfired on suite-less
-    tasks where a custom script IS the only possible check -- measured on
-    Terminal-Bench transcripts it re-blocked ~half of already-verified trials
-    at +1-4 wasted turns each. Sessions that edit and then never run anything
-    still block.
-
-    An edit tool call only counts as an edit when its own tool_result did NOT
-    come back ``is_error`` -- a rejected/no-op edit (user declined it, nothing
-    written) must not poison ``last_edit_idx``, or the hook re-blocks forever
-    on every later Stop even though nothing on disk changed and the real edit
-    was already verified (edit tool_use precedes its tool_result in the
-    transcript, so this is resolved in a second pass after ``failed_ids`` is
-    fully known).
-
-    ``checked`` = a bash command names an edited file -- the real check for a
-    data/artifact task that has no test suite to run.
-    """
+def scan_transcript_rich(
+    transcript_path: str | None,
+) -> tuple[list[str], bool, list[tuple[str, str, str]], str]:
+    """Return (edited code files, tests-run?, edit diffs, first issue-prompt text)."""
     edited: list[str] = []
-    checked = False
+    verified = False
     diffs: list[tuple[str, str, str]] = []
     prompt = ""
-    edit_events: list[tuple[int, str, list[str], list[tuple[str, str, str]]]] = (
-        []
-    )  # (order, tool_use id, targets, diffs)
-    runs: list[tuple[int, str]] = []  # every bash/shell run: (event order, tool_use id)
-    failed_ids: set[str] = set()
-    idx = 0
-    cmds: list[str] = []
     if not transcript_path:
-        return VerifySignals()
+        return edited, verified, diffs, prompt
     p = Path(transcript_path)
     if not p.exists():
-        return VerifySignals()
+        return edited, verified, diffs, prompt
     try:
         lines = p.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return VerifySignals()
+        return edited, verified, diffs, prompt
     for line in lines:
         line = line.strip()
         if not line:
@@ -145,17 +217,8 @@ def scan_transcript_rich(transcript_path: str | None) -> VerifySignals:
             continue
         if not isinstance(entry, dict):
             continue
-        if entry.get("type") == "user":
-            if not prompt:
-                prompt = _block_text(entry)
-            message = entry.get("message")
-            content = message.get("content") if isinstance(message, dict) else None
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error"):
-                        tid = str(block.get("tool_use_id") or "")
-                        if tid:
-                            failed_ids.add(tid)
+        if entry.get("type") == "user" and not prompt:
+            prompt = _block_text(entry)
             continue
         if entry.get("type") != "assistant":
             continue
@@ -166,63 +229,175 @@ def scan_transcript_rich(transcript_path: str | None) -> VerifySignals:
         for block in content:
             if not isinstance(block, dict) or block.get("type") != "tool_use":
                 continue
-            idx += 1
             name = str(block.get("name") or "").split("__")[-1].lower()
             tool_input = block.get("input")
             if not isinstance(tool_input, dict):
                 continue
             if _is_edit_tool(name):
-                targets = [t for t in _edit_targets(tool_input) if is_verifiable_path(t, include_docs=True)]
-                call_diffs = [d for d in _edit_diffs(tool_input) if is_code_path(d[0])]
-                if targets or call_diffs:
-                    edit_events.append((idx, str(block.get("id") or ""), targets, call_diffs))
+                edited.extend(t for t in _edit_targets(tool_input) if _is_code_path(t))
+                diffs.extend(d for d in _edit_diffs(tool_input) if _is_code_path(d[0]))
             elif name in {"bash", "shell"}:
                 cmd = str(tool_input.get("command") or "")
-                cmds.append(cmd)
-                runs.append((idx, str(block.get("id") or "")))
-    # Second pass: drop edit attempts whose own tool_result came back is_error
-    # (rejected/no-op -- see docstring) now that failed_ids covers the whole
-    # transcript.
-    live_edits = [e for e in edit_events if not e[1] or e[1] not in failed_ids]
-    for _, _, targets, call_diffs in live_edits:
-        edited.extend(targets)
-        diffs.extend(call_diffs)
-    last_edit_idx = max((i for i, _, _, _ in live_edits), default=-1)
-    verified = any(i > last_edit_idx and (not tid or tid not in failed_ids) for i, tid in runs)
-    # A data/artifact deliverable has no test suite -- exercising it (a bash command
-    # naming the edited file) is the authoritative check. Code keeps the stricter
-    # test-runner bar in decide(); the >=5 length guard avoids tiny-basename matches.
-    bases = {b for b in (Path(p.split("#")[0]).name for p in edited) if len(b) >= 5}
-    checked = any(b in c for c in cmds for b in bases)
-    return VerifySignals(edited=edited, verified=verified, checked=checked, diffs=diffs, prompt=prompt)
+                if _TEST_RUN.search(cmd):
+                    verified = True
+    return edited, verified, diffs, prompt
+
+
+# --- Detector A: contract-change caller sweep -------------------------------
+_CONTRACT_DEC = re.compile(r"@(staticmethod|classmethod|property)\b")
+_DEF_NAME = re.compile(r"\bdef\s+(\w+)\s*\(")
+
+
+def _contract_changed_symbols(diffs: list[tuple[str, str, str]]) -> set[str]:
+    """Symbols whose decorator flipped @staticmethod -> @classmethod in an edit."""
+    syms: set[str] = set()
+    for path, old, new in diffs:
+        if not path.endswith(".py"):
+            continue
+        old_d = set(_CONTRACT_DEC.findall(old))
+        new_d = set(_CONTRACT_DEC.findall(new))
+        if "staticmethod" in old_d and "classmethod" in new_d and "classmethod" not in old_d:
+            for m in _DEF_NAME.finditer(new):
+                syms.add(m.group(1))
+    return syms
+
+
+def _bare_call_sites(symbol: str, root: str = ".") -> list[str]:
+    """file:line of bare ``symbol(`` calls (not ``.symbol(``, not its def)."""
+    bare = re.compile(r"(?<![.\w])" + re.escape(symbol) + r"\s*\(")
+    defline = re.compile(r"\bdef\s+" + re.escape(symbol) + r"\b")
+    hits: list[str] = []
+    try:
+        proc = subprocess.run(
+            ["grep", "-rn", "--include=*.py", "-e", symbol + "(", root],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except Exception:  # noqa: BLE001  # fail-open: a hook must never crash the agent
+        return hits
+    for line in proc.stdout.splitlines():
+        parts = line.split(":", 2)
+        if len(parts) < 3:
+            continue
+        fpath, lineno, body = parts
+        if _is_test_path(fpath):
+            continue
+        if defline.search(body):
+            continue
+        if bare.search(body):
+            hits.append(f"{fpath}:{lineno}")
+    return hits
+
+
+def detector_a(diffs: list[tuple[str, str, str]], root: str = ".") -> tuple[str, list[str]] | None:
+    for sym in sorted(_contract_changed_symbols(diffs)):
+        sites = _bare_call_sites(sym, root)
+        if sites:
+            return sym, sites
+    return None
+
+
+# --- Detector B: second-path coverage ---------------------------------------
+_ALSO = re.compile(
+    r"(?i)\balso\b[^.\n]{0,80}?\b(?:reproduc\w*|happen\w*|occur\w*|affect\w*|present\w*)\b([^.\n]{0,90})"
+)
+
+
+def _second_scenario_token(prompt: str) -> str | None:
+    m = _ALSO.search(prompt or "")
+    if not m:
+        return None
+    tail = m.group(1)
+    bt = re.search(r"`(\w{3,})`", tail)
+    if bt:
+        return bt.group(1)
+    word = re.search(r"\b(\w*plot\w*|\w+plot)\b", tail)
+    if word:
+        return word.group(1)
+    return None
+
+
+def _source_modules(edited: list[str]) -> set[str]:
+    return {Path(f.split("#")[0]).name for f in edited if not _is_test_path(f)}
+
+
+def detector_b(prompt: str, edited: list[str]) -> tuple[str, list[str]] | None:
+    tok = _second_scenario_token(prompt)
+    if not tok:
+        return None
+    mods = _source_modules(edited)
+    if len(mods) <= 1:
+        return tok, sorted(mods)
+    return None
+
+
+_SOURCE_SUFFIXES = {
+    ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java",
+    ".rb", ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".php", ".swift",
+    ".kt", ".scala", ".sh", ".bash", ".sql",
+}
+
+
+def _is_source_file(path: str) -> bool:
+    return Path(path.split("#")[0]).suffix.lower() in _SOURCE_SUFFIXES
+
+
+_REASON = "FIXME (verify): edited {sample} but ran no tests -- run the tests covering it (or the suite) before finishing."
+
+
+def _bench_mode_on() -> bool:
+    """True only when ATELIER_BENCH_MODE is set to something other than 'off'."""
+    raw = os.environ.get("ATELIER_BENCH_MODE")
+    return raw is not None and raw.strip().lower() != "off"
 
 
 def decide(payload: dict[str, Any]) -> dict[str, str] | None:
-    if disabled():
+    if _disabled():
         return None
     if payload.get("stop_hook_active") is True:
         return None
-    signals = scan_transcript_rich(payload.get("transcript_path"))
-    return decide_signals(signals, dedup_key=str(payload.get("transcript_path") or ""))
+    edited, verified, diffs, prompt = scan_transcript_rich(payload.get("transcript_path"))
+    if not edited:
+        return None
 
+    if _bench_mode_on() and not _completeness_disabled():
+        a = detector_a(diffs)
+        if a is not None:
+            sym, sites = a
+            shown = ", ".join(sites[:12]) + (" .." if len(sites) > 12 else "")
+            return {
+                "decision": "block",
+                "reason": (
+                    f"FIXME (completeness): you converted `{sym}` to a classmethod, but these "
+                    f"bare `{sym}(...)` call sites were not updated to `self.`/`cls.` and still "
+                    f"hard-bind the original class: {shown}. Update each (or confirm it is "
+                    f"intentional) so the change reaches every site before finishing."
+                ),
+            }
+        b = detector_b(prompt, edited)
+        if b is not None:
+            tok, mods = b
+            where = ", ".join(mods) if mods else "a single file"
+            return {
+                "decision": "block",
+                "reason": (
+                    f"FIXME (completeness): the issue says the bug also reproduces via `{tok}`, "
+                    f"but your change touches only one source module ({where}). KEEP the path you "
+                    f"already fixed passing, AND additionally fix + test the parallel path (it "
+                    f"almost certainly lives in a different module and is unexercised by your "
+                    f"current test) -- do not regress the working path. Verify both before finishing."
+                ),
+            }
 
-def _dormant() -> bool:
-    """Cap exhausted -> LemonCrow steps aside (behavioral hooks emit nothing).
-    Fail-open: any error -> False so the hook stays active rather than wrongly
-    silencing. Measurement/reporting hooks are never gated by this."""
-    try:
-        import os
-
-        from lemoncrow.core.capabilities.plugin_runtime import cap_exhausted
-
-        root = (
-            os.environ.get("LEMONCROW_ROOT")
-            or os.environ.get("LEMONCROW_STORE_ROOT")
-            or str(Path.home() / ".lemoncrow")
-        )
-        return bool(cap_exhausted(root))
-    except Exception:  # noqa: BLE001 — hooks must never crash; fail-open (active)
-        return False
+    if verified:
+        return None
+    source_edited = [p for p in edited if _is_source_file(p)]
+    if not source_edited:
+        return None
+    uniq = sorted({Path(p.split("#")[0]).name for p in source_edited})
+    reason = _REASON.format(n=len(uniq), sample=", ".join(uniq[:4]))
+    return {"decision": "block", "reason": reason}
 
 
 def main() -> int:
@@ -230,8 +405,6 @@ def main() -> int:
         payload = json.loads(sys.stdin.read() or "{}")
         if not isinstance(payload, dict):
             return 0
-        if _dormant():
-            return 0  # dormant: no verify-before-done nudge
         result = decide(payload)
         if result is not None:
             print(json.dumps(result))

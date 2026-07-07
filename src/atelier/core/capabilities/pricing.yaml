@@ -1,0 +1,129 @@
+# Built-in pricing overrides for Atelier.
+# Updated June 2026.
+#
+# DESIGN PHILOSOPHY:
+# 1. Models known to LiteLLM (like gpt-5.5) are automatically resolved via alias
+#    stripping (e.g. "openai/gpt-5.5" -> "gpt-5.5"). Subscription-only vendor
+#    prefixes (e.g. "copilot/gpt-5.5") are exempt from this stripping -- see
+#    _SUBSCRIPTION_VENDOR_PREFIXES in pricing.py -- so they fall through to the
+#    zero-cost default instead of billing the underlying model's real rate.
+# 2. This file contains entries for models that are either:
+#    a) Missing from LiteLLM (like internal host aliases).
+#    b) Subscription-covered but deserve a "market value" proxy to show
+#       economic benefit (like Cursor Auto).
+
+overrides:
+  # Cursor Agent Auto Mode
+  # Routes between GPT-4o, GPT-5, and Claude 3.5 Sonnet.
+  # We use GPT-4o as a conservative "market value" proxy.
+  cursor-agent-auto:
+    input: 2.50
+    output: 10.00
+    cache_read: 1.25
+    cache_write: 2.50
+    thinking: 10.00
+
+  # Google Gemini 3 (Market rates as of May 2026)
+  auto-gemini-3:
+    input: 2.00
+    output: 12.00
+    cache_read: 0.20
+    cache_write: 2.00
+    thinking: 12.00
+
+  # Claude Fable 5 / Mythos 5 — verified against Anthropic pricing page (Jun 2026).
+  # Flat rates only: Claude does not apply a long-context premium in /cost.
+  claude-fable-5:
+    input: 10.00
+    output: 50.00
+    cache_read: 1.00
+    cache_write: 12.50
+    cache_write_1h: 20.00
+    thinking: 50.00
+    context_window: 1000000
+
+  claude-mythos-5:
+    input: 10.00
+    output: 50.00
+    cache_read: 1.00
+    cache_write: 12.50
+    cache_write_1h: 20.00
+    thinking: 50.00
+    context_window: 1000000
+  # Same rate card as Claude Mythos 5 / Fable 5 (predecessor model, Project
+  # Glasswing). Absent from litellm, which otherwise misprices it via the
+  # sonnet fallback.
+  claude-mythos-preview:
+    input: 10.00
+    output: 50.00
+    cache_read: 1.00
+    cache_write: 12.50
+    cache_write_1h: 20.00
+    thinking: 50.00
+    context_window: 1000000
+
+  # Claude Opus 4.8 — verified against Claude /cost (session c78b62ca, Jun 2026).
+  # Flat rates only: Claude does not apply a long-context premium.
+  # claude-opus-4-8[1m] is how Claude Code identifies the 1M-context variant.
+  claude-opus-4-8[1m]: &opus-4-8
+    input: 5.00
+    output: 25.00
+    cache_read: 0.50
+    cache_write: 6.25
+    cache_write_1h: 10.00
+    thinking: 25.00
+    context_window: 1000000
+
+  claude-opus-4-8: *opus-4-8
+  # Opus 4.7 / 4.6 include the full 1M window at standard pricing (no >200k
+  # premium) — pinned here so litellm data drift can never add premium tiers.
+  claude-opus-4-7: &opus-4-7
+    input: 5.00
+    output: 25.00
+    cache_read: 0.50
+    cache_write: 6.25
+    cache_write_1h: 10.00
+    thinking: 25.00
+    context_window: 1000000
+  claude-opus-4-6: *opus-4-7
+
+  # Claude Sonnet 4.6 — flat rates only, no long-context premium (matches Claude /cost).
+  claude-sonnet-4-6:
+    input: 3.00
+    output: 15.00
+    cache_read: 0.30
+    cache_write: 3.75
+    cache_write_1h: 6.00
+    thinking: 15.00
+    context_window: 200000
+
+  # Claude Sonnet 5 — standard pricing (intro $2/$10 through Aug 31, 2026).
+  # Matches Claude API /cost.
+  claude-sonnet-5:
+    input: 3.00
+    output: 15.00
+    cache_read: 0.30
+    cache_write: 3.75
+    cache_write_1h: 6.00
+    thinking: 15.00
+    context_window: 1000000
+    # Launch promo through 2026-08-31 (inclusive, UTC): $2/$10 per MTok, with
+    # the standard cache multipliers (1.25x / 2x write, 0.1x read) applied to
+    # the intro base. Sticker rates above take over when the window closes.
+    intro:
+      until: "2026-08-31"
+      input: 2.00
+      output: 10.00
+      cache_read: 0.20
+      cache_write: 2.50
+      cache_write_1h: 4.00
+      thinking: 10.00
+
+  # OpenCode (Subscription-covered routing)
+  # Uses GPT-4o-mini as a proxy.
+  opencode/big-pickle:
+    input: 0.15
+    output: 0.60
+    cache_read: 0.075
+    cache_write: 0.15
+    thinking: 0.60

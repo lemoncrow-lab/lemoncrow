@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.gateway.adapters import mcp_server
+from atelier.gateway.adapters import mcp_server
 from tests.helpers import init_store_at
 
 
@@ -34,15 +34,15 @@ def _result(response: dict[str, Any]) -> dict[str, Any]:
 
 @pytest.fixture()
 def workflow_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "test-wf-session")
-    mcp_server._ledger._current_ledger = None
-    mcp_server._ledger._realtime_ctx = None
+    mcp_server._current_ledger = None
+    mcp_server._realtime_ctx = None
     mcp_server._remote_client = None
     # _resolve_live_session_id caches the session id by window-file mtime (0.0 in
     # test environments).  If a prior test in the same xdist worker cached
@@ -268,7 +268,7 @@ def test_workflow_run_uses_workspace_host_model_when_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
-    settings_dir = workspace / ".lemoncrow"
+    settings_dir = workspace / ".atelier"
     settings_dir.mkdir(parents=True, exist_ok=True)
     (settings_dir / "settings.json").write_text(
         json.dumps({"models": {"hosts": {"claude": {"roles": {"*": "claude-opus-4.8"}}}}}),
@@ -406,7 +406,7 @@ def test_workflow_run_applies_explicit_owned_route(workflow_env: Path, monkeypat
 def test_workflow_run_auto_route_failure_does_not_fallback_to_native_subprocess(
     workflow_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from lemoncrow.pro.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
+    from atelier.core.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
 
     monkeypatch.setattr(
         mcp_server,

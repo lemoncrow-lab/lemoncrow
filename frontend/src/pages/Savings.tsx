@@ -3,7 +3,7 @@ import { useTimeRange } from "../lib/TimeRangeContext";
 import LeverBar from "../components/LeverBar";
 import SavingsTimeChart from "../components/SavingsTimeChart";
 import { EmptyState } from "../components/WorkbenchUI";
-import { fmtPct, fmtTok, fmtUsd } from "../lib/format";
+import { fmtUsd } from "../lib/format";
 import type {
   SavingsProofSession,
   SavingsSummaryV2,
@@ -11,9 +11,7 @@ import type {
 } from "../api";
 import { api } from "../api";
 
-// TODO: drop this extension once frontend/src/api.ts's SavingsSummaryV2 lands
-// read_saved_usd / carry_tokens / total_saved_usd from the backend batch
-// landing concurrently (see savings-display consistency plan).
+const fmt = new Intl.NumberFormat();
 
 function toTitle(label: string): string {
   return label
@@ -103,10 +101,6 @@ export default function Savings() {
   const headlineLabel = verification?.headline_kind
     ? toTitle(verification.headline_kind)
     : "Cost Reduction";
-  // TODO: use total_saved_usd once backend adds it — currently absent from
-  // api.ts's SavingsSummaryV2 (see savings-display consistency plan).
-  const totalSavedUsd =
-    data.total_saved_usd ?? (data.saved_usd ?? 0) + (data.carry_usd ?? 0);
   const loadLedger = (runId: string) => {
     const nextExpanded = !expandedRuns[runId];
     setExpandedRuns((prev) => ({ ...prev, [runId]: nextExpanded }));
@@ -139,23 +133,23 @@ export default function Savings() {
               {headlineLabel}
             </div>
             <div className="text-6xl md:text-7xl font-semibold leading-none text-cyan-200 mt-2">
-              {fmtPct(
-                data.cost_basis === "session_ledger"
-                  ? (data.saved_pct ?? 0)
-                  : data.reduction_pct
-              )}
+              {(data.cost_basis === "session_ledger"
+                ? (data.ledger_saved_pct ?? 0)
+                : data.reduction_pct
+              ).toFixed(1)}
+              %
             </div>
             <p className="text-sm text-neutral-400 mt-3">
-              {fmtUsd(totalSavedUsd)} saved of{" "}
+              {fmtUsd(data.saved_usd ?? 0)} saved of{" "}
               {fmtUsd(data.would_have_cost_usd ?? 0)} would-have-cost over the
               last {data.window_days} days —{" "}
-              {fmtTok(
+              {fmt.format(
                 data.cost_basis === "session_ledger"
                   ? (data.ledger_tokens_saved ?? 0)
                   : data.total_naive_tokens
               )}{" "}
               tokens kept out of the model across{" "}
-              {fmtTok(
+              {fmt.format(
                 data.cost_basis === "session_ledger"
                   ? (data.ledger_calls_saved ?? 0)
                   : (data.live_calls_saved ?? 0)
@@ -165,7 +159,7 @@ export default function Savings() {
             <p className="max-w-3xl text-xs text-neutral-400 mt-3 leading-relaxed">
               {data.cost_basis === "context_budget"
                 ? "Proof-oriented reduction from persisted context-budget rows. Ledger totals remain visible below for statusline/CLI reconciliation."
-                : "Realized savings from the per-session ledger — the same figure shown by the statusline and the LemonCrow savings CLI."}
+                : "Realized savings from the per-session ledger — the same figure shown by the statusline and the atelier savings CLI."}
             </p>
           </div>
           <div className="w-full md:w-auto">
@@ -177,7 +171,7 @@ export default function Savings() {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="border border-emerald-900/60 bg-emerald-950/30 p-4">
           <div className="text-[10px] font-mono uppercase tracking-widest text-emerald-300 mb-1">
             Cost Saved
@@ -187,12 +181,12 @@ export default function Savings() {
           </div>
           {(data.saved_pct ?? 0) > 0 && (
             <div className="text-xs text-emerald-300 mt-1">
-              {fmtPct(data.saved_pct ?? 0)} vs baseline
+              {(data.saved_pct ?? 0).toFixed(1)}% vs baseline
             </div>
           )}
-          {(data.routing_saved_usd ?? 0) > 0 && (
+          {(data.ledger_routing_usd ?? 0) > 0 && (
             <div className="text-xs text-neutral-400 mt-1">
-              + {fmtUsd(data.routing_saved_usd ?? 0)} routing (separate)
+              + {fmtUsd(data.ledger_routing_usd ?? 0)} routing (separate)
             </div>
           )}
           {(data.ops_saved_usd ?? 0) > 0 && (
@@ -221,7 +215,7 @@ export default function Savings() {
             Calls Saved
           </div>
           <div className="text-2xl font-semibold text-neutral-200">
-            {fmtTok(
+            {fmt.format(
               data.cost_basis === "session_ledger"
                 ? (data.ledger_calls_saved ?? 0)
                 : (data.live_calls_saved ?? 0)
@@ -229,9 +223,9 @@ export default function Savings() {
           </div>
           <div className="text-xs text-neutral-400 mt-1">
             {(data.total_calls ?? 0) > 0
-              ? `${fmtTok(data.total_calls ?? 0)} LLM calls tracked`
+              ? `${fmt.format(data.total_calls ?? 0)} LLM calls tracked`
               : trackedToolCalls > 0
-                ? `${fmtTok(trackedToolCalls)} tool turns tracked`
+                ? `${fmt.format(trackedToolCalls)} tool turns tracked`
                 : "0 tracked calls yet"}
           </div>
         </div>
@@ -240,21 +234,10 @@ export default function Savings() {
             Actual Tool Tokens
           </div>
           <div className="text-2xl font-semibold text-neutral-200">
-            {fmtTok(data.total_actual_tokens)}
+            {fmt.format(data.total_actual_tokens)}
           </div>
           <div className="text-xs text-neutral-400 mt-1">
             persisted compacted tool-output tokens
-          </div>
-        </div>
-        <div className="border border-teal-900/60 bg-teal-950/30 p-4">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-teal-300 mb-1">
-            Read Savings
-          </div>
-          <div className="text-2xl font-semibold text-teal-300">
-            {fmtUsd(data.read_saved_usd ?? 0)}
-          </div>
-          <div className="text-xs text-neutral-400 mt-1">
-            cache-read / retrieval cost avoided
           </div>
         </div>
         <div className="border border-violet-900/60 bg-violet-950/30 p-4">
@@ -265,7 +248,7 @@ export default function Savings() {
             {fmtUsd(data.carry_usd ?? 0)}
           </div>
           <div className="text-xs text-neutral-400 mt-1">
-            {fmtTok(data.carry_tokens ?? 0)} tokens carried
+            ledger carry: {fmtUsd(data.ledger_saved_usd ?? 0)} saved
           </div>
         </div>
       </section>
@@ -275,7 +258,7 @@ export default function Savings() {
           <span className="font-mono uppercase tracking-widest text-amber-300 mr-2">
             Cost Note
           </span>
-          {fmtTok(data.unpriced_cache_write_tokens ?? 0)} cache-write tokens
+          {fmt.format(data.unpriced_cache_write_tokens ?? 0)} cache-write tokens
           were tracked in the proof data but are not priced by the current model
           pricing table yet.
         </section>
@@ -291,8 +274,8 @@ export default function Savings() {
           description={
             <>
               Run any task with{" "}
-              <code className="bg-neutral-900 px-1">lc mcp</code> enabled to
-              start collecting savings telemetry.
+              <code className="bg-neutral-900 px-1">atelier mcp</code> enabled
+              to start collecting savings telemetry.
             </>
           }
         />
@@ -327,7 +310,7 @@ export default function Savings() {
                     Token reduction
                   </div>
                   <div className="text-2xl font-semibold text-cyan-200">
-                    {fmtPct(latestBenchmark.reduction_pct)}
+                    {latestBenchmark.reduction_pct.toFixed(1)}%
                   </div>
                 </div>
                 <div>
@@ -343,7 +326,7 @@ export default function Savings() {
                     Tasks
                   </div>
                   <div className="text-2xl font-semibold text-neutral-200">
-                    {fmtTok(latestBenchmark.n_prompts)}
+                    {fmt.format(latestBenchmark.n_prompts)}
                   </div>
                 </div>
                 <div>
@@ -351,15 +334,15 @@ export default function Savings() {
                     Success
                   </div>
                   <div className="text-2xl font-semibold text-neutral-200">
-                    {fmtPct(latestBenchmark.lemoncrow_success_rate * 100, 0)}
+                    {(latestBenchmark.atelier_success_rate * 100).toFixed(0)}%
                   </div>
                 </div>
               </div>
               <p className="mt-3 text-xs text-neutral-400">
                 Real paired command run: baseline{" "}
-                {fmtTok(latestBenchmark.total_tokens_baseline)} tokens vs
-                LemonCrow-enabled {fmtTok(latestBenchmark.total_tokens_lc)}{" "}
-                tokens.
+                {fmt.format(latestBenchmark.total_tokens_baseline)} tokens vs
+                Atelier-enabled{" "}
+                {fmt.format(latestBenchmark.total_tokens_atelier)} tokens.
               </p>
             </section>
           )}
@@ -393,10 +376,10 @@ export default function Savings() {
                           {source.tool_name}
                         </td>
                         <td className="py-2 pr-4 text-right">
-                          {fmtTok(source.calls_saved)}
+                          {fmt.format(source.calls_saved)}
                         </td>
                         <td className="py-2 pr-4 text-right">
-                          {fmtTok(source.tokens_saved)}
+                          {fmt.format(source.tokens_saved)}
                         </td>
                         <td className="py-2 text-right text-emerald-300">
                           {fmtUsd(source.cost_saved_usd)}
@@ -446,10 +429,10 @@ export default function Savings() {
                           {toTitle(tool.lever)}
                         </td>
                         <td className="py-2 pr-4 text-right">
-                          {fmtTok(tool.turns)}
+                          {fmt.format(tool.turns)}
                         </td>
                         <td className="py-2 pr-4 text-right">
-                          {fmtTok(tool.session_count)}
+                          {fmt.format(tool.session_count)}
                         </td>
                         <td className="py-2 pr-4 text-right text-neutral-200">
                           {fmtUsd(tool.actual_cost_usd)}
@@ -461,7 +444,7 @@ export default function Savings() {
                           {fmtUsd(tool.saved_cost_usd)}
                         </td>
                         <td className="py-2 text-right">
-                          {fmtTok(tool.saved_tokens)}
+                          {fmt.format(tool.saved_tokens)}
                         </td>
                       </tr>
                     ))}
@@ -575,27 +558,27 @@ function ManualVerificationPanel({
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         <Metric
           label="Proof Rows"
-          value={fmtTok(verification.tracked_row_count)}
+          value={fmt.format(verification.tracked_row_count)}
         />
         <Metric
           label="Tracked Sessions"
-          value={fmtTok(verification.tracked_run_count)}
+          value={fmt.format(verification.tracked_run_count)}
         />
         <Metric
           label="Trace Linked"
-          value={fmtTok(verification.trace_linked_run_count)}
+          value={fmt.format(verification.trace_linked_run_count)}
         />
         <Metric
           label="Ledger Backed"
-          value={fmtTok(verification.ledger_backed_run_count)}
+          value={fmt.format(verification.ledger_backed_run_count)}
         />
         <Metric
           label="Live Events"
-          value={fmtTok(verification.live_event_count)}
+          value={fmt.format(verification.live_event_count)}
         />
         <Metric
           label="Coverage Gaps"
-          value={fmtTok(verification.coverage_gap_count)}
+          value={fmt.format(verification.coverage_gap_count)}
         />
       </div>
 
@@ -605,13 +588,13 @@ function ManualVerificationPanel({
             Excluded Compact Output Rows
           </div>
           <div className="text-lg font-semibold text-cyan-200">
-            {fmtTok(compactOutputRows)} row
+            {fmt.format(compactOutputRows)} row
             {compactOutputRows === 1 ? "" : "s"}
           </div>
           <div className="text-xs text-neutral-400 leading-relaxed">
-            {fmtTok(compactOutputSavedTokens)} saved tokens remain visible in
-            session proof, but are excluded from the top-line headline because
-            they represent tool-output compaction rather than audited
+            {fmt.format(compactOutputSavedTokens)} saved tokens remain visible
+            in session proof, but are excluded from the top-line headline
+            because they represent tool-output compaction rather than audited
             session-level savings.
           </div>
         </div>
@@ -625,7 +608,8 @@ function ManualVerificationPanel({
           {dominantRun ? (
             <>
               <div className="text-lg font-semibold text-cyan-200">
-                {fmtPct(verification.dominant_run_share_pct)} of saved tokens
+                {verification.dominant_run_share_pct.toFixed(1)}% of saved
+                tokens
               </div>
               <div className="text-xs text-neutral-400 font-mono break-all">
                 {dominantRun.session_id}
@@ -638,7 +622,7 @@ function ManualVerificationPanel({
                 {truncate(dominantRun.task ?? "No trace task attached.", 180)}
               </p>
               <div className="text-xs text-neutral-400">
-                {fmtTok(dominantRun.saved_tokens)} saved tokens
+                {fmt.format(dominantRun.saved_tokens)} saved tokens
               </div>
             </>
           ) : (
@@ -655,7 +639,8 @@ function ManualVerificationPanel({
           {dominantItem ? (
             <>
               <div className="text-lg font-semibold text-cyan-200">
-                {fmtPct(verification.dominant_item_share_pct)} of saved tokens
+                {verification.dominant_item_share_pct.toFixed(1)}% of saved
+                tokens
               </div>
               <div className="text-sm text-neutral-300">
                 {dominantItem.tool_name} · {toTitle(dominantItem.lever)} · turn{" "}
@@ -666,9 +651,9 @@ function ManualVerificationPanel({
               </div>
 
               <div className="text-xs text-neutral-400 leading-relaxed">
-                {fmtTok(dominantItem.saved_tokens)} saved tokens from{" "}
-                {fmtTok(dominantItem.naive_tokens)} naive vs{" "}
-                {fmtTok(dominantItem.actual_tokens)} compacted tokens.
+                {fmt.format(dominantItem.saved_tokens)} saved tokens from{" "}
+                {fmt.format(dominantItem.naive_tokens)} naive vs{" "}
+                {fmt.format(dominantItem.actual_tokens)} compacted tokens.
               </div>
             </>
           ) : (
@@ -769,14 +754,17 @@ function SessionProofCard({
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs min-w-[280px]">
           <Metric label="Saved Cost" value={fmtUsd(session.saved_cost_usd)} />
-          <Metric label="Saved Tokens" value={fmtTok(session.saved_tokens)} />
+          <Metric
+            label="Saved Tokens"
+            value={fmt.format(session.saved_tokens)}
+          />
           <Metric
             label="Tool Turns"
-            value={fmtTok(session.tracked_tool_calls)}
+            value={fmt.format(session.tracked_tool_calls)}
           />
           <Metric
             label="Live Calls Saved"
-            value={fmtTok(session.live_calls_saved)}
+            value={fmt.format(session.live_calls_saved)}
           />
         </div>
       </div>
@@ -810,13 +798,13 @@ function SessionProofCard({
                   {toTitle(item.lever)}
                 </td>
                 <td className="py-2 pr-4 text-right">
-                  {fmtTok(item.actual_tokens)}
+                  {fmt.format(item.actual_tokens)}
                 </td>
                 <td className="py-2 pr-4 text-right text-neutral-400">
-                  {fmtTok(item.naive_tokens)}
+                  {fmt.format(item.naive_tokens)}
                 </td>
                 <td className="py-2 pr-4 text-right">
-                  {fmtTok(item.saved_tokens)}
+                  {fmt.format(item.saved_tokens)}
                 </td>
                 <td className="py-2 text-right text-emerald-300">
                   {fmtUsd(item.saved_cost_usd)}

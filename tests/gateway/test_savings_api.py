@@ -12,11 +12,11 @@ from typing import cast
 
 from fastapi.testclient import TestClient
 
-from lemoncrow.core.foundation.models import Trace
-from lemoncrow.core.foundation.savings_models import ContextBudget
-from lemoncrow.core.service.api import create_app
-from lemoncrow.infra.storage.bundle import StoreBundle
-from lemoncrow.infra.storage.factory import create_store
+from atelier.core.foundation.models import Trace
+from atelier.core.foundation.savings_models import ContextBudget
+from atelier.core.foundation.store import ContextStore
+from atelier.core.service.api import create_app
+from atelier.infra.storage.factory import create_store
 
 
 def _write_cost_history(path: Path) -> None:
@@ -24,7 +24,7 @@ def _write_cost_history(path: Path) -> None:
     history = {
         "operations": {
             "op-search": {
-                "domain": "lemoncrow.platform",
+                "domain": "atelier.platform",
                 "task_sample": "search",
                 "first_seen": now.isoformat(),
                 "calls": [
@@ -53,7 +53,7 @@ def _write_cost_history(path: Path) -> None:
                 ],
             },
             "op-batch": {
-                "domain": "lemoncrow.platform",
+                "domain": "atelier.platform",
                 "task_sample": "edit",
                 "first_seen": now.isoformat(),
                 "calls": [
@@ -122,17 +122,17 @@ def _write_latest_benchmark(path: Path) -> None:
                 "model": "test-model",
                 "n_prompts": 2,
                 "total_tokens_baseline": 1000,
-                "total_tokens_lemoncrow": 600,
+                "total_tokens_atelier": 600,
                 "tokens_saved": 400,
                 "reduction_pct": 40.0,
                 "total_cost_baseline_usd": 0.02,
-                "total_cost_lemoncrow_usd": 0.012,
+                "total_cost_atelier_usd": 0.012,
                 "cost_saved_usd": 0.008,
                 "total_time_baseline_ms": 2000,
-                "total_time_lemoncrow_ms": 1500,
+                "total_time_atelier_ms": 1500,
                 "time_saved_ms": 500,
                 "baseline_success_rate": 1.0,
-                "lemoncrow_success_rate": 1.0,
+                "atelier_success_rate": 1.0,
                 "prompts": [],
             }
         ),
@@ -148,11 +148,11 @@ def _write_context_budget(
     output_tokens: int,
     lever_savings: dict[str, int] | None = None,
     turn_index: int = 0,
-) -> StoreBundle:
+) -> ContextStore:
     store = create_store(root)
     store.init()
     saved_tokens = naive_input_tokens - output_tokens
-    store.telemetry.persist_context_budget(
+    store.persist_context_budget(
         ContextBudget(
             session_id=session_id,
             turn_index=turn_index,
@@ -166,11 +166,11 @@ def _write_context_budget(
             tool_calls=1,
         )
     )
-    return cast(StoreBundle, store)
+    return cast(ContextStore, store)
 
 
 def _write_run_ledger_snapshot(root: Path, *, session_id: str, tool_name: str) -> None:
-    from lemoncrow.core.foundation.paths import session_dir
+    from atelier.core.foundation.paths import session_dir
 
     now = datetime.now(UTC).isoformat()
     runs_dir = session_dir(root, "codex", session_id)
@@ -203,7 +203,7 @@ def _write_run_ledger_snapshot_with_events(
     events: list[dict[str, object]],
     tools_called: list[str] | None = None,
 ) -> None:
-    from lemoncrow.core.foundation.paths import session_dir
+    from atelier.core.foundation.paths import session_dir
 
     now = datetime.now(UTC).isoformat()
     runs_dir = session_dir(root, "codex", session_id)
@@ -221,11 +221,11 @@ def _write_run_ledger_snapshot_with_events(
 
 
 def test_savings_summary_returns_per_lever_and_by_day(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     _write_cost_history(root / "cost_history.json")
 
-    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
     client = TestClient(create_app())
     resp = client.get("/v1/savings/summary?window_days=14")
@@ -243,13 +243,13 @@ def test_savings_summary_returns_per_lever_and_by_day(monkeypatch: pytest.Monkey
 
 
 def test_savings_summary_includes_live_plugin_sources(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     _write_cost_history(root / "cost_history.json")
     _write_live_savings_events(root / "live_savings_events.jsonl")
     _write_latest_benchmark(root / "benchmarks" / "savings" / "latest.json")
 
-    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
     client = TestClient(create_app())
     resp = client.get("/v1/savings/summary?window_days=14")
@@ -280,7 +280,7 @@ def test_savings_summary_includes_live_plugin_sources(monkeypatch: pytest.Monkey
 def test_savings_summary_uses_context_budget_for_live_run_totals(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     store = _write_context_budget(
         root,
         session_id="run-live-1",
@@ -314,8 +314,8 @@ def test_savings_summary_uses_context_budget_for_live_run_totals(
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
     client = TestClient(create_app(store=store))
     resp = client.get("/v1/savings/summary?window_days=14")
@@ -397,7 +397,7 @@ def test_savings_summary_uses_context_budget_for_live_run_totals(
 def test_savings_summary_excludes_compact_tool_output_rows_from_headline(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     store = _write_context_budget(
         root,
         session_id="run-compact-1",
@@ -431,8 +431,8 @@ def test_savings_summary_excludes_compact_tool_output_rows_from_headline(
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
     client = TestClient(create_app(store=store))
     resp = client.get("/v1/savings/summary?window_days=14")
@@ -516,7 +516,7 @@ def test_savings_summary_excludes_compact_tool_output_rows_from_headline(
 def test_savings_summary_clamps_zero_saved_rows_to_zero_cost_delta(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     store = _write_context_budget(
         root,
         session_id="run-zero-1",
@@ -525,8 +525,8 @@ def test_savings_summary_clamps_zero_saved_rows_to_zero_cost_delta(
         lever_savings={},
     )
 
-    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
     client = TestClient(create_app(store=store))
     resp = client.get("/v1/savings/summary?window_days=14")
@@ -557,7 +557,7 @@ def test_savings_summary_clamps_zero_saved_rows_to_zero_cost_delta(
 def test_savings_summary_uses_nearest_ledger_tool_event_when_turn_index_drifts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     store = _write_context_budget(
         root,
         session_id="run-ledger-nearest",
@@ -589,8 +589,8 @@ def test_savings_summary_uses_nearest_ledger_tool_event_when_turn_index_drifts(
         ],
     )
 
-    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
     client = TestClient(create_app(store=store))
     resp = client.get("/v1/savings/summary?window_days=14")
@@ -604,10 +604,10 @@ def test_savings_summary_uses_nearest_ledger_tool_event_when_turn_index_drifts(
 def test_savings_summary_backfills_agent_from_live_event_for_untraced_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     store = create_store(root)
     store.init()
-    store.telemetry.persist_context_budget(
+    store.persist_context_budget(
         ContextBudget(
             session_id="run-live-agent",
             turn_index=0,
@@ -621,7 +621,7 @@ def test_savings_summary_backfills_agent_from_live_event_for_untraced_run(
             tool_calls=1,
         )
     )
-    store.telemetry.persist_context_budget(
+    store.persist_context_budget(
         ContextBudget(
             session_id="run-live-agent",
             turn_index=1,
@@ -652,8 +652,8 @@ def test_savings_summary_backfills_agent_from_live_event_for_untraced_run(
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
     client = TestClient(create_app(store=store))
     resp = client.get("/v1/savings/summary?window_days=14")
@@ -666,10 +666,10 @@ def test_savings_summary_backfills_agent_from_live_event_for_untraced_run(
 def test_savings_summary_surfaces_untracked_copilot_coverage_gap(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     store = create_store(root)
     store.init()
-    store.history.record_trace(
+    store.record_trace(
         Trace(
             id="copilot-gap",
             session_id="copilot-gap",
@@ -682,8 +682,8 @@ def test_savings_summary_surfaces_untracked_copilot_coverage_gap(
         write_json=False,
     )
 
-    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
     client = TestClient(create_app(store=store))
     resp = client.get("/v1/savings/summary?window_days=14")
@@ -707,16 +707,13 @@ def test_savings_summary_surfaces_untracked_copilot_coverage_gap(
 
 def test_savings_summary_headline_uses_session_ledger_rule(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Without context-budget proof rows the headline must equal the per-session
-    ledger figure (the statusline / stop-hook / CLI rule). Routing is now
-    FOLDED into the headline saved_usd/total_saved_usd (Total saved = Read +
-    Carry + Output + Routing, per the locked-in consistency decision) while
-    still riding its own routing_saved_usd field; the ops composite (a
-    different spend domain) stays separate."""
+    ledger figure (the statusline / stop-hook / CLI rule), with routing in its
+    own field and the ops composite kept separate."""
     import json as _json
     from datetime import UTC as _UTC
     from datetime import datetime as _datetime
 
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     sdir = root / "sessions" / "22222222-2222-2222-2222-222222222222"
     sdir.mkdir(parents=True, exist_ok=True)
     now = _datetime.now(_UTC).isoformat()
@@ -726,8 +723,8 @@ def test_savings_summary_headline_uses_session_ledger_rule(monkeypatch: pytest.M
     ]
     (sdir / "savings.jsonl").write_text("\n".join(_json.dumps(r) for r in rows) + "\n", encoding="utf-8")
 
-    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
     client = TestClient(create_app())
     resp = client.get("/v1/savings/summary?window_days=7")
@@ -735,29 +732,21 @@ def test_savings_summary_headline_uses_session_ledger_rule(monkeypatch: pytest.M
     assert resp.status_code == 200
     data = resp.json()
     assert data["cost_basis"] == "session_ledger"
-    # Headline now includes routing: 0.02 (context savings) + 0.4 (routing).
-    assert data["saved_usd"] == pytest.approx(0.42)
-    # Routing still rides its own field (breakdown detail) too.
-    assert data["routing_saved_usd"] == pytest.approx(0.4)
-    # The "read" row is a read-lever row: shows up in the Read breakdown
-    # (raw cost_saved_usd, mirroring the per-session read-savings rule).
-    assert data["read_saved_usd"] == pytest.approx(0.02)
-    # No session_end row in this ledger -> no carry; total == saved_usd.
-    assert data["carry_usd"] == pytest.approx(0.0)
-    assert data["carry_tokens"] == 0
-    assert data["total_saved_usd"] == pytest.approx(data["saved_usd"])
-    # The old duplicate ledger_saved_usd/ledger_saved_pct keys are gone.
-    assert "ledger_saved_usd" not in data
-    assert "ledger_saved_pct" not in data
+    # Headline == ledger rule (every surface agrees).
+    assert data["saved_usd"] == pytest.approx(data["ledger_saved_usd"])
+    assert data["saved_usd"] == pytest.approx(0.02)
+    assert data["saved_pct"] == pytest.approx(data["ledger_saved_pct"])
+    # Routing rides its own field; the ops composite stays separate.
+    assert data["ledger_routing_usd"] == pytest.approx(0.4)
     assert "ops_saved_usd" in data
 
 
 def test_savings_summary_empty_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     root.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
     client = TestClient(create_app())
     resp = client.get("/v1/savings/summary?window_days=14")
@@ -775,8 +764,8 @@ def test_savings_summary_empty_state(monkeypatch: pytest.MonkeyPatch, tmp_path: 
 def test_record_context_budget_avoids_double_counting_tool_delta(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from lemoncrow.gateway.adapters import mcp_server
-    from lemoncrow.infra.runtime.run_ledger import RunLedger
+    from atelier.gateway.adapters import mcp_server
+    from atelier.infra.runtime.run_ledger import RunLedger
 
     recorded: list[dict[str, object]] = []
 

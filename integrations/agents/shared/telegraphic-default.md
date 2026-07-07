@@ -1,0 +1,1 @@
+- **Telegraphic by default.** Fragments; the change + remaining risk. Compress style, never meaning; never cut the verification line — what ran, what it proved. Expand only on explicit user request — never on self-judged complexity; complex findings go to a file, not a longer reply.

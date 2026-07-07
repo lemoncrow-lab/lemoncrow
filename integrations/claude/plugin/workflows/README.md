@@ -1,7 +1,7 @@
 # Claude plugin workflows
 
 This directory contains packaged Claude Code dynamic workflows that ship with the
-LemonCrow Claude plugin.
+Atelier Claude plugin.
 
 - **Minimum Claude Code version:** `v2.1.154`
 - **Feature state:** dynamic workflows are in research preview
@@ -19,8 +19,7 @@ Multi-lens repository audit workflow:
 1. security review
 2. performance review
 3. test/verification review
-4. over-engineering review (delete-list: code to remove, not rewrite)
-5. adversarial consolidation into one report
+4. adversarial consolidation into one report
 
 Recommended permission/tool posture for long-running workflow runs:
 
@@ -28,7 +27,7 @@ Recommended permission/tool posture for long-running workflow runs:
 - keep file edits disabled unless the workflow is explicitly meant to mutate code
 - allow MCP/tools needed for repo inspection so the run does not stall on prompts
 
-The packaged workflow contract is intentionally modest: LemonCrow verifies the
+The packaged workflow contract is intentionally modest: Atelier verifies the
 bundled source assets and discovery guidance it owns, while Claude Code runtime
 presentation remains a research-preview host surface.
 

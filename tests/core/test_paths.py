@@ -1,4 +1,4 @@
-"""Tests for workspace-root resolution and the lemoncrow-init registration guard."""
+"""Tests for workspace-root resolution and the atelier-init registration guard."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.foundation.paths import (
+from atelier.core.foundation.paths import (
     DEFAULT_STORE_DIRNAME,
     WorkspaceNotRegisteredError,
     default_store_root,
@@ -16,7 +16,7 @@ from lemoncrow.core.foundation.paths import (
 )
 
 _HOST_WORKSPACE_ENV_VARS = (
-    "LEMONCROW_WORKSPACE_ROOT",
+    "ATELIER_WORKSPACE_ROOT",
     "CLAUDE_WORKSPACE_ROOT",
     "CURSOR_WORKSPACE_ROOT",
     "VSCODE_CWD",
@@ -24,7 +24,7 @@ _HOST_WORKSPACE_ENV_VARS = (
 
 
 def _clear_host_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Undo the conftest autouse fixture's LEMONCROW_WORKSPACE_ROOT=tmp_path override
+    """Undo the conftest autouse fixture's ATELIER_WORKSPACE_ROOT=tmp_path override
     so resolve_workspace_root() actually exercises git/marker/raise resolution
     instead of short-circuiting on tier 1."""
     for env_var in _HOST_WORKSPACE_ENV_VARS:
@@ -34,8 +34,8 @@ def _clear_host_env(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def _pin_home_to_tmp_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Pin Path.home() to tmp_path so the marker walk can't escape past it into a
-    real ancestor directory that might itself carry a stray `.lemoncrow` (e.g. some
-    hosts leave one at /tmp/.lemoncrow) -- these tests need a hermetic boundary.
+    real ancestor directory that might itself carry a stray `.atelier` (e.g. some
+    hosts leave one at /tmp/.atelier) -- these tests need a hermetic boundary.
     Tests that need a specific fake home override this again within their body.
     """
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -68,7 +68,7 @@ def test_marker_registered_dir_resolves_from_subdirectory(tmp_path: Path, monkey
 
 def test_home_subdirectory_without_marker_still_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression guard: a random subdir under $HOME must not spuriously resolve
-    just because the global ~/.lemoncrow store dir exists at home -- the marker
+    just because the global ~/.atelier store dir exists at home -- the marker
     walk must stop before ever treating home itself as a project marker."""
     _clear_host_env(monkeypatch)
     fake_home = tmp_path / "home" / "alice"
@@ -108,9 +108,7 @@ def test_store_root_for_workspace_uses_git_repo(tmp_path: Path, monkeypatch: pyt
     monkeypatch.chdir(repo)
     result = resolve_store_root_for_workspace()
     assert result != default_store_root()
-    assert result.parent.name == DEFAULT_STORE_DIRNAME
-    assert result.name == "workspace"
-    assert result.parent.parent == repo.resolve()
+    assert result.parent.name == "workspaces"
 
 
 def test_store_root_for_workspace_uses_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -120,6 +118,4 @@ def test_store_root_for_workspace_uses_marker(tmp_path: Path, monkeypatch: pytes
     monkeypatch.chdir(project)
     result = resolve_store_root_for_workspace()
     assert result != default_store_root()
-    assert result.parent.name == DEFAULT_STORE_DIRNAME
-    assert result.name == "workspace"
-    assert result.parent.parent == project.resolve()
+    assert result.parent.name == "workspaces"

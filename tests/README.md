@@ -1,4 +1,4 @@
-# LemonCrow Test Structure
+# Atelier Test Structure
 
 Tests are organized into **three tiers** matching the runtime architecture:
 
@@ -167,7 +167,7 @@ pytest tests/ -q | grep FAILED
 Tests mirror runtime structure:
 
 ```
-LemonCrow Runtime          Test Structure
+Atelier Runtime          Test Structure
 ─────────────────────    ─────────────────────
 core/                    tests/core/
   foundation/              ├ test_models.py
@@ -196,7 +196,7 @@ gateway/                 tests/gateway/
 ## For Developers
 
 **When adding a new feature:**
-1. Add code to `src/lemoncrow/<tier>/<module>/`
+1. Add code to `src/atelier/<tier>/<module>/`
 2. Add tests to `tests/<tier>/test_<module>.py`
 3. Run `pytest tests/<tier>/` to validate
 4. Run full suite `pytest tests/` before committing

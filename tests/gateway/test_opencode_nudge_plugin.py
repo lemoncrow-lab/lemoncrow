@@ -1,4 +1,4 @@
-"""Tests for the OpenCode prompt-time LemonCrow nudge plugin."""
+"""Tests for the OpenCode prompt-time Atelier nudge plugin."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ PLUGINS = ROOT / "integrations" / "opencode" / "plugins"
 
 def test_opencode_nudge_helper_emits_no_multi_file_context(tmp_path: Path) -> None:
     env = os.environ.copy()
-    env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
+    env["ATELIER_ROOT"] = str(tmp_path / ".atelier")
     result = subprocess.run(
-        [sys.executable, str(PLUGINS / "lemoncrow_nudge.py")],
+        [sys.executable, str(PLUGINS / "atelier_nudge.py")],
         input=json.dumps({"session_id": "s1", "prompt": "Update auth.py and billing.py together"}),
         text=True,
         capture_output=True,
@@ -24,20 +24,16 @@ def test_opencode_nudge_helper_emits_no_multi_file_context(tmp_path: Path) -> No
         env=env,
     )
 
-    # No multi-file context message is emitted for this prompt.
-    if result.stdout:
-        data = json.loads(result.stdout)
-        assert "uiMessage" in data, f"unexpected output: {result.stdout}"
-        assert "multi-file" not in data["uiMessage"].lower()
+    assert result.stdout == ""
 
 
 def test_opencode_javascript_plugin_leaves_multi_file_prompt_unchanged(tmp_path: Path) -> None:
     env = os.environ.copy()
-    env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
+    env["ATELIER_ROOT"] = str(tmp_path / ".atelier")
     script = f"""
-import {{ LemonCrowNudge }} from {json.dumps((PLUGINS / "lemoncrow-nudge.js").as_uri())}
+import {{ AtelierNudge }} from {json.dumps((PLUGINS / "atelier-nudge.js").as_uri())}
 const client = {{ tui: {{ showToast: async () => true }} }}
-const hooks = await LemonCrowNudge({{ client, directory: process.cwd() }})
+const hooks = await AtelierNudge({{ client, directory: process.cwd() }})
 const output = {{ parts: [{{ type: 'text', text: 'Update auth.py and billing.py together' }}] }}
 await hooks['chat.message']({{ sessionID: 's1' }}, output)
 console.log(JSON.stringify(output))
@@ -54,13 +50,53 @@ console.log(JSON.stringify(output))
     assert output["parts"][0]["text"] == "Update auth.py and billing.py together"
 
 
+def test_opencode_nudge_helper_surfaces_stale_agent_nudge_once_per_day(tmp_path: Path) -> None:
+    """An installed OPTIONAL agent role that's never been used surfaces a
+    staleness nudge via the same uiMessage channel the compaction notice
+    uses, gated to at most once per calendar day per item (marker file under
+    ATELIER_ROOT/opencode_stale_nudge_shown/, mirroring the Claude statusline
+    tip's once-a-day marker pattern).
+    """
+    opencode_config = tmp_path / "opencode_config"
+    (opencode_config / "agents").mkdir(parents=True)
+    (opencode_config / "agents" / "atelier.explore.md").write_text("body", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["ATELIER_ROOT"] = str(tmp_path / ".atelier")
+    env["OPENCODE_CONFIG_HOME"] = str(opencode_config)
+    payload = json.dumps({"session_id": "s1", "prompt": "hello"})
+
+    first = subprocess.run(
+        [sys.executable, str(PLUGINS / "atelier_nudge.py")],
+        input=payload,
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+    out = json.loads(first.stdout)
+    assert "explore installed, never used" in out["uiMessage"]
+    assert "/atelier remove explore" in out["uiMessage"]
+
+    # Same calendar day, second prompt: cooldown suppresses the repeat.
+    second = subprocess.run(
+        [sys.executable, str(PLUGINS / "atelier_nudge.py")],
+        input=payload,
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+    assert second.stdout == ""
+
+
 def test_opencode_repeated_failure_injects_rescue_on_next_prompt(tmp_path: Path) -> None:
     env = os.environ.copy()
-    env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
+    env["ATELIER_ROOT"] = str(tmp_path / ".atelier")
     script = f"""
-    import {{ LemonCrowNudge }} from {json.dumps((PLUGINS / "lemoncrow-nudge.js").as_uri())}
+    import {{ AtelierNudge }} from {json.dumps((PLUGINS / "atelier-nudge.js").as_uri())}
     const client = {{ tui: {{ showToast: async () => true }} }}
-    const hooks = await LemonCrowNudge({{ client, directory: process.cwd() }})
+    const hooks = await AtelierNudge({{ client, directory: process.cwd() }})
     const input = {{ tool: 'bash', sessionID: 's1', callID: 'c1', args: {{ command: 'make test' }} }}
     const failure = {{ title: 'failed', output: 'Error: same failure', metadata: {{ exitCode: 1 }} }}
     await hooks['tool.execute.after'](input, failure)
@@ -79,99 +115,3 @@ def test_opencode_repeated_failure_injects_rescue_on_next_prompt(tmp_path: Path)
 
     output = json.loads(result.stdout)
     assert "Call 'rescue' before any retry" in output["parts"][0]["text"]
-
-
-def test_opencode_required_arg_threshold_1_fires_on_first_occurrence(tmp_path: Path) -> None:
-    """A required-argument TypeError never repeats identically (each guessed
-    value produces a different error), so it's counted by pattern match, not
-    the exact-signature repeat-threshold rescue nudge above.
-    """
-    env = os.environ.copy()
-    env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
-    env["LEMONCROW_REQUIRED_ARG_NUDGE_THRESHOLD"] = "1"
-    # Pin to this checkout's own venv: the JS plugin's python-resolution
-    # fallback otherwise finds a globally `uv tool install`-ed lemoncrow (a
-    # separate build), silently missing any uncommitted/dev-only source
-    # change -- exactly the feature this test exists to exercise.
-    env["LEMONCROW_PYTHON"] = str(ROOT / ".venv" / "bin" / "python3")
-    # The required-arg counter is workspace-keyed (cwd), not tmp_path-isolated
-    # by LEMONCROW_ROOT -- pass tmp_path as the plugin's own directory too, or
-    # this pollutes (and reads back) the REAL repo's .lemoncrow/workspace/
-    # session_state.json across every test run.
-    workdir = tmp_path / "work"
-    workdir.mkdir()
-    script = f"""
-    import {{ LemonCrowNudge }} from {json.dumps((PLUGINS / "lemoncrow-nudge.js").as_uri())}
-    const toasts = []
-    const client = {{ tui: {{ showToast: async (toast) => toasts.push(toast) }} }}
-    const hooks = await LemonCrowNudge({{ client, directory: {json.dumps(str(workdir))} }})
-    const input = {{ tool: 'bash', sessionID: 's1', callID: 'c1', args: {{ command: 'python3 run.py' }} }}
-    const failure = {{ title: 'failed', output: "TypeError: encode() missing 1 required keyword-only argument: 'task_name'", metadata: {{ exitCode: 1 }} }}
-    await hooks['tool.execute.after'](input, failure)
-    console.log(JSON.stringify(toasts))
-    """
-    result = subprocess.run(
-        ["node", "--input-type=module", "-e", script],
-        text=True,
-        capture_output=True,
-        check=True,
-        env=env,
-    )
-    toasts = json.loads(result.stdout)
-    assert any("read what it controls" in toast["body"]["message"].lower() for toast in toasts)
-
-
-def test_opencode_required_arg_default_threshold_needs_three_hits(tmp_path: Path) -> None:
-    env = os.environ.copy()
-    env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
-    env["LEMONCROW_PYTHON"] = str(ROOT / ".venv" / "bin" / "python3")
-    env.pop("LEMONCROW_REQUIRED_ARG_NUDGE_THRESHOLD", None)
-    workdir = tmp_path / "work"
-    workdir.mkdir()
-    script = f"""
-    import {{ LemonCrowNudge }} from {json.dumps((PLUGINS / "lemoncrow-nudge.js").as_uri())}
-    const toasts = []
-    const client = {{ tui: {{ showToast: async (toast) => toasts.push(toast) }} }}
-    const hooks = await LemonCrowNudge({{ client, directory: {json.dumps(str(workdir))} }})
-    const input = {{ tool: 'bash', sessionID: 's1', callID: 'c1', args: {{ command: 'python3 run.py' }} }}
-    for (const guess of ['task_name', 'other_name', 'third_name']) {{
-      const failure = {{ title: 'failed', output: `TypeError: encode() missing 1 required keyword-only argument: '${{guess}}'`, metadata: {{ exitCode: 1 }} }}
-      await hooks['tool.execute.after']({{ ...input, callID: guess }}, failure)
-    }}
-    console.log(JSON.stringify(toasts))
-    """
-    result = subprocess.run(
-        ["node", "--input-type=module", "-e", script],
-        text=True,
-        capture_output=True,
-        check=True,
-        env=env,
-    )
-    toasts = json.loads(result.stdout)
-    matches = [t for t in toasts if "read what it controls" in (t["body"].get("message") or "").lower()]
-    assert len(matches) == 1, f"expected exactly 1 nudge (on the 3rd hit), got {len(matches)}: {toasts}"
-
-
-def test_opencode_idle_event_shows_session_status(tmp_path: Path) -> None:
-    env = os.environ.copy()
-    env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
-    script = f"""
-    import {{ LemonCrowNudge }} from {json.dumps((PLUGINS / "lemoncrow-nudge.js").as_uri())}
-    const toasts = []
-    const client = {{ tui: {{ showToast: async (toast) => toasts.push(toast) }} }}
-    const hooks = await LemonCrowNudge({{ client, directory: process.cwd() }})
-    await hooks['chat.message']({{ sessionID: 's1' }}, {{ parts: [{{ type: 'text', text: 'inspect it' }}] }})
-    await hooks['tool.execute.after']({{ tool: 'lc_read', sessionID: 's1', args: {{ files: ['a.py'] }} }}, {{ output: 'ok', metadata: {{ exitCode: 0 }} }})
-    await hooks.event({{ event: {{ type: 'session.idle', properties: {{ sessionID: 's1' }} }} }})
-    console.log(JSON.stringify(toasts))
-    """
-    result = subprocess.run(
-        ["node", "--input-type=module", "-e", script],
-        text=True,
-        capture_output=True,
-        check=True,
-        env=env,
-    )
-
-    toasts = json.loads(result.stdout)
-    assert any(toast["body"]["title"] == "lc status" for toast in toasts)

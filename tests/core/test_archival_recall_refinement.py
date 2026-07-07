@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryRecall
-from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
-from lemoncrow.pro.capabilities.archival_recall import ArchivalRecallCapability
-from lemoncrow.pro.capabilities.archival_recall.ranking import RankedPassage
+from atelier.core.capabilities.archival_recall import ArchivalRecallCapability
+from atelier.core.capabilities.archival_recall.ranking import RankedPassage
+from atelier.core.foundation.memory_models import ArchivalPassage, MemoryRecall
+from atelier.infra.embeddings.null_embedder import NullEmbedder
 
 
 class _MemoryStore:
@@ -23,7 +23,7 @@ class _MemoryStore:
 def test_archival_recall_retries_with_widened_query(monkeypatch: pytest.MonkeyPatch) -> None:
     passage = ArchivalPassage(
         id="pas-checkout",
-        agent_id="lemoncrow:code",
+        agent_id="atelier:code",
         text="checkout retry handling",
         tags=["eval"],
         source="user",
@@ -39,14 +39,14 @@ def test_archival_recall_retries_with_widened_query(monkeypatch: pytest.MonkeyPa
         return [RankedPassage(passage=passage, score=1.0, bm25_norm=1.0, cosine=0.0)]
 
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.archival_recall.capability.rank_archival_passages",
+        "atelier.core.capabilities.archival_recall.capability.rank_archival_passages",
         fake_rank,
     )
     store = _MemoryStore(passage)
     capability = ArchivalRecallCapability(store, NullEmbedder(), redactor=lambda text: text)
 
     passages, recall = capability.recall(
-        agent_id="lemoncrow:code",
+        agent_id="atelier:code",
         query="checkout AND retry",
         tags=["eval"],
     )

@@ -9,7 +9,6 @@ touch real stdout.
 
 from __future__ import annotations
 
-import json
 import sys
 import threading
 import time
@@ -19,8 +18,8 @@ from typing import Any
 
 import pytest
 
-import lemoncrow.pro.capabilities.tool_supervision.bash_exec as bx
-from lemoncrow.gateway.adapters import mcp_server
+import atelier.core.capabilities.tool_supervision.bash_exec as bx
+from atelier.gateway.adapters import mcp_server
 from tests.helpers import init_store_at
 
 
@@ -44,16 +43,16 @@ def _bash_request(rid: Any, command: str, **args: Any) -> dict[str, Any]:
 
 @pytest.fixture()
 def bash_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_MEMORY_BACKEND", "sqlite")
-    monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
+    monkeypatch.setenv("ATELIER_MEMORY_BACKEND", "sqlite")
+    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
     # Default: deferral enabled (do not let an ambient value leak in).
-    monkeypatch.delenv("LEMONCROW_MCP_DEFER_BASH", raising=False)
-    mcp_server._ledger._current_ledger = None
-    mcp_server._ledger._realtime_ctx = None
+    monkeypatch.delenv("ATELIER_MCP_DEFER_BASH", raising=False)
+    mcp_server._current_ledger = None
+    mcp_server._realtime_ctx = None
     return tmp_path
 
 
@@ -180,7 +179,7 @@ def test_deferred_already_complete_race_writes_exactly_once(bash_env: Path, monk
 
 
 def test_kill_switch_keeps_handler_synchronous(bash_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_MCP_DEFER_BASH", "0")
+    monkeypatch.setenv("ATELIER_MCP_DEFER_BASH", "0")
 
     # Even inside a deferral-capable context, the kill switch returns a plain dict.
     mcp_server._deferral_context.active = True
@@ -229,9 +228,7 @@ def test_deferred_soft_deadline_returns_running_without_killing(bash_env: Path) 
     assert result["status"] == "running"
     assert result["over_budget"] is True  # timeout=0 -- immediately past its soft budget
     # peek-sourced result also carries a tail marker line -- just check the handle line.
-    rendered = mcp_server._render_bash_text(result)
-    assert rendered.startswith(f"still running id={result['session_id']};")
-    assert "[logs:" in rendered
+    assert mcp_server._render_bash_text(result).startswith(f"overrunning id={result['session_id']} -- act now\n")
     sid = result["session_id"]
     with bx._MANAGED_COMMANDS_LOCK:
         managed = bx._MANAGED_COMMANDS.get(sid)
@@ -329,36 +326,6 @@ def test_mailman_style_self_daemonizing_process_via_mcp_tool(bash_env: Path, tmp
     assert "mailman-style-ok" in str(result.get("stdout"))
 
 
-@pytest.mark.parametrize(
-    ("command", "background", "expected_explicit"),
-    [
-        ("sleep 30", True, True),
-        ("sleep 30 &", False, False),
-    ],
-)
-def test_mcp_registration_tracks_only_bg_true_as_shutdown_persistent(
-    bash_env: Path,
-    command: str,
-    background: bool,
-    expected_explicit: bool,
-) -> None:
-    mcp_server._register_mcp_session()
-    result: dict[str, Any] | None = None
-    try:
-        started = mcp_server._run_bash_tool(command, timeout=30, background=background)
-        assert isinstance(started, dict)
-        result = started
-        registration = json.loads(mcp_server._mcp_session_file().read_text(encoding="utf-8"))
-        records = registration["managed_bash"]
-        assert len(records) == 1
-        assert records[0]["session_id"] == started["session_id"]
-        assert records[0]["explicit_background"] is expected_explicit
-    finally:
-        if result is not None:
-            mcp_server._run_bash_tool(session_id=result["session_id"], action="kill")
-        mcp_server._unregister_mcp_session()
-
-
 def test_bare_trailing_ampersand_uses_fast_background_path(bash_env: Path, tmp_path: Path) -> None:
     """A command that ends in a bare `&` is auto-detected as background=True by
     _run_bash_tool and returns near-instantly via the explicit background path
@@ -375,42 +342,12 @@ def test_bare_trailing_ampersand_uses_fast_background_path(bash_env: Path, tmp_p
     assert result["session_id"]
 
     # Cleanup: cancel the managed wrapper (kills its process group).
-    mcp_server._run_bash_tool(session_id=result["session_id"], action="kill")
-
-
-def test_overrunning_foreground_command_does_not_block_another_run(bash_env: Path) -> None:
-    mcp_server._deferral_context.active = True
-    first_id = ""
-    try:
-        first_deferred = mcp_server._run_bash_tool("sleep 30", timeout=0)
-        assert isinstance(first_deferred, mcp_server._DeferredResult)
-        first_ready = threading.Event()
-        assert first_deferred.register(first_ready.set) is True
-        assert first_ready.wait(3.0)
-        first = first_deferred.collect()
-        first_id = str(first["session_id"])
-
-        second_deferred = mcp_server._run_bash_tool("printf second", timeout=30)
-        assert isinstance(second_deferred, mcp_server._DeferredResult)
-        second_ready = threading.Event()
-        if second_deferred.register(second_ready.set):
-            assert second_ready.wait(3.0)
-        second = second_deferred.collect()
-        assert second["stdout"] == "second"
-        with bx._MANAGED_COMMANDS_LOCK:
-            assert bx._MANAGED_COMMANDS[first_id].proc.poll() is None
-    finally:
-        mcp_server._deferral_context.active = False
-        if first_id:
-            try:
-                mcp_server._run_bash_tool(session_id=first_id, action="kill")
-            except KeyError:
-                pass
+    mcp_server._run_bash_tool(session_id=result["session_id"], action="cancel")
 
 
 def test_soft_deadline_running_session_can_be_explicitly_cancelled(bash_env: Path) -> None:
     """The model's escape hatch for a soft-deadline 'running' handle: it can
-    action="kill" by session_id, and the process actually dies -- 'don't
+    action="cancel" by session_id, and the process actually dies -- 'don't
     kill automatically' does not mean 'can never be killed'."""
     mcp_server._deferral_context.active = True
     try:
@@ -430,7 +367,7 @@ def test_soft_deadline_running_session_can_be_explicitly_cancelled(bash_env: Pat
     assert managed is not None
     assert managed.proc.poll() is None  # confirmed still running before cancel
 
-    cancelled = mcp_server._run_bash_tool(session_id=sid, action="kill")
+    cancelled = mcp_server._run_bash_tool(session_id=sid, action="cancel")
     assert cancelled["status"] == "cancelled"
     time.sleep(0.2)
     assert managed.proc.poll() is not None  # actually dead now

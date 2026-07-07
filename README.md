@@ -1,308 +1,301 @@
-<!-- cspell:ignore Alamofire Excalidraw ast-grep codegraph ctags django jcodemunch nohit okhttp scip serena tokio vscode zoekt beasm Trendshift telegraphese -->
+<!-- cspell:ignore Alamofire Excalidraw ast-grep codegraph ctags django jcodemunch nohit okhttp scip serena tokio vscode zoekt beasm -->
 
 <div align="center">
 
----
+# Atelier - The Runtime for Coding Agents
 
-## Why I built this
+## Read smarter. Think sharper. Talk less. Never forget
 
-I kept burning my weekly credits before the week was out. Every
-"token-saving" tool I tried claimed wins but none measured what I actually
-paid — real dollars, end to end, on real tasks. Token counts aren't a bill.
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
+[![Stars](https://img.shields.io/github/stars/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier)
 
-So I built LemonCrow: a runtime that lives *inside* your existing agent
-host, changes nothing about your workflow, and squeezes out the maximum
-saving it can. Every number below is an absolute-dollar measurement
-([BENCHMARKS.md](BENCHMARKS.md)) — not a token-count hand-wave.
+[![macOS](https://img.shields.io/badge/macOS-supported-blue?style=flat-square)](#)
+[![Linux](https://img.shields.io/badge/Linux-supported-blue?style=flat-square)](#)
 
-## Quick start
+[![Claude Code](https://img.shields.io/badge/Claude_Code-supported-CF6D3F?style=flat-square)](https://claude.ai/code)
+[![Codex](https://img.shields.io/badge/Codex-supported-10A37F?style=flat-square)](https://openai.com/codex)
+[![opencode](https://img.shields.io/badge/opencode-supported-7C3AED?style=flat-square)](https://opencode.ai)
 
-Install from a checksummed GitHub release:
+**Live savings across all Atelier sessions** &nbsp;·&nbsp; updates on every session end
 
-```
-curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
-```
+[![Cost saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dsavings&style=for-the-badge&color=04ba0d)](https://atelier.ws)
+[![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://atelier.ws)
+[![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://atelier.ws)
 
-Then initialize it inside the project where you use your coding agent — no login,
-no network:
+</div>
 
-```
-    cd your-project
-    lc init  # Initializes your repo and index it.
-```
+## The idea
 
-### Or code from ChatGPT instead — free
+Coding agents do not fail only because the model is weak. They fail because the runtime makes them read the wrong things, wander through vague workflows, flood the transcript, and rediscover context they already had.
 
-ChatGPT chat usage doesn't burn API/agent-plan credits the way a coding
-agent's own usage-based billing does. So LemonCrow's tools (search, read,
-edit, bash) can be exposed through a tunnel and driven straight from a
-ChatGPT conversation instead — same grounded tool surface, no separate
-agent bill:
+Atelier gives coding agents a tighter loop:
 
-```bash
-lc chatgpt serve
-```
+- **Read smarter** — `code_search` replaces grep loops with relevant symbols, source, callers, callees, usages, and blast radius in one call. `read` returns outlines or exact ranges instead of dumping whole files.
+- **Think sharper** — narrow modes and skills route work through the right shape: explore when the job is discovery, plan when the job needs sequencing, execute when the path is known, solve when it needs end-to-end iteration.
+- **Talk less** — compact tool results, batched edits, terse personas, and `atelier -p` keep the transcript focused on decisions and final answers instead of narration.
+- **Never forget** — recall, session memory, deduped reads, and mode-scoped context stop agents from paying again for context they already discovered.
 
-Prints a pairing code and, by default, an auto-launched cloudflared tunnel
-URL (installs cloudflared on first use if missing). In ChatGPT: **Settings →
-Plugins → Browse Plugins → (next to search) + → Create**, paste the
-printed MCP server URL, set Authentication to **OAuth**, and approve the
-browser prompt with the pairing code.
+The claim is simple: **less noise gives agents more room to land correct patches.**
 
-| Flag                        | Effect                                                                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `--no-tunnel`               | Bring your own tunnel (named cloudflared tunnel, ngrok).                                                                 |
-| `--persistent --hostname X` | Stable URL via a Cloudflare named tunnel (needs a domain in your Cloudflare DNS); survives restarts instead of rotating. |
-| `--no-auth`                 | Serve`/mcp` with no authentication — the tunnel URL alone grants access. Prefer OAuth (default).                        |
-
-Full request/response traffic is logged locally per run (path printed at
-startup; credentials and tokens are redacted) so you can audit exactly what
-ChatGPT sent and got back.
-
-**Known ChatGPT-side quirk:** Sometimes chatgpt looses the tool aceess on a new chat message conversation and without reattaching it can't access the tool. Workaround is branchoff the chat and then reattach the tool and continue with your message.
-**Permissions**: If it complains about permissions or asks to reconnect, check in the Setting -> Plugins, it has `Allow All` permission
-
-> ⚠ The pairing code is a password — don't share the tunnel URL. This
-> exposes shell-grade tool access (`bash`, `edit`) to this machine while the
-> server runs. Stop it (Ctrl-C) when you're done.
-
-### Or Inspect your past sessions (Offline Replay, dry mode) before trying
-
-LemonCrow records all sessions locally so you can inspect, audit, and debug exactly what your agent did.
-
-```bash
-lc session stats     # read-only report of wasted tool calls and round-trips
-lc session replay    # replay a recorded session through the real LemonCrow tools
+```mermaid
+flowchart LR
+    Agent["Coding Agent<br/>Claude Code · Codex · Cursor · opencode"] <--> MCP{{"MCP"}}
+    MCP <--> Atelier["Atelier Runtime<br/>code_search · read · edit · bash · web_fetch"]
+    Atelier --> Index[("Code Index<br/>tree-sitter + SQLite")]
+    Atelier --> Memory[("Session Memory<br/>+ Recall")]
+    Atelier --> Router["Model Routing<br/>+ Token Budgeting"]
+    Behavior["Agents · Skills · Hooks<br/>terse personas · skill procedures · output-shrink hooks"] -.->|shapes behavior| Agent
 ```
 
-Both are local and read-only — no model re-run, nothing transmitted.
+_Full stack and subsystem breakdown: [docs/architecture.md](docs/architecture.md)._
 
-<p align="center">
-  <img src="docs/assets/screenshots/session-replay.gif" alt="LemonCrow session replay demonstration" width="720">
-</p>
-<p align="center"><sub>Replay recorded agent sessions locally with full tool visibility and resource usage breakdown.</sub></p>
+### How it works
 
-## What LemonCrow does
+Every Atelier feature traces to one of four compression layers:
 
-LemonCrow keeps your existing coding agent and changes the working set around it:
+| Layer       | What it limits          | Example                                                                |
+| ------------- | ------------------------- | ------------------------------------------------------------------------ |
+| **Input**   | What the agent reads    | Indexed`code_search`, ranged `read`, compact `bash`, clean `web_fetch` |
+| **Output**  | What the agent writes   | Terse personas, batched edits, subagent routing, skill procedures      |
+| **Runtime** | What the agent can call | MCP tool replacement, hooks, swarm, workflows                          |
+| **Context** | What the agent re-reads | Session recall, dedup responses, mode-scoped tools                     |
 
-<p align="center">
-  <img src="docs/assets/screenshots/source-map.jpg" alt="LemonCrow source map showing a full repository code universe: 28,462 indexed symbols, 10,349 tracked files, 38,811 map nodes, and 23,894 resolved calls, with one function focused to show its callers and callees." width="720">
-</p>
-<p align="center"><sub>Your codebase's code universe — 28,462 symbols · 38,811 nodes · 23,894 calls. Live, local, on this repo.</sub></p>
+Detailed breakdown: [Core Tools](#core-tools), [Skills and Commands](#skills-and-commands), [What Changes After Init](#what-changes-after-init).
 
-| Stage      | Runtime behavior                                                                                              |
-| ------------ | --------------------------------------------------------------------------------------------------------------- |
-| **Find**   | Rank symbols, definitions, callers, callees, usages, and exact source ranges before broad file exploration.   |
-| **Read**   | Return an outline or only the requested lines; cap noisy command and web output with recoverable spill files. |
-| **Carry**  | Preserve useful task state through memory, deduplication, compaction manifests, and handover packets.         |
-| **Verify** | Notice code changes without tests or checks, then nudge the agent before it declares completion.              |
+#### Telegraphic I/O
 
-### What actually gets replaced
+|                                                   | Baseline                                                                                                                                                                                                                                                                                                                                                                      | Atelier (telegraphic)                                                                                                                                                             |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Model writes** ("Why is the retry test flaky?") | "I looked into the failing test and it seems like the flakiness is caused by the retry logic using a real clock. The test sleeps for 100ms and then asserts that exactly three retries happened, but under CI load the timing can drift, which makes the assertion fail intermittently. I'd recommend injecting a fake clock so the test becomes deterministic."**71 tokens** | "Root cause: retry test uses a real clock — 100ms sleep + exact 3-retry assert drifts under CI load. Fix: inject a fake clock; test becomes deterministic."**38 tokens (−46%)** |
 
-On Claude Code, `lc init` gives the agent five grounded tools and hides the
-equivalent built-ins — one way to do each job, not two. Other hosts use the
-strongest equivalent controls they expose.
+More: [docs/architecture.md](docs/architecture.md#telegraphic-instruction-surface)
 
-| LemonCrow tool | Replaces (hidden from the model) | Why                                                                                                                                                                       |
-| ---------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `code_search`  | Grep, Glob                       | One call returns the symbol, its callers/callees, and ranked source — no grep-loop-then-read-whole-file. Ranked by call-graph centrality over a tree-sitter symbol table |
-| `read`         | Read                             | Returns an outline or the exact`:L10-L40` range, budgeted, instead of the full file                                                                                       |
-| `edit`         | Edit, Write                      | Verified, cross-file edits in one call instead of per-file patch-or-create guessing                                                                                       |
-| `bash`         | Bash                             | Output is capped and structured so a noisy build log can't blow the context window                                                                                        |
-| `web_fetch`    | WebFetch                         | Strips a page to clean Markdown instead of a raw HTML dump                                                                                                                |
+## Honestly
 
-What's unchanged: the host, the model, your workflow. Full internals:
-[Architecture](docs/architecture.md).
+I'm a solo founder working on [beseam.com](https://beseam.com). I was burning through my Claude Max credits in about four days. Every "token-saving" tool or prompt-engineered solution I found had the same problem: they only showed benchmarks on artificial tasks where they happened to excel. Nobody was measuring against the baseline on the same model, the same tasks, the same environment — just cherry-picked numbers.
 
-### Agents
+I wanted a system that actually saves tokens across _every_ real coding task, not just the ones it was tuned for. So I built Atelier — a runtime that aggressively compresses what the agent reads, writes, and calls, and **benchmarks every feature against a real baseline so you can see exactly what works and what doesn't**.
 
-Packaged in [integrations/agents/](integrations/agents/) — each a distinct
-capability grant (subagent name `lemoncrow:<mode>`):
-
-| Agent      | Writes? | Use                                               |
-| ------------ | :-------: | --------------------------------------------------- |
-| `code`     |   Yes   | default interactive — edits, refactors, features |
-| `auto`     |   Yes   | fully autonomous — CI/headless runs              |
-| `solve`    |   Yes   | end-to-end solving of a well-defined task         |
-| `execute`  |   Yes   | one verified pass of an accepted plan             |
-| `general`  |   Yes   | catch-all for mixed work                          |
-| `bare`     |   Yes   | minimal toolset, same discipline                  |
-| `explore`  |   No   | read-only exploration — locate and cite          |
-| `plan`     |   No   | read-only planning, stops for human checkpoint    |
-| `review`   |   No   | adversarial read-only review                      |
-| `research` |   No   | external web research — cited memo               |
-
-### Skills
-
-Optional Packaged in [integrations/skills/](integrations/skills/): `/lemoncrow`, `/benchmark`,
-`/orchestrate`, `/swarm`, `/perf-review`, `/ux-review`, `/recall`.
-
-## Code hygiene
-
-The best code is the code you never wrote. Every LemonCrow persona climbs a fixed
-ladder before writing anything, stopping at the first rung that holds:
-
-| # | Rung | Do |
-| --- | --- | --- |
-| 1 | **Need it at all?** | Skip what the task doesn't require (YAGNI). |
-| 2 | **Already here?** | Reuse the helper, util, or pattern already in the repo. |
-| 3 | **Stdlib?** | Use the standard library before rolling your own. |
-| 4 | **Native feature?** | Reach for the platform capability that already exists. |
-| 5 | **Installed dep?** | Solve it with a dependency already in the tree. |
-| 6 | **One line?** | If it collapses to one line, make it one line. |
-| 7 | **Otherwise** | Write the minimum new code that works. |
-
-The ladder runs *after* the agent understands the problem, not instead of it, and
-it never trades away validation, error handling, security, or accessibility. Lazy
-about the solution, never about reading the code first.
-
-When a change deliberately cuts a corner with a known ceiling (a global lock, an
-O(n²) scan, a naive heuristic), the agent leaves an `lc-debt: <ceiling>; <upgrade
-path>` marker. Harvest them any time into a ledger — `lc debt` flags any marker
-that names no upgrade path (`no-trigger`), the ones that silently rot:
-
-```bash
-lc debt          # ceiling + upgrade per deferred simplification, no-trigger flagged
-lc debt --json   # same, machine-readable
-```
-
-The packaged `code-audit` workflow (Claude Code) adds an over-engineering lens
-that returns a concrete delete-list — code to remove, not rewrite.
-
-## What LemonCrow does not do
-
-- It is **not** a hosted service. There is no cloud backend, dashboard account,
-  or team collaboration server.
-- It does **not** run your model for you — you bring and configure your own
-  provider/API key (Anthropic, OpenAI, Ollama, …).
-- It does **not** guarantee the benchmark deltas below on your repository;
-  results vary by task, codebase, and model.
-- Some integrations are early or in progress; behavior varies by host (e.g.
-  session-close verification is enforced on Claude Code, advisory elsewhere).
-
-## Privacy and network behavior
-
-- **Runs locally.** After install, all core functionality works offline and
-  contacts **no** LemonCrow-controlled server.
-- **Telemetry is OFF by default** and strictly opt-in. A global `DO_NOT_TRACK=1` / `LEMONCROW_TELEMETRY=off`
-  environment kill switch is honored.
-- **No** identifier, repository path, source code, or
-  symbol name leaves your machine. There is no crash reporting.
-- The only network calls the runtime makes are ones you initiate (`lc update`,
-  which checks GitHub Releases).
-- Full detail: [docs/privacy.md](docs/privacy.md).
-
-## Supported environments
-
-- **Operating systems:** Linux and macOS (primary); Windows is partially, never tested.
-- **Runtime:** Python 3.12–3.13, managed with [`uv`](https://docs.astral.sh/uv/).
-- **Agent hosts:** Claude Code, Codex and opencode today;
-  Copilot, Cursor, Hermes, and Antigravity are in progress. Any MCP-compatible agent can
-  connect to the same tools.
-- **Build requirements:** `uv`, a C toolchain (only if you opt into the `mypyc`
-  performance build; a pure-Python build works without it), and `git`.
-- **Known limitations:** see [What LemonCrow does not do](#what-lemoncrow-does-not-do)
-  and [Troubleshooting](docs/troubleshooting.md).
+The results are honest: [`+12pp resolved`](#results) on SWE-bench, [`29.5% cheaper`](#results) end-to-end, and every single raw run is published under `benchmarks/` for you to verify or reproduce.
 
 ## Results
 
-These are fixed results from pinned benchmark runs — not a live counter. Every
-headline number links back to committed raw runs and methodology in
-[BENCHMARKS.md](BENCHMARKS.md). The model, tasks, containers, turn limits, and
-verification harness were held constant. Results are mixed by design and include
-a regression (SWE-bench Lite below).
+Measured on the same model, same tasks, and same environment:
 
-| Benchmark                                         | Baseline correct | LemonCrow correct | Correct delta |        Baseline cost |    LemonCrow cost | Cost delta |
-| --------------------------------------------------- | -----------------: | ------------------: | --------------: | ---------------------: | ------------------: | -----------: |
-| SWE-bench Verified, 50 tasks x 5 reps             |            80.8% |         **92.8%** |  **+12.0 pp** | $234.84 |**$165.45** | **29.5% cheaper** |            |
-| SWE-bench Lite, 10 tasks x 5 reps                 |            98.0% |             96.0% |       -2.0 pp |   $19.83 |**$17.51** | **11.7% cheaper** |            |
-| SWE-bench Pro, 10 tasks x 5 reps                  |            88.0% |         **90.0%** |   **+2.0 pp** |   $39.01 |**$30.61** | **21.5% cheaper** |            |
-| Exploration tasks across 7 large repos x 5 reps   |                - |                 - |             - |    $19.11 |**$6.29** |   **67% cheaper** |            |
-| Telegraphic Q&A, 20 prompts x 5 reps              |                - |                 - |             - |     $8.40 |**$4.48** | **46.7% cheaper** |            |
-| Terminal-Bench 2.1, 89 tasks x 5 reps (matched)\* |            78.9% |         **80.0%** |   **+1.1 pp** |                   — |                — |         — |
+| Benchmark                                          |          Atelier result |                Baseline |            Delta |
+| ---------------------------------------------------- | ------------------------: | ------------------------: | -----------------: |
+| SWE-bench Verified, 50 sampled tasks x 5 reps      |      **92.8% resolved** |                   80.8% |     **+12.0 pp** |
+| SWE-bench end-to-end cost                          |   **$165.45** | $234.84 |       **29.5% cheaper** |                  |
+| SWE-bench turns                                    |               **4,336** |                   6,962 |  **37.7% fewer** |
+| SWE-bench output tokens                            |               **2.19M** |                   3.04M |  **27.9% fewer** |
+| SWE-bench wall-clock time                          |               **10.9h** |                   14.3h | **23.7% faster** |
+| SWE-bench Pro, 10 tasks x 5 reps                   |      **90.0% resolved** |                   88.0% |      **+2.0 pp** |
+| SWE-bench Pro cost                                 |    **$30.61** | $39.01 |       **21.5% cheaper** |                  |
+| Exploration tasks across 8 large repos             |     **$10.94** | $25.37 |         **57% cheaper** |                  |
+| Terminal-Bench 2.1, 89 tasks vs public leaderboard* | 74.2% resolved | 78.9% expected | -4.7 pp |
+| Terminal-Bench cost, 78/89 tasks w/ cost data*  | **$61.41** | $73.48 | **16.4% cheaper**† |
 
-<sub> Both arms 89 tasks x 5 reps = 445 trials on the same dataset (LemonCrow's Harbor run vs the Claude Code 2.1.205 leaderboard run), so correctness is directly comparable. LemonCrow also sends 91.8% fewer fresh input tokens (1.05M vs 12.87M); cost is not a matched comparison here — see .</sub>
+<sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Understates Atelier's savings floor -- 10 of the 11 tasks missing cost data are real, uncounted spend (harness killed the process on a timeout before it logged a final cost), not zero-cost runs; see BENCHMARKS.md.</sub>
 
 <p align="center">
-  <img src="benchmarks/cost_vs_savings_scatter.svg" alt="LemonCrow vs baseline: dollars saved per run against baseline task cost" width="720">
+  <img src="benchmarks/cost_vs_savings_scatter.svg" alt="Atelier vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, and Terminal-Bench" width="720">
 </p>
 
-SWE-bench Verified detail (250 runs a side) — one-shot search collapses the
-grep-and-read loop, so turns, wall-clock, and tool calls drop together:
+Benchmarks are not hand-waved: raw runs, per-task outcomes, costs, turn counts, setup notes, and reproduction commands live in [BENCHMARKS.md](BENCHMARKS.md) and under [`benchmarks/codebench/results/`](benchmarks/codebench/results/).
 
-| Metric           | Baseline | LemonCrow |            Delta |
-| ------------------ | ---------: | ----------: | -----------------: |
-| Turns            |    6,962 |     4,336 |  **37.7% fewer** |
-| Wall-clock       |    14.3h |     10.9h | **23.7% faster** |
-| Total tool calls |    6,700 |     4,167 |       **-37.8%** |
-| Output tokens    |    3.04M |     2.19M |  **27.9% fewer** |
+## Estimate Your Savings
 
-### Scale
+Before installing Atelier into a repo, you can scan your local coding-agent session history and estimate the potential savings from routable tool calls.
 
-Indexing throughput and search quality hold up at repository sizes agents
-actually hit. A cold full rebuild of the Linux kernel core (1.24M symbols,
-4.5M lines) and retrieval quality vs grep-class tools on ~7,200 query/answer
-pairs across 14 repos:
+```bash
+curl -fsSL https://savings.atelier.ws | bash
+```
 
-| Metric                                    |                          LemonCrow | Grep-class baseline |
-| ------------------------------------------- | -----------------------------------: | --------------------: |
-| Linux cold index, lexical (1.24M symbols) |                  **179s** (~3 min) |                  — |
-| Linux cold index, zoekt trigram           |                          **13.7s** |                  — |
-| Retrieval MRR (higher = better)           | **0.727** semantic / 0.676 lexical |     0.376 (ripgrep) |
-| Query latency, p95                        |     134ms lexical / 390ms semantic |  **66ms** (ripgrep) |
+The script downloads the latest Atelier release into a cached temporary venv, then runs:
 
-Ranked search is ~1.9x more accurate than ripgrep at a still-interactive p95;
-ripgrep wins raw latency but not what it finds. Per-repo indexing table and the
-full 13-tool retrieval comparison: [BENCHMARKS.md](BENCHMARKS.md#indexing-time).
+```bash
+atelier session stats --source live --since 7d --top 5
+```
 
-Reproduce any of this from committed raw data: see [BENCHMARKS.md](BENCHMARKS.md)
-and [docs/benchmarks/results.md](docs/benchmarks/results.md).
+It is read-only, uses a temporary store, does not require Atelier login or provider API keys, and prints aggregate cost, tool-call, realized-savings, and potential-savings numbers from local host session files.
 
-## Learn more
+Useful variants:
+
+```bash
+curl -fsSL https://savings.atelier.ws | bash -s -- --since 30d --top 10
+curl -fsSL https://savings.atelier.ws | bash -s -- --host codex --limit 20
+```
+
+## Quick Start
+
+Install Atelier, then initialize it inside any repo where you use an AI coding agent.
+
+```bash
+curl -fsSL https://install.atelier.ws | bash
+
+cd your-project
+atelier init
+```
+
+Already installed?
+
+```bash
+atelier update
+```
+
+Check your setup:
+
+```bash
+atelier doctor
+```
+
+Run a direct prompt when you want a compact terminal answer without opening an interactive agent:
+
+```bash
+# Direct `atelier -p` uses owned HTTP model execution, so it needs an API-style credential:
+export ANTHROPIC_API_KEY=sk-ant-...
+# or OPENAI_API_KEY / GOOGLE_API_KEY / AWS_PROFILE / AZURE_API_KEY / another LiteLLM-compatible key
+
+atelier -p "summarize this repo"
+cat test.log | atelier -p "debug this failure"
+
+# Batch quick prompts into one Atelier run:
+atelier -p "summarize this repo" -p "list the riskiest files" -p "suggest the next test"
+
+# Claude subscription/OAuth auth belongs to Claude Code itself. Use it through host/runner flows,
+# for example a Claude-backed swarm runner, not direct `atelier -p`.
+```
+
+Why use native `atelier -p`:
+
+- **One-shot answers** — it prints only the final answer, so shell scripts and CI jobs do not need to scrape an interactive transcript.
+- **Batch prompts** — repeated `-p` flags are folded into one ordered run, which is cheaper than launching a separate agent session for each small question.
+- **Smart routing** — when you do not pin a model, Atelier routes through your configured LiteLLM-compatible providers and falls back when a provider is blocked.
+- **Cache-aware prompts** — the owned runtime keeps a stable system/tool prefix, uses Anthropic ephemeral cache breakpoints when available, and preserves provider automatic prefix caching where supported.
+- **Same tools, less ceremony** — the prompt can still use Atelier's code/search/read/bash tool loop, but you get a terminal-sized answer instead of opening a full host agent UI.
+
+After `atelier init`, start your normal coding agent. Atelier wires itself into supported host MCP config so the agent sees Atelier's grounded tools instead of falling back to raw file and shell primitives.
+
+## What Changes After Init
+
+Atelier is not only a prompt that tells an agent to be brief. It shrinks the tool surface, the command output, and the final replies that get fed back into the model.
+
+Atelier adds four runtime layers around your coding agent:
+
+| Layer     | What it changes                                                                                                                                                                                                                                                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP tools | Replaces broad native file/search/shell operations with`code_search`, `read`, `edit`, `bash`, and `web_fetch`.                                                                                                                                                                                                                      |
+| Agents    | Gives common work modes explicit boundaries:`code`, `explore`, `plan`, `execute`, `solve`, `review`, `research`, and more.                                                                                                                                                                                                          |
+| Skills    | Packages repeatable procedures such as benchmarking, orchestration, performance review, recall, swarm, and UX review.                                                                                                                                                                                                               |
+| Hooks     | Intercepts tool calls and session endings to block wasteful reads, risky edits, and unverified "done" states. Also shadow-shrinks oversized results from the host's builtin Bash and any other MCP server: the full output spills to a recoverable file and one canonical notice names the way back — no config or routing change. |
+
+The important difference is enforcement. A prompt can ask an agent to be disciplined; a runtime controls what the agent can call and when.
+
+## Core Tools
+
+| Tool          | Use                                                                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `code_search` | Finds relevant symbols, source, callers, callees, usages, and blast radius in one call.                                                                    |
+| `read`        | Reads files by outline, exact range, full expansion, or`:summary` — a bounded type-aware gist (heuristic, upgraded by a local LLM when one is reachable). |
+| `edit`        | Applies deterministic single-file or multi-file edits in one verified call.                                                                                |
+| `bash`        | Runs commands with compact, structured output so test logs do not flood context.                                                                           |
+| `web_fetch`   | Fetches public URLs as clean Markdown — optionally as a bounded summary — when web research is allowed.                                                  |
+
+## Skills And Commands
+
+Most Atelier capabilities have two surfaces:
+
+- **Skill path:** ask your agent in natural language; the skill gathers missing parameters and chooses the right runtime surface.
+- **CLI/runtime path:** use exact commands for CI, scripts, docs, reproducible launches, or when you already know the flags.
+
+| Capability         | Skill path                                 | CLI/runtime path                                  | Use it for                                                                                        |
+| -------------------- | -------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Benchmark          | `/benchmark "compare this repo"`           | `atelier benchmark local --repo . --prompt "..."` | Measure Atelier vs vanilla on your own repo with an up-front cost estimate.                       |
+| Orchestrate        | `/orchestrate "ship this multi-step task"` | `workflow` MCP tool                               | Route one structured task to direct subagent, isolated/background execution, or durable workflow. |
+| Performance review | `/perf-review "check this change"`         | skill-driven checks                               | Verify latency, memory, I/O, and scaling with real measurements.                                  |
+| Recall             | `/recall "what did we learn about auth?"`  | `atelier session recall ...`                      | Retrieve useful context and lessons from past Atelier sessions.                                   |
+| Swarm              | `/swarm "try 3 fixes and keep the best"`   | `atelier swarm start ...`                         | Run multiple isolated attempts in git worktrees, validate, reduce, inspect, and apply.            |
+| UX review          | `/ux-review "review this shipped UI"`      | skill-driven browser checks                       | Check accessibility, responsive behavior, interaction states, and visual regressions.             |
+
+Packaged skills live in [`integrations/skills/`](integrations/skills/). The CLI remains the stable automation layer underneath skills; skills are the agent-friendly way to invoke it.
+
+## Local UI And Observability
+
+Atelier is more than a search MCP. The optional local stack runs both the service API and the web frontend, so you can inspect runs, token use, costs, savings, and runtime state outside the chat transcript.
+
+```bash
+atelier stack start
+atelier dashboard open
+atelier stack status
+```
+
+For terminal-only workflows:
+
+```bash
+atelier dashboard
+atelier savings --json
+```
+
+## Swarm
+
+Use the **`/swarm` skill** when you want the agent to choose the right swarm shape from a natural-language goal. It asks for the missing parameters, maps the job to the right reducer, launches the existing swarm runtime, and gives you the `run_id` plus status/log/apply commands.
+
+```text
+/swarm "try three independent fixes for the flaky checkout test and keep the best validated patch"
+/swarm "optimize bundle size; measure with npm run build; do not regress tests"
+/swarm "audit auth for bypasses with five read-only attempts and union the findings"
+```
+
+Use the **CLI** when you need an explicit, reproducible launch: CI, scripts, benchmark runs, exact runner/model flags, or when you already know the spec and validation commands.
+
+```bash
+atelier swarm start program.md --runs 3 --continuous \
+  --runner codex \
+  --runner-model <model> \
+  --validate "make test"
+
+atelier swarm list
+atelier swarm logs <run_id> --child-id wave-01-run-01
+atelier swarm apply <run_id>
+```
+
+Each child gets its own git worktree, isolated `ATELIER_ROOT`, copied task spec, live logs, structured result artifact, and validation commands. Accepted patches can be exported or applied back to your repo.
+
+Reducers let you choose how candidates are combined: `merge` for normal solving, `best` for optimization, `union` for search/audit work, and `vote` for verification.
+
+## Workflows
+
+Atelier's workflow runtime is the durable path for structured multi-step work. It stores a workspace-local run state, tracks step progress, and supports `run`, `status`, `inspect`, `resume`, `pause`, and `stop` through the `workflow` MCP tool.
+
+The `orchestrate` skill chooses the narrowest execution surface for a request: direct subagent, isolated/background task, or durable workflow. Use it when a task needs a plan, checkpoints, resumability, or approval gates.
+
+```text
+/orchestrate "plan and execute the auth migration with a review checkpoint"
+```
+
+You do not need any of this on day one. Install Atelier, run your normal coding agent, and let the runtime improve the tool loop underneath it. The advanced surfaces are there when the work gets bigger than one prompt.
+
+## Benchmarks
+
+Start with the summary above. Go deeper here:
+
+- [BENCHMARKS.md](BENCHMARKS.md) - headline results, methodology, and reproduction commands.
+- [`benchmarks/codebench/results/swe50_2026_06_30/`](benchmarks/codebench/results/swe50_2026_06_30/) - SWE-bench raw results.
+- [`benchmarks/codebench/results/swe-pro_2026_07_07/`](benchmarks/codebench/results/swe-pro_2026_07_07/) - SWE-bench Pro raw results.
+- [`benchmarks/codebench/results/exploration_2026_06_29/`](benchmarks/codebench/results/exploration_2026_06_29/) - exploration benchmark raw results.
+- [`benchmarks/codebench/results/retrieval_2026_07_05/`](benchmarks/codebench/results/retrieval_2026_07_05/) - retrieval evaluation raw results.
+- [`benchmarks/harbor/results/atelier/2026-07-07__02-24-29/`](benchmarks/harbor/results/atelier/2026-07-07__02-24-29/) - Terminal-Bench run data.
+
+## Docs
 
 - [Installation](docs/installation.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Benchmarks](BENCHMARKS.md) · [full results with methodology](docs/benchmarks/results.md)
 - [CLI reference](docs/cli.md)
-- [Architecture](docs/architecture.md)
-- [Privacy & network behavior](docs/privacy.md)
-- [Maintenance-mode transition (audit & rationale)](docs/maintenance-mode-transition.md)
-
-## Removal
-
-Uninstall LemonCrow and its host integrations, preserving your data by default:
-
-```bash
-bash scripts/uninstall.sh
-```
-
-To also remove all LemonCrow-managed local state (databases, caches, logs, the
-local installation identifier, and configuration):
-
-```bash
-bash scripts/uninstall.sh --purge
-```
-
-The uninstaller stops background services, removes user-level systemd/launchd
-units, removes LemonCrow-owned host-integration entries (without touching
-unrelated agent-host configuration), reverts LemonCrow's PATH changes, and prints
-exactly what was removed and preserved. Preview with `--dry-run`.
-
-## Development & Building from Source
-
-If you want to build LemonCrow from source or run a local development setup, clone the repository and run the local installation script (see [Installation](docs/installation.md) for full details):
-
-```bash
-git clone https://github.com/lemoncrow-lab/lemoncrow
-cd lemoncrow
-bash scripts/local.sh
-```
-
----
+- [Host setup for agent CLIs](docs/hosts/all-agent-clis.md)
+- [MCP SDK](docs/sdk/mcp.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Architecture: Technology & Concepts](docs/architecture.md)
 
 ## License
 
-LemonCrow is free and open-source software under the
-[Apache License, Version 2.0](LICENSE)
-`lemoncrow.pro` engine is planned to be released soon. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache 2.0 — see [`LICENSE`](LICENSE) for the full text.

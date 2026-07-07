@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.pro.capabilities.live_reviewer.agentic import _read_file, run_agentic_review
+from atelier.core.capabilities.live_reviewer.agentic import _read_file, run_agentic_review
 
 
 class _Fn:

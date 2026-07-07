@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.pro.capabilities.live_reviewer import duplication
-from lemoncrow.pro.capabilities.live_reviewer.duplication import added_symbols, find_duplications
+from atelier.core.capabilities.live_reviewer import duplication
+from atelier.core.capabilities.live_reviewer.duplication import added_symbols, find_duplications
 
 
 def test_added_symbols_detects_decls() -> None:

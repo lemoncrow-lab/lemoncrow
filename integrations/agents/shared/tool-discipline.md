@@ -1,26 +1,8 @@
-<!-- lc:section write -->
-
 ## Tool discipline
 
-- **Known path → straight to `read`**.
-- **Known path → Start with `code_search`** Inline source is already read, and `related_symbols`/`candidate_files` cover every site. Batch each missing file once into one `read`, then all changes into one `edit`.
-- **`bash` = execution only.** Never use shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
-- **Batch independent calls.** One turn; serialize only dependencies.
-- Large output → a file, never prose.
-- **Graphical data → render and look.** Output meant to be seen (plots, rendered text, pixel grids, UI) → write a PNG and read the image; don't infer visuals from raw bytes or coordinates.
+- **One search → one bulk edit.** Lead with `code_search` — returned source = already read; `related_symbols` / `candidate_files` find every site. `read` only what it didn't return, all files in ONE call, never the same file twice. ALL edits in ONE `edit` `edits[]` array.
+- **Known path → `read`; `bash` = execution only.** Never `sed`/`cat`/`head`/`tail` or grep chains; never re-verify `code_search` results with shell grep — full index.
+- **Batch independent calls.** Independent reads, searches, probes in one turn; serialize only when one output feeds the next.
+- **Large output → a file, never prose.**
 
-Host tools disabled — use lc: `bash`, `read`, `edit`, `code_search`.
-
-<!-- lc:end -->
-
-<!-- lc:section read-only -->
-
-## Tool discipline
-
-- **Read-only — `bash` never mutates.** Inspection/validation only: no redirects, `sed -i`, `tee`, or Git state changes.
-- **Known path → straight to `read`, no `code_search`.** Task, error, or stack trace already names the file — don't explore first; otherwise start with `code_search`. Never use shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
-- Batch independent reads/searches in one turn; serialize only dependencies.
-
-Host tools disabled — use lc: `bash`, `read`, `code_search`.
-
-<!-- lc:end -->
+Host tools disabled — use Atelier: `bash`, `read`, `edit`, and `code_search` / `explore` for search.

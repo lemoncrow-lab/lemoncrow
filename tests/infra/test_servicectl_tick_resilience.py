@@ -1,16 +1,13 @@
 """Regression tests: a periodic tick subprocess timing out must not abort
-``_servicectl_tick`` -- and must not silently advance the periodic key either.
+``_servicectl_tick`` before its periodic-job timestamp and state.json are
+written.
 
-Original finding (CRITICAL, servicectl_lifecycle.py `_servicectl_import_sessions`):
+Verified finding (CRITICAL, servicectl_lifecycle.py `_servicectl_import_sessions`):
 ``subprocess.run(timeout=300)`` had no try/except, so a ``TimeoutExpired``
-propagated out of ``_servicectl_tick`` before state.json was written.
-
-Follow-up finding: advancing the periodic key on timeout permanently starved
-large stores (the import never got another chance until the next interval,
-and always with the same too-small budget). Now a timeout keeps the key
-un-advanced, escalates the budget (2x per consecutive timeout, capped 4x),
-records a ``subprocess_timeouts`` health counter in state.json, and only
-backs off to the normal interval after 3 consecutive timeouts.
+propagated out of ``_servicectl_tick`` before ``periodic[SESSION_IMPORT_KEY]``
+and ``_write_servicectl_state`` ran -- every subsequent tick re-ran the same
+doomed import and crashed again, so recall indexing / pruning / job
+processing never ran either.
 """
 
 from __future__ import annotations
@@ -21,18 +18,18 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.infra.runtime import servicectl_lifecycle as svc
+from atelier.infra.runtime import servicectl_lifecycle as svc
 
 
 def test_servicectl_import_sessions_survives_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """_servicectl_import_sessions must swallow TimeoutExpired and signal it
-    with None, not propagate it."""
+    """_servicectl_import_sessions must swallow TimeoutExpired and return {},
+    not propagate it."""
 
     def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=float(kwargs.get("timeout") or 0))
 
     monkeypatch.setattr(svc.subprocess, "run", fake_run)
-    assert svc._servicectl_import_sessions(tmp_path) is None
+    assert svc._servicectl_import_sessions(tmp_path) == {}
 
 
 def test_servicectl_index_recall_survives_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,7 +39,7 @@ def test_servicectl_index_recall_survives_timeout(tmp_path: Path, monkeypatch: p
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=float(kwargs.get("timeout") or 0))
 
     monkeypatch.setattr(svc.subprocess, "run", fake_run)
-    assert svc._servicectl_index_recall(tmp_path) is None
+    assert svc._servicectl_index_recall(tmp_path) == {}
 
 
 def test_servicectl_prune_workspaces_survives_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -52,13 +49,18 @@ def test_servicectl_prune_workspaces_survives_timeout(tmp_path: Path, monkeypatc
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=float(kwargs.get("timeout") or 0))
 
     monkeypatch.setattr(svc.subprocess, "run", fake_run)
-    assert svc._servicectl_prune_workspaces(tmp_path) is None
+    assert svc._servicectl_prune_workspaces(tmp_path) == {}
 
 
-def _fake_run_with_import_timeout(calls: list[float]) -> Any:
+def test_tick_advances_periodic_key_and_writes_state_when_import_times_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A timed-out import subprocess must not abort the tick before the
+    periodic key / state.json are written -- otherwise every subsequent tick
+    re-runs the same doomed import forever and nothing else ever runs."""
+
     def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
         if "import" in cmd:
-            calls.append(float(kwargs.get("timeout") or 0))
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=float(kwargs.get("timeout") or 0))
         if "run-once" in cmd:
             # Worker queue empty -> break the job-processing loop immediately.
@@ -66,22 +68,12 @@ def _fake_run_with_import_timeout(calls: list[float]) -> Any:
         # recall index / workspace prune: nothing to do.
         return subprocess.CompletedProcess(cmd, 0, stdout=b"{}", stderr=b"")
 
-    return fake_run
-
-
-def test_tick_survives_import_timeout_without_advancing_periodic_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A timed-out import must not abort the tick (state.json still written),
-    must not advance the periodic key (the work never happened), and must
-    leave a health signal in state."""
-    calls: list[float] = []
-    monkeypatch.setattr(svc.subprocess, "run", _fake_run_with_import_timeout(calls))
+    monkeypatch.setattr(svc.subprocess, "run", fake_run)
 
     result = svc._servicectl_tick(
         tmp_path,
         maintenance_interval_seconds=300,
-        session_import_interval_seconds=3600,
+        session_import_interval_seconds=0,
     )
 
     # The tick ran to completion (not aborted mid-way by the timeout) and
@@ -91,28 +83,30 @@ def test_tick_survives_import_timeout_without_advancing_periodic_key(
 
     state = svc._read_servicectl_state(tmp_path)
     assert state["last_tick_at"] is not None
-    # Key NOT advanced: the import gets retried (with a bigger budget).
-    assert "import_host_sessions" not in state["periodic_jobs"]
-    assert state["subprocess_timeouts"]["import_host_sessions"] == 1
-
-
-def test_import_retries_with_escalated_timeout_then_backs_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Consecutive timeouts escalate the budget (2x, then 4x capped); after
-    3 consecutive timeouts the key advances anyway so the rest of the tick's
-    duties are not starved, and the health counter survives in state."""
-    calls: list[float] = []
-    monkeypatch.setattr(svc.subprocess, "run", _fake_run_with_import_timeout(calls))
-
-    for _ in range(3):
-        svc._servicectl_tick(tmp_path, maintenance_interval_seconds=300, session_import_interval_seconds=3600)
-    assert calls == [300.0, 600.0, 1200.0]
-
-    state = svc._read_servicectl_state(tmp_path)
-    # Backed off: after 3 consecutive timeouts the key advances so the import
-    # is deferred to the next interval instead of hammering every tick.
     assert "import_host_sessions" in state["periodic_jobs"]
-    assert state["subprocess_timeouts"]["import_host_sessions"] == 3
 
-    result4 = svc._servicectl_tick(tmp_path, maintenance_interval_seconds=300, session_import_interval_seconds=3600)
-    assert result4["session_import_ran"] is False
-    assert len(calls) == 3  # not re-run within the interval
+
+def test_second_tick_does_not_re_run_import_immediately_after_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Because the periodic key advances despite the timeout, a second tick
+    within the interval must not re-attempt the import (it would otherwise
+    hammer the same doomed subprocess on every tick)."""
+    calls = {"import": 0}
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        if "import" in cmd:
+            calls["import"] += 1
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=float(kwargs.get("timeout") or 0))
+        if "run-once" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, stdout=b'{"processed": false}', stderr=b"")
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"{}", stderr=b"")
+
+    monkeypatch.setattr(svc.subprocess, "run", fake_run)
+
+    svc._servicectl_tick(tmp_path, maintenance_interval_seconds=300, session_import_interval_seconds=3600)
+    assert calls["import"] == 1
+
+    result2 = svc._servicectl_tick(tmp_path, maintenance_interval_seconds=300, session_import_interval_seconds=3600)
+    assert calls["import"] == 1  # not re-run within the interval
+    assert result2["session_import_ran"] is False

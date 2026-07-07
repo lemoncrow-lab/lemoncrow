@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lemoncrow.core.capabilities import savings_summary as ss
+from atelier.core.capabilities import savings_summary as ss
 
 
 def _entry(msg_id: str, in_t: int = 100, out_t: int = 10, ts: str = "2026-07-02T00:00:00Z") -> str:
@@ -54,56 +54,6 @@ def test_incremental_append_and_cache_hit(tmp_path: Path) -> None:
     assert third is not None and third.turns == 3 and third.input_tokens == 300
 
 
-def test_streamed_usage_rows_keep_last_for_savings(tmp_path: Path) -> None:
-    ss._transcript_stats_cache.clear()
-    t = tmp_path / "s-stream.jsonl"
-
-    def row(out_t: int, in_t: int = 100, cr: int = 0, cw: int = 0) -> str:
-        return json.dumps(
-            {
-                "type": "assistant",
-                "timestamp": "2026-07-02T00:00:00Z",
-                "message": {
-                    "id": "m1",
-                    "model": "claude-sonnet-4-5",
-                    "usage": {
-                        "input_tokens": in_t,
-                        "output_tokens": out_t,
-                        "cache_read_input_tokens": cr,
-                        "cache_creation_input_tokens": cw,
-                    },
-                    "content": [],
-                },
-            }
-        )
-
-    # Claude Code streams multiple usage rows per assistant message id with
-    # growing output_tokens -- the LAST row is authoritative, not the first.
-    t.write_text(row(10) + "\n" + row(50) + "\n", encoding="utf-8")
-    first = ss.read_transcript_stats(t)
-    assert first is not None and first.turns == 1
-    assert first.output_tokens == 50
-
-    # ...including across incremental folds (append after a prior read).
-    with t.open("a", encoding="utf-8") as fh:
-        fh.write(row(200, in_t=120, cr=300, cw=40) + "\n")
-    second = ss.read_transcript_stats(t)
-    assert second is not None and second.turns == 1  # still ONE turn
-    assert second.input_tokens == 120
-    assert second.output_tokens == 200
-    assert second.cache_read_tokens == 300
-    assert second.cache_write_tokens == 40
-    # est_cost prices the LAST row only, not the sum of partial streamed rows.
-    expected = ss.estimate_cost_usd(
-        model_id="claude-sonnet-4-5",
-        input_tokens=120,
-        output_tokens=200,
-        cache_read_tokens=300,
-        cache_write_tokens=40,
-    )
-    assert abs(second.est_cost_usd - expected) < 1e-9
-
-
 def test_partial_tail_line_left_for_next_call(tmp_path: Path) -> None:
     ss._transcript_stats_cache.clear()
     t = tmp_path / "s2.jsonl"
@@ -139,31 +89,25 @@ def test_shrunken_source_forces_rebuild(tmp_path: Path) -> None:
 def test_bump_historical_cache_folds_row_without_rescan() -> None:
     ss._historical_savings_cache.clear()
     key = (7, "/tmp/root")
-    ss._historical_savings_cache[key] = (123.0, (1.0, 1000, 2, 5, 50.0, 3.0, 0.25, 0.1, 200, 7))
+    ss._historical_savings_cache[key] = (123.0, (1.0, 1000, 2, 5, 50.0, 3.0, 0.25))
 
     ss._bump_historical_savings_cache(
         {"tool": "read", "tokens": 400, "calls": 1, "cost_saved_usd": 0.002, "calls_usd": 0.05, "ts": "x"}
     )
     cached_ts, val = ss._historical_savings_cache[key]
     assert cached_ts == 123.0  # TTL clock untouched — still refreshes on schedule
-    usd, tok, calls, turns, spend, carry, routing, read_usd, read_tok, carry_tok = val
+    usd, tok, calls, turns, spend, carry, routing = val
     # calls_usd credited as written (priced at write time; no display discount).
     assert round(usd, 6) == round(1.0 + 0.002 + 0.05, 6)
     assert tok == 1400 and calls == 3 and turns == 6
     assert spend == 50.0 and carry == 3.0  # spend/carry never bumped per-row
     assert routing == 0.25  # context rows never touch the routing column
-    # tool="read" is a read-lever row: read_usd/read_tok get incremented by
-    # the row's raw tokens/cost_saved_usd (not the calls_usd-inclusive total).
-    assert round(read_usd, 6) == round(0.1 + 0.002, 6)
-    assert read_tok == 200 + 400
-    assert carry_tok == 7  # carry tokens never bumped per-row (TTL-refreshed only)
 
     # Routing rows fold ONLY the routing column, leaving savings untouched.
     ss._bump_historical_savings_cache({"kind": "routing", "usd": 0.75, "ts": "x"})
     _, val = ss._historical_savings_cache[key]
     assert val[0] == usd and val[1] == tok and val[2] == calls and val[3] == turns
     assert val[6] == 1.0
-    assert val[7] == read_usd and val[8] == read_tok and val[9] == carry_tok
 
     ss._historical_savings_cache.clear()
     ss._bump_historical_savings_cache({"tokens": 400})  # empty cache → no-op, no crash

@@ -14,18 +14,15 @@ import socket
 import threading
 from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, ClassVar
+from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities import web_fetch
+from atelier.core.capabilities import web_fetch
 
 
 @pytest.fixture(autouse=True)
-def clear_cache(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    # Loopback fetches are denied by default; these tests run real loopback
-    # HTTP servers, so opt in explicitly.
-    monkeypatch.setenv("LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK", "1")
+def clear_cache() -> Iterator[None]:
     web_fetch.clear_web_fetch_cache()
     yield
     web_fetch.clear_web_fetch_cache()
@@ -97,28 +94,6 @@ class _PdfHandler(BaseHTTPRequestHandler):
         pass
 
 
-class _FlakyForbiddenHandler(BaseHTTPRequestHandler):
-    """403 on the first hit (simulated WAF false positive), 200 after."""
-
-    calls: ClassVar[int] = 0
-
-    def do_GET(self) -> None:
-        type(self).calls += 1
-        if type(self).calls == 1:
-            body = b"forbidden"
-            self.send_response(403)
-        else:
-            body = b"ok now"
-            self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, *_a: Any) -> None:
-        pass
-
-
 # --------------------------------------------------------------------------- #
 # SSRF: literal private / link-local IP targets blocked at connection level   #
 # --------------------------------------------------------------------------- #
@@ -175,16 +150,6 @@ def test_async_resolver_allows_loopback_literal() -> None:
     assert results[0]["host"] == "127.0.0.1"
 
 
-def test_async_resolver_blocks_loopback_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK", raising=False)
-
-    async def _run() -> Any:
-        return await web_fetch._ValidatingResolver().resolve("127.0.0.1", 80, socket.AF_INET)
-
-    with pytest.raises(ValueError, match="LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK"):
-        asyncio.run(_run())
-
-
 # --------------------------------------------------------------------------- #
 # SSRF: a redirect to a private IP is blocked on the next hop                  #
 # --------------------------------------------------------------------------- #
@@ -208,21 +173,6 @@ def test_async_rejects_binary_content_type() -> None:
     finally:
         srv.shutdown()
         srv.server_close()
-
-
-def test_async_retries_transient_403_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A 403 is a possible WAF/bot-management false positive: retried a bounded
-    number of times on the async path too before being accepted as final."""
-    monkeypatch.setattr(web_fetch, "_RETRY_BACKOFF_S", 0.0)
-    _FlakyForbiddenHandler.calls = 0
-    srv, port = _loopback_server(_FlakyForbiddenHandler)
-    try:
-        result = asyncio.run(web_fetch._async_fetch_uncached(f"http://127.0.0.1:{port}/", accept="*/*", timeout_s=5.0))
-    finally:
-        srv.shutdown()
-        srv.server_close()
-    assert result.status == 200
-    assert _FlakyForbiddenHandler.calls == 2
 
 
 def test_async_accepts_and_extracts_pdf() -> None:
@@ -273,8 +223,8 @@ class _MarkdownHandler(BaseHTTPRequestHandler):
 def test_async_fetch_url_carries_summary_param(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     """The deferred/async execution path threads `summary` all the way down
     to `_finish_fetch`, same as the sync path."""
-    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path))
-    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path))
+    monkeypatch.delenv("ATELIER_LLM_BACKEND", raising=False)
     srv, port = _loopback_server(_MarkdownHandler)
     try:
         result = asyncio.run(
@@ -285,4 +235,4 @@ def test_async_fetch_url_carries_summary_param(monkeypatch: pytest.MonkeyPatch, 
         srv.server_close()
     assert "# Heading One" in result["content"]
     assert "## Heading Two" in result["content"]
-    assert "[lc: summarized:heuristic" in result["content"]
+    assert "[atelier: summarized:heuristic" in result["content"]

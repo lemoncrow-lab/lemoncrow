@@ -1,1 +1,1 @@
-"""CodeBench: LemonCrow-enabled coding agents versus unassisted baselines."""
+"""CodeBench: Atelier-enabled coding agents versus unassisted baselines."""

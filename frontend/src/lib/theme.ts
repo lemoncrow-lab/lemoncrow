@@ -1,6 +1,6 @@
 export type Theme = "light" | "dark";
 
-const STORAGE_KEY = "lemoncrow-theme";
+const STORAGE_KEY = "atelier-theme";
 
 export function getInitialTheme(): Theme {
   try {

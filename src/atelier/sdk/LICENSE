@@ -1,0 +1,10 @@
+This directory (`src/atelier/sdk/` — framework bindings: Anthropic, OpenAI,
+LangChain, Gemini ADK) is licensed under the Apache License, Version 2.0.
+
+See `/LICENSE-APACHE` at the repository root for the full text, or
+http://www.apache.org/licenses/LICENSE-2.0
+
+Copyright 2026 Pankaj Kumar (d/b/a Atelier)
+
+The rest of this repository is licensed under Apache 2.0 (see the root
+`LICENSE` file) unless another directory-level `LICENSE` file says otherwise.

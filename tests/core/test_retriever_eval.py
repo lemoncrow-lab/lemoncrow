@@ -9,9 +9,9 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.core.runtime import LemonCrowRuntimeCore
-from lemoncrow.gateway.cli import cli
+from atelier.core.foundation.models import Playbook
+from atelier.core.runtime import AtelierRuntimeCore
+from atelier.gateway.cli import cli
 
 _GROUND_TRUTH_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "retrieval" / "ground_truth.jsonl"
 _BASELINE_FLOOR = {
@@ -27,12 +27,12 @@ _BASELINE_SNAPSHOT = {
 }
 
 
-def _init_runtime(tmp_path: Path) -> LemonCrowRuntimeCore:
-    root = tmp_path / ".lemoncrow"
+def _init_runtime(tmp_path: Path) -> AtelierRuntimeCore:
+    root = tmp_path / ".atelier"
     runner = CliRunner()
     result = runner.invoke(cli, ["--root", str(root), "init", "--no-index"])
     assert result.exit_code == 0, result.output
-    return LemonCrowRuntimeCore(root)
+    return AtelierRuntimeCore(root)
 
 
 def _load_cases() -> list[dict[str, Any]]:
@@ -54,13 +54,13 @@ def _load_cases() -> list[dict[str, Any]]:
     return cases
 
 
-def _ensure_eval_blocks_exist(runtime: LemonCrowRuntimeCore) -> set[str]:
+def _ensure_eval_blocks_exist(runtime: AtelierRuntimeCore) -> set[str]:
     """Seed any missing expected blocks so retrieval eval is self-contained."""
     cases = _load_cases()
     all_expected: set[str] = set()
     for case in cases:
         all_expected.update(case["expected_block_ids"])
-    available = {b.id for b in runtime.store.knowledge.list_blocks()}
+    available = {b.id for b in runtime.store.list_blocks()}
     missing = all_expected - available
     if not missing:
         return set()
@@ -86,7 +86,7 @@ def _ensure_eval_blocks_exist(runtime: LemonCrowRuntimeCore) -> set[str]:
         file_patterns = [str(item) for case in block_cases for item in case.get("files", [])][:5]
         tool_patterns = [str(item) for case in block_cases for item in case.get("tools", [])][:5]
 
-        runtime.store.knowledge.upsert_block(
+        runtime.store.upsert_block(
             Playbook(
                 id=block_id,
                 title=block_id.replace("-", " ").title(),
@@ -119,7 +119,7 @@ def _dcg_at_k(ranks: list[int], *, k: int) -> float:
     return score
 
 
-def _evaluate(rt: LemonCrowRuntimeCore, cases: list[dict[str, Any]], *, limit: int = 5) -> dict[str, Any]:
+def _evaluate(rt: AtelierRuntimeCore, cases: list[dict[str, Any]], *, limit: int = 5) -> dict[str, Any]:
     per_query: list[dict[str, Any]] = []
     recall_total = 0.0
     reciprocal_rank_total = 0.0
@@ -183,7 +183,7 @@ def _evaluate(rt: LemonCrowRuntimeCore, cases: list[dict[str, Any]], *, limit: i
     }
 
 
-def test_context_retrieval_eval_metrics(retrieval_eval_runtime: LemonCrowRuntimeCore) -> None:
+def test_context_retrieval_eval_metrics(retrieval_eval_runtime: AtelierRuntimeCore) -> None:
     metrics = _evaluate(retrieval_eval_runtime, _load_cases(), limit=5)
 
     assert metrics["query_count"] >= 1
@@ -196,10 +196,7 @@ def test_context_retrieval_trace_records_drop_reasons(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
-    from tests.helpers import grant_oauth_pro
-
-    grant_oauth_pro(monkeypatch)
-    monkeypatch.setenv("LEMONCROW_RETRIEVAL_TRACE", "1")
+    monkeypatch.setenv("ATELIER_RETRIEVAL_TRACE", "1")
     runtime = _init_runtime(tmp_path)
     _ensure_eval_blocks_exist(runtime)
 
@@ -217,7 +214,7 @@ def test_context_retrieval_trace_records_drop_reasons(
     assert trace["candidate_count"] > 0
 
 
-def test_context_retrieval_rubric_passes(retrieval_eval_runtime: LemonCrowRuntimeCore) -> None:
+def test_context_retrieval_rubric_passes(retrieval_eval_runtime: AtelierRuntimeCore) -> None:
     metrics = _evaluate(retrieval_eval_runtime, _load_cases(), limit=5)
 
     assert metrics["query_count"] >= 1

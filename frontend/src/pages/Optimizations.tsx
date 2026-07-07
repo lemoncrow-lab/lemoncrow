@@ -23,7 +23,7 @@ import {
   cx,
 } from "../components/WorkbenchUI";
 import { useTimeRange } from "../lib/TimeRangeContext";
-import { fmtPct, fmtTok, fmtUsd } from "../lib/format";
+import { fmtUsd } from "../lib/format";
 
 const COMPACTION_LABELS: Record<string, string> = {
   prompt_cache_reorder: "Prompt-cache reorder",
@@ -41,13 +41,21 @@ type SessionEvidence = OptimizationRecommendationSession & {
   estimatedTokensSaved: number;
 };
 
+function fmtTokens(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return value.toLocaleString();
+}
+
 function fmtDeltaPercent(value: number): string {
   const sign = value > 0 ? "+" : "";
-  return `${sign}${fmtPct(value * 100)}`;
+  return `${sign}${(value * 100).toFixed(1)}%`;
 }
 
 function fmtPercent(value: number): string {
-  return fmtPct(value * 100);
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 function fmtSignedUsd(value: number): string {
@@ -547,7 +555,7 @@ function SessionsBehindRecommendation({
                 <MetricCard
                   label="Estimated savings"
                   value={fmtUsd(session.estimatedUsdSaved)}
-                  detail={fmtTok(session.estimatedTokensSaved)}
+                  detail={fmtTokens(session.estimatedTokensSaved)}
                   tone="emerald"
                 />
                 <MetricCard
@@ -600,14 +608,14 @@ function NextActions({
   selectedCandidate: OptimizationAdvisorCandidate;
 }) {
   const applyCommand = summary.advisor.has_recommendation
-    ? "lc optimize apply --recommended"
-    : "lc optimize apply --preset balanced";
+    ? "atelier optimize apply --recommended"
+    : "atelier optimize apply --preset balanced";
   const shadowPolicy =
     summary.advisor.has_recommendation &&
     summary.advisor.recommended_candidate_id
       ? "recommended"
       : selectedCandidate.policy.preset;
-  const benchmarkCommand = `lc optimize apply --preset ${selectedCandidate.policy.preset} && lc benchmark run`;
+  const benchmarkCommand = `atelier optimize apply --preset ${selectedCandidate.policy.preset} && atelier benchmark run`;
 
   return (
     <section className="space-y-4">
@@ -627,7 +635,7 @@ function NextActions({
         />
         <SnippetCard
           title="Shadow"
-          body={`lc optimize shadow --policy ${shadowPolicy} --days 7`}
+          body={`atelier optimize shadow --policy ${shadowPolicy} --days 7`}
           caption="Test policy in parallel"
         />
         <SnippetCard
@@ -901,7 +909,7 @@ function OptimizationComparison({
             <div>
               <div className="text-xs text-neutral-400">Avg Tokens</div>
               <div className="text-xl font-semibold text-neutral-100">
-                {fmtTok(impact.before.avg_tokens)}
+                {fmtTokens(impact.before.avg_tokens)}
               </div>
             </div>
             <div>
@@ -933,7 +941,7 @@ function OptimizationComparison({
             <div>
               <div className="text-xs text-neutral-400">Avg Tokens</div>
               <div className="text-xl font-semibold text-neutral-100">
-                {fmtTok(impact.after.avg_tokens)}
+                {fmtTokens(impact.after.avg_tokens)}
               </div>
             </div>
             <div>
@@ -1028,7 +1036,7 @@ function SupportingEvidence({
         </div>
         <MetricCard
           label="Reread savings"
-          value={fmtTok(summary.reread_telemetry.total_tokens_saved)}
+          value={fmtTokens(summary.reread_telemetry.total_tokens_saved)}
           detail={fmtUsd(summary.reread_telemetry.total_cost_saved_usd)}
           tone="cyan"
         />
@@ -1084,7 +1092,7 @@ function SupportingEvidence({
               <div
                 key={item.id}
                 className="border border-neutral-800 bg-black/20 p-3"
-                title={`${fmtTok(item.tokens_saved)} saved across ${item.session_count.toLocaleString()} sessions`}
+                title={`${fmtTokens(item.tokens_saved)} saved across ${item.session_count.toLocaleString()} sessions`}
               >
                 <div className="text-sm font-semibold text-neutral-100">
                   {item.title}
@@ -1121,7 +1129,7 @@ function SupportingEvidence({
                 summary.external_optimizations.payload.overview
                   .estimated_usd_saved
               )}
-              detail={fmtTok(
+              detail={fmtTokens(
                 summary.external_optimizations.payload.overview
                   .estimated_tokens_saved
               )}
@@ -1334,14 +1342,7 @@ export default function Optimizations() {
                   const savings =
                     summary.advisor.baseline_weekly_cost_usd -
                     candidate.weekly_cost_usd;
-                  const totalSaved = candidate.total_saved_usd ?? savings;
-                  const isSaving = totalSaved > 0.01;
-                  // Breakdown rows only reconcile to totalSaved on payloads
-                  // that carry the per-component fields -- older cached
-                  // advisor_history entries lack them, so skip the rows
-                  // rather than show misleading $0.00 lines under a nonzero
-                  // (lump-fallback) total.
-                  const hasBreakdown = candidate.total_saved_usd !== undefined;
+                  const isSaving = savings > 0.01;
                   return (
                     <>
                       <div
@@ -1351,39 +1352,11 @@ export default function Optimizations() {
                         )}
                       >
                         {isSaving ? "+" : ""}
-                        {fmtUsd(Math.max(0, totalSaved))}
+                        {fmtUsd(Math.max(0, savings))}
                       </div>
                       <div className="mt-1 text-xs text-neutral-400">
                         savings / week
                       </div>
-                      {hasBreakdown && (
-                        <div className="mt-3 space-y-1 border-t border-neutral-800 pt-3 text-xs">
-                          <div className="flex justify-between text-neutral-400">
-                            <span>Read</span>
-                            <span className="font-mono text-neutral-300">
-                              {fmtSignedUsd(candidate.read_saved_usd ?? 0)}
-                            </span>
-                          </div>
-                          <div className="flex justify-between text-neutral-400">
-                            <span>Carry</span>
-                            <span className="font-mono text-neutral-300">
-                              {fmtSignedUsd(candidate.carry_saved_usd ?? 0)}
-                            </span>
-                          </div>
-                          <div className="flex justify-between text-neutral-400">
-                            <span>Output</span>
-                            <span className="font-mono text-neutral-300">
-                              {fmtSignedUsd(candidate.output_saved_usd ?? 0)}
-                            </span>
-                          </div>
-                          <div className="flex justify-between text-neutral-400">
-                            <span>Routing</span>
-                            <span className="font-mono text-neutral-300">
-                              {fmtSignedUsd(candidate.routing_saved_usd ?? 0)}
-                            </span>
-                          </div>
-                        </div>
-                      )}
                     </>
                   );
                 })()}

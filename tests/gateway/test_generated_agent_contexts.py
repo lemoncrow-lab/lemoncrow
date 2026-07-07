@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from atelier.infra.storage.sqlite_store import SQLiteStore
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -26,18 +26,14 @@ def load_script(path: Path, module_name: str) -> object:
     spec = importlib.util.spec_from_file_location(module_name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
-    # Register before exec: dataclasses (PEP 563 string annotations) resolve
-    # cls.__module__ via sys.modules during class creation and crash with
-    # AttributeError on None if the module isn't registered yet.
-    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
 
 def test_copilot_instructions_has_the_compact_managed_block() -> None:
-    block_start = "<!-- LEMONCROW START -->"
-    block_end = "<!-- LEMONCROW END -->"
-    source = (ROOT / "integrations/AGENTS.lemoncrow.md").read_text(encoding="utf-8").strip()
+    block_start = "<!-- ATELIER START -->"
+    block_end = "<!-- ATELIER END -->"
+    source = (ROOT / "integrations/AGENTS.atelier.md").read_text(encoding="utf-8").strip()
     content = (ROOT / ".github/copilot-instructions.md").read_text(encoding="utf-8")
     _, found_start, remainder = content.partition(block_start)
     managed_body, found_end, _ = remainder.partition(block_end)
@@ -49,16 +45,16 @@ def test_copilot_instructions_has_the_compact_managed_block() -> None:
 
 
 def test_copilot_distribution_instructions_match_agent_guide() -> None:
-    source = (ROOT / "integrations/AGENTS.lemoncrow.md").read_text(encoding="utf-8")
-    copilot = (ROOT / "integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md").read_text(encoding="utf-8")
+    source = (ROOT / "integrations/AGENTS.atelier.md").read_text(encoding="utf-8")
+    copilot = (ROOT / "integrations/copilot/COPILOT_INSTRUCTIONS.atelier.md").read_text(encoding="utf-8")
 
     assert copilot == source
 
 
 def test_root_agents_md_has_a_compact_managed_block() -> None:
-    block_start = "<!-- LEMONCROW START -->"
-    block_end = "<!-- LEMONCROW END -->"
-    source = (ROOT / "integrations/AGENTS.lemoncrow.md").read_text(encoding="utf-8").strip()
+    block_start = "<!-- ATELIER START -->"
+    block_end = "<!-- ATELIER END -->"
+    source = (ROOT / "integrations/AGENTS.atelier.md").read_text(encoding="utf-8").strip()
     content = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     _, found_start, remainder = content.partition(block_start)
     managed_body, found_end, _ = remainder.partition(block_end)
@@ -76,66 +72,26 @@ def test_managed_context_preserves_existing_content() -> None:
 
     assert rendered.startswith(existing.rstrip() + "\n\n---\n\n")
     assert "Keep this instruction." in rendered
-    assert rendered.count("<!-- LEMONCROW START -->") == 1
-    assert rendered.count("<!-- LEMONCROW END -->") == 1
+    assert rendered.count("<!-- ATELIER START -->") == 1
+    assert rendered.count("<!-- ATELIER END -->") == 1
 
 
 def test_managed_context_updates_only_existing_block() -> None:
     module = load_script(ROOT / "scripts/sync_agent_context.py", "sync_agent_context_update")
-    existing = "# Project rules\n\n<!-- LEMONCROW START -->\nstale\n<!-- LEMONCROW END -->\n\nKeep this too.\n"
+    existing = "# Project rules\n\n<!-- ATELIER START -->\nstale\n<!-- ATELIER END -->\n\nKeep this too.\n"
 
     rendered = module.render_managed_context(existing)
 
-    assert rendered.startswith("# Project rules\n\n<!-- LEMONCROW START -->")
-    assert rendered.endswith("<!-- LEMONCROW END -->\n\nKeep this too.\n")
+    assert rendered.startswith("# Project rules\n\n<!-- ATELIER START -->")
+    assert rendered.endswith("<!-- ATELIER END -->\n\nKeep this too.\n")
     assert "stale" not in rendered
-
-
-def test_opencode_agent_has_host_specific_tool_policy() -> None:
-    content = (ROOT / "integrations/opencode/agents/code.md").read_text(encoding="utf-8")
-    # `context` is in HIDDEN_LLM_TOOLS -- never advertised to any host's model,
-    # OpenCode included -- so it must never be named as something to call.
-    assert "lemoncrow_context" not in content
-    # OpenCode keeps the same core workflow bullets as Codex/Copilot/Cursor
-    # (tool-discipline.md) -- only Claude drops them (its equivalent arrives via
-    # the MCP server's `instructions` field instead).
-    assert "One search → one bulk edit." in content
-    assert "Known path → `lc_read`; `lc_bash` = execution only." in content
-    assert "Batch independent calls." in content
-    assert "Large output → a file, never prose." in content
-    # The old "use lc_code_search/read/edit/bash instead" bullet was dropped
-    # as pure duplication of the shared workflow bullets above.
-    assert "OpenCode host" not in content
-    assert "Native OpenCode `read`, `grep`, `bash`, `edit`, and `patch` are fallback-only" in content
-    # Regression: native OpenCode tool names must stay bare (they name OpenCode's
-    # own tools, not LemonCrow's) while the "use lc: ..." clause right after
-    # them must be prefixed -- both directions have broken before.
-    assert "`lc_read`, `grep`, `lc_bash`" not in content
-    assert "— use lc: `lc_bash`, `lc_read`, `lc_edit`, `lc_code_search`." in content
-
-
-def test_codex_skill_names_its_own_native_tools_as_disallowed() -> None:
-    # Codex's real native tool-call names (apply_patch/exec_command) must be
-    # named explicitly -- the generic "Host tools disabled" phrasing every
-    # fully-disabled host keeps doesn't apply to Codex (no permission-deny
-    # mechanism exists; see plugin_runtime._codex_native_tool_replacement).
-    code_skill = (ROOT / "integrations/codex/plugin/skills/code/SKILL.md").read_text(encoding="utf-8")
-    assert (
-        "Native Codex `apply_patch` and `exec_command` are disallowed — use lc: "
-        "`lc.bash`, `lc.read`, `lc.edit`, `lc.code_search`."
-    ) in code_skill
-    # Read-only roles have no edit tool to name apply_patch as a fallback from --
-    # only exec_command applies, singular verb.
-    explore_skill = (ROOT / "integrations/codex/plugin/skills/explore/SKILL.md").read_text(encoding="utf-8")
-    assert "Native Codex `exec_command` is disallowed" in explore_skill
-    assert "apply_patch" not in explore_skill
 
 
 def test_copilot_tasks_include_worktree_and_runtime_evidence() -> None:
     data = json.loads((ROOT / "integrations/copilot/tasks.json").read_text(encoding="utf-8"))
     labels = {item.get("label") for item in data.get("tasks", [])}
-    assert "LemonCrow: Worktree Bootstrap" in labels
-    assert "LemonCrow: Runtime Evidence" in labels
+    assert "Atelier: Worktree Bootstrap" in labels
+    assert "Atelier: Runtime Evidence" in labels
 
 
 def test_makefile_prefers_worktree_env_for_stack_commands() -> None:
@@ -152,8 +108,8 @@ def test_worktree_env_is_stable_for_the_same_path(tmp_path: Path) -> None:
     env3 = module.build_env(tmp_path / "feature-b")
 
     assert env1 == env2
-    assert env1["LEMONCROW_SERVICE_PORT"] != env3["LEMONCROW_SERVICE_PORT"]
-    assert env1["LEMONCROW_FRONTEND_PORT"] != env3["LEMONCROW_FRONTEND_PORT"]
+    assert env1["ATELIER_SERVICE_PORT"] != env3["ATELIER_SERVICE_PORT"]
+    assert env1["ATELIER_FRONTEND_PORT"] != env3["ATELIER_FRONTEND_PORT"]
 
 
 def _free_port() -> int:
@@ -196,8 +152,8 @@ def test_live_services_can_run_in_parallel_with_isolated_roots(tmp_path: Path) -
     pytest.importorskip("fastapi", reason="live service tests require the api extra")
     pytest.importorskip("uvicorn", reason="live service tests require uvicorn")
 
-    root1 = tmp_path / "wt1" / ".lemoncrow-worktree"
-    root2 = tmp_path / "wt2" / ".lemoncrow-worktree"
+    root1 = tmp_path / "wt1" / ".atelier-worktree"
+    root2 = tmp_path / "wt2" / ".atelier-worktree"
     port1 = _free_port()
     port2 = _free_port()
     while port2 == port1:
@@ -205,20 +161,20 @@ def test_live_services_can_run_in_parallel_with_isolated_roots(tmp_path: Path) -
 
     env1 = {
         **os.environ,
-        "LEMONCROW_ROOT": str(root1),
-        "LEMONCROW_REQUIRE_AUTH": "false",
+        "ATELIER_ROOT": str(root1),
+        "ATELIER_REQUIRE_AUTH": "false",
     }
     env2 = {
         **os.environ,
-        "LEMONCROW_ROOT": str(root2),
-        "LEMONCROW_REQUIRE_AUTH": "false",
+        "ATELIER_ROOT": str(root2),
+        "ATELIER_REQUIRE_AUTH": "false",
     }
     process1 = subprocess.Popen(
         [
             sys.executable,
             "-m",
             "uvicorn",
-            "lemoncrow.core.service.api:create_app",
+            "atelier.core.service.api:create_app",
             "--factory",
             "--host",
             "127.0.0.1",
@@ -238,7 +194,7 @@ def test_live_services_can_run_in_parallel_with_isolated_roots(tmp_path: Path) -
             sys.executable,
             "-m",
             "uvicorn",
-            "lemoncrow.core.service.api:create_app",
+            "atelier.core.service.api:create_app",
             "--factory",
             "--host",
             "127.0.0.1",
@@ -269,17 +225,17 @@ def test_live_services_can_run_in_parallel_with_isolated_roots(tmp_path: Path) -
             {"agent": "codex", "domain": "coding", "task": "wt2-trace", "status": "success"},
         )
 
-        store1 = build_sqlite_store_bundle(root1)
-        store2 = build_sqlite_store_bundle(root2)
-        stored1 = store1.history.get_trace(trace1["id"])
-        stored2 = store2.history.get_trace(trace2["id"])
+        store1 = SQLiteStore(root1)
+        store2 = SQLiteStore(root2)
+        stored1 = store1.get_trace(trace1["id"])
+        stored2 = store2.get_trace(trace2["id"])
 
         assert stored1 is not None
         assert stored2 is not None
         assert stored1.task == "wt1-trace"
         assert stored2.task == "wt2-trace"
-        assert store1.history.get_trace(trace2["id"]) is None
-        assert store2.history.get_trace(trace1["id"]) is None
+        assert store1.get_trace(trace2["id"]) is None
+        assert store2.get_trace(trace1["id"]) is None
     finally:
         for process in (process1, process2):
             if process.poll() is None:

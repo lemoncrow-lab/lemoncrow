@@ -1,12 +1,12 @@
-"""Retrieval provider MRR benchmark -- every provider, LemonCrow included, over
+"""Retrieval provider MRR benchmark -- every provider, Atelier included, over
 the same stdio/CLI surface. No provider gets in-process shortcuts.
 
-Providers: lemoncrow / ctags / ast-grep / serena / code-index-mcp / jcodemunch /
-cg / rg / cmm / fff / graphify. Same gold set and output JSON format as the
-retired fitness_explore_mrr.py; history + delta reporting live here now.
+Providers: atelier / ctags / ast-grep / serena / code-index-mcp / jcodemunch /
+cg / rg / cmm / fff. Same gold set and output JSON format as the retired
+fitness_explore_mrr.py; history + delta reporting live here now.
 
 Run via:
-    uv run python benchmarks/codebench/eval_external_provider_mrr.py --provider lemoncrow
+    uv run python benchmarks/codebench/eval_external_provider_mrr.py --provider atelier
     uv run python benchmarks/codebench/eval_external_provider_mrr.py --provider ctags
 """
 
@@ -17,7 +17,6 @@ import contextlib
 import json
 import os
 import re
-import signal
 import subprocess
 import sys
 import tarfile
@@ -44,7 +43,7 @@ class _JsonRpcLineClient:
         # Bounded tail of the child's stderr, kept drained by a background
         # thread (started in start()). Draining is mandatory, not cosmetic:
         # the OS stderr pipe buffer is only ~64KB, and the child -- plus any
-        # subprocess that inherits its stderr (ast-grep/zoekt/`lc code
+        # subprocess that inherits its stderr (ast-grep/zoekt/`atelier code
         # index` warm) and Python's root-logger lastResort handler -- BLOCKS
         # on write() once it fills. Because only stdout is read on the hot
         # path, an undrained stderr pipe wedges the server mid-write: it stops
@@ -73,7 +72,7 @@ class _JsonRpcLineClient:
             "initialize",
             {
                 "protocolVersion": "2024-11-05",
-                "clientInfo": {"name": "lemoncrow-bench", "version": "1"},
+                "clientInfo": {"name": "atelier-bench", "version": "1"},
                 "capabilities": {},
             },
         )
@@ -176,20 +175,7 @@ _parser = argparse.ArgumentParser(description="External provider MRR benchmark")
 _parser.add_argument(
     "--provider",
     required=True,
-    choices=[
-        "lemoncrow",
-        "ctags",
-        "ast-grep",
-        "serena",
-        "code-index-mcp",
-        "jcodemunch",
-        "cg",
-        "rg",
-        "cmm",
-        "fff",
-        "ccc",
-        "graphify",
-    ],
+    choices=["atelier", "ctags", "ast-grep", "serena", "code-index-mcp", "jcodemunch", "cg", "rg", "cmm", "fff", "ccc"],
 )
 _parser.add_argument("--full", action="store_true")
 _parser.add_argument("--sample", type=int, default=None)
@@ -199,14 +185,14 @@ _parser.add_argument(
     type=int,
     default=int(os.environ.get("EVAL_WORKERS", "1")),
     help="Parallel repo workers (1 = sequential). Each worker spawns its own provider instance "
-    "so repos with independent start/stop (lemoncrow, rg, cmm, fff, ctags, ast-grep, jcodemunch) "
+    "so repos with independent start/stop (atelier, rg, cmm, fff, ctags, ast-grep, jcodemunch) "
     "benefit. CgProvider/SerenaProvider use a shared MCP server class-level singleton and will "
     "race connection state with >1 worker — use --workers 1 for those.",
 )
 _args, _ = _parser.parse_known_args()
 
 PROVIDER = _args.provider
-# Channel label: the CLI runs LemonCrow channel variants (lexical / lexical+zoekt /
+# Channel label: the CLI runs Atelier channel variants (lexical / lexical+zoekt /
 # lexical+zoekt+semantic) as env toggles on the same provider; the label keeps
 # their history and tags distinguishable.
 _LABEL = os.environ.get("EVAL_CHANNEL_LABEL", PROVIDER)
@@ -582,7 +568,7 @@ class AstGrepProvider(Provider):
         if cls._AST_GREP_BIN:
             return cls._AST_GREP_BIN
         # Prefer the project-local binary; fall back to npx.
-        local = Path(".lemoncrow/bin/ast-grep")
+        local = Path(".atelier/bin/ast-grep")
         for candidate in local.rglob("ast-grep"):
             if candidate.is_file() and os.access(candidate, os.X_OK):
                 cls._AST_GREP_BIN = str(candidate)
@@ -680,7 +666,7 @@ class _SerenaMCPClient:
                 "method": "initialize",
                 "params": {
                     "protocolVersion": "2024-11-05",
-                    "clientInfo": {"name": "lemoncrow-bench", "version": "1"},
+                    "clientInfo": {"name": "atelier-bench", "version": "1"},
                     "capabilities": {},
                 },
             }
@@ -954,7 +940,7 @@ class CodeIndexProvider(Provider):
         )
 
         self._ws = ws
-        # Single shared checkout under ~/.lemoncrow/_bench_tools/ so we don't clone
+        # Single shared checkout under ~/.atelier/_bench_tools/ so we don't clone
         # a fresh copy for every gold repo workspace, and so python_bin is always
         # an absolute Path (no cwd-relative confusion in run_cmd).
         code_index_repo = ensure_code_index_checkout(bench_tools_root() / "code-index-mcp")
@@ -1251,128 +1237,6 @@ class CgProvider(Provider):
 
 
 # ---------------------------------------------------------------------------
-# graphify -- deterministic tree-sitter knowledge graph, queried over MCP
-# ---------------------------------------------------------------------------
-
-
-class GraphifyProvider(Provider):
-    """Persistent ``python -m graphify.serve --transport stdio`` shared across
-    all repos, same rationale as CgProvider: the server takes ``project_path``
-    per tool call, so one shared process serves every gold repo instead of
-    paying a fresh server-start cost per repo.
-
-    Per-repo graph build (``graphify extract --code-only --no-cluster``) is
-    local tree-sitter AST only -- no LLM call, no API key -- so it is
-    deterministic and comparable to the other purely-syntactic providers here
-    (ctags, ast-grep).
-    """
-
-    name = "graphify"
-
-    _mcp: _JsonRpcLineClient | None = None
-    _python_bin: Path | None = None
-    _graphify_bin: Path | None = None
-
-    # `NODE <label> [src=<path> loc=... community=...]` -- see graphify.serve's
-    # _subgraph_to_text. Node order in the response is seed-first then
-    # degree-sorted, which doubles as a relevance rank for MRR scoring.
-    _SRC_RE = re.compile(r"\[src=([^\s\]]+)")
-
-    @classmethod
-    def _ensure_tools(cls) -> tuple[Path, Path]:
-        if cls._python_bin is not None and cls._graphify_bin is not None:
-            return cls._python_bin, cls._graphify_bin
-        from benchmarks.mcp_tools.bench_external_indexers import ensure_graphify
-
-        python_bin, graphify_bin = ensure_graphify()
-        cls._python_bin, cls._graphify_bin = python_bin, graphify_bin
-        return python_bin, graphify_bin
-
-    @classmethod
-    def _ensure_mcp(cls) -> _JsonRpcLineClient:
-        if cls._mcp is not None:
-            return cls._mcp
-        python_bin, _ = cls._ensure_tools()
-        # No default graph -- every call passes project_path, matching
-        # CgProvider's projectPath-per-call shared-server pattern. A missing
-        # default graph.json is caught and degrades to pure multi-project mode
-        # (see graphify.serve's create_server), so this never blocks startup.
-        client = _JsonRpcLineClient([str(python_bin), "-m", "graphify.serve", "--transport", "stdio"])
-        client.start()
-        cls._mcp = client
-        import atexit
-
-        atexit.register(cls._teardown)
-        return client
-
-    @classmethod
-    def _teardown(cls) -> None:
-        if cls._mcp is not None:
-            with contextlib.suppress(Exception):
-                cls._mcp.stop()
-            cls._mcp = None
-
-    def start(self, ws: Path) -> None:
-        _, graphify_bin = self._ensure_tools()
-        self._ws = ws
-        graph_json = ws / "graphify-out" / "graph.json"
-        if not graph_json.exists():
-            print(f"{_TAG} graphify extract {ws.name} ...", file=sys.stderr, flush=True)
-            t1 = time.perf_counter()
-            r = subprocess.run(
-                [str(graphify_bin), "extract", str(ws), "--code-only", "--no-cluster"],
-                capture_output=True,
-                text=True,
-                timeout=1800,
-            )
-            if r.returncode != 0 or not graph_json.exists():
-                raise RuntimeError(f"graphify extract failed: {(r.stderr or r.stdout)[:800]}")
-            print(f"{_TAG} graphify extract done in {time.perf_counter() - t1:.1f}s", file=sys.stderr)
-        # Warm-up: the server lazily loads/caches a project's graph on first
-        # touch (trigram index build on a cold repo) -- pay that here, not in
-        # the timed per-query stats.
-        self._query(ws.name, ws)
-
-    def stop(self) -> None:
-        pass  # shared MCP server stays alive; torn down atexit
-
-    def _query(self, question: str, ws: Path) -> list[str]:
-        cls = type(self)
-        try:
-            response = cls._ensure_mcp().call(
-                "tools/call",
-                {
-                    "name": "query_graph",
-                    "arguments": {"question": question, "project_path": str(ws)},
-                },
-                timeout=120,
-            )
-        except Exception:
-            cls._teardown()  # dead/hung server: restart lazily on the next call
-            return []
-        result = response.get("result", {})
-        if result.get("isError"):
-            return []
-        text = "\n".join(
-            c.get("text", "") for c in result.get("content", []) if isinstance(c, dict) and c.get("type") == "text"
-        )
-        seen: set[str] = set()
-        files: list[str] = []
-        for m in self._SRC_RE.finditer(text):
-            p = _rel(m.group(1), ws)
-            if p and p not in seen:
-                seen.add(p)
-                files.append(p)
-        return files
-
-    def search_symbol(self, query: str, ws: Path) -> list[str]:
-        return self._query(_sym(query), ws)
-
-    def search_text(self, query: str, ws: Path) -> list[str]:
-        return self._query(query, ws)
-
-
-# ---------------------------------------------------------------------------
 # cmm (codebase-memory-mcp)
 # ---------------------------------------------------------------------------
 
@@ -1638,28 +1502,8 @@ class CccProvider(Provider):
     name = "ccc"
     _RESULT_FILE = re.compile(r"^File: (\S+):\d+-\d+", re.MULTILINE)
 
-    def _check_ollama(self) -> None:
-        """Fail fast and loud if the Ollama daemon backing ccc's embedder is
-        unreachable, instead of silently running the whole suite through
-        _search()'s "non-zero rc -> []" fallback. Confirmed root cause of a
-        full 6016-query run scoring MRR 0.0000 / hit@1 0.0000 while `ccc init`
-        and `ccc index` still succeeded (index already built from a prior run,
-        so start() never needed the embedder) -- Ollama was down for the
-        query-time embedding calls `ccc search` makes on every invocation.
-        """
-        base = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
-        url = base if "://" in base else f"http://{base}"
-        try:
-            urllib.request.urlopen(f"{url}/api/tags", timeout=5)
-        except Exception as exc:
-            raise RuntimeError(
-                f"ccc requires a reachable ollama daemon at {url} for nomic-embed-text "
-                f"(query-time embedding) -- got: {exc}"
-            ) from exc
-
     def start(self, ws: Path) -> None:
         self._ws = ws
-        self._check_ollama()
         init = subprocess.run(["ccc", "init"], cwd=ws, capture_output=True, text=True, timeout=60)
         if init.returncode != 0:
             raise RuntimeError(f"ccc init failed: {(init.stderr or init.stdout)[:400]}")
@@ -1693,7 +1537,7 @@ class CccProvider(Provider):
         return out
 
     # Semantic tool -- raw query for both, same convention as CmmProvider/
-    # LemonCrowProvider (no _sym() token extraction; embeddings want the full
+    # AtelierProvider (no _sym() token extraction; embeddings want the full
     # natural-language-ish query, not a bare identifier).
     def search_symbol(self, query: str, ws: Path) -> list[str]:
         return self._search(query, ws)
@@ -1703,20 +1547,20 @@ class CccProvider(Provider):
 
 
 # ---------------------------------------------------------------------------
-# lemoncrow — the shipped LemonCrow MCP server, treated as just another provider
+# atelier — the shipped Atelier MCP server, treated as just another provider
 # ---------------------------------------------------------------------------
 
 
-class LemonCrowProvider(Provider):
-    """LemonCrow's stock MCP server over stdio, no special treatment.
+class AtelierProvider(Provider):
+    """Atelier's stock MCP server over stdio, no special treatment.
 
-    Launches ``lc mcp`` per workspace and calls the shipped ``code_search``
+    Launches ``atelier mcp`` per workspace and calls the shipped ``code_search``
     tool with the RAW query (the surface agents actually use -- no ``_sym()``
     shaping, or MRR loses continuity with the retired fitness_explore_mrr
     history). Measures engine + serialization + transport end-to-end.
 
     DB routing without touching the server: the provisioned index (and its
-    sibling intel/fts/vectors DBs) is symlinked into a bench LEMONCROW_ROOT at
+    sibling intel/fts/vectors DBs) is symlinked into a bench ATELIER_ROOT at
     the engine's default ``workspaces/<key>/`` location, so the server
     resolves it exactly as production would. The server's own startup warm
     path (page cache, centrality, ANN matrix, zoekt webserver) covers cold
@@ -1724,13 +1568,13 @@ class LemonCrowProvider(Provider):
     first-query wait (zoekt readiness) so timed queries measure steady state.
 
     ``search_symbol``/``search_text`` share one memoized explore per query:
-    explore is LemonCrow's single retrieval surface for both, exactly as the
+    explore is Atelier's single retrieval surface for both, exactly as the
     fitness benchmark measured it (latency is gold-independent).
     """
 
-    name = "lemoncrow"
+    name = "atelier"
 
-    _STORE_ROOT = Path(os.environ.get("LEMONCROW_BENCH_STORE", "/tmp/lemoncrow-bench-store"))
+    _STORE_ROOT = Path(os.environ.get("ATELIER_BENCH_STORE", "/tmp/atelier-bench-store"))
 
     def __init__(self) -> None:
         self._client: _JsonRpcLineClient | None = None
@@ -1746,7 +1590,7 @@ class LemonCrowProvider(Provider):
         the SAME wrong file, with no error, indefinitely. Symlink creation is
         microseconds; there is no real cost to always refreshing it.
         """
-        from lemoncrow.core.foundation.paths import workspace_key  # src/ is on sys.path
+        from atelier.core.foundation.paths import workspace_key  # src/ is on sys.path
 
         # Always ensure the engine-default workspace dir exists, even when
         # there's no prebuilt snapshot to symlink: without it, a fresh
@@ -1763,7 +1607,7 @@ class LemonCrowProvider(Provider):
         meta = next((m for m in _all_repos.values() if Path(m.get("ws", "")) == ws), {})
         db = Path(meta["db"]) if meta.get("db") else None
         if db is None or not db.exists():
-            # With LEMONCROW_CODE_AUTOSYNC=0 (the bench default, see start()) the
+            # With ATELIER_CODE_AUTOSYNC=0 (the bench default, see start()) the
             # server no longer builds a missing index on demand, so a missing
             # snapshot means every query for this workspace scores ZERO. Make
             # that impossible to miss instead of a silent flat-0.0 gold.
@@ -1815,9 +1659,9 @@ class LemonCrowProvider(Provider):
         turns that into an impossible-to-miss stderr line at the START of the
         run, not a multi-hour investigation after the numbers look wrong.
         Only checks when semantic is actually configured for this run
-        (LEMONCROW_CODE_EMBEDDER set); otherwise an unembedded DB is expected.
+        (ATELIER_CODE_EMBEDDER set); otherwise an unembedded DB is expected.
         """
-        if not os.environ.get("LEMONCROW_CODE_EMBEDDER"):
+        if not os.environ.get("ATELIER_CODE_EMBEDDER"):
             return
         import sqlite3 as _sqlite3
 
@@ -1853,11 +1697,11 @@ class LemonCrowProvider(Provider):
         this repo's DB (symlinked, not copied -- same underlying file across
         lexical / lexical+zoekt / lexical+zoekt+semantic) would otherwise silently
         replay whichever channel ran first for repeat queries, never actually
-        exercising its own zoekt/semantic config. Set LEMONCROW_BENCH_REUSE_CACHE=1
+        exercising its own zoekt/semantic config. Set ATELIER_BENCH_REUSE_CACHE=1
         to skip this and reuse a warm cache for fast local iteration (NOT for a
         real cross-channel comparison run).
         """
-        if os.environ.get("LEMONCROW_BENCH_REUSE_CACHE", "").strip() == "1":
+        if os.environ.get("ATELIER_BENCH_REUSE_CACHE", "").strip() == "1":
             return
         if not db_path.exists():
             return
@@ -1871,141 +1715,28 @@ class LemonCrowProvider(Provider):
             finally:
                 conn.close()
 
-    def _backfill_semantic_vectors(self, ws: Path) -> None:
-        """Explicitly build semantic vectors for a frozen bench snapshot.
-
-        When ``--channel lexical+zoekt+semantic`` is used the embedder env is
-        set, but the routed snapshot's ``symbol_vectors`` table may be empty
-        (captured before embeddings existed, or never refreshed).  The engine's
-        ``_ensure_indexed()`` returns early (FTS index present) and autosync is
-        off, so no background worker ever populates the missing vectors —
-        queries silently score against an empty semantic channel, tanking MRR.
-
-        Running ``lc code index`` triggers the "nothing to extract" fast path
-        that still checks ``embedded < total`` and calls
-        ``_build_symbol_embeddings`` for the delta.  This is the explicit
-        backfill the engine comments recommend for /tmp snapshots.
-        """
-        import subprocess as _sp
-
-        bench_python = os.environ.get("LEMONCROW_BENCH_PYTHON", "").strip()
-        cmd = [
-            bench_python or sys.executable,
-            "-m",
-            "lemoncrow.gateway.cli",
-            "code",
-            "index",
-            "--repo-root",
-            str(ws),
-        ]
-        env = {
-            **os.environ,
-            "LEMONCROW_ROOT": str(self._STORE_ROOT),
-            "LEMONCROW_CODE_AUTOSYNC": "0",
-            "LEMONCROW_CODE_FILE_WATCHER": "0",
-        }
-        # No-op when no embedder is configured — only pays the FTS-check cost.
-        #
-        # `code index` forks its own internal worker pool for parallel file
-        # indexing. Plain subprocess.run(timeout=...) only SIGKILLs the direct
-        # child on timeout -- the worker pool is reparented to init and keeps
-        # running (and keeps recreating the DB file) indefinitely, invisible
-        # to this process. Confirmed via a real run: a timed-out backfill for
-        # a large repo left a dozen orphaned workers pinning 1900%+ CPU and
-        # 6-9GB RSS for 40+ minutes after this function returned, silently
-        # destabilizing every eval run started afterward until manually killed.
-        # Fix: launch in a new session (its own process group, via
-        # start_new_session=True) so the whole group can be killed together;
-        # on timeout, SIGKILL the group instead of just the one child.
-        proc = _sp.Popen(
-            cmd,
-            cwd=Path.cwd(),
-            env=env,
-            stdout=_sp.PIPE,
-            stderr=_sp.PIPE,
-            start_new_session=True,
-        )
-        t0 = time.perf_counter()
-        try:
-            _stdout, _stderr = proc.communicate(timeout=600)
-            elapsed = time.perf_counter() - t0
-            if proc.returncode != 0:
-                stderr_tail = (_stderr or b"")[-300:].decode("utf-8", errors="replace")
-                print(
-                    f"[route] semantic backfill failed for {ws.name} (rc={proc.returncode}, "
-                    f"{elapsed:.1f}s): {stderr_tail}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-            else:
-                print(
-                    f"[route] semantic backfill done for {ws.name} ({elapsed:.1f}s)",
-                    file=sys.stderr,
-                    flush=True,
-                )
-        except _sp.TimeoutExpired:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            with contextlib.suppress(Exception):
-                proc.communicate(timeout=10)  # reap; drop any buffered output
-            print(
-                f"[route] semantic backfill timed out for {ws.name} (600s) -- killed process group {proc.pid}",
-                file=sys.stderr,
-                flush=True,
-            )
-        except Exception as exc:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            print(
-                f"[route] semantic backfill error for {ws.name}: {exc}",
-                file=sys.stderr,
-                flush=True,
-            )
-
-    @classmethod
-    def _forward_host_auth(cls) -> None:
-        """No-op: the retrieval eval runs fully unlocked with no account.
-
-        The runtime is account-free -- the MCP server always advertises its
-        tools regardless of any account or device id -- so no host credentials
-        are copied into the isolated bench store. This used to exist so the
-        old savings-cap gate would not make an isolated-root run dormant
-        (every query returning [] and MRR reading 0.0000). See
-        docs/maintenance-mode-transition.md.
-        """
-        return
-
     def start(self, ws: Path) -> None:
         self._memo = {}
-        type(self)._forward_host_auth()
         self._route_db(ws)
-        # When semantic search is enabled, frozen bench snapshots may have the
-        # FTS index but no symbol vectors.  Without an explicit backfill the
-        # engine's _ensure_indexed() returns early (index "ready"), autosync is
-        # off, and every semantic query silently scores zero — confirmed via a
-        # real sweep where MRR slipped to 0.5.  Build the missing vectors here
-        # (untimed) so timed queries see a fully-populated vector store.
-        if os.environ.get("LEMONCROW_CODE_EMBEDDER"):
-            self._backfill_semantic_vectors(ws)
-        # LEMONCROW_BENCH_PYTHON: absolute path to an alternate interpreter whose
-        # site-packages carries the lemoncrow wheel to measure -- e.g. a venv with
+        # ATELIER_BENCH_PYTHON: absolute path to an alternate interpreter whose
+        # site-packages carries the atelier wheel to measure -- e.g. a venv with
         # the mypyc-compiled production build (scripts/build.sh). When set, the
         # working-tree src/ is NOT injected on PYTHONPATH, so the spawned server
         # runs the compiled package instead of interpreted source.
-        bench_python = os.environ.get("LEMONCROW_BENCH_PYTHON", "").strip()
+        bench_python = os.environ.get("ATELIER_BENCH_PYTHON", "").strip()
         env = {
             **os.environ,
-            "LEMONCROW_ROOT": str(self._STORE_ROOT),
-            "LEMONCROW_WORKSPACE_ROOT": str(ws),
+            "ATELIER_ROOT": str(self._STORE_ROOT),
+            "ATELIER_WORKSPACE_ROOT": str(ws),
             # the candidate/working-tree code, not an installed wheel (unless
-            # LEMONCROW_BENCH_PYTHON points at a wheel-bearing interpreter above)
+            # ATELIER_BENCH_PYTHON points at a wheel-bearing interpreter above)
             "PYTHONPATH": (
                 os.environ.get("PYTHONPATH", "")
                 if bench_python
                 else "src" + os.pathsep + os.environ.get("PYTHONPATH", "")
             ),
             # let the untimed warm-up absorb the one-time zoekt shard load
-            "LEMONCROW_ZOEKT_READY_TIMEOUT_S": os.environ.get("LEMONCROW_ZOEKT_READY_TIMEOUT_S", "30"),
+            "ATELIER_ZOEKT_READY_TIMEOUT_S": os.environ.get("ATELIER_ZOEKT_READY_TIMEOUT_S", "30"),
             # `ws` lives under /tmp (a provisioned bench snapshot, not a stray
             # scratch dir) and `_route_db` above already documents "no prebuilt
             # index: the server will build one on demand" when a snapshot's DB
@@ -2018,7 +1749,7 @@ class LemonCrowProvider(Provider):
             # snapshot) scored a flat 0.0 MRR at ~3ms/query, the signature of
             # an instant "unable to open database file" error, not a real
             # search. Opt back in by default; still overridable via env.
-            "LEMONCROW_ALLOW_TMP_AUTOINDEX": os.environ.get("LEMONCROW_ALLOW_TMP_AUTOINDEX", "1"),
+            "ATELIER_ALLOW_TMP_AUTOINDEX": os.environ.get("ATELIER_ALLOW_TMP_AUTOINDEX", "1"),
             # Benchmark snapshots are FROZEN: no autosync drift checks, no file
             # watcher. Without this the engine treats the routed snapshot as a
             # live workspace -- at linux scale the inotify watch limit disables
@@ -2029,10 +1760,10 @@ class LemonCrowProvider(Provider):
             # queries run against it (linux collapsed to a steady 1.8/s).
             # _route_db warns loudly when a snapshot is missing, since the
             # on-demand build path is disabled along with autosync.
-            "LEMONCROW_CODE_AUTOSYNC": os.environ.get("LEMONCROW_CODE_AUTOSYNC", "0"),
-            "LEMONCROW_CODE_FILE_WATCHER": os.environ.get("LEMONCROW_CODE_FILE_WATCHER", "0"),
+            "ATELIER_CODE_AUTOSYNC": os.environ.get("ATELIER_CODE_AUTOSYNC", "0"),
+            "ATELIER_CODE_FILE_WATCHER": os.environ.get("ATELIER_CODE_FILE_WATCHER", "0"),
         }
-        # Host workspace vars outrank LEMONCROW_WORKSPACE_ROOT in the server's
+        # Host workspace vars outrank ATELIER_WORKSPACE_ROOT in the server's
         # resolution; a bench run inside Claude Code/Cursor would otherwise
         # inherit them and silently search the WRONG repo.
         for host_var in ("CLAUDE_WORKSPACE_ROOT", "CURSOR_WORKSPACE_ROOT", "VSCODE_CWD", "CLAUDE_PROJECT_DIR"):
@@ -2058,7 +1789,7 @@ class LemonCrowProvider(Provider):
         ):
             env.pop(session_var, None)
         client = _JsonRpcLineClient(
-            [bench_python or sys.executable, "-c", "from lemoncrow.gateway.adapters.mcp_server import main; main()"],
+            [bench_python or sys.executable, "-c", "from atelier.gateway.adapters.mcp_server import main; main()"],
             cwd=Path.cwd(),
             env=env,
         )
@@ -2073,7 +1804,7 @@ class LemonCrowProvider(Provider):
         #
         # _WARMUP_TIMEOUT_S (900s, same constant SerenaProvider uses) instead
         # of the previous 240s/300s: confirmed via a real run this mattered at
-        # linux scale under host contention (other concurrent lemoncrow mcp
+        # linux scale under host contention (other concurrent atelier mcp
         # processes sharing the same GPU) -- when a warm-up call ran past its
         # old budget, _search's own 120s timeout on the FIRST REAL TIMED query
         # fired next, killing the subprocess (_JsonRpcLineClient never blocks
@@ -2207,7 +1938,7 @@ class LemonCrowProvider(Provider):
 # ---------------------------------------------------------------------------
 
 _PROVIDERS: dict[str, type[Provider]] = {
-    "lemoncrow": LemonCrowProvider,
+    "atelier": AtelierProvider,
     "ctags": CtagsProvider,
     "ast-grep": AstGrepProvider,
     "serena": SerenaProvider,
@@ -2218,7 +1949,6 @@ _PROVIDERS: dict[str, type[Provider]] = {
     "cmm": CmmProvider,
     "fff": FffProvider,
     "ccc": CccProvider,
-    "graphify": GraphifyProvider,
 }
 
 # ---------------------------------------------------------------------------
@@ -2330,9 +2060,9 @@ def _process_repo(prefix: str, queries: list[str]) -> dict | None:
         sym_res[(q, prefix)] = sym_files
         txt_res[(q, prefix)] = txt_files
 
-    # LEMONCROW_BENCH_LAT_DUMP=<dir>: per-query latency JSON per repo, for tail
+    # ATELIER_BENCH_LAT_DUMP=<dir>: per-query latency JSON per repo, for tail
     # diagnosis (which queries are slow, not just the percentiles).
-    _dump_dir = os.environ.get("LEMONCROW_BENCH_LAT_DUMP", "").strip()
+    _dump_dir = os.environ.get("ATELIER_BENCH_LAT_DUMP", "").strip()
     if _dump_dir:
         _dd = Path(_dump_dir)
         _dd.mkdir(parents=True, exist_ok=True)
@@ -2371,7 +2101,7 @@ if WORKERS <= 1:
         if r is not None:
             _repo_results.append(r)
 else:
-    _SINGLETON_PROVIDERS = frozenset({"cg", "serena", "code-index-mcp", "jcodemunch", "graphify"})
+    _SINGLETON_PROVIDERS = frozenset({"cg", "serena", "code-index-mcp", "jcodemunch"})
     if PROVIDER in _SINGLETON_PROVIDERS:
         print(
             f"{_TAG} WARNING: {PROVIDER} uses a shared MCP server — parallel workers "

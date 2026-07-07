@@ -1,16 +1,8 @@
 #!/usr/bin/env bash
-# build.sh — Build a production-ready LemonCrow distribution archive.
+# build.sh — Build a production-ready Atelier distribution archive.
 #
 # This is the main entrypoint for CI and local release builds.
 set -euo pipefail
-
-# Force the mypyc-compiled build. This is the release entrypoint, and a pure-Python
-# wheel would ship EVERY source file (including the closed lemoncrow/pro engine).
-# hatch_build.py compiles only when LEMONCROW_ENABLE_MYPYC=1, so hard-set it here: a
-# bare `bash scripts/build.sh` (or a CI job that forgets the prefix) can never produce
-# a source-shipping release, and there is no skip escape hatch. For a pure-Python
-# artifact, run `uv build --wheel` directly instead of this script.
-export LEMONCROW_ENABLE_MYPYC=1
 
 # 1. Clean ONLY local build/dist/bundle artifacts so the wheel and release
 #    archive are rebuilt fresh. The uv cache at ~/.cache/uv is deliberately left
@@ -39,9 +31,8 @@ if [ -d "frontend" ]; then
 fi
 
 # 3. Build mypyc-compiled wheel
-# hatch_build.py compiles ~440 modules with mypyc (LEMONCROW_ENABLE_MYPYC=1, forced
-# above), strips the .py source for every compiled module, and fails the build if any
-# source (or the whole uncompiled wheel) would leak.
+# hatch_build.py hook compiles ~440 modules with mypyc (skip with ATELIER_SKIP_MYPYC=1),
+# strips .py source for compiled modules, and packages a platform-specific wheel.
 # Refresh the model pricing snapshot from the litellm version pinned in uv.lock.
 # This runs before the wheel build so the wheel ships the freshest data available
 # without requiring litellm at runtime.
@@ -52,7 +43,7 @@ uv run --with "litellm>=1.83.14" python scripts/refresh_model_prices.py || \
 echo "◆ Building mypyc wheel (this takes a few minutes)..."
 rm -rf dist/
 uv build --wheel
-WHEEL_PATH="$(ls dist/lemoncrow-*.whl | head -1)"
+WHEEL_PATH="$(ls dist/atelier-*.whl | head -1)"
 if [[ -z "$WHEEL_PATH" ]]; then
     echo "ERROR: wheel not found in dist/" >&2
     exit 1
@@ -70,7 +61,6 @@ echo "◆ Including distribution scripts..."
 cp -f scripts/install.sh bundle/scripts/install.sh
 cp -f scripts/sessions.sh bundle/scripts/sessions.sh
 cp -f scripts/bundle.sh bundle/scripts/bundle.sh
-cp -f scripts/uninstall.sh bundle/scripts/uninstall.sh
 
 # Export the locked dependency set as a constraints file. The bundle ships a
 # prebuilt wheel (no uv.lock / source), so on a cold end-user machine
@@ -114,10 +104,6 @@ for s in scripts/install_hosts.sh scripts/install_agents.sh \
           scripts/install_codex.sh scripts/install_copilot.sh \
           scripts/install_cursor.sh scripts/install_hermes.sh \
           scripts/install_opencode.sh \
-          scripts/uninstall_antigravity.sh scripts/uninstall_claude.sh \
-          scripts/uninstall_codex.sh scripts/uninstall_copilot.sh \
-          scripts/uninstall_cursor.sh scripts/uninstall_hermes.sh \
-          scripts/uninstall_opencode.sh \
           scripts/build_host_skills.sh scripts/sync_agent_context.py; do
     [[ -f "$s" ]] && cp -f "$s" "bundle/scripts/$(basename "$s")"
 done
@@ -133,8 +119,8 @@ mkdir -p bundle/integrations
 for host in agents antigravity claude codex copilot copilot-cli cursor hermes opencode shared skills; do
     [[ -d "integrations/$host" ]] && cp -r "integrations/$host" "bundle/integrations/$host"
 done
-# Top-level files (e.g. AGENTS.lemoncrow.md) used by install_codex.sh and install_agents.sh
-[[ -f "integrations/AGENTS.lemoncrow.md" ]] && cp -f "integrations/AGENTS.lemoncrow.md" "bundle/integrations/AGENTS.lemoncrow.md"
+# Top-level files (e.g. AGENTS.atelier.md) used by install_codex.sh and install_agents.sh
+[[ -f "integrations/AGENTS.atelier.md" ]] && cp -f "integrations/AGENTS.atelier.md" "bundle/integrations/AGENTS.atelier.md"
 
 # Pre-generate host context files in the staged bundle so install scripts work
 # without uv/Python, without rewriting generated files in the source checkout.
@@ -155,7 +141,7 @@ case "$ARCH" in
     arm64) ARCH="arm64" ;;
     aarch64) ARCH="aarch64" ;;
 esac
-ARCHIVE_NAME="dist/lemoncrow-distribution-${OS_NAME}-${ARCH}.tar.gz"
+ARCHIVE_NAME="dist/atelier-distribution-${OS_NAME}-${ARCH}.tar.gz"
 
 rm -f "$ARCHIVE_NAME"
 tar -czf "$ARCHIVE_NAME" -C bundle .

@@ -1,3 +1,0 @@
-task,baseline_arm,candidate_arm,baseline_runs,candidate_runs,baseline_judged_runs,candidate_judged_runs,baseline_correct_runs,candidate_correct_runs,baseline_avg_score,candidate_avg_score,correctness_delta,baseline_cost_usd,candidate_cost_usd,cost_savings_vs_baseline_pct,winner,baseline_judge_models,candidate_judge_models
-django__django-12155,baseline,lemoncrow,2,2,2,2,2,2,1.0,1.0,0.0,0.5087,0.8134,-59.9,baseline,swebench,swebench
-pallets__flask-5014,baseline,lemoncrow,2,2,2,2,2,2,1.0,1.0,0.0,0.235,0.5741,-144.3,baseline,swebench,swebench

@@ -20,7 +20,7 @@ SUPPORTED_HOSTS = [
 
 REQUIRED_HOST_MATRIX_COLUMNS = [
     "Host",
-    "Native surfaces LemonCrow uses",
+    "Native surfaces Atelier uses",
     "MCP",
     "Hooks / events",
     "Wrapper",
@@ -70,6 +70,11 @@ def _extract_table_lines(content: str, header_start: str) -> list[str]:
     return table
 
 
+def test_host_contract_docs_exist() -> None:
+    assert HOST_MATRIX.exists(), f"missing {HOST_MATRIX}"
+    assert INTEGRATIONS_MATRIX.exists(), f"missing {INTEGRATIONS_MATRIX}"
+
+
 def test_host_capability_matrix_has_required_columns_and_hosts() -> None:
     content = _read(HOST_MATRIX)
     table = _extract_table_lines(content, "## Capability Matrix")
@@ -80,3 +85,15 @@ def test_host_capability_matrix_has_required_columns_and_hosts() -> None:
 
     for host in SUPPORTED_HOSTS:
         assert host in content, f"host-capability-matrix missing host row: {host}"
+
+
+def test_integrations_host_matrix_has_required_columns_and_hosts() -> None:
+    content = _read(INTEGRATIONS_MATRIX)
+    table = _extract_table_lines(content, "## Supported Hosts")
+    header = table[0]
+
+    for col in REQUIRED_INTEGRATIONS_COLUMNS:
+        assert col in header, f"integrations host-matrix missing required column: {col}"
+
+    for host in SUPPORTED_HOSTS:
+        assert host in content, f"integrations host-matrix missing host row: {host}"

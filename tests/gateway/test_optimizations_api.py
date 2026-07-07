@@ -10,9 +10,9 @@ pytest.importorskip("fastapi", reason="FastAPI API tests require the api extra")
 
 from fastapi.testclient import TestClient
 
-from lemoncrow.core.foundation.models import Trace
-from lemoncrow.core.service.api import create_app
-from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from atelier.core.foundation.models import Trace
+from atelier.core.foundation.store import ContextStore
+from atelier.core.service.api import create_app
 
 
 def _write_cost_history(path: Path) -> None:
@@ -20,7 +20,7 @@ def _write_cost_history(path: Path) -> None:
     payload = {
         "operations": {
             "op-search": {
-                "domain": "lemoncrow.platform",
+                "domain": "atelier.platform",
                 "task_sample": "search",
                 "first_seen": now.isoformat(),
                 "calls": [
@@ -38,7 +38,7 @@ def _write_cost_history(path: Path) -> None:
                 ],
             },
             "op-batch": {
-                "domain": "lemoncrow.platform",
+                "domain": "atelier.platform",
                 "task_sample": "edit",
                 "first_seen": now.isoformat(),
                 "calls": [
@@ -62,7 +62,7 @@ def _write_cost_history(path: Path) -> None:
 
 
 def _record_traces(root: Path) -> None:
-    store = build_sqlite_store_bundle(root)
+    store = ContextStore(root)
     store.init()
     created_at = datetime.now(UTC)
     traces = [
@@ -107,7 +107,7 @@ def _record_traces(root: Path) -> None:
         ),
     ]
     for trace in traces:
-        store.history.record_trace(trace)
+        store.record_trace(trace)
 
 
 def _write_live_savings_events(path: Path) -> None:
@@ -176,7 +176,7 @@ def _write_live_savings_events(path: Path) -> None:
 def test_optimizations_summary_returns_runtime_catalog_and_recommendations(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     (tmp_path / "AGENTS.md").write_text(
         "# Project rules\n" + "- Keep context narrow and delivery-focused.\n" * 40,
         encoding="utf-8",
@@ -195,8 +195,8 @@ def test_optimizations_summary_returns_runtime_catalog_and_recommendations(
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
     client = TestClient(create_app(store_root=root))
     resp = client.get("/v1/optimizations/summary?window_days=14")
@@ -261,9 +261,9 @@ def test_optimizations_summary_returns_runtime_catalog_and_recommendations(
     assert data["compact_session_history"][0]["tokens_freed"] == 3_200
 
     assert data["context_audit"]["always_on_tokens"] > 0
-    # Repo guidance is the only guaranteed always-on component; post-launch
-    # bundled seed playbooks and rubrics are intentionally empty.
-    assert data["context_audit"]["component_count"] >= 1
+    # Note: component_count varies with bundled seed_playbooks / rubrics presence.
+    # Post-launch, the bundled-seed directory ships empty by default.
+    assert data["context_audit"]["component_count"] >= 2
     assert any(item["id"] == "repo_guidance" for item in data["context_audit"]["components"])
 
     assert data["quality_score"]["trace_count"] == 3

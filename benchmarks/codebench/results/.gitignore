@@ -1,5 +1,0 @@
-# Raw timestamped run directories — only named publish dirs are tracked
-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T*/
-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-*/
-# Raw flow captures (contain API keys)
-*.flow

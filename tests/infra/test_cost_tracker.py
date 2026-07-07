@@ -1,11 +1,11 @@
-"""Tests for lemoncrow.runtime.cost_tracker (Phase 7)."""
+"""Tests for atelier.runtime.cost_tracker (Phase 7)."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from lemoncrow.infra.runtime.cost_tracker import (
+from atelier.infra.runtime.cost_tracker import (
     CostTracker,
     estimate_cost,
     load_cost_history,
@@ -23,22 +23,6 @@ def test_estimate_cost_known_model_pricing() -> None:
     cost = estimate_cost("claude-sonnet-4.6", 10_000, 2_000, cache_read_tokens=5_000)
     expected = (10_000 * 3.00 + 2_000 * 15.00 + 5_000 * 0.30) / 1_000_000
     assert cost == round(expected, 6)
-
-
-def test_estimate_cost_gpt_5_6_model_families() -> None:
-    for model, input_rate, output_rate, cache_read_rate, cache_write_rate in (
-        ("gpt-5.6-sol", 5.00, 30.00, 0.50, 6.25),
-        ("gpt-5.6-terra", 2.50, 15.00, 0.25, 3.125),
-        ("gpt-5.6-luna", 1.00, 6.00, 0.10, 1.25),
-    ):
-        cost = estimate_cost(
-            model,
-            1_000_000,
-            1_000_000,
-            cache_read_tokens=1_000_000,
-            cache_write_tokens=1_000_000,
-        )
-        assert cost == input_rate + output_rate + cache_read_rate + cache_write_rate
 
 
 def test_operation_key_is_stable_across_numerals_and_whitespace() -> None:
@@ -141,7 +125,7 @@ def test_total_savings_aggregates_across_operations(tmp_path: Path) -> None:
 
 
 def test_run_ledger_record_call_attaches_cost_to_snapshot(tmp_path: Path) -> None:
-    from lemoncrow.infra.runtime.run_ledger import RunLedger
+    from atelier.infra.runtime.run_ledger import RunLedger
 
     led = RunLedger(
         agent="test",

@@ -3,10 +3,6 @@ import { MemoryRouter } from "react-router-dom";
 import App from "./App";
 import { TimeRangeProvider } from "./lib/TimeRangeContext";
 
-vi.mock("./components/CodeGraph", () => ({
-  default: () => <div data-testid="code-graph" />,
-}));
-
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -74,7 +70,6 @@ describe("App router smoke test", () => {
   it.each([
     "/overview",
     "/sessions",
-    "/map",
     "/swarms",
     "/costs",
     "/costs/spend",
@@ -102,14 +97,13 @@ describe("App router smoke test", () => {
     expect(container).toBeTruthy();
   });
 
-  it("renders all seven top-level nav tabs", async () => {
+  it("renders all six top-level nav tabs", async () => {
     mockAllFetches();
     renderAt("/overview");
     expect(
       await screen.findByRole("link", { name: /overview/i })
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /sessions/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^map$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /swarms/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /costs/i })).toBeInTheDocument();
     expect(

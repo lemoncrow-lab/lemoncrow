@@ -15,12 +15,12 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from lemoncrow.core.foundation.redaction import (
+from atelier.core.foundation.redaction import (
     assert_safe_grep_args,
     is_shell_injection,
     redact,
 )
-from lemoncrow.gateway.cli import cli
+from atelier.gateway.cli import cli
 
 # ---------------------------------------------------------------------------
 # Redaction primitives
@@ -94,10 +94,8 @@ def test_assert_safe_grep_args_accepts_clean_args() -> None:
 
 
 def test_record_trace_redacts_secrets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.gateway.adapters.mcp_server import tool_record_trace
-    from tests.helpers import grant_oauth_pro
+    from atelier.gateway.adapters.mcp_server import tool_record_trace
 
-    grant_oauth_pro(monkeypatch)
     # Run outside a git repo so `init` skips the ~40s code-index bootstrap and the
     # project-setup writes (both gated on _detect_git_root(cwd)); this test only
     # needs an initialized store to exercise redaction.
@@ -108,7 +106,7 @@ def test_record_trace_redacts_secrets(tmp_path: Path, monkeypatch: pytest.Monkey
 
     import os
 
-    os.environ["LEMONCROW_ROOT"] = str(tmp_path / "a")
+    os.environ["ATELIER_ROOT"] = str(tmp_path / "a")
     try:
         result = tool_record_trace(
             {
@@ -135,4 +133,4 @@ def test_record_trace_redacts_secrets(tmp_path: Path, monkeypatch: pytest.Monkey
         assert "sk-aaaabbbbccccdddd" not in blob
         assert "hidden plan" not in blob
     finally:
-        os.environ.pop("LEMONCROW_ROOT", None)
+        os.environ.pop("ATELIER_ROOT", None)

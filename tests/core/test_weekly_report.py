@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from lemoncrow.core.capabilities.reporting.weekly_report import (
+from atelier.core.capabilities.reporting.weekly_report import (
     Report,
     generate_report,
     render_markdown,
 )
-from lemoncrow.core.foundation.lesson_models import LessonCandidate
-from lemoncrow.core.foundation.models import Playbook, ToolCall, Trace, ValidationResult
-from lemoncrow.core.foundation.savings_models import ContextBudget
-from lemoncrow.infra.storage.bundle import StoreBundle
+from atelier.core.foundation.lesson_models import LessonCandidate
+from atelier.core.foundation.models import Playbook, ToolCall, Trace, ValidationResult
+from atelier.core.foundation.savings_models import ContextBudget
+from atelier.core.foundation.store import ContextStore
 
 
 def _block(block_id: str, title: str = "Plan Discipline") -> Playbook:
@@ -62,10 +62,10 @@ def _trace(
     )
 
 
-def test_generate_report_aggregates_weekly_governance(store: StoreBundle) -> None:
+def test_generate_report_aggregates_weekly_governance(store: ContextStore) -> None:
     now = datetime(2026, 5, 5, 12, tzinfo=UTC)
-    store.knowledge.upsert_block(_block("rb-plan"), write_markdown=False)
-    store.history.record_trace(
+    store.upsert_block(_block("rb-plan"), write_markdown=False)
+    store.record_trace(
         _trace(
             "current-pass",
             created_at=now - timedelta(days=1),
@@ -74,7 +74,7 @@ def test_generate_report_aggregates_weekly_governance(store: StoreBundle) -> Non
         ),
         write_json=False,
     )
-    store.history.record_trace(
+    store.record_trace(
         _trace(
             "current-fail",
             created_at=now - timedelta(days=2),
@@ -84,11 +84,11 @@ def test_generate_report_aggregates_weekly_governance(store: StoreBundle) -> Non
         ),
         write_json=False,
     )
-    store.history.record_trace(
+    store.record_trace(
         _trace("prior-pass", created_at=now - timedelta(days=8), passed=True, session_id="run-prior"),
         write_json=False,
     )
-    store.telemetry.persist_context_budget(
+    store.persist_context_budget(
         ContextBudget(
             session_id="run-current",
             turn_index=0,
@@ -102,7 +102,7 @@ def test_generate_report_aggregates_weekly_governance(store: StoreBundle) -> Non
             tool_calls=1,
         )
     )
-    store.telemetry.persist_context_budget(
+    store.persist_context_budget(
         ContextBudget(
             session_id="run-prior",
             turn_index=0,
@@ -116,7 +116,7 @@ def test_generate_report_aggregates_weekly_governance(store: StoreBundle) -> Non
             tool_calls=1,
         )
     )
-    store.lessons.upsert_lesson_candidate(
+    store.upsert_lesson_candidate(
         LessonCandidate(
             domain="coding",
             cluster_fingerprint="cluster",
@@ -142,7 +142,7 @@ def test_generate_report_aggregates_weekly_governance(store: StoreBundle) -> Non
     assert report.drift.context_budget_usage_delta_pct == -30.0
 
 
-def test_report_json_round_trips_and_markdown_is_compact(store: StoreBundle) -> None:
+def test_report_json_round_trips_and_markdown_is_compact(store: ContextStore) -> None:
     now = datetime(2026, 5, 5, 12, tzinfo=UTC)
     report = generate_report(timedelta(days=7), store=store, now=now, git_sha="abc123")
     schema = Report.model_json_schema()
@@ -152,5 +152,5 @@ def test_report_json_round_trips_and_markdown_is_compact(store: StoreBundle) -> 
     assert Report.model_validate(payload).git_sha == "abc123"
 
     markdown = render_markdown(report)
-    assert markdown.startswith("# LemonCrow Weekly Governance Report")
+    assert markdown.startswith("# Atelier Weekly Governance Report")
     assert len(markdown.splitlines()) < 80

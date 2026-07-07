@@ -4,15 +4,15 @@ import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
-from lemoncrow.core.foundation.lesson_models import LessonCandidate
-from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
-from lemoncrow.pro.capabilities.lesson_promotion.pr_bot import LessonPrBot
+from atelier.core.capabilities.lesson_promotion.pr_bot import LessonPrBot
+from atelier.core.foundation.lesson_models import LessonCandidate
+from atelier.core.foundation.models import Playbook
+from atelier.core.foundation.store import ContextStore
 
 
 def test_pr_bot_dry_run_emits_diff_without_side_effects(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
-    store = build_sqlite_store_bundle(root)
+    root = tmp_path / ".atelier"
+    store = ContextStore(root)
     store.init()
 
     block = Playbook(
@@ -36,7 +36,7 @@ def test_pr_bot_dry_run_emits_diff_without_side_effects(tmp_path: Path) -> None:
         confidence=0.9,
         status="approved",
     )
-    store.lessons.upsert_lesson_candidate(candidate)
+    store.upsert_lesson_candidate(candidate)
 
     calls: list[list[str]] = []
 
@@ -47,14 +47,14 @@ def test_pr_bot_dry_run_emits_diff_without_side_effects(tmp_path: Path) -> None:
     bot = LessonPrBot(
         store=store,
         root=root,
-        env={"LEMONCROW_LESSON_PR_BOT_ENABLED": "true", "GITHUB_TOKEN": "token"},
+        env={"ATELIER_LESSON_PR_BOT_ENABLED": "true", "GITHUB_TOKEN": "token"},
         run_cmd=_runner,
     )
     payload = bot.sync_pr(lesson_id=candidate.id, dry_run=True)
 
     assert payload["skipped"] is False
     assert payload["dry_run"] is True
-    assert payload["branch"] == "lemoncrow/lesson/lc-dry-run"
+    assert payload["branch"] == "atelier/lesson/lc-dry-run"
     assert "evidence_trace_ids" in payload["pr_body"]
     assert "rb.lesson.test.md" in payload["block_path"]
     assert payload["diff"]

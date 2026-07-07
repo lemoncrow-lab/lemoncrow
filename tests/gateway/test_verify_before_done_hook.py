@@ -9,9 +9,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
-
-from tests.helpers import python_script_with_development_cap
 
 HOOK = Path("integrations/claude/plugin/hooks/verify_before_done.py")
 
@@ -43,7 +42,7 @@ def _run(transcript: Path, *, stop_active: bool = False, env_extra: dict | None 
     if env_extra:
         env.update(env_extra)
     result = subprocess.run(
-        python_script_with_development_cap(HOOK),
+        [sys.executable, str(HOOK)],
         input=json.dumps(payload),
         text=True,
         capture_output=True,
@@ -76,138 +75,32 @@ def test_edit_with_pytest_allows(tmp_path: Path) -> None:
 def test_edit_with_django_runtests_allows(tmp_path: Path) -> None:
     t = _transcript(
         tmp_path,
-        _assistant(("mcp__lc__edit", {"edits": [{"file_path": "django/db/x.py", "new_string": "..."}]})),
-        _assistant(("mcp__lc__bash", {"command": "cd tests && python runtests.py dbshell"})),
+        _assistant(("mcp__atelier__edit", {"edits": [{"file_path": "django/db/x.py", "new_string": "..."}]})),
+        _assistant(("mcp__atelier__bash", {"command": "cd tests && python runtests.py dbshell"})),
     )
     assert not _blocked(_run(t))
 
 
-def test_code_run_snippet_counts_as_verification(tmp_path: Path) -> None:
-    # ANY post-edit run counts: on suite-less tasks a custom script is the only
-    # possible check, and the old test-runner-only bar re-blocked ~half of
-    # already-verified Terminal-Bench trials (+1-4 wasted turns each).
+def test_code_run_snippet_does_not_count_as_verification(tmp_path: Path) -> None:
+    # A python -c / repro-script run is NOT a real test: it checks only what the
+    # author thought of and misses regressions, so the gate still blocks.
     t = _transcript(
         tmp_path,
         _assistant(("Edit", {"file_path": "app/core.py"})),
         _assistant(("Bash", {"command": "python repro.py"})),
     )
-    assert not _blocked(_run(t))
-
-
-def test_python_c_snippet_counts_as_verification(tmp_path: Path) -> None:
-    t = _transcript(
-        tmp_path,
-        _assistant(("mcp__lc__edit", {"edits": [{"file_path": "requests/models.py", "new_string": "..."}]})),
-        _assistant(("mcp__lc__bash", {"command": 'python -c "import requests; print(requests.get)"'})),
-    )
-    assert not _blocked(_run(t))
-
-
-def _assistant_with_id(name: str, tool_input: dict, tool_use_id: str) -> dict:
-    return {
-        "type": "assistant",
-        "message": {
-            "role": "assistant",
-            "content": [{"type": "tool_use", "id": tool_use_id, "name": name, "input": tool_input}],
-        },
-    }
-
-
-def _tool_result(tool_use_id: str, is_error: bool) -> dict:
-    return {
-        "type": "user",
-        "message": {
-            "role": "user",
-            "content": [{"type": "tool_result", "tool_use_id": tool_use_id, "is_error": is_error, "content": "..."}],
-        },
-    }
-
-
-def test_test_run_before_edit_does_not_count(tmp_path: Path) -> None:
-    # A pre-edit test run proves nothing about the change: still blocks.
-    t = _transcript(
-        tmp_path,
-        _assistant(("Bash", {"command": "pytest -q"})),
-        _assistant(("Edit", {"file_path": "app/core.py"})),
-    )
     assert _blocked(_run(t))
 
 
-def test_failed_test_run_does_not_count(tmp_path: Path) -> None:
-    # A test run whose tool_result is_error=True is a failed verification.
+def test_python_c_snippet_does_not_count_as_verification(tmp_path: Path) -> None:
+    # The exact requests-2931 regression shape: a `python -c` repro that passed but
+    # missed a broken neighbor. Must block to push the model onto the real suite.
     t = _transcript(
         tmp_path,
-        _assistant(("Edit", {"file_path": "app/core.py"})),
-        _assistant_with_id("Bash", {"command": "pytest -q"}, "tu1"),
-        _tool_result("tu1", True),
+        _assistant(("mcp__atelier__edit", {"edits": [{"file_path": "requests/models.py", "new_string": "..."}]})),
+        _assistant(("mcp__atelier__bash", {"command": 'python -c "import requests; print(requests.get)"'})),
     )
     assert _blocked(_run(t))
-
-
-def test_passing_test_run_after_edit_allows(tmp_path: Path) -> None:
-    t = _transcript(
-        tmp_path,
-        _assistant(("Edit", {"file_path": "app/core.py"})),
-        _assistant_with_id("Bash", {"command": "pytest -q"}, "tu1"),
-        _tool_result("tu1", False),
-    )
-    assert not _blocked(_run(t))
-
-
-def test_rejected_edit_after_verified_change_does_not_reblock(tmp_path: Path) -> None:
-    # A real edit gets verified by a passing test run. A LATER edit attempt
-    # that the user rejects (tool_result is_error=True, nothing written) must
-    # not re-poison last_edit_idx and re-block on every subsequent Stop even
-    # though nothing on disk changed since the verified edit.
-    t = _transcript(
-        tmp_path,
-        _assistant(("Edit", {"file_path": "app/core.py"})),
-        _assistant_with_id("Bash", {"command": "pytest -q"}, "tu1"),
-        _tool_result("tu1", False),
-        _assistant_with_id("Edit", {"file_path": "app/other.py"}, "tu2"),
-        _tool_result("tu2", True),
-    )
-    assert not _blocked(_run(t))
-
-
-def test_repeated_stop_with_no_new_edit_does_not_reblock(tmp_path: Path) -> None:
-    # Same unresolved edit, no new edit/verification since the last Stop -- the
-    # second call is the exact same nudge again and must be suppressed.
-    t = _transcript(tmp_path, _assistant(("Edit", {"file_path": "app/core.py"})))
-    assert _blocked(_run(t))
-    assert not _blocked(_run(t))
-
-
-def test_new_edit_after_suppressed_nudge_fires_again(tmp_path: Path) -> None:
-    # A genuinely new edit event appended after a suppressed repeat must still
-    # get its own one-time nudge -- suppression is per-nudge, not permanent.
-    t = _transcript(tmp_path, _assistant(("Edit", {"file_path": "app/core.py"})))
-    assert _blocked(_run(t))
-    assert not _blocked(_run(t))
-    t.write_text(
-        t.read_text(encoding="utf-8") + "\n" + json.dumps(_assistant(("Edit", {"file_path": "app/core.py"}))),
-        encoding="utf-8",
-    )
-    assert _blocked(_run(t))
-
-
-def test_stale_file_does_not_refire_when_a_different_file_is_edited(tmp_path: Path) -> None:
-    # Reported bug: file A was nudged, then editing an unrelated file B on a
-    # later turn re-fired the SAME alert naming A -- which was never touched
-    # again. The nudge must name only newly-edited files and never repeat A.
-    t = _transcript(tmp_path, _assistant(("Edit", {"file_path": "app/alpha.py"})))
-    out = _run(t)
-    assert _blocked(out) and "alpha.py" in json.loads(out)["reason"]
-    assert not _blocked(_run(t))  # no new edits -> silent
-    # Edit a DIFFERENT file -> fires, names only the new file, not alpha.py.
-    t.write_text(
-        t.read_text(encoding="utf-8") + "\n" + json.dumps(_assistant(("Edit", {"file_path": "app/beta.py"}))),
-        encoding="utf-8",
-    )
-    out2 = _run(t)
-    reason = json.loads(out2)["reason"]
-    assert _blocked(out2) and "beta.py" in reason and "alpha.py" not in reason
-    assert not _blocked(_run(t))  # silent again afterwards
 
 
 def test_docs_only_edit_allows(tmp_path: Path) -> None:
@@ -215,78 +108,18 @@ def test_docs_only_edit_allows(tmp_path: Path) -> None:
     assert not _blocked(_run(t))
 
 
-def test_text_deliverable_without_verification_blocks(tmp_path: Path) -> None:
-    # A written data artifact (csv/txt/json/...) with no verification run is the
-    # over-claim failure this hook must catch, not just source edits.
-    t = _transcript(tmp_path, _assistant(("Write", {"file_path": "/app/result.csv"})))
-    assert _blocked(_run(t))
-
-
-def test_text_deliverable_with_pytest_allows(tmp_path: Path) -> None:
-    t = _transcript(
-        tmp_path,
-        _assistant(("Write", {"file_path": "/app/out.json"})),
-        _assistant(("Bash", {"command": "python -m pytest -q"})),
-    )
-    assert not _blocked(_run(t))
-
-
-def test_docs_deliverable_blocks_in_bench_mode(tmp_path: Path) -> None:
-    # A .md deliverable is graded in a benchmark -> nag under bench mode, while
-    # test_docs_only_edit_allows pins that ordinary (non-bench) docs edits do not.
-    t = _transcript(tmp_path, _assistant(("Write", {"file_path": "/app/answer.md"})))
-    assert _blocked(_run(t, env_extra={"LEMONCROW_BENCH_MODE": "on"}))
-
-
-def test_binary_deliverable_does_not_block(tmp_path: Path) -> None:
-    # Binary artifacts (.npy/.bin/...) are out of scope -- text/data deliverables only.
-    t = _transcript(tmp_path, _assistant(("Write", {"file_path": "/app/stolen.npy"})))
-    assert not _blocked(_run(t))
-
-
-def test_text_deliverable_exercised_by_command_allows(tmp_path: Path) -> None:
-    # Running a command that names the produced artifact IS the check for a
-    # suite-less data task -- must not nag (closes the _TEST_RUN false-positive).
-    t = _transcript(
-        tmp_path,
-        _assistant(("Write", {"file_path": "/app/result.csv"})),
-        _assistant(("Bash", {"command": "python eval.py /app/result.csv"})),
-    )
-    assert not _blocked(_run(t))
-
-
-def test_code_edit_run_by_name_allows(tmp_path: Path) -> None:
-    # Running the edited file by name is a real post-edit check.
-    t = _transcript(
-        tmp_path,
-        _assistant(("Edit", {"file_path": "app/core.py"})),
-        _assistant(("Bash", {"command": "python app/core.py"})),
-    )
-    assert not _blocked(_run(t))
-
-
-def test_skip_suffixes_env_excludes_configured_types(tmp_path: Path) -> None:
-    # LEMONCROW_VERIFY_SKIP_SUFFIXES lets the user keep archival docs / data dumps
-    # out of the nudge -- overriding text and (bench) doc classification alike.
-    csv = _transcript(tmp_path, _assistant(("Write", {"file_path": "/app/result.csv"})))
-    assert not _blocked(_run(csv, env_extra={"LEMONCROW_VERIFY_SKIP_SUFFIXES": ".csv, md"}))
-    md = _transcript(tmp_path, _assistant(("Write", {"file_path": "/app/answer.md"})))
-    assert not _blocked(_run(md, env_extra={"LEMONCROW_BENCH_MODE": "on", "LEMONCROW_VERIFY_SKIP_SUFFIXES": "md"}))
-
-
 def test_no_edits_allows(tmp_path: Path) -> None:
     t = _transcript(tmp_path, _assistant(("Bash", {"command": "ls -la && grep -r foo ."})))
     assert not _blocked(_run(t))
 
 
-def test_lint_run_counts_as_verification(tmp_path: Path) -> None:
-    # Any post-edit run clears the gate; only edit-then-stop-silent blocks.
+def test_lint_only_still_blocks(tmp_path: Path) -> None:
     t = _transcript(
         tmp_path,
         _assistant(("Edit", {"file_path": "app/core.py"})),
         _assistant(("Bash", {"command": "ruff check . && mypy src && black --check ."})),
     )
-    assert not _blocked(_run(t))
+    assert _blocked(_run(t))
 
 
 def test_stop_hook_active_does_not_block(tmp_path: Path) -> None:
@@ -296,4 +129,4 @@ def test_stop_hook_active_does_not_block(tmp_path: Path) -> None:
 
 def test_disabled_env_does_not_block(tmp_path: Path) -> None:
     t = _transcript(tmp_path, _assistant(("Edit", {"file_path": "app/core.py"})))
-    assert not _blocked(_run(t, env_extra={"LEMONCROW_VERIFY_BEFORE_DONE": "0"}))
+    assert not _blocked(_run(t, env_extra={"ATELIER_VERIFY_BEFORE_DONE": "0"}))

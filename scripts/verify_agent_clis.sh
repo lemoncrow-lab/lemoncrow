@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# verify_agent_clis.sh — Verify LemonCrow installation across all agent CLIs
+# verify_agent_clis.sh — Verify Atelier installation across all agent CLIs
 #
 # Runs verification for each host. Each host uses its dedicated verify_<host>.sh
 # wrapper when one exists (verify_claude.sh, verify_codex.sh, verify_copilot.sh,
@@ -32,12 +32,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 declare -A RESULTS
-HOSTS=(claude codex opencode copilot antigravity cursor hermes)
+HOSTS=(claude codex opencode copilot antigravity)
 
 for host in "${HOSTS[@]}"; do
     echo ""
     echo "──────────────────────────────────────────"
-    echo " Verifying LemonCrow in: ${host}"
+    echo " Verifying Atelier in: ${host}"
     echo "──────────────────────────────────────────"
     case "$host" in
         claude) script="${SCRIPT_DIR}/verify_claude.sh" ;;
@@ -70,7 +70,7 @@ done
 
 echo ""
 echo "══════════════════════════════════════════════"
-echo " LemonCrow Verification Summary"
+echo " Atelier Verification Summary"
 echo "══════════════════════════════════════════════"
 FAIL_COUNT=0
 for h in "${HOSTS[@]}"; do
