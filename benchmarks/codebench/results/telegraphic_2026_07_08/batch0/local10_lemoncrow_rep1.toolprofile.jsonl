@@ -1,5 +1,0 @@
-{"handler_ms": 119, "overhead_ms": 33, "response_size": 2660, "session_id": "416ca65d-54d7-4d56-8d68-310de9c5add4", "status": "ok", "tool": "code_search", "total_ms": 152, "ts": 1783557229.0325837}
-{"handler_ms": 15, "overhead_ms": 20, "response_size": 475, "session_id": "416ca65d-54d7-4d56-8d68-310de9c5add4", "status": "ok", "tool": "bash", "total_ms": 35, "ts": 1783557229.2373624}
-{"handler_ms": 233, "overhead_ms": 4, "response_size": 13475, "session_id": "416ca65d-54d7-4d56-8d68-310de9c5add4", "status": "ok", "tool": "read", "total_ms": 237, "ts": 1783557238.2302256}
-{"handler_ms": 8, "overhead_ms": 20, "response_size": 279, "session_id": "416ca65d-54d7-4d56-8d68-310de9c5add4", "status": "ok", "tool": "bash", "total_ms": 28, "ts": 1783557246.6384528}
-{"handler_ms": 8, "overhead_ms": 3368, "response_size": 28, "session_id": "416ca65d-54d7-4d56-8d68-310de9c5add4", "status": "ok", "tool": "bash", "total_ms": 3376, "ts": 1783557254.2181268}

@@ -4,16 +4,16 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from lemoncrow.core.capabilities.audit_export import export_audit_bundle, verify_audit_bundle
-from lemoncrow.pro.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
-from lemoncrow.pro.capabilities.cross_vendor_memory.models import AuditEvent
-from lemoncrow.pro.capabilities.lesson_promotion.models import TypedLesson
-from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
-from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
+from atelier.core.capabilities.audit_export import export_audit_bundle, verify_audit_bundle
+from atelier.core.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
+from atelier.core.capabilities.cross_vendor_memory.models import AuditEvent
+from atelier.core.capabilities.lesson_promotion.models import TypedLesson
+from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
+from atelier.core.capabilities.team import TeamWorkspaceManager
 
 
 def test_export_bundle_redacts_and_verifies_then_detects_tampering(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     manager = TeamWorkspaceManager(root)
     workspace = manager.init_workspace(name="Acme", admin_email="admin@example.com")
     MemoryAuditLog(root).append(

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.pro.capabilities.code_context import CodeContextEngine
-from lemoncrow.pro.capabilities.code_context.output_policy import (
+from atelier.core.capabilities.code_context import CodeContextEngine
+from atelier.core.capabilities.code_context.output_policy import (
     TRUNCATION_MARKER,
     hard_cap_chars,
     resolve_output_policy,

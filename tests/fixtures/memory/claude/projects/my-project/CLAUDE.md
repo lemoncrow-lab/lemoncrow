@@ -1,4 +1,4 @@
-# Project: lemoncrow
+# Project: atelier
 - Pankaj prefers explicit type hints (Python 3.13+ syntax)
 - Branch convention: feat/, fix/, refactor/, chore/
 

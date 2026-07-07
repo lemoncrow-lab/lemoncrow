@@ -27,9 +27,29 @@ _MAX_OUTPUT_BYTES = 4096  # 4 KB per stream
 # ---------------------------------------------------------------------------
 
 
+def _workspace_key(path: str) -> str:
+    import re
+    from hashlib import sha256
+    from pathlib import Path as _Path
+
+    resolved = _Path(path).expanduser().resolve()
+    home = _Path.home().resolve()
+    try:
+        parts = resolved.relative_to(home).parts
+    except ValueError:
+        parts = [p for p in resolved.parts if p and p != "/"]
+    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
+    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
+    if len(label) > 120:
+        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
+    return label or sha256(str(resolved).encode()).hexdigest()[:12]
+
+
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "session_state.json"
+    h = _workspace_key(workspace)
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _read_session_state() -> dict:  # type: ignore[type-arg]
@@ -42,14 +62,14 @@ def _read_session_state() -> dict:  # type: ignore[type-arg]
         return {}
 
 
-def _lemoncrow_root() -> Path:
-    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
+def _atelier_root() -> Path:
+    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
     if root:
         return Path(root)
     state = _read_session_state()
-    if state.get("lemoncrow_root"):
-        return Path(state["lemoncrow_root"])
-    return Path.home() / ".lemoncrow"
+    if state.get("atelier_root"):
+        return Path(state["atelier_root"])
+    return Path.home() / ".atelier"
 
 
 def _cache_bash_invocation(
@@ -59,12 +79,12 @@ def _cache_bash_invocation(
     return_code: int | None,
 ) -> None:
     """Record Bash output in the shared tool-supervision cache."""
-    if os.environ.get("LEMONCROW_CACHE_DISABLED") == "1":
+    if os.environ.get("ATELIER_CACHE_DISABLED") == "1":
         return
     try:
-        from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
+        from atelier.core.capabilities.tool_supervision import ToolSupervisionCapability
 
-        cap = ToolSupervisionCapability(_lemoncrow_root())
+        cap = ToolSupervisionCapability(_atelier_root())
         key = f"Bash:{json.dumps({'command': command}, sort_keys=True)[:100]}"
         cap.observe(
             key,
@@ -94,10 +114,10 @@ def _append_command_result_event(
 ) -> None:
     """Append a command_result event to the session's run.json atomically."""
     try:
-        from lemoncrow.core.foundation.paths import session_dir
+        from atelier.core.foundation.paths import session_dir
     except ImportError:
         return
-    run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
+    run_file = session_dir(_atelier_root(), "claude", session_id) / "run.json"
     if not run_file.exists():
         return
 

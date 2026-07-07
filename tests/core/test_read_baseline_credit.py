@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities import read_baseline_credit as rbc
+from atelier.core.capabilities import read_baseline_credit as rbc
 
 
 def test_first_outline_read_is_credited() -> None:

@@ -15,7 +15,6 @@ import base64
 import json
 import re
 import sys
-from collections.abc import Iterator
 from pathlib import Path
 
 from mitmproxy.exceptions import FlowReadException
@@ -50,7 +49,7 @@ def _is_messages_request(url: str) -> bool:
     return "v1/messages" in url or "invoke" in url
 
 
-def _iter_text_from_sse(raw: bytes) -> Iterator[str]:
+def _iter_text_from_sse(raw: bytes):
     for line in raw.decode("utf-8", errors="ignore").splitlines():
         if not line.startswith("data: "):
             continue
@@ -71,7 +70,7 @@ def _iter_text_from_sse(raw: bytes) -> Iterator[str]:
                 yield f"[tool_use: {cb['name']}] "
 
 
-def _iter_text_from_bedrock_stream(raw: bytes) -> Iterator[str]:
+def _iter_text_from_bedrock_stream(raw: bytes):
     for b64 in re.findall(rb'"bytes":"([A-Za-z0-9+/=]+)"', raw):
         try:
             chunk = json.loads(base64.b64decode(b64))

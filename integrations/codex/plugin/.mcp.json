@@ -1,6 +1,6 @@
 {
-  "lc": {
-    "command": "lemoncrow",
+  "atelier": {
+    "command": "atelier",
     "args": ["mcp", "--host", "codex"],
     "env": {}
   }

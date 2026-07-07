@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.foundation.models import Trace
-from lemoncrow.gateway.cli.commands import sessions as sessions_cmd
-from lemoncrow.gateway.cli.commands.sessions import _pick_live_sessions
-from lemoncrow.infra.storage.bundle import StoreBundle, build_sqlite_store_bundle
+from atelier.core.foundation.models import Trace
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.cli.commands import sessions as sessions_cmd
+from atelier.gateway.cli.commands.sessions import _pick_live_sessions
 
 
 def _touch_with_mtime(path: Path, mtime: float) -> None:
@@ -115,7 +115,7 @@ def test_file_backed_live_import_filters_since_by_trace_created_at(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from lemoncrow.gateway.hosts.session_parsers import codex as codex_module
+    from atelier.gateway.hosts.session_parsers import codex as codex_module
 
     now = datetime.now(UTC)
     old_path = tmp_path / "old-session.jsonl"
@@ -124,7 +124,7 @@ def test_file_backed_live_import_filters_since_by_trace_created_at(
     _touch_with_mtime(new_path, now.timestamp() - 1)
 
     class FakeCodexImporter:
-        def __init__(self, store: StoreBundle) -> None:
+        def __init__(self, store: ContextStore) -> None:
             self.store = store
 
         def import_session(self, session_path: Path, *, force: bool = False) -> str:
@@ -139,13 +139,13 @@ def test_file_backed_live_import_filters_since_by_trace_created_at(
                 host="codex",
                 created_at=created_at,
             )
-            self.store.history.record_trace(trace, write_json=False)
+            self.store.record_trace(trace, write_json=False)
             return session_path.stem
 
     monkeypatch.setattr(codex_module, "CodexImporter", FakeCodexImporter)
     monkeypatch.setattr(codex_module, "find_codex_sessions", lambda path=None: [old_path, new_path])
 
-    store = build_sqlite_store_bundle(tmp_path / "store")
+    store = ContextStore(tmp_path / "store")
     store.init()
     imported = sessions_cmd._import_live_host_sessions(
         host_name="codex",

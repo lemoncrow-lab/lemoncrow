@@ -6,15 +6,15 @@ from pathlib import Path
 
 import yaml
 
-from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.gateway.adapters.runtime import ContextRuntime
+from atelier.core.foundation.models import Playbook
+from atelier.gateway.adapters.runtime import ContextRuntime
 
 
 def test_runtime_get_context_merges_learned_and_domain_blocks(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     runtime = ContextRuntime(root=root)
 
-    runtime.store.knowledge.upsert_block(
+    runtime.store.upsert_block(
         Playbook(
             id="rb-runtime-learned",
             title="Runtime Learned Recovery",
@@ -36,7 +36,7 @@ def test_runtime_get_context_merges_learned_and_domain_blocks(tmp_path: Path) ->
                 "bundle_id": "shopify.publish",
                 "domain": "Agent.shopify.publish",
                 "description": "Shopify publish domain bundle",
-                "author": "LemonCrow Test",
+                "author": "Atelier Test",
                 "playbooks": ["playbooks/publish_guard.yaml"],
             },
             sort_keys=False,

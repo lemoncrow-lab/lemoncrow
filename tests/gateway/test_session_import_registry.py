@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from lemoncrow.gateway.hosts.session_parsers.registry import (
+from atelier.gateway.hosts.session_parsers.registry import (
     SUPPORTED_SESSION_IMPORT_HOSTS,
     iter_importer_classes,
 )
@@ -13,7 +13,6 @@ def test_supported_session_import_hosts_match_codeburn_inventory() -> None:
         "codex",
         "copilot",
         "cursor",
-        "hermes",
         "opencode",
     )
 

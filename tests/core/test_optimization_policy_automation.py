@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from lemoncrow.pro.capabilities.optimization.policy import (
+from atelier.core.capabilities.optimization.policy import (
     AutomationConfig,
     BenchmarkEvidence,
     load_optimization_config,
@@ -15,7 +15,7 @@ from lemoncrow.pro.capabilities.optimization.policy import (
 
 
 def test_save_policy_and_automation_preserve_unrelated_keys(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     root.mkdir()
     (root / "optimization.yaml").write_text(
         yaml.safe_dump(

@@ -10,7 +10,7 @@ import {
   type DashboardHostModelOverview,
 } from "../api";
 import { EmptyState, MetricCard } from "../components/WorkbenchUI";
-import { fmtPct, fmtTok, fmtUsd } from "../lib/format";
+import { fmtTok } from "../lib/format";
 import { useTimeRange } from "../lib/TimeRangeContext";
 
 const TABS = [
@@ -34,6 +34,10 @@ function defaultdict_int() {
   return new Proxy({} as Record<string, number>, {
     get: (target, name: string) => (name in target ? target[name] : 0),
   });
+}
+
+function fmt(n: number, decimals = 2) {
+  return n.toFixed(decimals);
 }
 
 const EMPTY_SUMMARY: AnalyticsSummary = {
@@ -204,10 +208,10 @@ function ExternalSnapshotCard({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="border border-neutral-900 bg-black/20 p-3">
               <div className="text-[10px] uppercase tracking-widest text-neutral-400">
-                LemonCrow
+                Atelier
               </div>
               <div className="mt-1 font-mono text-emerald-300">
-                {fmtUsd(internalCost)}
+                ${fmt(internalCost)}
               </div>
             </div>
             <div className="border border-neutral-900 bg-black/20 p-3">
@@ -215,7 +219,7 @@ function ExternalSnapshotCard({
                 CodeBurn
               </div>
               <div className="mt-1 font-mono text-cyan-300">
-                {externalCost == null ? "—" : fmtUsd(externalCost)}
+                {externalCost == null ? "—" : `$${fmt(externalCost)}`}
               </div>
             </div>
           </div>
@@ -225,7 +229,7 @@ function ExternalSnapshotCard({
                 Delta
               </div>
               <div className="mt-1 font-mono text-amber-300">
-                {delta == null ? "—" : fmtUsd(delta)}
+                {delta == null ? "—" : `$${fmt(delta)}`}
               </div>
             </div>
             <div>
@@ -315,7 +319,7 @@ function OverviewHostModelSpotlight({
                     Cost
                   </div>
                   <div className="mt-1 font-mono text-emerald-300">
-                    {fmtUsd(row.cost)}
+                    ${fmt(row.cost)}
                   </div>
                 </div>
                 <div>
@@ -617,10 +621,10 @@ function ByHostTable({ byHost }: { byHost: AnalyticsDashboard["by_host"] }) {
                 {r.sessions}
               </td>
               <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                {fmtUsd(r.cost)}
+                ${fmt(r.cost)}
               </td>
               <td className="px-4 py-2 text-right font-mono text-amber-300">
-                {fmtPct(r.cache_pct)}
+                {fmt(r.cache_pct, 1)}%
               </td>
               <td className="px-4 py-2">
                 <MiniBar value={r.cost} max={maxCost} color="bg-cyan-500/50" />
@@ -686,11 +690,11 @@ function ByModelTable({
                           : "text-red-300"
                     }`}
                   >
-                    {fmtPct(r.cache_pct)}
+                    {fmt(r.cache_pct, 1)}%
                   </span>
                 </td>
                 <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                  {fmtUsd(r.cost)}
+                  ${fmt(r.cost)}
                 </td>
                 <td className="px-4 py-2">
                   <MiniBar value={r.cost} max={maxCost} />
@@ -743,10 +747,10 @@ function ByProjectTable({
                   {d.sessions}
                 </td>
                 <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                  {fmtUsd(d.cost)}
+                  ${fmt(d.cost)}
                 </td>
                 <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                  {fmtUsd(d.avg_cost)}
+                  ${fmt(d.avg_cost, 3)}
                 </td>
                 <td className="px-4 py-2">
                   <MiniBar
@@ -1007,12 +1011,10 @@ export default function Analytics() {
   }, [data]);
 
   const agents = useMemo(() => {
-    // Options must be drawn from `agent` — that's the field both the client
-    // filter (item.agent) and the server param (analyticsSummary agent=) match
-    // against. Populating from `host` produced options that matched no row.
     const set = new Set<string>();
     data.forEach((d) => {
-      if (d.agent) set.add(d.agent);
+      const host = d.host || d.agent;
+      if (host) set.add(host);
     });
     return Array.from(set).sort();
   }, [data]);
@@ -1080,7 +1082,7 @@ export default function Analytics() {
         label: "Top Host",
         value: topHost?.host || "—",
         detail: topHost
-          ? `${fmtUsd(topHost.cost)} over ${topHost.sessions.toLocaleString()} sessions · ${fmtPct(topHost.cache_pct)} cache`
+          ? `$${fmt(topHost.cost)} over ${topHost.sessions.toLocaleString()} sessions · ${fmt(topHost.cache_pct, 1)}% cache`
           : dashLoading
             ? "Loading dashboard..."
             : "No host data.",
@@ -1090,7 +1092,7 @@ export default function Analytics() {
         label: "Top Model",
         value: topModel?.model || "—",
         detail: topModel
-          ? `${fmtUsd(topModel.cost)} over ${topModel.sessions.toLocaleString()} sessions · ${fmtPct(topModel.cache_pct)} cache`
+          ? `$${fmt(topModel.cost)} over ${topModel.sessions.toLocaleString()} sessions · ${fmt(topModel.cache_pct, 1)}% cache`
           : dashLoading
             ? "Loading dashboard..."
             : "No model data.",
@@ -1100,7 +1102,7 @@ export default function Analytics() {
         label: "Top Domain",
         value: topDomain?.domain || "—",
         detail: topDomain
-          ? `${fmtUsd(topDomain.cost)} total · ${fmtUsd(topDomain.avg_cost)}/session`
+          ? `$${fmt(topDomain.cost)} total · $${fmt(topDomain.avg_cost, 3)}/session`
           : dashLoading
             ? "Loading dashboard..."
             : "No domain data.",
@@ -1110,7 +1112,7 @@ export default function Analytics() {
         label: "Top Tool Driver",
         value: topTool?.tool || "—",
         detail: topTool
-          ? `${fmtUsd(topTool.cost)} · ${topTool.calls.toLocaleString()} calls · ${fmtTok(topTool.tokens)} out`
+          ? `$${fmt(topTool.cost)} · ${topTool.calls.toLocaleString()} calls · ${fmtTok(topTool.tokens)} out`
           : "No tool usage found.",
         tone: "amber" as const,
       },
@@ -1121,8 +1123,8 @@ export default function Analytics() {
     return (dashboard?.by_host ?? []).slice(0, 5).map((row) => ({
       label: row.host,
       sublabel: `${row.sessions.toLocaleString()} sessions`,
-      value: fmtUsd(row.cost),
-      detail: `${fmtPct(row.cache_pct)} cache`,
+      value: `$${fmt(row.cost)}`,
+      detail: `${fmt(row.cache_pct, 1)}% cache`,
       barValue: row.cost,
     }));
   }, [dashboard]);
@@ -1131,8 +1133,8 @@ export default function Analytics() {
     return (dashboard?.by_model ?? []).slice(0, 5).map((row) => ({
       label: row.model || "—",
       sublabel: `${(row.input_tokens / 1_000_000).toFixed(2)}M in · ${(row.output_tokens / 1_000_000).toFixed(2)}M out`,
-      value: fmtUsd(row.cost),
-      detail: `${row.sessions.toLocaleString()} sessions · ${fmtPct(row.cache_pct)} cache`,
+      value: `$${fmt(row.cost)}`,
+      detail: `${row.sessions.toLocaleString()} sessions · ${fmt(row.cache_pct, 1)}% cache`,
       barValue: row.cost,
     }));
   }, [dashboard]);
@@ -1141,8 +1143,8 @@ export default function Analytics() {
     return (dashboard?.by_domain ?? []).slice(0, 5).map((row) => ({
       label: row.domain,
       sublabel: `${row.sessions.toLocaleString()} sessions`,
-      value: fmtUsd(row.cost),
-      detail: `${fmtUsd(row.avg_cost)}/session`,
+      value: `$${fmt(row.cost)}`,
+      detail: `$${fmt(row.avg_cost, 3)}/session`,
       barValue: row.cost,
     }));
   }, [dashboard]);
@@ -1151,7 +1153,7 @@ export default function Analytics() {
     return costDriversData.slice(0, 5).map((row) => ({
       label: row.tool,
       sublabel: `${row.calls.toLocaleString()} calls`,
-      value: fmtUsd(row.cost),
+      value: `$${fmt(row.cost)}`,
       detail: `${fmtTok(row.tokens)} out · $${row.costPerCall.toFixed(4)}/call`,
       barValue: row.cost,
     }));
@@ -1159,16 +1161,16 @@ export default function Analytics() {
 
   const codeburnSnapshot = useMemo(() => {
     return (
-      dashboard?.external?.latest?.find((item) => item.tool === "codeburn") ??
+      dashboard?.external.latest.find((item) => item.tool === "codeburn") ??
       null
     );
   }, [dashboard]);
 
   const externalProviderRows = useMemo<CompactLeaderboardRow[]>(() => {
-    return (dashboard?.external?.by_provider ?? []).slice(0, 5).map((row) => ({
+    return (dashboard?.external.by_provider ?? []).slice(0, 5).map((row) => ({
       label: row.providerDisplayName || row.provider,
       sublabel: `${row.calls.toLocaleString()} calls · ${row.models.toLocaleString()} models`,
-      value: fmtUsd(row.costUSD),
+      value: `$${fmt(row.costUSD)}`,
       detail: `${(row.inputTokens / 1_000_000).toFixed(2)}M in · ${(row.outputTokens / 1_000_000).toFixed(2)}M out`,
       barValue: row.costUSD,
     }));

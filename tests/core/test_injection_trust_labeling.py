@@ -9,9 +9,9 @@ schema migration), and the retrieval-result surfaces that carry it.
 
 from __future__ import annotations
 
-from lemoncrow.core.foundation.memory_models import ArchivalPassage
-from lemoncrow.core.foundation.redaction import is_prompt_injection
-from lemoncrow.pro.foundation.retriever import (
+from atelier.core.foundation.memory_models import ArchivalPassage
+from atelier.core.foundation.redaction import is_prompt_injection
+from atelier.core.foundation.retriever import (
     render_memory_for_agent,
     summarize_recalled_passages,
 )
@@ -34,7 +34,7 @@ def test_detector_is_conservative_on_benign_text() -> None:
 
 def _passage(text: str) -> ArchivalPassage:
     return ArchivalPassage(
-        agent_id="lemoncrow:code",
+        agent_id="atelier:code",
         text=text,
         source="file_chunk",
         source_ref="docs/readme.md",

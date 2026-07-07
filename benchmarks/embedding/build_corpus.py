@@ -1,4 +1,4 @@
-"""Build full corpus + queries from src/lemoncrow.
+"""Build full corpus + queries from src/atelier.
 
 Output (under benchmarks/embedding/data/):
   corpus.jsonl       — every function/class chunk (id + text)
@@ -12,7 +12,7 @@ import pathlib
 import random
 import re
 
-SRC = pathlib.Path("src/lemoncrow")
+SRC = pathlib.Path("src/atelier")
 OUT_DIR = pathlib.Path("benchmarks/embedding/data")
 random.seed(42)
 

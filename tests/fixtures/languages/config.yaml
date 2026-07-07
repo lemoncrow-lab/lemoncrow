@@ -1,13 +1,13 @@
 name: dedicated-language-support
 services:
   api:
-    image: lemoncrow/api:latest
+    image: atelier/api:latest
     environment:
       LOG_LEVEL: debug
       FEATURE_FLAG: enabled
       CACHE_SIZE: "128"
   worker:
-    image: lemoncrow/worker:latest
+    image: atelier/worker:latest
     environment:
       QUEUE: default
       CONCURRENCY: "4"

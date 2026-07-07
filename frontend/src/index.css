@@ -1,5 +1,31 @@
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap");
+/* Local Hack Nerd Font - shipped with app */
+@font-face {
+  font-family: 'Hack Nerd Font Mono';
+  src: url('/fonts/HackNerdFontMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Hack Nerd Font Mono';
+  src: url('/fonts/HackNerdFontMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Hack Nerd Font Mono';
+  src: url('/fonts/HackNerdFontMono-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Hack Nerd Font Mono';
+  src: url('/fonts/HackNerdFontMono-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+}
 
 @tailwind base;
 @tailwind components;
@@ -83,11 +109,8 @@ body,
 body {
   background-color: rgb(var(--n-950));
   color: rgb(var(--n-200));
-  font-family:
-    "JetBrains Mono", "Hack Nerd Font Mono", "Droid Sans Mono", monospace;
-  font-feature-settings:
-    "liga" 1,
-    "calt" 1;
+  font-family: 'Hack Nerd Font Mono', 'Hack Nerd Font', 'Droid Sans Mono', monospace;
+  font-feature-settings: 'liga' 1, 'calt' 1;
 }
 
 /* Custom scrollbar */
@@ -133,11 +156,8 @@ textarea {
   background-color: rgb(var(--n-900));
   border-color: rgb(var(--n-700));
   color: rgb(var(--n-200));
-  font-family:
-    "Hack Nerd Font Mono", "Hack Nerd Font", "Droid Sans Mono", monospace;
-  font-feature-settings:
-    "liga" 1,
-    "calt" 1;
+  font-family: 'Hack Nerd Font Mono', 'Hack Nerd Font', 'Droid Sans Mono', monospace;
+  font-feature-settings: 'liga' 1, 'calt' 1;
 }
 
 select option {
@@ -156,11 +176,8 @@ pre {
   background-color: rgb(var(--surface-code));
   border: 1px solid rgb(var(--n-800));
   color: rgb(var(--n-200));
-  font-family:
-    "Hack Nerd Font Mono", "Hack Nerd Font", "Droid Sans Mono", monospace;
-  font-feature-settings:
-    "liga" 1,
-    "calt" 1;
+  font-family: 'Hack Nerd Font Mono', 'Hack Nerd Font', 'Droid Sans Mono', monospace;
+  font-feature-settings: 'liga' 1, 'calt' 1;
 }
 
 /* Links */
@@ -213,22 +230,22 @@ button:hover {
 
 /* Status indicator styles */
 .status-active::before {
-  content: "● ";
+  content: '● ';
   color: #10b981;
 }
 
 .status-inactive::before {
-  content: "◦ ";
+  content: '◦ ';
   color: #6b7280;
 }
 
 .status-error::before {
-  content: "✗ ";
+  content: '✗ ';
   color: #ef4444;
 }
 
 .status-warning::before {
-  content: "⚠ ";
+  content: '⚠ ';
   color: #f59e0b;
 }
 

@@ -4,20 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.gateway.adapters.mcp_server import (
-    _binary_read_message,
+from atelier.core.capabilities.source_projection import build_compact_projection
+from atelier.gateway.adapters.mcp_server import (
     _read_dedup_resource,
     tool_smart_edit,
     tool_smart_read,
-)
-from lemoncrow.pro.capabilities.source_projection import build_compact_projection
-
-# 1x1 red-opaque PNG (70 bytes, generated + round-trip-verified via zlib/struct
-# at authoring time) -- real image bytes, not a fixture file, so this test
-# carries its own data and needs no test-asset dir.
-_TINY_PNG = bytes.fromhex(
-    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
-    "0000000d49444154789c63f8cfc0f01f00050001ff89993d1d0000000049454e44ae426082"
 )
 
 
@@ -27,7 +18,7 @@ def test_default_reader_read_uses_minified_projection_for_safe_language(
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     # Pin the outline threshold above this file's LOC — this test exercises
     # minified (tree-sitter) projection of full bodies, not outline-by-default.
-    monkeypatch.setenv("LEMONCROW_OUTLINE_THRESHOLD", "200")
+    monkeypatch.setenv("ATELIER_OUTLINE_THRESHOLD", "200")
     target = tmp_path / "sample.go"
     source = (
         "package   main\n\n"
@@ -76,7 +67,7 @@ def test_expand_large_file_returns_line_aligned_prefix_with_continuation(
     # otherwise dump to a temp file and force the agent to re-read in blind ranges).
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     # Budget above the 8KB floor; file comfortably larger than the budget.
-    monkeypatch.setenv("LEMONCROW_READ_INLINE_BUDGET_BYTES", "10240")
+    monkeypatch.setenv("ATELIER_READ_INLINE_BUDGET_BYTES", "10240")
     target = tmp_path / "big.py"
     source = "".join(f"line_{i:04d} = {i}\n" for i in range(1000))
     target.write_text(source, encoding="utf-8")
@@ -98,9 +89,9 @@ def test_expand_large_file_returns_line_aligned_prefix_with_continuation(
 
 
 def test_expand_inline_budget_disabled_returns_full_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # LEMONCROW_READ_INLINE_BUDGET_BYTES=0 opts out: full exact body, no truncation.
+    # ATELIER_READ_INLINE_BUDGET_BYTES=0 opts out: full exact body, no truncation.
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_READ_INLINE_BUDGET_BYTES", "0")
+    monkeypatch.setenv("ATELIER_READ_INLINE_BUDGET_BYTES", "0")
     target = tmp_path / "big.py"
     source = "".join(f"line_{i:04d} = {i}\n" for i in range(1000))
     target.write_text(source, encoding="utf-8")
@@ -470,7 +461,7 @@ def test_large_range_read_returns_prefix_with_continuation(tmp_path: Path, monke
     # the expand path: a line-aligned prefix + an EXACT continuation range that
     # resumes at the next unread line of the requested slice (not line 1).
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_READ_INLINE_BUDGET_BYTES", "10240")
+    monkeypatch.setenv("ATELIER_READ_INLINE_BUDGET_BYTES", "10240")
     target = tmp_path / "big.py"
     target.write_text("".join(f"line_{i:04d} = {i}\n" for i in range(1000)), encoding="utf-8")
 
@@ -492,7 +483,7 @@ def test_large_range_read_returns_prefix_with_continuation(tmp_path: Path, monke
 def test_small_range_read_not_truncated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # The range cap must never bite a normal (sub-budget) range read.
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_READ_INLINE_BUDGET_BYTES", "10240")
+    monkeypatch.setenv("ATELIER_READ_INLINE_BUDGET_BYTES", "10240")
     target = tmp_path / "small.py"
     target.write_text("".join(f"line_{i:04d} = {i}\n" for i in range(1000)), encoding="utf-8")
 
@@ -520,115 +511,3 @@ def test_read_dedup_resource_tracks_single_file_batch_form() -> None:
     # legacy path= form still works
     assert _read_dedup_resource({"path": "leg.py", "range": "1-3"})
     assert _read_dedup_resource({"files": []}) == ""
-
-
-def test_read_image_file_returns_viewable_image_block(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Root cause of a real Terminal-Bench regression: on image-input tasks
-    (chess-best-move, code-from-image) the agent never called `read` on the
-    image at all and instead built from-scratch OCR/CV pipelines -- turns out
-    `read` COULD already hand back a real image content block
-    (_smart_read_single's image branch), the tool's description just never
-    said so, so the model had no reason to try it. This pins the behavior AND
-    (below) the description fix together so neither regresses silently.
-    """
-    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    target = tmp_path / "board.png"
-    target.write_bytes(_TINY_PNG)
-
-    payload = tool_smart_read({"path": str(target)})
-
-    assert payload["mode"] == "image"
-    assert payload["media_type"] == "image/png"
-    assert payload["bytes_total"] == len(_TINY_PNG)
-
-
-def test_read_text_file_with_stray_non_utf8_bytes_is_lossy_decoded(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # A text-typed file with raw high bytes but no NULs (doom's boot log shape:
-    # bench trial B6kapda burned 7 turns on cat/head/wc/strings archaeology
-    # because read answered "not UTF-8 text, not decoded") must be served
-    # lossy-decoded, not dead-ended as binary.
-    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    target = tmp_path / "boot.txt"
-    target.write_bytes(b"loading doom\xff\xfe graphics init\nline two\n")
-
-    payload = tool_smart_read({"path": str(target)})
-
-    assert payload.get("mode") != "binary"
-    content = str(payload.get("content") or "")
-    assert "loading doom" in content
-    assert "line two" in content
-
-
-def test_read_true_binary_with_nuls_stays_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # NUL bytes = genuinely binary, even with a text extension: keep the
-    # structured binary signal (mojibake would be worse than the message).
-    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    target = tmp_path / "blob.txt"
-    target.write_bytes(b"\x00\x01\x02 junk \xff")
-
-    payload = tool_smart_read({"path": str(target)})
-
-    assert payload["mode"] == "binary"
-
-
-def test_read_tool_description_advertises_image_support() -> None:
-    """Regression guard for the actual fix: the description text the model
-    sees, not just the implementation, must say `read` can show it an image --
-    that's the part that was missing and caused the OCR/CV fallback pattern.
-    """
-    from lemoncrow.gateway.adapters.mcp.framework import TOOLS
-
-    desc = TOOLS["read"]["description"] or ""
-    assert "image" in desc.lower()
-    assert "png" in desc.lower() or "jpg" in desc.lower()
-
-
-def test_read_video_file_message_suggests_frame_extraction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    target = tmp_path / "clip.mp4"
-    target.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64)
-
-    payload = tool_smart_read({"path": str(target)})
-
-    assert payload["mode"] == "binary"
-    assert payload["media_type"] == "video/mp4"
-    assert "ffmpeg" in payload["message"]
-    assert "frame" in payload["message"]
-
-
-def test_read_pdf_file_message_suggests_pdftotext_or_pdftoppm(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    target = tmp_path / "doc.pdf"
-    target.write_bytes(b"%PDF-1.4\n" + b"\x00" * 64)
-
-    payload = tool_smart_read({"path": str(target)})
-
-    assert payload["mode"] == "binary"
-    assert payload["media_type"] == "application/pdf"
-    assert "pdftotext" in payload["message"] or "pdftoppm" in payload["message"]
-
-
-def test_binary_read_message_is_type_aware_not_generic() -> None:
-    """Direct unit coverage of the helper across categories, independent of
-    tool_smart_read plumbing -- each category must say something DIFFERENT
-    and actionable, not all collapse to the same dead-end sentence.
-    """
-    image_msg = _binary_read_message("image/png", 5_000_000)
-    video_msg = _binary_read_message("video/mp4", 1000)
-    audio_msg = _binary_read_message("audio/mpeg", 1000)
-    pdf_msg = _binary_read_message("application/pdf", 1000)
-    zip_msg = _binary_read_message("application/zip", 1000)
-    gz_msg = _binary_read_message("application/octet-stream", 1000, suffix=".gz")
-    unknown_msg = _binary_read_message("application/octet-stream", 1000)
-
-    messages = {image_msg, video_msg, audio_msg, pdf_msg, zip_msg, gz_msg, unknown_msg}
-    assert len(messages) == len(
-        [image_msg, video_msg, audio_msg, pdf_msg, zip_msg, gz_msg, unknown_msg]
-    ), "every category must produce a distinct message"
-    assert "ffmpeg" in video_msg
-    assert "pdftotext" in pdf_msg or "pdftoppm" in pdf_msg
-    assert "unzip" in zip_msg or "tar -tf" in zip_msg
-    assert "unzip" in gz_msg or "tar -tf" in gz_msg
-    assert unknown_msg == "Binary file (application/octet-stream, 1000 bytes) -- not UTF-8 text, not decoded."

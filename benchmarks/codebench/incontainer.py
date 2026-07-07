@@ -1,6 +1,6 @@
 """In-container agent runner for Multi-SWE-bench instances (option A).
 
-The agent (Claude Code, optionally + LemonCrow) runs INSIDE each instance's
+The agent (Claude Code, optionally + Atelier) runs INSIDE each instance's
 Docker image -- which carries the real toolchain -- against the repo checked
 out at ``base_sha``. The produced git diff is extracted as the agent's
 ``fix_patch`` and the run is parsed into a run.py ``ArmResult`` so every
@@ -8,31 +8,32 @@ existing savings / report / CSV path applies unchanged.
 
 The two arms differ only in the overlay contents + the claude flags:
   baseline -> vanilla Claude Code (default persona, empty MCP)
-  lemoncrow -> Claude Code + the LemonCrow plugin (--plugin-dir, --agent lemoncrow:auto)
-That is the vanilla-vs-LemonCrow isolation, same model, same task.
+  atelier  -> Claude Code + the Atelier plugin (--plugin-dir, --agent atelier:auto)
+That is the vanilla-vs-Atelier isolation, same model, same task.
 """
 
 from __future__ import annotations
 
 import contextlib
+import functools
 import io
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Protocol
 
 from benchmarks.codebench.run import (
+    ATELIER_CLAUDE_PLUGIN_ROOT,
     CA_CERT,
     REPO_ROOT,
     ArmResult,
     _free_port,
-    _cursor_model,
-    _lean_plugin_root,
     _parse_claude_result,
-    _parse_cursor_result,
     _wait_port,
 )
 
@@ -46,31 +47,55 @@ class RunnableInstance(Protocol):
 
 
 ENTRY_SCRIPT = Path(__file__).parent / "incontainer_entry.sh"
-# Pre-warmed tiktoken cache bind-mounted into the LemonCrow container. The LemonCrow
+# Pre-warmed tiktoken cache bind-mounted into the atelier container. The Atelier
 # MCP server loads cl100k_base at import (repo_map.budget); without a warmed
 # cache it downloads from openaipublic.blob, which dies under the benchmark proxy
 # (mitm CA absent from Python's trust store) and crashes the server -> zero
-# LemonCrow tools reach the agent. Warmed by _ensure_tiktoken_cache().
+# Atelier tools reach the agent. Warmed by _ensure_tiktoken_cache().
 TIKTOKEN_CACHE_HOST = Path(__file__).parent / ".tiktoken-cache"
 OVERLAY_NAMESPACE = "codebench-overlay"
 _DIFF_BEGIN = "<<<CODEBENCH_DIFF_BEGIN>>>"
 _DIFF_END = "<<<CODEBENCH_DIFF_END>>>"
 
 # Persona per arm for the "code" capability (mirrors run.ARM_SPECS).
-_ARM_AGENT: dict[str, str | None] = {"baseline": None, "lemoncrow": "lemoncrow:auto"}
+_ARM_AGENT: dict[str, str | None] = {"baseline": None, "atelier": "atelier:auto"}
 
-# --- cursor driver -----------------------------------------------------------
-# cursor-agent authenticates from ~/.config/cursor/auth.json (accessToken +
-# refreshToken, written by `cursor-agent login`). Bind-mounted into the container
-# so cursor-agent runs authenticated with no interactive login.
-CURSOR_AUTH_HOST = Path.home() / ".config" / "cursor" / "auth.json"
-# cursor-agent's persona rule (mirrors the exploration driver in run.py). The
-# leaner `auto` persona -- `solve` was measured as an over-investigation tax on
-# single-turn work -- is the default for the container arm too.
-CURSOR_RULE_HOST = REPO_ROOT / "integrations" / "cursor" / "rules" / "lemoncrow.auto.mdc"
-# Egress allowlist for the cursor driver: cursor-agent's model inference + auth
-# live on *.cursor.sh / *.cursor.com, which the hermetic guard would else block.
-CURSOR_EGRESS_ALLOW = "cursor.sh,cursor.com,anthropic.com,amazonaws.com"
+
+_PLUGIN_STAGE_LOCK = threading.Lock()
+
+
+@functools.lru_cache(maxsize=1)
+def _lean_plugin_root() -> str:
+    """Stage a bench-lean copy of the Claude plugin for the container mount.
+
+    The repo plugin dir doubles as the on-demand install SOURCE (every role
+    agent + optional skills), so mounting it raw ships 10 agent personas and
+    the full skill list into every container's system prompt -- dead prefix
+    weight re-read on every turn of every run. The bench measures the CODING
+    surface only: exactly one persona (_ARM_AGENT) and ZERO skills.
+
+    Guarded by a lock and staged per-process: lru_cache does NOT serialize the
+    first computation, so two parallel jobs could otherwise interleave rmtree/
+    copytree while one of them is mounting the dir (observed: first-scheduled
+    instance dying at turn 0 with an empty flow). The pid suffix keeps a fresh
+    driver process from clobbering a still-running older one.
+    """
+    src = ATELIER_CLAUDE_PLUGIN_ROOT
+    dest = Path(tempfile.gettempdir()) / f"codebench-plugin-lean-{os.getpid()}"
+    with _PLUGIN_STAGE_LOCK:
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src, dest)
+        agents = dest / "agents"
+        if agents.is_dir():
+            keep = (_ARM_AGENT.get("atelier") or "atelier:auto").split(":", 1)[-1]
+            for p in agents.glob("*.md"):
+                if p.stem != keep:
+                    p.unlink()
+        skills = dest / "skills"
+        if skills.is_dir():
+            shutil.rmtree(skills)
+    return str(dest)
 
 
 # Installed into every overlay: Node + the claude CLI on top of the instance image.
@@ -86,36 +111,21 @@ npm cache clean --force
 rm -rf /var/lib/apt/lists/*
 """
 
-# Cursor driver baseline overlay: install the cursor-agent CLI. Self-contained
-# binary from the official installer (no Node needed); symlinked onto PATH so the
-# entry script resolves `cursor-agent` regardless of the image's default user.
-# Runs at overlay-build time (egress open), same as the claude npm install.
-_CURSOR_INSTALL = r"""
-set -e
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y --no-install-recommends curl ca-certificates git
-curl https://cursor.com/install -fsS | bash
-ln -sf "$HOME/.local/bin/cursor-agent" /usr/local/bin/cursor-agent
-cursor-agent --version || true
-rm -rf /var/lib/apt/lists/*
-"""
-
-# LemonCrow arm only: install the LemonCrow CLI from the mounted repo (skip mypyc
+# Atelier arm only: install the atelier CLI from the mounted repo (skip mypyc
 # for a fast pure-Python build) onto PATH so the plugin's MCP server
-# (`lemoncrow mcp --host claude`) resolves exactly as it does on the host.
+# (`atelier mcp --host claude`) resolves exactly as it does on the host.
 # Extras go on the path requirement; UV_TOOL_BIN_DIR puts the entrypoints on PATH.
-_LEMONCROW_INSTALL = r"""
+_ATELIER_INSTALL = r"""
 set -e
 curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
-LEMONCROW_ENABLE_MYPYC=0 UV_TOOL_BIN_DIR=/usr/local/bin /usr/local/bin/uv tool install --force "/opt/lemoncrow[mcp,smart,parsers,rename]"
+ATELIER_SKIP_MYPYC=1 UV_TOOL_BIN_DIR=/usr/local/bin /usr/local/bin/uv tool install --force "/opt/atelier[mcp,smart,parsers,rename]"
 
 # Pre-install the ast-grep binary so the codemod MCP tool works at runtime.
 # Download NOW (overlay build time) -- the mitmproxy that runs during the actual
 # benchmark uses a CA that Python's ssl module does not trust, so any urllib call
 # at runtime fails. ast-grep is a compiled Rust CLI; there is no pip wheel for it.
 # Version/URL/SHA must stay in sync with:
-#   src/lemoncrow/infra/code_intel/astgrep/binaries.py (_MANAGED_VERSION + _MANAGED_ASSETS)
+#   src/atelier/infra/code_intel/astgrep/binaries.py (_MANAGED_VERSION + _MANAGED_ASSETS)
 python3 - <<'PYEOF'
 import hashlib, io, platform, stat, sys, urllib.request, zipfile
 from pathlib import Path
@@ -132,7 +142,7 @@ ASSETS = {
 if ARCH not in ASSETS:
     sys.exit(f'no pinned ast-grep asset for arch {ARCH!r}')
 url, sha256 = ASSETS[ARCH]
-dest = Path('/opt/lemoncrow-astgrep/ast-grep')
+dest = Path('/opt/atelier-astgrep/ast-grep')
 dest.parent.mkdir(parents=True, exist_ok=True)
 print(f'Downloading ast-grep ({ARCH}) ...', flush=True)
 with urllib.request.urlopen(url, timeout=120) as r:
@@ -157,9 +167,9 @@ def _run(cmd: list[str], *, timeout: float | None = None, capture: bool = True) 
 def _ensure_tiktoken_cache() -> None:
     """Warm the bind-mounted tiktoken cache (idempotent; a hit is a no-op).
 
-    The in-container LemonCrow MCP server loads cl100k_base at import; with this
+    The in-container Atelier MCP server loads cl100k_base at import; with this
     cache present it never reaches the network, which would otherwise crash the
-    server under the benchmark proxy. Warms with the LemonCrow venv (which carries
+    server under the benchmark proxy. Warms with the atelier venv (which carries
     tiktoken) so a fresh clone / CI run can't silently regress.
     """
     if TIKTOKEN_CACHE_HOST.exists() and any(TIKTOKEN_CACHE_HOST.iterdir()):
@@ -187,12 +197,8 @@ def _safe(base_image: str) -> str:
     return re.sub(r"[^a-z0-9_.-]+", "_", base_image.lower()).strip("_")
 
 
-def overlay_tag(base_image: str, *, lc: bool, driver: str = "claude") -> str:
-    arm = "lemoncrow" if lc else "baseline"
-    # claude tags stay bare (:baseline/:lemoncrow) so existing cached overlays
-    # remain valid; other drivers get a prefix (:cursor-baseline, ...).
-    prefix = "" if driver == "claude" else f"{driver}-"
-    return f"{OVERLAY_NAMESPACE}/{_safe(base_image)}:{prefix}{arm}"
+def overlay_tag(base_image: str, *, atelier: bool) -> str:
+    return f"{OVERLAY_NAMESPACE}/{_safe(base_image)}:{'atelier' if atelier else 'baseline'}"
 
 
 def ensure_base_image(image: str, *, timeout: float = 1800) -> None:
@@ -210,11 +216,11 @@ def _install_zoekt_into(builder: str, *, timeout: float = 600) -> None:
     needed.  The four binaries go to ``/usr/local/bin/`` so
     ``discover_zoekt_binary()`` finds them via PATH (installed mode).
     Version is pinned in
-    ``src/lemoncrow/infra/code_intel/zoekt/VERSIONS.toml``.
+    ``src/atelier/infra/code_intel/zoekt/VERSIONS.toml``.
     """
     import tomllib
 
-    versions_path = REPO_ROOT / "src" / "lemoncrow" / "infra" / "code_intel" / "zoekt" / "VERSIONS.toml"
+    versions_path = REPO_ROOT / "src" / "atelier" / "infra" / "code_intel" / "zoekt" / "VERSIONS.toml"
     try:
         image_ref = tomllib.loads(versions_path.read_text())["zoekt"]["image_ref"]
     except Exception as exc:
@@ -279,26 +285,26 @@ def _install_zoekt_into(builder: str, *, timeout: float = 600) -> None:
         _run(["docker", "rm", "-f", tmp])
 
 
-def ensure_overlay(base_image: str, *, lc: bool, driver: str = "claude", build_timeout: float = 3600) -> str:
+def ensure_overlay(base_image: str, *, atelier: bool, build_timeout: float = 3600) -> str:
     """Build (once, then cache) the harness overlay for *base_image*.
 
-    The LemonCrow overlay layers on the driver's baseline overlay (which already
-    carries the agent CLI -- claude or cursor-agent), so the CLI installs once per
-    base image and the LemonCrow build only adds the LemonCrow CLI.
+    The atelier overlay layers on the baseline overlay (which already carries
+    Node + claude), so node/claude install once per base image and the atelier
+    build only adds the atelier CLI.
     """
-    tag = overlay_tag(base_image, lc=lc, driver=driver)
+    tag = overlay_tag(base_image, atelier=atelier)
     if image_exists(tag):
         return tag
-    if lc:
-        parent = ensure_overlay(base_image, lc=False, driver=driver)
-        install = _LEMONCROW_INSTALL
-        mounts = ["-v", f"{REPO_ROOT}:/opt/lemoncrow:ro"]
+    if atelier:
+        parent = ensure_overlay(base_image, atelier=False)
+        install = _ATELIER_INSTALL
+        mounts = ["-v", f"{REPO_ROOT}:/opt/atelier:ro"]
     else:
         ensure_base_image(base_image)
         parent = base_image
-        install = _CURSOR_INSTALL if driver == "cursor" else _BASELINE_INSTALL
+        install = _BASELINE_INSTALL
         mounts = []
-    builder = f"overlay_build_{_safe(base_image)}_{driver}_{'lemoncrow' if lc else 'baseline'}"
+    builder = f"overlay_build_{_safe(base_image)}_{'atelier' if atelier else 'baseline'}"
     _run(["docker", "rm", "-f", builder])
     # --entrypoint sleep overrides whatever ENTRYPOINT the base image sets (most
     # SWE-bench images have none, so "sleep infinity" runs as the CMD -- but
@@ -315,12 +321,12 @@ def ensure_overlay(base_image: str, *, lc: bool, driver: str = "claude", build_t
         proc = _run(["docker", "exec", builder, "bash", "-lc", install], timeout=build_timeout)
         if proc.returncode != 0:
             raise RuntimeError(f"overlay install failed for {tag}:\n{proc.stdout[-800:]}\n{proc.stderr[-800:]}")
-        # LEMONCROW_ZOEKT_MODE defaults to "off" (lexical/FTS5-only, see zoekt_mode()
-        # in src/lemoncrow/infra/code_intel/zoekt/binary.py) and the container never
+        # ATELIER_ZOEKT_MODE defaults to "off" (lexical/FTS5-only, see zoekt_mode()
+        # in src/atelier/infra/code_intel/zoekt/binary.py) and the container never
         # sets it otherwise -- should_route() short-circuits on mode=="off" before
         # ever touching the binaries, so installing them is pure dead weight unless
         # a caller explicitly opts in to test the zoekt path.
-        if lc and os.environ.get("CODEBENCH_ZOEKT_MODE", "off") != "off":
+        if atelier and os.environ.get("CODEBENCH_ZOEKT_MODE", "off") != "off":
             _install_zoekt_into(builder)
         if _run(["docker", "commit", builder, tag]).returncode != 0:
             raise RuntimeError(f"docker commit {tag} failed")
@@ -329,10 +335,7 @@ def ensure_overlay(base_image: str, *, lc: bool, driver: str = "claude", build_t
     return tag
 
 
-def _start_proxy(port: int, flow_path: Path, *, egress_allow: str | None = None) -> subprocess.Popen[bytes]:
-    proc_env = dict(os.environ)
-    if egress_allow:
-        proc_env["CODEBENCH_EGRESS_ALLOW"] = egress_allow
+def _start_proxy(port: int, flow_path: Path) -> subprocess.Popen[bytes]:
     return subprocess.Popen(
         [
             "uv",
@@ -354,7 +357,6 @@ def _start_proxy(port: int, flow_path: Path, *, egress_allow: str | None = None)
             "-q",
         ],
         cwd=str(REPO_ROOT),
-        env=proc_env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -391,7 +393,6 @@ def _docker_run_cmd(
     instance: RunnableInstance,
     arm: str,
     *,
-    driver: str = "claude",
     overlay: str,
     model: str,
     max_turns: int,
@@ -419,29 +420,14 @@ def _docker_run_cmd(
         "-v",
         f"{CA_CERT}:/mnt/mitm.pem:ro",
     ]
-    if driver == "cursor":
-        # cursor-agent auth (accessToken/refreshToken); the entry script copies it
-        # into a writable HOME so a token refresh mid-run isn't blocked by the
-        # read-only bind mount.
-        cmd += ["-v", f"{CURSOR_AUTH_HOST}:/mnt/cursor-auth.json:ro"]
-    if arm == "lemoncrow":
-        if driver == "cursor":
-            # cursor drives the lc MCP server via .cursor/mcp.json + a persona rule
-            # (both written by the entry script), not the claude plugin-dir.
-            if CURSOR_RULE_HOST.is_file():
-                cmd += ["-v", f"{CURSOR_RULE_HOST}:/mnt/cursor-rule.mdc:ro"]
-        else:
-            cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('lemoncrow') or 'lemoncrow:solve')}:/mnt/plugin:ro"]
+    if arm == "atelier":
+        cmd += ["-v", f"{_lean_plugin_root()}:/mnt/plugin:ro"]
         cmd += ["-v", f"{TIKTOKEN_CACHE_HOST}:/opt/tiktoken-cache:ro"]
-        # Account-free: no host auth files are mounted and no device id is
-        # forwarded (device minting removed). The runtime is fully unlocked
-        # without an account, so containers run with every tool available.
-        # See docs/maintenance-mode-transition.md.
         # Overlay the live repo source onto the baked-in (pure-Python) install so
         # tool-behavior changes take effect without rebuilding 12 overlay images.
         cmd += [
             "-v",
-            f"{REPO_ROOT}/src/lemoncrow:/root/.local/share/uv/tools/lemoncrow/lib/python3.13/site-packages/lemoncrow:ro",
+            f"{REPO_ROOT}/src/atelier:/root/.local/share/uv/tools/atelier/lib/python3.13/site-packages/atelier:ro",
         ]
         # Semantic bash-output compaction: bind-mount an rtk binary so
         # external_compactors routes pytest/git/linter output through it inside
@@ -462,30 +448,12 @@ def _docker_run_cmd(
     env: dict[str, str] = {
         "IS_SANDBOX": "1",
         "NODE_EXTRA_CA_CERTS": "/mnt/mitm.pem",
+        "HTTPS_PROXY": f"http://host.docker.internal:{proxy_port}",
+        "HTTP_PROXY": f"http://host.docker.internal:{proxy_port}",
         "CODEBENCH_ARM": arm,
         "CODEBENCH_MODEL": model,
         "CODEBENCH_MAX_TURNS": str(max_turns),
-        "CODEBENCH_DRIVER": driver,
     }
-    # claude routes through the hermetic mitmproxy. cursor-agent uses a streaming
-    # transport to *.cursor.sh that mitmproxy cannot tunnel (verified: endless
-    # "Connection lost, reconnecting"), so the cursor driver talks DIRECTLY by
-    # default -- cost still comes from cursor-agent's own JSON usage (the flow
-    # capture is claude-only anyway). Opt back into the proxy with
-    # CODEBENCH_CURSOR_PROXY=1 (caveat: without it the egress guard can't block a
-    # server-side gold-PR fetch, so cursor SWE numbers are cost-only, not hermetic).
-    _use_proxy = driver != "cursor" or os.environ.get("CODEBENCH_CURSOR_PROXY", "0") not in ("", "0")
-    if _use_proxy:
-        env["HTTPS_PROXY"] = f"http://host.docker.internal:{proxy_port}"
-        env["HTTP_PROXY"] = f"http://host.docker.internal:{proxy_port}"
-    if driver == "cursor":
-        env["CODEBENCH_HOST"] = "cursor"
-        # cursor-agent only accepts its own model ids (composer-*, gpt-*, specific
-        # claude-* ids); the codebench --model default is a claude id cursor-agent
-        # rejects, and the free plan supports only "auto" regardless. So run auto
-        # unless an operator explicitly pins a real cursor id via this env var.
-        _pin = os.environ.get("CODEBENCH_CURSOR_MODEL", "").strip()
-        env["CODEBENCH_CURSOR_MODEL"] = (_cursor_model(_pin) or "") if _pin else ""
     # SWE-bench images carry the repo at /testbed; pin it so the entry script
     # never picks a stray .git (e.g. under site-packages). Multi-SWE instances
     # leave this unset and the entry script auto-discovers the repo.
@@ -500,14 +468,14 @@ def _docker_run_cmd(
     if before_repo_set_cmd:
         env["CODEBENCH_BEFORE_REPO_SET_CMD"] = str(before_repo_set_cmd)
     agent = _ARM_AGENT.get(arm)
-    if arm == "lemoncrow":
-        # Per-run persona override (default lemoncrow:auto). Lets a diagnostic run
-        # use e.g. lemoncrow:bare without disturbing a concurrent auto run -- the
+    if arm == "atelier":
+        # Per-run persona override (default atelier:auto). Lets a diagnostic run
+        # use e.g. atelier:bare without disturbing a concurrent auto run -- the
         # other process doesn't set this env var, so it keeps the default.
-        agent = os.environ.get("CODEBENCH_LEMONCROW_AGENT") or agent
+        agent = os.environ.get("CODEBENCH_ATELIER_AGENT") or agent
     if agent:
         env["CODEBENCH_AGENT"] = agent
-    if arm == "lemoncrow":
+    if arm == "atelier":
         # Point tiktoken at the bind-mounted pre-warmed cache so the MCP server
         # never reaches the network at import (see TIKTOKEN_CACHE_HOST).
         env["TIKTOKEN_CACHE_DIR"] = "/opt/tiktoken-cache"
@@ -516,17 +484,17 @@ def _docker_run_cmd(
         # reasons over. callers/callees/usages are already hidden by default
         # (folded into `explore`), so they need not be repeated here. Visible
         # surface after this: read, edit, code_search, bash (verified via
-        # `lemoncrow tools list` under this env) -- ~1k tokens of schema total.
-        env["LEMONCROW_HIDE_TOOLS"] = "sql,memory,web_fetch"
+        # `atelier tools list` under this env) -- ~1k tokens of schema total.
+        env["ATELIER_HIDE_TOOLS"] = "sql,memory,web_fetch"
         # Point at the pre-installed binary so discover_astgrep_binary() finds it
         # immediately via the env-var path (no runtime download attempt through proxy).
-        env["LEMONCROW_AST_GREP_BIN"] = "/opt/lemoncrow-astgrep/ast-grep"
+        env["ATELIER_AST_GREP_BIN"] = "/opt/atelier-astgrep/ast-grep"
         # Edit-verify gate ON by default (tree-sitter parse + scoped mypy): catches
         # mechanical edit errors in-tool instead of via a shell round-trip, which
         # collapses the edit->test->error->re-edit cycle on iteration-bound tasks
         # (measured -33% to -47% cost at equal correctness). Opt out for control
         # runs with CODEBENCH_EDIT_VERIFY=0.
-        env["LEMONCROW_EDIT_VERIFY"] = os.environ.get("CODEBENCH_EDIT_VERIFY", "1")
+        env["ATELIER_EDIT_VERIFY"] = os.environ.get("CODEBENCH_EDIT_VERIFY", "1")
         # Code search runs lexical (symbol FTS + zoekt) by default -- the shipped
         # default (NullEmbedder, FTS-only). The feature-hashing "local" embedder was
         # removed: RETRIEVAL_EVAL measured it at -0.0004 MRR (net zero, flask -0.16)
@@ -534,14 +502,14 @@ def _docker_run_cmd(
         # backend (ollama/bge) via CODEBENCH_CODE_EMBEDDER.
         _code_embedder = os.environ.get("CODEBENCH_CODE_EMBEDDER", "")
         if _code_embedder:
-            env["LEMONCROW_CODE_EMBEDDER"] = _code_embedder
+            env["ATELIER_CODE_EMBEDDER"] = _code_embedder
         # Verify-before-done gate ON for every persona. It is the DETERMINISTIC
         # half of correctness: silent on the happy path (a real test ran), and
         # actionable only on the fail/skip case (edited code, no test runner). This
         # replaces a blanket persona "always iterate against tests" rule, which
         # taxed easy tasks; the gate nudges once, only when a test was actually
         # skipped. Override with CODEBENCH_VERIFY_BEFORE_DONE=0.
-        env["LEMONCROW_VERIFY_BEFORE_DONE"] = os.environ.get("CODEBENCH_VERIFY_BEFORE_DONE", "1")
+        env["ATELIER_VERIFY_BEFORE_DONE"] = os.environ.get("CODEBENCH_VERIFY_BEFORE_DONE", "1")
         # code_search outline mode ON by default: large sections become L<start>-L<end>
         # pointers (small ones stay inline; include_source keeps a bounded top-2).
         # Flow-capture attribution (reports/benchmark/swe/20260706T065549Z) measured
@@ -549,15 +517,15 @@ def _docker_run_cmd(
         # per 10 tasks while the agent read its edit targets anyway (sphinx: 14k chars
         # of sections next to an unchanged read volume). Opt out for control runs with
         # CODEBENCH_CODESEARCH_OUTLINE=0.
-        env["LEMONCROW_CODESEARCH_OUTLINE"] = os.environ.get("CODEBENCH_CODESEARCH_OUTLINE", "1")
+        env["ATELIER_CODESEARCH_OUTLINE"] = os.environ.get("CODEBENCH_CODESEARCH_OUTLINE", "1")
         # Defer mutating edit-hooks (format/organize-imports) + contract-site re-fires
         # to the Stop hook so the formatter can't reflow files mid-session and break
         # the agent's read anchors. Opt-in via CODEBENCH_DEFER_EDIT_HOOKS=1.
-        env["LEMONCROW_DEFER_EDIT_HOOKS"] = os.environ.get("CODEBENCH_DEFER_EDIT_HOOKS", "0")
+        env["ATELIER_DEFER_EDIT_HOOKS"] = os.environ.get("CODEBENCH_DEFER_EDIT_HOOKS", "0")
         # Matches the host default (lexical/FTS5-only); overlay only installs the
         # zoekt binaries when this is set to something other than "off" (see the
         # ensure_overlay() gate above), so this must stay in sync with that check.
-        env["LEMONCROW_ZOEKT_MODE"] = os.environ.get("CODEBENCH_ZOEKT_MODE", "off")
+        env["ATELIER_ZOEKT_MODE"] = os.environ.get("CODEBENCH_ZOEKT_MODE", "off")
     env.update(agent_env)
     for key, value in env.items():
         cmd += ["-e", f"{key}={value}"]
@@ -590,7 +558,6 @@ def run_in_container(
     arm: str,
     rep: int,
     *,
-    driver: str = "claude",
     model: str,
     out_dir: Path,
     timeout: int,
@@ -604,9 +571,9 @@ def run_in_container(
     ``...flow`` (wire capture) under *out_dir*; the grader reads the patch.
     """
     agent_env = agent_env or {}
-    if arm == "lemoncrow":
+    if arm == "atelier":
         _ensure_tiktoken_cache()
-    overlay = overlay or ensure_overlay(instance.image, lc=(arm == "lemoncrow"), driver=driver)
+    overlay = overlay or ensure_overlay(instance.image, atelier=(arm == "atelier"))
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{instance.instance_id}_{arm}_rep{rep}"
@@ -616,8 +583,7 @@ def run_in_container(
     prompt_path.write_text(instance.problem_statement, encoding="utf-8")
 
     port = _free_port()
-    egress_allow = CURSOR_EGRESS_ALLOW if driver == "cursor" else None
-    proxy = _start_proxy(port, flow_path, egress_allow=egress_allow)
+    proxy = _start_proxy(port, flow_path)
     started = time.time()
     timed_out = False
     stdout = ""
@@ -628,7 +594,6 @@ def run_in_container(
         cmd = _docker_run_cmd(
             instance,
             arm,
-            driver=driver,
             overlay=overlay,
             model=model,
             max_turns=max_turns,
@@ -647,12 +612,9 @@ def run_in_container(
         _stop_proxy(proxy)
     wall_ms = int((time.time() - started) * 1000)
 
-    head, diff = _split_output(stdout)
+    claude_json, diff = _split_output(stdout)
     patch_path.write_text(diff, encoding="utf-8")
-    if driver == "cursor":
-        result = _parse_cursor_result(head, flow_path, instance.instance_id, arm, rep)
-    else:
-        result = _parse_claude_result(head, flow_path, instance.instance_id, arm, rep)
+    result = _parse_claude_result(claude_json, flow_path, instance.instance_id, arm, rep)
     if result.duration_ms == 0:
         result.duration_ms = wall_ms
     if result.duration_api_ms == 0:

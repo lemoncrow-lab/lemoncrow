@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME=lemoncrow
+APP_NAME=atelier
 export DEPLOY_ENV=local
 
 build_app() {

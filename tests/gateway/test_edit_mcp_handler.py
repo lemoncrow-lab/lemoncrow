@@ -14,8 +14,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lemoncrow.gateway.adapters import mcp_server
-from lemoncrow.gateway.adapters.mcp_server import tool_smart_edit
+from atelier.gateway.adapters import mcp_server
+from atelier.gateway.adapters.mcp_server import tool_smart_edit
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -82,14 +82,14 @@ def _assert_silent_success(payload: dict[str, Any]) -> None:
 
 @pytest.fixture()
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "test-gnd-session")
     monkeypatch.chdir(tmp_path)
-    mcp_server._ledger._current_ledger = None
-    mcp_server._ledger._realtime_ctx = None
+    mcp_server._current_ledger = None
+    mcp_server._realtime_ctx = None
     mcp_server._remote_client = MagicMock()
     mcp_server._remote_client.get_context.return_value = {"context": "", "run_ledger": []}
     return tmp_path
@@ -320,6 +320,91 @@ def test_rich_non_atomic_partial_success(workspace: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_legacy_replace_through_handler(workspace: Path) -> None:
+    """Legacy op=replace dispatches to apply_batch_edit."""
+    f = workspace / "legacy.txt"
+    f.write_text("foo bar\n", encoding="utf-8")
+
+    payload = _edit({"edits": [{"path": str(f), "op": "replace", "old_string": "foo", "new_string": "baz"}]})
+
+    assert "failed" not in payload
+    assert f.read_text(encoding="utf-8") == "baz bar\n"
+
+
+def test_legacy_insert_after(workspace: Path) -> None:
+    """Legacy op=insert_after appends text after the anchor line."""
+    f = workspace / "insert.txt"
+    f.write_text("line1\nline2\nline3\n", encoding="utf-8")
+
+    payload = _edit({"edits": [{"path": str(f), "op": "insert_after", "anchor": "line1", "new_string": "line1b"}]})
+
+    assert "failed" not in payload
+    text = f.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    assert lines[0] == "line1"
+    assert lines[1] == "line1b"
+    assert lines[2] == "line2"
+
+
+def test_legacy_replace_range(workspace: Path) -> None:
+    """Legacy op=replace_range replaces exact line range."""
+    f = workspace / "range.txt"
+    f.write_text("aaa\nbbb\nccc\nddd\n", encoding="utf-8")
+    # Blind range ops require the file to have been served this window
+    # (freshness guard); read it the way a real caller would have.
+    resp = _call("read", {"path": str(f)})
+    assert "result" in resp
+
+    payload = _edit(
+        {
+            "edits": [
+                {
+                    "path": str(f),
+                    "op": "replace_range",
+                    "line_start": 2,
+                    "line_end": 3,
+                    "new_string": "REPLACED",
+                }
+            ]
+        }
+    )
+
+    assert "failed" not in payload
+    text = f.read_text(encoding="utf-8")
+    assert "aaa" in text
+    assert "REPLACED" in text
+    assert "bbb" not in text
+    assert "ccc" not in text
+    assert "ddd" in text
+
+
+def test_legacy_fuzzy_replace(workspace: Path) -> None:
+    """Legacy fuzzy=True matches despite indentation drift."""
+    f = workspace / "fuzzy.py"
+    f.write_text("def f():\n    x = 1\n    return x\n", encoding="utf-8")
+
+    payload = _edit(
+        {
+            "edits": [
+                {
+                    "path": str(f),
+                    "op": "replace",
+                    "old_string": "x = 1",
+                    "new_string": "x = 42",
+                    "fuzzy": True,
+                }
+            ]
+        }
+    )
+
+    # The legacy batch path applies a fuzzy match without emitting a match_mode
+    # marker (that is a rich-edit signal), so a successful legacy fuzzy edit is
+    # silent like any other clean success. The rich-edit fuzzy path (which DOES
+    # surface match_mode) is covered by test_rich_fuzzy_match_stays_loud.
+    assert "failed" not in payload
+    assert "x = 42" in f.read_text(encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # #3  Notebook cell edits
 # ---------------------------------------------------------------------------
@@ -470,7 +555,7 @@ def test_hook_exception_does_not_fail_successful_edit(workspace: Path, monkeypat
         raise RuntimeError("hook toolchain not found")
 
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
+        "atelier.core.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
         exploding_hooks,
     )
 
@@ -495,7 +580,7 @@ def test_hook_exception_diff_still_recorded(workspace: Path, monkeypatch: pytest
     f.write_text("original\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
+        "atelier.core.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
         lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
@@ -520,11 +605,29 @@ def test_hook_exception_diff_still_recorded(workspace: Path, monkeypatch: pytest
 def test_empty_edits_returns_error(workspace: Path) -> None:
     """An empty edits array is a protocol error."""
     resp = _call("edit", {"edits": []})
-    # An execution failure surfaces as an isError tool result (MCP spec), a
-    # JSON-RPC error, or a result with failed containing the message.
-    result = resp.get("result") or {}
-    has_error = "error" in resp or result.get("isError") is True or result.get("failed")
+    # Either a JSON-RPC error or a result with failed containing the message
+    has_error = "error" in resp or ("result" in resp and _result(resp).get("failed"))
     assert has_error
+
+
+def test_mixed_families_rejected(workspace: Path) -> None:
+    """Mixing legacy op/path and rich file_path descriptors raises an error."""
+    f = workspace / "mixed.txt"
+    f.write_text("hello\n", encoding="utf-8")
+
+    resp = _call(
+        "edit",
+        {
+            "edits": [
+                {"path": str(f), "op": "replace", "old_string": "hello", "new_string": "legacy"},
+                {"file_path": str(f), "old_string": "hello", "new_string": "rich"},
+            ]
+        },
+    )
+
+    assert "error" in resp
+    assert "cannot mix" in resp["error"]["message"].lower()
+    assert f.read_text(encoding="utf-8") == "hello\n"
 
 
 def test_rich_path_escape_rejected(workspace: Path) -> None:
@@ -532,6 +635,17 @@ def test_rich_path_escape_rejected(workspace: Path) -> None:
     payload = _edit({"edits": [{"file_path": "../../../etc/passwd", "old_string": "root", "new_string": "hacked"}]})
     assert payload["rolled_back"] is True
     assert payload["failed"]
+
+
+def test_legacy_unknown_op_reported_as_failure(workspace: Path) -> None:
+    """Legacy op with unsupported opcode fails gracefully."""
+    f = workspace / "unknown.txt"
+    f.write_text("original\n", encoding="utf-8")
+
+    payload = _edit({"edits": [{"path": str(f), "op": "delete_line", "old_string": "original", "new_string": ""}]})
+
+    assert payload["failed"]
+    assert f.read_text(encoding="utf-8") == "original\n"
 
 
 # ---------------------------------------------------------------------------
@@ -570,7 +684,7 @@ def test_diff_recorded_per_file_multi_edit(workspace: Path) -> None:
 
 def test_schema_top_level_params_have_descriptions() -> None:
     """atomic, hooks must each have a description."""
-    from lemoncrow.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA, TOOLS
+    from atelier.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA, TOOLS
 
     props = EDIT_TOOL_INPUT_SCHEMA["properties"]
     # atomic/hooks are hidden policy knobs: absent from the advertised schema,
@@ -583,7 +697,7 @@ def test_schema_top_level_params_have_descriptions() -> None:
 
 def test_schema_registered_as_edit_tool() -> None:
     """The edit tool must be registered in TOOLS with a non-trivial description."""
-    from lemoncrow.gateway.adapters.mcp_server import TOOLS
+    from atelier.gateway.adapters.mcp_server import TOOLS
 
     assert "edit" in TOOLS
     desc = TOOLS["edit"]["description"]
@@ -593,7 +707,7 @@ def test_schema_registered_as_edit_tool() -> None:
 
 def test_schema_edits_array_requires_min_one_item() -> None:
     """The JSON schema specifies minItems: 1 on the edits array."""
-    from lemoncrow.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA
+    from atelier.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA
 
     assert EDIT_TOOL_INPUT_SCHEMA["properties"]["edits"].get("minItems") == 1
 
@@ -604,7 +718,7 @@ def test_schema_documents_flat_item_shape() -> None:
     The schema is intentionally lean — notebook/symbol/projection edits are
     accepted by the handler but not enumerated in the schema.
     """
-    from lemoncrow.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA
+    from atelier.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA
 
     items = EDIT_TOOL_INPUT_SCHEMA["properties"]["edits"]["items"]
     assert "anyOf" not in items
@@ -617,7 +731,7 @@ def test_description_advertises_edits_wrapper() -> None:
     """The short description must show the edits=[...] wrapper, not just the
     item shape -- a cold model that reads only the description otherwise calls
     edit(path=..., new=...) flat (observed in Harbor runs)."""
-    from lemoncrow.gateway.adapters.mcp_server import TOOLS
+    from atelier.gateway.adapters.mcp_server import TOOLS
 
     assert "edits=[" in TOOLS["edit"]["description"]
 
@@ -767,29 +881,6 @@ def test_dispatcher_preserves_cross_file_calls_saved(workspace: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_edit_accepts_read_style_path_suffixes(workspace: Path) -> None:
-    f = workspace / "selectors.txt"
-    f.write_text("head\nbody\ntail\n", encoding="utf-8")
-
-    _edit({"post_edit_hooks": False, "edits": [{"file_path": "selectors.txt:head=1", "old": "head", "new": "HEAD"}]})
-    _edit({"post_edit_hooks": False, "edits": [{"file_path": "selectors.txt:tail=1", "old": "tail", "new": "TAIL"}]})
-    _edit({"post_edit_hooks": False, "edits": [{"file_path": "selectors.txt:summary", "old": "body", "new": "BODY"}]})
-    _edit({"post_edit_hooks": False, "edits": [{"file_path": "selectors.txt:outline", "old": "BODY", "new": "middle"}]})
-    _edit({"post_edit_hooks": False, "edits": [{"file_path": "selectors.txt:full", "new": "replacement\n"}]})
-
-    assert f.read_text(encoding="utf-8") == "replacement\n"
-
-    open_range = workspace / "open_range.txt"
-    open_range.write_text("one\ntwo\nthree\n", encoding="utf-8")
-    _edit(
-        {
-            "post_edit_hooks": False,
-            "edits": [{"file_path": "open_range.txt:L2-", "old": "two\nthree\n", "new": "rest\n"}],
-        }
-    )
-    assert open_range.read_text(encoding="utf-8") == "one\nrest\n"
-
-
 def _read(path: str) -> None:
     """Serve a file through the read tool so its stat signature is recorded."""
     resp = _call("read", {"path": path})
@@ -838,9 +929,9 @@ def test_batch_range_edits_overlap_fails_loudly(workspace: Path) -> None:
     assert f.read_text(encoding="utf-8") == "a1\na2\na3\n"  # untouched
 
 
-def test_range_edit_after_content_edit_same_file_coapplies(workspace: Path) -> None:
-    """A content-located edit that grows the file is recorded in the ledger, so a
-    later range edit's pre-batch line number is translated and both co-apply."""
+def test_range_edit_after_content_edit_same_file_fails_loudly(workspace: Path) -> None:
+    """A content-located edit shifts lines untracked; a later range edit to the
+    same file in the same batch is ambiguous and must not guess."""
     f = workspace / "mix.txt"
     f.write_text("a1\na2\na3\n", encoding="utf-8")
     _read("mix.txt")
@@ -850,38 +941,14 @@ def test_range_edit_after_content_edit_same_file_coapplies(workspace: Path) -> N
             "post_edit_hooks": False,
             "edits": [
                 {"file_path": "mix.txt", "old_string": "a1\n", "new_string": "Z1\nZ1b\n"},
-                {"file_path": "mix.txt:L3-L3", "new_string": "Z3\n"},  # pre-batch L3 == 'a3'
+                {"file_path": "mix.txt:L3-L3", "new_string": "Z3\n"},
             ],
         }
     )
 
-    assert payload.get("applied"), payload
-    assert "mix.txt" in str(payload["applied"])
-    assert f.read_text(encoding="utf-8") == "Z1\nZ1b\na2\nZ3\n"
-
-
-def test_range_old_string_edit_after_content_edit_same_file_coapplies(workspace: Path) -> None:
-    """Same as test_range_edit_after_content_edit_same_file_coapplies, but the
-    second edit pairs the :Lx-Ly scope with old_string (falls into
-    _replace_in_scope). The scope is translated through the ledger, so the
-    scoped search hits the right window instead of 'old_string not found'."""
-    f = workspace / "mix2.txt"
-    f.write_text("a1\na2\na3\n", encoding="utf-8")
-    _read("mix2.txt")
-
-    payload = _edit(
-        {
-            "post_edit_hooks": False,
-            "edits": [
-                {"file_path": "mix2.txt", "old_string": "a1\n", "new_string": "Z1\nZ1b\n"},
-                {"file_path": "mix2.txt:L3-L3", "old_string": "a3\n", "new_string": "Z3\n"},
-            ],
-        }
-    )
-
-    assert payload.get("applied"), payload
-    assert "mix2.txt" in str(payload["applied"])
-    assert f.read_text(encoding="utf-8") == "Z1\nZ1b\na2\nZ3\n"
+    assert payload["rolled_back"] is True
+    assert "content-located edit" in payload["failed"][0]["error"]
+    assert f.read_text(encoding="utf-8") == "a1\na2\na3\n"
 
 
 def test_blind_range_edit_rejected_without_prior_read(workspace: Path) -> None:
@@ -929,7 +996,7 @@ def test_blind_range_edit_allowed_after_fresh_read_and_old_anchor_exempt(workspa
 
 
 def test_blind_range_guard_disabled_by_env(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_RANGE_EDIT_GUARD", "0")
+    monkeypatch.setenv("ATELIER_RANGE_EDIT_GUARD", "0")
     f = workspace / "off.txt"
     f.write_text("a1\na2\n", encoding="utf-8")
 

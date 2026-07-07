@@ -4,7 +4,7 @@ from pathlib import Path
 
 REQUIRED_TOPICS = {
     "stub_embedding",
-    "LEMONCROW_MEMORY_BACKEND=letta",
+    "ATELIER_MEMORY_BACKEND=letta",
     "consolidate",
 }
 

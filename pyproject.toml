@@ -1,8 +1,8 @@
 [tool.uv]
 workspace = { members = ["benchmarks", "integrations"] }
 # langfuse>=3 needs opentelemetry-api>=1.33 while letta (memory-server) pins
-# ==1.30.  langfuse is the primary observability integration (used in dev CI);
-# memory-server is rarely used.  They can't coexist, so declare the conflict.
+# ==1.30; they are mutually exclusive optional extras, so declare the conflict
+# to keep `uv lock` resolvable. Install at most one of them.
 conflicts = [
     [{ extra = "langfuse" }, { extra = "memory-server" }],
 ]
@@ -15,13 +15,13 @@ conflicts = [
 babel = { path = "vendor/babel-99.0.0-py3-none-any.whl" }
 
 [project]
-name = "lemoncrow"
-version = "0.5.7"
-description = "Context and execution runtime for coding agents — code intelligence, bounded tools, durable memory, and verification."
+name = "atelier"
+version = "0.2.1"
+description = "Agent runtime for coding agents — reusable procedures, code intelligence, cost tracking, and model routing."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = { text = "Apache-2.0" }
-authors = [{ name = "LemonCrow" }]
+authors = [{ name = "Atelier" }]
 
 classifiers = [
     "License :: OSI Approved :: Apache Software License",
@@ -81,7 +81,7 @@ vector = [
 # Local code-embedding semantic search (BGE-Code-v1 via SentenceTransformers).
 # sentence-transformers 5.x regresses bge-code-v1 loading (AutoProcessor error) --
 # pin <5. Heavy (torch); opt-in only. accelerate + datasets back the per-repo
-# finetuner behind `lc code train --name=embedding`.
+# finetuner behind `atelier code train --name=embedding`.
 semantic = [
     "sentence-transformers>=3,<5",
     "torch>=2.2",
@@ -107,23 +107,22 @@ dev = [
 ]
 
 [project.scripts]
-lemoncrow = "lemoncrow.gateway.cli:main"
-lemoncrowd = "lemoncrow.core.service.daemon:main"
-lcd = "lemoncrow.core.service.daemon:main"
+atelier = "atelier.gateway.cli:main"
+atelierd = "atelier.core.service.daemon:main"
 
 [build-system]
 requires = ["hatchling", "setuptools", "mypy>=1.10"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/lemoncrow"]
+packages = ["src/atelier"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/lemoncrow/core/service/telemetry/frustration_lexicon.yaml" = "lemoncrow/core/service/telemetry/frustration_lexicon.yaml"
-"integrations" = "lemoncrow/integrations"
+"src/atelier/core/service/telemetry/frustration_lexicon.yaml" = "atelier/core/service/telemetry/frustration_lexicon.yaml"
+"integrations" = "atelier/integrations"
 
 [tool.hatch.build.targets.wheel.hooks.custom]
-# hatch_build.py: compiles src/lemoncrow/ with mypyc when LEMONCROW_ENABLE_MYPYC=1 (else pure-Python)
+# hatch_build.py: compiles src/atelier/ with mypyc (skipped if ATELIER_SKIP_MYPYC=1)
 
 [tool.ruff]
 line-length = 120
@@ -133,7 +132,7 @@ force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "BLE", "UP", "RUF"]
-ignore = ["E501", "BLE001"]
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 
@@ -163,14 +162,14 @@ mypy_path = ["src", "benchmarks", "integrations"]
 
 [[tool.mypy.overrides]]
 module = [
-    "lemoncrow.core.service.api",
-    "lemoncrow.gateway.adapters.http_api",
+    "atelier.core.service.api",
+    "atelier.gateway.adapters.http_api",
 ]
 disable_error_code = ["untyped-decorator"]
 
 [[tool.mypy.overrides]]
 module = [
-    "lemoncrow.gateway.cli.app",
+    "atelier.gateway.cli.app",
 ]
 ignore_errors = true
 
@@ -186,6 +185,7 @@ disable_error_code = ["attr-defined"]
 [[tool.mypy.overrides]]
 module = [
     "scripts.*",
+    "benchmarks.*",
 ]
 disallow_untyped_defs = false
 disallow_untyped_calls = false
@@ -194,13 +194,7 @@ disable_error_code = ["type-arg", "var-annotated"]
 
 [[tool.mypy.overrides]]
 module = [
-    "benchmarks.*",
-]
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = [
-    "lemoncrow.gateway.cli.commands.*",
+    "atelier.gateway.cli.commands.*",
     "gateway.cli.commands.*",
 ]
 disable_error_code = ["no-untyped-call", "untyped-decorator"]
@@ -225,5 +219,4 @@ dev = [
     "vulture>=2.16",
     "xgboost>=3.3.0",
     "litellm>=1.88.1",
-    "harbor>=0.13.1",
 ]

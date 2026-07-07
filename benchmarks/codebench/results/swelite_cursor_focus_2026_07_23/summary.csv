@@ -1,3 +1,0 @@
-arm,runs,ok_runs,failed_runs,valid_runs,correct_runs,avg_score,cost_usd,duration_ms,duration_api_ms,input_tokens,cache_read_tokens,cache_creation_tokens,output_tokens,cost_savings_vs_baseline_pct,duration_savings_vs_baseline_pct,input_token_savings_vs_baseline_pct,output_token_savings_vs_baseline_pct
-baseline,4,4,0,4,4,1.0,0.7437,199263,199263,99452,760192,0,12460,0.0,0.0,0.0,0.0
-lemoncrow,4,4,0,4,4,1.0,1.3875,370924,370924,108697,1672192,0,19874,-86.6,-86.1,-9.3,-59.5

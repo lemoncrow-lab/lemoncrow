@@ -1,14 +1,14 @@
 [package]
-name = "lemoncrow-fixture"
+name = "atelier-fixture"
 version = "1.0.0"
 description = "fixture with enough values for outline savings"
 
-[tool.lemoncrow]
+[tool.atelier]
 enabled = true
 workers = 4
 queue = "default"
 
-[tool.lemoncrow.metadata]
+[tool.atelier.metadata]
 owner = "platform"
 tier = "internal"
 purpose = "language validation"

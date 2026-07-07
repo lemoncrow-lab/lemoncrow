@@ -15,11 +15,10 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities import savings_summary as ss
-from lemoncrow.core.capabilities.savings_summary import (
+from atelier.core.capabilities import savings_summary as ss
+from atelier.core.capabilities.savings_summary import (
     _read_historical_savings_many,
     _window_from_aggregate,
-    aggregate_usage_totals_since_day,
     recompute_savings_aggregate,
     reconcile_savings_aggregate,
 )
@@ -73,7 +72,7 @@ def _reset_process_state(root: Path) -> None:
 
 
 def test_incremental_equals_full_recompute_multi_day(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     # s1: rows on both sides of the 30d boundary (40d ago ages out, 20d ago in).
     _append(root, "aggtest-s1", [_row(NOW - 40 * DAY, 4000, 4.0), _row(NOW - 20 * DAY, 2000, 2.0)])
     # s2: rows straddling the 7d boundary + a finished-session cost snapshot
@@ -117,23 +116,8 @@ def test_incremental_equals_full_recompute_multi_day(tmp_path: Path) -> None:
     assert agg2["first_ts"] > 0
 
 
-def test_large_writer_accumulated_row_survives_window_fold(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
-    tokens = 7_214_776
-    usd = 3.607388
-    _append(
-        root,
-        "aggtest-large",
-        [json.dumps({"ts": _iso(NOW - 3600), "kind": "input_style", "tokens": tokens, "cost_saved_usd": usd})],
-    )
-
-    window = _windows(reconcile_savings_aggregate(root))[1]
-    assert window[0] == pytest.approx(usd)
-    assert window[1] == tokens
-
-
 def test_rows_age_out_of_windows(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     _append(root, "aggtest-age", [_row(NOW - 40 * DAY, 40, 40.0)])  # out of every window
     _append(root, "aggtest-age", [_row(NOW - 10 * DAY, 10, 10.0)])  # 30d only
     _append(root, "aggtest-age", [_row(NOW - 3 * DAY, 3, 3.0)])  # 7d + 30d
@@ -152,7 +136,7 @@ def test_rows_age_out_of_windows(tmp_path: Path) -> None:
 def test_blocking_read_path_matches_oracle(tmp_path: Path) -> None:
     """A fresh process reading the persisted aggregate + folding newer ledgers
     must answer exactly what a full recompute answers."""
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     _append(root, "aggtest-r1", [_row(NOW - 2 * DAY, 200, 0.2), _end_row(NOW - 2 * DAY + 30, 3.0, carry=0.3)])
     reconcile_savings_aggregate(root)
 
@@ -170,7 +154,7 @@ def test_carry_attributed_per_day(tmp_path: Path) -> None:
     """Session carry is attributed to the day each saved token was generated
     (proportional to that day's token share), not dumped on the end day — so
     windowed carry scales with the reporting window (index 5 = carry)."""
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     _append(
         root,
         "aggtest-carry",
@@ -190,70 +174,8 @@ def test_carry_attributed_per_day(tmp_path: Path) -> None:
     _assert_windows_equal(w, _windows(recompute_savings_aggregate(root)))
 
 
-def _write_transcript(claude_root: Path, session_id: str, events: list[dict[str, Any]]) -> Path:
-    p = claude_root / "projects" / "proj" / f"{session_id}.jsonl"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("\n".join(json.dumps(e, ensure_ascii=False) for e in events) + "\n", encoding="utf-8")
-    return p
-
-
-def _assistant_turn(ts_epoch: float, *, in_t: int, out_t: int, tool: str | None = None) -> dict[str, Any]:
-    content: list[dict[str, Any]] = [{"type": "text", "text": "ok"}]
-    if tool:
-        content = [{"type": "tool_use", "name": tool, "id": f"tu-{ts_epoch}", "input": {}}]
-    return {
-        "type": "assistant",
-        "timestamp": datetime.fromtimestamp(ts_epoch, UTC).isoformat().replace("+00:00", "Z"),
-        "message": {
-            "id": f"msg-{ts_epoch}",
-            "model": "claude-sonnet-4-6",
-            "usage": {"input_tokens": in_t, "output_tokens": out_t},
-            "content": content,
-        },
-    }
-
-
-def test_aggregate_usage_totals_since_day_reads_real_transcript_usage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """tokens_processed/calls_made/time_spent_seconds are real per-session
-    transcript totals (read_transcript_stats), not derived from the $-savings
-    ledger -- independent of aggregate_savings_since_day's bucket machinery."""
-    root = tmp_path / ".lemoncrow"
-    claude_root = tmp_path / "claude_home"
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_root))
-
-    in_range_ts = NOW - 1 * DAY
-    _append(root, "aggtest-usage", [_end_row(in_range_ts, 1.0)])
-    _write_transcript(
-        claude_root,
-        "aggtest-usage",
-        [
-            _assistant_turn(in_range_ts, in_t=100, out_t=50, tool="Bash"),
-            _assistant_turn(in_range_ts + 330, in_t=80, out_t=30),
-        ],
-    )
-
-    # A second session outside the (since_day, today) window must be excluded.
-    out_of_range_ts = NOW - 10 * DAY
-    _append(root, "aggtest-old", [_end_row(out_of_range_ts, 1.0)])
-    _write_transcript(
-        claude_root,
-        "aggtest-old",
-        [_assistant_turn(out_of_range_ts, in_t=999, out_t=999, tool="Bash")],
-    )
-
-    since_day = ss._day_key(NOW - 2 * DAY)
-    today = ss._day_key(NOW)
-    totals = aggregate_usage_totals_since_day(root, since_day=since_day, today=today)
-
-    assert totals["tokens_processed"] == 260  # (100+50) + (80+30), old session excluded
-    assert totals["calls_made"] == 1  # one tool_use, in the in-range session only
-    assert totals["time_spent_seconds"] == pytest.approx(330.0)
-
-
 def test_first_savings_ts_folds_min(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     p1 = _append(root, "aggtest-t1", [_row(NOW - 3600, 10, 0.1)])
     agg = reconcile_savings_aggregate(root)
     assert agg["first_ts"] == pytest.approx(p1.stat().st_mtime)
@@ -267,46 +189,3 @@ def test_first_savings_ts_folds_min(tmp_path: Path) -> None:
     assert first_after_old == pytest.approx(NOW - 9 * DAY)
     _append(root, "aggtest-t2", [_row(NOW - 60, 5, 0.05)])
     assert reconcile_savings_aggregate(root)["first_ts"] == pytest.approx(first_after_old)
-
-
-def test_turn_cut_rows_populate_turns_avoided(tmp_path: Path) -> None:
-    """turn_cut rows (whole avoided turns) sum into the daily rollup's
-    turns_avoided, and still count toward calls_avoided (the credit rides
-    the row's ``calls`` field)."""
-    from lemoncrow.core.capabilities.savings_summary import aggregate_savings_since_day
-
-    root = tmp_path / ".lemoncrow"
-    yday = NOW - DAY
-    _append(
-        root,
-        "turncut-1",
-        [
-            _row(yday, 1000, 0.5, calls=2),
-            json.dumps({"ts": _iso(yday), "kind": "turn_cut", "calls": 7, "calls_usd": 0.3}),
-        ],
-    )
-    totals, last_day = aggregate_savings_since_day(root, since_day="2000-01-01", today=_iso(NOW)[:10])
-    assert last_day == _iso(yday)[:10]
-    assert totals["turns_avoided"] == 7
-    assert totals["calls_avoided"] == 9  # 2 tool calls + 7 turn_cut credit
-
-
-def test_aggregate_savings_since_day_excludes_reconcile_ledger_gap(tmp_path: Path) -> None:
-    """The "_reconcile/ledger-gap" self-heal placeholder (see
-    plugin_runtime._RECONCILE_HOST) is a synthetic account-watermark patch,
-    not a real session's savings. It must never leak into the public daily
-    rollup total -- it can dwarf a real day's total and would blow past the
-    rollup server's per-post $ cap, permanently wedging the flush."""
-    from lemoncrow.core.capabilities.savings_summary import aggregate_savings_since_day
-
-    root = tmp_path / ".lemoncrow"
-    yday = NOW - DAY
-    _append(root, "real-session", [_row(yday, 1000, 12.5, calls=3)])
-
-    gap_dir = root / "sessions" / "_reconcile" / "ledger-gap"
-    gap_dir.mkdir(parents=True, exist_ok=True)
-    (gap_dir / "savings.jsonl").write_text(_row(yday, 1, 2786.52, calls=0) + "\n", encoding="utf-8")
-
-    totals, last_day = aggregate_savings_since_day(root, since_day="2000-01-01", today=_iso(NOW)[:10])
-    assert last_day == _iso(yday)[:10]
-    assert totals["saved_usd"] == pytest.approx(12.5)

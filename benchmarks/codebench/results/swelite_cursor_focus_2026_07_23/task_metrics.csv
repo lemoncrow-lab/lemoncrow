@@ -1,3 +1,0 @@
-task,baseline_arm,candidate_arm,baseline_reps,candidate_reps,baseline_cost_usd_median,candidate_cost_usd_median,cost_savings_vs_baseline_pct,baseline_tokens_median,candidate_tokens_median,tokens_savings_vs_baseline_pct,baseline_duration_ms_median,candidate_duration_ms_median,duration_savings_vs_baseline_pct,baseline_tool_calls_median,candidate_tool_calls_median,tool_calls_savings_vs_baseline_pct
-django__django-12155,baseline,lemoncrow,2,2,0.2543,0.4067,-59.9,277522,503749,-81.5,63289.0,102623.5,-62.2,1,1,0.0
-pallets__flask-5014,baseline,lemoncrow,2,2,0.1175,0.287,-144.2,158530,396632,-150.2,36342.5,82838.5,-127.9,1,1,0.0

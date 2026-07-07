@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import get_args
 
-from lemoncrow.gateway.cli.events import (
+from atelier.gateway.cli.events import (
     AssistantDelta,
     AssistantMessage,
-    LemonCrowEvent,
+    AtelierEvent,
     MemoryHit,
     PatchProposed,
     PermissionRequested,
@@ -22,7 +22,7 @@ from lemoncrow.gateway.cli.events import (
 )
 
 
-def _all_events() -> list[LemonCrowEvent]:
+def _all_events() -> list[AtelierEvent]:
     return [
         SessionStarted(type="session.started", session_id="s1", project_root="/tmp"),
         AssistantDelta(type="assistant.delta", text="hi"),
@@ -46,6 +46,6 @@ def test_all_events_construct() -> None:
 
 
 def test_union_accepts_each_event_type() -> None:
-    union_types = get_args(LemonCrowEvent)
+    union_types = get_args(AtelierEvent)
     for event in _all_events():
         assert isinstance(event, union_types)

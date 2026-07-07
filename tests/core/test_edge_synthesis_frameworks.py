@@ -7,7 +7,7 @@ produce NO edge (no fabrication).
 
 from __future__ import annotations
 
-from lemoncrow.pro.capabilities.code_context.edge_synthesis import synthesize_edges
+from atelier.core.capabilities.code_context.edge_synthesis import synthesize_edges
 
 
 def _pairs(source: str, language: str) -> set[tuple[str, str]]:

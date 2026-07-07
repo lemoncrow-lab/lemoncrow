@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.foundation.memory_models import ArchivalPassage
-from lemoncrow.gateway.adapters.mcp_server import _handle
-from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from atelier.core.foundation.memory_models import ArchivalPassage
+from atelier.gateway.adapters.mcp_server import _handle
+from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 
 def _call_context(args: dict[str, Any]) -> dict[str, Any]:
@@ -29,15 +29,15 @@ def _call_context(args: dict[str, Any]) -> dict[str, Any]:
 
 @pytest.fixture()
 def memory_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     SqliteMemoryStore(root)
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
 
-    import lemoncrow.gateway.adapters.mcp_server as mcp_server
+    import atelier.gateway.adapters.mcp_server as mcp_server
 
     mcp_server._reset_runtime_cache_for_testing()
-    mcp_server._ledger._current_ledger = None
-    mcp_server._ledger._realtime_ctx = None
+    mcp_server._current_ledger = None
+    mcp_server._realtime_ctx = None
     return root
 
 
@@ -64,16 +64,16 @@ def _insert_passage(
 def test_get_context_injects_same_agent_memory(memory_root: Path) -> None:
     _insert_passage(
         memory_root,
-        passage_id="pas-lemoncrow-code",
-        agent_id="lemoncrow:code",
-        text="Scoped recall context injection should append durable memory for lemoncrow code.",
-        tags=["agent:lemoncrow:code"],
+        passage_id="pas-atelier-code",
+        agent_id="atelier:code",
+        text="Scoped recall context injection should append durable memory for atelier code.",
+        tags=["agent:atelier:code"],
     )
 
     payload = _call_context(
         {
-            "task": "scoped recall context injection for lemoncrow code",
-            "agent_id": "lemoncrow:code",
+            "task": "scoped recall context injection for atelier code",
+            "agent_id": "atelier:code",
         }
     )
 
@@ -87,14 +87,14 @@ def test_get_context_does_not_leak_other_agent_memory(memory_root: Path) -> None
         memory_root,
         passage_id="pas-legacy-external-agent",
         agent_id="legacy.external-agent",
-        text="Scoped recall context injection should never leak into lemoncrow code.",
+        text="Scoped recall context injection should never leak into atelier code.",
         tags=["agent:legacy.external-agent"],
     )
 
     payload = _call_context(
         {
-            "task": "scoped recall context injection for lemoncrow code",
-            "agent_id": "lemoncrow:code",
+            "task": "scoped recall context injection for atelier code",
+            "agent_id": "atelier:code",
         }
     )
 
@@ -106,15 +106,15 @@ def test_get_context_can_disable_recall(memory_root: Path) -> None:
     _insert_passage(
         memory_root,
         passage_id="pas-disabled",
-        agent_id="lemoncrow:code",
+        agent_id="atelier:code",
         text="Disabled recall passage should stay out of injected context.",
-        tags=["agent:lemoncrow:code"],
+        tags=["agent:atelier:code"],
     )
 
     payload = _call_context(
         {
             "task": "disabled recall passage",
-            "agent_id": "lemoncrow:code",
+            "agent_id": "atelier:code",
             "recall": False,
         }
     )

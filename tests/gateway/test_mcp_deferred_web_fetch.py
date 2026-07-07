@@ -18,8 +18,8 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities import web_fetch
-from lemoncrow.gateway.adapters import mcp_server
+from atelier.core.capabilities import web_fetch
+from atelier.gateway.adapters import mcp_server
 from tests.helpers import init_store_at
 
 
@@ -58,16 +58,15 @@ def loopback() -> Iterator[int]:
 
 @pytest.fixture()
 def wf_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     init_store_at(str(root))
-    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("ATELIER_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_MEMORY_BACKEND", "sqlite")
-    monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
-    monkeypatch.delenv("LEMONCROW_MCP_DEFER_WEB_FETCH", raising=False)
-    monkeypatch.setenv("LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK", "1")
-    mcp_server._ledger._current_ledger = None
-    mcp_server._ledger._realtime_ctx = None
+    monkeypatch.setenv("ATELIER_MEMORY_BACKEND", "sqlite")
+    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    monkeypatch.delenv("ATELIER_MCP_DEFER_WEB_FETCH", raising=False)
+    mcp_server._current_ledger = None
+    mcp_server._realtime_ctx = None
     web_fetch.clear_web_fetch_cache()
     return tmp_path
 
@@ -100,7 +99,7 @@ def test_deferred_web_fetch_written_by_reactor_continuation(
 
 
 def test_kill_switch_keeps_web_fetch_synchronous(wf_env: Path, loopback: int, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_MCP_DEFER_WEB_FETCH", "0")
+    monkeypatch.setenv("ATELIER_MCP_DEFER_WEB_FETCH", "0")
     captured: list[dict[str, Any]] = []
     monkeypatch.setattr(mcp_server, "_write_jsonrpc", lambda msg: captured.append(msg) or None)
 

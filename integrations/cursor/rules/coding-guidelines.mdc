@@ -1,0 +1,10 @@
+---
+description: Behavioral guidelines to reduce common LLM coding mistakes. Use when writing, reviewing, or refactoring code to avoid overcomplication, make surgical changes, surface assumptions, and define verifiable success criteria.
+alwaysApply: true
+---
+
+## Coding Guidelines
+
+- **Efficient by default.** Name N before a loop; no re-implementing what a library already provides; no quadratic algorithm where linear exists; memoization/caching/dynamic programming on repeated work where applicable, use best and scalable algorithms.
+- **Least and efficient code that works.** No excess — but never drop error handling, validation, or edge cases.
+- **Match the codebase.** Nearest analogue before a new pattern; failing test + closest existing implementation before touching tested code.

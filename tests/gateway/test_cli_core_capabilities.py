@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from lemoncrow.gateway.cli import cli
+from atelier.gateway.cli import cli
 
 
 def _invoke(root: Path, *args: str) -> tuple[int, str]:
@@ -19,17 +19,14 @@ def _invoke(root: Path, *args: str) -> tuple[int, str]:
 @pytest.fixture(autouse=True)
 def _isolated_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # `init` bootstraps a code index over cwd when it is a git repo. Without an
-    # isolated cwd the CliRunner inherits the lemoncrow repo and init spends
+    # isolated cwd the CliRunner inherits the atelier repo and init spends
     # 14-37s indexing the whole codebase. Both tests here drive the actual work
-    # through --workspace, so cwd only needs to point away from the lemoncrow repo.
+    # through --workspace, so cwd only needs to point away from the atelier repo.
     monkeypatch.chdir(tmp_path)
 
 
-def test_search_smart_blocks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from tests.helpers import grant_oauth_pro
-
-    grant_oauth_pro(monkeypatch)
-    root = tmp_path / ".lemoncrow"
+def test_search_smart_blocks(tmp_path: Path) -> None:
+    root = tmp_path / ".atelier"
     code, out = _invoke(root, "init")
     assert code == 0, out
     target = tmp_path / "shopify.txt"
@@ -57,11 +54,8 @@ def test_search_smart_blocks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert "shopify" in out.lower()
 
 
-def test_read_smart_and_edit_smart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from tests.helpers import grant_oauth_pro
-
-    grant_oauth_pro(monkeypatch)
-    root = tmp_path / ".lemoncrow"
+def test_read_smart_and_edit_smart(tmp_path: Path) -> None:
+    root = tmp_path / ".atelier"
     code, out = _invoke(root, "init")
     assert code == 0, out
 
@@ -106,6 +100,7 @@ def test_read_smart_and_edit_smart(tmp_path: Path, monkeypatch: pytest.MonkeyPat
                 "edits": [
                     {
                         "path": str(target),
+                        "op": "replace",
                         "old_string": "return 1",
                         "new_string": "return 2",
                     }

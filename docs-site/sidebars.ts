@@ -12,7 +12,7 @@ const sidebars: SidebarsConfig = {
       id: "installation",
     },
     {
-      label: "Use LemonCrow",
+      label: "Use Atelier",
       type: "category",
       items: [
         {
@@ -85,7 +85,7 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
-          id: "hosts/host-capability-matrix",
+          id: "integrations/host-matrix",
         },
       ],
     },
@@ -93,10 +93,10 @@ const sidebars: SidebarsConfig = {
       label: "Strategy & Roadmap",
       type: "category",
       items: [
-{
-            type: "doc",
-            id: "marketing/strategy",
-          },
+        {
+          type: "doc",
+          id: "strategy",
+        },
         {
           type: "doc",
           id: "roadmap",

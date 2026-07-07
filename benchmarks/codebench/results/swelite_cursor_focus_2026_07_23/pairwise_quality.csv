@@ -1,5 +1,0 @@
-task,rep,baseline_arm,candidate_arm,status,judged,baseline_score,candidate_score,quality_delta,winner,candidate_at_least_baseline,judge_model,judge_reason,baseline_correct,candidate_correct,baseline_cost_usd,candidate_cost_usd,raw_saved_usd,raw_saved_tokens,quality_adjusted_saved_usd,quality_adjusted_saved_tokens
-django__django-12155,1,baseline,lemoncrow,unjudged,False,1.0,1.0,0.0,,True,,pairwise judge not run,True,True,0.1840386,0.3827088,-0.1987,-279897,0.0,0
-django__django-12155,2,baseline,lemoncrow,unjudged,False,1.0,1.0,0.0,,True,,pairwise judge not run,True,True,0.3246192,0.4307244,-0.1061,-172558,0.0,0
-pallets__flask-5014,1,baseline,lemoncrow,unjudged,False,1.0,1.0,0.0,,True,,pairwise judge not run,True,True,0.1163844,0.292713,-0.1763,-217413,0.0,0
-pallets__flask-5014,2,baseline,lemoncrow,unjudged,False,1.0,1.0,0.0,,True,,pairwise judge not run,True,True,0.118665,0.28137,-0.1627,-258791,0.0,0

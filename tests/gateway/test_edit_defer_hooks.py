@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.gateway.adapters.mcp_server import tool_smart_edit
+from atelier.gateway.adapters.mcp_server import tool_smart_edit
 
 
 def _seed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -16,17 +16,17 @@ def _seed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return f
 
 
-def test_default_never_formats_touched_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LEMONCROW_DEFER_EDIT_HOOKS", raising=False)
+def test_default_formats_touched_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATELIER_DEFER_EDIT_HOOKS", raising=False)
     f = _seed(tmp_path, monkeypatch)
     tool_smart_edit({"edits": [{"path": str(f), "old": "y = 1", "new": "y = 10"}]})
     txt = f.read_text(encoding="utf-8")
     assert "y = 10" in txt  # edit applied
-    assert "x=2" in txt  # formatter never runs post-edit: unrelated line untouched
+    assert "x = 2" in txt  # default: formatter ran and normalized the unrelated line
 
 
 def test_defer_skips_mutating_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_DEFER_EDIT_HOOKS", "1")
+    monkeypatch.setenv("ATELIER_DEFER_EDIT_HOOKS", "1")
     f = _seed(tmp_path, monkeypatch)
     tool_smart_edit({"edits": [{"path": str(f), "old": "y = 1", "new": "y = 10"}]})
     txt = f.read_text(encoding="utf-8")
@@ -56,7 +56,9 @@ def test_stop_extracts_edited_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         {
             "type": "assistant",
             "message": {
-                "content": [{"type": "tool_use", "name": "mcp__lc__edit", "input": {"edits": [{"path": "foo.py"}]}}]
+                "content": [
+                    {"type": "tool_use", "name": "mcp__atelier__edit", "input": {"edits": [{"path": "foo.py"}]}}
+                ]
             },
         },
         {
@@ -68,5 +70,5 @@ def test_stop_extracts_edited_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     tp.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
     assert set(stop._extract_edited_paths(str(tp))) == {"foo.py", "bar.py"}
     # defer off -> no-op, never raises
-    monkeypatch.delenv("LEMONCROW_DEFER_EDIT_HOOKS", raising=False)
+    monkeypatch.delenv("ATELIER_DEFER_EDIT_HOOKS", raising=False)
     assert stop._format_deferred_edits(str(tp)) is None

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# uninstall_opencode.sh - Remove LemonCrow from opencode
+# uninstall_opencode.sh - Remove Atelier from opencode
 #
 # Options:
 #   --workspace DIR  Remove project-local artifacts from DIR instead of global user config
@@ -41,14 +41,14 @@ else
     AGENTS_DIR="${OPENCODE_CONFIG_HOME}/agents"
     PLUGIN_DIR="${OPENCODE_CONFIG_HOME}/plugins"
 fi
-STAGING_DIR="${HOME}/.lemoncrow/opencode"
+STAGING_DIR="${HOME}/.atelier/opencode"
 
-info()  { echo "[lemoncrow:uninstall:opencode] $*"; }
+info()  { echo "[atelier:uninstall:opencode] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 clean_config() {
     local path="$1"
-    if [ -f "$path" ] && grep -qE "lc" "$path" 2>/dev/null; then
+    if [ -f "$path" ] && grep -q "atelier" "$path" 2>/dev/null; then
         run "python3 -c '
 import json
 import re
@@ -58,11 +58,10 @@ path = Path(sys.argv[1])
 content = path.read_text(encoding=\"utf-8\")
 stripped = re.sub(r\"^\\s*//.*\", \"\", content, flags=re.M)
 data = json.loads(stripped) if stripped.strip() else {}
-data.get(\"mcp\", {}).pop(\"lc\", None)
-data.get(\"provider\", {}).pop(\"lc\", None)
-data.get(\"permission\", {}).pop(\"lc_*\", None)
-da = data.get(\"default_agent\") or \"\"
-if da == \"code\" or da in (\"lc\", \"lemoncrow\") or da.startswith((\"lc.\", \"lemoncrow.\")):
+data.get(\"mcp\", {}).pop(\"atelier\", None)
+data.get(\"provider\", {}).pop(\"atelier\", None)
+data.get(\"permission\", {}).pop(\"atelier_*\", None)
+if data.get(\"default_agent\") == \"atelier\":
     data.pop(\"default_agent\", None)
 for key in (\"mcp\", \"provider\", \"permission\"):
     if key in data and not data[key]:
@@ -72,7 +71,7 @@ if not data:
 else:
     path.write_text(json.dumps(data, indent=2) + \"\\n\", encoding=\"utf-8\")
 ' $(printf %q "$path")"
-        info "Removed lc entries from $path"
+        info "Removed atelier from $path"
     fi
 }
 
@@ -80,7 +79,7 @@ clean_config "$OC_FILE"
 clean_config "$LEGACY_OC_FILE"
 
 if [ -d "$AGENTS_DIR" ]; then
-    for f in "$AGENTS_DIR"/lemoncrow.md "$AGENTS_DIR"/code.md "$AGENTS_DIR"/lemoncrow.*.md; do
+    for f in "$AGENTS_DIR"/atelier.md "$AGENTS_DIR"/atelier.*.md; do
         [ -f "$f" ] || continue
         run "rm -f $(printf %q "$f")"
         info "Removed $f"
@@ -88,7 +87,7 @@ if [ -d "$AGENTS_DIR" ]; then
 fi
 
 if [ -d "$PLUGIN_DIR" ]; then
-    for f in "$PLUGIN_DIR"/lemoncrow-nudge.js "$PLUGIN_DIR"/lemoncrow_nudge.py; do
+    for f in "$PLUGIN_DIR"/atelier-nudge.js "$PLUGIN_DIR"/atelier_nudge.py; do
         [ -f "$f" ] || continue
         run "rm -f $(printf %q "$f")"
         info "Removed $f"

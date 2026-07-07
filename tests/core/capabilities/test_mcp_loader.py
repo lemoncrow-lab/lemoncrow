@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from lemoncrow.core.capabilities.mcp_integration import loader
-from lemoncrow.core.capabilities.mcp_integration.loader import (
+from atelier.core.capabilities.mcp_integration import loader
+from atelier.core.capabilities.mcp_integration.loader import (
     MCPServerConfig,
     MCPServerProcess,
     discover_mcp_configs,
@@ -49,7 +49,7 @@ def test_discover_parses_mcp_json(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(loader, "_MCP_CONFIG_PATHS", [cfg_path])
     # A config outside a trusted root is only auto-spawned with explicit opt-in.
-    monkeypatch.setenv("LEMONCROW_MCP_ALLOW_UNTRUSTED", "1")
+    monkeypatch.setenv("ATELIER_MCP_ALLOW_UNTRUSTED", "1")
     configs = discover_mcp_configs()
     assert len(configs) == 1
     assert configs[0].name == "weather"
@@ -89,7 +89,7 @@ def test_discover_default_behavior_unchanged_without_workspace_root(monkeypatch,
         encoding="utf-8",
     )
     monkeypatch.setattr(loader, "_MCP_CONFIG_PATHS", [cfg_path])
-    monkeypatch.setenv("LEMONCROW_MCP_ALLOW_UNTRUSTED", "1")
+    monkeypatch.setenv("ATELIER_MCP_ALLOW_UNTRUSTED", "1")
 
     assert [c.name for c in discover_mcp_configs()] == ["weather"]
     assert [c.name for c in discover_mcp_configs(workspace_root=None)] == ["weather"]
@@ -197,15 +197,15 @@ def test_discover_reads_claude_plugin_mcp_configs(monkeypatch, tmp_path):
     assert [c.name for c in configs] == ["playwright"]
 
 
-def test_discover_excludes_lemoncrow_self_entry_from_plugin_config(monkeypatch, tmp_path):
-    """The installed lemoncrow plugin's own .mcp.json (cache/lemoncrow-lab/lemoncrow/<ver>/.mcp.json)
+def test_discover_excludes_atelier_self_entry_from_plugin_config(monkeypatch, tmp_path):
+    """The installed atelier plugin's own .mcp.json (cache/atelier/atelier/<ver>/.mcp.json)
     must never be spawned as a discovered server -- discover_mcp_configs() is the
     shared primitive behind the TUI's spawn-everything loop."""
     monkeypatch.setattr(loader, "_MCP_CONFIG_PATHS", [tmp_path / "missing.json"])
-    plugin_dir = tmp_path / "plugins_cache" / "lemoncrow" / "lemoncrow" / "0.1.0"
+    plugin_dir = tmp_path / "plugins_cache" / "atelier" / "atelier" / "0.1.0"
     plugin_dir.mkdir(parents=True)
     (plugin_dir / ".mcp.json").write_text(
-        json.dumps({"mcpServers": {"lc": {"command": "lc", "args": ["mcp", "--host", "claude"]}}}),
+        json.dumps({"mcpServers": {"atelier": {"command": "atelier", "args": ["mcp", "--host", "claude"]}}}),
         encoding="utf-8",
     )
     monkeypatch.setattr(loader, "_CLAUDE_PLUGINS_CACHE_DIR", tmp_path / "plugins_cache")
@@ -215,28 +215,11 @@ def test_discover_excludes_lemoncrow_self_entry_from_plugin_config(monkeypatch, 
     assert configs == []
 
 
-def test_discover_excludes_lemoncrow_self_entry_from_claude_json_user_scope(monkeypatch, tmp_path):
+def test_discover_excludes_atelier_self_entry_from_claude_json_user_scope(monkeypatch, tmp_path):
     monkeypatch.setattr(loader, "_MCP_CONFIG_PATHS", [tmp_path / "missing.json"])
     claude_json = tmp_path / ".claude.json"
     claude_json.write_text(
-        json.dumps({"mcpServers": {"lc": {"command": "lc", "args": ["mcp", "--host", "claude"]}}}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(loader, "_CLAUDE_JSON_PATH", claude_json)
-
-    assert discover_mcp_configs() == []
-
-
-def test_discover_excludes_lemoncrow_named_self_entry(monkeypatch, tmp_path):
-    """Cursor/Antigravity/Copilot installers register LemonCrow's own server
-    under the "lemoncrow" name with {"command": "lemoncrow", ...} (the
-    guaranteed console-script, not the removable `lc` alias) -- this shape
-    must be excluded from discovery just like the "lc"-named entry, or the
-    proxy risks spawning LemonCrow's own server recursively."""
-    monkeypatch.setattr(loader, "_MCP_CONFIG_PATHS", [tmp_path / "missing.json"])
-    claude_json = tmp_path / ".claude.json"
-    claude_json.write_text(
-        json.dumps({"mcpServers": {"lemoncrow": {"command": "lemoncrow", "args": ["mcp", "--host", "cursor"]}}}),
+        json.dumps({"mcpServers": {"atelier": {"command": "atelier", "args": ["mcp", "--host", "claude"]}}}),
         encoding="utf-8",
     )
     monkeypatch.setattr(loader, "_CLAUDE_JSON_PATH", claude_json)

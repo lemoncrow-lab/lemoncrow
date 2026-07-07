@@ -24,7 +24,6 @@ from __future__ import annotations
 import datetime
 import json
 import os
-import re
 import sys
 import tempfile
 from contextlib import suppress
@@ -36,9 +35,29 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 
+def _workspace_key(path: str) -> str:
+    import re
+    from hashlib import sha256
+    from pathlib import Path as _Path
+
+    resolved = _Path(path).expanduser().resolve()
+    home = _Path.home().resolve()
+    try:
+        parts = resolved.relative_to(home).parts
+    except ValueError:
+        parts = [p for p in resolved.parts if p and p != "/"]
+    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
+    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
+    if len(label) > 120:
+        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
+    return label or sha256(str(resolved).encode()).hexdigest()[:12]
+
+
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    return Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "session_state.json"
+    h = _workspace_key(workspace)
+    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    return root / "workspaces" / h / "session_state.json"
 
 
 def _read_session_state() -> dict[str, Any]:
@@ -75,14 +94,14 @@ def _write_session_state(updates: dict[str, Any]) -> None:
                 Path(tmp_path).unlink(missing_ok=True)
 
 
-def _lemoncrow_root() -> Path:
-    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
+def _atelier_root() -> Path:
+    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
     if root:
         return Path(root)
     state = _read_session_state()
-    if state.get("lemoncrow_root"):
-        return Path(state["lemoncrow_root"])
-    return Path.home() / ".lemoncrow"
+    if state.get("atelier_root"):
+        return Path(state["atelier_root"])
+    return Path.home() / ".atelier"
 
 
 def _active_session_id() -> str | None:
@@ -97,60 +116,31 @@ def _claude_settings_path() -> Path:
     return Path.home() / ".claude" / "settings.json"
 
 
-def _project_settings_path() -> Path | None:
-    """A workspace-local ``.claude/settings.json``, if this session has one.
-
-    ``install_claude.sh --workspace`` writes the ``agent`` override there
-    instead of the global ``~/.claude/settings.json`` — a separate file that
-    ``_claude_settings_path()`` never resolves to. Returns None when it
-    doesn't exist (nothing to reconcile) or matches the global path already
-    handled by ``apply_session_start_files``.
-    """
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    p = Path(workspace) / ".claude" / "settings.json"
-    if not p.exists():
-        return None
-    with suppress(OSError):
-        if p.resolve() == _claude_settings_path().resolve():
-            return None
-    return p
-
-
 def _apply_session_bootstrap(payload: dict[str, Any]) -> bool:
     plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if not plugin_root:
         return False
     try:
-        from lemoncrow.core.capabilities.plugin_runtime import (
-            apply_session_start_files,
-            clear_dormant_agent_override,
-        )
+        from atelier.core.capabilities.plugin_runtime import apply_session_start_files
     except (ImportError, AttributeError):
         return False
     with suppress(Exception):
-        result = apply_session_start_files(
-            _lemoncrow_root(),
+        apply_session_start_files(
+            _atelier_root(),
             plugin_root,
             config_dir=_claude_settings_path().parent,
             payload=payload,
-            current_version=os.environ.get("LEMONCROW_VERSION", "0.0.0"),
+            current_version=os.environ.get("ATELIER_VERSION", "0.0.0"),
         )
-        # Layer-2 parity for workspace-scoped installs: the dormant `agent`
-        # pop above only ever touches the global config file. Mirror the
-        # same pop into a project-local settings.json when this session has
-        # one and it isn't the same file.
-        project_settings = _project_settings_path()
-        if project_settings is not None:
-            clear_dormant_agent_override(project_settings, dormant=bool(result.get("dormant")))
         return True
     return False
 
 
 def _initialize_session_stats(payload: dict[str, Any]) -> None:
     try:
-        from lemoncrow.core.capabilities.plugin_runtime import update_session_stats
+        from atelier.core.capabilities.plugin_runtime import update_session_stats
 
-        update_session_stats(_lemoncrow_root(), payload)
+        update_session_stats(_atelier_root(), payload)
     except (ImportError, OSError, json.JSONDecodeError, TypeError):
         pass
 
@@ -168,10 +158,10 @@ def _append_session_start_event(
     transcript_path: str,
 ) -> None:
     try:
-        from lemoncrow.core.foundation.paths import session_dir
+        from atelier.core.foundation.paths import session_dir
     except ImportError:
         return
-    run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
+    run_file = session_dir(_atelier_root(), "claude", session_id) / "run.json"
     if not run_file.exists():
         return
 
@@ -221,59 +211,11 @@ def _append_session_start_event(
 # ---------------------------------------------------------------------------
 
 
-def _emit_env_context(cwd: str) -> None:
-    """Inject cwd + git state via additionalContext.
-
-    ``--agent <persona>`` replaces Claude Code's default system prompt, losing
-    its built-in ``# Environment``/gitStatus blocks — persona sessions start
-    blind. Recreate the essentials here; fail-open.
-    """
-    import platform
-    import subprocess
-
-    def _git(*args: str) -> str | None:
-        with suppress(Exception):
-            r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, timeout=5)
-            if r.returncode == 0:
-                return r.stdout.strip()
-        return None
-
-    lines = [
-        f"Working directory: {cwd}",
-        f"Platform: {platform.system().lower()} ({platform.release()})",
-    ]
-    status = _git("status", "-sb")
-    if status is not None:
-        main = _git("symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-        if main:
-            lines.append(f"Main branch (for PRs): {main.removeprefix('origin/')}")
-        lines.append("git status -sb (snapshot at session start):")
-        lines.extend(status.splitlines()[:20])
-        log = _git("log", "-5", "--oneline")
-        if log:
-            lines.append("Recent commits:")
-            lines.extend(log.splitlines())
-    print(
-        json.dumps(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
-                    "additionalContext": "\n".join(lines),
-                }
-            }
-        )
-    )
-
-
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except (json.JSONDecodeError, TypeError):
         return 0
-
-    if payload.get("cwd") and payload.get("source", "startup") in ("startup", "clear"):
-        with suppress(Exception):
-            _emit_env_context(payload["cwd"])
 
     session_id_raw: str = payload.get("session_id", "") or ""
     source: str = payload.get("source", "startup") or "startup"
@@ -287,12 +229,7 @@ def main() -> int:
         if session_id_raw:
             state_update: dict[str, Any] = {
                 "session_id": session_id_raw,
-                # Host stamp keeps the workspace-shared slot honest: the MCP
-                # bridge fallback (non-claude hosts only) rejects a sid whose
-                # stamp doesn't match, so a Claude sid written here is never
-                # adopted by an OpenCode/Codex server sharing the repo.
-                "host": "claude",
-                "lemoncrow_root": str(_lemoncrow_root()),
+                "atelier_root": str(_atelier_root()),
             }
             if model:
                 state_update["model"] = model
@@ -311,14 +248,14 @@ def main() -> int:
             # the first prompt instead.
             if source != "clear":
                 with suppress(Exception):
-                    from lemoncrow.core.foundation.session_window import (
+                    from atelier.core.foundation.session_window import (
                         register_window_session,
                         workspace_hash,
                     )
 
                     _ws = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
                     register_window_session(
-                        _lemoncrow_root(),
+                        _atelier_root(),
                         workspace_hash(_ws),
                         session_id=session_id_raw,
                         source=source,
@@ -333,7 +270,7 @@ def main() -> int:
         # for clear only — /compact continues the same task, so its cost stands.
         if source == "clear" and session_id_raw:
             with suppress(Exception):
-                reset_dir = _lemoncrow_root() / "statusline_cost_reset"
+                reset_dir = _atelier_root() / "statusline_cost_reset"
                 reset_dir.mkdir(parents=True, exist_ok=True)
                 (reset_dir / session_id_raw).write_text("", encoding="utf-8")
                 # Also write a workspace-keyed marker so the statusline can
@@ -342,10 +279,9 @@ def main() -> int:
                 # but the statusline renders with the post-clear session_id, so
                 # the session-keyed marker above is never matched.
                 # The workspace key uses the same encoding Claude Code applies
-                # to project dirs: replace every non-alphanumeric character
-                # with "-" in the cwd.
+                # to project dirs: replace "/" with "-" in the cwd.
                 if cwd:
-                    ws_key = re.sub(r"[^a-zA-Z0-9]", "-", cwd)
+                    ws_key = cwd.replace("/", "-")
                     (reset_dir / f"ws_{ws_key}").write_text("", encoding="utf-8")
         if not _apply_session_bootstrap(payload):
             _initialize_session_stats(payload)

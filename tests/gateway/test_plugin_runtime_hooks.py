@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities.plugin_runtime import (
+from atelier.core.capabilities.plugin_runtime import (
     aggregate_session_stats,
     apply_session_start_files,
     build_savings_report,
@@ -19,7 +19,7 @@ from lemoncrow.core.capabilities.plugin_runtime import (
     update_session_stats,
     write_plugin_setting,
 )
-from lemoncrow.core.foundation.paths import session_dir
+from atelier.core.foundation.paths import session_dir
 
 pytestmark = pytest.mark.slow  # Each test spawns a real Python subprocess (~2s each)
 
@@ -44,32 +44,26 @@ def _run_hook(
     )
 
 
-def test_pre_tool_discipline_does_not_redirect_shell_reads() -> None:
-    # The old tool_redirect.py hook rewrote a shell read (cat/rg) into an
-    # lc.search PreToolUse nudge. It was removed -- pre_tool_discipline.py's
-    # docstring records that the hard shell-read redirect "mis-fired on
-    # legitimate searches" -- so a shell read must NOT be blocked or rewritten
-    # now.
+def test_tool_redirect_outputs_pretooluse_nudge_for_shell_reads() -> None:
     result = _run_hook(
-        "pre_tool_discipline.py",
-        {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat src/app.ts"}},
+        "tool_redirect.py",
+        {"tool_name": "Bash", "tool_input": {"command": "cat src/app.ts"}},
     )
-    assert result.returncode == 0
-    assert result.stdout.strip() == ""
-    assert "permissionDecision" not in result.stdout
+
+    output = json.loads(result.stdout)
+    hook_output = output["hookSpecificOutput"]
+    assert hook_output["hookEventName"] == "PreToolUse"
+    assert hook_output["permissionDecision"] == "allow"
+    assert "search" in hook_output["additionalContext"]
 
 
-def test_pre_tool_discipline_is_quiet_without_pythonpath() -> None:
-    payload = {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
-        "tool_input": {"command": "rg -n foo ."},
-    }
+def test_tool_redirect_is_quiet_without_pythonpath() -> None:
+    payload = {"tool_name": "Bash", "tool_input": {"command": "rg -n foo ."}}
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
 
     result = subprocess.run(
-        [sys.executable, str(HOOKS / "pre_tool_discipline.py")],
+        [sys.executable, str(HOOKS / "tool_redirect.py")],
         input=json.dumps(payload),
         text=True,
         capture_output=True,
@@ -82,7 +76,7 @@ def test_pre_tool_discipline_is_quiet_without_pythonpath() -> None:
 
 
 def test_session_telemetry_persists_session_savings(tmp_path: Path) -> None:
-    lemoncrow_root = tmp_path / ".lemoncrow"
+    atelier_root = tmp_path / ".atelier"
     _run_hook(
         "session_telemetry.py",
         {
@@ -91,17 +85,17 @@ def test_session_telemetry_persists_session_savings(tmp_path: Path) -> None:
             "tool_name": "Edit",
             "tool_input": {"edits": [{"file_path": "a.ts"}, {"file_path": "b.ts"}]},
         },
-        env={"LEMONCROW_ROOT": str(lemoncrow_root)},
+        env={"ATELIER_ROOT": str(atelier_root)},
     )
 
-    stats = json.loads((session_dir(lemoncrow_root, "claude", "s1") / "stats.json").read_text(encoding="utf-8"))
+    stats = json.loads((session_dir(atelier_root, "claude", "s1") / "stats.json").read_text(encoding="utf-8"))
     assert stats["total_tool_calls"] == 1
     assert stats["edit_tool_calls"] == 1
-    assert (session_dir(lemoncrow_root, "claude", "s1") / "events.jsonl").exists()
+    assert (session_dir(atelier_root, "claude", "s1") / "events.jsonl").exists()
 
 
 def test_session_telemetry_tracks_usage_compaction_and_subagents(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
 
     update_session_stats(
         root,
@@ -132,7 +126,7 @@ def test_session_telemetry_tracks_usage_compaction_and_subagents(tmp_path: Path)
 
 
 def test_session_telemetry_tracks_spawn_cache_signals(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
 
     update_session_stats(
         root,
@@ -181,7 +175,7 @@ def test_context_window_snapshot_overwrites_not_accumulates(tmp_path: Path) -> N
     snapshot on every PostToolUse call (arithmetic series). Calling 5 times with a
     growing snapshot must result in the LAST snapshot value, not the sum of all.
     """
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     for turn, cR in enumerate([1_000, 5_000, 20_000, 80_000, 200_000], start=1):
         update_session_stats(
             root,
@@ -215,7 +209,7 @@ def test_savings_report_uses_live_events_only(tmp_path: Path) -> None:
     A session that never produced a real ``tokens_saved`` measurement has zero
     savings, not a synthesized number.
     """
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     root.mkdir()
     update_session_stats(
         root,
@@ -237,46 +231,37 @@ def test_savings_report_uses_live_events_only(tmp_path: Path) -> None:
     assert report["tokens_saved"] == 0
     assert report["saved_usd"] == 0.0
 
-    # A real per-session savings row: 50k tokens saved, priced at $0.50. The
-    # all-sessions aggregate sources realized savings from sessions/*/savings.jsonl
-    # (the per-session ledger the statusline / stop hook / web Savings page all
-    # use), not the raw live-events log. Fresh root: the zero-call above cached
-    # this root's empty window aggregate in-process, and that cache only refreshes
-    # against other processes' writes on a throttle -- not sub-second here (a
-    # test-timing artifact, not how the CLI reads it, one fresh process per call).
-    from datetime import UTC, datetime
-
-    root_b = tmp_path / ".lemoncrow_b"
-    sdir = root_b / "sessions" / "s1sess"
-    sdir.mkdir(parents=True, exist_ok=True)
-    (sdir / "savings.jsonl").write_text(
+    # Now write a real live event: 50k tokens saved, priced at $0.50 against
+    # the model that was active when the event was emitted.
+    (root / "live_savings_events.jsonl").write_text(
         json.dumps(
             {
-                "tool": "read",
-                "tokens": 50_000,
-                "calls": 0,
+                "session_id": "s1",
+                "tool_name": "Read",
+                "lever": "structure_map",
+                "tokens_saved": 50_000,
                 "cost_saved_usd": 0.5,
                 "model": "claude-opus-4-7",
-                "ts": datetime.now(UTC).isoformat(),
             }
         )
         + "\n",
         encoding="utf-8",
     )
-    report = build_savings_report(root_b)
+    # Global aggregate (no session_id) reads from live_savings_events.jsonl.
+    report = build_savings_report(root)
     assert report["tokens_saved"] == 50_000
     assert report["saved_usd"] == 0.5
     assert report["cost"]["saved_usd"] == 0.5
 
 
 def test_session_start_bootstrap_applies_settings_auth_and_always_load(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     write_plugin_setting(root, "alwaysLoadTools", False)
     result = session_start_bootstrap(
         root,
         "/plugin",
         host_settings={},
-        mcp_json={"mcpServers": {"lemoncrow": {"alwaysLoad": True}}},
+        mcp_json={"mcpServers": {"atelier": {"alwaysLoad": True}}},
         payload={"session_id": "s1"},
     )
 
@@ -284,48 +269,68 @@ def test_session_start_bootstrap_applies_settings_auth_and_always_load(tmp_path:
     assert result["host_settings"]["subagentStatusLine"]["command"].endswith("/plugin/scripts/statusline.sh")
     assert result["host_settings"]["spinnerVerbs"]["mode"] == "replace"
     assert result["host_settings"]["spinnerVerbs"]["verbs"]
-    assert result["host_settings"]["lemoncrow"]["attribution"]["source"] == "LemonCrow"
+    assert result["host_settings"]["atelier"]["attribution"]["source"] == "Atelier"
     assert result["host_settings"]["includeCoAuthoredBy"] is False
-    assert result["mcp_json"]["mcpServers"]["lemoncrow"]["alwaysLoad"] is False
+    assert result["mcp_json"]["mcpServers"]["atelier"]["alwaysLoad"] is False
     assert result["auth"]["isAnonymous"] is True
-    # The obsolete session-optimizer guidance notice was removed from the
-    # SessionStart bootstrap (optimization discipline lives in the agent files).
-    assert "budget optimizer" not in str(result.get("stdout") or "")
+    assert "Atelier budget optimizer" in result["stdout"]["additionalContext"]
     assert (session_dir(root, "claude", "s1") / "stats.json").exists()
 
 
 def test_spinner_setting_writes_top_level_object() -> None:
-    from lemoncrow.core.capabilities.plugin_runtime import apply_spinner_setting
+    from atelier.core.capabilities.plugin_runtime import apply_spinner_setting
 
     out = apply_spinner_setting({}, True)
     assert out["spinnerVerbs"]["mode"] == "replace"
     assert out["spinnerVerbs"]["verbs"]
     # No inert namespaced key is written.
-    assert "lemoncrow" not in out
+    assert "atelier" not in out
     # Disabling removes the top-level key.
     assert "spinnerVerbs" not in apply_spinner_setting({"spinnerVerbs": {"mode": "replace", "verbs": ["x"]}}, False)
 
 
 def test_attribution_suppresses_coauthor_with_guard() -> None:
-    from lemoncrow.core.capabilities.plugin_runtime import apply_attribution_setting
+    from atelier.core.capabilities.plugin_runtime import apply_attribution_setting
 
     # Absent key -> we suppress Claude's trailer.
     out = apply_attribution_setting({}, True)
     assert out["includeCoAuthoredBy"] is False
-    assert out["lemoncrow"]["attribution"]["enabled"] is True
+    assert out["atelier"]["attribution"]["enabled"] is True
     # User already set the key -> never override it.
     out_user = apply_attribution_setting({"includeCoAuthoredBy": True}, True)
     assert out_user["includeCoAuthoredBy"] is True
     # Disabling drops bookkeeping and leaves includeCoAuthoredBy untouched.
     out_off = apply_attribution_setting({"includeCoAuthoredBy": False}, False)
     assert out_off["includeCoAuthoredBy"] is False
-    assert "lemoncrow" not in out_off
+    assert "atelier" not in out_off
+
+
+def test_claude_session_start_hook_prints_optimizer_context(tmp_path: Path) -> None:
+    root = tmp_path / ".atelier"
+    plugin_root = tmp_path / "plugin"
+    config_dir = tmp_path / "claude"
+    plugin_root.mkdir()
+    (plugin_root / ".mcp.json").write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
+
+    result = _run_hook(
+        "session_start.py",
+        {"hook_event_name": "SessionStart", "session_id": "s1", "source": "startup"},
+        env={
+            "ATELIER_ROOT": str(root),
+            "CLAUDE_PLUGIN_ROOT": str(plugin_root),
+            "CLAUDE_CONFIG_DIR": str(config_dir),
+        },
+    )
+
+    output = json.loads(result.stdout)
+    assert output["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+    assert "smallest viable plan" in output["additionalContext"]
 
 
 def test_claude_stop_hook_shows_cache_and_estimated_session_savings(tmp_path: Path) -> None:
-    from lemoncrow.core.foundation.paths import session_dir
+    from atelier.core.foundation.paths import session_dir
 
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     stats_dir = session_dir(root, "claude", "s1")
     stats_dir.mkdir(parents=True)
     (stats_dir / "stats.json").write_text(
@@ -376,7 +381,7 @@ def test_claude_stop_hook_shows_cache_and_estimated_session_savings(tmp_path: Pa
             "transcript_path": str(transcript),
             "total_cost_usd": 0.1683,
         },
-        env={"LEMONCROW_ROOT": str(root)},
+        env={"ATELIER_ROOT": str(root)},
     )
 
     output = json.loads(result.stdout)
@@ -387,12 +392,12 @@ def test_claude_stop_hook_shows_cache_and_estimated_session_savings(tmp_path: Pa
     assert "1 turn · 1 tool call" in message
     assert "tokens: 107.4k in (107.4k new + 10 cW) · 500 cR · 356 out · 108.3k total" in message
     # Savings come from transcript saved blocks — none in this test transcript, so $0.
-    assert "savings: $0.00 · 0 tok · 0 calls avoided" in message
+    assert "savings: $0.0000 · 0 tok · 0 calls avoided" in message
     assert "top tools: mcp__mcp-vector-search__codegraph_context" in message
 
 
 def test_claude_stop_hook_dedupes_usage_and_prices_each_model(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     transcript = tmp_path / "session.jsonl"
     opus_turn = {
         "type": "assistant",
@@ -430,25 +435,25 @@ def test_claude_stop_hook_dedupes_usage_and_prices_each_model(tmp_path: Path) ->
     result = _run_hook(
         "stop.py",
         {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": str(transcript)},
-        env={"LEMONCROW_ROOT": str(root)},
+        env={"ATELIER_ROOT": str(root)},
     )
 
     output = json.loads(result.stdout)
     message = output["systemMessage"]
     assert "2 turns · 2 tool calls" in message
     assert "tokens: 6.0k in (3.0k new + 3.0k cW) · 3.0k cR · 3.0k out · 12.0k total" in message
-    assert "est. cost: ~$0.08" in message
+    assert "est. cost: ~$0.0809" in message
     assert "top tools: Edit" in message
     assert "Read" in message
 
 
 def test_apply_session_start_files_mutates_host_settings_and_plugin_mcp(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     config_dir = tmp_path / "config"
     plugin_root = tmp_path / "plugin"
     plugin_root.mkdir()
     (plugin_root / ".mcp.json").write_text(
-        json.dumps({"mcpServers": {"lemoncrow": {"alwaysLoad": False}}}),
+        json.dumps({"mcpServers": {"atelier": {"alwaysLoad": False}}}),
         encoding="utf-8",
     )
     write_plugin_setting(root, "alwaysLoadTools", True)
@@ -459,11 +464,11 @@ def test_apply_session_start_files_mutates_host_settings_and_plugin_mcp(tmp_path
     mcp_json = json.loads((plugin_root / ".mcp.json").read_text(encoding="utf-8"))
     assert settings["statusLine"]["command"].endswith("/plugin/scripts/statusline.sh")
     assert settings["subagentStatusLine"]["command"].endswith("/plugin/scripts/statusline.sh")
-    assert mcp_json["mcpServers"]["lemoncrow"]["alwaysLoad"] is True
+    assert mcp_json["mcpServers"]["atelier"]["alwaysLoad"] is True
 
 
 def test_session_start_bootstrap_preserves_existing_statusline_command(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     existing = "/custom/path/statusline.sh"
     result = session_start_bootstrap(
         root,
@@ -472,7 +477,7 @@ def test_session_start_bootstrap_preserves_existing_statusline_command(tmp_path:
             "statusLine": {"type": "command", "command": existing, "padding": 1},
             "subagentStatusLine": {"type": "command", "command": existing, "padding": 1},
         },
-        mcp_json={"mcpServers": {"lemoncrow": {"alwaysLoad": True}}},
+        mcp_json={"mcpServers": {"atelier": {"alwaysLoad": True}}},
     )
 
     assert result["host_settings"]["statusLine"]["command"] == existing
@@ -482,7 +487,7 @@ def test_session_start_bootstrap_preserves_existing_statusline_command(tmp_path:
 
 
 def test_savings_report_includes_lifetime_baseline_and_ab_calibration(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     root.mkdir()
     (root / "lifetime_savings.json").write_text(json.dumps({"calls_saved": 8}), encoding="utf-8")
     (root / "baseline_estimate.json").write_text(
@@ -490,7 +495,7 @@ def test_savings_report_includes_lifetime_baseline_and_ab_calibration(tmp_path: 
         encoding="utf-8",
     )
     # A/B calibration. Three rows of
-    # measured LemonCrow-vs-native read deltas (ratios 0.10/0.12/0.20 → median 0.12).
+    # measured Atelier-vs-native read deltas (ratios 0.10/0.12/0.20 → median 0.12).
     (root / "savings_calibration.jsonl").write_text(
         "\n".join(
             [
@@ -546,7 +551,7 @@ def test_savings_report_includes_lifetime_baseline_and_ab_calibration(tmp_path: 
 
 
 def test_savings_report_omits_ab_calibration_when_no_runs(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     root.mkdir()
     report = build_savings_report(root)
     # No calibration file → empty dict, not missing key, so dashboards can
@@ -555,7 +560,7 @@ def test_savings_report_omits_ab_calibration_when_no_runs(tmp_path: Path) -> Non
 
 
 def test_live_savings_summary_counts_cost_only_routing_events(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     root.mkdir()
     (root / "live_savings_events.jsonl").write_text(
         "\n".join(
@@ -583,27 +588,9 @@ def test_live_savings_summary_counts_cost_only_routing_events(tmp_path: Path) ->
         encoding="utf-8",
     )
 
-    # load_live_savings_summary still reads live_savings_events.jsonl (the raw
-    # per-event log). The all-sessions report, however, sources realized savings
-    # from sessions/*/savings.jsonl (c06ffd6d) with routing folded into saved_usd,
-    # so mirror the same context + routing savings there for the report asserts.
-    from datetime import UTC, datetime
-
-    now = datetime.now(UTC).isoformat()
-    sdir = root / "sessions" / "s1sess"
-    sdir.mkdir(parents=True, exist_ok=True)
-    (sdir / "savings.jsonl").write_text(
-        "\n".join(
-            [
-                json.dumps({"tool": "read", "tokens": 42_000, "calls": 0, "cost_saved_usd": 0.64, "ts": now}),
-                json.dumps({"kind": "routing", "usd": 0.23, "tool": "edit", "model": "claude-sonnet-4-5", "ts": now}),
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
     summary = load_live_savings_summary(root, session_id="s1")
+    # build_savings_report with session_id reads from transcript (no live events).
+    # Use the global aggregate (no session_id) to validate live_savings_events routing.
     report = build_savings_report(root)
 
     assert summary == {
@@ -612,15 +599,13 @@ def test_live_savings_summary_counts_cost_only_routing_events(tmp_path: Path) ->
         "saved_usd": 0.87,
         "routing_saved_usd": 0.23,
     }
-    # Report sources realized savings from the per-session ledger: read $0.64 +
-    # routing $0.23 (folded) = $0.87.
     assert report["cost"]["saved_usd"] == 0.87
     assert report["cost"]["live_saved_usd"] == 0.87
     assert report["cost"]["routing_saved_usd"] == 0.23
 
 
 def test_statusline_shows_routing_savings(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
+    root = tmp_path / ".atelier"
     session_dir(root, "claude", "s1").mkdir(parents=True)
     (root / "auth.json").write_text(json.dumps({"authenticated": True}), encoding="utf-8")
     (session_dir(root, "claude", "s1") / "stats.json").write_text(
@@ -672,15 +657,15 @@ def test_statusline_shows_routing_savings(tmp_path: Path) -> None:
         text=True,
         capture_output=True,
         check=True,
-        env={**os.environ, "LEMONCROW_ROOT": str(root), "LEMONCROW_NO_COLOR": "1"},
+        env={**os.environ, "ATELIER_ROOT": str(root), "ATELIER_NO_COLOR": "1"},
     )
 
-    assert "routing: $0.23" in result.stdout
-    # Format: "$0.87(42k)" — saved USD with token count in parens.
+    assert "routing: $0.230" in result.stdout
+    # Format: "$0.870(42k)" — saved USD with token count in parens.
     # No calls-saved counter (hidden until calibration store feeds equivalent_calls).
-    assert "$0.87(42k)" in result.stdout
+    assert "$0.870(42k)" in result.stdout
     assert "calls saved" not in result.stdout
-    assert "↓ $0.87" in result.stdout
+    assert "↓ $0.870" in result.stdout
 
 
 def test_status_line_priority_and_weighted_rotation() -> None:

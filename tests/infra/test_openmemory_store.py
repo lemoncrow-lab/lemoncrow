@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from lemoncrow.infra.memory_bridges.openmemory import OpenMemoryMemoryStore
+from atelier.infra.memory_bridges.openmemory import OpenMemoryMemoryStore
 
 _PASSAGE_ROW = {
     "id": "mem-1",
     "content": "remembered text",
-    "metadata": {"lemoncrow_kind": "lemoncrow_passage", "lemoncrow_passage_id": "p-1"},
+    "metadata": {"atelier_kind": "atelier_passage", "atelier_passage_id": "p-1"},
 }
 
 

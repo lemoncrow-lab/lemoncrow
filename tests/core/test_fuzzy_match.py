@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.pro.capabilities.tool_supervision.fuzzy_match import (
+from atelier.core.capabilities.tool_supervision.fuzzy_match import (
     FuzzyAmbiguousMatchError,
     apply_fuzzy_replace,
     normalize_for_fuzzy,

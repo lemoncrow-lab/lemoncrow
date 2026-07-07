@@ -28,7 +28,7 @@ from benchmarks.codebench.swebench_pro_data import DOCKERHUB_USERNAME
 
 # Fixed prediction author label -> deterministic per-instance output filename
 # (the harness writes ``<prefix>_output.json`` per instance).
-MODEL_NAME = "lemoncrow-codebench"
+MODEL_NAME = "atelier-codebench"
 
 HARNESS_REPO_URL = "https://github.com/scaleapi/SWE-bench_Pro-os.git"
 HARNESS_CACHE_DIR = REPO_ROOT / ".cache" / "swe-bench-pro-os"

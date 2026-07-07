@@ -8,10 +8,10 @@ from pathlib import Path
 
 from click.testing import CliRunner, Result
 
-from lemoncrow.core.foundation.models import Trace, UsageEntry
-from lemoncrow.gateway.cli import cli
-from lemoncrow.infra.runtime.run_ledger import RunLedger
-from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from atelier.core.foundation.models import Trace, UsageEntry
+from atelier.core.foundation.store import ContextStore
+from atelier.gateway.cli import cli
+from atelier.infra.runtime.run_ledger import RunLedger
 from tests.helpers import init_store_at
 
 
@@ -32,7 +32,7 @@ def _seed_ledger(root: Path, session_id: str = "run1") -> Path:
 
 
 def _seed_optimizer_traces(root: Path) -> None:
-    store = build_sqlite_store_bundle(root)
+    store = ContextStore(root)
     store.init()
     created_at = datetime.now(UTC)
     for trace in (
@@ -62,15 +62,15 @@ def _seed_optimizer_traces(root: Path) -> None:
             created_at=created_at,
         ),
     ):
-        store.history.record_trace(trace)
+        store.record_trace(trace)
 
 
 def _seed_advisor_traces(root: Path, count: int = 20) -> None:
-    store = build_sqlite_store_bundle(root)
+    store = ContextStore(root)
     store.init()
     created_at = datetime.now(UTC)
     for index in range(count):
-        store.history.record_trace(
+        store.record_trace(
             Trace(
                 id=f"advisor-{index}",
                 agent="codex",
@@ -106,7 +106,7 @@ def test_ledger_show_and_summarize(tmp_path: Path) -> None:
 
     res2 = _invoke(root, "ledger", "summarize")
     assert res2.exit_code == 0
-    assert "LemonCrow compact state" in res2.output
+    assert "Atelier compact state" in res2.output
 
 
 def test_tool_mode_show_set(tmp_path: Path) -> None:
