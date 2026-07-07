@@ -191,7 +191,12 @@ def _replace_in_scope(content: str, spec: TargetSpec, old_string: str, new_strin
             replacement = _adapt_indentation(old_string, new_string, matched)
         absolute = start_offset + index
         line_start = content[:absolute].count("\n") + 1
+        # A trailing newline in the match terminates the last changed line rather
+        # than opening a new one; counting it would push line_end one past the
+        # real inclusive last-modified line (1-indexed inclusive convention).
         line_end = line_start + matched.count("\n")
+        if matched.endswith("\n"):
+            line_end -= 1
         return (
             content[:absolute] + replacement + content[absolute + len(matched) :],
             line_start,
@@ -652,6 +657,24 @@ def apply_rich_edits(
             old_string = str(edit.get("old_string", ""))
             if not old_string:
                 raise ValueError("old_string is required unless replace=true or creating a new file")
+            # Same stale-coordinate guard as the pure-range path above: a :Lx-Ly
+            # scope paired with old_string still narrows _replace_in_scope's search
+            # window by raw line number, which is silently wrong once an earlier
+            # content-located edit in this batch has shifted this file's lines. Fail
+            # loudly instead of searching the wrong window and reporting a generic
+            # (and misleading) "old_string not found".
+            if spec.start_line is not None and path in content_edited:
+                rng = (
+                    f":L{spec.start_line}"
+                    if spec.start_line == spec.end_line
+                    else f":L{spec.start_line}-L{spec.end_line}"
+                )
+                raise ValueError(
+                    f"range edit {raw_path!r} ({rng}) follows a content-located edit to the same "
+                    "file in this batch, so its pre-batch line numbers no longer resolve -- drop "
+                    "the line range (old_string is searched over the whole file), put range edits "
+                    "first, or split into a second call"
+                )
             new_content, line_start, line_end, match_mode = _replace_in_scope(
                 content, spec, old_string, str(edit.get("new_string", ""))
             )

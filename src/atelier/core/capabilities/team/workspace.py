@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import secrets
+import threading
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from atelier.core.capabilities.cross_vendor_memory.audit_log import local_machine_id
 
@@ -36,6 +40,18 @@ def signing_key_path(root: Path) -> Path:
     return root / "team_signing_key.txt"
 
 
+def _workspace_lock_path(root: Path) -> Path:
+    path = workspace_path(root)
+    return path.parent / (path.name + ".lock")
+
+
+# Serialize workspace read-modify-write critical sections across worker threads
+# sharing this process (the FastAPI sync-handler threadpool serves concurrent
+# /v1/team/* requests here); a sidecar flock additionally guards sibling
+# processes (e.g. simultaneous `atelier team` invocations).
+_WORKSPACE_MUTATION_LOCK = threading.Lock()
+
+
 class TeamWorkspaceManager:
     """Persist and query local workspace state."""
 
@@ -58,6 +74,45 @@ class TeamWorkspaceManager:
             encoding="utf-8",
         )
         return workspace
+
+    @contextlib.contextmanager
+    def _mutation_lock(self) -> Iterator[None]:
+        """Serialize a load_workspace->modify->save_workspace critical section so
+        concurrent mutations cannot lose-update each other. Guards worker threads
+        sharing this process (_WORKSPACE_MUTATION_LOCK) and, best-effort, sibling
+        processes sharing the same team_workspace.json (POSIX flock)."""
+        with _WORKSPACE_MUTATION_LOCK:
+            handle = self._acquire_flock()
+            try:
+                yield
+            finally:
+                self._release_flock(handle)
+
+    def _acquire_flock(self) -> Any:
+        try:
+            import fcntl
+        except ImportError:
+            return None
+        try:
+            lock_path = _workspace_lock_path(self.root)
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            handle = open(lock_path, "w", encoding="utf-8")
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            return handle
+        except OSError:
+            return None
+
+    def _release_flock(self, handle: Any) -> None:
+        if handle is None:
+            return
+        try:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except (ImportError, OSError):
+            pass
+        with contextlib.suppress(OSError):
+            handle.close()
 
     def init_workspace(self, *, name: str, admin_email: str = "admin@local") -> TeamWorkspace:
         if self.exists():
@@ -117,20 +172,21 @@ class TeamWorkspaceManager:
         actor_user_id: str | None = None,
         expires_in_days: int = 7,
     ) -> list[TeamInvite]:
-        workspace = self.load_workspace()
-        actor = self.require_admin(actor_user_id, workspace=workspace)
-        invites: list[TeamInvite] = []
-        for email in emails:
-            normalized = email.strip().lower()
-            invite = TeamInvite(
-                code=secrets.token_urlsafe(10),
-                email=normalized,
-                role=role,
-                expires_at=datetime.now(UTC) + timedelta(days=expires_in_days),
-            )
-            workspace.invites.append(invite)
-            invites.append(invite)
-        self.save_workspace(workspace)
+        with self._mutation_lock():
+            workspace = self.load_workspace()
+            actor = self.require_admin(actor_user_id, workspace=workspace)
+            invites: list[TeamInvite] = []
+            for email in emails:
+                normalized = email.strip().lower()
+                invite = TeamInvite(
+                    code=secrets.token_urlsafe(10),
+                    email=normalized,
+                    role=role,
+                    expires_at=datetime.now(UTC) + timedelta(days=expires_in_days),
+                )
+                workspace.invites.append(invite)
+                invites.append(invite)
+            self.save_workspace(workspace)
         for invite in invites:
             self.append_audit_event(
                 TeamAuditEvent(

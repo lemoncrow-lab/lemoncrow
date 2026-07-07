@@ -443,6 +443,21 @@ def test_install_scripts_document_global_and_workspace_paths() -> None:
     assert "atelier" in antigravity
 
 
+def test_opencode_install_passes_config_path_via_env_not_source_interpolation() -> None:
+    """Regression: OC_FILE must not be interpolated into Python heredoc source.
+
+    A config path containing single quotes or backslashes (e.g. /home/o'brien/...)
+    broke `Path('$OC_FILE')` with a SyntaxError at compile time, leaving the config
+    unwritten. The path must be passed through the environment and read with
+    os.environ inside the heredoc instead.
+    """
+    content = (INTEGRATIONS / "opencode" / "install.sh").read_text()
+    assert "Path('$OC_FILE')" not in content, "opencode install.sh must not interpolate $OC_FILE into Python source"
+    # Path is exported to the subprocess and read safely inside every heredoc.
+    assert content.count('ATELIER_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}"') == 4
+    assert content.count("os.environ['ATELIER_OC_FILE']") == 4
+
+
 def test_install_codex_merges_existing_agents_file() -> None:
     content = (SCRIPTS / "install_codex.sh").read_text()
     assert "merge_agents_file()" in content

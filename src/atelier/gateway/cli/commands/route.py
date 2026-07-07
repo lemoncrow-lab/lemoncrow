@@ -156,7 +156,8 @@ def proof_run_cmd(
         if smart_state_path.exists():
             try:
                 ss = _json.loads(smart_state_path.read_text(encoding="utf-8"))
-                context_reduction_pct = float(ss.get("context_reduction_pct", 0) or 0)
+                if isinstance(ss, dict):
+                    context_reduction_pct = float(ss.get("context_reduction_pct", 0) or 0)
             except (OSError, _json.JSONDecodeError):
                 pass
         if context_reduction_pct is None:
