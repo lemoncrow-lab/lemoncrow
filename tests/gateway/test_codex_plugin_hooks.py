@@ -312,9 +312,12 @@ def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
     assert "Atelier session complete." in message
     assert "0 LLM turns · 1 prompt turn · 1 tool call (hooks)" in message
     assert "est. cost: ~$" in message
-    assert (
-        "savings: $0.0006 · 500 tokens saved · 2 calls avoided · routing $0.0000 · carry $0.0000 / 0 tokens" in message
-    )
+    # Routing/carry/output are all 0 in this fixture -- suppressed like
+    # Claude Code's stop hook (component omitted at exactly $0), instead of
+    # Codex's old always-show-at-$0.0000 behavior.
+    assert "savings: $0.0006 · 500 tokens saved · 2 calls avoided" in message
+    assert "routing $0.0000" not in message
+    assert "carry $0.0000" not in message
     assert "tools: mcp__atelier__edit×1" in message
 
 

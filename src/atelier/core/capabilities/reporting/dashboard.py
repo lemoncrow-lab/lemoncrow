@@ -25,6 +25,9 @@ from typing import Any
 
 import click
 
+from atelier.core.capabilities.optimization.optimizer import potential_savings_breakdown
+from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
+
 logger = logging.getLogger(__name__)
 
 # ── Status dashboard helpers (ported from bin/atelier-status) ───────────────
@@ -47,22 +50,6 @@ _BRAND = "\033[1;38;2;155;117;217m"
 _BADGE = "\033[1;48;2;155;117;217;38;2;255;255;255m atelier:code \033[0m"
 _SEP = "\033[2;38;2;180;180;180m │\033[0m"
 _W = 72
-
-
-def _k(n: int) -> str:
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 1000:
-        return f"{n // 1000}k"
-    return str(n)
-
-
-def _usd(v: float) -> str:
-    if v >= 1:
-        return f"${v:.2f}"
-    if v > 0:
-        return f"${v:.4f}"
-    return "$0"
 
 
 def _age(ts: str) -> str:
@@ -151,14 +138,14 @@ def render_overview(root: Path, *, days: int = 7, n_runs: int = 8) -> str:
         lines.append(f"  Sessions   {window.session_count}   (avg {avg_min} min · total {total_h}h {rem // 60}m)")
     else:
         lines.append("  Sessions   0")
-    lines.append(f"  AI spend   ${window.total_cost_usd:.2f}")
+    lines.append(f"  AI spend   {_fmt_usd(window.total_cost_usd)}")
     if window.total_cost_usd > 0:
         frac = window.total_atelier_savings_usd / window.total_cost_usd
         lines.append(
-            f"  Saved      ${window.total_atelier_savings_usd:.2f}   ({frac * 100:.0f}% of spend)   {_bar(frac)}"
+            f"  Saved      {_fmt_usd(window.total_atelier_savings_usd)}   ({frac * 100:.0f}% of spend)   {_bar(frac)}"
         )
     else:
-        lines.append(f"  Saved      ${window.total_atelier_savings_usd:.2f}")
+        lines.append(f"  Saved      {_fmt_usd(window.total_atelier_savings_usd)}")
 
     # Cost by model
     if window.cost_by_model:
@@ -166,21 +153,24 @@ def render_overview(root: Path, *, days: int = 7, n_runs: int = 8) -> str:
         lines.append("  Cost by model")
         for model, cost in list(window.cost_by_model.items())[:4]:
             frac = cost / window.total_cost_usd if window.total_cost_usd > 0 else 0.0
-            lines.append(f"    {model:<20}${cost:>7.2f}  {frac * 100:>3.0f}%  {_bar(frac, 14)}")
+            lines.append(f"    {model:<20}{_fmt_usd(cost):>9}  {frac * 100:>3.0f}%  {_bar(frac, 14)}")
 
     # Top tools
     if window.cost_by_tool:
         lines.append("")
         lines.append("  Top tools")
         for tool, cost in list(window.cost_by_tool.items())[:4]:
-            lines.append(f"    {tool:<20}${cost:>7.2f}")
+            lines.append(f"    {tool:<20}{_fmt_usd(cost):>9}")
 
     # Recent runs
     rows_added = False
     for run_file in list_run_files(root)[:n_runs]:
         try:
             snap: dict[str, Any] = json.loads(run_file.read_text(encoding="utf-8"))
-            report = build_report(snap, root)
+            # Small, bounded n_runs (default 8) -- cheap to include the
+            # transcript-based carry component here, unlike bulk aggregation
+            # paths (see build_report's docstring).
+            report = build_report(snap, root, include_carry_credit=True)
         except Exception:  # noqa: BLE001 - best-effort per-run row; skip unreadable files
             continue
         if not rows_added:
@@ -195,8 +185,8 @@ def render_overview(root: Path, *, days: int = 7, n_runs: int = 8) -> str:
         mark = {"success": "✓", "complete": "✓", "failed": "✗", "error": "✗"}.get(status, "•")
         age = _age(str(snap.get("updated_at") or snap.get("created_at") or ""))
         lines.append(
-            f"    {sid:<7}{agent:<11}{task:<28}{mark} ${report.total_cost_usd:>6.2f}  "
-            f"saved ${report.total_atelier_savings_usd:>5.2f}  {age}"
+            f"    {sid:<7}{agent:<11}{task:<28}{mark} {_fmt_usd(report.total_cost_usd):>8}  "
+            f"saved {_fmt_usd(report.total_atelier_savings_usd):>8}  {age}"
         )
 
     if window.session_count or rows_added:
@@ -412,18 +402,18 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
         if saved_v > 0:
             breakdown = []
             if compaction_v > 0:
-                breakdown.append(f"compact={_usd(compaction_v)}")
+                breakdown.append(f"compact={_fmt_usd(compaction_v)}")
             if routing_v > 0:
-                breakdown.append(f"routing={_usd(routing_v)}")
+                breakdown.append(f"routing={_fmt_usd(routing_v)}")
             suffix = f" ({', '.join(breakdown)})" if breakdown else ""
-            saved_seg = f" {_SEP} {_GREEN}saved={_usd(saved_v)}{suffix}{_RESET}"
+            saved_seg = f" {_SEP} {_GREEN}saved={_fmt_usd(saved_v)}{suffix}{_RESET}"
 
         line = (
             f"{_BADGE} {_BRAND}run {sid[:8]}{_RESET} {_SEP} {_DIM}{agent}{_RESET} {_SEP} "
             f"{domain} {_SEP} {task} {_SEP} {_status_color(status)} "
             f"{_SEP} ev={events} err={errors} blk={blockers}"
             f" {_SEP} files={files_n} tools={tools_n}"
-            + (f" {_SEP} cost={_usd(cost_v)}" if cost_v > 0 else "")
+            + (f" {_SEP} cost={_fmt_usd(cost_v)}" if cost_v > 0 else "")
             + saved_seg
             + (f" {_SEP} {dur_str}" if dur_str else "")
             + f" {_SEP} {_DIM}{age_str}{_RESET}"
@@ -482,19 +472,19 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
     fr = f"{_RED}{failed_count} failed{_RESET}" if failed_count else f"{_DIM}0 failed{_RESET}"
     _box_line(
         f"{_BOLD}{total_runs}{_RESET} runs  {sr}  {fr}  "
-        f"{_DIM}tools={_k(total_tools)}  files={total_files}  errs={total_errors}{_RESET}"
+        f"{_DIM}tools={_fmt_tok(total_tools)}  files={total_files}  errs={total_errors}{_RESET}"
     )
     if total_cost > 0 or saved_usd > 0:
         parts = []
         if compaction_total > 0:
-            parts.append(f"compact {_usd(compaction_total)}")
+            parts.append(f"compact {_fmt_usd(compaction_total)}")
         if routing_total > 0:
-            parts.append(f"routing {_usd(routing_total)}")
+            parts.append(f"routing {_fmt_usd(routing_total)}")
         breakdown_str = f"  {_DIM}({' · '.join(parts)}){_RESET}" if parts else ""
         _box_line(
-            f"{_DIM}cost{_RESET} {_usd(total_cost)}  "
-            + (f"{_GREEN}saved{_RESET} {_usd(saved_usd)}{breakdown_str}" if saved_usd > 0 else "")
-            + (f"  {_DIM}tokens{_RESET} {_k(total_tokens)}" if total_tokens else "")
+            f"{_DIM}cost{_RESET} {_fmt_usd(total_cost)}  "
+            + (f"{_GREEN}saved{_RESET} {_fmt_usd(saved_usd)}{breakdown_str}" if saved_usd > 0 else "")
+            + (f"  {_DIM}tokens{_RESET} {_fmt_tok(total_tokens)}" if total_tokens else "")
         )
 
     shown = min(n_runs, len(all_run_entries))
@@ -529,15 +519,15 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
 
         metrics = []
         if cost_v > 0:
-            metrics.append(f"cost={_usd(cost_v)}")
+            metrics.append(f"cost={_fmt_usd(cost_v)}")
         if saved_v > 0:
             breakdown_parts = []
             if compaction_v > 0:
-                breakdown_parts.append(f"c={_usd(compaction_v)}")
+                breakdown_parts.append(f"c={_fmt_usd(compaction_v)}")
             if routing_v > 0:
-                breakdown_parts.append(f"r={_usd(routing_v)}")
+                breakdown_parts.append(f"r={_fmt_usd(routing_v)}")
             run_breakdown_str = f" {_DIM}({' '.join(breakdown_parts)}){_RESET}" if breakdown_parts else ""
-            metrics.append(f"{_GREEN}saved={_usd(saved_v)}{run_breakdown_str}")
+            metrics.append(f"{_GREEN}saved={_fmt_usd(saved_v)}{run_breakdown_str}")
         if dur_str:
             metrics.append(dur_str)
         metrics_str = f" {_SEP} ".join(metrics)
@@ -592,6 +582,14 @@ def _render_optimization_summary(result: Any) -> None:
         click.echo(f"  Estimated quality: {recommended.estimated_quality:.1%}  ({result.quality_delta:+.1%})")
         click.echo(f"  Latency mult:      {recommended.latency_mult:.2f}x")
         click.echo(f"  Escalation rate:   {recommended.escalation_rate:.0%}")
+        click.echo("")
+        breakdown = potential_savings_breakdown(recommended, result.baseline_weekly_cost_usd, result.weekly_savings_usd)
+        click.echo("  Savings breakdown (Read / Carry / Output / Routing / Total):")
+        click.echo(f"    Read savings:     {_fmt_usd(breakdown['read_saved_usd'])}/wk")
+        click.echo(f"    Carry credit:     {_fmt_usd(breakdown['carry_saved_usd'])}/wk")
+        click.echo("    Output savings:   $0.00/wk (not yet modeled)")
+        click.echo(f"    Routing savings:  {_fmt_usd(breakdown['routing_saved_usd'])}/wk")
+        click.echo(f"    Total saved:      {_fmt_usd(breakdown['total_saved_usd'])}/wk")
     click.echo("")
     click.echo(f"Confidence: {result.confidence.title()}")
     click.echo(f"  {result.confidence_reason}")
@@ -616,6 +614,14 @@ def _render_optimization_details(result: Any) -> None:
 
     if recommended is None:
         return
+    click.echo("")
+    breakdown = potential_savings_breakdown(recommended, result.baseline_weekly_cost_usd, result.weekly_savings_usd)
+    click.echo("Savings breakdown for [recommended] (Read / Carry / Output / Routing / Total):")
+    click.echo(f"  Read savings:    {_fmt_usd(breakdown['read_saved_usd'])}/wk")
+    click.echo(f"  Carry credit:    {_fmt_usd(breakdown['carry_saved_usd'])}/wk")
+    click.echo("  Output savings:  $0.00/wk (not yet modeled)")
+    click.echo(f"  Routing savings: {_fmt_usd(breakdown['routing_saved_usd'])}/wk")
+    click.echo(f"  Total saved:     {_fmt_usd(breakdown['total_saved_usd'])}/wk")
     click.echo("")
     click.echo("Compaction breakdown for [recommended]:")
     for name, saved in recommended.compaction_breakdown.items():

@@ -89,25 +89,31 @@ def test_shrunken_source_forces_rebuild(tmp_path: Path) -> None:
 def test_bump_historical_cache_folds_row_without_rescan() -> None:
     ss._historical_savings_cache.clear()
     key = (7, "/tmp/root")
-    ss._historical_savings_cache[key] = (123.0, (1.0, 1000, 2, 5, 50.0, 3.0, 0.25))
+    ss._historical_savings_cache[key] = (123.0, (1.0, 1000, 2, 5, 50.0, 3.0, 0.25, 0.1, 200, 7))
 
     ss._bump_historical_savings_cache(
         {"tool": "read", "tokens": 400, "calls": 1, "cost_saved_usd": 0.002, "calls_usd": 0.05, "ts": "x"}
     )
     cached_ts, val = ss._historical_savings_cache[key]
     assert cached_ts == 123.0  # TTL clock untouched — still refreshes on schedule
-    usd, tok, calls, turns, spend, carry, routing = val
+    usd, tok, calls, turns, spend, carry, routing, read_usd, read_tok, carry_tok = val
     # calls_usd credited as written (priced at write time; no display discount).
     assert round(usd, 6) == round(1.0 + 0.002 + 0.05, 6)
     assert tok == 1400 and calls == 3 and turns == 6
     assert spend == 50.0 and carry == 3.0  # spend/carry never bumped per-row
     assert routing == 0.25  # context rows never touch the routing column
+    # tool="read" is a read-lever row: read_usd/read_tok get incremented by
+    # the row's raw tokens/cost_saved_usd (not the calls_usd-inclusive total).
+    assert round(read_usd, 6) == round(0.1 + 0.002, 6)
+    assert read_tok == 200 + 400
+    assert carry_tok == 7  # carry tokens never bumped per-row (TTL-refreshed only)
 
     # Routing rows fold ONLY the routing column, leaving savings untouched.
     ss._bump_historical_savings_cache({"kind": "routing", "usd": 0.75, "ts": "x"})
     _, val = ss._historical_savings_cache[key]
     assert val[0] == usd and val[1] == tok and val[2] == calls and val[3] == turns
     assert val[6] == 1.0
+    assert val[7] == read_usd and val[8] == read_tok and val[9] == carry_tok
 
     ss._historical_savings_cache.clear()
     ss._bump_historical_savings_cache({"tokens": 400})  # empty cache → no-op, no crash

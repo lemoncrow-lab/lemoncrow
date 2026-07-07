@@ -673,13 +673,28 @@ class SavingsSummary:
     ctx_saved: int = 0
     smart_calls: int = 0
     carry_tokens: int = 0  # saved tokens x later turns (context-carry volume)
-    carry_usd: float = 0.0  # carry (cache-read rate) + long-context cliff-avoidance credit
+    # Context-carry credit: cache-read rate on later turns that re-read tokens
+    # already saved once, plus the long-context cliff-avoidance credit. This is
+    # a RECURRING credit across future turns, not a one-time savings bucket, so
+    # — unlike output/routing/read below — it is deliberately never folded into
+    # saved_usd (surfaces that want a "Total saved" figure add carry_usd to
+    # saved_usd explicitly; see savings_frames).
+    carry_usd: float = 0.0
+    # Model-routing savings (cheaper-tier model choice). Tracked separately AND
+    # included in saved_usd (folded in by compute_savings_summary), same as
+    # output_saved_usd/read_saved_usd below.
     routing_saved_usd: float = 0.0
     # Telegraphic output-style breakdown (kind=="output_style" rows): prose the
-    # model did NOT emit. Included in saved_usd/ctx_saved; surfaced separately
-    # so the statusline/stop hook can label output reductions with ↓O.
+    # model did NOT emit. Tracked separately AND included in saved_usd/ctx_saved;
+    # surfaced separately so the statusline/stop hook can label output
+    # reductions with ↓O.
     output_saved_usd: float = 0.0
     output_saved_tokens: int = 0
+    # Read/retrieval-side savings (search_read, cached_read, scoped_recall
+    # levers). Tracked separately AND included in saved_usd/ctx_saved; surfaced
+    # separately so surfaces can label a Read component.
+    read_saved_usd: float = 0.0
+    read_saved_tokens: int = 0
     est_cost_usd: float = 0.0  # baseline cost from terminated session transcript
     total_tokens: int = 0  # cumulative session tokens (in+out+cR+cW) from transcript
     display_input_tokens: int = 0  # cumulative fresh input = input + cache_write
@@ -694,6 +709,15 @@ class SavingsSummary:
     tool_token_ledger: dict[str, dict[str, int]] = field(default_factory=dict)
     tool_ledger_input_tokens: int = 0
     tool_ledger_output_tokens: int = 0
+
+    @property
+    def total_saved_usd(self) -> float:
+        """Canonical "Total saved" figure: saved_usd (which already folds in
+        read/output/routing) plus carry_usd (deliberately excluded from
+        saved_usd itself — see the carry_usd field comment). Every surface
+        that wants a single headline total should read this property instead
+        of re-deriving the sum."""
+        return self.saved_usd + self.carry_usd
 
 
 def _price_savings_row(ev: dict[str, Any]) -> tuple[int, float, int, float, int]:
@@ -810,10 +834,13 @@ def _read_session_routing_usd(session_id: str, atelier_root: Path) -> float:
     """Sum model-routing savings from the per-session sidecar.
 
     The MCP server appends a ``kind == "routing"`` row (priced at decision time)
-    to ``sessions/<id>/savings.jsonl`` for every routing saving. Kept separate
-    from context savings so it drives the statusline's distinct routing line
-    without inflating ``saved_usd`` — and read from the small per-session file
-    rather than scanning the large ``live_savings_events.jsonl`` on every render.
+    to ``sessions/<id>/savings.jsonl`` for every routing saving. These rows'
+    ``tokens`` field is absent/zero, so :func:`_read_claude_session_savings`'s
+    row loop never counts them — this dedicated reader is the only place that
+    sums them, both for the statusline's ↓routing breakdown AND (via
+    :func:`compute_savings_summary`, which folds this value into ``saved_usd``)
+    for the realized-savings total. Read from the small per-session file rather
+    than scanning the large ``live_savings_events.jsonl`` on every render.
     """
     if not session_id:
         return 0.0
@@ -862,6 +889,69 @@ def _read_session_output_style(session_id: str, atelier_root: Path) -> tuple[int
             if str(ev.get("kind") or "") == "output_style":
                 tokens += max(0, int(ev.get("tokens") or 0))
                 usd += max(0.0, float(ev.get("cost_saved_usd") or 0.0))
+    except OSError:
+        pass
+    return tokens, round(usd, 6)
+
+
+def _is_read_lever(tool: str) -> bool:
+    """True when *tool* (a savings.jsonl row's ``tool`` field) normalizes to a
+    read-side lever: ``search_read``, ``cached_read``, or ``scoped_recall``.
+
+    Mirrors the substring rules of ``mcp_server.py:_lever_for_tool`` (tool-name
+    based — what these sidecar rows actually carry) and the read-lever subset
+    of ``api.py:_normalize_lever`` (operation-string based, used elsewhere for
+    a differently-shaped event log), duplicated in miniature here rather than
+    imported: ``api.py`` already imports ``aggregate_window_savings`` from this
+    module, so importing either classifier back would create a circular import.
+    """
+    ident = (tool or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not ident:
+        return False
+    if ident in {"read", "search"} or ident.endswith("_read") or ident.endswith("_search"):
+        return True  # search_read
+    if "cache" in ident:
+        return True  # cached_read
+    if ident == "memory" or ident.endswith("_memory") or "recall" in ident:
+        return True  # scoped_recall
+    return False
+
+
+def _read_session_read_savings(session_id: str, atelier_root: Path) -> tuple[int, float]:
+    """Sum read/retrieval-side savings (search_read, cached_read, scoped_recall).
+
+    These are plain per-tool-call rows (no ``kind`` field — routing,
+    compaction, output-style, turn-cut, and external-compactor rows all carry
+    a ``kind`` and are excluded here) already inside the shared totals via
+    :func:`_read_claude_session_savings`; this reader classifies each row's
+    ``tool`` name with :func:`_is_read_lever` to provide the Read display
+    breakdown, the same way :func:`_read_session_output_style` provides Output.
+    """
+    if not session_id:
+        return 0, 0.0
+    path = _find_savings_sidecar(session_id, atelier_root)
+    if not path.exists():
+        return 0, 0.0
+    tokens = 0
+    usd = 0.0
+    try:
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                ev = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if ev.get("kind"):
+                continue
+            if not _is_read_lever(str(ev.get("tool") or "")):
+                continue
+            t = max(0, int(ev.get("tokens") or ev.get("tokens_saved") or 0))
+            if t > 2_000_000:
+                continue
+            tokens += t
+            usd += max(0.0, float(ev.get("cost_saved_usd") or 0.0))
     except OSError:
         pass
     return tokens, round(usd, 6)
@@ -1316,11 +1406,14 @@ def compute_savings_summary(
                 priced_tokens, calls, row_usd, unpriced_tokens = ws_tokens, ws_calls, ws_usd, ws_unpriced
 
     result.smart_calls = calls
-    # Per-session model-routing savings: a separate display line, read cheaply
-    # from the sidecar (kind="routing" rows) and never folded into saved_usd.
+    # Per-session model-routing savings: read cheaply from the sidecar
+    # (kind="routing" rows); folded into saved_usd below (still tracked here
+    # separately for the ↓routing display breakdown), same as output.
     result.routing_saved_usd = _read_session_routing_usd(session_id, root_path)
     # Telegraphic output-style breakdown (inside the totals; shown as ↓O).
     result.output_saved_tokens, result.output_saved_usd = _read_session_output_style(session_id, root_path)
+    # Read/retrieval-side breakdown (inside the totals; shown as ↓Read).
+    result.read_saved_tokens, result.read_saved_usd = _read_session_read_savings(session_id, root_path)
 
     # --- cost baseline + model from transcript ---
     paths = claude_transcript_candidates(session_id) if session_id else []
@@ -1383,7 +1476,11 @@ def compute_savings_summary(
             extra_tokens = unpriced_tokens
 
     result.ctx_saved = priced_tokens + extra_tokens
-    result.saved_usd = row_usd + extra_usd
+    # Routing is folded in here (unlike carry_usd, a recurring re-read credit
+    # that stays separate) — mirrors output_saved_usd, which is already inside
+    # row_usd because output-style rows are priced as normal rows in the loop
+    # above (see _price_savings_row).
+    result.saved_usd = row_usd + extra_usd + result.routing_saved_usd
 
     total_baseline = result.saved_usd + result.carry_usd + result.est_cost_usd
     if total_baseline > 0:
@@ -1485,13 +1582,33 @@ def _resolve_status_text(atelier_root: str | Path | None = None) -> str:
     return ""
 
 
+def _fmt_usd(v: float) -> str:
+    """Shared currency formatter: <$1 -> 4 decimals, else 2 decimals + thousands
+    separators. Plain module-level function (importable by CLI commands,
+    session_report.py, dashboard.py, audit.py, api.py, etc.) so every Python
+    surface renders dollar amounts the same way.
+    """
+    v = float(v or 0.0)
+    if abs(v) < 1:
+        return f"${v:.4f}"
+    return f"${v:,.2f}"
+
+
 def _fmt_tok(n: int) -> str:
-    """Format token count: <1k literal, <1M as Nk, >=1M as N.NM."""
+    """Shared token-count formatter: <1k literal int, 1k-1M as N.Nk, >=1M as N.NNM."""
+    n = int(n or 0)
     if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
+        return f"{n / 1_000_000:.2f}M"
     if n >= 1000:
-        return f"{n // 1000}k"
+        return f"{n / 1000:.1f}k"
     return str(n)
+
+
+def _fmt_pct(p: float) -> str:
+    """Shared percent formatter: one decimal. *p* is an already-scaled 0-100
+    number (matching this file's saved_pct/carry_pct fields), not a 0-1 fraction.
+    """
+    return f"{float(p or 0.0):.1f}%"
 
 
 def load_usage_breakdown(root: str | Path) -> dict[str, Any]:
@@ -1561,19 +1678,8 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
     stays available via ``atelier savings --json``.
     """
 
-    def _usd(v: Any) -> str:
-        return f"${float(v or 0):,.2f}"
-
     def _int(v: Any) -> str:
         return f"{int(v or 0):,}"
-
-    def _tok(v: Any) -> str:
-        n = int(v or 0)
-        if n >= 1_000_000:
-            return f"{n / 1_000_000:.1f}M"
-        if n >= 1_000:
-            return f"{n / 1_000:.1f}k"
-        return str(n)
 
     saved = float(payload.get("saved_usd") or 0.0)
     calls = int(payload.get("calls_avoided") or 0)
@@ -1586,14 +1692,14 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
 
     if spend30 > 0:
         pct = saved / spend30 * 100
-        lines.append(f"  Saved            {_usd(saved)}   ({pct:.0f}% of {_usd(spend30)} spend · 30d)")
+        lines.append(f"  Saved            {_fmt_usd(saved)}   ({_fmt_pct(pct)} of {_fmt_usd(spend30)} spend · 30d)")
     else:
-        lines.append(f"  Saved            {_usd(saved)}")
+        lines.append(f"  Saved            {_fmt_usd(saved)}")
     lines.append(f"  Calls avoided    {_int(calls)}")
-    lines.append(f"  Tokens kept out  {_tok(tokens)}")
+    lines.append(f"  Tokens kept out  {_fmt_tok(tokens)}")
     routing_total = float((payload.get("live") or {}).get("routing_saved_usd") or 0.0)
     if routing_total > 0:
-        lines.append(f"  Routing saved    {_usd(routing_total)}   (model routing · separate from Saved)")
+        lines.append(f"  Routing saved    {_fmt_usd(routing_total)}   (model routing · included in Saved)")
 
     if breakdown:
         has_routing = any(float((breakdown.get(k) or {}).get("routing") or 0.0) > 0 for k in ("1D", "7D", "30D"))
@@ -1604,9 +1710,9 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
         lines.append(header)
         for key, label in (("1D", "1 day"), ("7D", "7 days"), ("30D", "30 days")):
             w = breakdown.get(key) or {}
-            row = f"    {label:<10}{_int(w.get('calls')):>8}{_usd(w.get('usd')):>11}{_tok(w.get('tokens')):>10}"
+            row = f"    {label:<10}{_int(w.get('calls')):>8}{_fmt_usd(float(w.get('usd') or 0.0)):>11}{_fmt_tok(int(w.get('tokens') or 0)):>10}"
             if has_routing:
-                row += f"{_usd(w.get('routing')):>11}"
+                row += f"{_fmt_usd(float(w.get('routing') or 0.0)):>11}"
             lines.append(row)
 
     sub = payload.get("subscription") or {}
@@ -1644,7 +1750,9 @@ _SPEND_CACHE_TTL_S = 60.0
 # day-bucketed aggregate (see reconcile_savings_aggregate) and live rows are
 # folded in O(1) on write via _bump_historical_savings_cache.
 _HISTORICAL_SAVINGS_CACHE_TTL_S: float = 60.0
-_historical_savings_cache: dict[tuple[int, str], tuple[float, tuple[float, int, int, int, float, float, float]]] = {}
+_historical_savings_cache: dict[
+    tuple[int, str], tuple[float, tuple[float, int, int, int, float, float, float, float, int, int]]
+] = {}
 
 
 def _transcript_turn_costs(transcript_path: str | Path) -> list[tuple[float, float]]:
@@ -1830,7 +1938,9 @@ def _bump_historical_savings_cache(row: dict[str, Any]) -> None:
     work. Cached entries keep their timestamps, so the normal TTL still
     refreshes them from the day-bucketed aggregate within
     ``_HISTORICAL_SAVINGS_CACHE_TTL_S`` to pick up other processes' writes.
-    Mirrors :func:`_fold_session_file`'s per-row math.
+    Mirrors :func:`_fold_session_file`'s per-row math. Spend/carry/carry_tokens
+    are session_end-only (never bumped here — TTL-refreshed from the aggregate
+    instead), matching :func:`_fold_session_file`.
     """
     if not _historical_savings_cache:
         return
@@ -1839,10 +1949,10 @@ def _bump_historical_savings_cache(row: dict[str, Any]) -> None:
         if routing_inc <= 0:
             return
         for cache_key, (cached_ts, val) in list(_historical_savings_cache.items()):
-            u, t, c, turns, spend, carry, routing = val
+            u, t, c, turns, spend, carry, routing, read_usd, read_tok, carry_tok = val
             _historical_savings_cache[cache_key] = (
                 cached_ts,
-                (u, t, c, turns, spend, carry, routing + routing_inc),
+                (u, t, c, turns, spend, carry, routing + routing_inc, read_usd, read_tok, carry_tok),
             )
         return
     pt, usd, calls, calls_usd, up = _price_savings_row(row)
@@ -1851,17 +1961,35 @@ def _bump_historical_savings_cache(row: dict[str, Any]) -> None:
     if row_usd <= 0 and row_tok <= 0 and calls <= 0:
         return
     turns_inc = 1 if (row_usd > 0 or row_tok > 0) else 0
+    read_usd_inc = 0.0
+    read_tok_inc = 0
+    if not row.get("kind") and _is_read_lever(str(row.get("tool") or "")):
+        rt = max(0, int(row.get("tokens") or row.get("tokens_saved") or 0))
+        if rt <= 2_000_000:
+            read_tok_inc = rt
+            read_usd_inc = max(0.0, float(row.get("cost_saved_usd") or 0.0))
     for cache_key, (cached_ts, val) in list(_historical_savings_cache.items()):
-        u, t, c, turns, spend, carry, routing = val
+        u, t, c, turns, spend, carry, routing, read_usd, read_tok, carry_tok = val
         _historical_savings_cache[cache_key] = (
             cached_ts,
-            (u + row_usd, t + row_tok, c + calls, turns + turns_inc, spend, carry, routing),
+            (
+                u + row_usd,
+                t + row_tok,
+                c + calls,
+                turns + turns_inc,
+                spend,
+                carry,
+                routing,
+                read_usd + read_usd_inc,
+                read_tok + read_tok_inc,
+                carry_tok,
+            ),
         )
 
 
 def _read_historical_savings(
     days: int, root: Path
-) -> tuple[float, int, int, int, float, float, float]:  # (usd, tok, calls, turns, spend, carry, routing)
+) -> tuple[float, int, int, int, float, float, float, float, int, int]:
     """Windowed savings/spend for ONE trailing window — blocking surface.
 
     Used by :func:`aggregate_window_savings` (CLI breakdown, web Savings page,
@@ -1871,7 +1999,7 @@ def _read_historical_savings(
     :func:`_read_historical_savings_many` directly.
 
     Returns (savings_usd, tokens_saved, calls_saved, turns_saved, spend_usd,
-    carry_usd, routing_usd).
+    carry_usd, routing_usd, read_saved_usd, read_saved_tokens, carry_tokens).
     """
     return _read_historical_savings_many((int(days),), root, block=True)[int(days)]
 
@@ -1881,19 +2009,22 @@ def _read_historical_savings(
 # ---------------------------------------------------------------------------
 #
 # ``<root>/savings_aggregate.json`` holds, PER SESSION, day-bucketed sums of
-# (usd, tok, calls, turns, spend, carry) plus the ledger's (mtime, size) at
-# fold time and a store-wide watermark / first_ts. Rolling 1d/7d/30d windows
-# are answered by summing <= days+1 buckets — no request path ever re-reads
-# sessions/**. The service daemon reconciles periodically (see
-# atelier.core.service.savings_reconcile); a session process folds only the
-# ledgers written since the persisted aggregate last saw them. Per-session
-# buckets make the fold idempotent: re-folding a changed ledger REPLACES its
-# old contribution instead of double counting.
+# (usd, tok, calls, turns, spend, carry_usd, routing, read_usd, read_tok,
+# carry_tokens) plus the ledger's (mtime, size) at fold time and a store-wide
+# watermark / first_ts. Rolling 1d/7d/30d windows are answered by summing <=
+# days+1 buckets — no request path ever re-reads sessions/**. The service
+# daemon reconciles periodically (see atelier.core.service.savings_reconcile);
+# a session process folds only the ledgers written since the persisted
+# aggregate last saw them. Per-session buckets make the fold idempotent:
+# re-folding a changed ledger REPLACES its old contribution instead of double
+# counting.
 
 _SAVINGS_AGGREGATE_FILENAME = "savings_aggregate.json"
-# v2: day buckets grew a 7th column (routing usd); version gate forces a
-# from-scratch rebuild of any persisted v1 aggregate on first read.
-_SAVINGS_AGGREGATE_VERSION = 2
+# v3: day buckets grew read_usd/read_tok (columns 7-8, classified with the
+# shared _is_read_lever rule) and carry_tokens (column 9, from the
+# session_end row's carry_tokens field); version gate forces a from-scratch
+# rebuild of any persisted v1/v2 aggregate on first read.
+_SAVINGS_AGGREGATE_VERSION = 3
 
 _aggregate_lock = threading.Lock()
 _aggregate_state: dict[str, dict[str, Any]] = {}  # root_str -> aggregate
@@ -1919,7 +2050,8 @@ def _row_epoch(ts_str: str) -> float | None:
 
 
 def _fold_session_file(p: Path, root: Path, transcript_for: Callable[[str], Path | None]) -> dict[str, list[float]]:
-    """Day-bucketed ``[usd, tok, calls, turns, spend, carry, routing]`` for ONE ledger.
+    """Day-bucketed ``[usd, tok, calls, turns, spend, carry_usd, routing,
+    read_usd, read_tok, carry_tokens]`` for ONE ledger.
 
     Savings rows are priced via :func:`_price_savings_row` (the shared rule, so
     windowed totals reconcile exactly with the live statusline/stop-hook
@@ -1930,18 +2062,24 @@ def _fold_session_file(p: Path, root: Path, transcript_for: Callable[[str], Path
     undercounts — is back-filled from the Claude transcript's per-turn costs,
     each on its turn day; the stale snapshot stays the fallback when the
     transcript is gone (it still beats reporting zero). Model-routing rows
-    (``kind == "routing"``, ``usd`` field) fold into their own column so the
-    windowed breakdown can show them WITHOUT ever adding them to saved_usd —
-    the same separation every live surface keeps.
+    (``kind == "routing"``, ``usd`` field) fold into their own column; the
+    composed :func:`aggregate_window_savings` still folds routing into its
+    headline ``saved_usd`` (mirroring ``compute_savings_summary``), the same
+    way ``read_usd`` below is tracked separately but always inside the total.
+    Read/retrieval-side rows (plain per-tool-call rows — no ``kind`` — whose
+    ``tool`` classifies as a read lever via :func:`_is_read_lever`, the same
+    classifier :func:`_read_session_read_savings` uses for the per-session
+    breakdown) additionally land in the read_usd/read_tok columns.
     """
     days: dict[str, list[float]] = {}
 
     def _bucket(ts: float) -> list[float]:
-        return days.setdefault(_day_key(ts), [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        return days.setdefault(_day_key(ts), [0.0] * 10)
 
     end_ts = 0.0
     end_spend = 0.0
     end_carry = 0.0
+    end_carry_tokens = 0.0
     last_row_ts = 0.0
     with p.open(encoding="utf-8") as fh:
         for raw in fh:
@@ -1960,6 +2098,7 @@ def _fold_session_file(p: Path, root: Path, transcript_for: Callable[[str], Path
                     end_ts = ts
                     end_spend = float(row.get("est_cost_usd") or 0)
                     end_carry = float(row.get("carry_usd") or 0)
+                    end_carry_tokens = float(row.get("carry_tokens") or 0)
                 continue
             last_row_ts = max(last_row_ts, ts)
             if row.get("kind") == "routing":
@@ -1976,18 +2115,28 @@ def _fold_session_file(p: Path, root: Path, transcript_for: Callable[[str], Path
             b[2] += row_calls
             if row_usd > 0 or row_tok > 0:
                 b[3] += 1
-    if end_ts > 0 and end_carry > 0:
+            if not row.get("kind") and _is_read_lever(str(row.get("tool") or "")):
+                rt = max(0, int(row.get("tokens") or row.get("tokens_saved") or 0))
+                if rt <= 2_000_000:
+                    b[7] += max(0.0, float(row.get("cost_saved_usd") or 0.0))
+                    b[8] += rt
+    if end_ts > 0 and (end_carry > 0 or end_carry_tokens > 0):
         # Attribute the session's carry credit to the day each saved token was
         # generated (proportional to that day's saved-token share) rather than
         # dumping the whole-session total on the end day — otherwise every
         # trailing window inherits the same lump and 1d/7d/30d don't scale.
+        # carry_tokens (col 9) rides the same per-day share as carry_usd.
         total_tok = sum(v[1] for v in days.values())
         if total_tok > 0:
             for v in days.values():
                 if v[1] > 0:
-                    v[5] += end_carry * (v[1] / total_tok)
+                    share = v[1] / total_tok
+                    v[5] += end_carry * share
+                    v[9] += end_carry_tokens * share
         else:
-            _bucket(end_ts)[5] += end_carry
+            b = _bucket(end_ts)
+            b[5] += end_carry
+            b[9] += end_carry_tokens
     # A savings row NEWER than the last snapshot means the session resumed
     # after Stop — the snapshot undercounts, so prefer the transcript.
     resumed = last_row_ts > end_ts > 0.0
@@ -2150,17 +2299,32 @@ def reconcile_savings_aggregate(root: Path, *, full: bool = False) -> dict[str, 
 
 def _window_from_aggregate(
     agg: dict[str, Any], days: int, now: float
-) -> tuple[float, int, int, int, float, float, float]:
+) -> tuple[float, int, int, int, float, float, float, float, int, int]:
     """Trailing-*days* totals from the day buckets (<= days+1 buckets summed;
-    day granularity rounds the window start down to 00:00 UTC of the cutoff day)."""
+    day granularity rounds the window start down to 00:00 UTC of the cutoff day).
+
+    Returns (usd, tok, calls, turns, spend, carry_usd, routing, read_usd,
+    read_tok, carry_tokens).
+    """
     cutoff_day = _day_key(max(0.0, now - days * 86_400))
-    totals = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    totals = [0.0] * 10
     for entry in agg.get("sessions", {}).values():
         for day, vals in (entry.get("days") or {}).items():
             if day >= cutoff_day:
-                for i, v in enumerate(vals[:7]):
+                for i, v in enumerate(vals[:10]):
                     totals[i] += float(v)
-    return (totals[0], int(totals[1]), int(totals[2]), int(totals[3]), totals[4], totals[5], totals[6])
+    return (
+        totals[0],
+        int(totals[1]),
+        int(totals[2]),
+        int(totals[3]),
+        totals[4],
+        totals[5],
+        totals[6],
+        totals[7],
+        int(totals[8]),
+        int(totals[9]),
+    )
 
 
 def _get_aggregate_state(root: Path) -> dict[str, Any]:
@@ -2227,7 +2391,7 @@ def _maybe_refresh_aggregate(root: Path, *, block: bool) -> None:
 
 def _read_historical_savings_many(
     days_list: tuple[int, ...], root: Path, *, block: bool = False
-) -> dict[int, tuple[float, int, int, int, float, float, float]]:
+) -> dict[int, tuple[float, int, int, int, float, float, float, float, int, int]]:
     """Windowed savings for SEVERAL trailing windows from the day-bucketed
     aggregate — never a sessions/** scan on the caller's thread (except a
     store's one-time bootstrap).
@@ -2241,7 +2405,7 @@ def _read_historical_savings_many(
     """
     now = time.time()
     root_str = str(root)
-    results: dict[int, tuple[float, int, int, int, float, float, float]] = {}
+    results: dict[int, tuple[float, int, int, int, float, float, float, float, int, int]] = {}
     missing: list[int] = []
     for days in days_list:
         cached = _historical_savings_cache.get((days, root_str))
@@ -2279,9 +2443,17 @@ class WindowSavings:
     turns: int = 0
     spend_usd: float = 0.0
     carry_usd: float = 0.0
-    # Model-routing credit — its own channel, never folded into saved_usd
-    # (and deliberately outside would_have_cost_usd / saved_pct).
+    carry_tokens: int = 0
+    # Model-routing credit — tracked separately AND folded into saved_usd,
+    # mirroring SavingsSummary.routing_saved_usd (compute_savings_summary
+    # folds it into saved_usd the same way; see that dataclass's doc comment).
     routing_usd: float = 0.0
+    # Read/retrieval-side savings (search_read, cached_read, scoped_recall
+    # levers, classified by :func:`_is_read_lever`) — tracked separately AND
+    # included in saved_usd, mirroring SavingsSummary.read_saved_usd/
+    # read_saved_tokens.
+    read_saved_usd: float = 0.0
+    read_saved_tokens: int = 0
 
     @property
     def would_have_cost_usd(self) -> float:
@@ -2294,6 +2466,16 @@ class WindowSavings:
         whc = self.would_have_cost_usd
         return round(100.0 * self.saved_usd / whc, 2) if whc > 0 else 0.0
 
+    @property
+    def total_saved_usd(self) -> float:
+        """Canonical "Total saved" figure: saved_usd (already folds in
+        read/routing) plus carry_usd (deliberately excluded from saved_usd
+        itself — a recurring future-turns credit, not a one-time bucket).
+        Mirrors SavingsSummary.total_saved_usd; every surface that wants a
+        single headline total should read this property instead of
+        re-deriving the sum."""
+        return self.saved_usd + self.carry_usd
+
 
 def aggregate_window_savings(root: str | Path, *, days: int) -> WindowSavings:
     """Realized savings over the last *days* from the canonical per-session ledger.
@@ -2301,17 +2483,25 @@ def aggregate_window_savings(root: str | Path, *, days: int) -> WindowSavings:
     Single source of truth for every windowed savings surface (CLI breakdown,
     web Savings page, dashboard).  Built from ``sessions/*/savings.jsonl`` and
     priced with :func:`_price_savings_row`, so it always reconciles with the
-    statusline/stop-hook live total.
+    statusline/stop-hook live total. Routing is folded into ``saved_usd`` here
+    (composition time), not inside the per-row day buckets, mirroring how
+    :func:`compute_savings_summary` folds ``routing_saved_usd`` into its
+    ``saved_usd`` — both still expose the routing figure separately too.
     """
-    usd, tok, calls, turns, spend, carry, routing = _read_historical_savings(int(days), Path(root))
+    usd, tok, calls, turns, spend, carry, routing, read_usd, read_tok, carry_tok = _read_historical_savings(
+        int(days), Path(root)
+    )
     return WindowSavings(
-        saved_usd=round(usd, 6),
+        saved_usd=round(usd + routing, 6),
         tokens_saved=int(tok),
         calls_saved=int(calls),
         turns=int(turns),
         spend_usd=round(spend, 6),
         carry_usd=round(carry, 6),
+        carry_tokens=int(carry_tok),
         routing_usd=round(routing, 6),
+        read_saved_usd=round(read_usd, 6),
+        read_saved_tokens=int(read_tok),
     )
 
 
@@ -2442,7 +2632,7 @@ def savings_frames(
     of freezing on whichever single frame was current at write time.
 
     Frames (non-empty only):
-      0  cost + I/C/O breakdown, then total saved (realized+output+carry, usage-gated) w/ recycle+carry breakdown (weighted 3x)
+      0  cost + I/C/O breakdown, then total saved (realized+output+routing+carry, usage-gated) w/ recycle+carry+routing breakdown (weighted 3x)
       1  1-day historical savings
       2  7-day historical savings
       3  30-day historical savings
@@ -2478,9 +2668,9 @@ def savings_frames(
 
     # Historical savings — one sessions/** pass fills all three windows.
     hist = _read_historical_savings_many((1, 7, 30), root)
-    usd_1d, tok_1d, calls_1d, _turns_1d, spend_1d, carry_1d, routing_1d = hist[1]
-    usd_7d, tok_7d, calls_7d, _turns_7d, spend_7d, carry_7d, routing_7d = hist[7]
-    usd_30d, tok_30d, calls_30d, _turns_30d, spend_30d, carry_30d, routing_30d = hist[30]
+    usd_1d, tok_1d, calls_1d, _turns_1d, spend_1d, carry_1d, routing_1d, *_rest_1d = hist[1]
+    usd_7d, tok_7d, calls_7d, _turns_7d, spend_7d, carry_7d, routing_7d, *_rest_7d = hist[7]
+    usd_30d, tok_30d, calls_30d, _turns_30d, spend_30d, carry_30d, routing_30d, *_rest_30d = hist[30]
     first_ts = _first_savings_ts(root)
     days_active = (time.time() - first_ts) / 86_400 if first_ts > 0 else 0.0
 
@@ -2489,24 +2679,32 @@ def savings_frames(
     # has_icon=False → plain text; SEP is prepended so it doesn't abut ctx% directly.
     frames: list[tuple[bool, str]] = []
 
-    # Frame 0: $cost(I:.. C:.. O:..) ↓ $<total saved>(R:recycled C:carry) —
+    # Frame 0: $cost(I:.. C:.. O:..) ↓ $<total saved>(R:recycled C:carry Ro:routing) —
     # cost segment is UNCHANGED. Savings + output-savings share + context-carry
     # counterfactual are folded into ONE trailing ↓ segment (previously two
     # separate ↓ savings / ♻ carry segments). R = tokens recycled into the
-    # realized savings (ctx_saved), C = carry tokens — shown only when carry
-    # is actually contributing.
+    # realized savings (ctx_saved), C = carry tokens, Ro = routing $ already
+    # inside the total (via saved_usd) — each shown only when contributing.
     in_f, cache_f, out_f = _fmt_tok(eff_in), _fmt_tok(eff_cache), _fmt_tok(eff_out)
     has_usage = eff_in > 0 or eff_cache > 0
     display_cost = summary.est_cost_usd if summary.est_cost_usd > 0 else live_cost_usd
-    combined = f"{C_COST}${display_cost:.3f}{C_DIM}(I:{in_f} C:{cache_f} O:{out_f}){C_RESET}"
+    combined = f"{C_COST}{_fmt_usd(display_cost)}{C_DIM}(I:{in_f} C:{cache_f} O:{out_f}){C_RESET}"
     if has_usage:
-        total_saved = summary.saved_usd + summary.output_saved_usd + summary.carry_usd
-        combined += f" {C_GREEN}↓ ${total_saved:.3f}{C_DIM}(R:{_fmt_tok(summary.ctx_saved)}"
+        # total_saved_usd already folds read/output/routing into saved_usd and
+        # adds carry_usd on top (see the property docstring) -- use it
+        # directly instead of hand-summing components. Summing saved_usd +
+        # output_saved_usd here previously double-counted output, since
+        # output_saved_usd is already inside saved_usd.
+        total_saved = summary.total_saved_usd
+        combined += f" {C_GREEN}↓ {_fmt_usd(total_saved)}{C_DIM}(R:{_fmt_tok(summary.ctx_saved)}"
         if summary.carry_usd >= 0.001:
             combined += f" C:{_fmt_tok(summary.carry_tokens)}"
+        if summary.routing_saved_usd > 0:
+            # Already inside total_saved via saved_usd — shown as a breakdown
+            # of the total (like R:/C:), never a separate addend, so this no
+            # longer reads as double-counted.
+            combined += f" Ro:{_fmt_usd(summary.routing_saved_usd)}"
         combined += f"){C_RESET}"
-    if summary.routing_saved_usd > 0:
-        combined += f" {C_DIM}routing:{C_RESET} {C_GREEN}${summary.routing_saved_usd:.3f}{C_RESET}"
     frames.append((True, combined))
 
     def _hist_frame(label: str, usd: float, tok: int, calls: int, spend: float, carry: float, routing: float) -> str:
@@ -2517,9 +2715,9 @@ def savings_frames(
 
         money: list[str] = []
         if spend > 0:
-            money.append(f"{C_COST}↑ ${spend:.2f}{C_RESET}")
+            money.append(f"{C_COST}↑ {_fmt_usd(spend)}{C_RESET}")
         if total_saved > 0:
-            money.append(f"{C_GREEN}↓ ${total_saved:.2f}{C_RESET}")
+            money.append(f"{C_GREEN}↓ {_fmt_usd(total_saved)}{C_RESET}")
 
         body = " ".join(money)
         if calls > 0:

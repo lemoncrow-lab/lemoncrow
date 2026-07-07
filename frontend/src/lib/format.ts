@@ -18,6 +18,9 @@ export function fmtTok(n: number): string {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return n.toLocaleString();
 }
+export function fmtPct(p: number, decimals = 1): string {
+  return `${p.toFixed(decimals)}%`;
+}
 
 export function parseAt(s: string | null | undefined): Date | null {
   if (!s) return null;

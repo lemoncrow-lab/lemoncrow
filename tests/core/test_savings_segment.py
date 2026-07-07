@@ -36,9 +36,9 @@ def _segment(root: Path, counter: int, **kw: object) -> str:
 def test_frame0_shows_cost_and_total_saved_breakdown(atelier_root: Path) -> None:
     # Frame 0: cost + I/C/O breakdown (unchanged), then total-saved + R/C breakdown.
     seg = _segment(atelier_root, 0, live_in_tok=10_000, live_cache_tok=50_000, live_out_tok=2_000)
-    assert seg.startswith(" $0.000(I:10k C:50k O:2k)"), f"expected cost-led output, got: {seg!r}"
-    # No realized/output/carry savings configured — trailing savings is $0.000.
-    assert "$0.000(R:0)" in seg
+    assert seg.startswith(" $0.0000(I:10.0k C:50.0k O:2.0k)"), f"expected cost-led output, got: {seg!r}"
+    # No realized/output/carry savings configured — trailing savings is $0.0000.
+    assert "$0.0000(R:0)" in seg
 
 
 def test_frame0_folds_savings_output_and_carry_into_one_headline(
@@ -79,22 +79,24 @@ def test_frame0_folds_savings_output_and_carry_into_one_headline(
     )
     frame0 = frames[0]
 
-    # Headline = saved_usd + output_saved_usd + carry_usd = 3.674.
-    assert "$3.674" in frame0, f"expected folded total in {frame0!r}"
+    # Headline = total_saved_usd = saved_usd + carry_usd = 3.174 (output_saved_usd
+    # is already folded INTO saved_usd by compute_savings_summary, so it must
+    # not be added again here).
+    assert "$3.17" in frame0, f"expected folded total in {frame0!r}"
     assert "1.242" not in frame0, f"realized savings must not appear standalone in {frame0!r}"
     assert "1.932" not in frame0, f"carry usd must not appear standalone in {frame0!r}"
     # Carry TOKENS still surface as their own breakdown field.
-    assert "C:1.9M" in frame0, f"expected carry token breakdown in {frame0!r}"
-    assert "↓ $3.674" in frame0, f"expected ↓-led folded total in {frame0!r}"
+    assert "C:1.90M" in frame0, f"expected carry token breakdown in {frame0!r}"
+    assert "↓ $3.17" in frame0, f"expected ↓-led folded total in {frame0!r}"
     assert "♻" not in frame0, f"no separate carry icon expected in {frame0!r}"
 
 
 def test_frame1_shows_token_breakdown(atelier_root: Path) -> None:
     # Weighted index 1 is still frame 0's content (frame 0 holds 3 slots).
     seg = _segment(atelier_root, 1, live_in_tok=10_000, live_cache_tok=50_000, live_out_tok=2_000)
-    assert "I:10k" in seg
-    assert "C:50k" in seg
-    assert "O:2k" in seg
+    assert "I:10.0k" in seg
+    assert "C:50.0k" in seg
+    assert "O:2.0k" in seg
 
 
 def test_frame_wraps_when_few_frames(atelier_root: Path) -> None:
@@ -102,14 +104,14 @@ def test_frame_wraps_when_few_frames(atelier_root: Path) -> None:
     is the sole frame and is shown for every counter."""
     for i in range(4):
         seg = _segment(atelier_root, i)
-        assert "$0.000(I:0 C:0 O:0)" in seg, f"counter={i}: {seg!r}"
+        assert "$0.0000(I:0 C:0 O:0)" in seg, f"counter={i}: {seg!r}"
         assert seg.startswith(" $"), f"counter={i}: {seg!r}"
 
 
 def test_historical_savings_empty(atelier_root: Path) -> None:
     from atelier.core.capabilities.savings_summary import _read_historical_savings
 
-    usd, tok, _calls, _turns, _spend, _carry, _routing = _read_historical_savings(7, atelier_root)
+    usd, tok, _calls, _turns, _spend, _carry, _routing, *_rest = _read_historical_savings(7, atelier_root)
     assert usd == 0.0
     assert tok == 0
 
@@ -134,7 +136,7 @@ def test_historical_savings_reads_recent_rows(atelier_root: Path, monkeypatch: p
     target_ts = 1781524800.0  # approx 2026-06-15T10:00:00 UTC
     monkeypatch.setattr(time_mod, "time", lambda: target_ts)
 
-    usd7, tok7, _calls7, _turns7, _spend7, _carry7, _routing7 = _read_historical_savings(7, atelier_root)
+    usd7, tok7, _calls7, _turns7, _spend7, _carry7, _routing7, *_rest7 = _read_historical_savings(7, atelier_root)
     assert tok7 == 1000
     assert abs(usd7 - 0.5) < 1e-6
 
@@ -173,7 +175,7 @@ def test_savings_frames_weighted_and_segment_consistent(atelier_root: Path) -> N
     frames = savings_frames("", atelier_root=atelier_root, no_color=True, **kw)  # type: ignore[arg-type]
     assert len(frames) >= 3
     assert frames[0] == frames[1] == frames[2]  # frame 0 holds 3 slots
-    assert "I:10k" in frames[0]
+    assert "I:10.0k" in frames[0]
 
     for i in range(len(frames) + 1):
         _set_frame(atelier_root, i)

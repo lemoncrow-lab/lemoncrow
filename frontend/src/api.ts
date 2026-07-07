@@ -766,11 +766,12 @@ export interface SavingsSummaryV2 {
   live_saved_usd?: number;
   ops_saved_usd?: number;
   carry_usd?: number;
-  ledger_saved_usd?: number;
-  ledger_saved_pct?: number;
+  carry_tokens?: number;
+  read_saved_usd?: number;
+  total_saved_usd?: number;
   ledger_tokens_saved?: number;
   ledger_calls_saved?: number;
-  ledger_routing_usd?: number;
+  routing_saved_usd?: number;
   top_sources?: SavingsSource[];
   tool_aggregates?: SavingsToolAggregate[];
   session_proof?: SavingsProofSession[];
@@ -852,6 +853,18 @@ export interface OptimizationAdvisorCandidate {
   escalation_rate: number;
   compaction_breakdown: Record<string, number>;
   routing_breakdown: Record<string, number>;
+  // $/week attributable to routing tier choice alone (isolated from
+  // compaction). Optional so older cached advisor-history entries recorded
+  // before this field existed still type-check.
+  routing_saved_usd?: number;
+  // Read/Carry/Output/Routing/Total mapping of the above breakdowns onto the
+  // same component model used by realized savings (see Savings.tsx). Only
+  // present on payloads built by `_optimizations_summary_payload` (the
+  // /v1/optimizations/summary route) -- optional for the same reason.
+  read_saved_usd?: number;
+  carry_saved_usd?: number;
+  output_saved_usd?: number;
+  total_saved_usd?: number;
 }
 
 export interface OptimizationAdvisorGolden {

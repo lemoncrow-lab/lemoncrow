@@ -1089,23 +1089,17 @@ def _load_session_savings(session_id: str, transcript_path: str = "") -> dict[st
         return zero
 
 
-def _fmt_tok(n: int) -> str:
-    """Compact token count: 87645 → 87.6k, 24063189 → 24.1M, 4110167440 → 4.1B."""
-    n = int(n or 0)
-    if n >= 1_000_000_000:
-        return f"{n / 1_000_000_000:.1f}B"
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}k"
-    return str(n)
-
-
 def _format_stats(
     stats: dict[str, Any],
     savings: dict[str, Any] | None = None,
     real_cost: bool = False,
 ) -> str:
+    # Shared token-count formatter (savings_summary.py) -- this file used to
+    # carry its own hand-rolled duplicate (with a 1-decimal-M/extra-B-tier
+    # scheme that had drifted from the canonical 2-decimal-M formatter every
+    # other Python savings surface uses); import it instead of redefining it.
+    from atelier.core.capabilities.savings_summary import _fmt_tok
+
     inp = int(stats.get("input_tokens", 0) or 0)
     out = int(stats.get("output_tokens", 0) or 0)
     cache_read = int(stats.get("cache_read_tokens", 0) or 0)

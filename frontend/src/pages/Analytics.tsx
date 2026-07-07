@@ -10,7 +10,7 @@ import {
   type DashboardHostModelOverview,
 } from "../api";
 import { EmptyState, MetricCard } from "../components/WorkbenchUI";
-import { fmtTok } from "../lib/format";
+import { fmtPct, fmtTok, fmtUsd } from "../lib/format";
 import { useTimeRange } from "../lib/TimeRangeContext";
 
 const TABS = [
@@ -34,10 +34,6 @@ function defaultdict_int() {
   return new Proxy({} as Record<string, number>, {
     get: (target, name: string) => (name in target ? target[name] : 0),
   });
-}
-
-function fmt(n: number, decimals = 2) {
-  return n.toFixed(decimals);
 }
 
 const EMPTY_SUMMARY: AnalyticsSummary = {
@@ -211,7 +207,7 @@ function ExternalSnapshotCard({
                 Atelier
               </div>
               <div className="mt-1 font-mono text-emerald-300">
-                ${fmt(internalCost)}
+                {fmtUsd(internalCost)}
               </div>
             </div>
             <div className="border border-neutral-900 bg-black/20 p-3">
@@ -219,7 +215,7 @@ function ExternalSnapshotCard({
                 CodeBurn
               </div>
               <div className="mt-1 font-mono text-cyan-300">
-                {externalCost == null ? "—" : `$${fmt(externalCost)}`}
+                {externalCost == null ? "—" : fmtUsd(externalCost)}
               </div>
             </div>
           </div>
@@ -229,7 +225,7 @@ function ExternalSnapshotCard({
                 Delta
               </div>
               <div className="mt-1 font-mono text-amber-300">
-                {delta == null ? "—" : `$${fmt(delta)}`}
+                {delta == null ? "—" : fmtUsd(delta)}
               </div>
             </div>
             <div>
@@ -319,7 +315,7 @@ function OverviewHostModelSpotlight({
                     Cost
                   </div>
                   <div className="mt-1 font-mono text-emerald-300">
-                    ${fmt(row.cost)}
+                    {fmtUsd(row.cost)}
                   </div>
                 </div>
                 <div>
@@ -621,10 +617,10 @@ function ByHostTable({ byHost }: { byHost: AnalyticsDashboard["by_host"] }) {
                 {r.sessions}
               </td>
               <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                ${fmt(r.cost)}
+                {fmtUsd(r.cost)}
               </td>
               <td className="px-4 py-2 text-right font-mono text-amber-300">
-                {fmt(r.cache_pct, 1)}%
+                {fmtPct(r.cache_pct)}
               </td>
               <td className="px-4 py-2">
                 <MiniBar value={r.cost} max={maxCost} color="bg-cyan-500/50" />
@@ -690,11 +686,11 @@ function ByModelTable({
                           : "text-red-300"
                     }`}
                   >
-                    {fmt(r.cache_pct, 1)}%
+                    {fmtPct(r.cache_pct)}
                   </span>
                 </td>
                 <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                  ${fmt(r.cost)}
+                  {fmtUsd(r.cost)}
                 </td>
                 <td className="px-4 py-2">
                   <MiniBar value={r.cost} max={maxCost} />
@@ -747,10 +743,10 @@ function ByProjectTable({
                   {d.sessions}
                 </td>
                 <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                  ${fmt(d.cost)}
+                  {fmtUsd(d.cost)}
                 </td>
                 <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                  ${fmt(d.avg_cost, 3)}
+                  {fmtUsd(d.avg_cost)}
                 </td>
                 <td className="px-4 py-2">
                   <MiniBar
@@ -1082,7 +1078,7 @@ export default function Analytics() {
         label: "Top Host",
         value: topHost?.host || "—",
         detail: topHost
-          ? `$${fmt(topHost.cost)} over ${topHost.sessions.toLocaleString()} sessions · ${fmt(topHost.cache_pct, 1)}% cache`
+          ? `${fmtUsd(topHost.cost)} over ${topHost.sessions.toLocaleString()} sessions · ${fmtPct(topHost.cache_pct)} cache`
           : dashLoading
             ? "Loading dashboard..."
             : "No host data.",
@@ -1092,7 +1088,7 @@ export default function Analytics() {
         label: "Top Model",
         value: topModel?.model || "—",
         detail: topModel
-          ? `$${fmt(topModel.cost)} over ${topModel.sessions.toLocaleString()} sessions · ${fmt(topModel.cache_pct, 1)}% cache`
+          ? `${fmtUsd(topModel.cost)} over ${topModel.sessions.toLocaleString()} sessions · ${fmtPct(topModel.cache_pct)} cache`
           : dashLoading
             ? "Loading dashboard..."
             : "No model data.",
@@ -1102,7 +1098,7 @@ export default function Analytics() {
         label: "Top Domain",
         value: topDomain?.domain || "—",
         detail: topDomain
-          ? `$${fmt(topDomain.cost)} total · $${fmt(topDomain.avg_cost, 3)}/session`
+          ? `${fmtUsd(topDomain.cost)} total · ${fmtUsd(topDomain.avg_cost)}/session`
           : dashLoading
             ? "Loading dashboard..."
             : "No domain data.",
@@ -1112,7 +1108,7 @@ export default function Analytics() {
         label: "Top Tool Driver",
         value: topTool?.tool || "—",
         detail: topTool
-          ? `$${fmt(topTool.cost)} · ${topTool.calls.toLocaleString()} calls · ${fmtTok(topTool.tokens)} out`
+          ? `${fmtUsd(topTool.cost)} · ${topTool.calls.toLocaleString()} calls · ${fmtTok(topTool.tokens)} out`
           : "No tool usage found.",
         tone: "amber" as const,
       },
@@ -1123,8 +1119,8 @@ export default function Analytics() {
     return (dashboard?.by_host ?? []).slice(0, 5).map((row) => ({
       label: row.host,
       sublabel: `${row.sessions.toLocaleString()} sessions`,
-      value: `$${fmt(row.cost)}`,
-      detail: `${fmt(row.cache_pct, 1)}% cache`,
+      value: fmtUsd(row.cost),
+      detail: `${fmtPct(row.cache_pct)} cache`,
       barValue: row.cost,
     }));
   }, [dashboard]);
@@ -1133,8 +1129,8 @@ export default function Analytics() {
     return (dashboard?.by_model ?? []).slice(0, 5).map((row) => ({
       label: row.model || "—",
       sublabel: `${(row.input_tokens / 1_000_000).toFixed(2)}M in · ${(row.output_tokens / 1_000_000).toFixed(2)}M out`,
-      value: `$${fmt(row.cost)}`,
-      detail: `${row.sessions.toLocaleString()} sessions · ${fmt(row.cache_pct, 1)}% cache`,
+      value: fmtUsd(row.cost),
+      detail: `${row.sessions.toLocaleString()} sessions · ${fmtPct(row.cache_pct)} cache`,
       barValue: row.cost,
     }));
   }, [dashboard]);
@@ -1143,8 +1139,8 @@ export default function Analytics() {
     return (dashboard?.by_domain ?? []).slice(0, 5).map((row) => ({
       label: row.domain,
       sublabel: `${row.sessions.toLocaleString()} sessions`,
-      value: `$${fmt(row.cost)}`,
-      detail: `$${fmt(row.avg_cost, 3)}/session`,
+      value: fmtUsd(row.cost),
+      detail: `${fmtUsd(row.avg_cost)}/session`,
       barValue: row.cost,
     }));
   }, [dashboard]);
@@ -1153,7 +1149,7 @@ export default function Analytics() {
     return costDriversData.slice(0, 5).map((row) => ({
       label: row.tool,
       sublabel: `${row.calls.toLocaleString()} calls`,
-      value: `$${fmt(row.cost)}`,
+      value: fmtUsd(row.cost),
       detail: `${fmtTok(row.tokens)} out · $${row.costPerCall.toFixed(4)}/call`,
       barValue: row.cost,
     }));
@@ -1170,7 +1166,7 @@ export default function Analytics() {
     return (dashboard?.external.by_provider ?? []).slice(0, 5).map((row) => ({
       label: row.providerDisplayName || row.provider,
       sublabel: `${row.calls.toLocaleString()} calls · ${row.models.toLocaleString()} models`,
-      value: `$${fmt(row.costUSD)}`,
+      value: fmtUsd(row.costUSD),
       detail: `${(row.inputTokens / 1_000_000).toFixed(2)}M in · ${(row.outputTokens / 1_000_000).toFixed(2)}M out`,
       barValue: row.costUSD,
     }));

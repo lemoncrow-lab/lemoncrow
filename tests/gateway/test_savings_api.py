@@ -707,8 +707,11 @@ def test_savings_summary_surfaces_untracked_copilot_coverage_gap(
 
 def test_savings_summary_headline_uses_session_ledger_rule(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Without context-budget proof rows the headline must equal the per-session
-    ledger figure (the statusline / stop-hook / CLI rule), with routing in its
-    own field and the ops composite kept separate."""
+    ledger figure (the statusline / stop-hook / CLI rule). Routing is now
+    FOLDED into the headline saved_usd/total_saved_usd (Total saved = Read +
+    Carry + Output + Routing, per the locked-in consistency decision) while
+    still riding its own routing_saved_usd field; the ops composite (a
+    different spend domain) stays separate."""
     import json as _json
     from datetime import UTC as _UTC
     from datetime import datetime as _datetime
@@ -732,12 +735,20 @@ def test_savings_summary_headline_uses_session_ledger_rule(monkeypatch: pytest.M
     assert resp.status_code == 200
     data = resp.json()
     assert data["cost_basis"] == "session_ledger"
-    # Headline == ledger rule (every surface agrees).
-    assert data["saved_usd"] == pytest.approx(data["ledger_saved_usd"])
-    assert data["saved_usd"] == pytest.approx(0.02)
-    assert data["saved_pct"] == pytest.approx(data["ledger_saved_pct"])
-    # Routing rides its own field; the ops composite stays separate.
-    assert data["ledger_routing_usd"] == pytest.approx(0.4)
+    # Headline now includes routing: 0.02 (context savings) + 0.4 (routing).
+    assert data["saved_usd"] == pytest.approx(0.42)
+    # Routing still rides its own field (breakdown detail) too.
+    assert data["routing_saved_usd"] == pytest.approx(0.4)
+    # The "read" row is a read-lever row: shows up in the Read breakdown
+    # (raw cost_saved_usd, mirroring the per-session read-savings rule).
+    assert data["read_saved_usd"] == pytest.approx(0.02)
+    # No session_end row in this ledger -> no carry; total == saved_usd.
+    assert data["carry_usd"] == pytest.approx(0.0)
+    assert data["carry_tokens"] == 0
+    assert data["total_saved_usd"] == pytest.approx(data["saved_usd"])
+    # The old duplicate ledger_saved_usd/ledger_saved_pct keys are gone.
+    assert "ledger_saved_usd" not in data
+    assert "ledger_saved_pct" not in data
     assert "ops_saved_usd" in data
 
 
