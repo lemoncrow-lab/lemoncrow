@@ -836,7 +836,7 @@ prompt_telegraphic_selection() {
     supports_interactive_selector || return 0
     local tg_idx=0
     interactive_single_select \
-        "Agent reply style (change later: atelier settings set cli.telegraphic <level>)?" \
+        "Agent reply style (change later: /atelier set telegraphic <level>)?" \
         tg_idx \
         0 \
         "Strict – terse telegraphic template (default)" \
@@ -1286,11 +1286,11 @@ for path in sorted(glob.glob(os.path.join(root, "integrations", "agents", "*.md"
     fi
 
     if [[ "$offer_skills" == "1" ]]; then
-        local skill_rows="" skill_names=() skill_labels=() _sk_name _sk_cost
+        local skill_rows="" skill_names=() skill_labels=() _sk_name _sk_cost atelier_cost=""
         skill_rows="$(ATELIER_INSTALL_DIR="$ATELIER_INSTALL_DIR" python3 -c '
 import glob, os
 root = os.environ["ATELIER_INSTALL_DIR"]
-hidden = {"analyze-failures", "context", "evals", "rescue", "savings", "status", "record", "atelier"}
+hidden = {"analyze-failures", "context", "evals", "rescue", "savings", "status", "record"}
 for path in sorted(glob.glob(os.path.join(root, "integrations", "skills", "*", "SKILL.md"))):
     name = os.path.basename(os.path.dirname(path))
     if name in hidden:
@@ -1316,20 +1316,38 @@ for path in sorted(glob.glob(os.path.join(root, "integrations", "skills", "*", "
         if [[ -n "$skill_rows" ]]; then
             while IFS=$'\t' read -r _sk_name _sk_cost; do
                 [[ -n "$_sk_name" ]] || continue
-                skill_names+=("$_sk_name")
-                skill_labels+=("${_sk_name}  ${C_DIM}~${_sk_cost} tok/turn${C_RESET}")
+                if [[ "$_sk_name" == "atelier" ]]; then
+                    atelier_cost="$_sk_cost"
+                else
+                    skill_names+=("$_sk_name")
+                    skill_labels+=("${_sk_name}  ${C_DIM}~${_sk_cost} tok/turn${C_RESET}")
+                fi
             done <<< "$skill_rows"
+        fi
+        if [[ -n "$atelier_cost" ]]; then
+            skill_names=("atelier" "${skill_names[@]+"${skill_names[@]}"}")
+            skill_labels=("atelier  ${C_DIM}~${atelier_cost} tok/turn  always installed${C_RESET}" "${skill_labels[@]+"${skill_labels[@]}"}")
         fi
 
         if [[ ${#skill_names[@]} -gt 0 ]]; then
             local skills_csv=""
-            local skills_prompt="Optional skills (you can also install later via /atelier)"
+            local skills_prompt="Optional skills (Install later: /atelier install skill <name>)"
             if supports_interactive_selector; then
                 local selected_skills=""
+                SELECTED_ITEMS=()
+                LOCKED_ITEMS=()
+                local _sk_i
+                for _sk_i in "${!skill_names[@]}"; do
+                    if [[ "${skill_names[$_sk_i]}" == "atelier" ]]; then
+                        SELECTED_ITEMS[$_sk_i]=1; LOCKED_ITEMS[$_sk_i]=1
+                    else
+                        SELECTED_ITEMS[$_sk_i]=1; LOCKED_ITEMS[$_sk_i]=0
+                    fi
+                done
                 interactive_multi_select \
                     "$skills_prompt" \
                     selected_skills \
-                    "none" \
+                    "preset" \
                     "${skill_labels[@]}"
                 local _sk_idx
                 for _sk_idx in $selected_skills; do
@@ -1341,9 +1359,18 @@ for path in sorted(glob.glob(os.path.join(root, "integrations", "skills", "*", "
                     _frame_line "  ${_sk_name}"
                 done
                 local skills_answer=""
-                printf "  Skills to add [none]: "
+                printf "  Skills to add [all]: "
                 IFS= read -r skills_answer </dev/tty 2>/dev/null || skills_answer=""
-                skills_csv="$(_filter_csv_against_set "$skills_answer" "${skill_names[@]}")"
+                if [[ -z "$skills_answer" || "$skills_answer" == "all" ]]; then
+                    for _sk_name in "${skill_names[@]}"; do
+                        skills_csv+="${skills_csv:+,}${_sk_name}"
+                    done
+                else
+                    skills_csv="$(_filter_csv_against_set "$skills_answer" "${skill_names[@]}")"
+                    if [[ -n "$skills_csv" && ",${skills_csv}," != *,atelier,* ]]; then
+                        skills_csv="atelier,${skills_csv}"
+                    fi
+                fi
             fi
             [[ -n "$skills_csv" ]] && HOST_EXTRA_ARGS+=(--include-skills "$skills_csv")
         fi
