@@ -2,8 +2,9 @@
 
 ``bare.md`` deliberately inlines one core-discipline bullet instead of
 ``{{CORE_DISCIPLINE}}`` (leanest possible persona — the full partial would pull
-in the telegraphic-default and response-economy appendages it already gets via
-its register). The copy must stay byte-identical to the shared source.
+in the telegraphic-default appendage) and composes ``{{RESPONSE_ECONOMY}}``
+directly — the trimmed register no longer restates those invariants. The
+copy must stay byte-identical to the shared source.
 
 ``auto.md`` composes the shared partials like every other executor mode; its
 only bespoke text is the unattended override. Stale inline copies of shared

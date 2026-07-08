@@ -587,6 +587,7 @@ def _render_codex_mode_body(body: str, repo_root: Path) -> str:
         "{{CORE_DISCIPLINE}}": core_discipline_body(shared_dir),
         "{{CHANGE_DISCIPLINE}}": _markdown_body(shared_dir / "change-discipline.md"),
         "{{DESTRUCTIVE_GUARD}}": _markdown_body(shared_dir / "destructive-guard.md"),
+        "{{RESPONSE_ECONOMY}}": _markdown_body(shared_dir / "response-economy.md"),
         "{{CODING_GUIDELINES}}": _markdown_body(shared_dir / "coding-guidelines.md"),
         "{{TOOL_DISCIPLINE}}": _markdown_body(shared_dir / "tool-discipline.md"),
         "{{TOOL_DISCIPLINE_READ}}": _markdown_body(shared_dir / "tool-discipline-read.md"),
