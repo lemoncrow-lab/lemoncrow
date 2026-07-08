@@ -68,7 +68,9 @@ def _line_for_byte(offsets: list[int], byte_offset: int) -> int:
 
 
 def _node_attr(node: Any, name: str) -> Any:
-    val = getattr(node, name)
+    val = getattr(node, name, None)
+    if val is None:
+        return None
     return val() if callable(val) else val
 
 
@@ -255,12 +257,11 @@ def _treesitter_tags(path: Path, text: str, language: str) -> list[Tag] | None:
     if parser is None:
         return None
     try:
-        tree = parser.parse(text)
+        source = text.encode("utf-8")
+        tree = parser.parse(source)
     except Exception:
         logging.exception("Recovered from broad exception handler")
         return None
-
-    source = text.encode("utf-8")
     offsets = _line_offsets(text)
     root = _node_attr(tree, "root_node")
     definition_kinds = definition_node_kinds(language)

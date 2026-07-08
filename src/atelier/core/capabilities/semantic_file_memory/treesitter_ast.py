@@ -469,7 +469,9 @@ def transparent_node_kinds(language: str) -> frozenset[str]:
 
 def _node_attr(node: Any, name: str) -> Any:
     """Read a tree-sitter node attribute that might be exposed as method or value."""
-    val = getattr(node, name)
+    val = getattr(node, name, None)
+    if val is None:
+        return None
     return val() if callable(val) else val
 
 
@@ -543,12 +545,12 @@ def outline_text(language: str, source: str) -> str | None:
     if parser is None:
         return None
     try:
-        tree = parser.parse(source)
+        source_bytes = source.encode("utf-8")
+        tree = parser.parse(source_bytes)
     except Exception as exc:
         logging.exception("Recovered from broad exception handler")
         _logger.warning("tree-sitter parse failed for %s: %s", language, exc)
         return None
-    source_bytes = source.encode("utf-8")
     root = _node_attr(tree, "root_node")
     pieces: list[bytes] = []
 
