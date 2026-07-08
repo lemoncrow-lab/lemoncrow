@@ -1,0 +1,30 @@
+{
+    "task": {
+        "name": "terminal-bench/circuit-fibsqrt",
+        "ref": "sha256:9bcffe1054bb33249aa578a9a2a74f3c8cca66b0cb7aa1328233f1d31822aae3",
+        "source": "terminal-bench/terminal-bench-2-1"
+    },
+    "trial_name": "circuit-fibsqrt__tQ6co6N",
+    "trials_dir": "/home/pankaj/Projects/leanchain/atelier/benchmarks/harbor/results/atelier/2026-07-07__02-24-29",
+    "agent": {
+        "import_path": "benchmarks.harbor.atelier_agent:AtelierClaudeCodeHarborAgent"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/home/pankaj/Projects/leanchain/atelier",
+                "target": "/atelier",
+                "read_only": true
+            },
+            {
+                "type": "bind",
+                "source": "/tmp/avbuild/atelier-bundle.tar.gz",
+                "target": "/atelier-bundle.tar.gz",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "ab843cba-0c63-4981-9549-3bc5a45c7089"
+}

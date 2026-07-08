@@ -1,0 +1,63 @@
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Hit:4 https://deb.nodesource.com/node_20.x nodistro InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (7.88.1-10+deb12u14).
+0 upgraded, 0 newly installed, 0 to remove and 25 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+Downloading pygments (1.2MiB)
+ Downloading pygments
+Installed 6 packages in 7ms
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 6 items
+
+../tests/test_outputs.py .....F                                          [100%]
+
+=================================== FAILURES ===================================
+_______________________ test_python_verification_script ________________________
+
+    def test_python_verification_script():
+        """Test that the Python verification script exists and works correctly."""
+        script_path = "/app/check_cert.py"
+        assert os.path.exists(script_path), "Python verification script does not exist"
+    
+        process = subprocess.run(["python", script_path], capture_output=True, text=True)
+    
+>       assert process.returncode == 0, (
+            f"Verification script failed with error: {process.stderr}"
+        )
+E       AssertionError: Verification script failed with error: Traceback (most recent call last):
+E           File "/app/check_cert.py", line 5, in <module>
+E             from cryptography import x509
+E         ModuleNotFoundError: No module named 'cryptography'
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['python', '/app/check_cert.py'], returncode=1, stdout='', stderr='Traceback (most recent call l....py", line 5, in <module>\n    from cryptography import x509\nModuleNotFoundError: No module named \'cryptography\'\n').returncode
+
+/tests/test_outputs.py:146: AssertionError
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_directory_structure
+PASSED ../tests/test_outputs.py::test_key_file
+PASSED ../tests/test_outputs.py::test_certificate_file
+PASSED ../tests/test_outputs.py::test_combined_pem_file
+PASSED ../tests/test_outputs.py::test_verification_file
+FAILED ../tests/test_outputs.py::test_python_verification_script - AssertionE...
+========================= 1 failed, 5 passed in 0.09s ==========================

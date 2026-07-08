@@ -1,0 +1,122 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 11,
+            "passed": 10,
+            "failed": 1,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1783390031.6123848,
+            "stop": 1783390034.0145617
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_numpy_version",
+                "status": "passed",
+                "duration": 0.20302210899535567,
+                "start": 1783390031.625973,
+                "stop": 1783390031.8291814,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_repo_cloned",
+                "status": "passed",
+                "duration": 0.00020230098743923008,
+                "start": 1783390031.8293188,
+                "stop": 1783390031.8295922,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_pyknotid_core_import",
+                "status": "passed",
+                "duration": 0.00022251898190006614,
+                "start": 1783390031.829678,
+                "stop": 1783390031.8299615,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_chelpers_cython_extension",
+                "status": "passed",
+                "duration": 0.17212165496312082,
+                "start": 1783390031.8300428,
+                "stop": 1783390032.0022974,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_ccomplexity_cython_extension",
+                "status": "passed",
+                "duration": 0.00022322399308905005,
+                "start": 1783390032.0024292,
+                "stop": 1783390032.0027246,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_cinvariants_cython_extension",
+                "status": "passed",
+                "duration": 0.0001767089997883886,
+                "start": 1783390032.0028129,
+                "stop": 1783390032.0030508,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_chelpers",
+                "status": "passed",
+                "duration": 0.00013496199971996248,
+                "start": 1783390032.0031266,
+                "stop": 1783390032.003315,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_ccomplexity",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.0005083110299892724,
+                "start": 1783390032.0033863,
+                "stop": 1783390032.0355172,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_ccomplexity():\n        \"\"\"Test ccomplexity module on computing writhe.\"\"\"\n        import numpy as np\n        import pyknotid.spacecurves.ccomplexity as cc\n    \n        # just a simple square\n        points = np.array(\n            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],\n            dtype=np.float64,\n        )\n        contributions = np.zeros((4, 4), dtype=np.float64)\n        order = np.array([0, 1, 2, 3], dtype=np.int64)\n>       result = cc.cython_higher_order_writhe(points, contributions, order)\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n/tests/test_outputs.py:106: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \npyknotid/spacecurves/ccomplexity.pyx:11: in pyknotid.spacecurves.ccomplexity.cython_higher_order_writhe\n    ???\npyknotid/spacecurves/ccomplexity.pyx:16: in pyknotid.spacecurves.ccomplexity.cython_higher_order_writhe\n    ???\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nattr = 'int'\n\n    def __getattr__(attr):\n        # Warn for expired attributes\n        import warnings\n    \n        if attr == \"linalg\":\n            import numpy.linalg as linalg\n            return linalg\n        elif attr == \"fft\":\n            import numpy.fft as fft\n            return fft\n        elif attr == \"dtypes\":\n            import numpy.dtypes as dtypes\n            return dtypes\n        elif attr == \"random\":\n            import numpy.random as random\n            return random\n        elif attr == \"polynomial\":\n            import numpy.polynomial as polynomial\n            return polynomial\n        elif attr == \"ma\":\n            import numpy.ma as ma\n            return ma\n        elif attr == \"ctypeslib\":\n            import numpy.ctypeslib as ctypeslib\n            return ctypeslib\n        elif attr == \"exceptions\":\n            import numpy.exceptions as exceptions\n            return exceptions\n        elif attr == \"testing\":\n            import numpy.testing as testing\n            return testing\n        elif attr == \"matlib\":\n            import numpy.matlib as matlib\n            return matlib\n        elif attr == \"f2py\":\n            import numpy.f2py as f2py\n            return f2py\n        elif attr == \"typing\":\n            import numpy.typing as typing\n            return typing\n        elif attr == \"rec\":\n            import numpy.rec as rec\n            return rec\n        elif attr == \"char\":\n            import numpy.char as char\n            return char\n        elif attr == \"array_api\":\n            raise AttributeError(\"`numpy.array_api` is not available from \"\n                                 \"numpy 2.0 onwards\", name=None)\n        elif attr == \"core\":\n            import numpy.core as core\n            return core\n        elif attr == \"strings\":\n            import numpy.strings as strings\n            return strings\n        elif attr == \"distutils\":\n            if 'distutils' in __numpy_submodules__:\n                import numpy.distutils as distutils\n                return distutils\n            else:\n                raise AttributeError(\"`numpy.distutils` is not available from \"\n                                     \"Python 3.12 onwards\", name=None)\n    \n        if attr in __future_scalars__:\n            # And future warnings for those that will change, but also give\n            # the AttributeError\n            warnings.warn(\n                f\"In the future `np.{attr}` will be defined as the \"\n                \"corresponding NumPy scalar.\", FutureWarning, stacklevel=2)\n    \n        if attr in __former_attrs__:\n>           raise AttributeError(__former_attrs__[attr], name=None)\nE           AttributeError: module 'numpy' has no attribute 'int'.\nE           `np.int` was a deprecated alias for the builtin `int`. To avoid this error in existing code, use `int` by itself. Doing this will not modify any behavior and is safe. When replacing `np.int`, you may wish to use e.g. `np.int64` or `np.int32` to specify the precision. If you wish to review your current use, check the release note link for additional information.\nE           The aliases was originally deprecated in NumPy 1.20; for more details and guidance see the original release note at:\nE               https://numpy.org/devdocs/release/1.20.0-notes.html#deprecations\n\n/usr/local/lib/python3.13/site-packages/numpy/__init__.py:778: AttributeError",
+                "message": "The test failed in the call phase"
+            },
+            {
+                "name": "test_outputs.py::test_cinvariants_python_vs_cython",
+                "status": "passed",
+                "duration": 0.0012440209684427828,
+                "start": 1783390032.0356603,
+                "stop": 1783390032.0370114,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_example_usage",
+                "status": "passed",
+                "duration": 0.0011756510066334158,
+                "start": 1783390032.0371234,
+                "stop": 1783390032.0383873,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_pyknotid_repository_tests",
+                "status": "passed",
+                "duration": 1.9757914369693026,
+                "start": 1783390032.0384886,
+                "stop": 1783390034.0144234,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

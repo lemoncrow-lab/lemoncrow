@@ -1,0 +1,123 @@
+{
+    "id": "f4bae6c6-0704-4554-9540-b4578bc57420",
+    "task_name": "terminal-bench/feal-linear-cryptanalysis",
+    "trial_name": "feal-linear-cryptanalysis__E6UbYj2",
+    "trial_uri": "file:///home/pankaj/Projects/leanchain/atelier/benchmarks/harbor/results/atelier/2026-07-07__02-24-29/feal-linear-cryptanalysis__E6UbYj2",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "feal-linear-cryptanalysis",
+        "ref": "sha256:0f3234c5fde85f9dc610d94cfefd4c892afb75c9e571f21f18fee66972b67332"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "d0b41813a535b13144fc12f12242e1aa9b2ae6088d13afbd5276c8240eec403d",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/feal-linear-cryptanalysis",
+            "ref": "sha256:0f3234c5fde85f9dc610d94cfefd4c892afb75c9e571f21f18fee66972b67332",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "feal-linear-cryptanalysis__E6UbYj2",
+        "trials_dir": "/home/pankaj/Projects/leanchain/atelier/benchmarks/harbor/results/atelier/2026-07-07__02-24-29",
+        "install_only": false,
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "benchmarks.harbor.atelier_agent:AtelierClaudeCodeHarborAgent",
+            "model_name": null,
+            "n_concurrent": null,
+            "concurrency_group": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": [
+                {
+                    "type": "bind",
+                    "source": "/home/pankaj/Projects/leanchain/atelier",
+                    "target": "/atelier",
+                    "read_only": true
+                },
+                {
+                    "type": "bind",
+                    "source": "/tmp/avbuild/atelier-bundle.tar.gz",
+                    "target": "/atelier-bundle.tar.gz",
+                    "read_only": true
+                }
+            ],
+            "extra_docker_compose": [],
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "ab843cba-0c63-4981-9549-3bc5a45c7089"
+    },
+    "agent_info": {
+        "name": "atelier-claude-code",
+        "version": "latest",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": 3151,
+        "n_cache_tokens": 253730,
+        "n_output_tokens": 15222,
+        "cost_usd": 0.7609499999999999,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-07-07T03:24:26.501100Z",
+    "finished_at": "2026-07-07T03:29:05.604159Z",
+    "environment_setup": {
+        "started_at": "2026-07-07T03:24:26.502720Z",
+        "finished_at": "2026-07-07T03:24:27.616819Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-07-07T03:24:27.616841Z",
+        "finished_at": "2026-07-07T03:25:00.059458Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-07-07T03:25:00.059502Z",
+        "finished_at": "2026-07-07T03:28:50.975768Z"
+    },
+    "verifier": {
+        "started_at": "2026-07-07T03:28:51.238706Z",
+        "finished_at": "2026-07-07T03:28:54.284519Z"
+    },
+    "step_results": null
+}

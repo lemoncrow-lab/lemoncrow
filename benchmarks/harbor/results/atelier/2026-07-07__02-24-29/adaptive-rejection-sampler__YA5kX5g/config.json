@@ -1,0 +1,30 @@
+{
+    "task": {
+        "name": "terminal-bench/adaptive-rejection-sampler",
+        "ref": "sha256:bcaa2399985cd57666018025846289ab25e193ae0dd8fb7f0ffab2410c24d4de",
+        "source": "terminal-bench/terminal-bench-2-1"
+    },
+    "trial_name": "adaptive-rejection-sampler__YA5kX5g",
+    "trials_dir": "/home/pankaj/Projects/leanchain/atelier/benchmarks/harbor/results/atelier/2026-07-07__02-24-29",
+    "agent": {
+        "import_path": "benchmarks.harbor.atelier_agent:AtelierClaudeCodeHarborAgent"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/home/pankaj/Projects/leanchain/atelier",
+                "target": "/atelier",
+                "read_only": true
+            },
+            {
+                "type": "bind",
+                "source": "/tmp/avbuild/atelier-bundle.tar.gz",
+                "target": "/atelier-bundle.tar.gz",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "ab843cba-0c63-4981-9549-3bc5a45c7089"
+}

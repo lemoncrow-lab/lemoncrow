@@ -1,0 +1,30 @@
+{
+    "task": {
+        "name": "terminal-bench/gpt2-codegolf",
+        "ref": "sha256:fe42af8e9c5aa927c3b680acd08e43032c84088fa9d770b03ce63dbc66fea4e7",
+        "source": "terminal-bench/terminal-bench-2-1"
+    },
+    "trial_name": "gpt2-codegolf__TJw3TjH",
+    "trials_dir": "/home/pankaj/Projects/leanchain/atelier/benchmarks/harbor/results/atelier/2026-07-07__02-24-29",
+    "agent": {
+        "import_path": "benchmarks.harbor.atelier_agent:AtelierClaudeCodeHarborAgent"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/home/pankaj/Projects/leanchain/atelier",
+                "target": "/atelier",
+                "read_only": true
+            },
+            {
+                "type": "bind",
+                "source": "/tmp/avbuild/atelier-bundle.tar.gz",
+                "target": "/atelier-bundle.tar.gz",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "ab843cba-0c63-4981-9549-3bc5a45c7089"
+}

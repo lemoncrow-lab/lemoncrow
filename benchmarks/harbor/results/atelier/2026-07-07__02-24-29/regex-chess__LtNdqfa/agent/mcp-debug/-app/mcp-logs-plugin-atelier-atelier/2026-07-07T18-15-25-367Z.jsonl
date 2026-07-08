@@ -1,0 +1,26 @@
+{"debug":"Starting connection with timeout of 30000ms","timestamp":"2026-07-07T18:15:25.765Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Successfully connected (transport: stdio) in 1409ms","timestamp":"2026-07-07T18:15:27.173Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Connection established with capabilities: {\"hasTools\":true,\"hasPrompts\":false,\"hasResources\":false,\"hasResourceSubscribe\":false,\"serverVersion\":{\"name\":\"atelier\",\"version\":\"0.2.0\"}}","timestamp":"2026-07-07T18:15:27.174Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-07T18:28:24.481Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 173ms","timestamp":"2026-07-07T18:28:24.654Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Calling MCP tool: read","timestamp":"2026-07-07T18:28:28.136Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Tool 'read' completed successfully in 201ms","timestamp":"2026-07-07T18:28:28.337Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-07T18:35:48.435Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 120ms","timestamp":"2026-07-07T18:35:48.555Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Calling MCP tool: edit","timestamp":"2026-07-07T18:36:32.243Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Tool 'edit' completed successfully in 154ms","timestamp":"2026-07-07T18:36:32.396Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-07T18:36:35.220Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 72ms","timestamp":"2026-07-07T18:36:35.292Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-07T18:36:40.214Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 521ms","timestamp":"2026-07-07T18:36:40.735Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-07T18:36:44.782Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 9s","timestamp":"2026-07-07T18:36:54.167Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-07T18:37:03.520Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 36ms","timestamp":"2026-07-07T18:37:03.556Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-07T18:37:21.999Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 10s","timestamp":"2026-07-07T18:37:32.139Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Sending SIGINT to MCP server process","timestamp":"2026-07-07T18:37:36.847Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"SIGINT failed, sending SIGTERM to MCP server process","timestamp":"2026-07-07T18:37:36.947Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"STDIO connection closed after 1329s (cleanly)","timestamp":"2026-07-07T18:37:36.970Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"Cleared connection cache for reconnection","timestamp":"2026-07-07T18:37:36.970Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}
+{"debug":"MCP server process exited cleanly","timestamp":"2026-07-07T18:37:37.002Z","sessionId":"cee4d20b-4c1e-40eb-b0b4-74e49a483840","cwd":"/app"}

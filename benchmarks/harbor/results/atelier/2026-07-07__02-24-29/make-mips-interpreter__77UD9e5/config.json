@@ -1,0 +1,30 @@
+{
+    "task": {
+        "name": "terminal-bench/make-mips-interpreter",
+        "ref": "sha256:41a55da0abec5d7b32a0c2321f8b18e84000ca8074ae62c6874d6ed4a3a1cd3c",
+        "source": "terminal-bench/terminal-bench-2-1"
+    },
+    "trial_name": "make-mips-interpreter__77UD9e5",
+    "trials_dir": "/home/pankaj/Projects/leanchain/atelier/benchmarks/harbor/results/atelier/2026-07-07__02-24-29",
+    "agent": {
+        "import_path": "benchmarks.harbor.atelier_agent:AtelierClaudeCodeHarborAgent"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/home/pankaj/Projects/leanchain/atelier",
+                "target": "/atelier",
+                "read_only": true
+            },
+            {
+                "type": "bind",
+                "source": "/tmp/avbuild/atelier-bundle.tar.gz",
+                "target": "/atelier-bundle.tar.gz",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "ab843cba-0c63-4981-9549-3bc5a45c7089"
+}

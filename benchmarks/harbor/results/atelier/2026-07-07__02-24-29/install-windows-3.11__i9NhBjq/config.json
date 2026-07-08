@@ -1,0 +1,30 @@
+{
+    "task": {
+        "name": "terminal-bench/install-windows-3.11",
+        "ref": "sha256:1f1361b0012e1ad24054e7cfc039829459e8ab0631b3573d9b93499bf6b3563e",
+        "source": "terminal-bench/terminal-bench-2-1"
+    },
+    "trial_name": "install-windows-3.11__i9NhBjq",
+    "trials_dir": "/home/pankaj/Projects/leanchain/atelier/benchmarks/harbor/results/atelier/2026-07-07__02-24-29",
+    "agent": {
+        "import_path": "benchmarks.harbor.atelier_agent:AtelierClaudeCodeHarborAgent"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/home/pankaj/Projects/leanchain/atelier",
+                "target": "/atelier",
+                "read_only": true
+            },
+            {
+                "type": "bind",
+                "source": "/tmp/avbuild/atelier-bundle.tar.gz",
+                "target": "/atelier-bundle.tar.gz",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "ab843cba-0c63-4981-9549-3bc5a45c7089"
+}

@@ -1,0 +1,32 @@
+{
+    "job_name": "2026-07-07__02-24-29",
+    "jobs_dir": "/home/pankaj/Projects/leanchain/atelier/benchmarks/harbor/results/atelier",
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/home/pankaj/Projects/leanchain/atelier",
+                "target": "/atelier",
+                "read_only": true
+            },
+            {
+                "type": "bind",
+                "source": "/tmp/avbuild/atelier-bundle.tar.gz",
+                "target": "/atelier-bundle.tar.gz",
+                "read_only": true
+            }
+        ]
+    },
+    "agents": [
+        {
+            "import_path": "benchmarks.harbor.atelier_agent:AtelierClaudeCodeHarborAgent"
+        }
+    ],
+    "datasets": [
+        {
+            "name": "terminal-bench/terminal-bench-2-1",
+            "ref": "sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a"
+        }
+    ]
+}

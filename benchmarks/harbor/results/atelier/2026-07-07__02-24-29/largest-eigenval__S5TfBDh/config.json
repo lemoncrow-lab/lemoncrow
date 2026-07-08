@@ -1,0 +1,30 @@
+{
+    "task": {
+        "name": "terminal-bench/largest-eigenval",
+        "ref": "sha256:1b6f17c344d23e97435ba3fa93400d141f6bb7763ed2014fab418830983791b3",
+        "source": "terminal-bench/terminal-bench-2-1"
+    },
+    "trial_name": "largest-eigenval__S5TfBDh",
+    "trials_dir": "/home/pankaj/Projects/leanchain/atelier/benchmarks/harbor/results/atelier/2026-07-07__02-24-29",
+    "agent": {
+        "import_path": "benchmarks.harbor.atelier_agent:AtelierClaudeCodeHarborAgent"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/home/pankaj/Projects/leanchain/atelier",
+                "target": "/atelier",
+                "read_only": true
+            },
+            {
+                "type": "bind",
+                "source": "/tmp/avbuild/atelier-bundle.tar.gz",
+                "target": "/atelier-bundle.tar.gz",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "ab843cba-0c63-4981-9549-3bc5a45c7089"
+}
