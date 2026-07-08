@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "source_note": "Prompts verbatim from JuliusBrussee/caveman (MIT) -- benchmarks/prompts.json (source=benchmarks) and evals/prompts/en.txt (source=evals) -- so results are directly comparable to caveman's own published numbers.",
+  "prompts": [
+    {
+      "id": "react-rerender",
+      "source": "benchmarks",
+      "category": "debugging",
+      "prompt": "Why is my React component re-rendering on every state update even though the props haven't changed? I'm passing an object as a prop."
+    },
+    {
+      "id": "auth-middleware-fix",
+      "source": "benchmarks",
+      "category": "bugfix",
+      "prompt": "My Express auth middleware is letting expired JWT tokens through. The expiry check uses Date.now() compared to the token's exp field. What's wrong and how do I fix it?"
+    },
+    {
+      "id": "postgres-pool",
+      "source": "benchmarks",
+      "category": "setup",
+      "prompt": "How do I set up a PostgreSQL connection pool in Node.js with proper timeout and error handling configuration?"
+    },
+    {
+      "id": "git-rebase-merge",
+      "source": "benchmarks",
+      "category": "explanation",
+      "prompt": "Explain the difference between git rebase and git merge. When should I use each one and what are the tradeoffs?"
+    },
+    {
+      "id": "async-refactor",
+      "source": "benchmarks",
+      "category": "refactor",
+      "prompt": "Refactor this callback-based Node.js function to use async/await:\n\nfunction getUser(id, callback) {\n  db.query('SELECT * FROM users WHERE id = ?', [id], function(err, rows) {\n    if (err) return callback(err);\n    if (!rows.length) return callback(new Error('Not found'));\n    callback(null, rows[0]);\n  });\n}"
+    },
+    {
+      "id": "microservices-monolith",
+      "source": "benchmarks",
+      "category": "architecture",
+      "prompt": "We have a monolithic Django app that's getting slow. The team is debating microservices. What are the key factors to consider before splitting up the monolith?"
+    },
+    {
+      "id": "pr-security-review",
+      "source": "benchmarks",
+      "category": "code-review",
+      "prompt": "Review this Express route handler for security issues:\n\napp.get('/api/users/:id', (req, res) => {\n  const query = `SELECT * FROM users WHERE id = ${req.params.id}`;\n  db.query(query).then(user => res.json(user));\n});"
+    },
+    {
+      "id": "docker-multi-stage",
+      "source": "benchmarks",
+      "category": "devops",
+      "prompt": "Write a multi-stage Dockerfile for a Node.js TypeScript application that minimizes the final image size. The app uses npm and needs to compile TypeScript before running."
+    },
+    {
+      "id": "race-condition-debug",
+      "source": "benchmarks",
+      "category": "debugging",
+      "prompt": "My Node.js API endpoint that increments a counter in PostgreSQL sometimes returns the same value for concurrent requests. How do I fix this race condition?"
+    },
+    {
+      "id": "error-boundary",
+      "source": "benchmarks",
+      "category": "implementation",
+      "prompt": "Implement a React error boundary component that catches render errors, shows a fallback UI with a retry button, and logs the error details."
+    },
+    {
+      "id": "eval-01",
+      "source": "evals",
+      "category": "debugging",
+      "prompt": "Why does my React component re-render every time the parent updates?"
+    },
+    {
+      "id": "eval-02",
+      "source": "evals",
+      "category": "explanation",
+      "prompt": "Explain database connection pooling."
+    },
+    {
+      "id": "eval-03",
+      "source": "evals",
+      "category": "explanation",
+      "prompt": "What's the difference between TCP and UDP?"
+    },
+    {
+      "id": "eval-04",
+      "source": "evals",
+      "category": "debugging",
+      "prompt": "How do I fix a memory leak in a long-running Node.js process?"
+    },
+    {
+      "id": "eval-05",
+      "source": "evals",
+      "category": "explanation",
+      "prompt": "What does the SQL EXPLAIN command tell me?"
+    },
+    {
+      "id": "eval-06",
+      "source": "evals",
+      "category": "explanation",
+      "prompt": "How does a hash table handle collisions?"
+    },
+    {
+      "id": "eval-07",
+      "source": "evals",
+      "category": "debugging",
+      "prompt": "Why am I getting CORS errors in my browser console?"
+    },
+    {
+      "id": "eval-08",
+      "source": "evals",
+      "category": "explanation",
+      "prompt": "What's the point of using a debouncer on a search input?"
+    },
+    {
+      "id": "eval-09",
+      "source": "evals",
+      "category": "explanation",
+      "prompt": "How does git rebase differ from git merge?"
+    },
+    {
+      "id": "eval-10",
+      "source": "evals",
+      "category": "architecture",
+      "prompt": "When should I use a queue vs a topic in messaging systems?"
+    }
+  ]
+}

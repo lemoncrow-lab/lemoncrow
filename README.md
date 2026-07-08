@@ -1,10 +1,14 @@
-<!-- cspell:ignore Alamofire Excalidraw ast-grep codegraph ctags django jcodemunch nohit okhttp scip serena tokio vscode zoekt beasm -->
+<!-- cspell:ignore Alamofire Excalidraw ast-grep codegraph ctags django jcodemunch nohit okhttp scip serena tokio vscode zoekt beasm Trendshift telegraphese -->
 
 <div align="center">
 
-# Atelier - The Runtime for Coding Agents
+# Atelier — The Runtime for Coding Agents
 
-## Read smarter. Think sharper. Talk less. Never forget
+### Same model. Sharper agent.
+
+**Read smarter · Think sharper · Talk less · Never forget**
+
+_Everyone's teaching agents to talk less. That's the easy 5%. Atelier compresses the other 95% — what the agent **reads, calls, and re-reads** — and publishes the receipts._
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
@@ -23,7 +27,41 @@
 [![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://atelier.ws)
 [![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://atelier.ws)
 
+[See it](#see-it--before--after) · [Install](#quick-start) · [Estimate your savings](#estimate-your-savings-60-seconds) · [Benchmarks](#results-measured-not-vibed) · [Pricing](#pricing--open-core-local-first)
+
 </div>
+
+---
+
+An **atelier** is a master craftsman's workshop — precise tools, nothing wasted, every motion earning its place. That's the whole idea. Your coding agent already has a big brain; what it lacks is a workshop. Atelier is the bench, the tools, and the discipline that turn a capable model into a craftsman: it reads the right line instead of the whole file, routes work through the right shape, keeps the transcript clean, and never pays twice for context it already found.
+
+> A smaller **mouth** saves you output tokens. A smaller **loop** saves you the whole run. Atelier does the loop — and hands you the raw runs to prove it.
+
+## See it — before / after
+
+Same answer. A third of the words. Nothing technical lost — code, commands, and errors stay byte-for-byte exact.
+
+| 🗣️ Baseline agent — 71 tokens | 🛠️ Atelier (telegraphic) — 38 tokens |
+| --- | --- |
+| "I looked into the failing test and it seems like the flakiness is caused by the retry logic using a real clock. The test sleeps for 100ms and then asserts that exactly three retries happened, but under CI load the timing can drift, which makes the assertion fail intermittently. I'd recommend injecting a fake clock so the test becomes deterministic." | "Root cause: retry test uses a real clock — 100ms sleep + exact 3-retry assert drifts under CI load. Fix: inject a fake clock; test becomes deterministic." |
+| "Sure! I'd be happy to help. The most likely cause is that your auth middleware isn't validating token expiry correctly. Let me take a look and propose a fix for you." | "Bug: auth middleware compares expiry with `<`, should be `<=`. Fix incoming." |
+
+Atelier doesn't make the brain smaller. It makes the **loop** tighter — what the agent reads, what it writes, what it can call, and what it re-reads. Terse by precision, not by costume.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  SWE-bench Verified · same model · same tasks · same env  │
+├──────────────────────────────────────────────────────────┤
+│  cost           ███████████████░░░░░   −29.5%            │
+│  turns          ██████████████░░░░░░   −37.7%            │
+│  output tokens  ███████████████░░░░░   −27.9%            │
+│  wall-clock     ██████████░░░░░░░░░░   −23.7%            │
+│  resolved       ████████████████░░░░   +12.0 pp         │
+│  receipts       ████████████████████   PUBLISHED ✔      │
+└──────────────────────────────────────────────────────────┘
+```
+
+That last row is the point. Every number above is reproducible from raw runs committed under [`benchmarks/`](benchmarks/) — no cherry-picked task, no "trust me."
 
 ## The idea
 
@@ -63,42 +101,35 @@ Every Atelier feature traces to one of four compression layers:
 
 Detailed breakdown: [Core Tools](#core-tools), [Skills and Commands](#skills-and-commands), [What Changes After Init](#what-changes-after-init).
 
-#### Telegraphic I/O
-
-|                                                   | Baseline                                                                                                                                                                                                                                                                                                                                                                      | Atelier (telegraphic)                                                                                                                                                             |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Model writes** ("Why is the retry test flaky?") | "I looked into the failing test and it seems like the flakiness is caused by the retry logic using a real clock. The test sleeps for 100ms and then asserts that exactly three retries happened, but under CI load the timing can drift, which makes the assertion fail intermittently. I'd recommend injecting a fake clock so the test becomes deterministic."**71 tokens** | "Root cause: retry test uses a real clock — 100ms sleep + exact 3-retry assert drifts under CI load. Fix: inject a fake clock; test becomes deterministic."**38 tokens (−46%)** |
-
-More: [docs/architecture.md](docs/architecture.md#telegraphic-instruction-surface)
-
 ## Honestly
 
 I'm a solo founder working on [beseam.com](https://beseam.com). I was burning through my Claude Max credits in about four days. Every "token-saving" tool or prompt-engineered solution I found had the same problem: they only showed benchmarks on artificial tasks where they happened to excel. Nobody was measuring against the baseline on the same model, the same tasks, the same environment — just cherry-picked numbers.
 
-I wanted a system that actually saves tokens across _every_ real coding task, not just the ones it was tuned for. So I built Atelier — a runtime that aggressively compresses what the agent reads, writes, and calls, and **benchmarks every feature against a real baseline so you can see exactly what works and what doesn't**.
+So I built Atelier — a runtime that aggressively compresses what the agent reads, writes, and calls, and **benchmarks every feature against a real baseline so you can see exactly what works and what doesn't.**
 
-The results are honest: [`+12pp resolved`](#results) on SWE-bench, [`29.5% cheaper`](#results) end-to-end, and every single raw run is published under `benchmarks/` for you to verify or reproduce.
+The results are honest: [`+12pp resolved`](#results-measured-not-vibed) on SWE-bench, [`29.5% cheaper`](#results-measured-not-vibed) end-to-end, and every single raw run is published under `benchmarks/` for you to verify or reproduce. When a feature doesn't win, the number shows it — see the Terminal-Bench row below, which is honestly flat on accuracy and only wins on cost.
 
-## Results
+## Results — measured, not vibed
 
 Measured on the same model, same tasks, and same environment:
 
-| Benchmark                                          |          Atelier result |                Baseline |            Delta |
-| ---------------------------------------------------- | ------------------------: | ------------------------: | -----------------: |
-| SWE-bench Verified, 50 sampled tasks x 5 reps      |      **92.8% resolved** |                   80.8% |     **+12.0 pp** |
-| SWE-bench end-to-end cost                          |   **$165.45** | $234.84 |       **29.5% cheaper** |                  |
-| SWE-bench turns                                    |               **4,336** |                   6,962 |  **37.7% fewer** |
-| SWE-bench output tokens                            |               **2.19M** |                   3.04M |  **27.9% fewer** |
-| SWE-bench wall-clock time                          |               **10.9h** |                   14.3h | **23.7% faster** |
-| SWE-bench Lite, 10 tasks x 3 reps                  |     **100% resolved** |                   93.3% |      **+6.7 pp** |
-| SWE-bench Lite cost                                |    **$10.79** | $12.38 |       **12.9% cheaper** |                  |
-| SWE-bench Pro, 10 tasks x 5 reps                   |      **90.0% resolved** |                   88.0% |      **+2.0 pp** |
-| SWE-bench Pro cost                                 |    **$30.61** | $39.01 |       **21.5% cheaper** |                  |
-| Exploration tasks across 8 large repos             |     **$10.94** | $25.37 |         **57% cheaper** |                  |
-| Terminal-Bench 2.1, 89 tasks vs public leaderboard* | 78.7% resolved | 78.9% expected | -0.2 pp |
-| Terminal-Bench cost, 83/89 tasks w/ cost data*  | **$69.52** | $96.76 | **28.1% cheaper**† |
+| Benchmark                            | Baseline correct |  Atelier correct |     Correct Δ | Baseline cost | Atelier cost |            Cost Δ |
+| --------------------------------------- | ------------------: | ------------------: | --------------: | ---------------: | ---------------: | -------------------: |
+| SWE-bench Verified, 50 tasks x 5 reps | 80.8% | **92.8%** | **+12.0 pp** | $234.84 | **$165.45** | **29.5% cheaper** |
+| SWE-bench Lite, 10 tasks x 3 reps     | 93.3% | **100%** | **+6.7 pp** | $12.38 | **$10.79** | **12.9% cheaper** |
+| SWE-bench Pro, 10 tasks x 5 reps      | 88.0% | **90.0%** | **+2.0 pp** | $39.01 | **$30.61** | **21.5% cheaper** |
+| Exploration tasks across 8 large repos | — | — | — | $25.37 | **$10.94** | **57% cheaper** |
+| Terminal-Bench 2.1, 89 tasks vs public leaderboard* | 78.9% expected | 78.7% | -0.2 pp | $96.76 | **$69.52**† | **28.1% cheaper**† |
 
 <sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Other 5 tasks in Atelier timeout and can't capture cost, not zero-cost runs; see BENCHMARKS.md.</sub>
+
+SWE-bench Verified detail:
+
+| Metric        | Baseline | Atelier |             Δ |
+| --------------- | ---------: | --------: | --------------: |
+| Turns         |    6,962 |   4,336 |  **37.7% fewer** |
+| Output tokens |    3.04M |   2.19M |  **27.9% fewer** |
+| Wall-clock    |    14.3h |   10.9h | **23.7% faster** |
 
 <p align="center">
   <img src="benchmarks/cost_vs_savings_scatter.svg" alt="Atelier vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, and Terminal-Bench" width="720">
@@ -106,9 +137,9 @@ Measured on the same model, same tasks, and same environment:
 
 Benchmarks are not hand-waved: raw runs, per-task outcomes, costs, turn counts, setup notes, and reproduction commands live in [BENCHMARKS.md](BENCHMARKS.md) and under [`benchmarks/codebench/results/`](benchmarks/codebench/results/).
 
-## Estimate Your Savings
+## Estimate your savings (60 seconds)
 
-Before installing Atelier into a repo, you can scan your local coding-agent session history and estimate the potential savings from routable tool calls.
+Don't take the benchmark's word for it — point it at **your own** agent history. Before installing Atelier into a repo, scan your local coding-agent sessions and see what routable tool calls would have cost less.
 
 ```bash
 curl -fsSL https://savings.atelier.ws | bash
@@ -120,7 +151,7 @@ The script downloads the latest Atelier release into a cached temporary venv, th
 atelier session stats --source live --since 7d --top 5
 ```
 
-It is read-only, uses a temporary store, does not require Atelier login or provider API keys, and prints aggregate cost, tool-call, realized-savings, and potential-savings numbers from local host session files.
+Read-only. Temporary store. No Atelier login, no provider API keys. It prints aggregate cost, tool-call, realized-savings, and potential-savings numbers straight from your local session files.
 
 Useful variants:
 
@@ -192,7 +223,7 @@ Atelier adds four runtime layers around your coding agent:
 | Skills    | Packages repeatable procedures such as benchmarking, orchestration, performance review, recall, swarm, and UX review.                                                                                                                                                                                                               |
 | Hooks     | Intercepts tool calls and session endings to block wasteful reads, risky edits, and unverified "done" states. Also shadow-shrinks oversized results from the host's builtin Bash and any other MCP server: the full output spills to a recoverable file and one canonical notice names the way back — no config or routing change. |
 
-The important difference is enforcement. A prompt can ask an agent to be disciplined; a runtime controls what the agent can call and when.
+The important difference is enforcement. A prompt can *ask* an agent to be disciplined; a runtime *controls* what the agent can call and when.
 
 ## Core Tools
 
@@ -278,6 +309,25 @@ The `orchestrate` skill chooses the narrowest execution surface for a request: d
 
 You do not need any of this on day one. Install Atelier, run your normal coding agent, and let the runtime improve the tool loop underneath it. The advanced surfaces are there when the work gets bigger than one prompt.
 
+## Pricing — open-core, local-first
+
+The whole runtime is **Apache-2.0** and runs on your machine. No account, no key, no network call to get started.
+
+| | **Free — $0** | **Pro — $19/mo** | **Enterprise** |
+| --- | --- | --- | --- |
+| Grounded MCP tools (`code_search`/`read`/`edit`/`bash`) | ✅ | ✅ | ✅ |
+| Host packaging, agents, skills, `init`, benchmarks | ✅ | ✅ | ✅ |
+| Repo map + context engine (normal repos) | ✅ | ✅ | ✅ |
+| Headline savings number ("you'd save $X") | ✅ | ✅ | ✅ |
+| Zoekt fast search · large-repo indexing | — | ✅ | ✅ |
+| Session recall · cross-vendor memory | — | ✅ | ✅ |
+| Savings engine (apply + full breakdown + budget) | — | ✅ | ✅ |
+| Model routing (proxy · cross-vendor · quality-gated) | — | ✅ | ✅ |
+| Multi-worktree swarm | — | ✅ | ✅ |
+| Very large repos · shared team context · SSO · audit | — | — | ✅ |
+
+Free is a genuinely useful runtime on its own — the honest moat is the maintainer and the closed billing backend, not DRM on your local code. Full breakdown: [docs/pricing.md](docs/pricing.md). Upgrade with `atelier login`.
+
 ## Benchmarks
 
 Start with the summary above. Go deeper here:
@@ -297,6 +347,12 @@ Start with the summary above. Go deeper here:
 - [MCP SDK](docs/sdk/mcp.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Architecture: Technology & Concepts](docs/architecture.md)
+
+## Star the workshop
+
+In our SWE-bench Verified run, Atelier cut **2,626 turns** and about **$69** off the baseline — same model, same tasks. A GitHub star costs zero tokens. Fair trade. ⭐
+
+[![Star History Chart](https://api.star-history.com/svg?repos=atelier-ws/atelier&type=Date)](https://star-history.com/#atelier-ws/atelier&Date)
 
 ## License
 
