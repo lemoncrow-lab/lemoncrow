@@ -58,7 +58,7 @@ def test_uninstall_purge_preserves_install_dir_under_projects(tmp_path: Path) ->
 def test_uninstall_purge_removes_default_managed_install_dir(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     home = tmp_path / "home"
-    install_dir = home / ".local" / "share" / "atelier"
+    install_dir = home / ".atelier" / "install"
 
     result = _run_uninstall_script(repo_root, home=home, install_dir=install_dir)
 
