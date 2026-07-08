@@ -13,7 +13,7 @@ When you have 12: **"A smaller mouth saves output tokens. A smaller loop saves t
 
 ## 2. The brand motif: the atelier vs the cave
 
-The name is the strategy. An **atelier** is a master craftsman's workshop — precision tools on a bench, nothing wasted. That is the exact opposite pole from the "make your agent grunt like a caveman" meme that's trending right now, and we should own that contrast **without ever naming a competitor.**
+The name is the strategy. An **atelier** is a master craftsman's workshop — precision tools on a bench, nothing wasted. That is the exact opposite pole from the "shrink the mouth, ignore the loop" trend, and we should own that contrast **without ever naming a competitor.**
 
 | Them (the trend) | Atelier |
 | --- | --- |
@@ -35,7 +35,7 @@ The register is a **senior engineer with a dry sense of humor**, not a mascot. P
 - Keep code, commands, errors byte-exact. Always.
 
 **Don't**
-- No grunt-speak, no fake mascot voice, no "caveman" cosplay. Atelier's whole differentiator is *precision* — sounding sloppy would undercut it.
+- No grunt-speak, no fake mascot voice, no cosplay personas. Atelier's whole differentiator is *precision* — sounding sloppy would undercut it.
 - No cherry-picked benchmarks. The credibility IS the product.
 - No invented social proof (no fake HN/press/star counts). Earn it, then cite it.
 
@@ -58,7 +58,7 @@ Order every pitch by strength of proof — this is what the trend can't copy:
 4. **Live badges** (cost saved / tokens less / calls avoided) — real-time aggregate, updates every session end.
 5. **The losing row** (Terminal-Bench flat on accuracy) — counterintuitively our strongest trust signal.
 
-## 5. Growth mechanics (the Caveman-style hooks, on-brand)
+## 5. Growth mechanics
 
 | Mechanic | Atelier version | Where |
 | --- | --- | --- |
@@ -73,9 +73,9 @@ Order every pitch by strength of proof — this is what the trend can't copy:
 | Social proof strip | Live badges now; HN/Trending/press logos as earned (never faked) | landing |
 | Ecosystem gravity | One coherent "workshop" family, not five separate tools | landing, docs |
 
-## 6. Ecosystem naming (the "whole cave" equivalent)
+## 6. Ecosystem naming
 
-Caveman's growth engine is a **named product family** with one metaphor (cave-everything). Atelier already ships the pieces — they just aren't *branded as a family* yet. Propose one coherent **workshop** vocabulary so the surfaces feel like one place, not a feature list. These are **optional naming skins over existing features** — do NOT rename code/CLI, just the marketing labels:
+Atelier already ships the pieces — they just aren't *branded as a family* yet. Propose one coherent **workshop** vocabulary so the surfaces feel like one place, not a feature list. These are **optional naming skins over existing features** — do NOT rename code/CLI, just the marketing labels:
 
 | Existing feature | Workshop label (marketing only) | Metaphor |
 | --- | --- | --- |
@@ -96,7 +96,7 @@ Keep it light. The metaphor should reward attention, never block comprehension �
 3. **`atelier savings --share`** — emit a copy-paste tweet line: _"Atelier saved my last week of agent work $X across N tool calls. Same model. → atelier.ws"_. This is the free viral loop — users become the ad.
 4. **The losing-row blog post** — "The benchmark where Atelier doesn't win (and why we published it)." Honesty content outperforms hype content in dev communities.
 5. **Launch sequence** — Show HN ("Atelier — same model, +12pp on SWE-bench, all raw runs published"), then r/LocalLLaMA / r/ChatGPTCoding, then submit to Trendshift/GitHub-trending-adjacent lists once stars build. Lead every post with the reproducible number, not the tagline.
-6. **Statusline receipt** — like the Caveman `[CAVEMAN] ⛏ 12.4k`, show `[atelier] ◈ saved $X` in supported hosts. Passive, per-session, tweetable.
+6. **Statusline receipt** — show `[atelier] ◈ saved $X` in supported hosts. Passive, per-session, tweetable.
 
 ## 8. Guardrails (don't torch the credibility)
 

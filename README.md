@@ -120,11 +120,9 @@ Measured on the same model, same tasks, and same environment:
 | SWE-bench Pro, 10 tasks x 5 reps                    |            88.0% |       **90.0%** |  **+2.0 pp** |   $39.01 |**$30.61** |   **21.5% cheaper** |         |
 | Exploration tasks across 8 large repos              |               — |              — |           — |   $25.37 |**$10.94** |     **57% cheaper** |         |
 | Terminal-Bench 2.1, 89 tasks vs public leaderboard* |   78.9% expected |           78.7% |      -0.2 pp | $96.76 |**$69.52**† | **28.1% cheaper**† |         |
-| Telegraphic Q&A (caveman repro), 20 tasks x 1 rep‡ |               — |              — |           — |     $1.71 |**$1.37** | **19.9% cheaper**‡ |         |
 
 <sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task.
 † Other 5 tasks in Atelier timeout and can't capture cost, not zero-cost runs; see BENCHMARKS.md. </sub>
-<sub> ‡ n=1, `claude-opus-4-8`; full atelier runtime (tools+MCP+persona) vs vanilla Claude Code -- two more arms isolate the reply-register alone and pit it against caveman's own skill; see BENCHMARKS.md for the full 4-arm breakdown.</sub>
 
 SWE-bench Verified detail:
 
@@ -341,7 +339,7 @@ Start with the summary above. Go deeper here:
 - [`benchmarks/codebench/results/exploration_2026_06_29/`](benchmarks/codebench/results/exploration_2026_06_29/) - exploration benchmark raw results.
 - [`benchmarks/codebench/results/retrieval_2026_07_05/`](benchmarks/codebench/results/retrieval_2026_07_05/) - retrieval evaluation raw results.
 - [`benchmarks/harbor/results/atelier/2026-07-07__02-24-29/`](benchmarks/harbor/results/atelier/2026-07-07__02-24-29/) - Terminal-Bench run data.
-- [`benchmarks/codebench/results/telegraphic_2026_07_08/`](benchmarks/codebench/results/telegraphic_2026_07_08/) - telegraphic Q&A benchmark raw results (caveman reproduction).
+- [`benchmarks/codebench/results/telegraphic_2026_07_08/`](benchmarks/codebench/results/telegraphic_2026_07_08/) - telegraphic Q&A benchmark raw results.
 
 ## Docs
 
