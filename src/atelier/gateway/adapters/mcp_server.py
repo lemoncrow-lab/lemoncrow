@@ -9308,14 +9308,13 @@ def _deferred_completion_executor() -> ThreadPoolExecutor:
 
 def _run_bash_tool(
     command: str = "",
-    timeout: int = 30,
+    timeout: int | None = None,
     cwd: str | None = None,
     max_lines: int = 200,
     max_output_tokens: int | None = None,
     background: bool = False,
     session_id: str | None = None,
     action: Literal["run", "poll", "cancel", "status", "update"] = "run",
-    kill_after: float | None = None,
 ) -> dict[str, Any] | _DeferredResult:
     """Execute a shell command and return compact structured output."""
     from atelier.core.capabilities.tool_supervision.bash_exec import (
@@ -9358,9 +9357,6 @@ def _run_bash_tool(
         workspace = os.getcwd()
     effective_cwd = cwd or workspace
 
-    if kill_after is not None and kill_after <= 0:
-        raise ValueError("kill_after must be positive")
-
     if action in {"poll", "cancel", "status", "update"}:
         if not session_id:
             raise ValueError(f"session_id is required for shell action={action}")
@@ -9371,9 +9367,11 @@ def _run_bash_tool(
             # command to finish and never reaps the session.
             return peek_managed_command(session_id)
         if action == "update":
-            if kill_after is None:
-                raise ValueError("kill_after is required for shell action=update")
-            return update_managed_command(session_id, kill_after)
+            if timeout is None:
+                raise ValueError("timeout is required for shell action=update")
+            if timeout <= 0:
+                raise ValueError("timeout must be positive")
+            return update_managed_command(session_id, timeout)
         # Block until the backgrounded command finishes (or its own timeout
         # kills it). No artificial window -- the command's timeout is the bound.
         delay = 0.02
@@ -9385,6 +9383,8 @@ def _run_bash_tool(
             delay = min(delay * 2, 0.5)
     if not command.strip():
         raise ValueError("command is required for shell action=run")
+    if timeout is None:
+        timeout = 120
 
     # A trailing `&` (but not `&&`) means "run in background": strip it and
     # force background mode so the command runs as a managed Atelier session
@@ -9605,7 +9605,6 @@ def _run_bash_tool(
         timeout=timeout,
         max_lines=max_lines,
         max_chars=max_output_tokens * 4 if max_output_tokens is not None else None,
-        kill_after=kill_after,
     )
     managed_id = str(started.get("session_id") or "")
     if started.get("status") != "running" or not managed_id:
@@ -9738,10 +9737,10 @@ def _render_bash_text(result: dict[str, Any]) -> str:
     if "updated" in result:
         # action="update" response -- a distinct shape from the plain
         # running/status payloads below, so render it up front and return.
-        remaining_ms = result.get("kill_after_remaining_ms")
+        remaining_ms = result.get("timeout_remaining_ms")
         if result.get("updated"):
             remaining_txt = f"{int(remaining_ms) // 1000}s" if isinstance(remaining_ms, int) else "?"
-            parts.append(f"kill_after updated, {remaining_txt} left id={session_id}")
+            parts.append(f"kill deadline updated, {remaining_txt} left id={session_id}")
         else:
             parts.append(f"update failed: session already {status} id={session_id}")
         return "\n".join(parts).strip()
@@ -10803,7 +10802,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "timeout": {
             "type": "integer",
             "default": 120,
-            "description": "Soft budget (s) -- past it, returns an overrunning handle instead of blocking; doesn't kill.",
+            "description": "Soft response budget (s) -- past it, returns a handle instead of blocking; hard kill after max(timeout, 1hr). action=cancel kills now; action=update + id + timeout kills at exact new timeout.",
         },
         "bg": {
             "type": "boolean",
@@ -10817,11 +10816,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "action": {
             "type": "string",
             "enum": ["poll", "status", "cancel", "update"],
-            "description": "With id: poll (default) = wait; status = peek, no wait; cancel = kill; update = change kill_after.",
-        },
-        "kill_after": {
-            "type": "number",
-            "description": "Hard-kill deadline in seconds since start (capped 24h). Unset = internal 1hr backstop only. action=update + id + kill_after moves a running job's deadline.",
+            "description": "With id: poll (default) = wait; status = peek, no wait; cancel = kill now; update = install new timeout.",
         },
     },
     "additionalProperties": False,
@@ -10841,14 +10836,13 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
 )
 def tool_bash(
     command: str = "",
-    timeout: int = 120,
+    timeout: int | None = None,
     cwd: str | None = None,
     max_lines: int = 200,
     max_output_tokens: int | None = None,
     bg: bool = False,
     id: str | None = None,
     action: Literal["run", "poll", "cancel", "status", "update"] = "run",
-    kill_after: float | None = None,
 ) -> str | _DeferredResult:
     """Execute a shell command and return compact text output.
 
@@ -10858,13 +10852,17 @@ def tool_bash(
     bg=True starts the command in the background and returns its `id`.
     bash(id=x) alone waits for that run to finish (poll); action="status"
     peeks without waiting (state + last 10 output lines); action="cancel"
-    kills it. kill_after=N sets a real hard-kill deadline (seconds since
-    start), separate from the soft `timeout` budget; action="update" with
-    id= and kill_after= moves a running job's deadline.
+    kills it now. `timeout` at start is only ever a soft response budget --
+    it does not kill by itself (eventual internal ~1hr backstop still
+    applies). action="update" with id= and a new timeout= installs an exact,
+    enforced kill deadline for a running job (e.g. to kill something in 5
+    minutes: start it, then update it with timeout=300).
     """
     if id and not command and action == "run":
         # bash(id=x) with no explicit action = wait for the run to finish.
         action = "poll"
+    if action == "run" and timeout is None:
+        timeout = 120
     result = _run_bash_tool(
         command,
         timeout=timeout,
@@ -10874,7 +10872,6 @@ def tool_bash(
         background=bg,
         session_id=id,
         action=action,
-        kill_after=kill_after,
     )
     # Phase 2: a deferred foreground command flows straight through to _handle,
     # which returns a _Deferred sentinel and lets the watcher render the result.
