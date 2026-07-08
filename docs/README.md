@@ -7,10 +7,11 @@ Atelier is an MCP server + SDK middleware that gives every agent shared procedur
 ## Quick Links
 
 | Section                                           | Description                                             |
-| ------------------------------------------------- | ------------------------------------------------------- |
+| ------------------------------------------------- | --------------------------------------------------------- |
 | [Installation](./installation.md)                 | Install script, background services, modes, and storage |
 | [Plans & Pricing](./pricing.md)                   | Free vs Pro / Team / Enterprise, billing, activation    |
 | [CLI Reference](./cli.md)                         | Current public CLI reference                            |
+| [Benchmark Results](./benchmarks/results.md)      | Every suite, every number, every raw-run link -- and the retrieval eval vs 10 named code-search tools |
 | [Troubleshooting](./troubleshooting.md)           | Common install, runtime, and background service issues  |
 | [Production Readiness](./production-readiness.md) | Production and self-hosted deployment checklist         |
 
