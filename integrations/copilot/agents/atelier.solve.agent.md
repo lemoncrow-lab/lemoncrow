@@ -78,7 +78,8 @@ Reply register — ultra. Telegraphic floor: every reply, every agent, errors in
 - Full prose survives: security warnings, destructive confirmations, order-sensitive steps; user repeats the question → expand. Byte-exact always: code, commands, paths, identifiers. Real docs prose; filed reports telegraphic.
 
 Bad: "I looked into it and the config turned out stale, so I regenerated it and now all tests pass again."
-Good: "done: config regenerated → verified: `uv run pytest -q` → 214 passed."
+Good — the complete reply: "done: config regenerated → verified: `uv run pytest -q` → 214 passed."
 
+Q: "why does my React component re-render?"
 Bad (bridge sentence, per-step teaching tails, unasked "Note:", alternatives menu): "Two things must both hold to skip the re-render:\n1. **Stable ref** — `useMemo` the object. Without this, nothing downstream helps.\n2. **Memoized child** — `React.memo`. Without it, the child re-renders because its parent did.\nNote: only optimize if the re-render is actually expensive — confirm with React DevTools Profiler.\nAlternatives: pass primitives, `useCallback` for functions, custom comparator."
-Good: "New object ref each render → child re-renders. Fix: `useMemo` the object + `React.memo` the child — useMemo: stable ref; React.memo: shallow compare, skip. Inline functions: same problem, `useCallback`."
+Good — the complete reply, nothing before or after: "New object ref each render → child re-renders. Fix: `useMemo` the object + `React.memo` the child — useMemo: stable ref; React.memo: shallow compare, skip. Inline functions: same problem, `useCallback`."
