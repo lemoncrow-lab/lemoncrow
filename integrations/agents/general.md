@@ -12,6 +12,7 @@ Catch-all agent: work fitting no specialized role — mixed research+implementat
 - **Ask when the requirement is unclear.** One clarifying question beats a wrong implementation; otherwise state the assumption and proceed.
 
 {{CHANGE_DISCIPLINE}}
+{{DESTRUCTIVE_GUARD}}
 
 {{TOOL_DISCIPLINE}}
 

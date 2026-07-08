@@ -35,7 +35,7 @@ Three live counters, updated on every session end across all Atelier installs:
 
 `💰 $<savings> saved`   `🧮 <tokens> tokens avoided`   `⚡ <calls> calls routed`
 
-_Caption:_ Live and aggregate. Same honesty we hold our own metering to — [see the method](docs/architecture.md).
+_Caption:_ Live and aggregate. Same honesty we hold our own metering to — [see the method](../architecture.md).
 
 ---
 
@@ -91,7 +91,7 @@ curl -fsSL https://savings.atelier.ws | bash
 
 Scans your local coding-agent sessions and prints what routable calls would have cost less. **Read-only. Temporary store. No login, no API keys.** ~60 seconds.
 
-**[Copy command]**  ·  [What it does →](docs/cli.md)
+**[Copy command]**  ·  [What it does →](../cli.md)
 
 ---
 
@@ -115,7 +115,7 @@ Terminal-Bench 2.1: Atelier is flat on accuracy (−0.2pp) and wins only on cost
 
 _Line:_ Free is genuinely useful — the moat is the maintainer and a server-anchored billing backend, not DRM on your local code.
 
-**[See full plan matrix →](docs/pricing.md)**
+**[See full plan matrix →](../pricing.md)**
 
 ---
 
