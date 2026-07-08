@@ -90,11 +90,13 @@ Measured on the same model, same tasks, and same environment:
 | SWE-bench turns                                    |               **4,336** |                   6,962 |  **37.7% fewer** |
 | SWE-bench output tokens                            |               **2.19M** |                   3.04M |  **27.9% fewer** |
 | SWE-bench wall-clock time                          |               **10.9h** |                   14.3h | **23.7% faster** |
+| SWE-bench Lite, 10 tasks x 3 reps                  |     **100% resolved** |                   93.3% |      **+6.7 pp** |
+| SWE-bench Lite cost                                |    **$10.79** | $12.38 |       **12.9% cheaper** |                  |
 | SWE-bench Pro, 10 tasks x 5 reps                   |      **90.0% resolved** |                   88.0% |      **+2.0 pp** |
 | SWE-bench Pro cost                                 |    **$30.61** | $39.01 |       **21.5% cheaper** |                  |
 | Exploration tasks across 8 large repos             |     **$10.94** | $25.37 |         **57% cheaper** |                  |
-| Terminal-Bench 2.1, 89 tasks vs public leaderboard* | 77.5% resolved | 78.9% expected | -1.4 pp |
-| Terminal-Bench cost, 83/89 tasks w/ cost data*  | **$75.87** | $96.02 | **21.0% cheaper**† |
+| Terminal-Bench 2.1, 89 tasks vs public leaderboard* | 78.7% resolved | 78.9% expected | -0.2 pp |
+| Terminal-Bench cost, 83/89 tasks w/ cost data*  | **$69.52** | $96.76 | **28.1% cheaper**† |
 
 <sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Other 5 tasks in Atelier timeout and can't capture cost, not zero-cost runs; see BENCHMARKS.md.</sub>
 
