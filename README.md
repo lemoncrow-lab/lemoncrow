@@ -18,7 +18,12 @@ Atelier is a 30-second install that helps Claude Code waste fewer tokens while y
 [![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://atelier.ws)
 [![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://atelier.ws)
 
-[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](#pricing)
+[Install](#install-in-30-seconds)<br />
+[Check your savings first](#check-your-own-savings)<br />
+[Why trust the numbers?](#why-trust-the-numbers)<br />
+[Results](#results)<br />
+[Compare vs named tools](#code-search-vs-10-named-tools)<br />
+[Pricing](#pricing)
 
 </div>
 
@@ -141,6 +146,8 @@ Retrieval quality (MRR) across ~7,200 query/gold pairs on 14 repos -- ripgrep, a
 | universal-ctags (worst rival) | 0.237 | 0.226 | 1ms |
 
 None of these 10 tools had ever been scored against each other, on a shared query set, before this table existed -- most publish a number about themselves, on their own terms, against their own baseline (grep, file-by-file reading), never against a rival. Full 13-row table and a per-tool "what they claim vs. what it scored" breakdown, with sources: [atelier.ws/vs](https://atelier.ws/vs) and [docs.atelier.ws/benchmarks/results](https://docs.atelier.ws/benchmarks/results).
+
+Two more worth a look, neither of which is a code-search tool: [rtk](https://atelier.ws/vs/rtk) is a 69.6k-star Rust CLI proxy that compresses command output -- its self-estimated savings table (never run against a real coding task) vs. Atelier's actual accuracy-checked Terminal-Bench number. ["Just tell Claude to be terse"](https://atelier.ws/vs/caveman) is the free DIY alternative anyone can try before installing anything -- benchmarked head-to-head against Atelier's runtime on the same 20 prompts, including the prompt where it backfires.
 
 ## Why it works
 

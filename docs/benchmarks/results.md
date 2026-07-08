@@ -75,6 +75,31 @@ tools publish real, checkable numbers about themselves, on their own terms,
 against their own baseline. None had been scored against each other, on the
 same corpus, before this table existed.
 
+## Two comparisons outside the retrieval table
+
+Neither of these is a code-search tool, so neither is in the MRR table above --
+both get their own page on [atelier.ws/vs](https://atelier.ws/vs) instead.
+
+- **[rtk](https://atelier.ws/vs/rtk)** (github.com/rtk-ai/rtk, ~69.6k stars --
+  the most-starred tool in this entire comparison set) is a Rust CLI proxy
+  that rewrites Bash tool calls to compact equivalents before output reaches
+  the model. Its own README publishes a per-command savings table ("60-90%"),
+  explicitly labeled as an estimate on "medium-sized TypeScript/Rust
+  projects" -- never run against a real coding task or checked for accuracy.
+  Atelier's Terminal-Bench 2.1 result is the accuracy-checked version of the
+  same claim: -28.1% cost with correctness held flat (78.7% vs. 78.9%
+  expected, -0.2pp).
+- **["Just tell Claude to be terse"](https://atelier.ws/vs/caveman)** is the
+  free DIY alternative every reader can try with no install: a system-prompt
+  instruction (`benchmarks/telegraphic/caveman_skill.md`) layered on vanilla
+  Claude Code. Real data from a 1-rep, 4-arm exploratory run
+  (`benchmarks/codebench/results/telegraphic_2026_07_08/`): it beats
+  Atelier's full-runtime average (42% vs. 29% fewer output tokens) but with
+  triple the variance (30pp vs. 21pp stdev) and one real regression --
+  `error-boundary` produces 52% *more* output than baseline, because a
+  wording instruction can't tell a prompt that needs a code block from one
+  that needs compressing.
+
 ## Indexing time (cold full rebuild)
 
 | Repo | Symbols | Lexical | Zoekt | Semantic (BGE-Code-v1) |
