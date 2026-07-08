@@ -132,7 +132,7 @@ node_modules/
 .next/
 .cache
 .parcel-cache/
-
+.impeccable/
 # -----------------------
 # Project-Specific
 # -----------------------

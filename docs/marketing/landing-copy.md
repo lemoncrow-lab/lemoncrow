@@ -1,119 +1,149 @@
 # atelier.ws — Landing Page Copy
 
-_Copy blocks for the marketing site, top to bottom. Voice: witty but serious (see `strategy.md`). Every number here must link to raw runs — if it's not reproducible, it doesn't ship. Placeholder blocks are marked `[[PLACEHOLDER]]` — do not publish faked proof._
+_Copy blocks for the marketing site, top to bottom. Audience: people paying for Claude Code/Max who are not deep infrastructure buyers. Voice: plain, specific, and skeptical. Every number must link to raw runs or a live endpoint. Live badges support trust; they do not prove the headline by themselves._
 
 ---
 
 ## Nav
 
-`Atelier`  ·  Proof  ·  Why  ·  Docs  ·  Pricing  ·  [GitHub ⭐ <live stars>]  ·  **[Install]**
+`Atelier` · How it saves · Proof · Pricing · Docs · [GitHub ⭐ <live stars>] · **[Install]**
 
 ---
 
 ## Hero
 
-### Atelier Runtime
+### Honestly, get 30% more out of your Claude subscription.
 
-**Open-source runtime for coding agents.**
-Give Claude Code, Codex, Cursor, and other coding agents a shared runtime for tools, context, skills, observability, cost control, and safer execution inside real codebases.
+Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It gives your agent better search, shorter file reads, cleaner tool output, and reusable memory so more of your subscription goes into fixing code instead of rereading the same noise.
 
-> **+12.0pp resolved · 29.5% cheaper** on SWE-bench Verified — same model, same tasks, same environment. Every raw run published.
+> In our same-model SWE-bench Verified run, Atelier was **29.5% cheaper** and solved **+12.0 percentage points more tasks** than the baseline. Same model. Same tasks. Same environment. Raw runs published.
 
 ```bash
 curl -fsSL https://install.atelier.ws | bash
 ```
 
-**[Install]**  ·  **[Estimate your savings →]**  ·  Apache-2.0 · local-first · no account to start
+**[Install in 30 seconds]** · **[Check my savings first →]** · Apache-2.0 · runs locally · no account to start
 
-_Subhead, small:_ One runtime for the work around the model: grounded tools, reusable context, skill procedures, observability, budgets, and execution guardrails.
-
----
-
-## Live proof strip (real, wire to the badge API)
-
-Three live counters, updated on every session end across all Atelier installs:
-
-`💰 $<savings> saved`   `🧮 <tokens> tokens avoided`   `⚡ <calls> calls routed`
-
-_Caption:_ Live and aggregate. Same honesty we hold our own metering to — [see the method](../architecture.md).
+_Small line:_ Keep using Claude Code. Atelier sits underneath it and makes the tool loop tighter.
 
 ---
 
-## The demo (the money shot)
+## Trust strip
 
-**Left panel — the loop, animated:** a coding agent asks "why is the retry test flaky?" → baseline greps 6 files, dumps 3 whole files, narrates for 71 tokens. → Atelier: one `code_search`, one ranged `read`, answers in 38.
+Three proof types, shown close to the headline:
 
-**Right panel — the meter:**
+1. **Your own history:** run the read-only savings scan before installing.
+2. **Raw benchmark receipts:** every headline number links to committed per-task runs.
+3. **Live badges:** aggregate savings, tokens avoided, and routed calls update after real sessions.
+
+Live badge copy:
+
+`$<savings> saved by users` · `<tokens> tokens avoided` · `<calls> agent calls routed`
+
+_Caption:_ Live badges are not the benchmark. They show real usage adding up. The 30% claim comes from reproducible runs and can be checked against your own local history.
+
+---
+
+## The install promise
+
+### Install once. Keep working normally.
+
+```bash
+curl -fsSL https://install.atelier.ws | bash
+cd your-project
+atelier init
 ```
-cost           ███████████████░░░░░   −29.5%
-turns          ██████████████░░░░░░   −37.7%
-output tokens  ███████████████░░░░░   −27.9%
-resolved       ████████████████░░░░   +12.0 pp
-receipts       ████████████████████   PUBLISHED ✔
+
+Then open Claude Code like usual. Atelier adds better tools behind the scenes: smarter code search, exact file reads, compact command output, safer edits, and a running savings meter.
+
+**Time to first value:** about 30 seconds for install, then savings start showing up as your sessions end.
+
+---
+
+## Live savings demo
+
+**Left panel:** Claude asks for context. Baseline dumps broad files and long command output. Atelier gives the agent only the useful ranges, relevant symbols, and compact results.
+
+**Right panel:** savings meter accumulates while work continues.
+
+```text
+cost           −29.5%  benchmark receipt
+turns          −37.7%  fewer back-and-forth loops
+output tokens  −27.9%  less paid narration
+resolved       +12.0pp more tasks solved
+receipts       raw runs published
 ```
-_Caption:_ Not a mockup number. Reproduce it: `benchmarks/codebench/results/swe50_2026_06_30/`.
+
+_Caption:_ No fake counters. If a number is live, label it live. If a number is benchmarked, link the raw run. If it is estimated from the visitor's machine, say estimated.
+
+---
+
+## Why it saves
+
+**It reads less.** Claude gets the exact lines and symbols it needs, not whole files pasted into the chat.
+
+**It repeats less.** Atelier remembers useful session context so the agent does not pay again for the same discovery.
+
+**It talks less.** Outputs are shorter and more direct while preserving exact code, commands, and errors.
+
+**It makes agents more correct.** In our same-model benchmark, the tighter loop solved more tasks because the agent spent less context on noise and more on the fix.
+
+_The simple claim:_ Atelier does not make Claude a different model. It makes the work around Claude less wasteful.
 
 ---
 
 ## Before / After
 
-**Same fix. A third of the words. Nothing technical lost.**
+**Same fix. Fewer paid words. Same technical meaning.**
 
-| Baseline — 71 tokens | Atelier — 38 tokens |
+| Baseline | With Atelier |
 | --- | --- |
-| "I looked into the failing test and it seems like the flakiness is caused by the retry logic using a real clock… I'd recommend injecting a fake clock so the test becomes deterministic." | "Root cause: retry test uses a real clock — 100ms sleep + exact 3-retry assert drifts under CI load. Fix: inject a fake clock; test becomes deterministic." |
+| "I looked into the failing test and it seems like the flakiness is caused by the retry logic using a real clock… I'd recommend injecting a fake clock so the test becomes deterministic." | "Root cause: retry test uses a real clock. Fix: inject a fake clock; test becomes deterministic." |
 
-_Caption:_ Atelier shrinks the loop, not the brain. Code, commands, and errors stay byte-for-byte exact.
-
----
-
-## Why (the four verbs)
-
-**Read smarter.** `code_search` replaces grep loops — relevant symbols, source, callers, callees, and blast radius in one call. `read` returns exact ranges, not whole files.
-
-**Think sharper.** Narrow modes route work through the right shape — explore, plan, execute, solve — instead of one vague do-everything agent.
-
-**Talk less.** Compact tool results, batched edits, telegraphic personas. The transcript holds decisions, not narration.
-
-**Never forget.** Recall, session memory, and deduped reads stop the agent from paying twice for context it already found.
-
-_The claim, in one line:_ less noise gives agents more room to land correct patches.
+_Caption:_ Shorter does not mean vague. Code, commands, filenames, and errors stay exact.
 
 ---
 
-## Estimate your savings (interactive CTA — the conversion driver)
+## Check your own savings
 
-### Don't take our benchmark's word for it. Point it at your own history.
+### Do not take our 30% claim on faith.
 
 ```bash
 curl -fsSL https://savings.atelier.ws | bash
 ```
 
-Scans your local coding-agent sessions and prints what routable calls would have cost less. **Read-only. Temporary store. No login, no API keys.** ~60 seconds.
+This scans your local Claude/Codex agent history and prints what Atelier could have saved. It is read-only, temporary, and does not need an Atelier account or provider API keys.
 
-**[Copy command]**  ·  [What it does →](../cli.md)
+**[Copy command]** · [What it reads →](../cli.md)
 
 ---
 
-## Honesty block (trust > hype)
+## Honesty block
 
-**We publish the benchmark where we don't win.**
+### How do you know the numbers are real?
 
-Terminal-Bench 2.1: Atelier is flat on accuracy (−0.2pp) and wins only on cost (28.1% cheaper). It's in the table, not the footnotes. Every headline number links to committed raw runs — per-task outcomes, costs, turn counts, reproduction commands. No cherry-picking. The credibility is the product.
+Bad answer: a big live badge with no method.
+
+Better answer:
+
+- Every headline benchmark links to raw per-task runs, costs, turn counts, and reproduction commands.
+- The savings scanner runs on your own machine, against your own agent history.
+- Live badges are labeled as aggregate usage, not proof of the 30% benchmark.
+- We publish rows where Atelier does not win. Terminal-Bench 2.1 is flat on accuracy (−0.2pp) and only cheaper on cost.
+
+The trust is the audit trail, not the animation.
 
 **[Read the raw runs →](https://github.com/atelier-ws/atelier/tree/main/benchmarks)**
 
 ---
 
-## Pricing (open-core)
+## Pricing
 
-**Free — $0.** The full local runtime. Grounded tools, host packaging, agents, skills, the context engine, and the headline savings number. No account, no key, no network call.
+**Free — $0.** Install locally, wire into Claude Code, get better search/read/edit/bash tools, agent skills, and headline savings estimates. No account to start.
 
-**Pro — $19/mo.** The leverage: Zoekt fast search + large-repo indexing, cross-session recall + cross-vendor memory, the savings engine, model routing, and multi-worktree swarm.
+**Pro — $19/mo.** More leverage for heavy users: large-repo search, session recall, full savings breakdown, model routing, and multi-worktree swarm.
 
-**Enterprise — contact us.** Very large repos, shared team context, governance, SSO, audit.
-
-_Line:_ Free is genuinely useful — the moat is the maintainer and a server-anchored billing backend, not DRM on your local code.
+**Enterprise — contact us.** Shared team context, governance, SSO, retention, audit, and very large repos.
 
 **[See full plan matrix →](../pricing.md)**
 
@@ -121,20 +151,20 @@ _Line:_ Free is genuinely useful — the moat is the maintainer and a server-anc
 
 ## Social proof [[PLACEHOLDER — fill only as earned, never fake]]
 
-`[GitHub stars, live]`  `[[Show HN thread — add when posted]]`  `[[Trending / Trendshift — add when ranked]]`  `[[press / creator mentions — add when real]]`
+`[GitHub stars, live]` · `[[Show HN thread — add when posted]]` · `[[Trending / Trendshift — add when ranked]]` · `[[press / creator mentions — add when real]]`
 
-_Until these are real, run only the live badges + star count. Empty is honest; faked is fatal._
+_Until these are real, run only live badges, raw-run links, and the visitor's own savings scan._
 
 ---
 
 ## Final CTA
 
-### Run every coding agent on one runtime.
+### Start saving Claude tokens in the next session.
 
 ```bash
 curl -fsSL https://install.atelier.ws | bash
 ```
 
-**[Install]**  ·  **[Star on GitHub ⭐]**  ·  **[Book a call]**
+**[Install in 30 seconds]** · **[Check savings first]** · **[Star on GitHub ⭐]**
 
-_Footer line:_ In our SWE-bench run, Atelier cut 2,626 turns and ~$69 off the baseline. A star costs zero tokens. Fair trade.
+_Footer line:_ In our SWE-bench Verified run, Atelier cut 2,626 turns and about $69 from the baseline. Same model, same tasks, same environment.
