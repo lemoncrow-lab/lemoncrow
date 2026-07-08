@@ -265,15 +265,14 @@ class _ManagedCommand:
     stdout_file: Any
     stderr_file: Any
     started: float
-    timeout: int
+    timeout: float
     max_lines: int
     max_chars: int | None = None
-    # Explicit hard-kill deadline in seconds since `started`, opted into via
-    # the bash tool's `kill_after` param (see mcp_server._run_bash_tool) and
-    # mutable afterwards via update_managed_command (action="update"). None
-    # (the default) falls back to max(timeout, _MANAGED_COMMAND_HARD_CAP_S) --
-    # see _effective_kill_after.
-    kill_after: float | None = None
+    # Set by update_managed_command (bash action="update"): once True,
+    # `timeout` is the exact, enforced kill deadline instead of only ever
+    # being a soft response budget floored at _MANAGED_COMMAND_HARD_CAP_S --
+    # see _effective_deadline_s.
+    deadline_explicit: bool = False
     state: str = "running"
     # First-line provenance when _inject_stable_flags modified the executed
     # command; prepended to the compacted stdout at poll time.
@@ -322,12 +321,12 @@ _READER_JOIN_GRACE_S = 2.0
 # hard cap is the actual backstop against a forgotten/orphaned process
 # running forever.
 _MANAGED_COMMAND_HARD_CAP_S = 3600.0
-# Absolute ceiling on an explicit `kill_after` (see _ManagedCommand.kill_after
-# and update_managed_command): the real backstop against a caller granting a
-# command unbounded life via repeated action="update" calls -- every explicit
-# kill_after, at start or via update, is clamped to this no matter how many
-# times it's extended.
-_MAX_KILL_AFTER_S = 86400.0
+# Absolute ceiling on an action="update"-installed explicit deadline (see
+# _ManagedCommand.deadline_explicit and update_managed_command): the real
+# backstop against a caller granting a forgotten background job unbounded
+# life one update at a time -- every update is clamped to this no matter how
+# many times a session gets extended.
+_MAX_EXPLICIT_TIMEOUT_S = 86400.0
 # stdout_file/stderr_file (the managed command's only spool -- no separate
 # tee/mirror) live here when writable, instead of an anonymous tempfile with
 # no filesystem path. One write per stream, on a real path a user can
@@ -1894,22 +1893,22 @@ def _join_readers_within(readers: list[threading.Thread], grace_s: float) -> boo
     return any(reader.is_alive() for reader in readers)
 
 
-def _effective_kill_after(managed: _ManagedCommand) -> float:
+def _effective_deadline_s(managed: _ManagedCommand) -> float:
     """Seconds since `managed.started` at which the watcher kills the process.
 
-    `managed.timeout` is the caller's *soft* response budget (see the module
-    docstring on _MANAGED_COMMAND_HARD_CAP_S) -- on its own it never kills
-    anything, so a short/default timeout on a deliberately-backgrounded
-    command (start a server, keep it running) doesn't get the service killed
-    out from under the task; the default kill deadline is the much larger
-    hard cap instead. An explicit `kill_after` (opt-in via the bash tool's
-    `kill_after` param, or moved live via update_managed_command / action=
-    "update") overrides that default entirely -- it may tighten the deadline
-    (kill sooner) or loosen it (run longer than the hard cap), since setting
-    it is a deliberate act rather than the default nobody thought about.
+    Default (nobody has called action="update" yet): `managed.timeout` is only
+    the caller's *soft* response budget (see the module docstring on
+    _MANAGED_COMMAND_HARD_CAP_S) -- it never kills anything on its own, so a
+    short/default timeout on a deliberately-backgrounded command (start a
+    server, keep it running) doesn't get the service killed out from under
+    the task; the real kill deadline floors at the much larger hard cap
+    instead. Once update_managed_command has set `managed.deadline_explicit`,
+    `managed.timeout` IS the exact, enforced deadline -- no more floor --
+    since installing it that way (bash action="update") is a deliberate act
+    rather than the passive default nobody thought about.
     """
-    if managed.kill_after is not None:
-        return managed.kill_after
+    if managed.deadline_explicit:
+        return float(managed.timeout)
     return max(float(managed.timeout), _MANAGED_COMMAND_HARD_CAP_S)
 
 
@@ -1919,12 +1918,13 @@ def _watch_managed_command(session_id: str) -> None:
     if managed is None:
         return
     # Polled in short slices rather than one blocking `proc.wait(timeout=...)`
-    # so an action="update" call can move the deadline (managed.kill_after)
-    # without restarting this wait -- each iteration re-reads it live.
+    # so an action="update" call can move the deadline (managed.timeout /
+    # managed.deadline_explicit) without restarting this wait -- each
+    # iteration re-reads it live.
     poll_slice_s = 1.0
     while True:
         with _MANAGED_COMMANDS_LOCK:
-            deadline = managed.started + _effective_kill_after(managed)
+            deadline = managed.started + _effective_deadline_s(managed)
         remaining = deadline - time.perf_counter()
         if remaining <= 0:
             try:
@@ -2015,7 +2015,6 @@ def start_managed_command(
     timeout: int = 30,
     max_lines: int = 200,
     max_chars: int | None = None,
-    kill_after: float | None = None,
 ) -> dict[str, Any]:
     """Start a command without blocking the MCP request."""
     policy = classify_command(command, cwd=cwd)
@@ -2032,10 +2031,6 @@ def start_managed_command(
     session_id = uuid.uuid4().hex
     stdout_file, stdout_path = _open_stream_file(session_id, "stdout")
     stderr_file, stderr_path = _open_stream_file(session_id, "stderr")
-    # Explicit opt-in hard-kill deadline, clamped to _MAX_KILL_AFTER_S -- see
-    # _effective_kill_after / update_managed_command for how this is used and
-    # later moved.
-    clamped_kill_after = min(float(kill_after), _MAX_KILL_AFTER_S) if kill_after is not None else None
     try:
         # Pipe the child's output through drain threads rather than handing the
         # temp-file fds straight to the kernel. A direct fd lets a runaway
@@ -2074,7 +2069,6 @@ def start_managed_command(
         timeout=timeout,
         max_lines=max_lines,
         max_chars=max_chars,
-        kill_after=clamped_kill_after,
         injected_note=injected_note,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
@@ -2099,8 +2093,6 @@ def start_managed_command(
         "pid": proc.pid,
         "timeout": timeout,
     }
-    if clamped_kill_after is not None:
-        started_payload["kill_after"] = clamped_kill_after
     if managed.stdout_path:
         started_payload["log_file"] = managed.stdout_path
     if managed.stderr_path:
@@ -2153,13 +2145,11 @@ def peek_managed_command(session_id: str, *, tail_lines: int = _STATUS_TAIL_LINE
         remaining_ms = max(0, managed.timeout * 1000 - elapsed_ms)
         payload["timeout_remaining_ms"] = remaining_ms
         # Distinct signal from a plain mid-flight peek: this command has
-        # already burned through its requested soft-timeout budget.
+        # already burned through its requested soft-timeout budget -- once
+        # action="update" has installed an explicit deadline (see
+        # _ManagedCommand.deadline_explicit), this is also exactly how long
+        # until the real kill, not just a soft nudge.
         payload["over_budget"] = remaining_ms <= 0
-        if managed.kill_after is not None:
-            # Only present when the caller opted into an explicit hard-kill
-            # deadline (kill_after at start, or action="update") -- distinct
-            # from timeout_remaining_ms, which is just the soft response budget.
-            payload["kill_after_remaining_ms"] = max(0, int(managed.kill_after * 1000) - elapsed_ms)
     else:
         payload["exit_code"] = managed.proc.returncode
     return payload
@@ -2188,8 +2178,6 @@ def poll_managed_command(session_id: str, *, cancel: bool = False) -> dict[str, 
             "timeout_remaining_ms": timeout_remaining_ms,
             "over_budget": timeout_remaining_ms <= 0,
         }
-        if managed.kill_after is not None:
-            running_payload["kill_after_remaining_ms"] = max(0, int(managed.kill_after * 1000) - elapsed_ms)
         if managed.stdout_path:
             running_payload["log_file"] = managed.stdout_path
         if managed.stderr_path:
@@ -2236,7 +2224,7 @@ def poll_managed_command(session_id: str, *, cancel: bool = False) -> dict[str, 
 
     if managed.state == "timed_out":
         exit_code = -1
-        raw_stderr = f"Command timed out after {int(_effective_kill_after(managed))}s"
+        raw_stderr = f"Command timed out after {int(_effective_deadline_s(managed))}s"
     elif managed.state == "cancelled":
         exit_code = -1
         raw_stderr = "Command cancelled"
@@ -2279,16 +2267,19 @@ def poll_managed_command(session_id: str, *, cancel: bool = False) -> dict[str, 
     return payload
 
 
-def update_managed_command(session_id: str, kill_after: float) -> dict[str, Any]:
-    """Move a running managed command's hard-kill deadline (bash action="update").
+def update_managed_command(session_id: str, timeout: float) -> dict[str, Any]:
+    """Install (or move) a running managed command's *enforced* kill deadline
+    (bash action="update").
 
-    `kill_after` is seconds since the command started -- the same units as
-    the `kill_after` passed at launch, not "N more seconds from now" -- so a
-    caller can read `kill_after_remaining_ms` off a prior peek/poll and reason
-    about the new absolute budget directly. Clamped to `_MAX_KILL_AFTER_S`
-    regardless of how many times a session gets extended: that ceiling is the
-    real backstop against a task granting a forgotten background job
-    unbounded life one update at a time.
+    Before any update, `timeout` is only ever the soft response budget -- the
+    real kill floors at the ~1hr hard cap (see _effective_deadline_s). Calling
+    update is a deliberate act: from here on `timeout` is the exact, enforced
+    deadline for this session, seconds since it started -- not "N more
+    seconds from now" -- so a caller can read `timeout_remaining_ms` off a
+    prior peek/poll and reason about the new absolute budget directly.
+    Clamped to `_MAX_EXPLICIT_TIMEOUT_S` regardless of how many times a
+    session gets extended: that ceiling is the real backstop against a task
+    granting a forgotten background job unbounded life one update at a time.
     """
     with _MANAGED_COMMANDS_LOCK:
         managed = _MANAGED_COMMANDS.get(session_id)
@@ -2296,15 +2287,16 @@ def update_managed_command(session_id: str, kill_after: float) -> dict[str, Any]
             raise KeyError(f"unknown shell session: {session_id}")
         if managed.state != "running" or managed.proc.poll() is not None:
             return {"status": managed.state, "session_id": session_id, "updated": False}
-        managed.kill_after = min(float(kill_after), _MAX_KILL_AFTER_S)
-        applied = managed.kill_after
+        managed.timeout = min(float(timeout), _MAX_EXPLICIT_TIMEOUT_S)
+        managed.deadline_explicit = True
+        applied = managed.timeout
         elapsed_ms = int((time.perf_counter() - managed.started) * 1000)
     return {
         "status": "running",
         "session_id": session_id,
         "updated": True,
-        "kill_after": applied,
-        "kill_after_remaining_ms": max(0, int(applied * 1000) - elapsed_ms),
+        "timeout": applied,
+        "timeout_remaining_ms": max(0, int(applied * 1000) - elapsed_ms),
     }
 
 

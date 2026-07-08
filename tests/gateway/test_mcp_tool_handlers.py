@@ -2652,27 +2652,32 @@ def test_shell_background_session_survives_past_timeout(tmp_path: Path, monkeypa
     assert completed["stdout"] == "done"
 
 
-def test_shell_kill_after_kills_background_process_before_soft_timeout(
+def test_shell_action_update_installs_an_enforced_kill_deadline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """kill_after is a real, enforced deadline -- distinct from `timeout`
-    (soft response budget only, see test_shell_background_session_survives_past_timeout)."""
+    """Before any action="update" call, `timeout` is only ever a soft
+    response budget (see test_shell_background_session_survives_past_timeout)
+    -- update is the only thing that installs a real, enforced kill."""
     from atelier.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
     started = _run_bash_tool(
         'python3 -c "import time; time.sleep(30)"',
-        timeout=60,
+        timeout=3600,
         background=True,
-        kill_after=0.3,
     )
     assert started["status"] == "running"
+    updated = _run_bash_tool(session_id=started["session_id"], action="update", timeout=0.3)
+    assert updated["status"] == "running"
+    assert updated["updated"] is True
+    assert updated["timeout"] == 0.3
+
     result = _run_bash_tool(session_id=started["session_id"], action="poll")
     assert result["status"] == "timed_out"
 
 
-def test_shell_action_update_extends_kill_after(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_shell_action_update_extends_its_own_deadline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from atelier.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
@@ -2681,25 +2686,25 @@ def test_shell_action_update_extends_kill_after(tmp_path: Path, monkeypatch: pyt
         "python3 -c \"import time; time.sleep(1); print('done')\"",
         timeout=10,
         background=True,
-        kill_after=0.3,
     )
-    updated = _run_bash_tool(session_id=started["session_id"], action="update", kill_after=5)
-    assert updated["status"] == "running"
-    assert updated["updated"] is True
+    _run_bash_tool(session_id=started["session_id"], action="update", timeout=0.2)
+    extended = _run_bash_tool(session_id=started["session_id"], action="update", timeout=5)
+    assert extended["updated"] is True
+    assert extended["timeout"] == 5.0
 
     result = _run_bash_tool(session_id=started["session_id"], action="poll")
     assert result["status"] == "completed"
     assert result["stdout"] == "done"
 
 
-def test_shell_action_update_requires_kill_after(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_shell_action_update_requires_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from atelier.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
     started = _run_bash_tool('python3 -c "import time; time.sleep(1)"', timeout=10, background=True)
     try:
-        with pytest.raises(ValueError, match="kill_after"):
+        with pytest.raises(ValueError, match="timeout"):
             _run_bash_tool(session_id=started["session_id"], action="update")
     finally:
         _run_bash_tool(session_id=started["session_id"], action="cancel")
@@ -2713,8 +2718,8 @@ def test_render_shell_text_reports_update_confirmation() -> None:
             "status": "running",
             "session_id": "abc123",
             "updated": True,
-            "kill_after": 5.0,
-            "kill_after_remaining_ms": 4800,
+            "timeout": 5.0,
+            "timeout_remaining_ms": 4800,
         }
     )
     assert "id=abc123" in text
