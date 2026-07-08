@@ -32,13 +32,12 @@ else
     C_PURPLE=""
 fi
 C_FRAME="$C_DIM"
-
-ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.local/bin}"
-ATELIER_TOOL_DIR="${ATELIER_TOOL_DIR:-${HOME}/.local/share/uv/tools}"
+ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.atelier/bin}"
+ATELIER_TOOL_DIR="${ATELIER_TOOL_DIR:-${HOME}/.atelier/uv-tools}"
 ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_NO_HOSTS="${ATELIER_NO_HOSTS:-0}"
 ATELIER_INSTALL_RECORD="${HOME}/.atelier/install_dir"
-ATELIER_DEFAULT_INSTALL_DIR="${HOME}/.local/share/atelier"
+ATELIER_DEFAULT_INSTALL_DIR="${HOME}/.atelier/install"
 ATELIER_PROTECTED_SOURCE_ROOTS="${ATELIER_PROTECTED_SOURCE_ROOTS:-${HOME}/Projects}"
 PASSTHROUGH=()
 WORKSPACE_EXPLICIT=0
@@ -146,11 +145,10 @@ purge_leftovers() {
     install_dir="${install_dir:-$ATELIER_DEFAULT_INSTALL_DIR}"
 
     printf "%b│%b\n" "$C_FRAME" "$C_RESET"
-    info "Purging Atelier runtime state, install environments, and known host residue..."
-
     remove_path "${ATELIER_TOOL_DIR}/atelier"
+    remove_path "${ATELIER_TOOL_DIR}/atelier"
+    remove_path "${HOME}/.atelier/uv-tools/atelier"
     remove_path "${HOME}/.local/share/uv/tools/atelier"
-
     remove_file_if_atelier "${HOME}/.codex/AGENTS.md"
     remove_glob "${HOME}/.codex/AGENTS.md.atelier-backup.*"
     remove_glob "${HOME}/.codex/plugins/atelier*"

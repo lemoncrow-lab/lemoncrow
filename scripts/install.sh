@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # install.sh — Standalone Atelier production bootstrap.
-#
 # Downloads a pre-compiled Atelier binary for your platform from the
-# latest GitHub release, installs it to ~/.local/bin/, and then installs
-# Atelier into each detected agent host (Claude, Copilot, Cursor, Codex, etc.).
+# latest GitHub release, installs Atelier-managed files under ~/.atelier/,
+# and then installs Atelier into each detected agent host (Claude, Copilot,
+# Cursor, Codex, etc.).
 #
 # Usage:
 #   curl -fsSL https://github.com/atelier-ws/atelier/releases/latest/download/install.sh | bash
@@ -11,9 +11,9 @@
 # For a comprehensive developer install (with uv, git, node, etc.) use
 # scripts/local.sh from the repo checkout.
 #
-# Environment variables:
-#   ATELIER_INSTALL_DIR     Target directory (default: ~/.local)
-#   ATELIER_BIN_DIR         Binary directory (default: ~/.local/bin)
+#   ATELIER_INSTALL_DIR     Target directory (default: ~/.atelier/install)
+#   ATELIER_BIN_DIR         Binary directory (default: ~/.atelier/bin)
+#   ATELIER_RELEASE_TAG     Release tag to install (default: latest)
 #   ATELIER_RELEASE_TAG     Release tag to install (default: latest)
 #   ATELIER_DRY_RUN         If set to 1, print planned actions and exit
 #   ATELIER_VERBOSE         If set to 1, show verbose output
@@ -49,8 +49,8 @@ case "$ARCH" in
 esac
 BINARY_SUFFIX="${OS}-${ARCH}"
 
-ATELIER_INSTALL_DIR="${ATELIER_INSTALL_DIR:-${HOME}/.local}"
-ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${ATELIER_INSTALL_DIR}/bin}"
+ATELIER_INSTALL_DIR="${ATELIER_INSTALL_DIR:-${HOME}/.atelier/install}"
+ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.atelier/bin}"
 ATELIER_RELEASE_TAG="${ATELIER_RELEASE_TAG:-latest}"
 ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_VERBOSE="${ATELIER_VERBOSE:-0}"
@@ -258,6 +258,28 @@ else
     DOWNLOAD_CMD=(wget -qO-)
 fi
 
+# ---- managed install tree cleanup -------------------------------------------
+_clean_managed_install_tree() {
+    # The distribution is extracted as a directory tree, not as a versioned
+    # package directory. Remove managed top-level payloads first so files deleted
+    # from a release cannot linger across installs.
+    mkdir -p "$ATELIER_INSTALL_DIR"
+    local path
+    for path in \
+        "$ATELIER_INSTALL_DIR/bin" \
+        "$ATELIER_INSTALL_DIR/constraints.txt" \
+        "$ATELIER_INSTALL_DIR/constraints.resolved.txt" \
+        "$ATELIER_INSTALL_DIR/deploy" \
+        "$ATELIER_INSTALL_DIR/integrations" \
+        "$ATELIER_INSTALL_DIR/scripts" \
+        "$ATELIER_INSTALL_DIR/vendor"
+    do
+        if [[ -e "$path" || -L "$path" ]]; then
+            rm -rf -- "$path"
+        fi
+    done
+}
+
 # ---- download & extract ------------------------------------------------------
 if [[ "$ATELIER_LOCAL" == "1" ]]; then
     LOCAL_SRC_ABS="$(cd "${ATELIER_LOCAL_SRC}" 2>/dev/null && pwd)" \
@@ -265,6 +287,7 @@ if [[ "$ATELIER_LOCAL" == "1" ]]; then
     mkdir -p "${ATELIER_INSTALL_DIR}"
     INSTALL_DIR_ABS="$(cd "${ATELIER_INSTALL_DIR}" && pwd)"
     if [[ "${LOCAL_SRC_ABS}" != "${INSTALL_DIR_ABS}" ]]; then
+        _clean_managed_install_tree
         cp -r "${LOCAL_SRC_ABS}/." "${INSTALL_DIR_ABS}/"
     fi
 elif [[ "$ATELIER_DRY_RUN" == "1" ]]; then
@@ -290,12 +313,7 @@ else
     fi
 
     verify_checksum "$TMP_ARCHIVE" "$RELEASE_URL"
-
-    # Remove stale wheels before extraction so the only wheel present after extract
-    # is the one bundled with this release. Without this, old wheels from previous
-    # installs accumulate in ATELIER_BIN_DIR and bundle.sh's sort-V picker may
-    # resolve to an older version if CI produced a version-downgrade artifact.
-    find "${ATELIER_BIN_DIR}" -maxdepth 1 -name "atelier-*.whl" -delete 2>/dev/null || true
+    _clean_managed_install_tree
 
     printf "  ${_CP}◇${_C0}  ${_CB}Extracting${_C0}\n" >&2
     _extract_progress "$TMP_ARCHIVE" "$ATELIER_INSTALL_DIR"
@@ -304,8 +322,8 @@ else
 fi
 
 # ---- run full setup via bundle.sh (installs wheel + host integrations) ------
-# All external dependency installs (uv, node/npm, jj, optional rtk) live in
-# scripts/lib/common.sh and run from bundle.sh, so every entry point shares one
+# ---- run full setup via bundle.sh (installs wheel + host integrations) ------
+# ---- run full setup via bundle.sh (installs wheel + host integrations) ------
 # layer. With ATELIER_NO_HOSTS=1 they are skipped along with host setup.
 export PATH="${ATELIER_BIN_DIR}:${PATH}"
 BUNDLE_SH="${ATELIER_INSTALL_DIR}/scripts/bundle.sh"
@@ -332,7 +350,6 @@ elif [[ "$ATELIER_NO_HOSTS" == "1" ]]; then
 else
     warn "bundle.sh not found at ${BUNDLE_SH} — skipping host integration setup."
 fi
-
 # ---- PATH persistence --------------------------------------------------------
 if [[ "$ATELIER_NO_PATH" != "1" ]]; then
     case "$(basename "${SHELL:-bash}")" in

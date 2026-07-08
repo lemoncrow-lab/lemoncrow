@@ -351,12 +351,73 @@ def test_dumb_terminal_explicit_names_filter_unrecognized(tmp_path: Path) -> Non
     assert pairs.get("--include-skills") == "atelier," + skill_names[0]
 
 
+# --- installer layout regression checks ---------------------------------------
+
+
+def test_installer_defaults_use_atelier_home() -> None:
+    content = (SCRIPTS / "install.sh").read_text()
+    assert 'ATELIER_INSTALL_DIR="${ATELIER_INSTALL_DIR:-${HOME}/.atelier/install}"' in content
+    assert 'ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.atelier/bin}"' in content
+
+    common = COMMON_SH.read_text()
+    assert 'ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.atelier/bin}"' in common
+    assert 'ATELIER_TOOL_DIR="${ATELIER_TOOL_DIR:-${HOME}/.atelier/uv-tools}"' in common
+
+
+def test_installer_cleans_managed_tree_before_overlay() -> None:
+    content = (SCRIPTS / "install.sh").read_text()
+    assert "_clean_managed_install_tree" in content
+    assert '"$ATELIER_INSTALL_DIR/integrations"' in content
+    assert '_clean_managed_install_tree\n        cp -r "${LOCAL_SRC_ABS}/."' in content
+    assert "_clean_managed_install_tree\n\n    printf" in content
+
+
+def test_local_installer_removes_stale_managed_payload(tmp_path: Path) -> None:
+    source = tmp_path / "bundle"
+    current_skill = source / "integrations" / "skills" / "benchmark"
+    current_skill.mkdir(parents=True)
+    (current_skill / "SKILL.md").write_text("---\nname: benchmark\ndescription: current\n---\n", encoding="utf-8")
+    (source / "scripts").mkdir()
+    (source / "scripts" / "bundle.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+
+    install_dir = tmp_path / "install"
+    stale_skill = install_dir / "integrations" / "skills" / "design-review"
+    stale_skill.mkdir(parents=True)
+    (stale_skill / "SKILL.md").write_text("---\nname: design-review\ndescription: stale\n---\n", encoding="utf-8")
+
+    env = {
+        **os.environ,
+        "ATELIER_LOCAL_SRC": str(source),
+        "ATELIER_INSTALL_DIR": str(install_dir),
+        "ATELIER_BIN_DIR": str(tmp_path / "bin"),
+        "ATELIER_NO_HOSTS": "1",
+        "ATELIER_NO_PATH": "1",
+    }
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "install.sh"), "--local"],
+        cwd=ATELIER_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (install_dir / "integrations" / "skills" / "benchmark" / "SKILL.md").exists()
+    assert not stale_skill.exists()
+
+
+def test_bundle_persists_install_record() -> None:
+    content = (SCRIPTS / "bundle.sh").read_text()
+    assert "persist_install_record" in content
+
+
 # --- real arrow-key checkbox menu ---------------------------------------------
 
 _SELECTOR_MARKERS = [
     "Which agents should Atelier configure?",
     "Agent roles to install",
-    "Optional skills",
+    "Complimentary Skills",
+    "Agent reply style",
     "Apply configs globally or just here?",
 ]
 
@@ -368,7 +429,7 @@ def test_confirming_defaults_selects_standard_roles_and_no_skills(tmp_path: Path
     assert role_names and default_roles, "expected non-default roles from disk"
     assert skill_names
     result_file = _run_host_wizard(
-        answers=[b"2\r", b"\r", b"\r", b"\r"],  # host: toggle codex only; accept both checklist defaults
+        answers=[b"2\r", b"\r", b"\r", b"\r", b"\r"],  # host: toggle codex only; accept defaults
         markers=_SELECTOR_MARKERS,
         tmp_path=tmp_path,
         term="xterm",
@@ -384,7 +445,7 @@ def test_confirming_defaults_selects_standard_roles_and_no_skills(tmp_path: Path
 def test_toggling_code_does_not_deselect_it(tmp_path: Path) -> None:
     default_roles = _default_role_names()
     result_file = _run_host_wizard(
-        answers=[b"2\r", b" \r", b"\r", b"\r"],  # try to toggle locked code off, confirm
+        answers=[b"2\r", b" \r", b"\r", b"\r", b"\r"],  # try to toggle locked code off, confirm
         markers=_SELECTOR_MARKERS,
         tmp_path=tmp_path,
         term="xterm",
@@ -397,7 +458,7 @@ def test_deselecting_a_role_removes_it(tmp_path: Path) -> None:
     role_names = _role_names_from_disk()
     assert len(role_names) >= 2
     result_file = _run_host_wizard(
-        answers=[b"2\r", b"jjj \r", b"\r", b"\r"],  # skip code/auto/bare, toggle first default role off
+        answers=[b"2\r", b"jjj \r", b"\r", b"\r", b"\r"],  # skip code/auto/bare, toggle first default role off
         markers=_SELECTOR_MARKERS,
         tmp_path=tmp_path,
         term="xterm",
@@ -412,7 +473,7 @@ def test_selecting_a_skill_adds_it(tmp_path: Path) -> None:
     skill_names = _skill_names_from_disk()
     assert skill_names
     result_file = _run_host_wizard(
-        answers=[b"2\r", b"\r", b" \r", b"\r"],  # accept all roles, toggle first skill on
+        answers=[b"2\r", b"\r", b" \r", b"\r", b"\r"],  # accept defaults, toggle first skill
         markers=_SELECTOR_MARKERS,
         tmp_path=tmp_path,
         term="xterm",
@@ -434,7 +495,8 @@ def test_claude_global_scope_appends_claude_project_without_losing_roles(tmp_pat
             b"\r",
             b"\r",
             b"\r",
-        ],  # all hosts (includes claude), accept both checklist defaults, global scope
+            b"\r",
+        ],  # all hosts (includes claude), accept defaults, global scope
         markers=_SELECTOR_MARKERS,
         tmp_path=tmp_path,
         term="xterm",

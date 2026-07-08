@@ -58,6 +58,7 @@ install_atelier_from_wheel() {
     wheel="$(find "${ATELIER_INSTALL_DIR}/bin" -maxdepth 1 -name "atelier-*.whl" 2>/dev/null | sort -V | tail -1 || true)"
     if [[ -z "${wheel}" ]]; then
         verbose "No bundled wheel found — assuming atelier already installed"
+        persist_install_record
         return 0
     fi
 
@@ -88,7 +89,7 @@ install_atelier_from_wheel() {
         # at the wheel build.sh ships alongside constraints.txt.
         if grep -q "vendor/babel-" "${constraints_file}"; then
             constraints_file="${SCRIPT_DIR}/../constraints.resolved.txt"
-            sed -E "s#^\./?vendor/(babel-[^[:space:]]+\.whl)\$#babel @ file://${SCRIPT_DIR}/../vendor/\1#" \
+            sed -E "s#^\\./?vendor/(babel-[^[:space:]]+\\.whl)\$#babel @ file://${SCRIPT_DIR}/../vendor/\\1#" \
                 "${SCRIPT_DIR}/../constraints.txt" > "${constraints_file}"
         fi
         constraints_arg=(-c "${constraints_file}")
@@ -99,24 +100,23 @@ install_atelier_from_wheel() {
     UV_TOOL_BIN_DIR="$ATELIER_BIN_DIR" UV_TOOL_DIR="$ATELIER_TOOL_DIR" \
         uv tool uninstall atelier >/dev/null 2>&1 || true
 
-    # Install the console script to the same bin/tool dirs as `make dev` (scripts/local.sh),
-    # so prod and dev share ONE on-PATH binary location (ATELIER_BIN_DIR, default ~/.local/bin).
+    # Install the console script to the configured Atelier bin/tool dirs.
     spin_tail "Installing Atelier" \
         env UV_TOOL_BIN_DIR="$ATELIER_BIN_DIR" UV_TOOL_DIR="$ATELIER_TOOL_DIR" \
         uv tool install --force --python "$ATELIER_PYTHON_VERSION" "${wheel}[${extras}]" ${constraints_arg[@]+"${constraints_arg[@]}"} --reinstall-package atelier
 
     # Re-derive ATELIER_BIN_DIR to the uv tool install location so that
-    # run_setup() finds the real atelier binary (not the wheel-only
-    # staging dir). uv tool install puts binaries in
-    # ~/.local/bin (or UV_TOOL_BIN_DIR if set).
+    # run_setup() finds the real atelier binary (not the wheel-only staging dir).
     local uv_bin_dir
-    uv_bin_dir="$(uv tool dir --bin 2>/dev/null || echo "${HOME}/.local/bin")"
+    uv_bin_dir="$(uv tool dir --bin 2>/dev/null || echo "${ATELIER_BIN_DIR}")"
     if [[ -x "${uv_bin_dir}/atelier" ]]; then
         ATELIER_BIN_DIR="${uv_bin_dir}"
         export ATELIER_BIN_DIR
     else
         verbose "atelier installed (binary not found in uv tool dir; using PATH fallback)"
     fi
+
+    persist_install_record
 
     # Remove stale wheels left over from previous installs so future runs
     # always see exactly one wheel and `sort -V | tail -1` can't pick a stale one.
