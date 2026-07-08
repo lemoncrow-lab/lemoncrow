@@ -3,33 +3,6 @@
 <div align="center">
 # Atelier Runtime
 
-### Open-source runtime for coding agents
-
-**Tools · Context · Skills · Observability · Cost control · Safer execution**
-
-_Give Claude Code, Codex, Cursor, and other coding agents a shared runtime for tools, context, skills, observability, cost control, and safer execution inside real codebases._
-
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
-[![Stars](https://img.shields.io/github/stars/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier)
-
-[![macOS](https://img.shields.io/badge/macOS-supported-blue?style=flat-square)](#)
-[![Linux](https://img.shields.io/badge/Linux-supported-blue?style=flat-square)](#)
-
-[![Claude Code](https://img.shields.io/badge/Claude_Code-supported-CF6D3F?style=flat-square)](https://claude.ai/code)
-[![Codex](https://img.shields.io/badge/Codex-supported-10A37F?style=flat-square)](https://openai.com/codex)
-[![opencode](https://img.shields.io/badge/opencode-supported-7C3AED?style=flat-square)](https://opencode.ai)
-
-**Live savings across all Atelier sessions** &nbsp;·&nbsp; updates on every session end
-
-[![Cost saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dsavings&style=for-the-badge&color=04ba0d)](https://atelier.ws)
-[![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://atelier.ws)
-[![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://atelier.ws)
-
-[See it](#see-it--before--after) · [Install](#quick-start) · [Estimate your savings](#estimate-your-savings-60-seconds) · [Benchmarks](#results-measured-not-vibed) · [Pricing](#pricing--open-core-local-first)
-
-</div>
-
 ---
 
 Atelier Runtime gives coding agents the shared operating layer they are missing: grounded tools, project context, skills, observability, cost controls, and safer execution inside real codebases.
@@ -118,11 +91,10 @@ Measured on the same model, same tasks, and same environment:
 | SWE-bench Verified, 50 tasks x 5 reps               |            80.8% |       **92.8%** | **+12.0 pp** | $234.84 |**$165.45** |   **29.5% cheaper** |         |
 | SWE-bench Lite, 10 tasks x 3 reps                   |            93.3% |        **100%** |  **+6.7 pp** |   $12.38 |**$10.79** |   **12.9% cheaper** |         |
 | SWE-bench Pro, 10 tasks x 5 reps                    |            88.0% |       **90.0%** |  **+2.0 pp** |   $39.01 |**$30.61** |   **21.5% cheaper** |         |
-| Exploration tasks across 7 large repos              |               — |              — |           — |   $19.11 |**$6.29** |     **67% cheaper** |         |
+| Exploration tasks across 7 large repos × 5 reps    |               — |              — |           — |    $19.11 |**$6.29** |     **67% cheaper** |         |
 | Terminal-Bench 2.1, 89 tasks vs public leaderboard* |   78.9% expected |           78.7% |      -0.2 pp | $96.76 |**$69.52**† | **28.1% cheaper**† |         |
 
-<sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task.
-† Other 5 tasks in Atelier timeout and can't capture cost, not zero-cost runs; see BENCHMARKS.md. </sub>
+<sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task.† Other 5 tasks in Atelier timeout and can't capture cost, not zero-cost runs; see BENCHMARKS.md. </sub>
 
 SWE-bench Verified detail:
 
@@ -339,7 +311,7 @@ Start with the summary above. Go deeper here:
 - [`benchmarks/codebench/results/exploration_2026_06_29/`](benchmarks/codebench/results/exploration_2026_06_29/) - exploration benchmark raw results.
 - [`benchmarks/codebench/results/retrieval_2026_07_05/`](benchmarks/codebench/results/retrieval_2026_07_05/) - retrieval evaluation raw results.
 - [`benchmarks/harbor/results/atelier/2026-07-07__02-24-29/`](benchmarks/harbor/results/atelier/2026-07-07__02-24-29/) - Terminal-Bench run data.
-- [`benchmarks/codebench/results/telegraphic_2026_07_08/`](benchmarks/codebench/results/telegraphic_2026_07_08/) - telegraphic Q&A benchmark raw results.
+- [`benchmarks/codebench/results/telegraphic_2026_07_08_5rep/`](benchmarks/codebench/results/telegraphic_2026_07_08_5rep/) - telegraphic Q&A benchmark raw results (20 prompts x 5 reps, baseline vs atelier).
 
 ## Docs
 

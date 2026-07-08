@@ -1,0 +1,12 @@
+{"handler_ms": 23, "overhead_ms": 37, "response_size": 474, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "bash", "total_ms": 60, "ts": 1783520428.4413543}
+{"handler_ms": 2, "overhead_ms": 319, "response_size": 2547, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "bash", "total_ms": 321, "ts": 1783520436.1398268}
+{"handler_ms": 324, "overhead_ms": 4, "response_size": 2683, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "read", "total_ms": 328, "ts": 1783520440.2197804}
+{"handler_ms": 2, "overhead_ms": 1719, "response_size": 175, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "bash", "total_ms": 1721, "ts": 1783520454.638432}
+{"handler_ms": 2, "overhead_ms": 11, "response_size": 893, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "bash", "total_ms": 13, "ts": 1783520461.4732764}
+{"handler_ms": 45, "overhead_ms": 2, "response_size": 4227, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "read", "total_ms": 47, "ts": 1783520465.3239052}
+{"handler_ms": 2, "overhead_ms": 2870, "response_size": 966, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "bash", "total_ms": 2872, "ts": 1783520482.2824125}
+{"handler_ms": 73, "overhead_ms": 3, "response_size": 201, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "bash", "total_ms": 76, "ts": 1783520487.7460005}
+{"handler_ms": 2, "overhead_ms": 6828, "response_size": 48, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "bash", "total_ms": 6830, "ts": 1783520498.3497455}
+{"handler_ms": 0, "overhead_ms": 2, "response_size": 173, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "read", "total_ms": 2, "ts": 1783520501.7426822}
+{"handler_ms": 66, "overhead_ms": 2, "response_size": 199, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "bash", "total_ms": 68, "ts": 1783520507.4197297}
+{"handler_ms": 0, "overhead_ms": 2, "response_size": 198, "session_id": "42e993b5-05d8-4d8b-9bd4-1931bb5bda03", "status": "ok", "tool": "read", "total_ms": 2, "ts": 1783520509.6010945}

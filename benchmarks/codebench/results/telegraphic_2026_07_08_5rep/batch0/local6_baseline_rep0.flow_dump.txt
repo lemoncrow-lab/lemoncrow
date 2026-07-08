@@ -1,0 +1,113 @@
+
+=== Turn 1 ===
+[user] <session>
+We have a monolithic Django app that's getting slow. The team is debating microservices. What are the key factors to consider before splitting up the monolith?
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "Evaluate microservices migration for Django monolith"}
+[usage] input=552 cache_read=0 cache_write=0 output=19
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] Good instinct to pause and analyze before committing to microservices — the split is often blamed for problems that turn out to be fixable in the monolith, and it's much harder to reverse than to undo. Here are the key factors I'd weigh.
+
+## First: is the monolith actually the problem?
+
+"Slow" has many causes, and most of them don't require splitting anything. Before architecture, confirm *what* is slow:
+
+- **Database** — N+1 queries, missing indexes, no `select_related`/`prefetch_related`, unbounded querysets. This is the #1 cause of slow Django apps and microservices won't fix it — you'll just have the same slow queries behind an HTTP hop.
+- **No caching** — missing per-view/queryset caching, no Redis/Memcached layer.
+- **Synchronous work in the request cycle** — emails, image processing, external API calls that belong in Celery/RQ.
+- **Under-provisioned or single-process serving** — wrong Gunicorn/uWSGI worker count, no connection pooling.
+- **No profiling** — before anything, get `django-silk` or APM (Datadog/Sentry Performance/New Relic) in and find the actual hot paths.
+
+If you haven't profiled, do that first. Microservices frequently get proposed to fix problems that a week of query optimization and a Redis cache would solve — at a fraction of the cost and risk.
+
+## If it's genuinely an architecture/scaling problem, the real factors:
+
+**1. Team & organizational structure (Conway's Law).** Microservices are as much an org strategy as a technical one. If you have 2–3 teams that keep stepping on each other in the same codebase, service boundaries that match team boundaries can genuinely help. If you're one team of five, microservices mostly add overhead you'll feel daily.
+
+**2. Do clear domain boundaries even exist?** Splitting a tangled monolith produces a *distributed* tangled monolith — the worst of both worlds. Can you draw bounded contexts (billing, catalog, notifications, auth) with minimal chatter between them? If everything touches everything, you're not ready.
+
+**3. Data ownership and the database.** This is the hardest part. Django's ORM, migrations, and cross-table joins assume one database. Splitting means:
+   - Each service owns its data; no cross-service joins or foreign keys.
+   - You trade ACID transactions for eventual consistency and patterns like sagas/outbox.
+   - Reporting/analytics that relied on joining everything gets much harder.
+   
+   If your pain is DB-bound, note you can often get a read replica, sharding, or a separate reporting DB *without* microservices.
+
+**4. Operational maturity.** Microservices demand infrastructure a monolith doesn't: service discovery, centralized logging, distributed tracing, per-service CI/CD, container orchestration, monitoring/alerting, and a way to debug failures that span services. Do you have this, or the people to build and run it? This is where teams underestimate the cost most.
+
+**5. Which problem are you actually solving?**
+   - *Scaling one hot component* (e.g. a CPU-heavy endpoint) → you may only need to extract *that one piece*, not go full microservices.
+   - *Deploy velocity / independent releases* → a valid microservices driver.
+   - *Fault isolation* → valid, but adds network-failure modes you didn't have before.
+   - *"It's slow"* → usually not a microservices problem (see above).
+
+## The middle paths — usually the right move
+
+You rarely have to choose between "keep the mess" and "full microservices":
+
+- **Modular monolith first.** Enforce clean module boundaries *inside* the Django app (separate apps, explicit interfaces, no cross-module ORM reaching). This gives you most of the org/clarity benefits and makes any future extraction dramatically easier. Do this first regardless — it's the prerequisite for a clean split anyway.
+- **Strangler fig.** If you do split, extract *one* well-bounded, painful service, learn the operational cost for real, then decide whether to continue. Never a big-bang rewrite.
+- **Extract async workloads.** Move heavy/slow work to Celery workers — separate scaling and fault isolation without the distributed-systems tax on your request path.
+
+## My recommendation
+
+1. **Profile first.** Get real data on what's slow. Most "we need microservices" conversations end here.
+2. **Fix the cheap wins** — queries, indexes, caching, async tasks.
+3. **If you still need structural change**, do a modular monolith, then strangler-fig one service out and measure the true cost before committing the org to it.
+
+---
+
+If you want, point me at the repo and I can profile the slow paths, audit the ORM usage for N+1s and missing indexes, and sketch where natural module/service boundaries actually fall. That would turn this debate into a data-driven decision. Want me to dig in?
+[usage] input=2973 cache_read=15192 cache_write=2109 output=1666

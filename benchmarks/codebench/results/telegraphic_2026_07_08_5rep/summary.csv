@@ -1,0 +1,3 @@
+arm,n,total_cost_usd,avg_cost_usd,total_output_tokens,avg_output_tokens,total_input_tokens,avg_input_tokens,total_cache_read_tokens,total_cache_creation_tokens,total_turns,avg_turns,total_duration_ms
+baseline,100,8.928276,0.089283,127947,1279.47,351619,3516.19,2262752,308835,238,2.38,2052360
+atelier,100,6.809693,0.068097,77449,774.49,520177,5201.77,2717865,91365,142,1.42,1763351
