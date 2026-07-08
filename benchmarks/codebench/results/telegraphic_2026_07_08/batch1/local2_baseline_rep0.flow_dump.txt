@@ -9,8 +9,7 @@ Write the title in the predominant language of the session — a stray word or c
 [usage] input=523 cache_read=0 cache_write=0 output=14
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -30,20 +29,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -63,37 +58,62 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] ## Database Connection Pooling
+[assistant] Database connection pooling is a technique for managing and reusing database connections instead of opening a new one for every request.
 
-Opening a database connection is expensive — TCP handshake, authentication, session setup — often tens of milliseconds. If an app opened a new connection for every query, that overhead would dominate under load. **Connection pooling** solves this by maintaining a cache of open, reusable connections instead of creating/destroying one per request.
+## The problem it solves
 
-### How it works
-1. On startup, the pool opens a set of connections to the database (or opens them lazily on demand, up to a limit).
-2. When code needs to run a query, it **borrows** a connection from the pool instead of opening a new one.
-3. When done, the connection is **returned** to the pool (not closed) so another request can reuse it.
-4. If all connections are busy, new requests either wait (up to a timeout) or the pool spins up a new connection (if under its max size).
+Opening a database connection is expensive. Each new connection involves:
+- A TCP handshake (and often a TLS handshake)
+- Authentication (username/password, credential checks)
+- Session setup on the database server (memory allocation, backend process/thread creation)
 
-### Key configuration parameters
-- **Min/idle connections** — number kept open even when unused, so there's no cold-start latency.
-- **Max connections** — caps concurrent connections to avoid overwhelming the database (databases have their own connection limits, and each connection consumes DB-side memory).
-- **Connection timeout** — how long a request waits for a free connection before failing.
-- **Idle timeout / max lifetime** — recycles connections periodically to avoid stale connections, memory leaks, or issues with load balancers/proxies silently dropping long-lived TCP connections.
-- **Validation/health check** — a quick test (e.g., `SELECT 1`) before handing out a connection, to catch ones the DB has silently closed.
+This can take tens to hundreds of milliseconds. If your app opens and closes a connection for every query, that overhead dominates, and under load you can exhaust the database's connection limit or spawn thousands of backend processes.
 
-### Why it matters
-- **Performance**: avoids repeated handshake/auth overhead per query.
-- **Resource control**: prevents an app from opening unbounded connections and exhausting the database's connection limit (a common outage cause — e.g., Postgres defaults to ~100 max connections).
-- **Concurrency management**: lets many application threads/requests share a bounded set of expensive resources.
+## How pooling works
 
-### Common pitfalls
-- **Pool exhaustion**: if connections aren't released (e.g., a bug holds a connection open, or a long-running transaction blocks others), requests queue up and time out.
-- **Pool too large**: too many connections can overload the database itself (context-switching, memory per connection), even if your app layer is fine.
-- **Serverless/many-instance environments**: each app instance has its own pool, so `instances × pool size` can exceed the DB's max connections — this is why tools like **PgBouncer** (Postgres) or **RDS Proxy** exist: an external proxy-level pooler that multiplexes many app-side connections onto fewer real DB connections.
+A **connection pool** maintains a set of open, ready-to-use connections:
 
-### Where it's implemented
-- **App-level libraries**: e.g., HikariCP (Java), SQLAlchemy's pool (Python), `pg` pool / Prisma (Node.js), ActiveRecord (Ruby).
-- **External proxies**: PgBouncer, ProxySQL, RDS Proxy — useful when many app instances/serverless functions would otherwise each hold their own pool.
+1. On startup (or on demand), the pool opens a number of connections and keeps them alive.
+2. When your code needs the database, it **borrows** a connection from the pool.
+3. It runs its queries.
+4. When done, it **returns** the connection to the pool instead of closing it — so the next request can reuse it.
 
-If you're working on a specific stack or hitting a specific pooling issue (e.g., "too many connections" errors, tuning pool size, serverless + Postgres), let me know and I can go deeper on that scenario.
-[usage] input=3098 cache_read=23314 cache_write=5728 output=1094
+If all connections are in use, new requests either wait for one to free up or fail after a timeout.
+
+```
+App threads → [ Pool: conn1, conn2, conn3, ... ] → Database
+              borrow ↑            ↓ return
+```
+
+## Key configuration knobs
+
+- **Min / max pool size** — how many connections to keep idle and the ceiling on total connections.
+- **Acquire/connection timeout** — how long a caller waits for a free connection before erroring.
+- **Idle timeout** — close connections unused for a while to release resources.
+- **Max lifetime** — retire connections after some age to avoid stale/leaked server-side state and to rebalance across DB replicas.
+- **Validation / health check** — test a connection (e.g. a lightweight ping) before handing it out, so you don't hand back a dead one.
+
+## Benefits
+
+- **Lower latency** — no per-request connection setup.
+- **Higher throughput** — reuse amortizes the handshake cost.
+- **Resource protection** — caps concurrent connections so you don't overwhelm the database.
+
+## Things to watch out for
+
+- **Sizing:** A bigger pool isn't always better. The database has a finite capacity (e.g. Postgres backends are relatively heavy). A common guideline is a pool of roughly `cores × 2` per app instance, tuned by testing — not hundreds of connections.
+- **Total connections across instances:** With N app instances each holding a pool, the database sees `N × pool_size`. This is why heavily-scaled or serverless apps often add an external pooler like **PgBouncer** in front of Postgres.
+- **Connection leaks:** If borrowed connections aren't returned (e.g. an exception path skips the release), the pool drains and everything blocks. Use try/finally or your framework's scoped/context-managed helpers.
+- **Stale connections:** Network blips or DB restarts can leave dead connections in the pool; validation and max-lifetime settings mitigate this.
+- **Transaction/session state:** A returned connection may retain session settings, temp tables, or an open transaction. Pools should reset connection state on return.
+
+## Common implementations
+
+- **Java:** HikariCP, Tomcat JDBC
+- **.NET:** built into ADO.NET / `SqlConnection`
+- **Python:** SQLAlchemy's `QueuePool`, `psycopg_pool`
+- **Node.js:** `pg.Pool`, `mysql2` pool
+- **External/proxy poolers:** PgBouncer, Pgpool-II (Postgres), ProxySQL (MySQL), RDS Proxy
+
+If you tell me your language/database, I can show a concrete configuration and the idiomatic borrow-and-return pattern.
+[usage] input=2973 cache_read=15192 cache_write=2076 output=1244

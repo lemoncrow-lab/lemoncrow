@@ -5,12 +5,11 @@ My Express auth middleware is letting expired JWT tokens through. The expiry che
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Fix expired JWT token validation in Express"}
-[usage] input=554 cache_read=0 cache_write=0 output=15
+[assistant] {"title": "Fix JWT expiry check in Express middleware"}
+[usage] input=554 cache_read=0 cache_write=0 output=16
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -30,20 +29,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -63,42 +58,51 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] The classic bug: JWT `exp` is in **seconds** since epoch, but `Date.now()` returns **milliseconds**. So a check like:
+[assistant] Short version: almost certainly a **units mismatch**. `Date.now()` returns **milliseconds**, but a JWT's `exp` claim is **seconds since the epoch** (RFC 7519). Comparing them directly makes the check meaningless, and any comparison that evaluates to `false` lets the request through.
+
+## Why it fails
+
+`Date.now()` ≈ `1_751_000_000_000` (ms), while `exp` ≈ `1_751_000_000` (s) — off by a factor of 1000. So a check like:
 
 ```js
-if (Date.now() > decoded.exp) {
-  return res.status(401).json({ error: 'Token expired' });
+if (decoded.exp < Date.now()) {   // seconds vs milliseconds
+  return res.status(401).send('expired');
 }
 ```
 
-is comparing a millisecond timestamp (13 digits, e.g. `1751980800000`) against a second timestamp (10 digits, e.g. `1751980800`). Since `Date.now()` is ~1000x larger, this condition is essentially always false until the year ~2286 — expired tokens sail through.
+behaves nonsensically. Depending on which direction you wrote it, it either rejects *everything* or accepts *everything* — and the "accepts everything" variants are exactly the "expired tokens get through" bug.
 
-**Fix options:**
+A second common cause with the same symptom: **`exp` is `undefined`** (e.g. you used `jwt.decode()` on a token minted without an expiry, or read the wrong field). Then `Date.now() > decoded.exp` is `NaN`, which is always `false`, so the token is never treated as expired.
 
-1. Convert consistently:
-```js
-if (Date.now() > decoded.exp * 1000) {
-  return res.status(401).json({ error: 'Token expired' });
-}
-```
-or
-```js
-if (Math.floor(Date.now() / 1000) > decoded.exp) { ... }
-```
+## Fixes
 
-2. Better: don't do manual expiry checks at all — let `jsonwebtoken` handle it, since it already accounts for units correctly and also validates signature:
+**Best fix — don't hand-roll the check.** `jwt.verify()` validates `exp` for you and throws `TokenExpiredError`:
 
 ```js
-try {
-  const decoded = jwt.verify(token, secret); // throws if expired
-} catch (err) {
-  if (err.name === 'TokenExpiredError') {
-    return res.status(401).json({ error: 'Token expired' });
+const jwt = require('jsonwebtoken');
+
+function auth(req, res, next) {
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);  // checks exp, signature
+    next();
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') return res.status(401).send('token expired');
+    return res.status(401).send('invalid token');
   }
-  return res.status(401).json({ error: 'Invalid token' });
 }
 ```
 
-If you're currently decoding with `jwt.decode()` (no verification) and manually comparing `exp`, that's a bigger issue than just the units — you're also skipping signature verification. Worth checking your middleware for that pattern too.
-[usage] input=3098 cache_read=23314 cache_write=5770 output=742
+If you were using `jwt.decode()` (which does **no** verification at all — no signature, no expiry), that's the real hole. `decode` never rejects anything.
+
+**If you must compare manually,** convert to the same unit and guard against a missing `exp`:
+
+```js
+const nowSec = Math.floor(Date.now() / 1000);
+if (typeof decoded.exp !== 'number' || decoded.exp <= nowSec) {
+  return res.status(401).send('token expired');
+}
+```
+
+If you want to point me at the actual middleware file, I'll confirm which of the two it is and give you the exact diff.
+[usage] input=2973 cache_read=15192 cache_write=2118 output=3824

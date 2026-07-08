@@ -5,12 +5,11 @@ What's the difference between TCP and UDP?
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Compare TCP and UDP protocols"}
+[assistant] {"title": "TCP and UDP protocol comparison"}
 [usage] input=525 cache_read=0 cache_write=0 output=13
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -30,20 +29,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -63,22 +58,44 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] TCP and UDP are both transport-layer protocols, but they differ fundamentally in reliability vs. speed:
+[assistant] TCP and UDP are both transport-layer protocols, but they make opposite trade-offs between reliability and speed.
 
-**TCP (Transmission Control Protocol)**
-- Connection-oriented — establishes a connection via a handshake before sending data
-- Reliable — guarantees delivery, retransmits lost packets, and preserves order
-- Has flow control and congestion control to avoid overwhelming the network/receiver
-- Higher overhead due to acknowledgments and connection management
-- Used when correctness matters: HTTP/HTTPS, file transfer (FTP), email (SMTP), SSH
+## TCP (Transmission Control Protocol)
 
-**UDP (User Datagram Protocol)**
-- Connectionless — sends packets ("datagrams") without setting up a session
-- Unreliable — no guarantee of delivery, ordering, or duplicate protection
-- No congestion/flow control, so it's lightweight and fast
-- Lower latency and overhead, but the application must handle any needed reliability itself
-- Used when speed matters more than perfection: video/voice streaming, DNS lookups, online gaming, live broadcasts
+**Connection-oriented** — establishes a connection via a three-way handshake (SYN, SYN-ACK, ACK) before any data flows.
 
-**Rule of thumb:** use TCP when you need every byte to arrive correctly and in order; use UDP when low latency matters more than occasional data loss.
-[usage] input=3098 cache_read=23314 cache_write=5732 output=424
+Key guarantees:
+- **Reliable delivery** — every packet is acknowledged; lost packets are retransmitted
+- **Ordered** — data arrives in the sequence it was sent
+- **Error-checked** — corrupted segments are detected and resent
+- **Flow control** (won't overwhelm a slow receiver) and **congestion control** (backs off when the network is congested)
+
+The cost: more overhead, higher latency, larger headers (20+ bytes).
+
+## UDP (User Datagram Protocol)
+
+**Connectionless** — just fires packets ("datagrams") at the destination with no handshake.
+
+Characteristics:
+- **No delivery guarantee** — packets can be lost silently
+- **No ordering** — packets may arrive out of sequence
+- **No congestion/flow control**
+- Minimal overhead, tiny 8-byte header, very low latency
+
+## Quick comparison
+
+| | TCP | UDP |
+|---|---|---|
+| Connection | Yes (handshake) | No |
+| Reliability | Guaranteed | Best-effort |
+| Ordering | Yes | No |
+| Speed | Slower | Faster |
+| Header size | 20+ bytes | 8 bytes |
+
+## When each is used
+
+- **TCP:** web (HTTP/HTTPS), email, file transfer, SSH — anything where correctness matters more than speed
+- **UDP:** live video/voice, gaming, DNS lookups, streaming — where speed matters and occasional loss is tolerable
+
+A useful rule of thumb: use TCP when you can't afford to lose data, UDP when you can't afford to wait for it. (Note: modern protocols like QUIC/HTTP-3 build TCP-like reliability *on top of* UDP to get the best of both.)
+[usage] input=2973 cache_read=15192 cache_write=2080 output=710

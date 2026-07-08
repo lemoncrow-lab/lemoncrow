@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -31,9 +30,7 @@ The following MCP servers are still connecting — their tools (typically named 
 claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -46,15 +43,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -66,9 +61,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -95,28 +88,18 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] A hash table handles collisions — when two different keys hash to the same bucket/index — using one of these main strategies:
+[assistant] This is a general knowledge question, not a codebase task — no tools needed.
 
-**1. Separate Chaining**
-Each bucket holds a collection (usually a linked list, sometimes a tree or dynamic array) of all entries that hash to it.
-- On insert: hash the key, append to that bucket's list.
-- On lookup: hash the key, then scan the bucket's list for a match.
-- Simple and handles high load factors gracefully, but adds pointer overhead and can degrade to O(n) lookup in a bucket if too many keys collide (some implementations, like Java's HashMap, convert long chains to balanced trees to cap worst case at O(log n)).
+A hash table resolves collisions (two keys hashing to the same bucket) two main ways:
 
-**2. Open Addressing**
-All entries live directly in the underlying array; on collision, the table probes for another open slot.
-- *Linear probing*: check the next slot (i+1, i+2, …), wrapping around. Simple, cache-friendly, but prone to "clustering."
-- *Quadratic probing*: check slots at increasing quadratic offsets (i+1², i+2², …) to reduce clustering.
-- *Double hashing*: use a second hash function to compute the step size, spreading probes more uniformly.
-- Deletions are trickier here (need "tombstone" markers so probing sequences aren't broken), and performance degrades sharply as the load factor approaches 1, so these tables typically resize/rehash earlier (e.g., load factor > 0.7).
+**1. Separate chaining** — each bucket holds a list (or tree) of entries. Colliding keys are appended to that bucket's list; lookups scan it. Java's `HashMap` uses this, upgrading long lists to balanced trees (O(log n) worst case).
 
-**3. Other/hybrid techniques**
-- *Robin Hood hashing*: a variant of open addressing that minimizes variance in probe distance by letting entries "steal" slots from others that are closer to their ideal position.
-- *Cuckoo hashing*: uses two (or more) hash functions and tables; a colliding entry evicts the existing one, which is then rehashed into its alternate location — guarantees O(1) worst-case lookup at the cost of more complex insertion (occasional rehash needed).
+**2. Open addressing** — all entries live in the array itself. On collision, probe for the next free slot by a fixed rule:
+- **Linear probing**: try i+1, i+2, … (cache-friendly, but clusters).
+- **Quadratic probing**: try i+1², i+2², … (reduces clustering).
+- **Double hashing**: step size from a second hash function (best distribution).
 
-**Key supporting factor: load factor + resizing**
-Regardless of strategy, tables track load factor (entries/buckets) and resize (rehash into a bigger array) once it crosses a threshold, since collision handling degrades performance as the table fills up. A good hash function that distributes keys uniformly also minimizes collisions in the first place.
+Lookups repeat the same probe sequence until they find the key or an empty slot. Deletions need tombstones so probe chains aren't broken. Python's `dict` and Go's maps use open-addressing variants.
 
-In practice: chaining is common when simplicity and easy deletion matter; open addressing (often with Robin Hood or double hashing) is favored when memory locality and avoiding allocation overhead matter more.
-[usage] input=5326 cache_read=16655 cache_write=0 output=839
+**Keeping collisions rare:** both approaches track a **load factor** (entries ÷ buckets) and **resize/rehash** (e.g., double the array) past a threshold (~0.75 for chaining, lower for open addressing) to keep operations amortized O(1).
+[usage] input=5185 cache_read=15173 cache_write=0 output=430

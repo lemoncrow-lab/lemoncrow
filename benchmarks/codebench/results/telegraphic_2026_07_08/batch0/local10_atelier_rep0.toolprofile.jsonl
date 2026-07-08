@@ -1,3 +1,6 @@
-{"handler_ms": 43, "overhead_ms": 36, "response_size": 587, "session_id": "4e58e17e-684a-4727-9388-f4c43696f05d", "status": "ok", "tool": "bash", "total_ms": 79, "ts": 1783505755.4167597}
-{"handler_ms": 2, "overhead_ms": 3, "response_size": 1319, "session_id": "4e58e17e-684a-4727-9388-f4c43696f05d", "status": "ok", "tool": "bash", "total_ms": 5, "ts": 1783505758.2821126}
-{"handler_ms": 380, "overhead_ms": 4, "response_size": 7575, "session_id": "4e58e17e-684a-4727-9388-f4c43696f05d", "status": "ok", "tool": "read", "total_ms": 384, "ts": 1783505761.471182}
+{"handler_ms": 81, "overhead_ms": 24, "response_size": 2196, "session_id": "d1a27e91-7228-4ef4-aa14-3a3a473ca069", "status": "ok", "tool": "code_search", "total_ms": 105, "ts": 1783508971.9452908}
+{"handler_ms": 10, "overhead_ms": 19, "response_size": 141, "session_id": "d1a27e91-7228-4ef4-aa14-3a3a473ca069", "status": "ok", "tool": "bash", "total_ms": 29, "ts": 1783508972.1297238}
+{"handler_ms": 174, "overhead_ms": 4, "response_size": 4227, "session_id": "d1a27e91-7228-4ef4-aa14-3a3a473ca069", "status": "ok", "tool": "read", "total_ms": 178, "ts": 1783508975.5189822}
+{"handler_ms": 15, "overhead_ms": 2, "response_size": 16, "session_id": "d1a27e91-7228-4ef4-aa14-3a3a473ca069", "status": "ok", "tool": "bash", "total_ms": 17, "ts": 1783508981.382681}
+{"handler_ms": 42, "overhead_ms": 3, "response_size": 363, "session_id": "d1a27e91-7228-4ef4-aa14-3a3a473ca069", "status": "ok", "tool": "bash", "total_ms": 45, "ts": 1783508984.242716}
+{"handler_ms": 3, "overhead_ms": 2919, "response_size": 28, "session_id": "d1a27e91-7228-4ef4-aa14-3a3a473ca069", "status": "ok", "tool": "bash", "total_ms": 2922, "ts": 1783508991.4690168}

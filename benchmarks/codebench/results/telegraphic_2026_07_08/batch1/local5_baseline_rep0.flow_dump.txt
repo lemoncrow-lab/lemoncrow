@@ -9,8 +9,7 @@ Write the title in the predominant language of the session — a stray word or c
 [usage] input=526 cache_read=0 cache_write=0 output=13
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -30,20 +29,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -63,20 +58,43 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] The `EXPLAIN` command shows the **query execution plan** — how the database engine intends to run a query, without actually running it (in most databases). It tells you:
+[assistant] The SQL `EXPLAIN` command shows you the **query execution plan** — how the database engine intends to run your query, without actually executing it (in most cases). It's your primary tool for understanding and diagnosing query performance.
 
-- **Access method** — whether it'll use a full table scan, an index scan/seek, or a hash lookup for each table
-- **Join order and join type** — the sequence tables are joined in, and the algorithm used (nested loop, hash join, merge join)
-- **Estimated cost/rows** — the optimizer's guess at how many rows will be produced at each step, and relative cost (used to compare plans)
-- **Indexes considered/used** — which indexes exist, which were chosen, which were ignored and why
-- **Filter/sort operations** — where `WHERE`, `GROUP BY`, `ORDER BY`, etc. are applied, and whether sorts happen in memory or on disk
+## What it tells you
 
-It's mainly used for performance tuning: spotting full table scans on large tables, missing indexes, bad join orders, or expensive sort/aggregate steps.
+**1. Access method (how tables are read)**
+- Full table scan vs. index scan vs. index seek
+- Whether an index is used at all, and *which* index
 
-A couple of variants worth knowing:
-- **`EXPLAIN` (plain)** — estimated plan only, doesn't execute the query.
-- **`EXPLAIN ANALYZE`** (Postgres, MySQL 8+) — actually runs the query and shows real elapsed time/row counts alongside the estimates, so you can compare estimated vs. actual and spot bad optimizer assumptions.
+**2. Join strategy**
+- The order tables are joined in
+- The algorithm used: nested loop, hash join, or merge join
 
-Output format and detail differ by database (PostgreSQL, MySQL, SQL Server's `EXPLAIN`/execution plan, SQLite's `EXPLAIN QUERY PLAN` are all a bit different) — let me know which one you're using if you want help reading a specific plan's output.
-[usage] input=3098 cache_read=23314 cache_write=5736 output=593
+**3. Cost & row estimates**
+- The optimizer's **estimated** number of rows at each step
+- A relative "cost" number to compare plan steps
+- These are estimates from table statistics — they can be wrong if stats are stale
+
+**4. Extra operations**
+- Sorting (`ORDER BY`), grouping, temporary tables, filtering steps
+
+## Common variants
+
+| Command | What it does |
+|---|---|
+| `EXPLAIN <query>` | Shows the estimated plan (no execution) |
+| `EXPLAIN ANALYZE <query>` | **Actually runs** the query and shows *real* timings and row counts vs. estimates — Postgres, MySQL 8.0+ |
+| `EXPLAIN (ANALYZE, BUFFERS)` | Postgres: also shows disk/cache I/O |
+| `EXPLAIN FORMAT=JSON` | MySQL: detailed machine-readable output |
+
+⚠️ `EXPLAIN ANALYZE` executes the statement — be careful with `INSERT`/`UPDATE`/`DELETE` (wrap in a transaction and roll back).
+
+## What to look for when tuning
+
+- **Full/sequential scans** on large tables → maybe a missing index
+- **Big gaps** between estimated and actual rows (in `ANALYZE`) → stale statistics; run `ANALYZE`/`ANALYZE TABLE`
+- **Expensive sorts** or temp tables → consider an index that provides the ordering
+- **Nested loops over large row counts** → often a sign a better join or index is needed
+
+Exact output format and keywords differ by engine (PostgreSQL, MySQL, SQL Server's `SET SHOWPLAN`/execution plan, Oracle's `EXPLAIN PLAN`). If you tell me which database you're using — and paste a query plan — I can help you read it and spot the bottleneck.
+[usage] input=2973 cache_read=15192 cache_write=2084 output=835

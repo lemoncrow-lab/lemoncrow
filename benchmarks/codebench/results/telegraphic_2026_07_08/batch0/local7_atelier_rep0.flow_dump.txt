@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -31,9 +30,7 @@ The following MCP servers are still connecting — their tools (typically named 
 claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -46,15 +43,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -66,9 +61,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -95,23 +88,20 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] **SQL Injection (critical)** — `req.params.id` is interpolated directly into the query string. Any request like `/api/users/1 OR 1=1` or `/api/users/1; DROP TABLE users;--` is executed as SQL, allowing full data dump, tampering, or destruction.
+[assistant] done: SQL injection in the route — `req.params.id` is interpolated straight into the query string.
 
-Fix: use parameterized queries.
+- **Vuln:** `SELECT * FROM users WHERE id = ${req.params.id}` — attacker sends `/api/users/1 OR 1=1` (dumps all rows) or `0; DROP TABLE users` / UNION exfiltration.
+- **Fix:** parameterize — `db.query('SELECT * FROM users WHERE id = ?', [req.params.id])`.
+- **Also:** validate id is an integer (`Number.isInteger`) before use; select explicit columns not `*` (avoids leaking hashes/tokens); add `.catch(() => res.sendStatus(500))` — unhandled rejection currently leaks stack/DB errors and hangs the request; 404 when no user found.
+
+Corrected:
 ```js
 app.get('/api/users/:id', (req, res) => {
-  db.query('SELECT * FROM users WHERE id = ?', [req.params.id])
-    .then(user => res.json(user))
-    .catch(err => res.status(500).json({ error: 'Internal server error' }));
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.sendStatus(400);
+  db.query('SELECT id, name, email FROM users WHERE id = ?', [id])
+    .then(user => user ? res.json(user) : res.sendStatus(404))
+    .catch(() => res.sendStatus(500));
 });
 ```
-
-Additional issues:
-- **No input validation** — `id` isn't checked as numeric/UUID before use; validate/coerce it even with parameterized queries.
-- **No error handling** — a rejected promise (bad query, DB down) is unhandled, can crash the process (unhandled rejection) or hang the request.
-- **No auth/authorization** — endpoint returns arbitrary user records by ID with no check that the requester may access that user (IDOR risk).
-- **Overexposure via `SELECT *`** — likely returns sensitive columns (password hash, email, tokens); select only needed fields.
-
-done: SQL injection is the critical finding (unsanitized string interpolation into query) — fix via parameterized query; also flagged missing input validation, error handling, authZ/IDOR check, and `SELECT *` overexposure.
-[usage] input=5326 cache_read=16727 cache_write=0 output=661
+[usage] input=5185 cache_read=15245 cache_write=0 output=692

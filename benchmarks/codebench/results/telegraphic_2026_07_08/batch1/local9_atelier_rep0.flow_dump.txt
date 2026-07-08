@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -20,23 +19,18 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers require authentication before their tools can be used:
 claude.ai Gmail
 claude.ai Google Calendar
 
 This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
-</system-reminder>
 
-<system-reminder>
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Google Drive
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -49,15 +43,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -69,9 +61,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -98,10 +88,42 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] git rebase replays your branch's commits one by one on top of another branch's tip, producing new commits (new hashes) and a linear history — no merge commit is created, but since it rewrites history, rebasing shared/pushed commits can cause problems for others (needs force-push).
+[assistant] This is a conceptual question, not a task on the codebase — no tools needed.
 
-git merge combines two branches by creating a new merge commit that has two parents, preserving the original commits and the true history of how branches diverged/joined — it's non-destructive and safe for shared branches, but the history graph becomes non-linear ("messier") with merge bubbles.
+**git merge** and **git rebase** both integrate changes from one branch into another, but they do it differently:
 
-Rule of thumb: use rebase to keep local/feature-branch history clean before sharing; use merge to integrate work into shared branches (like main) without rewriting history.
-[usage] input=5370 cache_read=16656 cache_write=0 output=246
+## git merge
+- Creates a **new merge commit** that ties the two branch histories together.
+- **Preserves history** exactly as it happened — non-destructive; existing commits are never changed.
+- History becomes non-linear (branches visibly diverge and rejoin).
+
+```
+      A---B---C  feature
+     /         \
+D---E---F---G---M  main   (M = merge commit)
+```
+
+## git rebase
+- **Replays** your branch's commits one-by-one on top of the tip of another branch.
+- **Rewrites history** — creates new commits with new SHAs (the originals are discarded).
+- Produces a **linear history** (no merge commit).
+
+```
+D---E---F---G---A'---B'---C'  main   (A',B',C' = rewritten commits)
+```
+
+## Key differences
+
+| Aspect | merge | rebase |
+|---|---|---|
+| History | Preserved, non-linear | Rewritten, linear |
+| Merge commit | Yes | No |
+| Commit SHAs | Unchanged | New |
+| Traceability | Shows when/how branches joined | Cleaner but loses branch context |
+| Conflicts | Resolved once, in the merge commit | Resolved per-commit as they replay |
+
+## The golden rule
+**Never rebase commits that have been pushed to a shared/public branch.** Rewriting shared history forces everyone else's history out of sync. Rebase local/private work; merge (or merge-via-PR) for shared branches.
+
+**Rule of thumb:** rebase to clean up your local commits before sharing (or to keep a feature branch current with `git rebase main`); merge to integrate completed work while preserving the true history. A common workflow combines both: rebase your feature branch to tidy it, then merge it into main.
+[usage] input=5185 cache_read=15174 cache_write=0 output=628

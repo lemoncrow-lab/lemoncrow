@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -20,6 +19,14 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers require authentication before their tools can be used:
 claude.ai Gmail
@@ -27,13 +34,6 @@ claude.ai Google Calendar
 
 This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
 
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Google Drive
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
-</system-reminder>
-
-<system-reminder>
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -46,15 +46,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -66,9 +64,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -95,43 +91,38 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] done: Key factors to weigh before splitting a Django monolith into microservices:
+[assistant] This is a conceptual/advisory question — no codebase action needed. I'll answer directly and concisely.
 
-**1. Is the problem actually architectural?**
-- Profile first. Slow Django apps are usually N+1 queries, missing indexes, no caching, unoptimized serializers, or synchronous work that should be async/queued — not "too many things in one process."
-- Microservices don't fix bad queries; they just move the same bad query to a network call with added latency.
+## Key factors before splitting your Django monolith
 
-**2. Team/org structure (Conway's Law)**
-- Microservices pay off when you have multiple teams that need to deploy independently. One team of 5-10 devs rarely benefits — coordination overhead often exceeds the gain.
+**First: is the monolith actually the problem?**
+Slowness is usually fixable inside the monolith, and it's far cheaper than distributing it. Rule out these before committing:
+- **N+1 queries** — the #1 Django killer. `select_related`/`prefetch_related`, `django-debug-toolbar`, `nplusone`.
+- **Missing DB indexes**, slow queries — profile with `pg_stat_statements`.
+- **No caching layer** — Redis/Memcached for hot reads, cached template fragments.
+- **Sync work that should be async** — offload to Celery (emails, exports, third-party calls).
+- **Vertical/horizontal scaling** — more Gunicorn workers, read replicas, a bigger box.
+- **Missing connection pooling** (PgBouncer), inefficient serialization.
 
-**3. Where are the actual bottlenecks?**
-- Identify which specific domains are hot (e.g., search, reporting, image processing) — you likely only need to peel off 1-2 services, not fully decompose.
-- Candidates for extraction: CPU-heavy tasks, things with different scaling profiles than the rest of the app, or components with independent release cadence.
+Microservices *do not* make code faster — they add network latency. They solve **team/scaling/deploy** problems, not raw performance.
 
-**4. Data ownership and boundaries**
-- Can you draw clean bounded contexts, or is everything tangled through shared Django models/foreign keys? If models are deeply relational across "future service" boundaries, splitting means either distributed transactions, eventual consistency, or duplicated data — all real complexity costs.
-- Splitting a database is much harder than splitting code.
+**If the real problem is organizational/scaling, then weigh:**
 
-**5. Operational overhead**
-- Each service = its own deploy pipeline, monitoring, logging, on-call surface, versioning, and network failure modes (timeouts, retries, circuit breakers).
-- Distributed tracing, service discovery, and API contracts become mandatory, not optional.
+| Factor | Question to answer |
+|---|---|
+| **Domain boundaries** | Can you draw clear seams (bounded contexts)? If you can't cleanly separate modules *inside* the monolith, you can't separate them across a network. |
+| **Data ownership** | Each service needs its own data. Are your tables a tangle of cross-domain foreign keys and JOINs? Splitting those is the hardest part. |
+| **Transactions** | Logic that spans domains loses ACID guarantees — you inherit eventual consistency, sagas, distributed failures. |
+| **Team topology** | Multiple teams blocked by one deploy pipeline is a real reason to split. One small team is usually a reason *not* to. |
+| **Operational maturity** | Do you have CI/CD, centralized logging, distributed tracing, monitoring, service discovery, on-call? Microservices multiply ops burden. |
+| **Independent scaling** | Is one component (e.g. image processing, search) the actual bottleneck? That component is a good extraction candidate; the rest may not be. |
+| **Deploy/release cadence** | Do parts of the app need to ship at very different speeds? |
+| **Latency budget** | In-process calls become network hops. Chatty domains suffer badly once separated. |
 
-**6. Consistency and transactions**
-- Django's ORM gives you free ACID transactions across models. Splitting breaks that — you need sagas, outbox patterns, or idempotent APIs for cross-service operations.
+**The pragmatic middle path (recommended default):**
+1. **Fix the performance issues in place first** — you'll likely recover most of the speed and buy time.
+2. **Modularize the monolith** — enforce clean module boundaries, kill cross-domain imports/FK tangles. A well-structured "modular monolith" gets ~80% of the benefit with none of the distributed-systems tax.
+3. **Extract one service** — the clearest, most independently-scaled seam — via the **strangler-fig pattern**. Learn the operational cost on a low-risk boundary before committing the whole org.
 
-**7. Latency budget**
-- In-process function calls become HTTP/gRPC calls. If a request currently touches 5 "modules," it might now touch 5 services over the network — often making things *slower* unless done carefully.
-
-**8. Incremental path exists**
-- You don't need a big-bang rewrite. Options before full microservices:
-  - Scale Django horizontally (more workers/pods) behind a load balancer.
-  - Move heavy/slow work to Celery workers (already async, already decoupled).
-  - Split read replicas / add caching (Redis, query caching).
-  - Extract *one* well-bounded, high-load service first (e.g., "notifications" or "search") as a proof of concept — a modular monolith with clear internal boundaries first, before physical separation.
-
-**9. Cost/benefit reality check**
-- Microservices trade "app is slow" for "distributed systems problems" (partial failures, eventual consistency, harder debugging). Only worth it if the org-scaling or independent-deployment benefit outweighs that.
-
-**Recommendation framing for the team debate:** first do a profiling pass (django-silk, py-spy, slow query logs) to find the actual bottleneck; if it's isolated to 1-2 domains with different scaling needs and different team ownership, extract just those as services behind clear APIs; otherwise, optimize within the monolith (caching, async tasks, DB tuning, horizontal scaling) — that's usually far cheaper than a distributed rewrite.
-[usage] input=5326 cache_read=16688 cache_write=0 output=1186
+**Rough decision rule:** split for **team autonomy and independent scaling of a specific bottleneck**, not for "the app feels slow." If you can't name the bounded context and its data owner today, you're not ready to split yet — profile and modularize first.
+[usage] input=5229 cache_read=15206 cache_write=0 output=1085

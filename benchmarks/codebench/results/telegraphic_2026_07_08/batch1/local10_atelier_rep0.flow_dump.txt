@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -20,6 +19,14 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers require authentication before their tools can be used:
 claude.ai Gmail
@@ -27,13 +34,6 @@ claude.ai Google Calendar
 
 This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
 
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Google Drive
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
-</system-reminder>
-
-<system-reminder>
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -46,15 +46,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -66,9 +64,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -95,35 +91,23 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] ## Queue vs Topic
+[assistant] This is a conceptual question — no tools needed.
 
-**Queue (point-to-point)**
-- Each message is consumed by **exactly one** receiver.
-- Use when you want to distribute work across multiple workers (load balancing / competing consumers) — e.g., processing orders, resizing images, sending emails.
-- Once a consumer picks up (and acks) a message, it's gone from the queue.
-- Good for: task distribution, workload leveling, ensuring a job runs once.
+**Queue (point-to-point):** one message → one consumer. Use when work must be done exactly once by a single worker.
+- Task/job processing, load distribution across workers
+- Order processing, background jobs, RPC-style commands
+- You want competing consumers to share the load and scale horizontally
+- Messages should persist until someone processes them
 
-**Topic (publish/subscribe)**
-- Each message is delivered to **every subscriber** (each subscription gets its own copy).
-- Use when multiple independent services need to react to the same event — e.g., "OrderPlaced" event needs to trigger billing, inventory update, and notification service, all independently.
-- Good for: event broadcasting, fan-out, decoupled event-driven architectures.
+**Topic (publish/subscribe):** one message → every subscriber gets a copy. Use when multiple independent consumers each need the same event.
+- Event broadcasting / fan-out (e.g. "OrderPlaced" → billing, inventory, email, analytics)
+- Decoupling producers from an unknown/growing number of consumers
+- Each subscriber reacts differently to the same event
 
-### Rule of thumb
-| Need | Use |
-|---|---|
-| One task processed once, by any available worker | Queue |
-| Same event needs to reach multiple independent consumers | Topic |
-| Load balancing across workers | Queue |
-| Decoupled microservices reacting to the same event | Topic |
-| Strict "exactly-once processing" of a work item | Queue |
-| Broadcast / notify-all pattern | Topic |
+**Quick decision rule:**
+- "This work should happen once" → **queue**
+- "Notify everyone who cares" → **topic**
+- Need both (fan-out + load-balancing per group) → topic with durable subscriptions, or Kafka consumer groups / SNS→SQS fan-out
 
-### Notes by platform
-- **JMS**: literally has `Queue` and `Topic` as distinct destination types.
-- **RabbitMQ**: doesn't have "topics" as a first-class object — it's queues + exchanges (fanout/topic/direct exchange) that route to one or more queues, effectively giving you both patterns.
-- **Kafka**: doesn't have "queues" per se — topics with partitions; you get queue-like behavior via **consumer groups** (each partition consumed by one consumer in the group) and pub/sub behavior via **multiple consumer groups** reading the same topic independently.
-- **Azure Service Bus / SNS+SQS**: explicit Queue vs Topic/Subscription model, matching the JMS mental model.
-
-If you're unsure, ask: "Should this message be processed once, or should everyone interested get a copy?" That answers it.
-[usage] input=5326 cache_read=16662 cache_write=0 output=737
+**Note on modern systems:** Kafka, Pulsar, and Azure Service Bus blur the line — a Kafka topic with consumer groups gives you pub/sub *and* per-group load balancing. If you need replay/event-sourcing, prefer a log-based topic (Kafka) over a traditional queue that deletes on consume.
+[usage] input=5229 cache_read=15180 cache_write=0 output=459

@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -20,6 +19,14 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers require authentication before their tools can be used:
 claude.ai Gmail
@@ -27,13 +34,6 @@ claude.ai Google Calendar
 
 This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
 
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Google Drive
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
-</system-reminder>
-
-<system-reminder>
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -46,15 +46,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -66,9 +64,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -95,52 +91,62 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] Most likely cause: **unit mismatch**. `Date.now()` returns milliseconds; JWT `exp` is seconds since epoch (per RFC 7519). Comparing them directly means the check is off by a factor of 1000 — effectively disabling expiry for ~1000x longer than intended (tokens appear valid until year ~4869-ish math error, or the reverse depending on comparison direction).
+[assistant] ## The bug: unit mismatch
 
-Common broken pattern:
+JWT's `exp` claim is **seconds** since the Unix epoch (per RFC 7519). `Date.now()` returns **milliseconds**. So `Date.now()` is ~1000× larger than `exp`, and any direct comparison between them is meaningless.
+
 ```js
-if (decoded.exp < Date.now()) throw new Error('Token expired');
-// decoded.exp is in seconds, Date.now() is in ms — this is almost never true
+// BROKEN — comparing ms to s
+if (decoded.exp < Date.now()) {        // exp≈1.75e9, Date.now()≈1.75e12
+  return res.status(401).send('expired');
+}
 ```
 
-**Fix — convert units:**
+Depending on the exact operator/branch, this mismatch either rejects *every* token or — if the deadline gets inflated (e.g. someone "fixed" it with `exp * 1000` while `exp` was already treated as ms, or the comparison is inverted) — lets *expired* ones sail through. Either way the check is not actually testing expiry.
+
+## The fix
+
+Convert to the same unit. Compare seconds to seconds:
+
+```js
+const nowSec = Math.floor(Date.now() / 1000);
+if (decoded.exp < nowSec) {
+  return res.status(401).send('token expired');
+}
+```
+
+or milliseconds to milliseconds:
+
 ```js
 if (decoded.exp * 1000 < Date.now()) {
-  throw new Error('Token expired');
-}
-```
-or normalize both to seconds:
-```js
-if (decoded.exp < Math.floor(Date.now() / 1000)) {
-  throw new Error('Token expired');
+  return res.status(401).send('token expired');
 }
 ```
 
-**Better fix — don't hand-roll it at all.** If you're using `jsonwebtoken`, `jwt.verify()` already checks `exp` and throws `TokenExpiredError` automatically — manual comparison is redundant and is exactly how this bug creeps in:
+## Better: let the library check it
+
+If you're using `jsonwebtoken`, don't hand-roll the expiry check at all — `jwt.verify()` validates `exp` for you and throws `TokenExpiredError`:
 
 ```js
 const jwt = require('jsonwebtoken');
 
-function authMiddleware(req, res, next) {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'No token provided' });
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) {
-      if (err.name === 'TokenExpiredError') {
-        return res.status(401).json({ error: 'Token expired' });
-      }
-      return res.status(401).json({ error: 'Invalid token' });
-    }
-    req.user = decoded;
+function auth(req, res, next) {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    req.user = jwt.verify(token, process.env.JWT_SECRET); // checks exp automatically
     next();
-  });
+  } catch (err) {
+    return res.status(401).json({ error: err.message }); // TokenExpiredError et al.
+  }
 }
 ```
 
-Other things worth double-checking while you're in there:
-- Make sure `decoded.exp` actually exists (some hand-issued tokens omit it) — if missing, treat as invalid, don't skip the check.
-- Confirm the comparison operator direction (`<` vs `>`) isn't inverted.
-- If using `jose` or another lib, same rule applies — let the library's built-in `exp` validation run rather than re-implementing it.
-[usage] input=5326 cache_read=16699 cache_write=0 output=894
+## Common related causes of "expired tokens accepted"
+
+Worth ruling out if your manual check was a workaround:
+- **`jwt.decode()` instead of `jwt.verify()`** — `decode` never validates signature *or* expiry.
+- **`ignoreExpiration: true`** passed to `verify`.
+- **Swallowed errors** — a `try/catch` around `verify` that calls `next()` in the catch block instead of returning 401.
+
+The core answer to your question: `exp` is in seconds, `Date.now()` is in milliseconds — align the units (or use `jwt.verify`).
+[usage] input=5229 cache_read=15217 cache_write=0 output=4381

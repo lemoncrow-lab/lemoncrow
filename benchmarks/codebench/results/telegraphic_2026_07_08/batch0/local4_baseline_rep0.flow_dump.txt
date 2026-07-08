@@ -5,12 +5,11 @@ Explain the difference between git rebase and git merge. When should I use each 
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Understand git rebase vs git merge"}
-[usage] input=542 cache_read=0 cache_write=0 output=16
+[assistant] {"title": "Compare git rebase and git merge"}
+[usage] input=542 cache_read=0 cache_write=0 output=15
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -30,20 +29,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -63,45 +58,71 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] ## git merge
+[assistant] # Git Rebase vs. Git Merge
 
-Combines two branches by creating a new "merge commit" that ties both histories together. Your original commits stay exactly as they were.
+Both integrate changes from one branch into another, but they build **different histories**.
+
+## Merge
+
+`git merge` takes the commits from your branch and the target and ties them together with a new **merge commit** that has two parents.
 
 ```
       A---B---C  feature
      /         \
-main            M
-     \         /
-      D--------
+D---E---F---G---M  main
 ```
 
-**Pros:** Non-destructive (never rewrites existing commits), preserves true history, safe for shared/public branches.
-**Cons:** History gets cluttered with merge commits, especially with frequent small merges.
+- History is **preserved exactly** as it happened — non-destructive.
+- The merge commit records *when* and *where* branches came together.
+- Downside: many merge commits can clutter history and make `git log` noisy.
 
-## git rebase
+## Rebase
 
-Replays your branch's commits on top of another branch, one by one, creating new commits with new hashes.
+`git rebase` **replays** your branch's commits on top of the target, creating new commits with new hashes.
 
 ```
-main:    D
-feature:  \--A'--B'--C'
+D---E---F---G---A'---B'---C'  feature (rebased onto main)
 ```
 
-**Pros:** Clean, linear history — easy to read with `git log`, no merge commit noise.
-**Cons:** Rewrites commit history (new SHAs), which breaks things for anyone else who has the old commits. Never rebase a branch others are already working from.
+- Produces a **linear, clean** history — as if you'd written the work starting from the latest main.
+- No merge commits.
+- Downside: it **rewrites history** (new commit SHAs), so it's destructive to the original commits.
 
 ## When to use each
 
-| Situation | Use |
-|---|---|
-| Updating your local feature branch with latest `main` before opening a PR | `rebase` (keeps history clean) |
-| Merging a finished feature branch into `main` | `merge` (preserves the record of when/how it landed) |
-| Branch is already pushed and shared with others | `merge` (rebasing rewrites shared history — painful for collaborators) |
-| Cleaning up messy local commits before pushing | `rebase -i` (interactive rebase to squash/reorder) |
-| You want an audit trail of exactly how integration happened | `merge` |
+**Use merge when:**
+- Integrating a completed feature branch into a shared/long-lived branch (`main`, `develop`).
+- You want an accurate, auditable record of when work was integrated.
+- The branch is **public/shared** — others may have based work on it.
 
-## The core tradeoff
+**Use rebase when:**
+- Updating your *local, in-progress* feature branch with the latest `main` before finishing.
+- Cleaning up your own commits before opening a PR (`git rebase -i` to squash, reword, reorder).
+- You want a tidy, linear history that's easy to read and `git bisect`.
 
-Rebase buys you a cleaner, linear history at the cost of rewriting commits (never do it on commits others have pulled). Merge is always safe and preserves true history, but can make the log noisier over time. A common convention: rebase locally/privately to clean things up, merge when integrating into shared branches.
-[usage] input=3098 cache_read=23314 cache_write=5747 output=638
+## The tradeoffs at a glance
+
+| | Merge | Rebase |
+|---|---|---|
+| History | True, non-linear | Linear, curated |
+| Commit hashes | Unchanged | Rewritten |
+| Merge commits | Yes | No |
+| Safe on shared branches | ✅ | ⚠️ Avoid |
+| Conflict resolution | Once, in the merge commit | Potentially per replayed commit |
+
+## The golden rule
+
+> **Never rebase commits that others have already pulled.** Rewriting shared history forces everyone else into painful reconciliations.
+
+Rebase *private* work to keep it clean; merge *public* work to keep it honest.
+
+## A common hybrid workflow
+
+1. Work on a feature branch.
+2. Periodically `git rebase main` to stay current (while the branch is still yours alone).
+3. When done, `git merge --no-ff feature` into main — often with a single merge commit that marks the feature's arrival.
+
+This gives you clean, linear feature history *and* a clear integration point. Many teams also enable "squash and merge" on their PR platform, which collapses a branch into one commit on main — a middle ground between the two.
+
+Want me to walk through resolving conflicts during a rebase, or set up any of these as aliases?
+[usage] input=2973 cache_read=15192 cache_write=2095 output=966

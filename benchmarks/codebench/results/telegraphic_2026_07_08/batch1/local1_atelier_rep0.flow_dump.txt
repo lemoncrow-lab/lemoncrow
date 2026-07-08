@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -22,18 +21,16 @@ TaskUpdate
 WebSearch
 
 The following MCP servers require authentication before their tools can be used:
+claude.ai Gmail
 claude.ai Google Calendar
 
 This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
 claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -46,15 +43,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -66,9 +61,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -95,25 +88,30 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] React re-renders a child whenever the parent re-renders, by default — regardless of whether the child's own props actually changed. This is because React's default reconciliation just re-invokes every child function component in the tree under a re-rendered parent, unless told otherwise.
+[assistant] That's expected React behavior, not a bug: **when a component renders, React re-renders all its children by default** — regardless of whether their props changed.
 
-**Common causes, roughly in order of likelihood:**
+Common causes & fixes:
 
-1. **No memoization** — a plain child component re-runs every time its parent does. Fix: wrap it in `React.memo()`. Note this only helps if props are actually stable (see #2).
+1. **Default child re-render** — Parent state change → parent re-renders → all children re-render. Fix: wrap the child in `React.memo(Child)` so it only re-renders when its props actually change (shallow compare).
 
-2. **New object/array/function props each render** — even with `React.memo`, if the parent does `<Child onClick={() => ...} style={{color:'red'}} />`, a *new* function/object is created every render, so the shallow prop comparison `memo` does always fails. Fix: wrap callbacks in `useCallback`, objects/arrays in `useMemo`, or hoist static values outside the component.
+2. **New object/array/function props each render** — `React.memo` won't help if you pass `style={{...}}`, `data={[...]}`, or `onClick={() => ...}` inline, because a new reference is created every render (fails shallow compare). Fix: `useMemo` for objects/arrays, `useCallback` for functions.
 
-3. **Context consumers** — any component consuming a Context re-renders whenever that Context's value changes, even if unrelated state changed, unless the value itself is memoized.
+3. **New `children` / JSX passed as props** — same reference problem.
 
-4. **children as prop** — passing JSX as `children` still creates a new element reference each render unless the parent itself doesn't re-render or the JSX is hoisted/memoized.
+4. **Context** — every consumer re-renders when the context value changes; unstable value objects make it worse. Memoize the provider `value`.
 
-5. **Key/identity changes** — if the component's `key` changes, React unmounts/remounts it entirely (different from a re-render, but worth checking).
+Quick diagnosis: enable the **React DevTools Profiler** ("Highlight updates when components render" / "Why did this render") to see exactly what triggered it.
 
-**Quick diagnosis:**
-- Add `why-did-you-render` or React DevTools Profiler ("Highlight updates when components render") to see who's re-rendering and why.
-- Check if the component is wrapped in `React.memo`. If not, that's usually step one.
-- If it is memoized but still re-renders, log/inspect the props each render (or use the Profiler's "why did this render" flag) to spot which prop's reference is changing.
+Minimal pattern:
+```jsx
+const Child = React.memo(function Child({ data, onClick }) { ... });
 
-If you share the component and its parent, I can point at the exact cause.
-[usage] input=5326 cache_read=16660 cache_write=0 output=644
+function Parent() {
+  const data = useMemo(() => ({ ... }), [dep]);
+  const onClick = useCallback(() => { ... }, [dep]);
+  return <Child data={data} onClick={onClick} />;
+}
+```
+
+If you paste the component, I'll point to the exact line causing it.
+[usage] input=5185 cache_read=15178 cache_write=0 output=679

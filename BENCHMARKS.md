@@ -17,11 +17,11 @@ This document keeps benchmark proof out of the first-use README while preserving
 | Telegraphic output: reply prose per turn      |             **30 tokens** |                            67 tokens |               **2.7x less prose** |
 | Terminal-Bench 2.1, 89 tasks x 1 rep vs public leaderboard x 5 reps | 70 / 89 resolved (78.7%) | **70.25 / 89 expected (78.9%)** | -0.2 percentage points |
 | Terminal-Bench cost, 83/89 tasks w/ cost data |          **$69.52** | $96.76 | **28.1%\* cheaper** |
-| Telegraphic Q&A (caveman repro), 20 tasks x 1 rep† | **$0.74** | $1.44 | **48.7% cheaper** |
+| Telegraphic Q&A (caveman repro), 20 tasks x 1 rep† | **$1.37** | $1.71 | **19.9% cheaper** |
 
 \* Understates Atelier's savings floor, not overstates it -- 5 of the 6 tasks missing cost data are real, uncounted Atelier spend (harness killed the process on a timeout before it could log a final cost), not zero-cost runs. See the Terminal-Bench section below.
 
-† n=1 rep, full real Atelier runtime (not an isolated reply-register swap) -- see the Telegraphic Q&A section below for the output-token divergence this cut surfaced.
+† n=1 rep, `claude-opus-4-8`, full real Atelier runtime (not an isolated reply-register swap) -- two more arms in the same run isolate the reply-register alone and pit it head-to-head against caveman's own skill; see the Telegraphic Q&A section below.
 
 ## SWE-bench Verified
 
@@ -331,30 +331,40 @@ uv run python scripts/gen_harbor_cost_vs_savings_scatter.py
 
 ## Telegraphic Q&A (caveman reproduction)
 
-Reproduces [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)'s benchmark+eval prompt sets (`benchmarks/prompts.json` + `evals/prompts/en.txt`, MIT, used verbatim -- 20 prompts total, see `benchmarks/telegraphic/prompts.json`) as a `benchmarks.codebench.run` ad-hoc `--prompt` run: baseline = vanilla Claude Code, atelier = the real `atelier:auto` persona (tools + MCP + atelier's shipped `ultra` reply-register) -- not an isolated system-prompt swap like caveman's own harness, so this measures the whole runtime, not just reply-register text. `claude-sonnet-4-6`, 1 rep, max 6 turns, against a deliberately empty scratch repo (these are general dev Q&A prompts, not tied to any codebase -- pointing this at a real repo instead let agents wander it for unrelated tokens/cost noise, confirmed in an earlier run against this very repo). Full request/response wire capture on (`--capture`, mitmproxy) -- every prompt has both a `.flow` capture and a human-readable `.flow_dump.txt` transcript, not just a truncated `result_excerpt`.
+Reproduces [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)'s benchmark+eval prompt sets (`benchmarks/prompts.json` + `evals/prompts/en.txt`, MIT, used verbatim -- 20 prompts total, see `benchmarks/telegraphic/prompts.json`) as FOUR arms against the same 20 prompts, `claude-opus-4-8`, 1 rep:
 
-All 20 prompts completed validly this run (an earlier, transcript-less pass had 2 fail validity and get excluded -- both passed on this rerun; n=1 so that itself is noise, not a fix).
+- **baseline** -- vanilla Claude Code, no atelier.
+- **atelier** -- the real `atelier:auto` persona: tools + MCP + atelier's shipped `ultra` reply-register. The whole runtime, same thing every other row in this doc measures.
+- **atelier-telegraphic** -- vanilla Claude Code plus ONLY the `ultra` reply-register text appended as a system prompt. No plugin, no agent, no MCP -- isolates the register alone, same shape as caveman's own harness, so it's the fair opponent for the next arm.
+- **caveman** -- vanilla Claude Code plus [caveman's own `SKILL.md`](https://github.com/JuliusBrussee/caveman/blob/main/skills/caveman/SKILL.md) verbatim as the system prompt (MIT, copied byte-for-byte into `benchmarks/telegraphic/caveman_skill.md`). Same isolation as atelier-telegraphic -- no plugin, no tools disabled, nothing else changed.
 
-| Metric (20 matched prompts) | Atelier | Baseline | Delta |
-| --- | ---: | ---: | ---: |
-| Total cost | **$0.74** | $1.44 | **48.7% cheaper** |
-| Avg output tokens/prompt | 800 | **871** | **-2% (roughly flat)** |
+Against a deliberately empty scratch repo (these are general dev Q&A prompts, not tied to any codebase -- pointing this at a real repo instead let agents wander it for unrelated tokens/cost noise, confirmed in an earlier run against this very repo). Full request/response wire capture on (`--capture`, mitmproxy) for the codebench-driven arms -- every baseline/atelier prompt has both a `.flow` capture and a human-readable `.flow_dump.txt` transcript; atelier-telegraphic/caveman capture the full untruncated reply text directly (no proxy needed for a tool-free single-turn call). All 80 calls (20 prompts x 4 arms) completed validly.
 
-**Cost favors Atelier; raw output-token count is a wash -- read both, not either alone.** Real $ cost prices input, cache read/write, *and* output together; raw output-token count only looks at the reply. Baseline (vanilla Claude Code) has no `code_search` -- on prompts phrased like an existing-codebase bug report, it sometimes blind-`Bash`/`Grep`-searches a repo that has nothing in it and re-sends the growing transcript each retry turn, which shows up in cost (input/cache tokens) more than in output length. That tool-discipline gap (the same effect already measured in the Exploration suite above) is why total $ cost favors Atelier by 48.7% even though median reply length is roughly a wash on this cut (no register-only isolation here; `atelier:auto`'s full persona is instructed to be thorough, not just terse, so it doesn't uniformly out-terse a tool-less baseline on raw text alone). Per-prompt output-token savings: mean -2%, median -7.0%, range -79% to +71%, stdev 35pp across 20 prompts -- markedly less noisy than an earlier n=1 pass of this same suite (mean -50%, stdev 159pp, 2 tasks excluded), which is itself the headline caveat: **n=1 moves this much between two runs of the identical harness** -- read any single per-prompt delta as noise, not a settled result, until this runs multi-rep. Caveman's own methodology (isolated system-prompt swap, no tools, no real-repo tool-exploration confound) measures a narrower and cleaner thing than this whole-runtime comparison does.
+| Metric (20 prompts) | Baseline | Atelier | Atelier-telegraphic | Caveman |
+| --- | ---: | ---: | ---: | ---: |
+| Total cost | $1.71 | **$1.37** | $1.66 | $1.79 |
+| Cost vs baseline | -- | **19.9% cheaper** | 2.9% cheaper | 4.8% pricier |
+| Avg output tokens/prompt | 1,268 | 946 | 1,081 | **823** |
+| Output tokens vs baseline (mean / median) | -- | 29% / 25% | 22% / 20% | **42% / 44%** |
 
-Raw data + full per-prompt table + transcripts: [`benchmarks/codebench/results/telegraphic_2026_07_08/`](benchmarks/codebench/results/telegraphic_2026_07_08/) (`telegraphic_report.md`, `results.jsonl`, per-batch `.flow`/`.flow_dump.txt` evidence).
+**Caveman wins the thing it's built for -- reply brevity -- but that doesn't translate to $ cost, and that gap is the actual finding.** On raw output-token compression, caveman is the clear winner (42% mean, 44% median), beating even atelier-telegraphic's isolated register (22%/20%) on the exact same axis (system-prompt-only, no tools, same baseline) -- a fair, direct loss for atelier's register wording on brevity alone. But caveman is 4.8% *pricier* than baseline in total $ cost, because $ cost prices input/cache tokens too, and caveman's own docs already admit this: "the skill itself adds ~1-1.5k input tokens per turn" ([docs/HONEST-NUMBERS.md](https://github.com/JuliusBrussee/caveman/blob/main/docs/HONEST-NUMBERS.md)) with no corresponding change to tool-call behavior -- so a shorter reply doesn't offset the extra prompt tax or any wasted tool exploration. Atelier's full runtime is the opposite shape: only a middling 29%/25% output-token win, but the best $ number (19.9% cheaper), because most of its saving comes from tool discipline (`code_search` over blind `Bash`/`Grep` loops -- the same effect the Exploration suite above measures), not reply brevity. Read it as: **caveman compresses the mouth, atelier compresses the loop** -- different mechanisms, both real, neither one the whole story on its own. Range/stdev across the 20 prompts is wide for every arm (n=1, single rep) -- read individual prompt deltas as noise, the four-way pattern above as the signal.
 
-Run it:
+Raw data + full per-prompt table + transcripts: [`benchmarks/codebench/results/telegraphic_2026_07_08/`](benchmarks/codebench/results/telegraphic_2026_07_08/) (`telegraphic_report.md`, `results.jsonl`, per-batch `.flow`/`.flow_dump.txt` evidence, `caveman_skill.md` source copy).
+
+An earlier, incomplete 2-arm sonnet pass of this suite (baseline vs atelier only, before atelier-telegraphic/caveman existed) is superseded by this run and not published.
+
+Run it (exact invocation used for the published numbers above):
 
 ```bash
-atelier benchmark telegraphic -y
+atelier benchmark telegraphic --arm baseline --arm atelier --arm atelier-telegraphic --arm caveman --model opus -y
 ```
 
 Useful variants:
 
 ```bash
 atelier benchmark telegraphic --limit 2 --estimate-only  # cost estimate, no spend
-atelier benchmark telegraphic --limit 2 -y                # smoke test
+atelier benchmark telegraphic --limit 2 -y                # smoke test, baseline+atelier only (default arms)
+atelier benchmark telegraphic --arm atelier-telegraphic --arm caveman --limit 2 -y  # just the two isolated-register arms
 atelier benchmark telegraphic --repo /path/to/your/repo -y  # against your own repo instead of the scratch one
 ```
 

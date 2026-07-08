@@ -7114,12 +7114,18 @@ def tool_smart_edit(
 ) -> dict[str, Any]:
     """Apply many mechanical edits across files in one deterministic call.
 
+    Preferred form for fresh read/code_search ranges:
+      - Batch range replace: {path: "foo.py:L10-L20", new: "..."}
+      - Use MANY range+new edits in ONE call, including several hunks in the same file.
+      - All ranges in one batch resolve against the same original file snapshot;
+        earlier hunks do not shift later hunks.
+
     Choose the right descriptor family for each edit (all must be the same family):
 
-    Rich (preferred) — ``file_path`` required:
-      - Replace text:    {file_path, old_string, new_string}
+    Rich (preferred) — ``file_path`` or ``path`` required:
+      - Line-scoped:     {path: "foo.py:L10-L20", new: "..."}
+      - Replace text:    {file_path, old_string, new_string} (only without a fresh range)
       - Create/replace: {file_path, new_string, replace: true}
-      - Line-scoped:     {file_path: "foo.py:L10-L20", old_string, new_string}
       - Notebook cell:   {file_path, cell_action: insert_after|delete|..., new_string}
       - Symbol:          {kind: "symbol", qualified_name|name, mode, new_body}
       - Projection:      {kind: "projection", file_path, projection_mapping, projected_start+projected_end+new_string or projected_ranges}
@@ -7130,13 +7136,12 @@ def tool_smart_edit(
       - replace_range: {path, op: "replace_range", line_start, line_end, new_string}
 
     Maximise work per call: ``edits`` is the batching surface — fill it with every
+    Maximise work per call: ``edits`` is the batching surface — fill it with every
     change in one call (ten edits to one file, or one edit each to ten files). One
     call with N edit objects beats N calls in both latency and cost. Prefer several
-    small edits over one huge ``new_string``, and identify all target files up-front
-    from your initial read. After editing, don't re-read the file — the response
-    below already confirms the change.
-
-    Returns ordinary successful hunks as {applied: ["path:line,start-end", ...]};
+    small range+new edits over one huge ``new_string``, and identify all target
+    files up-front from your initial read. After editing, don't re-read the file —
+    the response below already confirms the change.
     failures and edits carrying special metadata remain structured.
     """
     # Resolve the edit root the same way reads do (honors CLAUDE/ATELIER

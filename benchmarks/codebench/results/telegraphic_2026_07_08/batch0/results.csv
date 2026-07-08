@@ -1,236 +1,258 @@
 task,arm,rep,ok,cost_usd,duration_ms,duration_api_ms,num_turns,input_tokens,cache_read_tokens,cache_creation_tokens,thinking_tokens,output_tokens,models,is_error,timed_out,result_excerpt,flow_path,valid,validity_reason,correct,score,judge_model,judge_reason,saved_usd,saved_tokens
-local1,baseline,0,True,0.061569200000000004,8044,9426,2,3643,23314,5751,0,692,"['claude-haiku-4-5-20251001', 'claude-sonnet-5']",False,False,"This happens because object/array/function literals are recreated on every render, and React compares props by reference (`===`), not deep equality — so even a structurally identical object counts as ""changed.""
+local1,baseline,0,True,0.066121,15951,17062,2,3518,15192,2099,0,897,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is one of the most common React gotchas. The issue isn't that your props ""changed"" in a meaningful sense — it's that you're passing a **new object identity** on every render.
 
-**Common causes:**
+## Why it happens
 
-1. **Inline object literal as prop:**
+React compares props with `Object.is` (reference equality), not deep equality. When you write something like this in the parent:
+
+```jsx
+function Parent() {
+  const [count, setCount] = useState(0);
+  // ⚠️ New object created on EVERY render
+  const config = { theme: 'dark', size: 'large' };
+  return <Child config={config} />;
+}
+```
+
+Every time `Parent` re-renders (e.g., `count` changes), `config` is a **brand-new object** — same contents, different reference. So even a memoized `Child` sees `prevProps.config !== nextProps.config` and re-renders.
+
+The same trap applies to inline objects, arrays, and functions:
+
+```jsx
+<Child config={{ theme: 'dark' }} onClick={() => doThing()} style={{ margin: 8 }} />
+```
+
+## Fixes
+
+**1. Memoize the object with `useMemo`:**
+
+```jsx
+const config = useMemo(() => ({ theme: 'dark', size: 'large' }), []);
+```
+
+The empty dependency array means the reference is stable across renders. Add dependencies if the object is derived from props/state.
+
+**2. Memoize functions with `useCallback`:**
+
+```jsx
+const handleClick = useCallback(() => doThing(), []);
+```
+
+**3. Wrap the child in `React.memo`** so it actually skips re-renders when props are referentially equal:
+
+```jsx
+const Child = React.memo(function Child({ config }) { /* ... */ });
+```
+
+Note: `React.memo` alone does nothing if you keep passing new object references — you need both stable references *and* `memo`.
+
+**4. Hoist truly-static objects out of the component:**
+
+```jsx
+const CONFIG = { theme: 'dark', size: 'large' }; // module scope, never changes
+function Parent() { return <Child config={CONFIG} />; }
+```
+
+## A caveat worth stating
+
+Re-rendering is often cheap and **not actually a problem**. Before reaching for memoization everywhere, confirm it's a real bottleneck (React DevTools Profiler). Premature `useMemo`/`useCallback` adds complexity and its own overhead. Memoize when you've measured a cost, or when the child is genuinely expensive.
+
+If you paste the actual parent/child code, I can point to the exact line creating the new reference.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local1_baseline_rep0.flow,True,,,,,,0.0,0
+local1,atelier,0,True,0.052949,15150,13418,1,5185,15198,0,0,777,['claude-opus-4-8'],False,False,"Short answer: passing an object literal creates a **new object reference on every render**, so referential-equality checks (`===`) see it as ""changed"" even when the contents are identical.
+
+**Why it happens**
+- `<Child data={{ id: 1 }} />` or `data={someArray.map(...)}` allocates a fresh object/array each parent render. React's default reconciliation re-renders children regardless, and even `React.memo` fails because its shallow prop comparison compares references, not deep contents.
+- A component re-renders when its **own state/context changes OR its parent re-renders** — props not changing does *not* prevent a re-render by itself. Plain function components have no bailout; only `React.memo` adds one.
+
+**Fixes**
+1. Memoize the object so the reference is stable:
    ```jsx
-   <Child style={{ color: 'red' }} />  // new object every render
+   const data = useMemo(() => ({ id, name }), [id, name]);
    ```
-
-2. **Object derived from state/props without memoization:**
+2. Wrap the child in `React.memo` so it skips re-render when props are referentially equal:
    ```jsx
-   function Parent() {
-     const [count, setCount] = useState(0);
-     const config = { theme: 'dark' }; // new reference each render
-     return <Child config={config} />;
-   }
+   const Child = React.memo(function Child({ data }) { ... });
    ```
+   Both are needed together — `memo` alone won't help if the object is recreated each render.
+3. For functions passed as props, use `useCallback` similarly.
+4. If props are deeply-but-not-referentially equal, pass a custom comparator: `React.memo(Child, (prev, next) => deepEqual(prev.data, next.data))` — but prefer stable references over deep compares.
 
-**Fixes, in order of preference:**
+**Verify** which cause it is: add `console.log` in the child, or use the React DevTools Profiler (""Why did this render?"") — it'll tell you whether it re-rendered due to props, state, parent, or hooks.
 
-- **`useMemo`** for the object itself:
-  ```jsx
-  const config = useMemo(() => ({ theme: 'dark' }), []);
-  ```
-- **`React.memo`** on the child, paired with memoized props — `memo` alone won't help if you're still creating a new object each render, since its default comparison is also shallow (`===` per prop).
-- **Move primitives down instead of objects** — pass `color=""red""` instead of `style={{ color: 'red' }}` when possible; primitives compare by value.
-- **Hoist static objects outside the component** if they never change:
-  ```jsx
-  const STYLE = { color: 'red' };
-  function Parent() { return <Child style={STYLE} />; }
-  ```
+Most likely culprit here: inline object literal + no `useMemo` (and/or no `React.memo` on the child). Point me at the component and I'll pinpoint it.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local1_atelier_rep0.flow,True,,,,,,0.0132,546
+local2,baseline,0,True,0.139875,56476,57482,2,3527,15192,2118,0,3840,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Short version: almost certainly a **units mismatch**. `Date.now()` returns **milliseconds**, but a JWT's `exp` claim is **seconds since the epoch** (RFC 7519). Comparing them directly makes the check meaningless, and any comparison that evaluates to `false` lets the request through.
 
-If you paste the component, I can point at the exact line causing it.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local1_baseline_rep0.flow,True,,,,,,0.0,0
-local1,atelier,0,True,0.033774,12880,11022,1,5370,16680,0,0,844,['claude-sonnet-5'],False,False,"The re-render is happening because of one (or more) of these:
+## Why it fails
 
-**1. New object identity on every render**
-If you write this in a parent:
-```jsx
-<Child options={{ foo: 'bar' }} />
-// or
-<Child style={{ color: 'red' }} />
-```
-That object literal is recreated on every parent render. Even though the *contents* are identical, `{} !== {}` in JS — it's a new reference each time. If `Child` is wrapped in `React.memo`, memo's default comparison is a shallow `Object.is` check on props, so it sees a ""changed"" prop and re-renders anyway.
-
-**Fix:** memoize the object so its reference is stable:
-```jsx
-const options = useMemo(() => ({ foo: 'bar' }), []);
-<Child options={options} />
-```
-or hoist it outside the component if it never depends on props/state.
-
-**2. Same problem with inline functions**
-```jsx
-<Child onClick={() => doThing(id)} />
-```
-New function reference every render — same fix with `useCallback`.
-
-**3. `React.memo` isn't applied at all**
-Passing a stable object prop doesn't help if `Child` itself isn't wrapped in `memo()`. Without it, a child re-renders whenever its parent re-renders, regardless of props.
-```jsx
-const Child = React.memo(function Child({ options }) { ... });
-```
-
-**4. Context re-renders**
-If the ""state update"" is happening via Context, *every* consumer of that context re-renders when the context value changes — regardless of props/memo — unless you split context or memoize the provider's `value`.
-
-**5. Object prop's *contents* actually do change**
-Sometimes the object is rebuilt with genuinely different values each time (e.g., derived from state that changed), so a re-render is correct — the parent update should be blamed, not the memoization.
-
-**Quick way to confirm which one:** use the React DevTools Profiler, or add:
-```jsx
-console.log('rendered', options);
-```
-and check `Object.is(prevOptions, options)` across renders (React DevTools ""why did this render"" highlighting, or the `why-did-you-render` library, makes this trivial).
-
-**Summary checklist:**
-- Is the object created inline in JSX? → wrap in `useMemo`.
-- Is the child wrapped in `React.memo`? → add it.
-- Are you passing inline callbacks too? → `useCallback`.
-- Is it via Context? → memoize provider value / split context.
-
-If you paste the actual component code, I can point to the exact line.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local1_atelier_rep0.flow,True,,,,,,0.0278,10506
-local2,baseline,0,True,0.0626672,7885,9092,2,3652,23314,5770,0,757,"['claude-haiku-4-5-20251001', 'claude-sonnet-5']",False,False,"The classic bug: JWT `exp` is in **seconds** since epoch, but `Date.now()` returns **milliseconds**. So a check like:
+`Date.now()` ≈ `1_751_000_000_000` (ms), while `exp` ≈ `1_751_000_000` (s) — off by a factor of 1000. So a check like:
 
 ```js
-if (Date.now() > decoded.exp) {
-  return res.status(401).json({ error: 'Token expired' });
+if (decoded.exp < Date.now()) {   // seconds vs milliseconds
+  return res.status(401).send('expired');
 }
 ```
 
-is comparing a millisecond timestamp (13 digits, e.g. `1751980800000`) against a second timestamp (10 digits, e.g. `1751980800`). Since `Date.now()` is ~1000x larger, this condition is essentially always false until the year ~2286 — expired tokens sail through.
+behaves nonsensically. Depending on which direction you wrote it, it either rejects *everything* or accepts *everything* — and the ""accepts everything"" variants are exactly the ""expired tokens get through"" bug.
 
-**Fix options:**
+A second common cause with the same symptom: **`exp` is `undefined`** (e.g. you used `jwt.decode()` on a token minted without an expiry, or read the wrong field). Then `Date.now() > decoded.exp` is `NaN`, which is always `false`, so the token is never treated as expired.
 
-1. Convert consistently:
-```js
-if (Date.now() > decoded.exp * 1000) {
-  return res.status(401).json({ error: 'Token expired' });
-}
-```
-or
-```js
-if (Math.floor(Date.now() / 1000) > decoded.exp) { ... }
-```
+## Fixes
 
-2. Better: don't do manual expiry checks at all — let `jsonwebtoken` handle it, since it already accounts for units correctly and also validates signature:
-
-```js
-try {
-  const decoded = jwt.verify(token, secret); // throws if expired
-} catch (err) {
-  if (err.name === 'TokenExpiredError') {
-    return res.status(401).json({ error: 'Token expired' });
-  }
-  return res.status(401).json({ error: 'Invalid token' });
-}
-```
-
-If you're currently decoding with `jwt.decode()` (no verification) and manually comparing `exp`, that's a bigger issue than just the units — you're also skipping signature verification. Worth checking your middleware for that pattern too.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local2_baseline_rep0.flow,True,,,,,,0.0,0
-local2,atelier,0,True,0.034397699999999996,14060,12400,1,5326,16699,0,0,894,['claude-sonnet-5'],False,False,"Most likely cause: **unit mismatch**. `Date.now()` returns milliseconds; JWT `exp` is seconds since epoch (per RFC 7519). Comparing them directly means the check is off by a factor of 1000 — effectively disabling expiry for ~1000x longer than intended (tokens appear valid until year ~4869-ish math error, or the reverse depending on comparison direction).
-
-Common broken pattern:
-```js
-if (decoded.exp < Date.now()) throw new Error('Token expired');
-// decoded.exp is in seconds, Date.now() is in ms — this is almost never true
-```
-
-**Fix — convert units:**
-```js
-if (decoded.exp * 1000 < Date.now()) {
-  throw new Error('Token expired');
-}
-```
-or normalize both to seconds:
-```js
-if (decoded.exp < Math.floor(Date.now() / 1000)) {
-  throw new Error('Token expired');
-}
-```
-
-**Better fix — don't hand-roll it at all.** If you're using `jsonwebtoken`, `jwt.verify()` already checks `exp` and throws `TokenExpiredError` automatically — manual comparison is redundant and is exactly how this bug creeps in:
+**Best fix — don't hand-roll the check.** `jwt.verify()` validates `exp` for you and throws `TokenExpiredError`:
 
 ```js
 const jwt = require('jsonwebtoken');
 
-function authMiddleware(req, res, next) {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'No token provided' });
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) {
-      if (err.name === 'TokenExpiredError') {
-        return res.status(401).json({ error: 'Token expired' });
-      }
-      return res.status(401).json({ error: 'Invalid token' });
-    }
-    req.user = decoded;
+function auth(req, res, next) {
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);  // checks exp, signature
     next();
-  });
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') return res.status(401).send('token expired');
+    return res.status(401).send('invalid token');
+  }
 }
 ```
 
-Other things worth double-checking while you're in there:
-- Make sure `decoded.exp` actually exists (some hand-issued tokens omit it) — if missing, treat as invalid, don't skip the check.
-- Confirm the comparison operator direction (`<` vs `>`) isn't inverted.
-- If using `jose` or another lib, same rule applies — let the library's built-in `exp` validation run rather than re-implementing it.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local2_atelier_rep0.flow,True,,,,,,0.0283,10574
-local3,baseline,0,True,0.07127620000000001,13921,14969,2,3636,23314,5750,0,1342,"['claude-haiku-4-5-20251001', 'claude-sonnet-5']",False,False,"Here's a solid setup using `node-postgres` (`pg`), which is the standard PostgreSQL client for Node.js.
+If you were using `jwt.decode()` (which does **no** verification at all — no signature, no expiry), that's the real hole. `decode` never rejects anything.
 
-## Install
+**If you must compare manually,** convert to the same unit and guard against a missing `exp`:
 
-```bash
-npm install pg
+```js
+const nowSec = Math.floor(Date.now() / 1000);
+if (typeof decoded.exp !== 'number' || decoded.exp <= nowSec) {
+  return res.status(401).send('token expired');
+}
 ```
 
-## Pool configuration
+If you want to point me at the actual middleware file, I'll confirm which of the two it is and give you the exact diff.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local2_baseline_rep0.flow,True,,,,,,0.0,0
+local2,atelier,0,True,0.1432785,64680,62842,1,5229,15217,0,0,4381,['claude-opus-4-8'],False,False,"## The bug: unit mismatch
 
-```javascript
+JWT's `exp` claim is **seconds** since the Unix epoch (per RFC 7519). `Date.now()` returns **milliseconds**. So `Date.now()` is ~1000× larger than `exp`, and any direct comparison between them is meaningless.
+
+```js
+// BROKEN — comparing ms to s
+if (decoded.exp < Date.now()) {        // exp≈1.75e9, Date.now()≈1.75e12
+  return res.status(401).send('expired');
+}
+```
+
+Depending on the exact operator/branch, this mismatch either rejects *every* token or — if the deadline gets inflated (e.g. someone ""fixed"" it with `exp * 1000` while `exp` was already treated as ms, or the comparison is inverted) — lets *expired* ones sail through. Either way the check is not actually testing expiry.
+
+## The fix
+
+Convert to the same unit. Compare seconds to seconds:
+
+```js
+const nowSec = Math.floor(Date.now() / 1000);
+if (decoded.exp < nowSec) {
+  return res.status(401).send('token expired');
+}
+```
+
+or milliseconds to milliseconds:
+
+```js
+if (decoded.exp * 1000 < Date.now()) {
+  return res.status(401).send('token expired');
+}
+```
+
+## Better: let the library check it
+
+If you're using `jsonwebtoken`, don't hand-roll the expiry check at all — `jwt.verify()` validates `exp` for you and throws `TokenExpiredError`:
+
+```js
+const jwt = require('jsonwebtoken');
+
+function auth(req, res, next) {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    req.user = jwt.verify(token, process.env.JWT_SECRET); // checks exp automatically
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: err.message }); // TokenExpiredError et al.
+  }
+}
+```
+
+## Common related causes of ""expired tokens accepted""
+
+Worth ruling out if your manual check was a workaround:
+- **`jwt.decode()` instead of `jwt.verify()`** — `decode` never validates signature *or* expiry.
+- **`ignoreExpiration: true`** passed to `verify`.
+- **Swallowed errors** — a `try/catch` around `verify` that calls `next()` in the catch block instead of returning 401.
+
+The core answer to your question: `exp` is in seconds, `Date.now()` is in milliseconds — align the units (or use `jwt.verify`).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local2_atelier_rep0.flow,True,,,,,,-0.0034,-150
+local3,baseline,0,True,0.085844,23684,24609,2,3511,15192,2098,0,1689,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's a solid setup using `node-postgres` (`pg`), which is the standard choice.
+
+## Basic pool configuration
+
+```js
 // db.js
 const { Pool } = require('pg');
 
 const pool = new Pool({
   host: process.env.PGHOST,
-  port: process.env.PGPORT || 5432,
+  port: process.env.PGPORT ?? 5432,
+  database: process.env.PGDATABASE,
   user: process.env.PGUSER,
   password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
 
-  // Pool sizing
-  max: 20,                      // max clients in pool
-  min: 2,                       // keep a few warm
+  // --- Pool sizing ---
+  max: 20,                        // max clients in the pool
+  min: 0,                         // keep 0 idle when quiet (or set a warm floor)
 
-  // Timeouts
-  idleTimeoutMillis: 30000,     // close idle clients after 30s
-  connectionTimeoutMillis: 5000, // fail fast if can't get a connection in 5s
-  statement_timeout: 10000,     // kill queries running > 10s (server-side)
-  query_timeout: 10000,         // client-side query timeout
+  // --- Timeouts ---
+  idleTimeoutMillis: 30_000,      // close idle clients after 30s
+  connectionTimeoutMillis: 5_000, // fail fast if no connection within 5s
+  maxUses: 7_500,                 // recycle a client after N queries (avoids leaks/stale conns)
 
-  // Optional, if your DB requires SSL (e.g. managed Postgres like RDS/Supabase)
-  ssl: process.env.PGSSLMODE === 'require'
-    ? { rejectUnauthorized: false }
+  // --- Per-query safety limits (applied to every connection) ---
+  statement_timeout: 30_000,             // abort any single query after 30s
+  query_timeout: 30_000,                 // client-side query timeout
+  idle_in_transaction_session_timeout: 10_000, // kill connections stuck mid-transaction
+
+  // --- TLS (for managed/cloud DBs) ---
+  ssl: process.env.PGSSL === 'true'
+    ? { rejectUnauthorized: true }
     : false,
 });
 
-// Errors from idle clients in the pool (e.g. connection dropped by DB/network)
-// MUST be handled or they'll crash the process with an uncaught exception.
+module.exports = { pool };
+```
+
+## Error handling
+
+The critical piece people miss: **idle clients can emit errors** (e.g. the DB restarts or a network blip drops a pooled connection). If you don't attach a listener, it crashes the process.
+
+```js
 pool.on('error', (err, client) => {
-  console.error('Unexpected error on idle client', err);
+  // Fires for errors on IDLE clients in the pool, not on active queries
+  console.error('Unexpected error on idle Postgres client', err);
+  // Don't exit — the pool will discard the bad client and create new ones.
 });
 
 pool.on('connect', (client) => {
-  // runs each time a new physical connection is established
+  // Optional: runs for every new physical connection
+  // e.g. client.query('SET search_path TO app');
 });
-
-module.exports = pool;
 ```
 
-## Using it safely
+## Querying safely
 
-```javascript
-// For one-off queries — pool.query acquires, runs, releases automatically
-const db = require('./db');
+For simple queries, use the pool directly — it checks out and releases a client for you:
 
-async function getUser(id) {
-  const result = await db.query('SELECT * FROM users WHERE id = $1', [id]);
-  return result.rows[0];
-}
+```js
+const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
 ```
 
-```javascript
-// For transactions — must check out a client manually, and ALWAYS release it
-async function transferFunds(fromId, toId, amount) {
-  const client = await db.connect();
+For transactions or multiple statements on one connection, check out a client and **always release it in `finally`**, even on error:
+
+```js
+async function transfer(fromId, toId, amount) {
+  const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [amount, fromId]);
@@ -240,30 +262,37 @@ async function transferFunds(fromId, toId, amount) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
-    client.release(); // critical — forgetting this leaks a connection from the pool
+    client.release(); // returns it to the pool — forgetting this leaks connections
   }
 }
 ```
 
+If a client is in a broken state, you can pass `client.release(true)` (or `release(err)`) to destroy it instead of returning it to the pool.
+
 ## Graceful shutdown
 
-```javascript
-process.on('SIGTERM', async () => {
-  await pool.end();
-  process.exit(0);
-});
+Drain the pool on exit so in-flight queries finish and connections close cleanly:
+
+```js
+async function shutdown() {
+  await pool.end(); // waits for active clients to finish, then closes all
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 ```
 
-## Key gotchas
+## Key points to get right
 
-- **`pool.on('error', ...)` is not optional** — without it, a dropped connection to an idle client throws an uncaught exception and kills your process.
-- **`connectionTimeoutMillis`** matters most under load — without it, requests queue indefinitely when the pool is saturated instead of failing fast.
-- **`statement_timeout`** (server-side, ms) protects against a bad query hanging a connection forever; set it in the pool config or per-session via `SET statement_timeout`.
-- **Always `release()` in a `finally`** when using `pool.connect()` directly — a missed release under an error path will slowly starve the pool.
-- If you're behind a serverless/edge environment (e.g. Lambda, Vercel), keep `max` small (often 1-5) since each instance gets its own pool and Postgres has a hard connection ceiling.
+- **`connectionTimeoutMillis`** — without it, requests hang indefinitely when the pool is exhausted or the DB is unreachable. Set it so you fail fast.
+- **`statement_timeout`** — your backstop against a runaway query holding a connection forever. This is enforced server-side.
+- **`idle_in_transaction_session_timeout`** — prevents a bug (forgotten `COMMIT`/`ROLLBACK`) from pinning a connection and blocking others.
+- **`max`** — size it against your DB's `max_connections`, remembering *every* app instance has its own pool. If you run 10 instances at `max: 20`, that's 200 connections. For serverless/high-fanout, consider a proxy like PgBouncer.
+- **One pool per process** — create it once and reuse it; don't make a new pool per request.
+- **Always attach `pool.on('error')`** — otherwise a droppe",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local3_baseline_rep0.flow,True,,,,,,0.0,0
+local3,atelier,0,True,0.0714985,21470,19741,1,5185,15197,0,0,1519,['claude-opus-4-8'],False,False,"This is a general how-to question with no codebase to modify, so I'll answer directly.
 
-Want me to wire this into your actual project, or is this a standalone reference?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local3_baseline_rep0.flow,True,,,,,,0.0,0
-local3,atelier,0,True,0.0426717,15147,13430,1,5326,16679,0,0,1446,['claude-sonnet-5'],False,False,"Here's a production-ready setup using `pg` (node-postgres):
+## PostgreSQL Connection Pool in Node.js (`pg`)
 
 ```js
 // db.js
@@ -276,223 +305,231 @@ const pool = new Pool({
   password: process.env.PGPASSWORD,
   database: process.env.PGDATABASE,
 
-  // Pool sizing
-  max: 20,                      // max simultaneous clients
-  min: 4,                       // keep some warm connections
+  // --- Pool sizing ---
+  max: 20,                      // max clients in pool
+  min: 0,                       // min idle clients kept open
 
-  // Timeouts
-  idleTimeoutMillis: 30000,     // close idle clients after 30s
-  connectionTimeoutMillis: 5000,// fail fast if can't get a connection in 5s
-  statement_timeout: 10000,     // kill queries running >10s (server-side)
-  query_timeout: 10000,         // client-side mirror of the above
-  keepAlive: true,              // TCP keepalive, avoids dead-conn hangs
+  // --- Timeouts ---
+  connectionTimeoutMillis: 5000,   // wait max 5s to get a connection from pool, else error
+  idleTimeoutMillis: 30000,        // close idle clients after 30s
+  maxLifetimeSeconds: 3600,        // recycle a client after 1h (pg >= 8.8)
 
-  // TLS (typical for managed Postgres, e.g. RDS/Supabase)
-  ssl: process.env.PGSSL === 'true'
-    ? { rejectUnauthorized: false }
-    : false,
+  // --- Per-query / socket timeouts (passed to each client) ---
+  statement_timeout: 10000,        // cancel any query running > 10s (server-side)
+  query_timeout: 10000,            // client-side query timeout
+  idle_in_transaction_session_timeout: 10000, // kill idle-open transactions
+
+  // --- TLS (managed/hosted PG) ---
+  ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: true } : false,
 });
-
-// Pool-level error handling — required, or an idle client error
-// will crash the process with an uncaught exception.
-pool.on('error', (err, client) => {
-  console.error('Unexpected error on idle client', err);
-  // don't exit process — pool will create a new client as needed
-});
-
-pool.on('connect', (client) => {
-  // per-connection tuning, runs once per new physical connection
-  client.query('SET statement_timeout = 10000');
-});
-
-module.exports = pool;
 ```
 
-Usage with per-query error handling and safe client release:
+### Error handling — the critical part
+
+The pool emits `error` on **idle** clients (e.g. DB restart, network drop). If unhandled, it crashes the process:
 
 ```js
-// queries.js
-const pool = require('./db');
+pool.on('error', (err) => {
+  console.error('Unexpected idle client error', err);
+  // Don't throw — pool auto-removes the broken client and continues.
+});
+```
 
+### Querying safely
+
+```js
+// Simple queries: pool.query auto-acquires + releases a client.
 async function getUser(id) {
-  const client = await pool.connect();
-  try {
-    const { rows } = await client.query(
-      'SELECT * FROM users WHERE id = $1',
-      [id]
-    );
-    return rows[0];
-  } catch (err) {
-    console.error('Query failed:', err.message);
-    throw err;
-  } finally {
-    client.release(); // always release, even on error
-  }
-}
-
-// For single queries without manual transaction control,
-// prefer pool.query directly — it acquires+releases for you
-async function getUserSimple(id) {
   const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
   return rows[0];
 }
 
-// Transactions
-async function transferFunds(fromId, toId, amount) {
+// Transactions: acquire a client, ALWAYS release in finally.
+async function transfer(from, to, amount) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [amount, fromId]);
-    await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [amount, toId]);
+    await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [amount, from]);
+    await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [amount, to]);
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
-    client.release();
+    client.release(); // release(true) to destroy a suspect client instead of reusing
   }
 }
-
-module.exports = { getUser, getUserSimple, transferFunds };
 ```
 
-Graceful shutdown:
+### Graceful shutdown
 
 ```js
-process.on('SIGTERM', async () => {
-  await pool.end();
+async function shutdown() {
+  await pool.end(); // drains + closes all clients; waits for active queries
   process.exit(0);
-});
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 ```
 
-Key points:
-- **`pool.on('error', ...)` is mandatory** — without it, a broken idle connection (network blip, server restart) throws an uncaught exception and kills the process.
-- **`connectionTimeoutMillis`** stops requests from hanging forever when the pool is exhausted or the DB is unreachable.
-- **`statement_timeout`/`query_timeout`** prevent one slow query from holding a connection (and blocking others) indefinitely.
-- Always **`client.release()`** in a `finally` block when using `pool.connect()` manually — a missed release leaks a connection from the pool.
-- Prefer `pool.query()` for one-off queries; only grab a dedicated client (`pool.connect()`) when you need transactions (`BEGIN`/`COMMIT`) or multiple sequential queries on the same connection.
-- Size `max` based on your DB's `max_connections` divided across app instances, not arbitrarily high.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local3_atelier_rep0.flow,True,,,,,,0.0286,10591
-local4,baseline,0,True,0.060962199999999994,9226,10310,2,3640,23314,5747,0,654,"['claude-haiku-4-5-20251001', 'claude-sonnet-5']",False,False,"## git merge
+### Key configuration rationale
 
-Combines two branches by creating a new ""merge commit"" that ties both histories together. Your original commits stay exactly as they were.
-
-```
-      A---B---C  feature
-     /         \
-main            M
-     \         /
-      D--------
-```
-
-**Pros:** Non-destructive (never rewrites existing commits), preserves true history, safe for shared/public branches.
-**Cons:** History gets cluttered with merge commits, especially with frequent small merges.
-
-## git rebase
-
-Replays your branch's commits on top of another branch, one by one, creating new commits with new hashes.
-
-```
-main:    D
-feature:  \--A'--B'--C'
-```
-
-**Pros:** Clean, linear history — easy to read with `git log`, no merge commit noise.
-**Cons:** Rewrites commit history (new SHAs), which breaks things for anyone else who has the old commits. Never rebase a branch others are already working from.
-
-## When to use each
-
-| Situation | Use |
+| Option | Why it matters |
 |---|---|
-| Updating your local feature branch with latest `main` before opening a PR | `rebase` (keeps history clean) |
-| Merging a finished feature branch into `main` | `merge` (preserves the record of when/how it landed) |
-| Branch is already pushed and shared with others | `merge` (rebasing rewrites shared history — painful for collaborators) |
-| Cleaning up messy local commits before pushing | `rebase -i` (interactive rebase to squash/reorder) |
-| You want an audit trail of exactly how integration happened | `merge` |
+| `connectionTimeoutMillis` | Prevents requests hanging forever when the pool is exhausted or DB is unreachable. |
+| `statement_timeout` | Server-side guard against runaway queries holding connections. |
+| `idle_in_transaction_session_timeout` | Frees connections leaked by forgotten `COMMIT`/`ROLLBACK`. |
+| `idleTimeoutMillis` | Releases idle resources; keeps you under `max_connections`. |
+| `maxLifetimeSeconds` | Avoids stale connections behind load balancers/proxies (e.g. PgBouncer, RDS Proxy). |
+| `max` | Cap total connections. Rule of thumb: keep `max × instances` under the server's `max_connections`. |
+| `pool.on('error')` | Mandatory — unhandled idle-client errors crash Node. |
 
-## The core tradeoff
+**Install:** `npm install pg` (add `pg-native` only if you need libpq).
 
-Rebase buys you a cleaner, linear history at the cost of rewriting commits (never do it on commits others have pulled). Merge is always safe and preserves true history, but can make the log noisier over time. A common convention: rebase locally/privately to clean things up, merge when integrating into shared branches.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local4_baseline_rep0.flow,True,,,,,,0.0,0
-local4,atelier,0,True,0.0341328,13923,12232,1,5370,16676,0,0,868,['claude-sonnet-5'],False,False,"## git rebase vs git merge
+**Gotchas:** never forget `client.release()` in `finally` (leaks exhaust the pool); size `max` against your total instance count, not per-process; and behind PgBouncer in transaction mode, disable prepared statements / server-side timeouts set via connection.
 
-Both integrate changes from one branch into another, but they do it differently.
+Want this adapted to a specific setup (TypeScript, Knex/Sequelize/Drizzle, serverless/Lambda, or PgBouncer)?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local3_atelier_rep0.flow,True,,,,,,0.0143,589
+local4,baseline,0,True,0.068178,15229,16263,2,3515,15192,2095,0,981,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"# Git Rebase vs. Git Merge
 
-**git merge**
-Creates a new ""merge commit"" that ties together the histories of two branches. Nothing is rewritten — every existing commit stays exactly as it was.
+Both integrate changes from one branch into another, but they build **different histories**.
+
+## Merge
+
+`git merge` takes the commits from your branch and the target and ties them together with a new **merge commit** that has two parents.
 
 ```
       A---B---C  feature
      /         \
-D---E---F---G---H  main (merge commit H)
+D---E---F---G---M  main
 ```
 
-**git rebase**
-Replays your branch's commits one-by-one on top of another branch's tip, creating new commits (new SHAs) with the same changes. History ends up linear.
+- History is **preserved exactly** as it happened — non-destructive.
+- The merge commit records *when* and *where* branches came together.
+- Downside: many merge commits can clutter history and make `git log` noisy.
+
+## Rebase
+
+`git rebase` **replays** your branch's commits on top of the target, creating new commits with new hashes.
 
 ```
 D---E---F---G---A'---B'---C'  feature (rebased onto main)
 ```
 
+- Produces a **linear, clean** history — as if you'd written the work starting from the latest main.
+- No merge commits.
+- Downside: it **rewrites history** (new commit SHAs), so it's destructive to the original commits.
+
 ## When to use each
 
 **Use merge when:**
-- You're integrating a finished feature branch into `main`/`develop`, especially in a shared/team repo.
-- You want to preserve the true history of when/how work happened (useful for auditing).
-- The branch is already public/shared — merging doesn't rewrite commits others have pulled.
+- Integrating a completed feature branch into a shared/long-lived branch (`main`, `develop`).
+- You want an accurate, auditable record of when work was integrated.
+- The branch is **public/shared** — others may have based work on it.
 
 **Use rebase when:**
-- You're updating your *local, not-yet-pushed* feature branch with the latest `main` before opening a PR, to avoid a needless merge commit and keep a clean, linear history.
-- You want to clean up your own commits (squash, reorder, reword) via `git rebase -i` before sharing.
-- You want an easy-to-read, bisectable, linear log.
+- Updating your *local, in-progress* feature branch with the latest `main` before finishing.
+- Cleaning up your own commits before opening a PR (`git rebase -i` to squash, reword, reorder).
+- You want a tidy, linear history that's easy to read and `git bisect`.
 
-## Tradeoffs
+## The tradeoffs at a glance
 
 | | Merge | Rebase |
 |---|---|---|
-| History | Preserves actual history, but can get noisy with many merge commits | Clean, linear, easier to read/bisect |
-| Safety | Non-destructive — safe on shared branches | Rewrites commit SHAs — dangerous on shared/pushed branches (breaks others' clones unless they know to handle it) |
-| Conflict resolution | Resolve once, in a single merge commit | May need to resolve the same conflict repeatedly, once per replayed commit |
-| Traceability | Easy to see when a feature was integrated | Original branch topology is lost |
-| Collaboration | Safe default for teams | Requires force-push (`--force-with-lease`) if branch already pushed — coordinate with collaborators |
+| History | True, non-linear | Linear, curated |
+| Commit hashes | Unchanged | Rewritten |
+| Merge commits | Yes | No |
+| Safe on shared branches | ✅ | ⚠️ Avoid |
+| Conflict resolution | Once, in the merge commit | Potentially per replayed commit |
 
-## Golden rule
-**Never rebase commits that others have already pulled/based work on.** Rebase local/private work to keep things tidy; merge (or use rebase only by mutual agreement) once work is shared. A common workflow: rebase your feature branch on `main` locally to stay current and keep history clean, then merge (often with `--no-ff` or via a squash-merge PR) into `main` for the final integration.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local4_atelier_rep0.flow,True,,,,,,0.0268,10441
-local5,baseline,0,True,0.0586232,5649,6916,2,3709,23314,5834,0,458,"['claude-haiku-4-5-20251001', 'claude-sonnet-5']",False,False,"Here's the async/await version, using a promise-based db client (e.g. `mysql2/promise` or similar):
+## The golden rule
 
-```javascript
-async function getUser(id) {
-  const [rows] = await db.query('SELECT * FROM users WHERE id = ?', [id]);
-  if (!rows.length) throw new Error('Not found');
-  return rows[0];
-}
+> **Never rebase commits that others have already pulled.** Rewriting shared history forces everyone else into painful reconciliations.
+
+Rebase *private* work to keep it clean; merge *public* work to keep it honest.
+
+## A common hybrid workflow
+
+1. Work on a feature branch.
+2. Periodically `git rebase main` to stay current (while the branch is still yours alone).
+3. When done, `git merge --no-ff feature` into main — often with a single merge commit that marks the feature's arrival.
+
+This gives you clean, linear feature history *and* a clear integration point. Many teams also enable ""squash and merge"" on their PR platform, which collapses a branch into one commit on main — a middle ground between the two.
+
+Want me to walk through resolving conflicts during a rebase, or set up any of these as aliases?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local4_baseline_rep0.flow,True,,,,,,0.0,0
+local4,atelier,0,True,0.055817,16265,14550,1,5229,15194,0,0,883,['claude-opus-4-8'],False,False,"This is a conceptual question — no repository work needed. I'll answer directly.
+
+## git merge vs. git rebase
+
+Both integrate changes from one branch into another. The difference is **how they shape history**.
+
+### Merge
+Creates a new **merge commit** that ties two branch histories together.
+
+```
+A---B---C  main
+     \
+      D---E  feature
+              ↓ git merge feature
+A---B---C---M  main
+     \     /
+      D---E
 ```
 
-Usage changes from callback style to:
+- History is preserved exactly as it happened — non-destructive.
+- The merge commit `M` has two parents, recording that a branch existed.
+- Feature commits keep their original hashes and timestamps.
 
-```javascript
-try {
-  const user = await getUser(id);
-  // use user
-} catch (err) {
-  // handle error
-}
+### Rebase
+**Replays** your commits on top of another branch, creating new commits with new hashes.
+
+```
+A---B---C  main
+     \
+      D---E  feature
+              ↓ git rebase main
+A---B---C  main
+           \
+            D'---E'  feature
 ```
 
-Note: this assumes `db.query` returns a promise (as `mysql2/promise`, `pg`, etc. do) and resolves to `[rows, fields]`. If your `db` object is still callback-only (e.g. plain `mysql`), you'd need to either promisify it first or wrap the callback manually:
+- Produces a **linear history** — no merge commits.
+- `D` and `E` are rewritten as `D'`/`E'` (new hashes) — history is *changed*.
+- Looks as if you started work from the latest `main`.
 
-```javascript
-function getUser(id) {
-  return new Promise((resolve, reject) => {
-    db.query('SELECT * FROM users WHERE id = ?', [id], (err, rows) => {
-      if (err) return reject(err);
-      if (!rows.length) return reject(new Error('Not found'));
-      resolve(rows[0]);
-    });
-  });
-}
-```
+## When to use each
 
-Let me know which `db` client you're using if you want the exact fit.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local5_baseline_rep0.flow,True,,,,,,0.0,0
-local5,atelier,0,True,0.0256089,5724,3756,1,5370,16763,0,0,298,['claude-sonnet-5'],False,False,"```js
+**Use rebase when:**
+- Cleaning up your **local, unpushed** branch before sharing (`git rebase -i` to squash/reorder/reword).
+- Keeping a feature branch current with `main` without cluttering history with merge commits.
+- You want a clean, linear, easy-to-`git bisect` history.
+
+**Use merge when:**
+- Integrating a completed feature into a shared branch (`main`) — a merge commit documents when/what was integrated.
+- The branch is **already pushed and shared** with others.
+- You want the true historical record, including the fact that parallel work happened.
+
+## Tradeoffs
+
+| | Rebase | Merge |
+|---|---|---|
+| History | Linear, clean | Preserves actual topology |
+| Traceability | Loses branch context | Records when integration happened |
+| Safety | Rewrites commits (risky) | Non-destructive |
+| Conflicts | Resolved commit-by-commit (can repeat) | Resolved once |
+| Reverting | Harder | Easy (`git revert -m`) |
+
+## The Golden Rule
+
+> **Never rebase commits that exist outside your local repo and that others may have based work on.**
+
+Rebasing shared/pushed commits rewrites hashes, forcing collaborators into messy recovery. Rebase *private* history freely; merge *public* history.
+
+**Common workflow:** rebase your feature branch onto `main` to stay current and clean while developing, then `merge` it into `main` (often `--no-ff` to preserve a record of the feature) when it's done.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local4_atelier_rep0.flow,True,,,,,,0.0124,477
+local5,baseline,0,True,0.10495399999999999,12538,13384,3,3586,32566,5386,0,785,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This function is only referenced in a benchmark data file, not an actual source file — so I'll just give you the refactored code directly.
+
+Assuming `db.query` can return a promise (most modern drivers support this, e.g. `mysql2/promise` or `pg`):
+
+```js
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -500,276 +537,323 @@ async function getUser(id) {
 }
 ```
 
-Usage: `const user = await getUser(id);` (wrap in try/catch, or let it propagate).
+A few notes depending on your driver:
 
-Note: assumes `db.query` returns a Promise (e.g. `mysql2/promise`). If your driver is still callback-only, wrap it first:
+**If `db.query` is still callback-only** (e.g. classic `node-mysql`), wrap it with `util.promisify` or a manual Promise:
 
 ```js
-const util = require('util');
-const dbQuery = util.promisify(db.query).bind(db);
+const { promisify } = require('util');
+const query = promisify(db.query).bind(db);
 
 async function getUser(id) {
-  const rows = await dbQuery('SELECT * FROM users WHERE id = ?', [id]);
+  const rows = await query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
   return rows[0];
 }
-```",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local5_atelier_rep0.flow,True,,,,,,0.033,10884
-local6,baseline,0,True,0.0680142,16020,17092,2,3650,23314,5759,0,1120,"['claude-haiku-4-5-20251001', 'claude-sonnet-5']",False,False,"Before splitting a Django monolith into microservices, a few things are worth nailing down — many teams find the slowness is solvable without the rewrite:
-
-**Is it actually an architecture problem?**
-- Profile first: is it DB query patterns (N+1s, missing indexes), lack of caching, synchronous work that should be async/queued, or just needing more instances behind a load balancer? Vertical scaling + caching (Redis) + read replicas + Celery for background jobs fixes a large fraction of ""slow Django app"" complaints with a fraction of the effort.
-- Microservices don't inherently make anything faster — they add network hops. They help with independent scaling, deployment, and team autonomy, not raw latency.
-
-**Organizational readiness**
-- Conway's Law: microservices work best when team boundaries already match the proposed service boundaries. If one team owns everything, you're adding distributed-systems complexity without the organizational split that justifies it.
-- Do you have the operational maturity for it — service discovery, distributed tracing, on-call for N services instead of 1, CI/CD per service?
-
-**Domain boundaries**
-- Can you actually draw clean seams? Look for bounded contexts with low coupling (e.g., ""billing"" vs ""content"" vs ""notifications""). If your models are heavily interrelated with cross-cutting FKs and shared transactions, splitting will force you into distributed transactions or eventual consistency — a real cost.
-- Data ownership: each service needs its own database/schema. Untangling a shared Django ORM/DB into service-owned data stores is usually the hardest and riskiest part.
-
-**Cost/complexity tradeoffs**
-- Distributed systems add failure modes (partial failures, retries, timeouts, network partitions) that a monolith doesn't have.
-- Debugging and local dev get harder (spinning up N services vs one `runserver`).
-- You'll likely need new infra: message broker, service mesh or API gateway, centralized logging/tracing (e.g., OpenTelemetry), containers/k8s.
-
-**A middle path**
-- ""Modular monolith"" — enforce clean boundaries between Django apps (separate apps/modules, no cross-app ORM queries, clear internal APIs) without the network overhead. This gets you most of the maintainability benefit and can be split into real services later once boundaries prove stable.
-- Extract just the one or two components that have genuinely different scaling needs (e.g., a heavy background-processing service) rather than a full rewrite.
-
-**My recommendation**: profile the actual bottleneck first — it's very likely a performance/caching/query issue, not an architecture one. If after that you still have a strong *organizational* reason (multiple teams stepping on each other, need independent deploy cadences), start with a modular monolith and peel off one service at a time rather than a big-bang split.
-
-Want to dig into the actual performance profile of your app first? I can help look at slow query logs, N+1 patterns, or Celery/caching setup if you point me at the code.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local6_baseline_rep0.flow,True,,,,,,0.0,0
-local6,atelier,0,True,0.0387744,18110,16377,1,5326,16688,0,0,1186,['claude-sonnet-5'],False,False,"done: Key factors to weigh before splitting a Django monolith into microservices:
-
-**1. Is the problem actually architectural?**
-- Profile first. Slow Django apps are usually N+1 queries, missing indexes, no caching, unoptimized serializers, or synchronous work that should be async/queued — not ""too many things in one process.""
-- Microservices don't fix bad queries; they just move the same bad query to a network call with added latency.
-
-**2. Team/org structure (Conway's Law)**
-- Microservices pay off when you have multiple teams that need to deploy independently. One team of 5-10 devs rarely benefits — coordination overhead often exceeds the gain.
-
-**3. Where are the actual bottlenecks?**
-- Identify which specific domains are hot (e.g., search, reporting, image processing) — you likely only need to peel off 1-2 services, not fully decompose.
-- Candidates for extraction: CPU-heavy tasks, things with different scaling profiles than the rest of the app, or components with independent release cadence.
-
-**4. Data ownership and boundaries**
-- Can you draw clean bounded contexts, or is everything tangled through shared Django models/foreign keys? If models are deeply relational across ""future service"" boundaries, splitting means either distributed transactions, eventual consistency, or duplicated data — all real complexity costs.
-- Splitting a database is much harder than splitting code.
-
-**5. Operational overhead**
-- Each service = its own deploy pipeline, monitoring, logging, on-call surface, versioning, and network failure modes (timeouts, retries, circuit breakers).
-- Distributed tracing, service discovery, and API contracts become mandatory, not optional.
-
-**6. Consistency and transactions**
-- Django's ORM gives you free ACID transactions across models. Splitting breaks that — you need sagas, outbox patterns, or idempotent APIs for cross-service operations.
-
-**7. Latency budget**
-- In-process function calls become HTTP/gRPC calls. If a request currently touches 5 ""modules,"" it might now touch 5 services over the network — often making things *slower* unless done carefully.
-
-**8. Incremental path exists**
-- You don't need a big-bang rewrite. Options before full microservices:
-  - Scale Django horizontally (more workers/pods) behind a load balancer.
-  - Move heavy/slow work to Celery workers (already async, already decoupled).
-  - Split read replicas / add caching (Redis, query caching).
-  - Extract *one* well-bounded, high-load service first (e.g., ""notifications"" or ""search"") as a proof of concept — a modular monolith with clear internal boundaries first, before physical separation.
-
-**9. Cost/benefit reality check**
-- Microservices trade ""app is slow"" for ""distributed systems problems"" (partial failures, eventual consistency, harder debugging). Only worth it if the org-scaling or independent-deployment benefit outweighs that.
-
-**Recommendation framing for the team debate:** first do a profiling pass (django-silk, py-spy, slow query logs) to find the actual bottleneck; if it's isolated to 1-2 domains with different scaling needs and different team ownership, extract just those as services behind clear APIs; otherwise, optimize within the monolith (caching, async tasks, DB tuning, horizontal scaling) — that's usually far cheaper than a distributed rewrite.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local6_atelier_rep0.flow,True,,,,,,0.0292,10643
-local7,baseline,0,True,0.062220199999999996,9606,10822,2,3682,23314,5798,0,714,"['claude-haiku-4-5-20251001', 'claude-sonnet-5']",False,False,"This handler has a critical SQL injection vulnerability plus a few smaller issues.
-
-**1. SQL injection (critical)**
-`req.params.id` is interpolated directly into the query string. Anyone can pass something like:
-```
-GET /api/users/1 OR 1=1
-GET /api/users/1; DROP TABLE users;--
-```
-and manipulate or destroy data. Fix with parameterized queries:
-```js
-app.get('/api/users/:id', (req, res) => {
-  db.query('SELECT * FROM users WHERE id = $1', [req.params.id])
-    .then(user => res.json(user))
-    .catch(err => res.status(500).json({ error: 'Internal server error' }));
-});
-```
-(Use `?` placeholder syntax instead of `$1` if using MySQL rather than Postgres.)
-
-**2. No error handling**
-There's no `.catch()`, so a rejected promise (e.g., DB error, or malformed input causing a query failure) becomes an unhandled rejection — it can crash the process (depending on Node version/config) or hang the request.
-
-**3. Potential data leakage / no output shaping**
-`res.json(user)` returns whatever the DB returns, including columns like password hashes if `SELECT *` includes them. Prefer selecting only needed columns or filtering the result before sending it to the client.
-
-**4. No input validation**
-No check that `id` is the expected type/format (e.g., numeric or valid UUID) before it reaches the query — even with parameterized queries, validating early gives a cleaner 400 response instead of a DB-level error for garbage input.
-
-**5. Missing `SELECT *`-specific concern**
-Beyond leakage, `SELECT *` is fragile against future schema changes exposing new sensitive columns unintentionally — prefer explicit column lists.
-
-The SQL injection is the one that must be fixed before this ships; the others are hardening.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local7_baseline_rep0.flow,True,,,,,,0.0,0
-local7,atelier,0,True,0.030911099999999997,12691,10810,1,5326,16727,0,0,661,['claude-sonnet-5'],False,False,"**SQL Injection (critical)** — `req.params.id` is interpolated directly into the query string. Any request like `/api/users/1 OR 1=1` or `/api/users/1; DROP TABLE users;--` is executed as SQL, allowing full data dump, tampering, or destruction.
-
-Fix: use parameterized queries.
-```js
-app.get('/api/users/:id', (req, res) => {
-  db.query('SELECT * FROM users WHERE id = ?', [req.params.id])
-    .then(user => res.json(user))
-    .catch(err => res.status(500).json({ error: 'Internal server error' }));
-});
 ```
 
-Additional issues:
-- **No input validation** — `id` isn't checked as numeric/UUID before use; validate/coerce it even with parameterized queries.
-- **No error handling** — a rejected promise (bad query, DB down) is unhandled, can crash the process (unhandled rejection) or hang the request.
-- **No auth/authorization** — endpoint returns arbitrary user records by ID with no check that the requester may access that user (IDOR risk).
-- **Overexposure via `SELECT *`** — likely returns sensitive columns (password hash, email, tokens); select only needed fields.
-
-done: SQL injection is the critical finding (unsanitized string interpolation into query) — fix via parameterized query; also flagged missing input validation, error handling, authZ/IDOR check, and `SELECT *` overexposure.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local7_atelier_rep0.flow,True,,,,,,0.0313,10794
-local8,baseline,0,True,0.1650896,61844,62865,7,3660,184872,10992,0,2266,"['claude-haiku-4-5-20251001', 'claude-sonnet-5']",False,False,"Created `Dockerfile` and `.dockerignore` in the project root.
-
-Key size/best-practice choices:
-- **4 stages**: `deps` (full install for compiling) → `build` (runs `tsc`) → `prod-deps` (separate `npm ci --omit=dev`, so the final image never touches devDependencies like `typescript`) → `runtime` (only `dist/`, prod `node_modules`, and `package.json` copied in).
-- **`node:20-alpine`** base keeps the image small; adjust the version to match your `engines` field if pinned differently.
-- Only `dist` and pruned `node_modules` reach the final layer — no `src`, no `tsconfig.json`, no compiler.
-- Runs as a non-root `nodejs` user.
-- `.dockerignore` keeps `node_modules`/`.git`/etc. out of the build context so `COPY` steps and cache invalidation stay fast.
-
-Assumptions to verify against your actual project: entrypoint is `dist/index.js`, build script is `npm run build` (via `tsconfig.json`'s `outDir: dist`), source lives in `src/`, and app listens on port 3000. Let me know your `package.json`/`tsconfig.json` if these don't match and I'll adjust.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local8_baseline_rep0.flow,True,,,,,,0.0,0
-local8,atelier,0,True,0.030992699999999998,8421,6650,1,5326,16699,0,0,667,['claude-sonnet-5'],False,False,"```dockerfile
-# ---------- Stage 1: dependencies ----------
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-
-# ---------- Stage 2: build ----------
-FROM node:20-alpine AS build
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npm run build \
-    && npm prune --omit=dev
-
-# ---------- Stage 3: runtime ----------
-FROM node:20-alpine AS runtime
-ENV NODE_ENV=production
-WORKDIR /app
-
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-
-USER appuser
-
-EXPOSE 3000
-CMD [""node"", ""dist/index.js""]
-```
-
-Notes:
-- Stage 1 installs full deps (incl. devDependencies like `typescript`) needed only to compile.
-- Stage 2 copies source, runs `tsc` (via `npm run build` → outputs to `dist/`), then `npm prune --omit=dev` strips devDependencies before copying forward.
-- Stage 3 starts from a clean `node:20-alpine` and copies only `package.json`, pruned `node_modules`, and compiled `dist/` — no source, no TypeScript compiler, no build cache layers.
-- Runs as non-root `appuser`.
-- Assumes `package.json` has a `""build"": ""tsc""` script and `tsconfig.json` outputs to `dist/`; adjust `dist/index.js` to your actual entrypoint.
-- Add a `.dockerignore` with `node_modules`, `dist`, `.git` to keep the build context small.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local8_atelier_rep0.flow,True,,,,,,0.1341,179098
-local9,baseline,0,True,0.0688702,13046,14199,2,3645,23314,5765,0,1173,"['claude-haiku-4-5-20251001', 'claude-sonnet-5']",False,False,"The bug is almost certainly a **read-modify-write** pattern: your code does `SELECT count`, then increments in JS, then `UPDATE ... SET count = <new value>`. Between the SELECT and UPDATE, two concurrent requests can read the same value, so both write back `old + 1` — one increment gets lost (this looks like ""the same value returned twice"").
-
-**Fix: do the increment atomically in a single SQL statement**, letting Postgres handle the concurrency instead of round-tripping through app code.
+**If you're using `pg`**, results come back as `{ rows }`, so destructure:
 
 ```js
-const result = await pool.query(
-  `UPDATE counters
-   SET value = value + 1
-   WHERE id = $1
-   RETURNING value`,
-  [counterId]
-);
-const newValue = result.rows[0].value;
-```
-
-This works because a single `UPDATE` statement is atomic in Postgres — row-level locking serializes concurrent updates to the same row automatically. No explicit transaction or locking needed for this simple case.
-
-**If your real logic is more complex** (e.g., you need to read the value, apply business logic, then conditionally write), use explicit row locking in a transaction instead:
-
-```js
-const client = await pool.connect();
-try {
-  await client.query('BEGIN');
-  const { rows } = await client.query(
-    'SELECT value FROM counters WHERE id = $1 FOR UPDATE',
-    [counterId]
-  );
-  const newValue = rows[0].value + 1;
-  await client.query(
-    'UPDATE counters SET value = $1 WHERE id = $2',
-    [newValue, counterId]
-  );
-  await client.query('COMMIT');
-} catch (e) {
-  await client.query('ROLLBACK');
-  throw e;
-} finally {
-  client.release();
+async function getUser(id) {
+  const { rows } = await db.query('SELECT * FROM users WHERE id = $1', [id]);
+  if (!rows.length) throw new Error('Not found');
+  return rows[0];
 }
 ```
 
-`SELECT ... FOR UPDATE` locks the row so a second concurrent transaction blocks until the first commits, then sees the updated value.
+Key changes:
+- Errors now propagate via `throw`/rejection instead of an `err` callback argument — callers use `try/catch` or `.catch()`.
+- The success value is `return`ed instead of passed to `callback(null, ...)`.
+- No callback parameter needed.
 
-**Things to check that commonly cause this bug even after the fix:**
-- Make sure you're not using a connection pool client per query without a transaction wrapper (each `pool.query` call may hit a different connection, so `BEGIN`/`SELECT FOR UPDATE`/`UPDATE`/`COMMIT` must all use the *same* client from `pool.connect()`).
-- Avoid ORMs' `save()` after loading an entity into memory (Sequelize/TypeORM patterns) unless they use optimistic locking (`version` column) or you explicitly use `increment()` methods — those often reintroduce the same race.
+Callers change from `getUser(1, (err, user) => {...})` to `const user = await getUser(1)` (inside a `try/catch`).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local5_baseline_rep0.flow,True,,,,,,0.0,0
+local5,atelier,0,True,0.03739050000000001,5095,2978,1,5185,15281,0,0,153,['claude-opus-4-8'],False,False,"This is plain code transformation, no tools needed.
 
-For a pure counter, the single-statement `UPDATE ... SET value = value + 1 RETURNING value` is the simplest and best-performing fix — no explicit transaction required.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local9_baseline_rep0.flow,True,,,,,,0.0,0
-local9,atelier,0,True,0.038476199999999995,15830,13894,1,5326,16694,0,0,1166,['claude-sonnet-5'],False,False,"The classic cause: a **read-then-write** pattern (`SELECT counter...` then `UPDATE counter = value+1`) run outside an atomic operation. Two concurrent requests both read the same value before either writes, so both write `old+1`, losing an increment.
+```javascript
+async function getUser(id) {
+  const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
+  if (!rows.length) throw new Error('Not found');
+  return rows[0];
+}
+```
 
-**Fix: do the increment atomically in a single SQL statement**, letting Postgres serialize the update at the row level.
+done: refactored to async/await — assumes `db.query` returns a Promise (use `util.promisify(db.query)` or the driver's promise API if it's still callback-only).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local5_atelier_rep0.flow,True,,,,,,0.0676,21704
+local6,baseline,0,True,0.08140299999999999,33409,34683,2,3525,15192,2107,0,1508,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Good instinct to pause before committing. Microservices solve organizational and scaling problems, but they add distributed-systems complexity that often makes a slow monolith *slower to work with*, not faster. Here's how I'd frame the decision.
+
+## First: is ""slow"" a reason to split at all?
+
+Splitting rarely fixes performance directly — you're adding network hops, serialization, and remote calls where you had in-process function calls. Before anything architectural, find out *why* it's slow:
+
+- **Profile real requests** (Django Silk, `django-debug-toolbar`, or an APM like Datadog/Sentry). Slowness is usually one of: N+1 queries, missing DB indexes, unbounded querysets, synchronous work that should be a background job, or no caching.
+- **Check the database first.** 80% of ""the monolith is slow"" turns out to be the ORM. `select_related`/`prefetch_related`, indexes, and query-count budgets often reclaim more than a rewrite.
+- **Offload slow work** to Celery/RQ instead of blocking the request cycle.
+
+If you haven't done this, do it first. It's days of work versus months, and you keep a single deployable.
+
+## If it's genuinely an architecture/scaling problem, weigh these factors
+
+**1. Team & organizational structure (the real driver).** Microservices pay off when independent teams need to deploy independently without coordinating. One team of 5–10 on one codebase almost never benefits — you get the costs (distributed debugging, versioned APIs, infra overhead) without the payoff. Conway's Law cuts both ways.
+
+**2. Do clean domain boundaries exist?** Can you point to parts of the app that rarely change together and share little data? If everything touches the same core models (users, orders, billing all deeply intertwined), extraction will be painful and you'll end up with a ""distributed monolith"" — the worst of both worlds, where a change still requires deploying five services in lockstep.
+
+**3. Data ownership.** This is the hardest part. Each service ideally owns its data. Django makes cross-app queries and joins trivial today; across services they become API calls or event streams. You lose ACID transactions across boundaries and inherit eventual consistency, sagas, and reconciliation logic.
+
+**4. Operational maturity.** Do you have CI/CD, containerization, centralized logging, distributed tracing, service discovery, and on-call practices? Microservices multiply your deployment and observability surface. Without this foundation, you're trading a performance problem for an operations problem.
+
+**5. What actually needs to scale?** Usually one or two hotspots (e.g., a reporting endpoint, image processing, a public API). You can often scale those independently *without* full microservices.
+
+## The pragmatic middle ground
+
+Most teams should consider these before microservices:
+
+- **Optimize the monolith** — the profiling work above.
+- **Modular monolith** — enforce internal boundaries (separate Django apps with explicit interfaces, no cross-app model imports) while keeping one deployable. This gets you most of the maintainability benefit and makes future extraction *possible* if you ever need it.
+- **Extract one service** — the strangler-fig pattern. Pull out a single well-bounded, genuinely-independent piece (e.g., notifications, search, PDF generation). Learn the operational cost on something low-risk before betting the architecture on it.
+- **Scale horizontally** — run more instances of the monolith behind a load balancer; add read replicas and caching (Redis). Django scales this way surprisingly far.
+
+## A decision checklist
+
+Ask the team:
+1. Have we profiled and know *specifically* what's slow?
+2. Is the pain **performance**, or is it actually **team velocity / merge conflicts / deploy coupling**? (These point to different solutions.)
+3. Can we name 2–3 clean boundaries with minimal shared data?
+4. Do we have the ops maturity to run distributed systems today?
+5. Could a modular monolith + targeted optimization solve this for 20% ",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local6_baseline_rep0.flow,True,,,,,,0.0,0
+local6,atelier,0,True,0.060873,20955,19184,1,5229,15206,0,0,1085,['claude-opus-4-8'],False,False,"This is a conceptual/advisory question — no codebase action needed. I'll answer directly and concisely.
+
+## Key factors before splitting your Django monolith
+
+**First: is the monolith actually the problem?**
+Slowness is usually fixable inside the monolith, and it's far cheaper than distributing it. Rule out these before committing:
+- **N+1 queries** — the #1 Django killer. `select_related`/`prefetch_related`, `django-debug-toolbar`, `nplusone`.
+- **Missing DB indexes**, slow queries — profile with `pg_stat_statements`.
+- **No caching layer** — Redis/Memcached for hot reads, cached template fragments.
+- **Sync work that should be async** — offload to Celery (emails, exports, third-party calls).
+- **Vertical/horizontal scaling** — more Gunicorn workers, read replicas, a bigger box.
+- **Missing connection pooling** (PgBouncer), inefficient serialization.
+
+Microservices *do not* make code faster — they add network latency. They solve **team/scaling/deploy** problems, not raw performance.
+
+**If the real problem is organizational/scaling, then weigh:**
+
+| Factor | Question to answer |
+|---|---|
+| **Domain boundaries** | Can you draw clear seams (bounded contexts)? If you can't cleanly separate modules *inside* the monolith, you can't separate them across a network. |
+| **Data ownership** | Each service needs its own data. Are your tables a tangle of cross-domain foreign keys and JOINs? Splitting those is the hardest part. |
+| **Transactions** | Logic that spans domains loses ACID guarantees — you inherit eventual consistency, sagas, distributed failures. |
+| **Team topology** | Multiple teams blocked by one deploy pipeline is a real reason to split. One small team is usually a reason *not* to. |
+| **Operational maturity** | Do you have CI/CD, centralized logging, distributed tracing, monitoring, service discovery, on-call? Microservices multiply ops burden. |
+| **Independent scaling** | Is one component (e.g. image processing, search) the actual bottleneck? That component is a good extraction candidate; the rest may not be. |
+| **Deploy/release cadence** | Do parts of the app need to ship at very different speeds? |
+| **Latency budget** | In-process calls become network hops. Chatty domains suffer badly once separated. |
+
+**The pragmatic middle path (recommended default):**
+1. **Fix the performance issues in place first** — you'll likely recover most of the speed and buy time.
+2. **Modularize the monolith** — enforce clean module boundaries, kill cross-domain imports/FK tangles. A well-structured ""modular monolith"" gets ~80% of the benefit with none of the distributed-systems tax.
+3. **Extract one service** — the clearest, most independently-scaled seam — via the **strangler-fig pattern**. Learn the operational cost on a low-risk boundary before committing the whole org.
+
+**Rough decision rule:** split for **team autonomy and independent scaling of a specific bottleneck**, not for ""the app feels slow."" If you can't name the bounded context and its data owner today, you're not ready to split yet — profile and modularize first.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local6_atelier_rep0.flow,True,,,,,,0.0205,812
+local7,baseline,0,True,0.07242,17074,18162,2,3557,15192,2146,0,1127,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This handler has a **critical SQL injection vulnerability**, plus a couple of smaller issues. Here's the breakdown:
+
+## 1. SQL Injection (Critical)
 
 ```js
-// Bad — race condition (read-modify-write in app code)
-const { rows } = await client.query('SELECT count FROM counters WHERE id = $1', [id]);
-const newCount = rows[0].count + 1;
-await client.query('UPDATE counters SET count = $1 WHERE id = $2', [newCount, id]);
+const query = `SELECT * FROM users WHERE id = ${req.params.id}`;
+```
 
-// Good — atomic increment, Postgres handles concurrency
+`req.params.id` is interpolated directly into the SQL string. An attacker fully controls it via the URL path. For example:
+
+```
+GET /api/users/1 OR 1=1          → dumps every user
+GET /api/users/1 UNION SELECT ... → exfiltrate other tables (password hashes, etc.)
+GET /api/users/1; DROP TABLE users -- → destructive, if the driver allows stacked queries
+```
+
+**Fix: use parameterized queries** so the value is never parsed as SQL.
+
+```js
+app.get('/api/users/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid user id' });
+  }
+
+  db.query('SELECT * FROM users WHERE id = ?', [id])   // mysql/mysql2 style
+    .then(rows => {
+      if (!rows.length) return res.status(404).json({ error: 'Not found' });
+      res.json(rows[0]);
+    })
+    .catch(err => {
+      console.error(err);
+      res.status(500).json({ error: 'Internal server error' });
+    });
+});
+```
+
+Use the placeholder syntax for your driver: `?` for mysql/mysql2, `$1` for `pg`, or named binds (`:id`) for others. Validating that the id is an integer is good defense-in-depth, but the parameterization is what actually closes the hole.
+
+## 2. Unhandled promise rejection / no error handling
+
+```js
+db.query(query).then(user => res.json(user));
+```
+
+There's no `.catch()`. A DB error leaves the request hanging (client times out) and can crash the process on an unhandled rejection. Always handle the rejection and return a 500 — and don't leak the raw error to the client (it can reveal schema/driver details). The fixed version above addresses this.
+
+## 3. `SELECT *` leaks sensitive columns
+
+`SELECT *` returns every column, so `res.json(user)` will happily ship `password_hash`, `mfa_secret`, `reset_token`, etc. to the client. **Select only the fields you intend to expose:**
+
+```js
+db.query('SELECT id, name, email FROM users WHERE id = ?', [id])
+```
+
+## 4. (Context-dependent) Missing authZ
+
+This route lets any caller fetch any user by id. If these records are private, you likely also need authentication and an authorization check (e.g. the caller may only fetch their own record, or must be an admin). That depends on your app's requirements, but flagging it since the endpoint is wide open as written.
+
+---
+
+**Priority:** Fix #1 immediately — it's remotely exploitable and can lead to full database compromise. #2 and #3 should go in the same change.
+
+Want me to look at the actual file in the repo so I can apply these fixes in the correct driver syntax?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local7_baseline_rep0.flow,True,,,,,,0.0,0
+local7,atelier,0,True,0.0508475,12491,10685,1,5185,15245,0,0,692,['claude-opus-4-8'],False,False,"done: SQL injection in the route — `req.params.id` is interpolated straight into the query string.
+
+- **Vuln:** `SELECT * FROM users WHERE id = ${req.params.id}` — attacker sends `/api/users/1 OR 1=1` (dumps all rows) or `0; DROP TABLE users` / UNION exfiltration.
+- **Fix:** parameterize — `db.query('SELECT * FROM users WHERE id = ?', [req.params.id])`.
+- **Also:** validate id is an integer (`Number.isInteger`) before use; select explicit columns not `*` (avoids leaking hashes/tokens); add `.catch(() => res.sendStatus(500))` — unhandled rejection currently leaks stack/DB errors and hangs the request; 404 when no user found.
+
+Corrected:
+```js
+app.get('/api/users/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.sendStatus(400);
+  db.query('SELECT id, name, email FROM users WHERE id = ?', [id])
+    .then(user => user ? res.json(user) : res.sendStatus(404))
+    .catch(() => res.sendStatus(500));
+});
+```",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local7_atelier_rep0.flow,True,,,,,,0.0216,900
+local8,baseline,0,True,0.1534205,40531,41735,4,3529,53157,6426,0,1901,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"I wrote `Dockerfile` to the project root. Here's how it minimizes final image size and why each stage exists.
+
+## The three stages
+
+1. **`deps`** — runs `npm ci` (all deps, including devDependencies like `typescript`) from the lockfile. Manifests are copied *before* source so this expensive layer stays cached until `package.json`/`package-lock.json` change.
+2. **`build`** — reuses those `node_modules`, copies the source, runs `npm run build` (`tsc` → `dist/`), then re-installs with `--omit=dev` to produce a lean production `node_modules`.
+3. **`runtime`** — the only stage in the final image. It copies **just** the compiled `dist/` and production `node_modules`. The TypeScript compiler, dev tooling, and all source `.ts` files are left behind in earlier stages.
+
+## Key size/quality choices
+
+- **`node:22-alpine`** base — ~5× smaller than the Debian-based default tag.
+- **Multi-stage** — devDependencies and source never reach the final layer; only prod deps + emitted JS ship.
+- **`npm ci`** — reproducible, lockfile-driven installs (fails if lockfile is out of sync).
+- **BuildKit cache mounts** (`--mount=type=cache`) — speed up rebuilds without bloating the image, since the cache lives outside the layers.
+- **Non-root `USER node`** and `NODE_ENV=production` — security and runtime hygiene.
+
+## Assumptions you may need to adjust
+
+- `""build"": ""tsc""` exists in `package.json` and emits to `./dist`.
+- Entrypoint is `dist/index.js` (change the `CMD`).
+- Source lives in `./src` with a `tsconfig.json` at the root.
+- Add a **`.dockerignore`** with at least `node_modules`, `dist`, `.git`, `npm-debug.log` so local artifacts don't get copied into the build context — this matters for both speed and correctness.
+
+If you share the actual `package.json`/project layout, I can tailor the build script name, output dir, and port precisely.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local8_baseline_rep0.flow,True,,,,,,0.0,0
+local8,atelier,0,True,0.126457,15515,13417,2,5231,30434,6106,0,961,['claude-opus-4-8'],False,False,"done: multi-stage Dockerfile (deps→build→prod-deps→runtime on node:22-alpine, non-root, cache mounts) + .dockerignore written — assumptions: build script `npm run build`, output `dist/`, entry `dist/index.js`",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local8_atelier_rep0.flow,True,,,,,,0.027,22281
+local9,baseline,0,True,0.067693,14429,16340,2,3520,15192,2113,0,955,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The race condition happens because you're reading the counter, incrementing it in JavaScript, then writing it back — three separate steps. Two concurrent requests both read the same value before either writes, so they produce the same result. The fix is to make the increment atomic inside the database.
+
+## The problem (read-modify-write)
+
+```js
+// ❌ Racy: SELECT then UPDATE in separate statements
+const { rows } = await client.query('SELECT value FROM counters WHERE id = $1', [id]);
+const next = rows[0].value + 1;
+await client.query('UPDATE counters SET value = $1 WHERE id = $2', [next, id]);
+return next;
+```
+
+## The fix: atomic increment with `RETURNING`
+
+Let PostgreSQL do the increment in a single statement. `UPDATE ... SET value = value + 1` takes a row lock, so concurrent requests are serialized by the database, and `RETURNING` hands back the new value.
+
+```js
+// ✅ Atomic: one statement, no lost updates
 const { rows } = await client.query(
-  'UPDATE counters SET count = count + 1 WHERE id = $1 RETURNING count',
+  'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
   [id]
 );
-const newCount = rows[0].count;
+return rows[0].value;
 ```
 
-Why this works: the `UPDATE ... SET count = count + 1` runs as a single row-level operation. Postgres takes a row lock for the duration of the update, so concurrent transactions targeting the same row are serialized automatically — no lost updates, no app-level locking needed.
+Each concurrent request now gets a distinct, correctly-incremented value.
 
-**If your logic is more complex** (e.g., you need to read other columns and conditionally decide the increment), wrap it in a transaction with `SELECT ... FOR UPDATE` to lock the row first:
+## Things worth checking
 
+1. **Connection pooling.** Make sure each request gets its own connection from the pool (`pool.query(...)` or `pool.connect()` per request). Sharing one client across concurrent requests causes a *different* set of bugs.
+
+2. **Transactions.** If the increment is part of a larger transaction, the atomic `UPDATE` still holds the row lock until commit — good. Just keep the transaction short so you don't serialize everything.
+
+3. **If you need a gap-free sequence per request**, the atomic UPDATE above is right. If you just need unique increasing numbers and gaps are acceptable, a Postgres `SEQUENCE` (`nextval()`) is lock-free and faster:
+   ```sql
+   SELECT nextval('my_counter_seq');
+   ```
+   Note sequences can leave gaps on rollback, but they never hand out duplicates under concurrency.
+
+4. **Don't reach for application-level locks** (mutexes, `SELECT ... FOR UPDATE` loops) for this — the single atomic statement is simpler and correct.
+
+The key principle: **never read a value into your app, compute the next one, and write it back.** Push the arithmetic into a single SQL statement so the database's row locking guarantees correctness.
+
+Want to share your actual endpoint code? I can point out the exact line to change.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local9_baseline_rep0.flow,True,,,,,,0.0,0
+local9,atelier,0,True,0.053781,18862,16854,1,5185,15212,0,0,810,['claude-opus-4-8'],False,False,"The race is a read-modify-write done in two round-trips: `SELECT` the value in JS, add 1, `UPDATE`. Two concurrent requests both read the same value before either writes, so they return the same result. Fix it by making the increment atomic in a single SQL statement.
+
+**Do this — atomic increment with RETURNING:**
 ```js
-await client.query('BEGIN');
-const { rows } = await client.query('SELECT count FROM counters WHERE id = $1 FOR UPDATE', [id]);
-const newCount = rows[0].count + 1;
-await client.query('UPDATE counters SET count = $1 WHERE id = $2', [newCount, id]);
-await client.query('COMMIT');
+const { rows } = await pool.query(
+  'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
+  [id]
+);
+const newValue = rows[0].value;
+```
+Postgres locks the row for the duration of the `UPDATE`, so concurrent requests serialize and each gets a distinct value. No app-side read needed.
+
+**Anti-pattern you likely have now:**
+```js
+const { rows } = await pool.query('SELECT value FROM counters WHERE id = $1', [id]);
+const next = rows[0].value + 1;                       // ← two requests both see the same value
+await pool.query('UPDATE counters SET value = $1 WHERE id = $2', [next, id]);
 ```
 
-`FOR UPDATE` blocks other transactions from reading/locking that row until this one commits, forcing them to wait rather than racing.
+**Notes:**
+- If the counter is per-inserted-row (an ID), use a `SEQUENCE`/`BIGSERIAL` or `GENERATED ALWAYS AS IDENTITY` — sequences are concurrency-safe and gap-tolerant by design.
+- If you must read then write across multiple statements, either take an explicit lock (`SELECT ... FOR UPDATE` inside a transaction) or use optimistic concurrency (`UPDATE ... WHERE value = $expected` and retry when `rowCount === 0`). The single-statement `UPDATE ... RETURNING` is preferred — it's simpler and avoids holding a transaction open.
+- A connection pool doesn't help here — the two round-trips can interleave across different pooled connections. Atomicity has to live in the SQL.
 
-**Other things to check:**
-- Make sure you're using a single client/transaction per request (a fresh `pool.connect()` or `pool.query()` per statement, not sharing a client across concurrent requests).
-- If using an ORM (Sequelize, Prisma, TypeORM), avoid `entity.count++; save()` patterns — use their atomic increment helpers (e.g., Prisma's `update({ data: { count: { increment: 1 } } })`) which compile to the same `SET count = count + 1` SQL.
-- Default `READ COMMITTED` isolation is fine for the atomic `UPDATE` approach above — you don't need `SERIALIZABLE`.
-- If contention is extremely high, consider batching increments or using `INSERT ... ON CONFLICT DO UPDATE SET count = counters.count + 1` for upsert-style counters.
+Want me to locate and patch the actual endpoint? Point me at the file/repo and I'll apply the fix.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local9_atelier_rep0.flow,True,,,,,,0.0139,573
+local10,baseline,0,True,0.20297500000000002,34476,40379,5,3523,75452,8744,0,2506,"['claude-opus-4-8', 'claude-haiku-4-5-20251001']",False,False,"Created `ErrorBoundary.tsx`. Since error boundaries require a class component (React has no hook equivalent for `getDerivedStateFromError`/`componentDidCatch`), this is a class-based component covering all three requirements:
 
-The one-line atomic `UPDATE` is almost always the right fix for a simple counter.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local9_atelier_rep0.flow,True,,,,,,0.0304,10711
-local10,baseline,0,True,0.15847340000000001,24008,24684,7,3652,183088,10859,0,1913,"['claude-haiku-4-5-20251001', 'claude-sonnet-5']",False,False,"Created `ErrorBoundary.tsx` — a class-based React error boundary since `getDerivedStateFromError`/`componentDidCatch` (render-error catching) only work in class components, not hooks.
+- **Catches render errors** — `getDerivedStateFromError` captures the thrown error and switches to the fallback on the next render.
+- **Fallback UI with retry** — a default `role=""alert""` panel showing the error message plus a ""Try again"" button. `retry` clears the error state so `children` re-mount and re-render.
+- **Logs error details** — `componentDidCatch` logs the error and component stack via `console.error`, and forwards them to an optional `onError` prop for external reporting (Sentry, etc.).
 
-Key points:
-- **`getDerivedStateFromError`** updates state to render the fallback on the next render.
-- **`componentDidCatch`** logs the error and component stack via `console.error`, and forwards both to an optional `onError` prop for integration with logging services (Sentry, etc.).
-- **Retry** just clears the stored error, causing children to remount and re-render — if the same broken state caused the crash it'll fail again, which is expected (retry is for transient errors, not primarily to fix code bugs).
-- **`fallback`** prop lets callers render custom UI (receiving the error and retry function) instead of the default box.
+It's also customizable via a `fallback` render prop.
 
-Since this repo is an intentionally empty benchmark scratch repo (per its README) with no existing app to wire it into, I dropped the component at the repo root as a self-contained file. Let me know if you'd like it placed in a real project's `src/` tree, converted to plain JS, or extended (e.g., reset on prop change, error boundary per-route).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local10_baseline_rep0.flow,True,,,,,,0.0,0
-local10,atelier,0,True,0.11483940000000001,19906,16930,4,5376,79388,10065,0,967,['claude-sonnet-5'],False,False,"done: React error boundary already implemented — `frontend/src/components/ErrorBoundary.tsx` (class component: `getDerivedStateFromError`/`componentDidCatch` catch render errors, logs via `console.error` + optional `onError` callback, default fallback UI with `Retry` button that remounts children via key bump, supports custom `fallback` render-prop and dev-only stack trace).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T101015Z/batch0/local10_atelier_rep0.flow,True,,,,,,0.0436,103716
+Usage:
+
+```tsx
+import { ErrorBoundary } from ""./ErrorBoundary"";
+
+<ErrorBoundary onError={(err, info) => reportToSentry(err, info)}>
+  <YourApp />
+</ErrorBoundary>
+
+// or with a custom fallback:
+<ErrorBoundary fallback={(err, retry) => <MyFallback error={err} onRetry={retry} />}>
+  <YourApp />
+</ErrorBoundary>
+```
+
+A couple of notes on scope, since this repo has no `package.json` or React setup:
+- I wrote it as TypeScript (`.tsx`). If you're on plain JS, tell me and I'll drop the type annotations to a `.jsx` version.
+- Error boundaries deliberately do **not** catch errors from event handlers, async code (promises/`setTimeout`), or SSR — those need a regular `try/catch`. A common pattern is to reset the boundary on route change by passing a `key` prop.
+
+Want me to add a `.jsx` variant, a small demo/test, or wire it into a specific setup?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local10_baseline_rep0.flow,True,,,,,,0.0,0
+local10,atelier,0,True,0.217387,28503,22510,6,5635,124434,9652,0,1219,['claude-opus-4-8'],False,False,"done: ErrorBoundary already implemented at `frontend/src/components/ErrorBoundary.tsx` — catches render errors (getDerivedStateFromError/componentDidCatch), fallback UI with Retry button + remount-on-retry, logs via console.error + onError; typechecks clean — no changes needed.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T110104Z/batch0/local10_atelier_rep0.flow,True,,,,,,-0.0144,-50715

@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -31,9 +30,7 @@ The following MCP servers are still connecting — their tools (typically named 
 claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -46,15 +43,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -66,9 +61,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -95,44 +88,29 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] The classic cause: a **read-then-write** pattern (`SELECT counter...` then `UPDATE counter = value+1`) run outside an atomic operation. Two concurrent requests both read the same value before either writes, so both write `old+1`, losing an increment.
+[assistant] The race is a read-modify-write done in two round-trips: `SELECT` the value in JS, add 1, `UPDATE`. Two concurrent requests both read the same value before either writes, so they return the same result. Fix it by making the increment atomic in a single SQL statement.
 
-**Fix: do the increment atomically in a single SQL statement**, letting Postgres serialize the update at the row level.
-
+**Do this — atomic increment with RETURNING:**
 ```js
-// Bad — race condition (read-modify-write in app code)
-const { rows } = await client.query('SELECT count FROM counters WHERE id = $1', [id]);
-const newCount = rows[0].count + 1;
-await client.query('UPDATE counters SET count = $1 WHERE id = $2', [newCount, id]);
-
-// Good — atomic increment, Postgres handles concurrency
-const { rows } = await client.query(
-  'UPDATE counters SET count = count + 1 WHERE id = $1 RETURNING count',
+const { rows } = await pool.query(
+  'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
   [id]
 );
-const newCount = rows[0].count;
+const newValue = rows[0].value;
 ```
+Postgres locks the row for the duration of the `UPDATE`, so concurrent requests serialize and each gets a distinct value. No app-side read needed.
 
-Why this works: the `UPDATE ... SET count = count + 1` runs as a single row-level operation. Postgres takes a row lock for the duration of the update, so concurrent transactions targeting the same row are serialized automatically — no lost updates, no app-level locking needed.
-
-**If your logic is more complex** (e.g., you need to read other columns and conditionally decide the increment), wrap it in a transaction with `SELECT ... FOR UPDATE` to lock the row first:
-
+**Anti-pattern you likely have now:**
 ```js
-await client.query('BEGIN');
-const { rows } = await client.query('SELECT count FROM counters WHERE id = $1 FOR UPDATE', [id]);
-const newCount = rows[0].count + 1;
-await client.query('UPDATE counters SET count = $1 WHERE id = $2', [newCount, id]);
-await client.query('COMMIT');
+const { rows } = await pool.query('SELECT value FROM counters WHERE id = $1', [id]);
+const next = rows[0].value + 1;                       // ← two requests both see the same value
+await pool.query('UPDATE counters SET value = $1 WHERE id = $2', [next, id]);
 ```
 
-`FOR UPDATE` blocks other transactions from reading/locking that row until this one commits, forcing them to wait rather than racing.
+**Notes:**
+- If the counter is per-inserted-row (an ID), use a `SEQUENCE`/`BIGSERIAL` or `GENERATED ALWAYS AS IDENTITY` — sequences are concurrency-safe and gap-tolerant by design.
+- If you must read then write across multiple statements, either take an explicit lock (`SELECT ... FOR UPDATE` inside a transaction) or use optimistic concurrency (`UPDATE ... WHERE value = $expected` and retry when `rowCount === 0`). The single-statement `UPDATE ... RETURNING` is preferred — it's simpler and avoids holding a transaction open.
+- A connection pool doesn't help here — the two round-trips can interleave across different pooled connections. Atomicity has to live in the SQL.
 
-**Other things to check:**
-- Make sure you're using a single client/transaction per request (a fresh `pool.connect()` or `pool.query()` per statement, not sharing a client across concurrent requests).
-- If using an ORM (Sequelize, Prisma, TypeORM), avoid `entity.count++; save()` patterns — use their atomic increment helpers (e.g., Prisma's `update({ data: { count: { increment: 1 } } })`) which compile to the same `SET count = count + 1` SQL.
-- Default `READ COMMITTED` isolation is fine for the atomic `UPDATE` approach above — you don't need `SERIALIZABLE`.
-- If contention is extremely high, consider batching increments or using `INSERT ... ON CONFLICT DO UPDATE SET count = counters.count + 1` for upsert-style counters.
-
-The one-line atomic `UPDATE` is almost always the right fix for a simple counter.
-[usage] input=5326 cache_read=16694 cache_write=0 output=1166
+Want me to locate and patch the actual endpoint? Point me at the file/repo and I'll apply the fix.
+[usage] input=5185 cache_read=15212 cache_write=0 output=810

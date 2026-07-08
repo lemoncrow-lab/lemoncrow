@@ -5,12 +5,11 @@ How does a hash table handle collisions?
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Hash table collision handling methods"}
-[usage] input=525 cache_read=0 cache_write=0 output=13
+[assistant] {"title": "Hash table collision handling"}
+[usage] input=525 cache_read=0 cache_write=0 output=12
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -30,20 +29,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -63,27 +58,45 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] Hash tables handle collisions (two keys mapping to the same bucket/index) mainly through two strategies:
+[assistant] A hash table handles collisions — when two different keys hash to the same bucket index — using one of two main families of strategies:
 
-**1. Chaining (separate chaining)**
-Each bucket holds a small structure (usually a linked list, sometimes a balanced tree or dynamic array) of all entries that hash to that index. On collision, the new entry is just appended.
-- Lookup: hash to the bucket, then linearly scan (or tree-search) for the key.
-- Simple to implement, degrades gracefully, but has extra memory overhead for pointers/nodes and worse cache locality.
-- Java's `HashMap` uses this (and converts long chains to red-black trees to avoid O(n) worst case).
+## 1. Separate Chaining
+Each bucket holds a *secondary data structure* (usually a linked list, sometimes a dynamic array or balanced tree) containing all entries that hash to that index.
 
-**2. Open addressing**
-All entries live directly in the underlying array; on collision, the table probes for another open slot using a defined sequence:
-- *Linear probing*: check the next slot (i+1, i+2, …). Simple, cache-friendly, but prone to "clustering."
-- *Quadratic probing*: check i+1², i+2², … to reduce clustering.
-- *Double hashing*: step size determined by a second hash function, spreading probes more evenly.
-- Deletions are trickier (need tombstones so probing sequences aren't broken), and the table must stay well below full capacity (load factor) or performance collapses.
-- Python's `dict` and Go's early map implementations use variants of open addressing.
+- **Insert:** compute the index, append the key/value to that bucket's list.
+- **Lookup:** compute the index, then scan the list comparing keys.
 
-**Other relevant mechanisms:**
-- **Load factor & resizing**: both approaches resize (rehash into a bigger table) once occupancy crosses a threshold (e.g., 0.7) to keep collision chains/probe sequences short — this keeps average-case operations O(1).
-- **Robin Hood hashing / cuckoo hashing**: more advanced open-addressing variants that bound worst-case probe length or guarantee O(1) worst-case lookup by relocating entries.
-- **Good hash functions**: minimizing collisions in the first place (uniform distribution) matters as much as how collisions are resolved.
+```
+index 3 → [ ("cat",1) ] → [ ("dog",2) ]   # both hashed to 3
+```
 
-In short: chaining tolerates collisions by storing multiple entries per bucket; open addressing avoids them by finding another slot in the array — both rely on resizing to keep performance close to O(1).
-[usage] input=3098 cache_read=23314 cache_write=5730 output=761
+- Simple; the table never "fills up."
+- Performance degrades to O(n) if many keys land in one bucket. Java's `HashMap` mitigates this by converting a long chain into a balanced tree (O(log n)).
+
+## 2. Open Addressing
+All entries live *in the array itself*. On collision, you *probe* for another open slot using a defined sequence:
+
+- **Linear probing:** try `i+1, i+2, i+3, …` (cache-friendly, but causes "clustering").
+- **Quadratic probing:** try `i+1², i+2², …` (reduces clustering).
+- **Double hashing:** step size determined by a second hash function (best distribution).
+
+Lookup follows the same probe sequence until it finds the key or an empty slot. Deletion needs care — you use a "tombstone" marker so probe chains aren't broken.
+
+## Key supporting factors
+
+- **Load factor** (entries ÷ buckets): when it exceeds a threshold (commonly ~0.75), the table **resizes and rehashes** all entries into a larger array to keep operations near O(1). This is essential for open addressing, which fails when full.
+- **Good hash function:** distributing keys uniformly is the first line of defense — fewer collisions means fewer to resolve.
+
+## Quick comparison
+
+| | Separate chaining | Open addressing |
+|---|---|---|
+| Storage | External lists | In-array |
+| Load factor | Can exceed 1 | Must stay < 1 |
+| Cache locality | Worse | Better |
+| Deletion | Easy | Needs tombstones |
+
+**In short:** collisions are inevitable (pigeonhole principle), so hash tables either *chain* colliding entries together in each bucket or *probe* for alternative slots — while keeping the load factor low via resizing to preserve average O(1) performance.
+
+Want me to show a concrete implementation of either approach in a specific language?
+[usage] input=2973 cache_read=15192 cache_write=2078 output=842

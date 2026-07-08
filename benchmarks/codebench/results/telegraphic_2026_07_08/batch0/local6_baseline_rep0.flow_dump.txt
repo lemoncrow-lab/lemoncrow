@@ -5,12 +5,11 @@ We have a monolithic Django app that's getting slow. The team is debating micros
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Evaluate microservices for Django monolith"}
-[usage] input=552 cache_read=0 cache_write=0 output=18
+[assistant] {"title": "Evaluate microservices migration for Django monolith"}
+[usage] input=552 cache_read=0 cache_write=0 output=19
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -30,20 +29,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -63,31 +58,49 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] Before splitting a Django monolith into microservices, a few things are worth nailing down — many teams find the slowness is solvable without the rewrite:
+[assistant] Good instinct to pause before committing. Microservices solve organizational and scaling problems, but they add distributed-systems complexity that often makes a slow monolith *slower to work with*, not faster. Here's how I'd frame the decision.
 
-**Is it actually an architecture problem?**
-- Profile first: is it DB query patterns (N+1s, missing indexes), lack of caching, synchronous work that should be async/queued, or just needing more instances behind a load balancer? Vertical scaling + caching (Redis) + read replicas + Celery for background jobs fixes a large fraction of "slow Django app" complaints with a fraction of the effort.
-- Microservices don't inherently make anything faster — they add network hops. They help with independent scaling, deployment, and team autonomy, not raw latency.
+## First: is "slow" a reason to split at all?
 
-**Organizational readiness**
-- Conway's Law: microservices work best when team boundaries already match the proposed service boundaries. If one team owns everything, you're adding distributed-systems complexity without the organizational split that justifies it.
-- Do you have the operational maturity for it — service discovery, distributed tracing, on-call for N services instead of 1, CI/CD per service?
+Splitting rarely fixes performance directly — you're adding network hops, serialization, and remote calls where you had in-process function calls. Before anything architectural, find out *why* it's slow:
 
-**Domain boundaries**
-- Can you actually draw clean seams? Look for bounded contexts with low coupling (e.g., "billing" vs "content" vs "notifications"). If your models are heavily interrelated with cross-cutting FKs and shared transactions, splitting will force you into distributed transactions or eventual consistency — a real cost.
-- Data ownership: each service needs its own database/schema. Untangling a shared Django ORM/DB into service-owned data stores is usually the hardest and riskiest part.
+- **Profile real requests** (Django Silk, `django-debug-toolbar`, or an APM like Datadog/Sentry). Slowness is usually one of: N+1 queries, missing DB indexes, unbounded querysets, synchronous work that should be a background job, or no caching.
+- **Check the database first.** 80% of "the monolith is slow" turns out to be the ORM. `select_related`/`prefetch_related`, indexes, and query-count budgets often reclaim more than a rewrite.
+- **Offload slow work** to Celery/RQ instead of blocking the request cycle.
 
-**Cost/complexity tradeoffs**
-- Distributed systems add failure modes (partial failures, retries, timeouts, network partitions) that a monolith doesn't have.
-- Debugging and local dev get harder (spinning up N services vs one `runserver`).
-- You'll likely need new infra: message broker, service mesh or API gateway, centralized logging/tracing (e.g., OpenTelemetry), containers/k8s.
+If you haven't done this, do it first. It's days of work versus months, and you keep a single deployable.
 
-**A middle path**
-- "Modular monolith" — enforce clean boundaries between Django apps (separate apps/modules, no cross-app ORM queries, clear internal APIs) without the network overhead. This gets you most of the maintainability benefit and can be split into real services later once boundaries prove stable.
-- Extract just the one or two components that have genuinely different scaling needs (e.g., a heavy background-processing service) rather than a full rewrite.
+## If it's genuinely an architecture/scaling problem, weigh these factors
 
-**My recommendation**: profile the actual bottleneck first — it's very likely a performance/caching/query issue, not an architecture one. If after that you still have a strong *organizational* reason (multiple teams stepping on each other, need independent deploy cadences), start with a modular monolith and peel off one service at a time rather than a big-bang split.
+**1. Team & organizational structure (the real driver).** Microservices pay off when independent teams need to deploy independently without coordinating. One team of 5–10 on one codebase almost never benefits — you get the costs (distributed debugging, versioned APIs, infra overhead) without the payoff. Conway's Law cuts both ways.
 
-Want to dig into the actual performance profile of your app first? I can help look at slow query logs, N+1 patterns, or Celery/caching setup if you point me at the code.
-[usage] input=3098 cache_read=23314 cache_write=5759 output=1102
+**2. Do clean domain boundaries exist?** Can you point to parts of the app that rarely change together and share little data? If everything touches the same core models (users, orders, billing all deeply intertwined), extraction will be painful and you'll end up with a "distributed monolith" — the worst of both worlds, where a change still requires deploying five services in lockstep.
+
+**3. Data ownership.** This is the hardest part. Each service ideally owns its data. Django makes cross-app queries and joins trivial today; across services they become API calls or event streams. You lose ACID transactions across boundaries and inherit eventual consistency, sagas, and reconciliation logic.
+
+**4. Operational maturity.** Do you have CI/CD, containerization, centralized logging, distributed tracing, service discovery, and on-call practices? Microservices multiply your deployment and observability surface. Without this foundation, you're trading a performance problem for an operations problem.
+
+**5. What actually needs to scale?** Usually one or two hotspots (e.g., a reporting endpoint, image processing, a public API). You can often scale those independently *without* full microservices.
+
+## The pragmatic middle ground
+
+Most teams should consider these before microservices:
+
+- **Optimize the monolith** — the profiling work above.
+- **Modular monolith** — enforce internal boundaries (separate Django apps with explicit interfaces, no cross-app model imports) while keeping one deployable. This gets you most of the maintainability benefit and makes future extraction *possible* if you ever need it.
+- **Extract one service** — the strangler-fig pattern. Pull out a single well-bounded, genuinely-independent piece (e.g., notifications, search, PDF generation). Learn the operational cost on something low-risk before betting the architecture on it.
+- **Scale horizontally** — run more instances of the monolith behind a load balancer; add read replicas and caching (Redis). Django scales this way surprisingly far.
+
+## A decision checklist
+
+Ask the team:
+1. Have we profiled and know *specifically* what's slow?
+2. Is the pain **performance**, or is it actually **team velocity / merge conflicts / deploy coupling**? (These point to different solutions.)
+3. Can we name 2–3 clean boundaries with minimal shared data?
+4. Do we have the ops maturity to run distributed systems today?
+5. Could a modular monolith + targeted optimization solve this for 20% of the effort?
+
+If the honest answers are "no, we haven't profiled" and "it's really about performance" — start there. If it's "our 4 teams keep blocking each other on deploys and we have clear domain seams" — then a measured extraction (not a big-bang rewrite) makes sense.
+
+Want me to dig into any of these — e.g., look at your actual codebase to assess coupling and find the real performance bottlenecks?
+[usage] input=2973 cache_read=15192 cache_write=2107 output=1489

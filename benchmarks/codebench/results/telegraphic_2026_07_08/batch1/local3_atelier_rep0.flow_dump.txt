@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -34,9 +33,7 @@ claude.ai Gmail
 claude.ai Google Calendar
 
 This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -49,15 +46,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -69,9 +64,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -98,24 +91,23 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] TCP and UDP are both transport-layer protocols, but they differ fundamentally in approach:
+[assistant] This is a general knowledge question, not a task about the codebase, so I'll answer directly.
 
-**TCP (Transmission Control Protocol)**
-- Connection-oriented: establishes a connection first (three-way handshake) before sending data
-- Reliable: guarantees delivery via acknowledgments and retransmission of lost packets
-- Ordered: packets are reassembled in the correct sequence at the destination
-- Flow/congestion control: adjusts sending rate to avoid overwhelming the receiver or network
-- Slower/higher overhead due to all these guarantees
-- Use cases: web browsing (HTTP/HTTPS), email, file transfer (FTP), anything needing complete, accurate data
+**TCP vs UDP** — both are transport-layer protocols, but they trade off reliability against speed:
 
-**UDP (User Datagram Protocol)**
-- Connectionless: sends packets ("datagrams") without setting up a connection
-- Unreliable: no guarantee of delivery, no acknowledgments, no retransmission
-- Unordered: packets may arrive out of sequence, and it's up to the application to handle that if needed
-- No flow/congestion control: just fires packets as fast as the app wants
-- Faster/lower overhead — minimal protocol machinery
-- Use cases: video/audio streaming, online gaming, DNS lookups, VoIP — situations where speed matters more than perfect delivery, and losing a few packets is better than delaying everything
+| | **TCP** | **UDP** |
+|---|---|---|
+| Connection | Connection-oriented (handshake first) | Connectionless (just send) |
+| Reliability | Guaranteed delivery, retransmits lost packets | Best-effort; packets can be lost |
+| Ordering | Data arrives in order | No ordering guarantee |
+| Error handling | Acknowledgments + flow/congestion control | Checksum only, no recovery |
+| Speed/overhead | Slower, more overhead | Fast, minimal overhead |
+| Header size | 20+ bytes | 8 bytes |
+| Data model | Byte stream | Discrete datagrams |
 
-**Core tradeoff:** TCP trades speed for reliability and order; UDP trades reliability for speed and simplicity. Choose TCP when correctness matters more than latency, UDP when latency/throughput matters more than occasional data loss.
-[usage] input=5370 cache_read=16657 cache_write=0 output=544
+**Use TCP when** correctness matters more than latency: web (HTTP/HTTPS), email, file transfer, SSH.
+
+**Use UDP when** speed matters more than perfect delivery: live video/voice (VoIP), online gaming, DNS lookups, streaming.
+
+**In short:** TCP is like a phone call — you establish a connection and confirm everything is heard. UDP is like mailing postcards — fast and cheap, but no guarantee they all arrive or arrive in order.
+[usage] input=5229 cache_read=15175 cache_write=0 output=448

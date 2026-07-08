@@ -3,8 +3,8 @@ import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
 
 const config: Config = {
-  title: "Atelier",
-  tagline: "Open-Source Runtime Engineering for Agents",
+  title: "Atelier Runtime",
+  tagline: "Open-source runtime for coding agents",
   favicon: "img/favicon.svg",
   url: "https://docs.atelier.ws",
   baseUrl: "/",

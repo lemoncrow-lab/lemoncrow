@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -31,9 +30,7 @@ The following MCP servers are still connecting — their tools (typically named 
 claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -46,15 +43,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -66,9 +61,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -95,36 +88,43 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] # Database Connection Pooling
+[assistant] This is a conceptual question, not a codebase task — answering directly.
 
-**Problem it solves:** Opening a new database connection is expensive — TCP handshake, authentication, session setup. Doing this for every single query would crush performance, especially under load.
+## Database Connection Pooling
 
-**How it works:** A connection pool maintains a set of already-open, ready-to-use database connections.
+**The problem it solves:** Opening a database connection is expensive — TCP handshake, authentication, TLS negotiation, session setup — often 10–100ms. If every request opens and closes its own connection, that overhead dominates and the database gets overwhelmed by connection churn.
 
-1. Pool is initialized at app startup with N connections (or grows lazily).
-2. When code needs to query the DB, it *borrows* a connection from the pool instead of creating one.
-3. Query runs.
-4. Connection is *returned* to the pool (not closed) for reuse.
-5. If all connections are busy, new requests wait in a queue (or a new connection is opened, up to a max limit).
+**The idea:** A connection pool keeps a set of open, ready-to-use connections. Instead of creating a connection per request, your app **borrows** one from the pool, uses it, and **returns** it (rather than closing it). Connections are reused across many requests.
 
-**Key parameters:**
-- **Min/idle connections** — kept open even when unused, ready for traffic spikes.
-- **Max connections** — caps total concurrent connections (protects the DB from overload).
-- **Timeout** — how long a request waits for a free connection before erroring.
-- **Idle timeout / max lifetime** — recycles stale connections (avoids issues from long-lived TCP sessions or DB-side timeouts).
-- **Validation** — checks a connection is still alive before handing it out.
+### How it works
+1. On startup, the pool opens N connections (or grows lazily up to a limit).
+2. A request asks the pool for a connection → gets an idle one immediately.
+3. If none are idle and the pool is below `max`, a new one is created.
+4. If the pool is at `max`, the request **waits** in a queue (up to a timeout).
+5. When done, the connection goes back to the pool — still open — for the next borrower.
 
-**Benefits:**
-- Much lower latency per request (no handshake/auth overhead).
-- Controls how many concurrent connections hit the database, preventing resource exhaustion.
-- Better throughput under concurrent load.
+### Key parameters
+- **min / max size** — connections kept warm vs. hard ceiling. Max prevents overloading the DB (each connection costs memory/CPU server-side).
+- **acquire timeout** — how long a request waits for a free connection before erroring.
+- **idle timeout** — close connections unused for too long to free resources.
+- **max lifetime** — recycle connections periodically (avoids stale/leaked server-side state, respects DB-side timeouts).
+- **validation / health check** — test a connection before handing it out (e.g. ping) so you don't get a dead one.
 
-**Common implementations:**
-- PostgreSQL: PgBouncer, or built into ORMs/drivers (e.g., `pg-pool` in Node).
-- MySQL: HikariCP (Java), mysql2 pool.
-- General: SQLAlchemy pool (Python), Django's `CONN_MAX_AGE`, ODBC/JDBC pools.
-- App-level vs. external pooler: you can pool within your app process, or run a dedicated pooler (like PgBouncer) in front of the DB — useful when you have many app instances/processes each wanting their own small pool, since the DB itself has a hard connection limit.
+### Why it matters
+- **Latency** — amortizes connection setup cost across requests.
+- **Throughput & stability** — caps concurrent DB connections, protecting the database from being swamped.
+- **Backpressure** — the wait queue naturally throttles the app under load instead of crashing the DB.
 
-**Common pitfall:** Connection leaks — code that borrows a connection but never returns it (e.g., missing `finally`/`close()`), which eventually exhausts the pool and hangs all requests.
-[usage] input=5326 cache_read=16653 cache_write=0 output=744
+### Common pitfalls
+- **Pool too small** → requests queue and time out under load.
+- **Pool too large** → the database runs out of connections/memory (a DB has its own `max_connections`; sum across all app instances must fit under it).
+- **Connection leaks** — borrowing without returning (missing `finally`/`close`) slowly drains the pool until it deadlocks.
+- **Long-held connections** — running slow work or transactions while holding a connection starves others; borrow late, return early.
+- **Serverless mismatch** — many short-lived instances each with a pool can blow past DB limits; use an external pooler (e.g. PgBouncer, RDS Proxy).
+
+### Where the pool lives
+- **In-process** — library-level: HikariCP (Java), `database/sql` (Go), SQLAlchemy `QueuePool` (Python), node-postgres `Pool`.
+- **External/sidecar** — PgBouncer, PgPool, ProxySQL, RDS Proxy — shared across many app instances, essential at scale and for serverless.
+
+**One-line mental model:** a pool is a small warm cache of reusable connections with a borrow/return lifecycle and a size cap that trades a little wait for a lot of stability.
+[usage] input=5185 cache_read=15171 cache_write=0 output=1040

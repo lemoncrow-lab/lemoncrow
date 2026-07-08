@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -31,9 +30,7 @@ The following MCP servers are still connecting — their tools (typically named 
 claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -46,15 +43,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -66,9 +61,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -95,24 +88,22 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] CORS (Cross-Origin Resource Sharing) errors happen when your browser blocks a JavaScript request from your page to a different origin (different domain, subdomain, port, or protocol) because the server didn't explicitly allow it.
+[assistant] CORS errors mean the browser blocked a cross-origin request because the server's response didn't grant permission. Common causes and fixes:
 
-**How it works:** Browsers enforce the same-origin policy. When your frontend (e.g. `http://localhost:3000`) calls an API on another origin (e.g. `http://api.example.com`), the browser sends the request but requires the server to respond with headers like `Access-Control-Allow-Origin` granting permission. If those headers are missing/wrong, the browser blocks the response from reaching your JS code (the request often still hits the server — you just can't read the response).
+**Why it happens**
+- Your frontend (e.g. `localhost:3000`) calls an API on a different origin (different domain, port, or protocol) and the server doesn't return the required `Access-Control-Allow-Origin` header.
+- A preflight `OPTIONS` request fails (triggered by custom headers, `PUT`/`DELETE`/`PATCH`, or non-simple content types).
 
-**Common causes:**
-1. **Server doesn't send CORS headers** — most common. The API needs `Access-Control-Allow-Origin: <your-origin>` (or `*`).
-2. **Preflight failure** — for non-simple requests (custom headers, `PUT`/`DELETE`/`PATCH`, `Content-Type: application/json`), the browser sends an `OPTIONS` request first. If the server doesn't handle `OPTIONS` or reply correctly, it fails before your actual request even runs.
-3. **Origin mismatch** — server allows `https://example.com` but you're calling from `http://localhost:3000` or `https://www.example.com` (different subdomain/protocol/port = different origin).
-4. **Credentials issue** — if you send cookies/auth (`credentials: 'include'`), the server *must* return an exact origin (not `*`) in `Access-Control-Allow-Origin` **and** `Access-Control-Allow-Credentials: true`.
-5. **Missing allowed headers/methods** — server's `Access-Control-Allow-Headers` / `Access-Control-Allow-Methods` don't include what you're sending.
-6. **Redirects** — API redirects (e.g. HTTP→HTTPS) and the redirect target lacks CORS headers.
+**Most common fixes (server-side — CORS must be granted by the API, not the browser)**
+- Add `Access-Control-Allow-Origin: <your-frontend-origin>` (or `*` for public APIs).
+- Handle preflight: respond to `OPTIONS` with `Access-Control-Allow-Methods` and `Access-Control-Allow-Headers`.
+- Using cookies/auth? You need `Access-Control-Allow-Credentials: true` **and** a specific origin (`*` is rejected with credentials).
 
-**Fixes:**
-- If you control the backend: add proper CORS middleware (e.g. `cors` npm package for Express, `django-cors-headers`, Spring's `@CrossOrigin`, etc.) and allow your specific origin.
-- If you don't control it: proxy the request through your own backend/server (browser CORS only applies to browser-initiated cross-origin calls, not server-to-server).
-- In dev, use a dev-server proxy (e.g. Vite `server.proxy`, CRA `"proxy"` in package.json) to avoid cross-origin calls entirely.
-- Never "fix" it by just slapping `*` on a credentialed endpoint in production — that's a security hole.
+**Quick per-stack**
+- Express: `app.use(require('cors')())`
+- Flask: `flask-cors` → `CORS(app)`
+- Spring: `@CrossOrigin`
+- Dev only: a proxy (e.g. Vite/CRA `proxy` setting) sidesteps CORS by making requests same-origin.
 
-If you share the actual error message from your console and the request being made, I can pinpoint exactly which of these applies.
-[usage] input=5326 cache_read=16660 cache_write=0 output=1006
+To pin down yours, tell me: the exact console error text, your frontend origin, and the API URL/stack.
+[usage] input=5185 cache_read=15178 cache_write=0 output=683

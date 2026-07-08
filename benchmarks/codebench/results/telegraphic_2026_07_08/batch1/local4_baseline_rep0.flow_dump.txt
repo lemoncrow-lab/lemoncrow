@@ -9,8 +9,7 @@ Write the title in the predominant language of the session — a stray word or c
 [usage] input=533 cache_read=0 cache_write=0 output=16
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -30,20 +29,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -63,34 +58,69 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] Here's a practical approach to tracking down and fixing Node.js memory leaks:
+[assistant] Here's a systematic approach to hunting down and fixing a memory leak in a long-running Node.js process.
 
-## 1. Confirm it's actually leaking
-Watch RSS/heap over time (`process.memoryUsage()`, or a dashboard). A "leak" is memory that keeps climbing and never drops after GC — not just high steady-state usage.
+## 1. Confirm it's actually a leak
 
-## 2. Common culprits
-- **Global caches/maps without eviction** — `Map`/object used as a cache that only grows
-- **Event listeners never removed** — especially `EventEmitter.on()` in a loop, or listeners added per-request but never `.off()`'d
-- **Closures holding references** — callbacks capturing large objects (e.g., `req`/`res`) that outlive the request
-- **Timers/intervals not cleared** — `setInterval` keeping closures alive forever
-- **Unbounded arrays/queues** — logs, buffered events, retry queues that never drain
-- **Detached objects in module-level state** — anything pushed to a module-scoped array/object across requests
-- **Streams not properly closed/destroyed**
+Watch memory over time — a leak grows monotonically and never comes back down after GC, whereas normal usage plateaus.
 
-## 3. Diagnose with tooling
-- **Heap snapshots**: `node --inspect` + Chrome DevTools Memory tab. Take 2-3 snapshots over time under load, compare "Comparison" view to see what's growing.
-- **`--max-old-space-size` + `--expose-gc`**: force GC (`global.gc()`) between snapshots to rule out normal uncollected garbage.
-- **`clinic.js` (`clinic doctor` / `clinic heapprofiler`)**: good for spotting leak patterns without manual snapshot diffing.
-- **`heapdump` or `v8.writeHeapSnapshot()`** in production to capture a snapshot on demand (e.g., triggered by a signal or admin endpoint).
-- Look at the **"Retainers"** tree in DevTools for the top growing object type — it'll show you the reference chain keeping it alive.
+```bash
+# Log RSS + heap every 30s
+node --expose-gc app.js
+```
 
-## 4. Fix patterns
-- Use `WeakMap`/`WeakRef` for caches keyed by objects that should be GC'able.
-- Always pair `on`/`addListener` with `off`/`removeListener`, or use `once` where appropriate.
-- Clear `setInterval`/`setTimeout` in cleanup paths.
-- Bound caches with LRU (e.g., `lru-cache`) instead of plain objects/maps.
-- Ensure request-scoped data doesn't leak into module-level state.
+```js
+setInterval(() => {
+  const m = process.memoryUsage();
+  console.log(new Date().toISOString(),
+    'rss', (m.rss / 1e6).toFixed(1),
+    'heapUsed', (m.heapUsed / 1e6).toFixed(1),
+    'external', (m.external / 1e6).toFixed(1));
+}, 30_000).unref();
+```
 
-If you can share where you're seeing the growth (a specific module, a cache, after adding some feature), I can help look at the actual code.
-[usage] input=3098 cache_read=23314 cache_write=5739 output=933
+If `heapUsed` keeps climbing across GC cycles → JS heap leak. If `rss`/`external` climbs but `heapUsed` is flat → native/Buffer/C++ addon leak (different hunt).
+
+## 2. Capture heap snapshots and diff them
+
+This is the highest-signal step.
+
+```js
+const v8 = require('v8');
+// Trigger via signal so you can snapshot on demand
+process.on('SIGUSR2', () => {
+  const file = `/tmp/heap-${Date.now()}.heapsnapshot`;
+  v8.writeHeapSnapshot(file);
+  console.log('wrote', file);
+});
+```
+
+Take a snapshot, exercise the workload for a while, take another, then load both into **Chrome DevTools → Memory tab** and use **"Comparison"** view. Sort by `# Delta`. The object types that keep growing between snapshots point straight at the leak.
+
+Alternatively run with `--inspect` and connect DevTools live, or use `clinic heapprofiler` / `node --heap-prof`.
+
+## 3. Common culprits to check
+
+| Cause | Fix |
+|---|---|
+| Unbounded `Map`/`Set`/array/cache growing forever | Add eviction — LRU cache (`lru-cache`), TTL, or size cap |
+| Event listeners added but never removed | `emitter.removeListener()` on cleanup; watch for the `MaxListenersExceededWarning` |
+| Closures capturing large objects held by long-lived callbacks/timers | Null out references; scope tighter |
+| `setInterval`/`setTimeout` never cleared | Track and `clearInterval`; use `.unref()` where appropriate |
+| Global/module-level accumulation (e.g. pushing to an exported array) | Bound it or scope it per-request |
+| Detached DOM-like graphs, or a request context retained by a cache keyed on it | Break the reference chain |
+| Native leaks (Buffers, streams not destroyed, DB connections) | `stream.destroy()`, release pool connections, check addon versions |
+
+## 4. Verify the fix
+
+Re-run the snapshot diff under the same workload — the previously growing object count should now stabilize. A soak test (run for hours under load, watch the memory graph flatten) is the real confirmation.
+
+## Useful flags & tools
+- `--max-old-space-size=N` — not a fix, but raises the ceiling while you debug.
+- `clinic doctor` / `clinic heapprofiler` — good guided diagnostics.
+- `node --trace-gc` — see GC frequency/pressure.
+
+---
+
+If you can share what the process does and a memory graph over time (or a snapshot diff), I can help you pinpoint the specific leak. Is this in a codebase you'd like me to look at?
+[usage] input=2973 cache_read=15192 cache_write=2087 output=1203

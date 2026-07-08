@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -20,23 +19,18 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers require authentication before their tools can be used:
 claude.ai Gmail
 claude.ai Google Calendar
 
 This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
-</system-reminder>
 
-<system-reminder>
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Google Drive
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -49,15 +43,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -69,9 +61,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -98,46 +88,42 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] ## Diagnosing & fixing a Node.js memory leak
+[assistant] This is a general knowledge question, not a task on a specific codebase, so I'll answer directly.
+
+## Fixing a Node.js memory leak
 
 **1. Confirm it's actually leaking**
-- Watch `process.memoryUsage().heapUsed` / `rss` over time (log periodically or use `pm2 monit`, Grafana, Datadog).
-- A real leak = memory grows steadily under steady load and never comes back down after GC, even during idle periods. Sawtooth growth that drops after GC is often fine.
+Watch RSS/heap over time under steady load. If heap grows monotonically and never recovers after GC, you have a leak.
+```js
+setInterval(() => {
+  const m = process.memoryUsage();
+  console.log(`rss=${(m.rss/1e6)|0}MB heapUsed=${(m.heapUsed/1e6)|0}MB`);
+}, 10000);
+```
+Or run with `node --expose-gc` and force GC to see what's truly retained.
 
-**2. Capture evidence**
-- Take heap snapshots at intervals: `node --inspect app.js`, then in Chrome DevTools (`chrome://inspect`) take snapshots 10+ min apart under load.
-- Or programmatically: `require('v8').writeHeapSnapshot()` on a signal/interval.
-- Compare snapshots — DevTools' "Comparison" view shows what's growing (retained size, count delta).
-- CLI alternative: `node --expose-gc --inspect` + `clinic heapprofiler` (`npx clinic heapprofiler -- node app.js`) or `0x`/`memlab` (Meta's tool, good for finding detached objects).
+**2. Capture heap snapshots**
+- Start with `node --inspect app.js`, open `chrome://inspect`, take a heap snapshot, let it run, take another.
+- Use the **Comparison** view to see which object types grew between snapshots.
+- Or programmatically: `require('v8').writeHeapSnapshot()` at intervals, diff in Chrome DevTools.
+- `clinic heapprofiler` (from Clinic.js) is a good turnkey option.
 
-**3. Common culprits to check**
-- **Event listeners never removed** — especially on long-lived `EventEmitter`s (e.g. adding a listener per request instead of once). Check for `MaxListenersExceededWarning`.
-- **Closures holding references** — callbacks capturing large objects (req/res, buffers) that outlive their scope.
-- **Caches without eviction** — a plain `Map`/object used as a cache with no TTL/LRU/max size. Use `lru-cache` or similar.
-- **Timers not cleared** — `setInterval`/`setTimeout` that keep firing and referencing closures; missing `clearInterval`/`clearTimeout`.
-- **Global arrays/objects** that just keep getting pushed to (logs, queues, metrics buffers).
-- **Unbounded Promise chains / unresolved promises** kept in an array awaiting `Promise.all`.
-- **Streams not properly closed/destroyed** — leaked sockets, file handles, or piped streams left open.
-- **Third-party client libs** (DB drivers, HTTP agents) not closed/reused correctly — e.g. creating a new DB connection pool per request.
-- **Module-level state in hot-reloaded code** (dev only, but worth ruling out).
-- **`Buffer`s from large payloads retained** in caches or logs.
+**3. Find the retainer**
+In the snapshot comparison, sort by "Delta" / "# New". Click a leaked object → **Retainers** panel shows what's keeping it alive. That chain points at the bug.
 
-**4. Narrow it down**
-- Bisect: disable subsystems/routes and watch if growth stops.
-- Use `--inspect` + Allocation Instrumentation Timeline in DevTools to see allocation sites in real time.
-- `heapdump` package + `kill -USR2 <pid>` to snapshot in production without a debugger attached.
+**4. Common causes and fixes**
+- **Unbounded caches / Maps / arrays** that only ever grow → add a size cap or TTL; use `lru-cache`, or `WeakMap`/`WeakRef` for key-tied lifetimes.
+- **Event listeners never removed** → pair every `emitter.on(...)` with `removeListener`/`off`; watch for the "MaxListenersExceededWarning".
+- **Timers/intervals never cleared** → `clearInterval`/`clearTimeout` on shutdown or when work is done.
+- **Closures capturing large objects** held by long-lived callbacks/handlers.
+- **Global/module-scope accumulators** (arrays, request logs) that never get trimmed.
+- **Dangling promises / pending callbacks** that never resolve, holding their scope.
+- **Native/stream backpressure** — undestroyed streams, unclosed DB connections/sockets.
 
-**5. Fix patterns**
-- Remove listeners: `emitter.off()`/`removeListener()` in cleanup paths; use `once()` where appropriate.
-- Bound caches: TTL + max-size (`lru-cache`).
-- Always pair `setInterval`/`addListener`/`open` with a corresponding `clear`/`remove`/`close` in `finally` or shutdown hooks.
-- Reuse connection pools/agents instead of creating new ones per request (`keepAlive` HTTP agents, shared DB pools).
-- Null out or let large temp references go out of scope promptly; avoid stashing request/response objects in long-lived structures.
+**5. Verify the fix**
+Re-run the same soak test and confirm heap plateaus (sawtooth around a stable baseline) instead of climbing.
 
-**6. Mitigate while you fix**
-- Set `--max-old-space-size` appropriately and use a process manager (PM2, k8s liveness probe) to restart on threshold as a safety net — not a fix, but limits blast radius.
-- Add memory metrics + alerting so regressions are caught early.
+**Useful flags/tools:** `--max-old-space-size` (bounds heap, buys time — not a fix), `--inspect`, `node --heapsnapshot-near-heap-limit=3`, Clinic.js (`clinic doctor` / `heapprofiler`), `heapdump`, and `process.memoryUsage()`.
 
-If you want, point me at the actual code/repo and I can look for the specific leak pattern rather than giving generic advice.
-[usage] input=5370 cache_read=16664 cache_write=0 output=1320
+If you share the actual code or a snapshot diff, I can point at the specific retainer.
+[usage] input=5185 cache_read=15182 cache_write=0 output=947

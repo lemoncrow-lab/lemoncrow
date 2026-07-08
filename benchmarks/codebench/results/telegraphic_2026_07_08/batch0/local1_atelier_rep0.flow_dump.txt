@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -20,23 +19,18 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers require authentication before their tools can be used:
 claude.ai Gmail
-claude.ai Google Calendar
 
 This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
-</system-reminder>
 
-<system-reminder>
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Google Calendar
+claude.ai Google Drive
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -49,15 +43,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -69,9 +61,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -98,54 +88,26 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] The re-render is happening because of one (or more) of these:
+[assistant] Short answer: passing an object literal creates a **new object reference on every render**, so referential-equality checks (`===`) see it as "changed" even when the contents are identical.
 
-**1. New object identity on every render**
-If you write this in a parent:
-```jsx
-<Child options={{ foo: 'bar' }} />
-// or
-<Child style={{ color: 'red' }} />
-```
-That object literal is recreated on every parent render. Even though the *contents* are identical, `{} !== {}` in JS — it's a new reference each time. If `Child` is wrapped in `React.memo`, memo's default comparison is a shallow `Object.is` check on props, so it sees a "changed" prop and re-renders anyway.
+**Why it happens**
+- `<Child data={{ id: 1 }} />` or `data={someArray.map(...)}` allocates a fresh object/array each parent render. React's default reconciliation re-renders children regardless, and even `React.memo` fails because its shallow prop comparison compares references, not deep contents.
+- A component re-renders when its **own state/context changes OR its parent re-renders** — props not changing does *not* prevent a re-render by itself. Plain function components have no bailout; only `React.memo` adds one.
 
-**Fix:** memoize the object so its reference is stable:
-```jsx
-const options = useMemo(() => ({ foo: 'bar' }), []);
-<Child options={options} />
-```
-or hoist it outside the component if it never depends on props/state.
+**Fixes**
+1. Memoize the object so the reference is stable:
+   ```jsx
+   const data = useMemo(() => ({ id, name }), [id, name]);
+   ```
+2. Wrap the child in `React.memo` so it skips re-render when props are referentially equal:
+   ```jsx
+   const Child = React.memo(function Child({ data }) { ... });
+   ```
+   Both are needed together — `memo` alone won't help if the object is recreated each render.
+3. For functions passed as props, use `useCallback` similarly.
+4. If props are deeply-but-not-referentially equal, pass a custom comparator: `React.memo(Child, (prev, next) => deepEqual(prev.data, next.data))` — but prefer stable references over deep compares.
 
-**2. Same problem with inline functions**
-```jsx
-<Child onClick={() => doThing(id)} />
-```
-New function reference every render — same fix with `useCallback`.
+**Verify** which cause it is: add `console.log` in the child, or use the React DevTools Profiler ("Why did this render?") — it'll tell you whether it re-rendered due to props, state, parent, or hooks.
 
-**3. `React.memo` isn't applied at all**
-Passing a stable object prop doesn't help if `Child` itself isn't wrapped in `memo()`. Without it, a child re-renders whenever its parent re-renders, regardless of props.
-```jsx
-const Child = React.memo(function Child({ options }) { ... });
-```
-
-**4. Context re-renders**
-If the "state update" is happening via Context, *every* consumer of that context re-renders when the context value changes — regardless of props/memo — unless you split context or memoize the provider's `value`.
-
-**5. Object prop's *contents* actually do change**
-Sometimes the object is rebuilt with genuinely different values each time (e.g., derived from state that changed), so a re-render is correct — the parent update should be blamed, not the memoization.
-
-**Quick way to confirm which one:** use the React DevTools Profiler, or add:
-```jsx
-console.log('rendered', options);
-```
-and check `Object.is(prevOptions, options)` across renders (React DevTools "why did this render" highlighting, or the `why-did-you-render` library, makes this trivial).
-
-**Summary checklist:**
-- Is the object created inline in JSX? → wrap in `useMemo`.
-- Is the child wrapped in `React.memo`? → add it.
-- Are you passing inline callbacks too? → `useCallback`.
-- Is it via Context? → memoize provider value / split context.
-
-If you paste the actual component code, I can point to the exact line.
-[usage] input=5370 cache_read=16680 cache_write=0 output=844
+Most likely culprit here: inline object literal + no `useMemo` (and/or no `React.memo` on the child). Point me at the component and I'll pinpoint it.
+[usage] input=5185 cache_read=15198 cache_write=0 output=777

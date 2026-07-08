@@ -9,8 +9,7 @@ Write the title in the predominant language of the session — a stray word or c
 [usage] input=529 cache_read=0 cache_write=0 output=14
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -30,20 +29,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -63,16 +58,46 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] **Queue** (point-to-point, one consumer per message): use when each message should be processed exactly once by a single worker.
-- Task distribution / load balancing across workers
-- Work that must not be duplicated (e.g., "charge this order," "send this email")
-- You want competing consumers to scale horizontally
+[assistant] Great question — the choice comes down to **delivery semantics**: does each message need to be processed by exactly one consumer, or fanned out to many?
 
-**Topic** (pub/sub, one-to-many): use when multiple independent subscribers each need their own copy of every message.
-- Event broadcasting (e.g., "OrderPlaced" → inventory, billing, and notifications all react independently)
-- Decoupled services that don't know about each other
-- You need fan-out without the publisher knowing who's listening
+## Use a Queue when...
 
-Quick heuristic: if exactly one consumer should act on each message, use a queue. If zero-to-many independent consumers each need to see every message, use a topic. Many systems (SQS/SNS, Kafka, RabbitMQ, Azure Service Bus) let you combine them — a topic fanning out to multiple queues, one per subscriber group — giving you pub/sub semantics with queue-like durability/competing-consumer behavior per subscriber.
-[usage] input=3098 cache_read=23314 cache_write=5737 output=397
+You want **each message processed once, by exactly one consumer** (point-to-point / competing consumers).
+
+- **Work distribution** — Multiple workers pull from the same queue; each job goes to whichever worker is free. Adding workers scales throughput.
+- **Load leveling** — Buffer bursts of work and drain them at a sustainable rate.
+- **Task/command processing** — Order placement, image resizing, email sending, payment processing.
+- You care about **not losing or duplicating** work.
+
+Mental model: *"This job must get done once."*
+
+## Use a Topic (pub/sub) when...
+
+You want **each message delivered to all interested subscribers** (fan-out / broadcast).
+
+- **Event notification** — One event, many independent reactions. An `OrderPlaced` event triggers billing, inventory, shipping, and analytics — each a separate subscriber.
+- **Decoupling producers from consumers** — The publisher doesn't know or care who's listening; you add subscribers without touching the producer.
+- **State propagation / cache invalidation** — Broadcast "this changed" to everyone who holds a copy.
+
+Mental model: *"This thing happened; whoever cares can react."*
+
+## Quick decision guide
+
+| Question | Queue | Topic |
+|---|---|---|
+| How many consumers process each message? | Exactly one | All subscribers |
+| Adding a consumer... | ...shares the load | ...adds a new reaction |
+| Coupling | Command ("do this") | Event ("this happened") |
+| Typical use | Jobs, tasks | Events, notifications |
+
+## Practical notes
+
+- **You often combine both.** A common pattern is *topic → queues*: a topic fans an event out, and each subscriber has its own queue behind it (competing consumers within each subscriber, broadcast across subscribers). This is exactly what AWS **SNS→SQS**, GCP Pub/Sub, and Kafka consumer groups give you.
+- **Kafka** blurs the line: a single topic supports both — consumers in the *same* consumer group split partitions (queue-like), while *different* groups each get the full stream (topic-like).
+- **Ordering:** queues preserve order per queue (or per message-group/partition key); fan-out generally doesn't guarantee cross-subscriber ordering.
+- **Naming varies by broker** — RabbitMQ uses exchanges + bindings, JMS has explicit Queue vs Topic, Azure Service Bus has both, and Kafka unifies them under topics + consumer groups.
+
+**Rule of thumb:** if you'd say *"do this task,"* use a queue. If you'd say *"this happened,"* use a topic.
+
+Want me to map this to a specific broker you're using (Kafka, RabbitMQ, SQS/SNS, etc.)?
+[usage] input=2973 cache_read=15192 cache_write=2085 output=1004

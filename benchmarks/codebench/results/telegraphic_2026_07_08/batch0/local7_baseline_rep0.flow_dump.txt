@@ -10,12 +10,11 @@ app.get('/api/users/:id', (req, res) => {
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Review Express route for SQL injection vulnerability"}
-[usage] input=584 cache_read=0 cache_write=0 output=15
+[assistant] {"title": "Review Express route security issues"}
+[usage] input=584 cache_read=0 cache_write=0 output=13
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -35,20 +34,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -68,36 +63,68 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] This handler has a critical SQL injection vulnerability plus a few smaller issues.
+[assistant] This handler has a **critical SQL injection vulnerability**, plus a couple of smaller issues. Here's the breakdown:
 
-**1. SQL injection (critical)**
-`req.params.id` is interpolated directly into the query string. Anyone can pass something like:
+## 1. SQL Injection (Critical)
+
+```js
+const query = `SELECT * FROM users WHERE id = ${req.params.id}`;
 ```
-GET /api/users/1 OR 1=1
-GET /api/users/1; DROP TABLE users;--
+
+`req.params.id` is interpolated directly into the SQL string. An attacker fully controls it via the URL path. For example:
+
 ```
-and manipulate or destroy data. Fix with parameterized queries:
+GET /api/users/1 OR 1=1          → dumps every user
+GET /api/users/1 UNION SELECT ... → exfiltrate other tables (password hashes, etc.)
+GET /api/users/1; DROP TABLE users -- → destructive, if the driver allows stacked queries
+```
+
+**Fix: use parameterized queries** so the value is never parsed as SQL.
+
 ```js
 app.get('/api/users/:id', (req, res) => {
-  db.query('SELECT * FROM users WHERE id = $1', [req.params.id])
-    .then(user => res.json(user))
-    .catch(err => res.status(500).json({ error: 'Internal server error' }));
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid user id' });
+  }
+
+  db.query('SELECT * FROM users WHERE id = ?', [id])   // mysql/mysql2 style
+    .then(rows => {
+      if (!rows.length) return res.status(404).json({ error: 'Not found' });
+      res.json(rows[0]);
+    })
+    .catch(err => {
+      console.error(err);
+      res.status(500).json({ error: 'Internal server error' });
+    });
 });
 ```
-(Use `?` placeholder syntax instead of `$1` if using MySQL rather than Postgres.)
 
-**2. No error handling**
-There's no `.catch()`, so a rejected promise (e.g., DB error, or malformed input causing a query failure) becomes an unhandled rejection — it can crash the process (depending on Node version/config) or hang the request.
+Use the placeholder syntax for your driver: `?` for mysql/mysql2, `$1` for `pg`, or named binds (`:id`) for others. Validating that the id is an integer is good defense-in-depth, but the parameterization is what actually closes the hole.
 
-**3. Potential data leakage / no output shaping**
-`res.json(user)` returns whatever the DB returns, including columns like password hashes if `SELECT *` includes them. Prefer selecting only needed columns or filtering the result before sending it to the client.
+## 2. Unhandled promise rejection / no error handling
 
-**4. No input validation**
-No check that `id` is the expected type/format (e.g., numeric or valid UUID) before it reaches the query — even with parameterized queries, validating early gives a cleaner 400 response instead of a DB-level error for garbage input.
+```js
+db.query(query).then(user => res.json(user));
+```
 
-**5. Missing `SELECT *`-specific concern**
-Beyond leakage, `SELECT *` is fragile against future schema changes exposing new sensitive columns unintentionally — prefer explicit column lists.
+There's no `.catch()`. A DB error leaves the request hanging (client times out) and can crash the process on an unhandled rejection. Always handle the rejection and return a 500 — and don't leak the raw error to the client (it can reveal schema/driver details). The fixed version above addresses this.
 
-The SQL injection is the one that must be fixed before this ships; the others are hardening.
-[usage] input=3098 cache_read=23314 cache_write=5798 output=699
+## 3. `SELECT *` leaks sensitive columns
+
+`SELECT *` returns every column, so `res.json(user)` will happily ship `password_hash`, `mfa_secret`, `reset_token`, etc. to the client. **Select only the fields you intend to expose:**
+
+```js
+db.query('SELECT id, name, email FROM users WHERE id = ?', [id])
+```
+
+## 4. (Context-dependent) Missing authZ
+
+This route lets any caller fetch any user by id. If these records are private, you likely also need authentication and an authorization check (e.g. the caller may only fetch their own record, or must be an admin). That depends on your app's requirements, but flagging it since the endpoint is wide open as written.
+
+---
+
+**Priority:** Fix #1 immediately — it's remotely exploitable and can lead to full database compromise. #2 and #3 should go in the same change.
+
+Want me to look at the actual file in the repo so I can apply these fixes in the correct driver syntax?
+[usage] input=2973 cache_read=15192 cache_write=2146 output=1114

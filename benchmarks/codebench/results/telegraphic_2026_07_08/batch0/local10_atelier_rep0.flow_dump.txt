@@ -1,7 +1,6 @@
 
 === Turn 1 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -20,23 +19,18 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers require authentication before their tools can be used:
 claude.ai Gmail
 claude.ai Google Calendar
 
 This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
-</system-reminder>
 
-<system-reminder>
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Google Drive
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
@@ -49,15 +43,13 @@ Available agent types for the Agent tool:
 - atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
 - atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -69,9 +61,7 @@ Atelier replaces the grep→read→re-read loop.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
 - `bash` = execution only (tests, git, builds).
 - Large output → a file, never inline prose.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -98,361 +88,82 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "find . -maxdepth 3 -iname \"package.json\" -not -path \"*/node_modules/*\" 2>/dev/null; ls"}
-[usage] input=5370 cache_read=16681 cache_write=0 output=214
+[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "ErrorBoundary componentDidCatch fallback"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "find . -maxdepth 2 -name 'package.json' -not -path '*/node_modules/*'; echo '---'; ls src 2>/dev/null; ls src/components 2>/dev/null"}
+[usage] input=5185 cache_read=15199 cache_write=0 output=231
 
 === Turn 2 ===
-[user] [tool_result] ./.opencode/package.json
+[user] [tool_result] ## frontend/src/components/ErrorBoundary.tsx
+### fallback L11-L12
+11	  fallback?: (error: Error, retry: () => void) => ReactNode;
+  /** Called with the caught error and React's component stack for logging. */
+### ErrorBoundaryState L19-L19
+19	interface ErrorBoundaryState {
+### componentDidCatch L45-L47
+45	  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    this.setState({ errorInfo });
+
+
+related_symbols:
+src/atelier/core/capabilities/optimization/audit.py:L76-L98 _component
+src/atelier/core/capabilities/tool_supervision/path_safety.py:L15-L25 check_protected
+benchmarks/mini/runner.py:L88-L98 _boundary_respected
+src/atelier/gateway/adapters/mcp_server.py:L7609-L7621 _task_boundary_detected
+integrations/agents/general.md:L2-L19 heading mode: general
+src/atelier/core/capabilities/code_health/doc_drift.py:L82-L84 _leaf_name
+src/atelier/core/foundation/models.py:L50-L52 short_hash
+src/atelier/gateway/adapters/mcp_server.py:L7582-L7585 variable _TASK_BOUNDARY_SUCCESS_RE
+
+candidate_files: src/atelier/gateway/adapters/mcp_server.py, src/atelier/core/capabilities/swarm/capability.py, src/atelier/core/capabilities/code_context/engine.py, src/atelier/core/capabilities/failure_analysis/capability.py, src/atelier/core/service/api.py, integrations/claude/plugin/workflows/code-audit.js, integrations/claude/plugin/workflows/gate-benchmark.js, integrations/skills/ux-review/SKILL.md, src/atelier/core/capabilities/code_context/ppl_rank.py, src/atelier/infra/memory_bridges/openmemory.py, src/atelier/core/capabilities/owned_execution_lanes.py, benchmarks/telegraphic/prompts.json, src/atelier/gateway/adapters/mcp_http.py, src/atelier/core/capabilities/proof_gate/capability.py, src/atelier/core/capabilities/optimization/audit.py, src/atelier/core/capabilities/optimization/policy.py, src/atelier/core/foundation/store.py, src/atelier/gateway/cli/runtime.py, src/atelier/core/foundation/models.py, src/atelier/core/capabilities/live_reviewer/agentic.py, src/atelier/core/capabilities/semantic_file_memory/graph_analytics.py, scripts/lib/common.sh, src/atelier/core/capabilities/code_context/ann_symbol_index.py, tests/core/test_swarm_capability.py
+
+(truncated; narrow with paths=)
+[tool_result] exit_code=2
+./.opencode/package.json
 ./docs-site/package.json
-./services/license-issuer/package.json
 ./landing/package.json
 ./frontend/package.json
 ./.kilo/package.json
-AGENTS.md
-BENCHMARKS.md
-CLA.md
-CLAUDE.md
-CONTRIBUTING.md
-LICENSE
-LICENSE-APACHE
-Makefile
-README.md
-__pycache__
-_scratch_repro.py
-benchmarks
-build
-build_dist
-bundle
-cost_history.json
-deploy
-dist
-docs
-docs-internal
-docs-site
-err.log
-experiments
-frontend
-hatch_build.py
-integrations
-jobs
-landing
-node_modules
-opencode.json
-pyproject.toml
-release
-reports
-requirements-audit.txt
-scripts
-services
-signatures
-src
-tests
-tmp
-uv.lock
-vendor
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cat frontend/package.json | head -40; echo ---; find frontend/src -iname \"*.tsx\" -o -iname \"*.jsx\" | head -20; echo ---; find frontend -iname \"*ErrorBoundary*\" -o -iname \"*error-boundary*\""}
-[usage] input=2 cache_read=16681 cache_write=5873 output=186
+---
+atelier
+[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["frontend/src/components/ErrorBoundary.tsx:full"]}
+[usage] input=2 cache_read=15199 cache_write=6560 output=130
 
 === Turn 3 ===
-[user] [tool_result] App.test.tsx
-App.tsx
-components/ArchivalSearchBox.tsx
-components/ErrorBoundary.tsx
-components/ExpandableCard.tsx
-components/HealthStrip.tsx
-components/LeverBar.tsx
-components/MemoryBlockCard.tsx
-components/SavingsTimeChart.tsx
-components/WorkbenchUI.tsx
-components/ui/alert.tsx
-components/ui/badge.tsx
-components/ui/button.tsx
-components/ui/card.tsx
-components/ui/disclosure-card.tsx
-components/ui/empty-state.tsx
-components/ui/input.tsx
-components/ui/select.tsx
-components/ui/toggle-group.tsx
-lib/TimeRangeContext.tsx
-main.tsx
-pages/Analytics.tsx
-pages/Costs.tsx
-pages/Learnings.tsx
-pages/Memory.test.tsx
-pages/Memory.tsx
-pages/Optimizations.tsx
-pages/Overview.tsx
-pages/ProjectionInspector.test.tsx
-pages/ProjectionInspector.tsx
-pages/Reports.test.tsx
-pages/Reports.tsx
-pages/Rubrics.tsx
-pages/Savings.test.tsx
-pages/Savings.tsx
-pages/Sessions.test.tsx
-pages/Sessions.tsx
-pages/Swarms.test.tsx
-pages/Swarms.tsx
-pages/System.test.tsx
-pages/System.tsx
-pages/Telemetry.tsx
-pages/Watchdogs.test.tsx
-pages/Watchdogs.tsx
-pages/sessions/DiffView.test.tsx
-pages/sessions/DiffView.tsx
-pages/sessions/SessionDetail.test.tsx
-pages/sessions/SessionDetail.tsx
-pages/sessions/StatusBadge.test.tsx
-pages/sessions/StatusBadge.tsx
-pages/sessions/TurnRenderers.test.tsx
-pages/sessions/TurnRenderers.tsx
-pages/swarms/WorkflowSection.tsx
-[assistant] There's already an ErrorBoundary component in this repo. Let me check it and the existing UI conventions before deciding whether to enhance it or the user wants a standalone one.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["frontend/src/components/ErrorBoundary.tsx", "frontend/src/components/ui/button.tsx", "frontend/src/components/ui/alert.tsx"]}
-[usage] input=2 cache_read=22554 cache_write=918 output=175
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
+
+The following MCP servers require authentication before their tools can be used:
+claude.ai Gmail
+claude.ai Google Calendar
+
+This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
+[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"ErrorBoundary\" frontend/src --include=*.tsx --include=*.ts -l | grep -v ErrorBoundary.tsx", "cwd": "/home/pankaj/Projects/leanchain/atelier"}
+[usage] input=442 cache_read=21759 cache_write=1701 output=331
 
 === Turn 4 ===
-[user] [tool_result] ## /home/pankaj/Projects/leanchain/atelier/frontend/src/components/ErrorBoundary.tsx
-import { Component, type ErrorInfo, type ReactNode } from "react";
-import { AlertTriangle, RotateCcw } from "lucide-react";
-import { Card, CardContent, CardHeader } from "./ui/card";
-import { Button } from "./ui/button";
-import { cn } from "../lib/utils";
+[user] [tool_result] # grep (1 files)
+[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"ErrorBoundary\" frontend/src --include=*.tsx --include=*.ts | grep -v \"components/ErrorBoundary.tsx\"", "cwd": "/home/pankaj/Projects/leanchain/atelier"}
+[usage] input=2 cache_read=23460 cache_write=784 output=159
 
-interface ErrorBoundaryProps {
-  /** Content that may throw during render. */
-  children: ReactNode;
-  /** Optional custom fallback. Receives the error and a retry callback. */
-  fallback?: (error: Error, retry: () => void) => ReactNode;
-  /** Called with the caught error and React's component stack for logging. */
-  onError?: (error: Error, errorInfo: ErrorInfo) => void;
-  /** Label used in the default fallback and log messages, e.g. a page name. */
-  label?: string;
-  className?: string;
-}
-
+=== Turn 5 ===
+[user] [tool_result] interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
-  error: Error | null;
-  errorInfo: ErrorInfo | null;
-  /** Bumped on every retry so children remount with a fresh key. */
-  retryCount: number;
-}
-
-/**
- * Catches render/lifecycle errors thrown by its subtree, logs them, and shows
- * a fallback UI with a retry button instead of unmounting the whole app.
- *
- * Error boundaries only catch errors during rendering, in lifecycle methods,
- * and in constructors of the tree below them — not in event handlers, async
- * code, or errors thrown in the boundary itself. See:
- * https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary
- */
 export class ErrorBoundary extends Component<
   ErrorBoundaryProps,
   ErrorBoundaryState
-> {
   state: ErrorBoundaryState = { error: null, errorInfo: null, retryCount: 0 };
-
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
-    return { error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    this.setState({ errorInfo });
-
     const label = this.props.label ?? "ErrorBoundary";
-    // eslint-disable-next-line no-console -- intentional error logging sink
-    console.error(
-      `[${label}] caught render error:`,
-      error,
-      errorInfo.componentStack
-    );
+[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd frontend && npx tsc --noEmit -p tsconfig.json 2>&1 | grep -i \"ErrorBoundary\" || echo \"no ErrorBoundary type errors\"", "cwd": "/home/pankaj/Projects/leanchain/atelier"}
+[usage] input=2 cache_read=24244 cache_write=329 output=261
 
-    this.props.onError?.(error, errorInfo);
-  }
-
-  retry = () => {
-    this.setState((prev) => ({
-      error: null,
-      errorInfo: null,
-      retryCount: prev.retryCount + 1,
-    }));
-  };
-
-  render() {
-    const { error } = this.state;
-
-    if (error) {
-      if (this.props.fallback) {
-        return this.props.fallback(error, this.retry);
-      }
-
-      return (
-        <Card tone="red" className={cn("m-4", this.props.className)}>
-          <CardHeader className="flex flex-row items-start gap-3">
-            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-300" />
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-red-100">
-                {this.props.label
-                  ? `${this.props.label} failed to render`
-                  : "Something went wrong"}
-              </div>
-              <div className="mt-1 text-xs leading-relaxed text-red-200/80">
-                {error.message || "An unexpected error occurred."}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="flex items-center gap-3">
-            <Button
-              variant="danger"
-              size="sm"
-              icon={<RotateCcw size={12} />}
-              onClick={this.retry}
-            >
-              Retry
-            </Button>
-            {import.meta.env.DEV && this.state.errorInfo && (
-              <details className="min-w-0 flex-1 text-[10px] text-red-200/60">
-                <summary className="cursor-pointer select-none">
-                  Stack trace
-                </summary>
-                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">
-                  {error.stack}
-                  {this.state.errorInfo.componentStack}
-                </pre>
-              </details>
-            )}
-          </CardContent>
-        </Card>
-      );
-    }
-
-    // key forces a full remount of children on retry so components with
-    // broken internal state don't immediately re-throw the same error.
-    return <div key={this.state.retryCount}>{this.props.children}</div>;
-  }
-}
-
-
-## /home/pankaj/Projects/leanchain/atelier/frontend/src/components/ui/button.tsx
-import {
-  forwardRef,
-  type ButtonHTMLAttributes,
-  type ReactNode,
-} from "react";
-import { cn } from "../../lib/utils";
-
-type ButtonVariant =
-  | "outline"
-  | "ghost"
-  | "accent"
-  | "amber"
-  | "emerald"
-  | "danger"
-  | "link";
-type ButtonSize = "xs" | "sm" | "icon";
-
-const VARIANT_STYLES: Record<ButtonVariant, string> = {
-  outline:
-    "border-neutral-700 text-neutral-300 hover:border-neutral-500 hover:text-neutral-100",
-  ghost:
-    "border-transparent text-neutral-400 hover:border-neutral-700 hover:bg-neutral-900/40 hover:text-neutral-200",
-  accent:
-    "border-brand-500/60 text-brand-300 hover:bg-brand-500/10 hover:text-brand-200",
-  amber:
-    "border-amber-500/60 text-amber-200 hover:bg-amber-500/10 hover:text-amber-100",
-  emerald:
-    "border-emerald-700 text-emerald-200 hover:border-emerald-500 hover:text-emerald-100",
-  danger: "border-red-700 text-red-200 hover:border-red-500 hover:text-red-100",
-  link: "border-transparent px-0 py-0 text-neutral-400 hover:text-neutral-300",
-};
-
-const SIZE_STYLES: Record<ButtonSize, string> = {
-  xs: "px-2.5 py-1 text-[10px] tracking-widest",
-  sm: "px-3 py-2 text-xs tracking-widest",
-  icon: "h-5 w-5 px-0 py-0 text-xs",
-};
-
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-  active?: boolean;
-  icon?: ReactNode;
-}
-
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  (
-    {
-      className,
-      variant = "outline",
-      size = "sm",
-      active = false,
-      icon,
-      children,
-      type = "button",
-      ...props
-    },
-    ref
-  ) => (
-    <button
-      ref={ref}
-      type={type}
-      className={cn(
-        "inline-flex items-center justify-center gap-2 border bg-transparent font-mono uppercase transition disabled:cursor-not-allowed disabled:opacity-40",
-        SIZE_STYLES[size],
-        VARIANT_STYLES[variant],
-        active && variant === "outline" && "border-neutral-500 bg-neutral-800 text-neutral-100",
-        className
-      )}
-      {...props}
-    >
-      {icon}
-      {children}
-    </button>
-  )
-);
-
-Button.displayName = "Button";
-
-
-## /home/pankaj/Projects/leanchain/atelier/frontend/src/components/ui/alert.tsx
-import type { ReactNode } from "react";
-import { cn } from "../../lib/utils";
-
-type AlertTone = "neutral" | "info" | "success" | "warning" | "danger";
-
-const ALERT_STYLES: Record<AlertTone, string> = {
-  neutral: "border-neutral-800 bg-neutral-950/60 text-neutral-300",
-  info: "border-cyan-900/40 bg-cyan-950/20 text-cyan-100",
-  success: "border-emerald-900/40 bg-emerald-950/20 text-emerald-100",
-  warning: "border-amber-900/40 bg-amber-950/20 text-amber-100",
-  danger: "border-red-900/40 bg-red-950/20 text-red-100",
-};
-
-interface AlertProps {
-  tone?: AlertTone;
-  title?: ReactNode;
-  description?: ReactNode;
-  className?: string;
-}
-
-export function Alert({
-  tone = "neutral",
-  title,
-  description,
-  className,
-}: AlertProps) {
-  return (
-    <div className={cn("border p-4 text-sm", ALERT_STYLES[tone], className)}>
-      {title && <div className="font-semibold">{title}</div>}
-      {description && (
-        <div className={cn(Boolean(title) && "mt-1", "leading-relaxed")}>
-          {description}
-        </div>
-      )}
-    </div>
-  );
-}
-
-[assistant] done: React error boundary already implemented — `frontend/src/components/ErrorBoundary.tsx` (class component: `getDerivedStateFromError`/`componentDidCatch` catch render errors, logs via `console.error` + optional `onError` callback, default fallback UI with `Retry` button that remounts children via key bump, supports custom `fallback` render-prop and dev-only stack trace).
-[usage] input=2 cache_read=23472 cache_write=3274 output=392
+=== Turn 6 ===
+[user] [tool_result] no ErrorBoundary type errors
+[assistant] done: ErrorBoundary already implemented at `frontend/src/components/ErrorBoundary.tsx` — catches render errors (getDerivedStateFromError/componentDidCatch), fallback UI with Retry button + remount-on-retry, logs via console.error + onError; typechecks clean — no changes needed.
+[usage] input=2 cache_read=24573 cache_write=278 output=107

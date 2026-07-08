@@ -5,12 +5,11 @@ What's the point of using a debouncer on a search input?
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Understand search input debouncing"}
-[usage] input=531 cache_read=0 cache_write=0 output=15
+[assistant] {"title": "Understand search input debouncer benefits"}
+[usage] input=531 cache_read=0 cache_write=0 output=16
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -30,20 +29,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -63,13 +58,30 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] A debouncer delays firing the search logic until the user pauses typing for a set interval, rather than firing on every keystroke. Main benefits:
+[assistant] A debouncer on a search input delays running the search until the user *stops* typing for a short window (say 300ms), rather than firing on every keystroke. The point is:
 
-- **Fewer requests/computations** — without it, typing "hello" fires 5 searches instead of 1, wasting bandwidth and backend load.
-- **Avoids race conditions** — rapid-fire requests can return out of order, causing an older query's results to overwrite newer ones on screen (debouncing sidesteps this, though you still often want cancellation/latest-wins logic too).
-- **Smoother UX** — no flickering results/spinners on every keystroke; results settle once the user pauses.
-- **Lower cost** — fewer calls to paid APIs or expensive DB queries (e.g., full-text search, autocomplete).
+## The core problem
+Without debouncing, typing "laptop" fires **6 separate searches** — one per character (`l`, `la`, `lap`, `lapt`, `lapto`, `laptop`). Five of those are wasted work; the user only cared about the last one.
 
-Typical delay is 200–500ms. Note debounce differs from throttle: debounce waits for a pause in activity, throttle fires at a fixed rate regardless of pauses — debounce is the better fit for search-as-you-type since you want the *final* input, not periodic snapshots while still typing.
-[usage] input=3098 cache_read=23314 cache_write=5734 output=369
+## What debouncing buys you
+
+**Fewer network requests / less server load**
+Instead of 6 API calls, you make 1 (after they pause). This matters a lot at scale — it's the difference between your search endpoint handling 6x traffic or 1x.
+
+**Avoids race conditions in results**
+Async responses can arrive out of order. The response for `lapt` might come back *after* the response for `laptop`, leaving stale results on screen. Fewer in-flight requests means fewer chances for this. (Note: debouncing reduces but doesn't fully eliminate this — you still want request cancellation or a "latest wins" guard.)
+
+**Less UI churn**
+The results list isn't flickering and re-rendering on every keystroke, which is both janky and visually distracting.
+
+**Cost / rate limits**
+If each search hits a paid API (or a rate-limited one), you're not burning quota on partial queries nobody wanted.
+
+## The tradeoff
+You add a small perceived latency — results appear ~300ms after the user stops typing. That delay is the tuning knob: too short and you lose the savings, too long and it feels sluggish.
+
+## Related distinction
+Debounce ≠ throttle. **Debounce** waits for a pause (good for "final value" cases like search). **Throttle** guarantees at most one call per interval regardless of pauses (good for continuous events like scroll/resize where you want periodic updates, not just the last one).
+
+For a search box, debounce is almost always the right choice.
+[usage] input=2973 cache_read=15192 cache_write=2082 output=646

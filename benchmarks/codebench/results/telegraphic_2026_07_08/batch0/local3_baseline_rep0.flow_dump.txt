@@ -9,8 +9,7 @@ Write the title in the predominant language of the session — a stray word or c
 [usage] input=538 cache_read=0 cache_write=0 output=18
 
 === Turn 2 ===
-[system] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
 CronList
@@ -30,20 +29,16 @@ TaskStop
 TaskUpdate
 WebFetch
 WebSearch
-</system-reminder>
 
-<system-reminder>
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
-- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
 When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
-</system-reminder>
 
-<system-reminder>
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
@@ -63,73 +58,74 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-</system-reminder>
-[assistant] Here's a solid setup using `node-postgres` (`pg`), which is the standard PostgreSQL client for Node.js.
+[assistant] Here's a solid setup using `node-postgres` (`pg`), which is the standard choice.
 
-## Install
+## Basic pool configuration
 
-```bash
-npm install pg
-```
-
-## Pool configuration
-
-```javascript
+```js
 // db.js
 const { Pool } = require('pg');
 
 const pool = new Pool({
   host: process.env.PGHOST,
-  port: process.env.PGPORT || 5432,
+  port: process.env.PGPORT ?? 5432,
+  database: process.env.PGDATABASE,
   user: process.env.PGUSER,
   password: <redacted>,
-  database: process.env.PGDATABASE,
 
-  // Pool sizing
-  max: 20,                      // max clients in pool
-  min: 2,                       // keep a few warm
+  // --- Pool sizing ---
+  max: 20,                        // max clients in the pool
+  min: 0,                         // keep 0 idle when quiet (or set a warm floor)
 
-  // Timeouts
-  idleTimeoutMillis: 30000,     // close idle clients after 30s
-  connectionTimeoutMillis: 5000, // fail fast if can't get a connection in 5s
-  statement_timeout: 10000,     // kill queries running > 10s (server-side)
-  query_timeout: 10000,         // client-side query timeout
+  // --- Timeouts ---
+  idleTimeoutMillis: 30_000,      // close idle clients after 30s
+  connectionTimeoutMillis: 5_000, // fail fast if no connection within 5s
+  maxUses: 7_500,                 // recycle a client after N queries (avoids leaks/stale conns)
 
-  // Optional, if your DB requires SSL (e.g. managed Postgres like RDS/Supabase)
-  ssl: process.env.PGSSLMODE === 'require'
-    ? { rejectUnauthorized: false }
+  // --- Per-query safety limits (applied to every connection) ---
+  statement_timeout: 30_000,             // abort any single query after 30s
+  query_timeout: 30_000,                 // client-side query timeout
+  idle_in_transaction_session_timeout: 10_000, // kill connections stuck mid-transaction
+
+  // --- TLS (for managed/cloud DBs) ---
+  ssl: process.env.PGSSL === 'true'
+    ? { rejectUnauthorized: true }
     : false,
 });
 
-// Errors from idle clients in the pool (e.g. connection dropped by DB/network)
-// MUST be handled or they'll crash the process with an uncaught exception.
+module.exports = { pool };
+```
+
+## Error handling
+
+The critical piece people miss: **idle clients can emit errors** (e.g. the DB restarts or a network blip drops a pooled connection). If you don't attach a listener, it crashes the process.
+
+```js
 pool.on('error', (err, client) => {
-  console.error('Unexpected error on idle client', err);
+  // Fires for errors on IDLE clients in the pool, not on active queries
+  console.error('Unexpected error on idle Postgres client', err);
+  // Don't exit — the pool will discard the bad client and create new ones.
 });
 
 pool.on('connect', (client) => {
-  // runs each time a new physical connection is established
+  // Optional: runs for every new physical connection
+  // e.g. client.query('SET search_path TO app');
 });
-
-module.exports = pool;
 ```
 
-## Using it safely
+## Querying safely
 
-```javascript
-// For one-off queries — pool.query acquires, runs, releases automatically
-const db = require('./db');
+For simple queries, use the pool directly — it checks out and releases a client for you:
 
-async function getUser(id) {
-  const result = await db.query('SELECT * FROM users WHERE id = $1', [id]);
-  return result.rows[0];
-}
+```js
+const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
 ```
 
-```javascript
-// For transactions — must check out a client manually, and ALWAYS release it
-async function transferFunds(fromId, toId, amount) {
-  const client = await db.connect();
+For transactions or multiple statements on one connection, check out a client and **always release it in `finally`**, even on error:
+
+```js
+async function transfer(fromId, toId, amount) {
+  const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [amount, fromId]);
@@ -139,27 +135,34 @@ async function transferFunds(fromId, toId, amount) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
-    client.release(); // critical — forgetting this leaks a connection from the pool
+    client.release(); // returns it to the pool — forgetting this leaks connections
   }
 }
 ```
 
+If a client is in a broken state, you can pass `client.release(true)` (or `release(err)`) to destroy it instead of returning it to the pool.
+
 ## Graceful shutdown
 
-```javascript
-process.on('SIGTERM', async () => {
-  await pool.end();
-  process.exit(0);
-});
+Drain the pool on exit so in-flight queries finish and connections close cleanly:
+
+```js
+async function shutdown() {
+  await pool.end(); // waits for active clients to finish, then closes all
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 ```
 
-## Key gotchas
+## Key points to get right
 
-- **`pool.on('error', ...)` is not optional** — without it, a dropped connection to an idle client throws an uncaught exception and kills your process.
-- **`connectionTimeoutMillis`** matters most under load — without it, requests queue indefinitely when the pool is saturated instead of failing fast.
-- **`statement_timeout`** (server-side, ms) protects against a bad query hanging a connection forever; set it in the pool config or per-session via `SET statement_timeout`.
-- **Always `release()` in a `finally`** when using `pool.connect()` directly — a missed release under an error path will slowly starve the pool.
-- If you're behind a serverless/edge environment (e.g. Lambda, Vercel), keep `max` small (often 1-5) since each instance gets its own pool and Postgres has a hard connection ceiling.
+- **`connectionTimeoutMillis`** — without it, requests hang indefinitely when the pool is exhausted or the DB is unreachable. Set it so you fail fast.
+- **`statement_timeout`** — your backstop against a runaway query holding a connection forever. This is enforced server-side.
+- **`idle_in_transaction_session_timeout`** — prevents a bug (forgotten `COMMIT`/`ROLLBACK`) from pinning a connection and blocking others.
+- **`max`** — size it against your DB's `max_connections`, remembering *every* app instance has its own pool. If you run 10 instances at `max: 20`, that's 200 connections. For serverless/high-fanout, consider a proxy like PgBouncer.
+- **One pool per process** — create it once and reuse it; don't make a new pool per request.
+- **Always attach `pool.on('error')`** — otherwise a dropped idle connection is an unhandled error that can take down the process.
 
-Want me to wire this into your actual project, or is this a standalone reference?
-[usage] input=3098 cache_read=23314 cache_write=5750 output=1324
+Want me to adapt this for a specific setup — TypeScript, an ORM/query builder (Prisma, Drizzle, Knex), serverless (Lambda/Vercel), or PgBouncer?
+[usage] input=2973 cache_read=15192 cache_write=2098 output=1671
