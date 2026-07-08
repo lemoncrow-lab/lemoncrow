@@ -127,7 +127,6 @@ main() {
     prompt_auto_optimize_selection
     prompt_local_zoekt_selection
     prompt_rtk_selection
-    prompt_telegraphic_selection
 
     if supports_interactive_selector; then
         print_installer_footer

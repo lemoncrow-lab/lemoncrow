@@ -1,18 +1,18 @@
-"""Reply-register level plumbing (persona reply style: strict | mild | off).
+"""Reply-register level plumbing (persona reply style: ultra | mild | off).
 
 The level controls how much reply-style instruction is baked into every
 installed agent persona:
 
-- ``strict`` (default): the full telegraphic template
+- ``ultra`` (default): the full telegraphic template
   (``integrations/agents/shared/reply-register.md``) plus the core-discipline
   "Telegraphic by default" bullet (``telegraphic-default.md``).
 - ``mild``: concise-core register only (``reply-register-mild.md``); the
-  strict bullet is stripped.
+  ultra bullet is stripped.
 - ``off``: no reply-style instruction at all.
 
 Resolution order: ``ATELIER_TELEGRAPHIC`` env var → persisted
 ``cli.telegraphic`` key in ``<root>/plugin_settings.json`` (written by
-``atelier settings set cli.telegraphic <level>``) → ``strict``. The same
+``atelier settings set cli.telegraphic <level>``) → ``ultra``. The same
 logic is mirrored (self-contained, no import) in
 ``scripts/lib/managed_context.sh::atelier_apply_reply_register_level`` for
 install scripts that stage pre-rendered files — keep the two in sync.
@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-REPLY_REGISTER_LEVELS: tuple[str, ...] = ("strict", "mild", "off")
+REPLY_REGISTER_LEVELS: tuple[str, ...] = ("ultra", "mild", "off")
 TELEGRAPHIC_SETTING_KEY = "cli.telegraphic"
 _ENV_OVERRIDE = "ATELIER_TELEGRAPHIC"
 
@@ -44,8 +44,8 @@ def _persisted_level() -> str | None:
 
 
 def reply_register_level() -> str:
-    level = (os.environ.get(_ENV_OVERRIDE) or _persisted_level() or "strict").strip().lower()
-    return level if level in REPLY_REGISTER_LEVELS else "strict"
+    level = (os.environ.get(_ENV_OVERRIDE) or _persisted_level() or "ultra").strip().lower()
+    return level if level in REPLY_REGISTER_LEVELS else "ultra"
 
 
 def _register_body(path: Path) -> str:
@@ -57,7 +57,7 @@ def reply_register_body(shared_dir: Path, level: str | None = None) -> str:
     lvl = level if level in REPLY_REGISTER_LEVELS else reply_register_level()
     if lvl == "off":
         return ""
-    name = "reply-register.md" if lvl == "strict" else "reply-register-mild.md"
+    name = "reply-register.md" if lvl == "ultra" else "reply-register-mild.md"
     return _register_body(shared_dir / name)
 
 
@@ -66,25 +66,26 @@ def _toml_escape(value: str) -> str:
 
 
 def apply_reply_register_level(text: str, shared_dir: Path, level: str | None = None) -> str:
-    """Swap the baked-in strict register in pre-rendered agent text for ``level``.
+    """Swap the baked-in ultra register in pre-rendered agent text for ``level``.
 
-    ``strict`` (and unknown levels) return ``text`` unchanged. Matches both the
-    raw bodies and their TOML-escaped forms (codex ``developer_instructions``).
-    Text without the strict register/bullet passes through untouched.
+    ``ultra`` (and unknown levels) return ``text`` unchanged -- it's what ships
+    baked into every generated persona. Matches both the raw bodies and their
+    TOML-escaped forms (codex ``developer_instructions``). Text without the
+    register/bullet passes through untouched.
     """
     lvl = level if level in REPLY_REGISTER_LEVELS else reply_register_level()
-    if lvl == "strict":
+    if lvl == "ultra":
         return text
-    strict = _register_body(shared_dir / "reply-register.md")
-    if not strict:
+    default_body = _register_body(shared_dir / "reply-register.md")
+    if not default_body:
         return text
-    pairs: list[tuple[str, str]] = [(strict, reply_register_body(shared_dir, lvl))]
+    pairs: list[tuple[str, str]] = [(default_body, reply_register_body(shared_dir, lvl))]
     bullet_path = shared_dir / "telegraphic-default.md"
     if bullet_path.exists():
         bullet = _register_body(bullet_path)
         if bullet:
-            # mild register already states the softer default; the strict bullet
-            # ("never on self-judged complexity") goes for both mild and off.
+            # mild/off soften or drop the register; the ultra bullet
+            # ("never on self-judged complexity") goes with it.
             pairs += [(bullet + "\n", ""), (bullet, "")]
     out = text
     for raw_needle, raw_sub in pairs:
