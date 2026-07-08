@@ -1140,6 +1140,13 @@ def benchmark_local_cmd(
     show_default=True,
     help="CLI host to benchmark (codebench arms only -- atelier-telegraphic/caveman always use claude).",
 )
+@click.option(
+    "--jobs",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Parallel task/rep workers, forwarded to codebench's own --jobs (arms stay serial per worker; codebench arms only).",
+)
 @click.option("--limit", type=int, default=None, help="Only run the first N of the 20 prompts (smoke test).")
 @click.option(
     "--capture/--no-capture",
@@ -1161,6 +1168,7 @@ def benchmark_telegraphic_cmd(
     max_turns: int,
     arms: tuple[str, ...],
     cli_driver: str,
+    jobs: int,
     limit: int | None,
     capture: bool,
     estimate_only: bool,
@@ -1255,6 +1263,8 @@ def benchmark_telegraphic_cmd(
             str(max_turns),
             "--cli-driver",
             cli_driver,
+            "--jobs",
+            str(jobs),
             "--out",
             str(batch_dir),
         ]
