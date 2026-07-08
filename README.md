@@ -1,130 +1,86 @@
 <!-- cspell:ignore Alamofire Excalidraw ast-grep codegraph ctags django jcodemunch nohit okhttp scip serena tokio vscode zoekt beasm Trendshift telegraphese -->
 
 <div align="center">
+
 # Atelier Runtime
+
+### Honestly, get 30% more out of your Claude subscription.
+
+Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. Keep using Claude Code normally; Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, reusable memory, and a live savings meter.
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
+[![Stars](https://img.shields.io/github/stars/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier)
+
+**Live savings across Atelier sessions**
+
+[![Cost saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dsavings&style=for-the-badge&color=04ba0d)](https://atelier.ws)
+[![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://atelier.ws)
+[![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://atelier.ws)
+
+[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](#pricing)
+
+</div>
 
 ---
 
-Atelier Runtime gives coding agents the shared operating layer they are missing: grounded tools, project context, skills, observability, cost controls, and safer execution inside real codebases.
+## Install in 30 seconds
 
-> Claude Code, Codex, Cursor, and other coding agents can plug into the same runtime instead of rebuilding the same loop around every model.
+Run this once:
 
-## See it — the receipts
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  SWE-bench Verified · same model · same tasks · same env  │
-├──────────────────────────────────────────────────────────┤
-│  cost           ███████████████░░░░░   −29.5%            │
-│  turns          ██████████████░░░░░░   −37.7%            │
-│  output tokens  ███████████████░░░░░   −27.9%            │
-│  wall-clock     ██████████░░░░░░░░░░   −23.7%            │
-│  resolved       ████████████████░░░░   +12.0 pp         │
-│  receipts       ████████████████████   PUBLISHED ✔      │
-└──────────────────────────────────────────────────────────┘
+```bash
+curl -fsSL https://install.atelier.ws | bash
 ```
 
-That last row is the point. Every number above is reproducible from raw runs committed under [`benchmarks/`](benchmarks/) — no cherry-picked task, no "trust me."
+Then turn it on inside the project where you use Claude Code:
 
-## The idea
-
-Coding agents do not fail only because the model is weak. They fail because the runtime makes them read the wrong things, wander through vague workflows, flood the transcript, and rediscover context they already had.
-
-Atelier gives coding agents a tighter loop:
-
-- **Read smarter** — `code_search` replaces grep loops with relevant symbols, source, callers, callees, usages, and blast radius in one call. `read` returns outlines or exact ranges instead of dumping whole files.
-- **Think sharper** — narrow modes and skills route work through the right shape: explore when the job is discovery, plan when the job needs sequencing, execute when the path is known, solve when it needs end-to-end iteration.
-- **Talk less** — compact tool results, batched edits, terse personas, and `atelier -p` keep the transcript focused on decisions and final answers instead of narration.
-- **Never forget** — recall, session memory, deduped reads, and mode-scoped context stop agents from paying again for context they already discovered.
-
-The claim is simple: **less noise gives agents more room to land correct patches.**
-
-```mermaid
-flowchart LR
-    Agent["Coding Agent<br/>Claude Code · Codex · Cursor · opencode"] <--> MCP{{"MCP"}}
-    MCP <--> Atelier["Atelier Runtime<br/>code_search · read · edit · bash · web_fetch"]
-    Atelier --> Index[("Code Index<br/>tree-sitter + SQLite")]
-    Atelier --> Memory[("Session Memory<br/>+ Recall")]
-    Atelier --> Router["Model Routing<br/>+ Token Budgeting"]
-    Behavior["Agents · Skills · Hooks<br/>terse personas · skill procedures · output-shrink hooks"] -.->|shapes behavior| Agent
+```bash
+cd your-project
+atelier init
 ```
 
-_Full stack and subsystem breakdown: [docs/architecture.md](docs/architecture.md)._
+Open Claude Code like you normally do. Atelier wires in better tools behind the scenes and starts tracking savings as sessions finish.
 
-### How it works
+Already installed?
 
-Every Atelier feature traces to one of four compression layers:
+```bash
+atelier update
+```
 
-| Layer       | What it limits          | Example                                                                |
-| ------------- | ------------------------- | ------------------------------------------------------------------------ |
-| **Input**   | What the agent reads    | Indexed`code_search`, ranged `read`, compact `bash`, clean `web_fetch` |
-| **Output**  | What the agent writes   | Terse personas, batched edits, subagent routing, skill procedures      |
-| **Runtime** | What the agent can call | MCP tool replacement, hooks, swarm, workflows                          |
-| **Context** | What the agent re-reads | Session recall, dedup responses, mode-scoped tools                     |
+Check that everything is connected:
 
-Detailed breakdown: [Core Tools](#core-tools), [Skills and Commands](#skills-and-commands), [What Changes After Init](#what-changes-after-init).
+```bash
+atelier doctor
+```
 
-#### What "talk less" looks like
+## What changes for you
 
-One of the four layers above — not the headline. Same fix, a third of the words; code, commands, and errors stay byte-for-byte exact:
+Atelier does not ask you to learn a new coding app. It improves the work Claude Code already does:
 
-| Baseline agent — 71 tokens                                                                                                                                                                                                                                                                                                                                      | Atelier — 38 tokens                                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "I looked into the failing test and it seems like the flakiness is caused by the retry logic using a real clock. The test sleeps for 100ms and then asserts that exactly three retries happened, but under CI load the timing can drift, which makes the assertion fail intermittently. I'd recommend injecting a fake clock so the test becomes deterministic." | "Root cause: retry test uses a real clock — 100ms sleep + exact 3-retry assert drifts under CI load. Fix: inject a fake clock; test becomes deterministic." |
+| Before | With Atelier |
+| --- | --- |
+| Claude reads broad files and long terminal output. | Claude gets the exact code ranges and compact results it needs. |
+| The same context gets rediscovered again and again. | Useful session context can be reused. |
+| You pay for long explanations inside the working transcript. | Outputs stay shorter while code, commands, filenames, and errors remain exact. |
+| Savings are hard to see. | A local meter shows tokens, cost, and savings adding up. |
 
-Terse by precision, not by costume.
+The point is simple: more of your Claude subscription should go into useful work, not repeated setup and paid noise.
 
-## Honestly
+## Check your own savings
 
-I'm a solo founder working on [beseam.com](https://beseam.com). I was burning through my Claude Max credits in about four days. Every "token-saving" tool or prompt-engineered solution I found had the same problem: they only showed benchmarks on artificial tasks where they happened to excel. Nobody was measuring against the baseline on the same model, the same tasks, the same environment — just cherry-picked numbers.
-
-So I built Atelier — a runtime that aggressively compresses what the agent reads, writes, and calls, and **benchmarks every feature against a real baseline so you can see exactly what works and what doesn't.**
-
-The results are honest: [`+12pp resolved`](#results-measured-not-vibed) on SWE-bench, [`29.5% cheaper`](#results-measured-not-vibed) end-to-end, and every single raw run is published under `benchmarks/` for you to verify or reproduce. When a feature doesn't win, the number shows it — see the Terminal-Bench row below, which is honestly flat on accuracy and only wins on cost.
-
-## Results — measured, not vibed
-
-Measured on the same model, same tasks, and same environment:
-
-| Benchmark                                           | Baseline correct | Atelier correct |   Correct Δ |        Baseline cost |        Atelier cost | Cost Δ |
-| ----------------------------------------------------- | -----------------: | ----------------: | -------------: | ---------------------: | --------------------: | --------: |
-| SWE-bench Verified, 50 tasks x 5 reps               |            80.8% |       **92.8%** | **+12.0 pp** | $234.84 |**$165.45** |   **29.5% cheaper** |         |
-| SWE-bench Lite, 10 tasks x 3 reps                   |            93.3% |        **100%** |  **+6.7 pp** |   $12.38 |**$10.79** |   **12.9% cheaper** |         |
-| SWE-bench Pro, 10 tasks x 5 reps                    |            88.0% |       **90.0%** |  **+2.0 pp** |   $39.01 |**$30.61** |   **21.5% cheaper** |         |
-| Exploration tasks across 7 large repos × 5 reps    |               — |              — |           — |    $19.11 |**$6.29** |     **67% cheaper** |         |
-| Terminal-Bench 2.1, 89 tasks vs public leaderboard* |   78.9% expected |           78.7% |      -0.2 pp | $96.76 |**$69.52**† | **28.1% cheaper**† |         |
-
-<sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task.† Other 5 tasks in Atelier timeout and can't capture cost, not zero-cost runs; see BENCHMARKS.md. </sub>
-
-SWE-bench Verified detail:
-
-| Metric        | Baseline | Atelier |               Δ |
-| --------------- | ---------: | --------: | -----------------: |
-| Turns         |    6,962 |   4,336 |  **37.7% fewer** |
-| Output tokens |    3.04M |   2.19M |  **27.9% fewer** |
-| Wall-clock    |    14.3h |   10.9h | **23.7% faster** |
-
-<p align="center">
-  <img src="benchmarks/cost_vs_savings_scatter.svg" alt="Atelier vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, and Terminal-Bench" width="720">
-</p>
-
-Benchmarks are not hand-waved: raw runs, per-task outcomes, costs, turn counts, setup notes, and reproduction commands live in [BENCHMARKS.md](BENCHMARKS.md) and under [`benchmarks/codebench/results/`](benchmarks/codebench/results/).
-
-## Estimate your savings (60 seconds)
-
-Don't take the benchmark's word for it — point it at **your own** agent history. Before installing Atelier into a repo, scan your local coding-agent sessions and see what routable tool calls would have cost less.
+Do not take our 30% claim on faith. Before installing, you can scan your own local agent history:
 
 ```bash
 curl -fsSL https://savings.atelier.ws | bash
 ```
 
-The script downloads the latest Atelier release into a cached temporary venv, then runs:
+What it does:
 
-```bash
-atelier session stats --source live --since 7d --top 5
-```
-
-Read-only. Temporary store. No Atelier login, no provider API keys. It prints aggregate cost, tool-call, realized-savings, and potential-savings numbers straight from your local session files.
+- Reads local Claude/Codex agent session files.
+- Estimates where Atelier would have used fewer tokens or cheaper tool calls.
+- Prints savings from your own history.
+- Uses a temporary local store.
+- Needs no Atelier account and no provider API keys.
 
 Useful variants:
 
@@ -133,201 +89,81 @@ curl -fsSL https://savings.atelier.ws | bash -s -- --since 30d --top 10
 curl -fsSL https://savings.atelier.ws | bash -s -- --host codex --limit 20
 ```
 
-## Quick Start
+## Why trust the numbers?
 
-Install Atelier, then initialize it inside any repo where you use an AI coding agent.
+You are right to be skeptical. A live badge alone proves very little because anyone can fake a counter.
 
-```bash
-curl -fsSL https://install.atelier.ws | bash
+Atelier uses four checks instead:
 
-cd your-project
-atelier init
-```
+1. **Raw benchmark receipts:** headline numbers link to committed per-task runs, costs, turn counts, setup notes, and reproduction commands.
+2. **Your own scan:** the savings command checks your machine, not our marketing page.
+3. **Labeled live badges:** live counters show aggregate usage adding up; they are not used as the source of the 30% benchmark claim.
+4. **Rows where Atelier does not win:** Terminal-Bench 2.1 is flat on accuracy (-0.2pp) and only cheaper on cost. It stays in the results table.
 
-Already installed?
+The trust is the audit trail, not the animation.
 
-```bash
-atelier update
-```
+## Results
 
-Check your setup:
+Measured on the same model, same tasks, and same environment:
 
-```bash
-atelier doctor
-```
+| Benchmark | Baseline correct | Atelier correct | Correct delta | Baseline cost | Atelier cost | Cost delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| SWE-bench Verified, 50 tasks x 5 reps | 80.8% | **92.8%** | **+12.0 pp** | $234.84 | **$165.45** | **29.5% cheaper** |
+| SWE-bench Lite, 10 tasks x 3 reps | 93.3% | **100%** | **+6.7 pp** | $12.38 | **$10.79** | **12.9% cheaper** |
+| SWE-bench Pro, 10 tasks x 5 reps | 88.0% | **90.0%** | **+2.0 pp** | $39.01 | **$30.61** | **21.5% cheaper** |
+| Exploration tasks across 7 large repos x 5 reps | - | - | - | $19.11 | **$6.29** | **67% cheaper** |
+| Terminal-Bench 2.1, 89 tasks vs public leaderboard* | 78.9% expected | 78.7% | -0.2 pp | $96.76 | **$69.52**† | **28.1% cheaper**† |
 
-Run a direct prompt when you want a compact terminal answer without opening an interactive agent:
+<sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Other 5 tasks in Atelier timeout and cannot capture cost; see [BENCHMARKS.md](BENCHMARKS.md).</sub>
 
-```bash
-# Direct `atelier -p` uses owned HTTP model execution, so it needs an API-style credential:
-export ANTHROPIC_API_KEY=sk-ant-...
-# or OPENAI_API_KEY / GOOGLE_API_KEY / AWS_PROFILE / AZURE_API_KEY / another LiteLLM-compatible key
+SWE-bench Verified detail:
 
-atelier -p "summarize this repo"
-cat test.log | atelier -p "debug this failure"
+| Metric | Baseline | Atelier | Delta |
+| --- | ---: | ---: | ---: |
+| Turns | 6,962 | 4,336 | **37.7% fewer** |
+| Output tokens | 3.04M | 2.19M | **27.9% fewer** |
+| Wall-clock | 14.3h | 10.9h | **23.7% faster** |
 
-# Batch quick prompts into one Atelier run:
-atelier -p "summarize this repo" -p "list the riskiest files" -p "suggest the next test"
+Raw runs, setup notes, and reproduction commands live in [BENCHMARKS.md](BENCHMARKS.md) and [`benchmarks/codebench/results/`](benchmarks/codebench/results/).
 
-# Claude subscription/OAuth auth belongs to Claude Code itself. Use it through host/runner flows,
-# for example a Claude-backed swarm runner, not direct `atelier -p`.
-```
+## Why it works
 
-Why use native `atelier -p`:
+Claude is strong, but the work around Claude is often wasteful. Atelier reduces that waste.
 
-- **One-shot answers** — it prints only the final answer, so shell scripts and CI jobs do not need to scrape an interactive transcript.
-- **Batch prompts** — repeated `-p` flags are folded into one ordered run, which is cheaper than launching a separate agent session for each small question.
-- **Smart routing** — when you do not pin a model, Atelier routes through your configured LiteLLM-compatible providers and falls back when a provider is blocked.
-- **Cache-aware prompts** — the owned runtime keeps a stable system/tool prefix, uses Anthropic ephemeral cache breakpoints when available, and preserves provider automatic prefix caching where supported.
-- **Same tools, less ceremony** — the prompt can still use Atelier's code/search/read/bash tool loop, but you get a terminal-sized answer instead of opening a full host agent UI.
+- **Better inputs:** the agent gets relevant symbols and exact file ranges instead of whole files.
+- **Better outputs:** command output and replies stay compact without losing exact technical facts.
+- **Better memory:** useful context can be reused instead of rediscovered.
+- **Better guardrails:** tools and hooks reduce risky edits, oversized reads, and unverified "done" states.
 
-After `atelier init`, start your normal coding agent. Atelier wires itself into supported host MCP config so the agent sees Atelier's grounded tools instead of falling back to raw file and shell primitives.
+Atelier does not make Claude a different model. It makes the loop around Claude cleaner, which is why the same model solved more tasks in the benchmark.
 
-## What Changes After Init
+## What you get
 
-Atelier is not only a prompt that tells an agent to be brief. It shrinks the tool surface, the command output, and the final replies that get fed back into the model.
+- Works with Claude Code, Codex, Cursor, opencode, and other coding agents that use MCP-style tools.
+- Runs locally by default.
+- Apache-2.0 open source runtime.
+- No account needed to start.
+- Live local stats for cost, tokens, and savings.
+- Optional paid features for heavy users and teams.
 
-Atelier adds four runtime layers around your coding agent:
+## Pricing
 
-| Layer     | What it changes                                                                                                                                                                                                                                                                                                                     |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MCP tools | Replaces broad native file/search/shell operations with`code_search`, `read`, `edit`, `bash`, and `web_fetch`.                                                                                                                                                                                                                      |
-| Agents    | Gives common work modes explicit boundaries:`code`, `explore`, `plan`, `execute`, `solve`, `review`, `research`, and more.                                                                                                                                                                                                          |
-| Skills    | Packages repeatable procedures such as benchmarking, orchestration, performance review, recall, swarm, and UX review.                                                                                                                                                                                                               |
-| Hooks     | Intercepts tool calls and session endings to block wasteful reads, risky edits, and unverified "done" states. Also shadow-shrinks oversized results from the host's builtin Bash and any other MCP server: the full output spills to a recoverable file and one canonical notice names the way back — no config or routing change. |
+| Plan | Price | Best for |
+| --- | ---: | --- |
+| Free | $0 | Local runtime, Claude Code setup, better tools, skills, and headline savings estimates. |
+| Pro | $19/mo | Heavy users who want large-repo search, session recall, full savings breakdown, model routing, and swarm workflows. |
+| Enterprise | Contact us | Teams that need shared context, governance, SSO, retention, audit, and very large repos. |
 
-The important difference is enforcement. A prompt can _ask_ an agent to be disciplined; a runtime _controls_ what the agent can call and when.
+Full breakdown: [docs/pricing.md](docs/pricing.md).
 
-## Core Tools
-
-| Tool          | Use                                                                                                                                                        |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `code_search` | Finds relevant symbols, source, callers, callees, usages, and blast radius in one call.                                                                    |
-| `read`        | Reads files by outline, exact range, full expansion, or`:summary` — a bounded type-aware gist (heuristic, upgraded by a local LLM when one is reachable). |
-| `edit`        | Applies deterministic single-file or multi-file edits in one verified call.                                                                                |
-| `bash`        | Runs commands with compact, structured output so test logs do not flood context.                                                                           |
-| `web_fetch`   | Fetches public URLs as clean Markdown — optionally as a bounded summary — when web research is allowed.                                                  |
-
-## Skills And Commands
-
-Most Atelier capabilities have two surfaces:
-
-- **Skill path:** ask your agent in natural language; the skill gathers missing parameters and chooses the right runtime surface.
-- **CLI/runtime path:** use exact commands for CI, scripts, docs, reproducible launches, or when you already know the flags.
-
-| Capability         | Skill path                                 | CLI/runtime path                                  | Use it for                                                                                        |
-| -------------------- | -------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Benchmark          | `/benchmark "compare this repo"`           | `atelier benchmark local --repo . --prompt "..."` | Measure Atelier vs vanilla on your own repo with an up-front cost estimate.                       |
-| Orchestrate        | `/orchestrate "ship this multi-step task"` | `workflow` MCP tool                               | Route one structured task to direct subagent, isolated/background execution, or durable workflow. |
-| Performance review | `/perf-review "check this change"`         | skill-driven checks                               | Verify latency, memory, I/O, and scaling with real measurements.                                  |
-| Recall             | `/recall "what did we learn about auth?"`  | `atelier session recall ...`                      | Retrieve useful context and lessons from past Atelier sessions.                                   |
-| Swarm              | `/swarm "try 3 fixes and keep the best"`   | `atelier swarm start ...`                         | Run multiple isolated attempts in git worktrees, validate, reduce, inspect, and apply.            |
-| UX review          | `/ux-review "review this shipped UI"`      | skill-driven browser checks                       | Check accessibility, responsive behavior, interaction states, and visual regressions.             |
-
-Packaged skills live in [`integrations/skills/`](integrations/skills/). The CLI remains the stable automation layer underneath skills; skills are the agent-friendly way to invoke it.
-
-## Local UI And Observability
-
-Atelier is more than a search MCP. The optional local stack runs both the service API and the web frontend, so you can inspect runs, token use, costs, savings, and runtime state outside the chat transcript.
-
-```bash
-atelier stack start
-atelier dashboard open
-atelier stack status
-```
-
-For terminal-only workflows:
-
-```bash
-atelier dashboard
-atelier savings --json
-```
-
-## Swarm
-
-Use the **`/swarm` skill** when you want the agent to choose the right swarm shape from a natural-language goal. It asks for the missing parameters, maps the job to the right reducer, launches the existing swarm runtime, and gives you the `run_id` plus status/log/apply commands.
-
-```text
-/swarm "try three independent fixes for the flaky checkout test and keep the best validated patch"
-/swarm "optimize bundle size; measure with npm run build; do not regress tests"
-/swarm "audit auth for bypasses with five read-only attempts and union the findings"
-```
-
-Use the **CLI** when you need an explicit, reproducible launch: CI, scripts, benchmark runs, exact runner/model flags, or when you already know the spec and validation commands.
-
-```bash
-atelier swarm start program.md --runs 3 --continuous \
-  --runner codex \
-  --runner-model <model> \
-  --validate "make test"
-
-atelier swarm list
-atelier swarm logs <run_id> --child-id wave-01-run-01
-atelier swarm apply <run_id>
-```
-
-Each child gets its own git worktree, isolated `ATELIER_ROOT`, copied task spec, live logs, structured result artifact, and validation commands. Accepted patches can be exported or applied back to your repo.
-
-Reducers let you choose how candidates are combined: `merge` for normal solving, `best` for optimization, `union` for search/audit work, and `vote` for verification.
-
-## Workflows
-
-Atelier's workflow runtime is the durable path for structured multi-step work. It stores a workspace-local run state, tracks step progress, and supports `run`, `status`, `inspect`, `resume`, `pause`, and `stop` through the `workflow` MCP tool.
-
-The `orchestrate` skill chooses the narrowest execution surface for a request: direct subagent, isolated/background task, or durable workflow. Use it when a task needs a plan, checkpoints, resumability, or approval gates.
-
-```text
-/orchestrate "plan and execute the auth migration with a review checkpoint"
-```
-
-You do not need any of this on day one. Install Atelier, run your normal coding agent, and let the runtime improve the tool loop underneath it. The advanced surfaces are there when the work gets bigger than one prompt.
-
-## Pricing — open-core, local-first
-
-The whole runtime is **Apache-2.0** and runs on your machine. No account, no key, no network call to get started.
-
-|                                                         | **Free — $0** | **Pro — $19/mo** | **Enterprise** |    |
-| --------------------------------------------------------- | ------------------------------------ | ---------------- | ---- |
-| Grounded MCP tools (`code_search`/`read`/`edit`/`bash`) | ✅                                 | ✅             | ✅ |
-| Host packaging, agents, skills,`init`, benchmarks       | ✅                                 | ✅             | ✅ |
-| Repo map + context engine (normal repos)                | ✅                                 | ✅             | ✅ |
-| Headline savings number ("you'd save $X")               | ✅                                 | ✅             | ✅ |
-| Zoekt fast search · large-repo indexing                | —                                 | ✅             | ✅ |
-| Session recall · cross-vendor memory                   | —                                 | ✅             | ✅ |
-| Savings engine (apply + full breakdown + budget)        | —                                 | ✅             | ✅ |
-| Model routing (proxy · cross-vendor · quality-gated)  | —                                 | ✅             | ✅ |
-| Multi-worktree swarm                                    | —                                 | ✅             | ✅ |
-| Very large repos · shared team context · SSO · audit | —                                 | —             | ✅ |
-
-Free is a genuinely useful runtime on its own — the honest moat is the maintainer and the closed billing backend, not DRM on your local code. Full breakdown: [docs/pricing.md](docs/pricing.md). Upgrade with `atelier login`.
-
-## Benchmarks
-
-Start with the summary above. Go deeper here:
-
-- [BENCHMARKS.md](BENCHMARKS.md) - headline results, methodology, and reproduction commands.
-- [`benchmarks/codebench/results/swe50_2026_06_30/`](benchmarks/codebench/results/swe50_2026_06_30/) - SWE-bench raw results.
-- [`benchmarks/codebench/results/swe-pro_2026_07_07/`](benchmarks/codebench/results/swe-pro_2026_07_07/) - SWE-bench Pro raw results.
-- [`benchmarks/codebench/results/exploration_2026_06_29/`](benchmarks/codebench/results/exploration_2026_06_29/) - exploration benchmark raw results.
-- [`benchmarks/codebench/results/retrieval_2026_07_05/`](benchmarks/codebench/results/retrieval_2026_07_05/) - retrieval evaluation raw results.
-- [`benchmarks/harbor/results/atelier/2026-07-07__02-24-29/`](benchmarks/harbor/results/atelier/2026-07-07__02-24-29/) - Terminal-Bench run data.
-- [`benchmarks/codebench/results/telegraphic_2026_07_08_5rep/`](benchmarks/codebench/results/telegraphic_2026_07_08_5rep/) - telegraphic Q&A benchmark raw results (20 prompts x 5 reps, baseline vs atelier).
-
-## Docs
+## Learn more
 
 - [Installation](docs/installation.md)
-- [CLI reference](docs/cli.md)
-- [Host setup for agent CLIs](docs/hosts/all-agent-clis.md)
-- [MCP SDK](docs/sdk/mcp.md)
 - [Troubleshooting](docs/troubleshooting.md)
-- [Architecture: Technology & Concepts](docs/architecture.md)
-
-## Star the workspace
-
-In our SWE-bench Verified run, Atelier cut **2,626 turns** and about **$69** off the baseline — same model, same tasks. A GitHub star costs zero tokens. Fair trade. ⭐
-
-[![Star History Chart](https://api.star-history.com/svg?repos=atelier-ws/atelier&type=Date)](https://star-history.com/#atelier-ws/atelier&Date)
+- [Benchmarks](BENCHMARKS.md)
+- [CLI reference](docs/cli.md)
+- [Architecture](docs/architecture.md)
 
 ## License
 
-Apache 2.0 — see [`LICENSE`](LICENSE) for the full text.
+Apache 2.0 — see [`LICENSE`](LICENSE).
