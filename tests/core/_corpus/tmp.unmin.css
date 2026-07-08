@@ -1,0 +1,3 @@
+/* CSS with invalid syntax for fail-closed test */
+.class { background: url(http://unclosed
+  color: red; /* unterminated string in prior property */
