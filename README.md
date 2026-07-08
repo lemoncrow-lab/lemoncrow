@@ -118,7 +118,7 @@ Measured on the same model, same tasks, and same environment:
 | SWE-bench Verified, 50 tasks x 5 reps               |            80.8% |       **92.8%** | **+12.0 pp** | $234.84 |**$165.45** |   **29.5% cheaper** |         |
 | SWE-bench Lite, 10 tasks x 3 reps                   |            93.3% |        **100%** |  **+6.7 pp** |   $12.38 |**$10.79** |   **12.9% cheaper** |         |
 | SWE-bench Pro, 10 tasks x 5 reps                    |            88.0% |       **90.0%** |  **+2.0 pp** |   $39.01 |**$30.61** |   **21.5% cheaper** |         |
-| Exploration tasks across 8 large repos              |               — |              — |           — |   $25.37 |**$10.94** |     **57% cheaper** |         |
+| Exploration tasks across 7 large repos              |               — |              — |           — |   $19.11 |**$6.29** |     **67% cheaper** |         |
 | Terminal-Bench 2.1, 89 tasks vs public leaderboard* |   78.9% expected |           78.7% |      -0.2 pp | $96.76 |**$69.52**† | **28.1% cheaper**† |         |
 
 <sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task.
