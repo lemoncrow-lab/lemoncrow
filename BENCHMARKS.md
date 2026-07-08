@@ -15,6 +15,7 @@ This document keeps benchmark proof out of the first-use README while preserving
 | SWE-bench Pro, 10 tasks x 5 reps              | **45 / 50 resolved (90%)** |                      44 / 50 (88%) |       **+2.0 percentage points** |                                  |
 | Exploration tasks across 7 repos              |            **$6.29** | $19.11 |                      **67% cheaper** |                                  |
 | Telegraphic output: reply prose per turn      |             **30 tokens** |                            67 tokens |               **2.7x less prose** |
+| Telegraphic Q&A, 20 prompts x 5 reps           |                     **$6.81** | $8.93 |                    **23.7% cheaper** |
 | Terminal-Bench 2.1, 89 tasks x 1 rep vs public leaderboard x 5 reps | 70 / 89 resolved (78.7%) | **70.25 / 89 expected (78.9%)** | -0.2 percentage points |
 | Terminal-Bench cost, 83/89 tasks w/ cost data |          **$69.52** | $96.76 | **28.1%\* cheaper** |
 \* Understates Atelier's savings floor, not overstates it -- 5 of the 6 tasks missing cost data are real, uncounted Atelier spend (harness killed the process on a timeout before it could log a final cost), not zero-cost runs. See the Terminal-Bench section below.
@@ -186,6 +187,51 @@ These two measurements calibrate Atelier's live savings accounting: the turn-cut
 
 Raw data (matched results + per-instance decomposition): [`benchmarks/codebench/results/swe_lite_telegraphic_2026_07_06/`](benchmarks/codebench/results/swe_lite_telegraphic_2026_07_06/)
 
+## Telegraphic Q&A Benchmark
+
+A different cut than the prose-anatomy section above: 20 general engineering Q&A prompts (React re-renders, connection pooling, git rebase vs merge, race conditions, error boundaries, ...; no code repo, no golden patch -- these are explanation prompts, not bug fixes), baseline (vanilla Claude Code) vs `atelier:auto` through the full plugin+MCP runtime, `claude-opus-4-8`, 5 reps per prompt per arm (200 runs total), `--max-turns 50`, `--jobs 4`.
+
+| Arm         |      Cost | Input tok | Cache write |  Cache read | Output tok |  Total tok |  Turns |      Time |
+| ------------- | ----------: | ----------: | ------------: | ------------: | -----------: | -----------: | -------: | ----------: |
+| **Atelier** | **$6.81** |   520,177 |     91,365 |   2,717,865 | **77,449** | 3.41M |  **142** | **29.4min** |
+| Baseline    |     $8.93 |   351,619 |    308,835 |   2,262,752 |    127,947 |     3.05M |      238 |     34.2min |
+| Delta       |    -23.7% |     +47.9% |       -70.4% |       +20.1% |     -39.5% |     +11.7% |    -40.3% |     -14.1% |
+
+Honest asterisk on that last row: Atelier's total token count is *higher*, not lower -- its system prompt (persona + tool/skill/agent catalog) runs bigger than vanilla Claude Code's, so input and cache-read tokens are up. What it wins on is the expensive part: 40% fewer turns to answer the same question and 40% fewer output tokens per answer, which is where the money actually is -- cache-read tokens are ~30x cheaper than output tokens, so a smaller reply more than pays for the larger prompt, netting **23.7% cheaper overall**.
+
+Per-prompt output tokens (median across the 5 reps' mean would double-count noise, so this is mean output tokens per prompt across all 5 reps pooled):
+
+| Prompt | Baseline | Atelier |
+| --- | ---: | ---: |
+| React re-render (object prop)              |    967 |  581 |
+| Express JWT expiry bug                     |  3,746 | 1,277 |
+| Postgres connection pool setup             |  1,890 | 1,120 |
+| git rebase vs merge                        |  1,000 |  725 |
+| Callback -> async/await refactor           |    673 |  195 |
+| Split a monolith into microservices        |  1,575 | 1,015 |
+| PR security review                         |  1,129 |  405 |
+| Multi-stage Dockerfile                     |  1,561 | 1,064 |
+| Postgres counter race condition            |  1,061 |  555 |
+| React error boundary component             |  2,327 | 2,281 |
+| 10 caveman-style eval prompts (avg)        |    934 |  562 |
+| **Average, all 20**                        |  **1,258** | **747** |
+
+Atelier (full runtime) vs baseline: mean 41%, median 40%, range 2%-71%, stdev 16pp across the 20 prompts -- one prompt (the error-boundary implementation, which actually needs a code block, not just prose) barely moves (2%); everything else is squarely in the 20-70% band.
+
+Raw data: [`benchmarks/codebench/results/telegraphic_2026_07_08_5rep/`](benchmarks/codebench/results/telegraphic_2026_07_08_5rep/) -- includes `summary.csv`, the full `results.jsonl`, and per-call `.flow_dump.txt` transcripts (raw `.flow` wire captures are gitignored; they carry bearer tokens).
+
+Run it:
+
+```bash
+uv run atelier benchmark telegraphic \
+  --arm baseline --arm atelier \
+  --model claude-opus-4-8 \
+  --reps 5 \
+  --max-turns 50 \
+  --jobs 4 \
+  -y
+```
+
 ## Retrieval Evaluation
 
 Pure retrieval quality was measured against common CLI and MCP code-search tools on the same 14 repos and roughly 7.2k query/gold pairs. Atelier reports three internal channels: lexical default, optional `+zoekt`, and optional `+semantic`. Every provider is scored across all 5 gold kinds (definition, content, semantic, swebench, sessions) -- a provider with no content/text-search capability (codegraph, universal-ctags) scores 0 on the kinds it cannot answer rather than being excluded from them, so `n` is uniform (7213) across every row in the table and MRR is directly comparable throughout.
@@ -329,7 +375,7 @@ uv run python scripts/gen_harbor_cost_vs_savings_scatter.py
 
 ## Overall Assessment
 
-- **Cost/tokens/turns: Atelier wins on every suite measured.** SWE-bench Verified (-29.5% cost, -44.9% tokens, -37.7% turns), SWE-bench Lite (-12.9%/-20.5%/-15.8%), SWE-bench Pro (-18.1%/-30.8%/-25.4%), Exploration (-67% cost), Terminal-Bench (-28.1% cost on the 83/89 tasks with telemetry -- and that's a floor, not the true number: 5 Atelier trials hit the harness timeout with real, uncounted spend).
+- **Cost/tokens/turns: Atelier wins on every suite measured.** SWE-bench Verified (-29.5% cost, -44.9% tokens, -37.7% turns), SWE-bench Lite (-12.9%/-20.5%/-15.8%), SWE-bench Pro (-18.1%/-30.8%/-25.4%), Exploration (-67% cost), Terminal-Bench (-28.1% cost on the 83/89 tasks with telemetry -- and that's a floor, not the true number: 5 Atelier trials hit the harness timeout with real, uncounted spend), Telegraphic Q&A (-23.7% cost, -39.5% output tokens, -40.3% turns -- the one suite where Atelier's total token count is higher, not lower, on a bigger system prompt; wins anyway on the expensive part).
 - **Correctness wins on every multi-rep suite.** Atelier leads SWE-bench Verified (+12.0pp over 250 task-reps), SWE-bench Lite (+6.7pp over 30 task-reps), and SWE-bench Pro (+2.0pp over 50 task-reps -- the 5-rep run flipped the earlier single-rep -10.0pp result, confirming that loss was n=1 noise). The one remaining (nominal) deficit is Terminal-Bench (-0.2pp, effectively a tie -- Atelier's single attempt against a 5-rep baseline average, including 5 Atelier timeouts scored as fails) -- still an n=1 number that needs a multi-rep run before it means anything on its own.
 - **Where overhead still shows up:** non-Python, larger, or more heterogeneous codebases (SWE-bench Pro's Go/TS repos, Terminal-Bench's one-off environments) see a smaller cost edge than the Python-heavy SWE-bench suites, and a few individual tasks (`tutanota`, `vuls`, `flipt`, and roughly a third of Terminal-Bench's sub-$0.50 tasks) cost Atelier *more* than baseline -- consistent with a fixed per-run overhead that amortizes on bigger/cheaper-per-token tasks but not on small or unusually turn-heavy ones. Terminal-Bench also surfaced a timeout-rate gap: Atelier hit the per-task timeout on 5.6% of tasks vs baseline's 1.6-3.4% (depending on normalization) -- baseline resolves 2 of those same 5 tasks comfortably in the same budget (`mailman`, `gpt2-codegolf`), while the other 3 are hard for baseline too, a narrower and more mixed signal than the prior cut.
 - **Bottom line:** the token/turn/cost compression is real and reproduces across every suite tested, at every scale from a $0.10 task to a $5 one. Whether that compression costs correctness is now disproven on all three multi-rep suites (Verified, Lite, Pro) and unresolved (not disproven, not confirmed) on the one remaining n=1 suite (Terminal-Bench). Read the per-suite sections above for the exact caveats before citing any single number out of context.
