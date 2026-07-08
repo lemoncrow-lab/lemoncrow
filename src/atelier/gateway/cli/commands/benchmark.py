@@ -151,8 +151,12 @@ Use --help on the sub-command for all available flags:
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
+import os
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -1091,6 +1095,247 @@ def benchmark_local_cmd(
         raise click.ClickException("Aborted; no tokens spent.")
     _run(_bench_cmd(estimate=False), cwd=bench_root, label="benchmark local", check=False)
     click.echo(f"Results: {run_dir}")
+
+
+@benchmark_group.command("telegraphic")
+@click.option(
+    "--repo",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=None,
+    help=(
+        "Repo to run the prompts against (copied per run; never mutated). "
+        "Default: a minimal scratch repo with nothing to explore -- these are "
+        "general Q&A prompts, not tied to a codebase, and pointing this at a "
+        "large real repo lets agents wander it for unrelated tokens/cost noise."
+    ),
+)
+@click.option("--model", default="sonnet", show_default=True)
+@click.option("--reps", type=int, default=1, show_default=True)
+@click.option(
+    "--max-turns",
+    type=int,
+    default=6,
+    show_default=True,
+    help="Turn cap per run (Q&A prompts need 1-2; small headroom, not codebench's 15).",
+)
+@click.option(
+    "--arm",
+    "arms",
+    multiple=True,
+    default=("baseline", "atelier"),
+    show_default=True,
+    type=click.Choice(["baseline", "atelier", "atelier-telegraphic", "caveman"]),
+    help=(
+        "baseline/atelier run through the full codebench harness (plugin+MCP for "
+        "atelier). atelier-telegraphic/caveman are vanilla Claude Code plus ONE "
+        "appended system prompt (atelier's ultra register, or caveman's own "
+        "SKILL.md verbatim) -- no plugin, no agent, no MCP; isolates the reply "
+        "style alone, the way caveman's own harness does."
+    ),
+)
+@click.option(
+    "--cli-driver",
+    type=click.Choice(["claude", "copilot", "codex", "opencode", "atelier-run"]),
+    default="claude",
+    show_default=True,
+    help="CLI host to benchmark (codebench arms only -- atelier-telegraphic/caveman always use claude).",
+)
+@click.option("--limit", type=int, default=None, help="Only run the first N of the 20 prompts (smoke test).")
+@click.option(
+    "--capture/--no-capture",
+    default=True,
+    show_default=True,
+    help=(
+        "Wire-capture each call via mitmproxy and write a human-readable "
+        "<task>_<arm>_rep<n>.flow_dump.txt next to each .flow file -- on by "
+        "default here (unlike codebench's generic ad-hoc mode) because the "
+        "whole point of this suite is comparing what each arm actually says."
+    ),
+)
+@click.option("--estimate-only", is_flag=True, help="Print the cost estimate and exit without spending.")
+@click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompt and run.")
+def benchmark_telegraphic_cmd(
+    repo: Path | None,
+    model: str,
+    reps: int,
+    max_turns: int,
+    arms: tuple[str, ...],
+    cli_driver: str,
+    limit: int | None,
+    capture: bool,
+    estimate_only: bool,
+    yes: bool,
+) -> None:
+    """Uses LLM: token-savings vs vanilla Claude Code on caveman's 20-prompt Q&A set.
+
+    Reproduces JuliusBrussee/caveman's benchmark+eval prompt sets
+    (github.com/JuliusBrussee/caveman/tree/main/{benchmarks,evals}) with the
+    FULL real atelier runtime as the "atelier" arm (tools + MCP + the
+    ``atelier:auto`` persona's shipped ultra reply-register) -- not an
+    isolated system-prompt swap, so the number is apples-to-apples with every
+    other figure in BENCHMARKS.md. Prints a cost estimate and confirms before
+    spending real tokens; report = per-prompt output-token savings, not
+    patch-accept-rate (these are Q&A prompts, no golden patch to verify).
+
+    \b
+    Usage:
+      atelier benchmark telegraphic --repo . --limit 2 --estimate-only  # dry run, no spend
+      atelier benchmark telegraphic --repo . --limit 2 -y               # smoke test, 2 prompts
+      atelier benchmark telegraphic --repo . -y                         # full 20-prompt run
+    """
+    bench_root = _bench_source_root()
+    if str(bench_root) not in sys.path:
+        sys.path.insert(0, str(bench_root))
+    from benchmarks.telegraphic import ensure_scratch_repo, load_prompts
+
+    repo_abs = repo.expanduser().resolve() if repo is not None else ensure_scratch_repo()
+    if not repo_abs.is_dir():
+        raise click.ClickException(f"--repo is not a directory: {repo_abs}")
+    git_check = subprocess.run(
+        ["git", "-C", str(repo_abs), "rev-parse", "--git-dir"],
+        capture_output=True,
+        check=False,
+    )
+    if git_check.returncode != 0:
+        raise click.ClickException(f"--repo is not a git repository: {repo_abs}")
+
+    if not arms:
+        raise click.ClickException("no --arm selected")
+    from benchmarks.telegraphic.extra_arms import EXTRA_ARMS
+
+    codebench_arms = tuple(a for a in arms if a not in EXTRA_ARMS)
+    extra_arm_list = tuple(a for a in arms if a in EXTRA_ARMS)
+
+    prompt_entries = load_prompts(limit=limit)
+    if not prompt_entries:
+        raise click.ClickException("no prompts loaded from benchmarks/telegraphic/prompts.json")
+    prompts = [entry["prompt"] for entry in prompt_entries]
+
+    # codebench's ad-hoc --prompt mode hard-caps at 10 values per invocation
+    # (benchmarks/codebench/run.py argparse validation) -- batch into chunks,
+    # run each as its own codebench invocation into its own subdir, then
+    # remap task ids ("local1".."localN" reset per batch) back to the
+    # absolute prompt index before merging into one combined results.jsonl.
+    _BATCH = 10
+    batches = [prompts[i : i + _BATCH] for i in range(0, len(prompts), _BATCH)] if codebench_arms else []
+
+    run_dir = _run_dir("telegraphic", None, repo_root=repo_abs)
+
+    from benchmarks.codebench.local import estimate_cost
+
+    estimate = estimate_cost(n_prompts=len(prompts), arms=len(arms), reps=reps, model=model, max_turns=max_turns)
+    click.echo("=== Cost ESTIMATE (not a charge) ===")
+    click.echo(f"  runs:        {estimate['n_runs']} ({len(prompts)} prompt(s) x {len(arms)} arm(s) x {reps} rep(s))")
+    click.echo(f"  per run:     ${estimate['per_run_usd']:.4f}")
+    click.echo(
+        f"  total:       ${estimate['total_usd']:.4f}  (range ${estimate['low_usd']:.4f}-${estimate['high_usd']:.4f})"
+    )
+    click.echo(f"  basis:       {estimate['basis']}")
+    click.echo(f"  assumption:  {estimate['assumption']}")
+    click.echo("  NOTE: an estimate only; real spend depends on the agent's actual token use.")
+    if estimate_only:
+        return
+    if not yes and not click.confirm("Proceed and spend real tokens?"):
+        raise click.ClickException("Aborted; no tokens spent.")
+
+    def _bench_cmd(batch_prompts: list[str], batch_dir: Path) -> list[str]:
+        cmd = [
+            *_python_cmd(bench_root),
+            "-m",
+            "benchmarks.codebench.run",
+            "--repo",
+            str(repo_abs),
+            "--arm",
+            *codebench_arms,
+            "--reps",
+            str(reps),
+            "--model",
+            model,
+            "--max-turns",
+            str(max_turns),
+            "--cli-driver",
+            cli_driver,
+            "--out",
+            str(batch_dir),
+        ]
+        for prompt in batch_prompts:
+            cmd.extend(["--prompt", prompt])
+        cmd.append("--capture" if capture else "--no-capture")
+        return cmd
+
+    # mitmdump (needed by --capture) lives in benchmarks/.venv, not the main
+    # project's env that _python_cmd(bench_root) runs python from -- put its
+    # bin/ on PATH for the subprocess so shutil.which("mitmdump") resolves.
+    run_env: dict[str, str] | None = None
+    if capture and codebench_arms:
+        bench_venv_bin = bench_root / "benchmarks" / ".venv" / "bin"
+        if not (bench_venv_bin / "mitmdump").exists():
+            raise click.ClickException(
+                f"--capture needs mitmdump, not found at {bench_venv_bin} "
+                "(uv sync inside benchmarks/); pass --no-capture to skip wire capture."
+            )
+        run_env = {"PATH": f"{bench_venv_bin}{os.pathsep}{environ.get('PATH', '')}"}
+
+    from benchmarks.telegraphic.report import load_results, render_report
+
+    merged: list[dict[str, object]] = []
+    for batch_idx, batch_prompts in enumerate(batches):
+        batch_dir = run_dir / f"batch{batch_idx}"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        _run(
+            _bench_cmd(batch_prompts, batch_dir),
+            cwd=bench_root,
+            label=f"benchmark telegraphic batch {batch_idx + 1}/{len(batches)}",
+            env=run_env,
+            check=False,
+        )
+        if capture:
+            from benchmarks.flowlib.dump import extract
+
+            for flow_path in sorted(batch_dir.glob("*.flow")):
+                if flow_path.stat().st_size == 0:
+                    continue
+                with contextlib.suppress(Exception), contextlib.redirect_stdout(io.StringIO()):
+                    extract(str(flow_path), str(flow_path.with_suffix(".flow_dump.txt")))
+        offset = batch_idx * _BATCH
+        for row in load_results(batch_dir):
+            m = re.match(r"^local(\d+)$", str(row.get("task", "")))
+            if m:
+                row = {**row, "task": f"local{offset + int(m.group(1))}"}
+            merged.append(row)
+
+    if extra_arm_list:
+        # Isolated system-prompt-only arms: no codebench, no plugin/agent/MCP --
+        # one claude -p subprocess per (prompt, arm, rep), reusing codebench's
+        # own baseline-config isolation so the only variable vs "baseline" is
+        # the one appended system prompt.
+        from benchmarks.codebench.run import _make_baseline_config
+        from benchmarks.telegraphic.extra_arms import run_extra_arm
+
+        total_extra = len(prompt_entries) * len(extra_arm_list) * reps
+        done = 0
+        for idx, entry in enumerate(prompt_entries):
+            task_id = f"local{idx + 1}"
+            for arm in extra_arm_list:
+                for rep in range(reps):
+                    done += 1
+                    click.echo(f"[{done}/{total_extra}] {task_id} {arm} rep{rep}")
+                    merged.append(
+                        run_extra_arm(
+                            arm=arm,
+                            task_id=task_id,
+                            prompt=entry["prompt"],
+                            model=model,
+                            rep=rep,
+                            make_baseline_config=_make_baseline_config,
+                        )
+                    )
+
+    (run_dir / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in merged), encoding="utf-8")
+    table_md = render_report(merged, prompt_entries)
+    (run_dir / "telegraphic_report.md").write_text(table_md, encoding="utf-8")
+    click.echo("\n" + table_md)
+    click.echo(f"\nResults: {run_dir}")
 
 
 @benchmark_group.command("swe")

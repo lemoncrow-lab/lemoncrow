@@ -1,0 +1,88 @@
+
+=== CodeBench head-to-head ===
+metric                      baseline       atelier
+cost_usd                      0.6058        0.3155
+  - input        : $       0.0672              
+  - output       : $       0.0626              
+  - cache_read   : $       0.0466              
+  - cache_write  : $       0.1433              
+  - input        :               $       0.1070
+  - output       :               $       0.0701
+  - cache_read   :               $       0.0333
+duration_ms                   89,255       111,330
+num_turns                         20            10
+input_tokens                  36,256        53,480
+cache_read_tokens            233,140       166,587
+cache_write_tokens            57,337             0
+thinking_tokens                    0             0
+output_tokens                  6,337         7,008
+saved_usd                     0.0000        0.2902
+saved_tokens                       0       105,995
+
+atelier cost saving : +47.9%  (Eval target ~47-50%)
+atelier time saving : -24.7%  (Eval target ~40%)
+
+=== Per-task medians (clean runs) ===
+
+| Task | Arm | Cost | Tokens | Time | Tool calls | Reps |
+| --- | --- | --- | --- | --- | --- | --- |
+| local1 | atelier | 48.1% cheaper | 31.9% fewer | even | n/a | 1 |
+| local2 | atelier | 52.5% cheaper | 32.7% fewer | even | n/a | 1 |
+| local4 | atelier | 37.4% cheaper | 30.6% fewer | 42.2% slower | n/a | 1 |
+| local5 | atelier | 50.7% cheaper | 32.1% fewer | 17.2% slower | n/a | 1 |
+| local6 | atelier | 46.5% cheaper | 31.8% fewer | 18.6% slower | n/a | 1 |
+| local7 | atelier | 41.5% cheaper | 31.1% fewer | 21.8% slower | n/a | 1 |
+| local8 | atelier | 53.4% cheaper | 32.3% fewer | 25.4% slower | n/a | 1 |
+| local9 | atelier | 56.9% cheaper | 32.7% fewer | even | n/a | 1 |
+| local10 | atelier | 44.1% cheaper | 31.3% fewer | 100.3% slower | n/a | 1 |
+
+| Task | Arm | cost_usd | tokens | time_s | tool_calls | reps |
+| --- | --- | --- | --- | --- | --- | --- |
+| local1 | baseline | 0.0590 | 33,207 | 10.1 | 0 | 1 |
+| local1 | atelier | 0.0306 | 22,630 | 10.3 | 0 | 1 |
+| local2 | baseline | 0.0677 | 33,771 | 13.4 | 0 | 1 |
+| local2 | atelier | 0.0321 | 22,723 | 13.2 | 0 | 1 |
+| local4 | baseline | 0.0653 | 33,633 | 13.0 | 0 | 1 |
+| local4 | atelier | 0.0409 | 23,354 | 18.5 | 0 | 1 |
+| local5 | baseline | 0.0602 | 33,280 | 8.1 | 0 | 1 |
+| local5 | atelier | 0.0297 | 22,601 | 9.5 | 0 | 1 |
+| local6 | baseline | 0.0627 | 33,441 | 9.5 | 0 | 1 |
+| local6 | atelier | 0.0336 | 22,820 | 11.3 | 0 | 1 |
+| local7 | baseline | 0.0617 | 33,384 | 11.0 | 0 | 1 |
+| local7 | atelier | 0.0361 | 22,992 | 13.4 | 0 | 1 |
+| local8 | baseline | 0.0568 | 33,061 | 5.8 | 0 | 1 |
+| local8 | atelier | 0.0265 | 22,387 | 7.2 | 0 | 1 |
+| local9 | baseline | 0.0575 | 33,098 | 7.2 | 0 | 1 |
+| local9 | atelier | 0.0248 | 22,272 | 7.3 | 0 | 1 |
+| local10 | baseline | 0.0573 | 33,089 | 6.0 | 0 | 1 |
+| local10 | atelier | 0.0320 | 22,725 | 12.0 | 0 | 1 |
+
+=== Per-task correctness and cost ===
+
+| Task | Arm | Correct | Score | vs baseline | Cost | Cost delta | Winner |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| local1 | atelier | 0/0 | unjudged | unjudged | $0.0306 | 48.1% cheaper | unjudged |
+| local1 | baseline | 0/0 | unjudged | baseline | $0.0590 | baseline | unjudged |
+| local2 | atelier | 0/0 | unjudged | unjudged | $0.0321 | 52.6% cheaper | unjudged |
+| local2 | baseline | 0/0 | unjudged | baseline | $0.0677 | baseline | unjudged |
+| local3 | atelier | 0/0 | unjudged | unjudged | $0.0293 | 49.1% cheaper | unjudged |
+| local3 | baseline | 0/0 | unjudged | baseline | $0.0576 | baseline | unjudged |
+| local4 | atelier | 0/0 | unjudged | unjudged | $0.0409 | 37.4% cheaper | unjudged |
+| local4 | baseline | 0/0 | unjudged | baseline | $0.0653 | baseline | unjudged |
+| local5 | atelier | 0/0 | unjudged | unjudged | $0.0297 | 50.7% cheaper | unjudged |
+| local5 | baseline | 0/0 | unjudged | baseline | $0.0602 | baseline | unjudged |
+| local6 | atelier | 0/0 | unjudged | unjudged | $0.0336 | 46.4% cheaper | unjudged |
+| local6 | baseline | 0/0 | unjudged | baseline | $0.0627 | baseline | unjudged |
+| local7 | atelier | 0/0 | unjudged | unjudged | $0.0361 | 41.5% cheaper | unjudged |
+| local7 | baseline | 0/0 | unjudged | baseline | $0.0617 | baseline | unjudged |
+| local8 | atelier | 0/0 | unjudged | unjudged | $0.0265 | 53.3% cheaper | unjudged |
+| local8 | baseline | 0/0 | unjudged | baseline | $0.0568 | baseline | unjudged |
+| local9 | atelier | 0/0 | unjudged | unjudged | $0.0248 | 56.9% cheaper | unjudged |
+| local9 | baseline | 0/0 | unjudged | baseline | $0.0575 | baseline | unjudged |
+| local10 | atelier | 0/0 | unjudged | unjudged | $0.0320 | 44.2% cheaper | unjudged |
+| local10 | baseline | 0/0 | unjudged | baseline | $0.0573 | baseline | unjudged |
+Runs ok     : baseline 10/10  atelier 10/10
+Valid       : baseline 9/10  atelier 9/10
+Validity    : invalid/off-topic runs detected; cost/token comparisons are not meaningful.
+Quality     : unjudged; headline savings are exploratory until pairwise_quality.csv passes.
+Chart data  : summary.csv, task_metrics.csv, model_audit.csv, task_correctness.csv, pairwise_quality.csv, quality_adjusted_summary.csv

@@ -1,0 +1,3 @@
+{"handler_ms": 43, "overhead_ms": 36, "response_size": 587, "session_id": "4e58e17e-684a-4727-9388-f4c43696f05d", "status": "ok", "tool": "bash", "total_ms": 79, "ts": 1783505755.4167597}
+{"handler_ms": 2, "overhead_ms": 3, "response_size": 1319, "session_id": "4e58e17e-684a-4727-9388-f4c43696f05d", "status": "ok", "tool": "bash", "total_ms": 5, "ts": 1783505758.2821126}
+{"handler_ms": 380, "overhead_ms": 4, "response_size": 7575, "session_id": "4e58e17e-684a-4727-9388-f4c43696f05d", "status": "ok", "tool": "read", "total_ms": 384, "ts": 1783505761.471182}

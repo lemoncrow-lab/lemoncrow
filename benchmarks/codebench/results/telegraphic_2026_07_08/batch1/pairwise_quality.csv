@@ -1,0 +1,11 @@
+task,rep,baseline_arm,candidate_arm,status,judged,baseline_score,candidate_score,quality_delta,winner,candidate_at_least_baseline,judge_model,judge_reason,baseline_correct,candidate_correct,baseline_cost_usd,candidate_cost_usd,raw_saved_usd,raw_saved_tokens,quality_adjusted_saved_usd,quality_adjusted_saved_tokens
+local1,0,baseline,atelier,unjudged,False,,,,,,,pairwise judge not run,,,0.059028199999999996,0.030636,0.0284,10577,0.0,0
+local10,0,baseline,atelier,unjudged,False,,,,,,,pairwise judge not run,,,0.0572642,0.0320316,0.0252,10364,0.0,0
+local2,0,baseline,atelier,unjudged,False,,,,,,,pairwise judge not run,,,0.06765919999999999,0.0321339,0.0355,11048,0.0,0
+local3,0,baseline,atelier,invalid_output,False,,,,,,,pairwise judge not run,,,0.0576302,0.0292671,0.0284,10535,0.0,0
+local4,0,baseline,atelier,unjudged,False,,,,,,,pairwise judge not run,,,0.0653302,0.0409092,0.0244,10279,0.0,0
+local5,0,baseline,atelier,unjudged,False,,,,,,,pairwise judge not run,,,0.060190200000000006,0.029658300000000002,0.0305,10679,0.0,0
+local6,0,baseline,atelier,unjudged,False,,,,,,,pairwise judge not run,,,0.0626732,0.0335595,0.0291,10621,0.0,0
+local7,0,baseline,atelier,unjudged,False,,,,,,,pairwise judge not run,,,0.0616912,0.036066,0.0256,10392,0.0,0
+local8,0,baseline,atelier,unjudged,False,,,,,,,pairwise judge not run,,,0.05683320000000001,0.0264777,0.0304,10674,0.0,0
+local9,0,baseline,atelier,unjudged,False,,,,,,,pairwise judge not run,,,0.05748519999999999,0.024796799999999997,0.0327,10826,0.0,0

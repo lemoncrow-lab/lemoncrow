@@ -1,80 +1,105 @@
-#!/usr/bin/env python3
-"""Read the latest run.py snapshot and print/write the savings table.
+"""Render the telegraphic savings table -- baseline vs any of: full atelier
+runtime, atelier's telegraphic register alone, caveman's own skill alone.
 
-Savings = 1 - median(ultra_output_tokens) / median(baseline_output_tokens),
-per prompt, from real Claude Code usage.output_tokens (ground truth, not a
-tokenizer approximation). Reports median/mean/min/max like caveman's own
-measure.py so a reader can see whether a number is solid or noisy.
-
-Run: uv run python benchmarks/telegraphic/report.py [path/to/snapshot.json]
+Reads ``results.jsonl`` (one row per (prompt, arm, rep), ``ArmResult``-shaped
+for codebench arms, ``extra_arms.run_extra_arm``-shaped for the isolated
+system-prompt-only arms -- same field names either way) and reports real
+per-prompt output-token counts per arm, plus each non-baseline arm's percent
+delta vs baseline, from ``output_tokens`` -- Claude's actual reported usage,
+not a tokenizer approximation. Ad-hoc tasks are named ``local1``..``localN``
+in run order, matching ``benchmarks.codebench.local.build_local_tasks`` --
+``_prompt_index`` maps that back to this suite's ``prompts.json`` order.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import statistics
-import sys
 from pathlib import Path
 
-RESULTS_DIR = Path(__file__).parent / "results"
+_TASK_RE = re.compile(r"^local(\d+)$")
+
+_ARM_LABELS = {
+    "baseline": "Baseline",
+    "atelier": "Atelier (full runtime)",
+    "atelier-telegraphic": "Atelier (telegraphic only)",
+    "caveman": "Caveman",
+}
 
 
-def latest_snapshot() -> Path:
-    candidates = sorted(RESULTS_DIR.glob("telegraphic_*.json"))
-    if not candidates:
-        raise SystemExit(f"no snapshot found under {RESULTS_DIR} -- run run.py first")
-    return candidates[-1]
+def load_results(run_dir: Path) -> list[dict]:
+    path = Path(run_dir) / "results.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def tokens(calls: list[dict]) -> list[int]:
-    return [c["output_tokens"] for c in calls if "output_tokens" in c]
+def _prompt_index(task: str) -> int | None:
+    m = _TASK_RE.match(task)
+    return int(m.group(1)) - 1 if m else None
 
 
-def main() -> None:
-    path = Path(sys.argv[1]) if len(sys.argv) > 1 else latest_snapshot()
-    data = json.loads(path.read_text(encoding="utf-8"))
-    meta = data["metadata"]
-    rows = data["rows"]
-
-    print(f"_Source: {path.name}_")
-    print(f"_Model: {meta.get('model', '?')} - CLI: {meta.get('claude_cli_version', '?')}_")
-    print(
-        f"_n = {meta.get('n_prompts', len(rows))} prompts x {meta.get('trials', '?')} trial(s), real usage.output_tokens_"
-    )
-    print()
-    print("| ID | Source | Baseline (tokens) | Ultra (tokens) | Saved |")
-    print("|----|--------|-------------------:|----------------:|------:|")
-
-    savings = []
-    baseline_totals = []
-    ultra_totals = []
-    skipped = []
-    for row in rows:
-        b = tokens(row["baseline"])
-        u = tokens(row["ultra"])
-        if not b or not u:
-            skipped.append(row["id"])
+def render_report(results: list[dict], prompt_entries: list[dict]) -> str:
+    by_prompt: dict[int, dict[str, list[dict]]] = {}
+    arm_order: list[str] = []
+    for row in results:
+        idx = _prompt_index(str(row.get("task", "")))
+        if idx is None or not (0 <= idx < len(prompt_entries)):
             continue
-        bm, um = statistics.median(b), statistics.median(u)
-        pct = round((1 - um / bm) * 100) if bm else 0
-        savings.append(pct)
-        baseline_totals.append(bm)
-        ultra_totals.append(um)
-        print(f"| {row['id']} | {row['source']} | {int(bm)} | {int(um)} | {pct}% |")
+        arm = str(row["arm"])
+        if arm not in arm_order:
+            arm_order.append(arm)
+        by_prompt.setdefault(idx, {}).setdefault(arm, []).append(row)
 
-    if savings:
-        avg_b, avg_u = statistics.mean(baseline_totals), statistics.mean(ultra_totals)
-        print(f"| **Average** | | **{round(avg_b)}** | **{round(avg_u)}** | **{round(statistics.mean(savings))}%** |")
-        print()
-        print(
-            f"_Median saving {statistics.median(savings)}%, range {min(savings)}%-{max(savings)}%, "
-            f"stdev {statistics.pstdev(savings):.0f}pp across {len(savings)} prompts."
-            + (f" Skipped (errored): {', '.join(skipped)}." if skipped else "")
-            + "_"
-        )
+    if not arm_order:
+        return "_No results.jsonl rows matched any prompt._"
+
+    if "baseline" in arm_order:
+        arm_order = ["baseline"] + [a for a in arm_order if a != "baseline"]
+
+    headers = ["ID", "Source"] + [_ARM_LABELS.get(a, a) for a in arm_order]
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "|" + "|".join(["----", "------"] + ["------------------:"] * (len(arm_order))) + "|",
+    ]
+
+    totals: dict[str, list[float]] = {a: [] for a in arm_order}
+    skipped: list[str] = []
+
+    for idx, entry in enumerate(prompt_entries):
+        arms_here = by_prompt.get(idx, {})
+        medians: dict[str, float | None] = {}
+        for a in arm_order:
+            ok_rows = [r for r in arms_here.get(a, []) if r.get("ok") and not r.get("is_error")]
+            medians[a] = statistics.median(r["output_tokens"] for r in ok_rows) if ok_rows else None
+        if any(v is None for v in medians.values()):
+            skipped.append(entry["id"])
+            continue
+        for a in arm_order:
+            totals[a].append(medians[a])  # type: ignore[arg-type]
+        cells = [entry["id"], entry["source"]] + [str(int(medians[a])) for a in arm_order]  # type: ignore[arg-type]
+        lines.append("| " + " | ".join(cells) + " |")
+
+    n = len(totals[arm_order[0]])
+    if n:
+        avg_cells = ["**Average**", ""] + [f"**{round(statistics.mean(totals[a]))}**" for a in arm_order]
+        lines.append("| " + " | ".join(avg_cells) + " |")
+        lines.append("")
+        if "baseline" in arm_order:
+            for a in arm_order:
+                if a == "baseline":
+                    continue
+                deltas = [1 - v / b if b else 0.0 for v, b in zip(totals[a], totals["baseline"], strict=True)]
+                lines.append(
+                    f"_{_ARM_LABELS.get(a, a)} vs baseline: mean {round(statistics.mean(deltas) * 100)}%, "
+                    f"median {round(statistics.median(deltas) * 100)}%, "
+                    f"range {round(min(deltas) * 100)}%-{round(max(deltas) * 100)}%, "
+                    f"stdev {statistics.pstdev(deltas) * 100:.0f}pp across {n} prompts._"
+                )
+        if skipped:
+            lines.append(f"\n_Skipped (errored/missing arm): {', '.join(skipped)}._")
     elif skipped:
-        print(f"\nAll prompts errored: {', '.join(skipped)}")
+        lines.append(f"\nAll prompts errored or missing an arm: {', '.join(skipped)}")
 
-
-if __name__ == "__main__":
-    main()
+    return "\n".join(lines)

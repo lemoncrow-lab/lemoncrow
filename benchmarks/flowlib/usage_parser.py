@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 _INPUT_KEYS = ("input_tokens", "inputTokens")
@@ -122,7 +123,7 @@ def _apply_event(u: Usage, event: dict) -> None:
             _merge_usage_dict(u, meta["usage"], update_inputs=True, update_output=True)
 
 
-def _iter_eventstream_payloads(body: bytes):
+def _iter_eventstream_payloads(body: bytes) -> Iterator[bytes]:
     """Yield the payload bytes of each AWS event-stream frame.
 
     Frame layout: ``[total_len u32][headers_len u32][prelude_crc u32]
