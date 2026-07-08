@@ -551,7 +551,7 @@ def _markdown_body(path: Path) -> str:
 def core_discipline_body(shared_dir: Path) -> str:
     """Expand ``{{CORE_DISCIPLINE}}``: core-discipline plus the telegraphic-default
     bullet (split into its own partial so the reply-register level machinery can
-    strip it for mild/off — see atelier.core.reply_register) plus the
+    strip it for lite/off — see atelier.core.reply_register) plus the
     response-economy directive (byte-exact + expand-for-safety invariants that
     bound how terse a reply may get). Always renders the strict/full text;
     level application happens downstream via apply_reply_register_level."""
@@ -599,7 +599,7 @@ def _render_codex_mode_body(body: str, repo_root: Path) -> str:
     while "\n\n\n" in rendered:  # level "off" expands {{REPLY_REGISTER}} to ""
         rendered = rendered.replace("\n\n\n", "\n\n")
     # Strip the telegraphic-default bullet (inside {{CORE_DISCIPLINE}}) for
-    # mild/off; no-op at strict, and the register itself is already level-aware.
+    # lite/off; no-op at strict, and the register itself is already level-aware.
     rendered = apply_reply_register_level(rendered, shared_dir)
     if "{{" in rendered:
         raise ValueError("unexpanded template token in Codex agent instructions")
