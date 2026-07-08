@@ -1,6 +1,6 @@
 """Reply-register level resolution + application across generated host surfaces.
 
-Guards the `atelier set telegraphic <ultra|mild|off>` pipeline: the ultra
+Guards the `atelier set telegraphic <ultra|lite|off>` pipeline: the ultra
 (default) register must be baked verbatim into every generated persona
 surface (so the level swap is a deterministic text replacement), and the
 swap itself must be clean for every level on every surface.
@@ -22,7 +22,7 @@ from atelier.core.reply_register import (
 _REPO = Path(__file__).resolve().parents[2]
 _SHARED = _REPO / "integrations" / "agents" / "shared"
 _ULTRA = (_SHARED / "reply-register.md").read_text(encoding="utf-8").strip()
-_MILD = (_SHARED / "reply-register-mild.md").read_text(encoding="utf-8").strip()
+_LITE = (_SHARED / "reply-register-lite.md").read_text(encoding="utf-8").strip()
 _BULLET = (_SHARED / "telegraphic-default.md").read_text(encoding="utf-8").strip()
 
 _GENERATED_PATTERNS = (
@@ -52,8 +52,8 @@ def test_level_resolution_env_settings_default(monkeypatch: pytest.MonkeyPatch, 
 
     settings_file = tmp_path / ".atelier" / "plugin_settings.json"
     settings_file.parent.mkdir(parents=True)
-    settings_file.write_text(json.dumps({"cli.telegraphic": "mild"}), encoding="utf-8")
-    assert reply_register_level() == "mild"
+    settings_file.write_text(json.dumps({"cli.telegraphic": "lite"}), encoding="utf-8")
+    assert reply_register_level() == "lite"
 
     monkeypatch.setenv("ATELIER_TELEGRAPHIC", "off")  # env beats settings
     assert reply_register_level() == "off"
@@ -63,7 +63,7 @@ def test_level_resolution_env_settings_default(monkeypatch: pytest.MonkeyPatch, 
 
 def test_reply_register_body_per_level() -> None:
     assert reply_register_body(_SHARED, "ultra") == _ULTRA
-    assert reply_register_body(_SHARED, "mild") == _MILD
+    assert reply_register_body(_SHARED, "lite") == _LITE
     assert reply_register_body(_SHARED, "off") == ""
 
 
@@ -86,23 +86,23 @@ def test_ultra_register_baked_verbatim_and_swappable_everywhere() -> None:
     assert files, "no generated surface contains the ultra register verbatim — sync drift?"
     for path in files:
         text = path.read_text(encoding="utf-8")
-        assert _MILD not in text, f"{path}: generated file already carries the mild register"
+        assert _LITE not in text, f"{path}: generated file already carries the lite register"
         assert (
             apply_reply_register_level(text, _SHARED, "ultra") == text
         ), f"{path}: ultra should be a no-op (baked default)"
 
-        mild = apply_reply_register_level(text, _SHARED, "mild")
-        assert _ULTRA not in mild and _MILD in mild, f"{path}: mild swap failed"
+        lite = apply_reply_register_level(text, _SHARED, "lite")
+        assert _ULTRA not in lite and _LITE in lite, f"{path}: lite swap failed"
 
         off = apply_reply_register_level(text, _SHARED, "off")
         assert _ULTRA not in off, f"{path}: off removal failed"
         assert "\n\n\n" not in off, f"{path}: off removal left blank-line runs"
 
 
-def test_telegraphic_bullet_stripped_at_mild_and_off() -> None:
+def test_telegraphic_bullet_stripped_at_lite_and_off() -> None:
     """The core-discipline telegraphic bullet (own partial, baked into every
     persona incl. read-only roles without a reply-register) must go for
-    mild/off and stay for ultra."""
+    lite/off and stay for ultra."""
     files = [
         p
         for pattern in _GENERATED_PATTERNS
@@ -113,7 +113,7 @@ def test_telegraphic_bullet_stripped_at_mild_and_off() -> None:
     for path in files:
         text = path.read_text(encoding="utf-8")
         assert apply_reply_register_level(text, _SHARED, "ultra") == text
-        for lvl in ("mild", "off"):
+        for lvl in ("lite", "off"):
             out = apply_reply_register_level(text, _SHARED, lvl)
             assert _BULLET not in out, f"{path}: bullet survived level={lvl}"
             assert "\n\n\n" not in out, f"{path}: bullet removal left blank-line runs at level={lvl}"
@@ -142,9 +142,9 @@ def test_codex_render_honors_level(monkeypatch: pytest.MonkeyPatch) -> None:
     off_core = _render_codex_mode_body("intro\n\n{{CORE_DISCIPLINE}}\n\ntail", _REPO)
     assert "Telegraphic by default" not in off_core, "bullet must be stripped from {{CORE_DISCIPLINE}} at off"
 
-    monkeypatch.setenv("ATELIER_TELEGRAPHIC", "mild")
-    mild = _render_codex_mode_body(body, _REPO)
-    assert _MILD.splitlines()[0] in mild
+    monkeypatch.setenv("ATELIER_TELEGRAPHIC", "lite")
+    lite = _render_codex_mode_body(body, _REPO)
+    assert _LITE.splitlines()[0] in lite
 
     monkeypatch.setenv("ATELIER_TELEGRAPHIC", "ultra")
     ultra = _render_codex_mode_body(body, _REPO)

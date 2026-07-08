@@ -1,4 +1,4 @@
-"""Reply-register level plumbing (persona reply style: ultra | mild | off).
+"""Reply-register level plumbing (persona reply style: ultra | lite | off).
 
 The level controls how much reply-style instruction is baked into every
 installed agent persona:
@@ -6,7 +6,7 @@ installed agent persona:
 - ``ultra`` (default): the full telegraphic template
   (``integrations/agents/shared/reply-register.md``) plus the core-discipline
   "Telegraphic by default" bullet (``telegraphic-default.md``).
-- ``mild``: concise-core register only (``reply-register-mild.md``); the
+- ``lite``: concise-core register only (``reply-register-lite.md``); the
   ultra bullet is stripped.
 - ``off``: no reply-style instruction at all.
 
@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-REPLY_REGISTER_LEVELS: tuple[str, ...] = ("ultra", "mild", "off")
+REPLY_REGISTER_LEVELS: tuple[str, ...] = ("ultra", "lite", "off")
 TELEGRAPHIC_SETTING_KEY = "cli.telegraphic"
 _ENV_OVERRIDE = "ATELIER_TELEGRAPHIC"
 
@@ -57,7 +57,7 @@ def reply_register_body(shared_dir: Path, level: str | None = None) -> str:
     lvl = level if level in REPLY_REGISTER_LEVELS else reply_register_level()
     if lvl == "off":
         return ""
-    name = "reply-register.md" if lvl == "ultra" else "reply-register-mild.md"
+    name = "reply-register.md" if lvl == "ultra" else "reply-register-lite.md"
     return _register_body(shared_dir / name)
 
 
@@ -84,7 +84,7 @@ def apply_reply_register_level(text: str, shared_dir: Path, level: str | None = 
     if bullet_path.exists():
         bullet = _register_body(bullet_path)
         if bullet:
-            # mild/off soften or drop the register; the ultra bullet
+            # lite/off soften or drop the register; the ultra bullet
             # ("never on self-judged complexity") goes with it.
             pairs += [(bullet + "\n", ""), (bullet, "")]
     out = text
