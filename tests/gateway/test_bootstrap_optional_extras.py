@@ -93,7 +93,7 @@ def test_agent_roles_and_skills_blocks_ordered_inside_host_wizard() -> None:
     next_fn_pos = content.index("\nhost_scope_is_workspace() {", wizard_pos)
     block = content[wizard_pos:next_fn_pos]
     which_agents_pos = block.index('"Which agents should Atelier configure?"')
-    roles_pos = block.index("Optional agent roles to install")
+    roles_pos = block.index("Agent roles to install")
     skills_pos = block.index("Optional skills")
     scope_pos = block.index('"Apply configs globally or just here?"')
     assert (
@@ -300,7 +300,12 @@ def test_dumb_terminal_empty_answers_select_standard_roles_no_skills(tmp_path: P
     default_roles = _default_role_names()
     assert role_names and default_roles, "expected non-default roles under integrations/agents/"
     result_file = _run_host_wizard(
-        answers=[b"2\n", b"\n", b"\n", b"1\n"],  # host: codex only (avoids --claude-project noise)
+        answers=[
+            b"2\n",
+            b"\n",
+            b"none\n",
+            b"1\n",
+        ],  # host: codex only; roles: standard; skills: none; scope: this project
         markers=_DUMB_MARKERS,
         tmp_path=tmp_path,
         term="dumb",
@@ -342,14 +347,15 @@ def test_dumb_terminal_explicit_names_filter_unrecognized(tmp_path: Path) -> Non
     )
     pairs = _parse_result(result_file)
     assert pairs.get("--roles") == f"code,{role_names[0]}"
-    assert pairs.get("--include-skills") == skill_names[0]
+    # Wizard prepends "atelier" to the user-supplied skill list.
+    assert pairs.get("--include-skills") == "atelier," + skill_names[0]
 
 
 # --- real arrow-key checkbox menu ---------------------------------------------
 
 _SELECTOR_MARKERS = [
     "Which agents should Atelier configure?",
-    "Optional agent roles to install",
+    "Agent roles to install",
     "Optional skills",
     "Apply configs globally or just here?",
 ]
@@ -358,9 +364,11 @@ _SELECTOR_MARKERS = [
 def test_confirming_defaults_selects_standard_roles_and_no_skills(tmp_path: Path) -> None:
     role_names = _role_names_from_disk()
     default_roles = _default_role_names()
+    skill_names = _skill_names_from_disk()
     assert role_names and default_roles, "expected non-default roles from disk"
+    assert skill_names
     result_file = _run_host_wizard(
-        answers=[b"2\r", b"\r", b"\r", b"\r"],  # host: toggle codex only, confirm; accept both checklist defaults
+        answers=[b"2\r", b"\r", b"\r", b"\r"],  # host: toggle codex only; accept both checklist defaults
         markers=_SELECTOR_MARKERS,
         tmp_path=tmp_path,
         term="xterm",
@@ -369,7 +377,8 @@ def test_confirming_defaults_selects_standard_roles_and_no_skills(tmp_path: Path
     assert pairs.get("--roles") == "code," + ",".join(default_roles)
     assert "auto" not in pairs["--roles"].split(",")
     assert "bare" not in pairs["--roles"].split(",")
-    assert "--include-skills" not in pairs
+    # Skills now default to all selected (atelier prepended by wizard).
+    assert pairs.get("--include-skills") == "atelier," + ",".join(skill_names)
 
 
 def test_toggling_code_does_not_deselect_it(tmp_path: Path) -> None:
@@ -411,7 +420,8 @@ def test_selecting_a_skill_adds_it(tmp_path: Path) -> None:
     default_roles = _default_role_names()
     pairs = _parse_result(result_file)
     assert pairs.get("--roles") == "code," + ",".join(default_roles)
-    assert pairs.get("--include-skills") == skill_names[0]
+    # All skills are pre-selected by default; atelier is prepended by wizard.
+    assert pairs.get("--include-skills") == "atelier," + ",".join(skill_names)
 
 
 def test_claude_global_scope_appends_claude_project_without_losing_roles(tmp_path: Path) -> None:

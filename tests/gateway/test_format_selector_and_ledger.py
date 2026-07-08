@@ -113,7 +113,8 @@ def test_ledger_records_per_tool_in_out_tokens(store_root: Path, tmp_path: Path)
     target = _grep_repo(tmp_path)
     _call("grep", {"path": str(target), "content_regex": "needle"})
     _call("read", {"path": str(target)})
-    _call("read", {"path": str(target), "force": True})
+    # Second read via symbol lookup — 'force' was removed from the tool schema.
+    _call("read", {"symbol": "alpha", "files": [str(target)]})
 
     ledger = load_tool_token_ledger(store_root)
     assert ledger.per_tool["grep"].calls == 1

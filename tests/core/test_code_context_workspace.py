@@ -87,11 +87,14 @@ def test_workspace_router_unions_search_results_and_allows_repo_filter(tmp_path:
 
     assert [item["file_path"] for item in merged["items"]] == ["src/local.py", "src/billing.py"]
     assert [item["file_path"] for item in filtered["items"]] == ["src/billing.py"]
-    assert calls == [
-        (tmp_path.resolve(), "SharedConfig"),
-        ((tmp_path / "billing").resolve(), "SharedConfig"),
-        ((tmp_path / "billing").resolve(), "SharedConfig"),
-    ]
+    # Multi-repo search runs engine calls concurrently via ThreadPoolExecutor,
+    # so call ordering is non-deterministic.  Verify the set of operations
+    # instead of exact sequence.
+    atelier_root = tmp_path.resolve()
+    billing_root = (tmp_path / "billing").resolve()
+    assert len(calls) == 3
+    assert (atelier_root, "SharedConfig") in calls
+    assert calls.count((billing_root, "SharedConfig")) == 2
 
 
 def test_workspace_router_rejects_unknown_repo_filter(tmp_path: Path) -> None:
