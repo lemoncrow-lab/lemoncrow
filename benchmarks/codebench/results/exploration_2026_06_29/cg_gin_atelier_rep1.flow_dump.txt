@@ -5,56 +5,97 @@ CronCreate
 CronDelete
 CronList
 DesignSync
-EnterWork
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "gin HandlersChain Next middleware Context index"}
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebSearch
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
-=== Turn 2 ===
-[user] [tool_result] {"candidate_files":["src/atelier/core/capabilities/workflow_runner.py","src/atelier/gateway/adapters/mcp_server.py","src/atelier/core/capabilities/code_context/engine.py","src/atelier/core/service/api.py","src/atelier/core/capabilities/plugin_runtime.py","experiments/retrieval_symbol_v
-[assistant] This repo is Atelier (Python), not gin — so this is a general-knowledge question about the Go framework. Here's how gin's middleware chain actually works.
+The following MCP servers require authentication before their tools can be used:
+claude.ai Gmail
+claude.ai Google Calendar
 
-## The core data structure
+This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
 
-Gin represents a route's handlers — middleware *and* the final handler — as a single flat slice:
+Available agent types for the Agent tool:
+- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- atelier:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
-```go
-type HandlerFunc func(*Context)
-type HandlersChain []HandlerFunc
-```
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
 
-There is no separate "middleware list" vs "handler." When you register a route, gin **concatenates** the group's middleware with the route handler into one chain:
+# MCP Server Instructions
 
-```go
-func (group *RouterGroup) handle(httpMethod, relativePath string, handlers HandlersChain) {
-    handlers = group.combineHandlers(handlers)  // group middleware + route handlers
-    group.engine.addRoute(httpMethod, absolutePath, handlers)
-}
+The following MCP servers have provided instructions for how to use their tools and resources:
 
-func (group *RouterGroup) combineHandlers(handlers HandlersChain) HandlersChain {
-    finalSize := len(group.Handlers) + len(handlers)
-    mergedHandlers := make(HandlersChain, finalSize)
-    copy(mergedHandlers, group.Handlers)
-    copy(mergedHandlers[len(group.Handlers):], handlers)
-    return mergedHandlers
-}
-```
+## plugin:atelier:atelier
+Atelier replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
 
-So a route ends up as `[globalMW..., groupMW..., routeHandler]` — one contiguous slice stored in the radix tree node for that path.
+The following skills are available for use with the Skill tool:
 
-## The routing step
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- atelier:atelier: Extras manager.
+- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
+- atelier:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
+- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
+- atelier:recall: Retrieve what Atelier already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does Atelier remember', or /recall. Read-only; importing, indexing, and extraction run in the Atelier background.
+- atelier:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
+- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] Gin's middleware = a slice, not a stack. Mechanism:
 
-`Engine.ServeHTTP` grabs a pooled `Context`, resets it, and calls `handleHTTPRequest`. That looks up the method tree (gin keeps one radix/trie tree per HTTP method), matches the path, and assigns the matched chain to the context:
+**Chain assembly.** Each route stores `HandlersChain` = `[]HandlerFunc` — the group's middleware + the final handler, concatenated at registration time (`group.combineHandlers`). Radix tree per HTTP method; on match, `Engine.handleHTTPRequest` sets `c.handlers = node.handlers` and `c.index = -1`, then calls `c.Next()`.
 
-```go
-c.handlers = value.handlers   // the combined HandlersChain
-c.params  = value.params
-c.index = -1
-c.Next()
-```
-
-## The chain walk — `Context.index` + `Next()`
-
-The middleware "chain" is not nested function wrapping (unlike Go's `net/http` middleware idiom). It's an **index cursor** over the slice:
-
+**Execution — `Context.Next()`:**
 ```go
 func (c *Context) Next() {
     c.index++
@@ -64,30 +105,13 @@ func (c *Context) Next() {
     }
 }
 ```
+Index-driven, not recursive-by-framework. Each handler runs in order. A middleware that wants "before/after" logic calls `c.Next()` *itself* mid-body — that re-enters the loop, runs all downstream handlers to completion, then unwinds back to the code after `c.Next()`. Middleware that doesn't call `c.Next()` just falls through to the next one via the loop (still runs everything after it).
 
-Key consequences of this design:
+**Short-circuit — `c.Abort()`:** sets `c.index = abortIndex` (63). Loop condition fails → no further handlers run. `AbortWithStatus` etc. wrap this. Abort does *not* unwind Go's stack — code after `c.Next()` in already-entered middleware still runs.
 
-- **Pre/post logic** — A middleware runs code, calls `c.Next()` to descend into the rest of the chain, and then the code *after* `c.Next()` runs on the way back out. That's how timing/logging/recovery middleware wrap the handler:
-  ```go
-  func Logger() gin.HandlerFunc {
-      return func(c *gin.Context) {
-          t := time.Now()
-          c.Next()                 // run everything downstream
-          latency := time.Since(t) // runs after handler returns
-      }
-  }
-  ```
-- **Abort** — Calling `c.Abort()` sets `c.index = abortIndex` (a large sentinel, 63). The `for` loop in `Next()` then fails its bounds check and stops, so no later handlers run. `Abort()` does **not** unwind the stack — already-running middleware still finish their post-`Next()` code. To stop *and* respond, you use `c.AbortWithStatus(...)` / `AbortWithStatusJSON(...)`.
-- **A middleware that never calls `Next()`** still works: when it returns, `Next()`'s loop increments `index` and continues to the next handler anyway. Calling `Next()` explicitly only matters when you need post-processing logic or want to control ordering relative to downstream handlers.
-- **`index` is an `int8`** — which is why the chain is limited to 63 handlers (`abortIndex = math.MaxInt8 >> 1`).
-
-## Putting it together
-
-1. Route registration flattens middleware + handler into one `HandlersChain` per route, stored in the per-method radix tree.
-2. On a request, `ServeHTTP` pulls a `Context` from a `sync.Pool`, the tree lookup attaches the matched chain, sets `index = -1`.
-3. `Next()` drives the cursor forward; each handler may call `Next()` to run downstream handlers before its own tail code.
-4. `Abort()` jumps the cursor past the end to halt progression.
-
-The elegant part is that there's no wrapper-closure allocation per middleware per request — it's one shared slice plus an integer cursor on a pooled context, which is a big part of why gin is fast.
-
-If you have a specific gin version checked out somewhere and want me to trace the exact source, point me at it and I'll read the actual files.
+Key consequences:
+- "after" logic = put it *after* `c.Next()` in your middleware (e.g. logging latency, setting headers pre-write).
+- Ordering = registration order; global `engine.Use(...)` middleware prepended to every route's chain.
+- `int8` index caps a chain at 63 handlers (abortIndex sentinel).
+- 404/405 route to `engine.allNoRoute`/`allNoMethod` chains — global middleware still applied.
+[usage] input=5229 cache_read=16561 cache_write=0 output=810

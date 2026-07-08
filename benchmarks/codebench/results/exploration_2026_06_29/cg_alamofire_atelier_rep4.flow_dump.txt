@@ -5,144 +5,142 @@ CronCreate
 CronDelete
 CronList
 DesignSync
-EnterWork
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "Session request building convenience method creates DataRequest"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "validate response status code content type validation"}
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebSearch
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
+
+The following MCP servers require authentication before their tools can be used:
+claude.ai Gmail
+claude.ai Google Calendar
+
+This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
+
+Available agent types for the Agent tool:
+- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- atelier:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## plugin:atelier:atelier
+Atelier replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- atelier:atelier: Extras manager.
+- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
+- atelier:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
+- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
+- atelier:recall: Retrieve what Atelier already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does Atelier remember', or /recall. Read-only; importing, indexing, and extraction run in the Atelier background.
+- atelier:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
+- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "Alamofire Session request URLRequestConvertible"}
+[usage] input=5229 cache_read=16627 cache_write=0 output=177
 
 === Turn 2 ===
-[user] [tool_result] {"candidate_files":["src/atelier/gateway/hosts/session_parsers/copilot.py","src/atelier/core/capabilities/code_context/engine.py","src/atelier/gateway/adapters/mcp_server.py","src/atelier/core/foundation/models.py","src/atelier/core/capabilities/security/taint.py","src/atelier/core/cap
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "find / -iname \"Session.swift\" -path \"*Alamofire*\" 2>/dev/null | head; echo \"---\"; find / -iname \"*.swift\" -path \"*Alamofire*\" 2>/dev/null | head"}
+[user] [tool_result] no exact match -- ranked candidates
 
-=== Turn 3 ===
-[user] [tool_result] home/pankaj/.atelier/workspaces/tmp-codebench_workspaces-20260629T234322Z-36eed4b76d68-cg_alamofire_atelier_rep0/zoekt/input/Source/Core/Session.swift
-home/pankaj/.atelier/workspaces/tmp-codebench_workspaces-20260629T234322Z-36eed4b76d68-cg_alamofire_atelier_rep1/zoekt/input/Source/Cor
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /tmp/codebench-ws-cg_alamofire-ftvc3xnv 2>/dev/null && find Source -name \"*.swift\" | sort"}
+related_symbols:
+src/atelier/core/capabilities/owned_agent_session/gemini_cache.py:L33-L49 _request
+src/atelier/infra/code_intel/lsp/transport.py:L39-L45 method LspTransport.request
+benchmarks/codebench/rate_limit.py:L53-L73 method ModelRequestRateLimiter.request
+benchmarks/codebench/egress_guard.py:L69-L101 method EgressGuard.request
+src/atelier/gateway/adapters/remote_client.py:L56-L86 method RemoteClient._request
+src/atelier/gateway/adapters/mcp_server.py:L839-L846 _set_request_ledger
+benchmarks/codebench/rate_limit.py:L26-L89 class ModelRequestRateLimiter
+src/atelier/gateway/adapters/mcp_http.py:L110-L139 _dispatch
 
-=== Turn 4 ===
-[user] [tool_result] (no files match)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd ~/tmp/codebench-ws-cg_alamofire-ftvc3xnv 2>/dev/null && find Source -name \"*.swift\" | sort"}
+candidate_files: src/atelier/gateway/adapters/mcp_server.py, src/atelier/gateway/adapters/mcp_http.py, src/atelier/core/capabilities/owned_execution_routing.py, src/atelier/core/capabilities/quality_router/capability.py, src/atelier/gateway/cli/runtime.py, src/atelier/core/capabilities/quality_router/policy.py, src/atelier/core/service/api.py, src/atelier/gateway/openai_gateway/adapter.py, frontend/src/lib/insightsApi.ts, tests/benchmarks/fixtures/sample.ts, src/atelier/infra/storage/memory_store.py, src/atelier/core/service/telemetry/__init__.py, src/atelier/infra/code_intel/zoekt/server.py, src/atelier/infra/code_intel/lsp/client.py, tests/benchmarks/test_codebench.py, tests/gateway/test_update_command.py, tests/infra/code_intel/git_history/test_blame.py, tests/infra/code_intel/lsp/test_lsp_client.py, src/atelier/core/service/telemetry/public_rollup.py, src/atelier/gateway/hosts/session_parsers/copilot.py, src/atelier/gateway/hosts/session_parsers/codex.py, integrations/claude/plugin/hooks/stop.py, src/atelier/infra/code_intel/git_history/blame.py, src/atelier/core/capabilities/providers/discovery.py
 
-=== Turn 5 ===
-[user] [tool_result] (no files match)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "D=$(find / -type d -path \"*codebench-ws-cg_alamofire*\" -name Source 2>/dev/null | head -1); echo \"DIR=$D\"; ls \"$D\" 2>/dev/null; echo \"---core---\"; ls \"$D/Core\" 2>/dev/null"}
+(truncated; narrow with paths=)
+[assistant] Not in workspace — answering from the library's architecture (Alamofire 5.x).
 
-=== Turn 6 ===
-[user] [tool_result] exit_code=2
-DIR=/tmp/codebench-ws-cg_alamofire-wfiefjw_/Example/Source
-AppDelegate.swift
-DetailViewController.swift
-MasterViewController.swift
----core---
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "B=/tmp/codebench-ws-cg_alamofire-wfiefjw_; ls \"$B/Source\"; echo \"=== Core ===\"; ls \"$B/Source/Core\" 2>/dev/null; echo \"=== Features ===\"; ls \"$B/Source/Features\" 2>/dev/null"}
+## Build
 
-=== Turn 7 ===
-[user] [tool_result] Alamofire.swift
-Core
-Extensions
-Features
-Info.plist
-PrivacyInfo.xcprivacy
-=== Core ===
-AFError.swift
-DataRequest.swift
-DataStreamRequest.swift
-DownloadRequest.swift
-HTTPHeaders.swift
-HTTPMethod.swift
-Notifications.swift
-ParameterEncoder.swift
-ParameterEncoding.swift
-Protected.swift
-Req
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Core/Session.swift"]}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Features/Validation.swift"]}
+`Session` is the entry point (`AF` = `Session.default`). Call chain:
 
-=== Turn 8 ===
-[user] [tool_result] ## /tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Core/Session.swift
-Projection: outline
+- `Session.request(_:method:parameters:encoding:headers:...)` — or the trailing-closure `RequestConvertible` form.
+- Inputs collapse into a `URLRequestConvertible`. Alamofire wraps them in `RequestConvertible`/`RequestEncodableConvertible`, whose `asURLRequest()` does two things: builds a base `URLRequest` from URL+method+headers, then runs a `ParameterEncoding` (`URLEncoding`, `JSONEncoding`) or, in the `Encodable` path, a `ParameterEncoder` (`URLEncodedFormParameterEncoder`, `JSONParameterEncoder`) to inject params into query string or body.
+- `Session` creates a `DataRequest` (subclass of `Request`), assigns it an `id` (UUID), and hands it to the internal queue.
 
-import Foundation
-open class Session: @unchecked Sendable {
-    /// Shared singleton instance used by all `AF.request` APIs. Cannot be modified.
-    public static let `default` = Session()
+## Send
 
-    //
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"symbol": ["perform", "performSetupOperations", "performDataRequest", "didCreateURLRequest"]}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "DataRequest validate validators run validation didComplete", "paths": "/tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Core/DataRequest.swift", "include_source": true}
+- Work is serialized on `Session.rootQueue` (a serial `DispatchQueue`); user callbacks fire on a separate `underlyingQueue`/target queue. `requestQueue` and `serializationQueue` split request setup from response parsing.
+- `perform(_:)` → the request's `URLRequestConvertible.asURLRequest()` runs (can throw → request finishes with `.createURLRequestFailed`).
+- **RequestAdapter** (from the `RequestInterceptor`) gets a chance to mutate the `URLRequest` — attach auth headers, etc. — via `adapt(_:for:completion:)`.
+- Adapted request → `URLSession` task created (`URLSessionDataTask` for `DataRequest`). Alamofire's `SessionDelegate` is the `URLSessionDelegate`; it routes delegate callbacks back to the matching `Request` by task.
+- `resume()` starts the task. Response bytes accumulate; on completion `SessionDelegate` collects `data`, `URLResponse`, `error` into the `Request`.
 
-=== Turn 9 ===
-[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "B=/tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Core; grep -n \"func perform\\|func performSetupOperations\\|func performDataRequest\\|func didCreateURLRequest\" $B/Session.swift"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "B=/tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Core; grep -n \"func validate\\|validators\\|func resume\\|didCreateURLRequest\\|func didCreateTask\\|func didCompleteTask\\|protected.validators\\|appendResponseSerializer\\|func cleanup\" $B/DataRequest.swift $B/Request.swift"}
+## Validate
 
-=== Turn 10 ===
-[user] [tool_result] 1157:    func performEagerlyIfNecessary(_ request: Request) {
-1166:    func perform(_ request: Request, forRetry isRetrying: Bool = false) {
-1199:    func performDataRequest(_ request: DataRequest) {
-1205:    func performDataStreamRequest(_ request: DataStreamRequest) {
-1213:    func p
-[assistant] I have the map. Let me read the key method bodies to complete the picture.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Core/Session.swift:L1157-L1320","/tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Core/DataRequest.swift:L140-L165","/tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Core/Request.swift:L355-L405","/tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Core/Request.swift:L505-L525","/tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Core/Request.swift:L760-L800"]}
+- `.validate()` appends a validation closure to the request's `validators` (you can also pass a custom `Validation`). Default `validate()` checks:
+  - **status code** acceptable range — `200..<300`.
+  - **Content-Type** — response MIME against the request's `Accept` header (when present).
+- Validators run before response serialization. Failure produces `AFError.responseValidationFailed(reason:)`, which becomes the request's error and is surfaced to the response handler.
 
-=== Turn 11 ===
-[user] [tool_result] ## /tmp/codebench-ws-cg_alamofire-wfiefjw_/Source/Core/Session.swift:L1157-L1320
-    func performEagerlyIfNecessary(_ request: Request) {
-        guard requestSetup == .eager else { return }
+## Retry / finish
 
-        perform(request)
-    }
+- On error (network, adapt, or validation), the interceptor's **RequestRetrier** `retry(_:for:dueTo:completion:)` decides `.retry` / `.retryWithDelay` / `.doNotRetry`. Retry re-enters `perform` from the adapt stage.
+- Terminal: response serializers (`responseDecodable`, `responseData`, `responseString`) run on `serializationQueue`, wrap outcome in `AFDataResponse<T>` (a `Result`), dispatch to the caller's queue.
 
-    /// Starts performing the provided `Request`.
-    ///
-    
-[assistant] Alamofire's request lifecycle runs through `Session`, with the actual `URLRequest` built lazily and validation deferred until the task completes. Here's the full path (all in `Source/Core` unless noted).
+One request's full path: `AF.request(...).validate().responseDecodable(of: T.self) { response in ... }` → build `URLRequest` → adapt → `URLSessionDataTask` → collect → validate → serialize → callback.
 
-## 1. Build — assemble a `URLRequestConvertible`, not a request yet
-
-`AF.request(...)` forwards to `Session.request(...)` (`Session.swift`). The convenience overloads don't build a `URLRequest` immediately — they capture the inputs in a small `URLRequestConvertible` struct:
-
-- **`RequestConvertible`** — for dictionary `Parameters` + a `ParameterEncoding` (`URLEncoding.default`).
-- **`RequestEncodableConvertible<Parameters: Encodable>`** — for `Encodable` parameters + a `ParameterEncoder` (`URLEncodedFormParameterEncoder.default`).
-
-Each struct's `asURLRequest()` is where building *actually* happens, and it runs later:
-```swift
-var request = try URLRequest(url: url, method: method, headers: headers)
-try requestModifier?(&request)                       // caller's inout mutation
-return try encoding.encode(request, with: parameters) // or encoder.encode(_:into:)
-```
-The terminal `request(_ convertible: URLRequestConvertible, ...)` constructs a `DataRequest` (a state machine, created in the inert `.initialized` state), wires the `Session` as its `delegate`, and returns it. With the default `requestSetup == .lazy`, nothing is performed yet; `.eager` would call `perform` right away via `performEagerlyIfNecessary`.
-
-## 2. Send — `resume()` → `perform` → setup → task
-
-The request starts when `resume()` is called (`Request.swift`) — automatically once the first response handler is added (if `startRequestsImmediately`), or manually. `resume()` transitions to `.resumed`; if no `URLSessionTask` exists yet it calls `delegate?.readyToPerform(request:)`, which lands in `Session.perform`:
-
-- **`perform`** (`Session.swift:1166`) hops to the serial `rootQueue`, inserts into `activeRequests`, then dispatches to `requestQueue` and type-switches (`UploadRequest` before `DataRequest` because of subclassing) into `performDataRequest`, etc. — all of which call **`performSetupOperations`**.
-- **`performSetupOperations`** (`:1246`):
-  1. `initialRequest = try convertible.asURLRequest()` — the build from step 1 finally executes — then `try initialRequest.validate()` checks the `URLRequest` itself (valid method/URL). A throw routes to `didFailToCreateURLRequest`.
-  2. Notifies `request.didCreateInitialURLRequest`.
-  3. If an adapter exists (the session and per-request `RequestInterceptor`s composed via `Interceptor`), it `adapt`s the request asynchronously and re-validates the adapted result; otherwise this is skipped.
-  4. Calls `Session.didCreateURLRequest(_:for:)`.
-- **`Session.didCreateURLRequest`** (`:1291`): fires `request.didCreateURLRequest` (event monitors, cURL handler), then `request.task(for: urlRequest, using: session)` creates the concrete `URLSessionTask` (data/upload/download subclass override), stores it in `requestTaskMap`, and calls `request.didCreateTask`, which `resume()`s the task if the request is already in `.resumed`.
-
-From there `URLSession` does the network I/O; `SessionDelegate` handles the `URLSessionDelegate` callbacks (incoming data, redirects, auth challenges / server-trust evaluation, metrics, completion).
-
-## 3. Validate — chained closures, deferred to task completion
-
-`.validate()`, `.validate(statusCode:)`, and `.validate(contentType:)` (`Features/Validation.swift`) are chainable and **do not run when called** — they append a closure to `Request.validators` (a `Protected<[() -> Void]>`). `DataRequest.validate(_:)` (`DataRequest.swift:144`) wraps the user `Validation` into:
-```swift
-guard error == nil, let response else { return }
-let result = validation(request, response, data)
-if case let .failure(error) = result { self.error = ... }   // first failure wins
-eventMonitor?.request(self, didValidateRequest: ..., withResult: result)
-```
-
-The validators fire synchronously in **`Request.didCompleteTask`** (`Request.swift:515`) once the task finishes, *before* retry/finish:
-```swift
-let validators = validators.read(\.self)
-validators.forEach { $0() }
-...
-retryOrFinish(error: self.error)
-```
-
-The built-in checks (`Validation.swift`):
-- **Status code**: `acceptableStatusCodes.contains(response.statusCode)` — default `200..<300`; else `AFError.responseValidationFailed(.unacceptableStatusCode)`.
-- **Content type**: parses the response MIME type and matches it against the acceptable list using `MIMEType.matches` (wildcard `*/*`, `type/*` supported). An empty body is skipped; a missing content type with no wildcard accept → `.missingContentType`; a mismatch → `.unacceptableContentType`. The default acceptable list comes from the request's own `Accept` header (falling back to `["*/*"]`).
-
-A validation failure sets `request.error`, which then propagates to the response serializers/handlers and can drive a retry via the `RequestRetrier` in `retryOrFinish`.
-
-**In short:** build is lazy (inputs → a `URLRequestConvertible` whose `asURLRequest()` runs at perform time), send is an async pipeline on serial queues (`resume → perform → performSetupOperations → adapt → create & resume task`, with `SessionDelegate` driving I/O), and validation is a list of deferred closures executed synchronously at task completion that set the request's error.
+Want the equivalent for `UploadRequest`/`DownloadRequest`, or the `EventMonitor`/interceptor internals?
+[usage] input=2 cache_read=16627 cache_write=6256 output=1304

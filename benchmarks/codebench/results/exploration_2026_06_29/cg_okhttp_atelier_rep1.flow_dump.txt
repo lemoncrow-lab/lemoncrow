@@ -5,72 +5,111 @@ CronCreate
 CronDelete
 CronList
 DesignSync
-EnterWork
-[assistant] OkHttp's interceptor chain is the backbone of how every HTTP call is executed. Here's the flow.
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebSearch
 
-## The core idea: a chain of responsibility
+The following MCP servers require authentication before their tools can be used:
+claude.ai Gmail
+claude.ai Google Calendar
 
-When you call `call.execute()` or `call.enqueue()`, OkHttp builds an ordered **list of interceptors** and wraps them in a `RealInterceptorChain`. Each interceptor gets a chance to act on the request on the way *down* and on the response on the way *back up*.
+This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
 
-The list is assembled in this order (in `RealCall.getResponseWithInterceptorChain()`):
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Google Drive
 
-1. **Client's application interceptors** (the ones you add via `OkHttpClient.Builder.addInterceptor()`)
-2. **`RetryAndFollowUpInterceptor`** — recovers from failures, follows redirects and `401`/`407` auth challenges
-3. **`BridgeInterceptor`** — translates a user request into an HTTP request: adds headers like `Content-Type`, `Content-Length`, `Host`, `Connection: Keep-Alive`, `Accept-Encoding: gzip`, cookies; and transparently un-gzips the response
-4. **`CacheInterceptor`** — serves from / writes to the HTTP cache, handles conditional requests (`304 Not Modified`)
-5. **`ConnectInterceptor`** — opens a connection (or reuses a pooled one) and a socket to the target server
-6. **Client's network interceptors** (added via `addNetworkInterceptor()`)
-7. **`CallServerInterceptor`** — the terminal interceptor: actually writes the request bytes and reads the response bytes off the wire
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
-## How the chain advances
+Available agent types for the Agent tool:
+- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- atelier:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
-Each interceptor implements:
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
 
-```java
-@Override public Response intercept(Chain chain) throws IOException {
-    Request request = chain.request();
-    // ... do something before (modify request, logging, etc.)
-    Response response = chain.proceed(request);   // hand off to the next interceptor
-    // ... do something after (modify response, logging, etc.)
-    return response;
-}
-```
+# MCP Server Instructions
 
-The magic is `chain.proceed(request)`. `RealInterceptorChain` holds an **index**. When you call `proceed()`, it constructs a *new* chain with `index + 1`, looks up `interceptors[index]`, and calls its `intercept(nextChain)`. That interceptor in turn calls `proceed()` again, advancing to the next one — a recursive descent down the list.
+The following MCP servers have provided instructions for how to use their tools and resources:
 
-So the call stack literally nests:
+## plugin:atelier:atelier
+Atelier replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
 
-```
-appInterceptor.intercept
- └─ retryAndFollowUp.intercept
-     └─ bridge.intercept
-         └─ cache.intercept
-             └─ connect.intercept
-                 └─ networkInterceptor.intercept
-                     └─ callServer.intercept   ← writes/reads the socket, returns Response
-```
+The following skills are available for use with the Skill tool:
 
-Everything before `proceed()` runs **top-down** (request side); everything after `proceed()` returns runs **bottom-up** (response side). `CallServerInterceptor` doesn't call `proceed()` — it's the bottom of the recursion and produces the actual `Response` that unwinds back up.
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- atelier:atelier: Extras manager.
+- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
+- atelier:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
+- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
+- atelier:recall: Retrieve what Atelier already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does Atelier remember', or /recall. Read-only; importing, indexing, and extraction run in the Atelier background.
+- atelier:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
+- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] OkHttp request flow = a chain of interceptors, each wrapping the next, `RealCall` → `getResponseWithInterceptorChain()`.
 
-## Application vs. network interceptors
+**Chain assembly** (order matters — first added = outermost = runs first on request, last on response):
+1. client's application interceptors (yours, `addInterceptor`)
+2. `RetryAndFollowUpInterceptor` — retries, redirects, auth challenges
+3. `BridgeInterceptor` — app→network headers (`Content-Length`, `gzip`, cookies, `Host`)
+4. `CacheInterceptor` — serves/validates/writes cache
+5. `ConnectInterceptor` — opens the connection (`ExchangeFinder` → socket/pool)
+6. client's network interceptors (`addNetworkInterceptor`)
+7. `CallServerInterceptor` — writes request bytes, reads response bytes (terminal)
 
-This ordering explains the two interceptor types:
+**Mechanism** — `RealInterceptorChain`:
+- `chain.proceed(request)` builds the *next* chain (index+1) and calls `interceptor.intercept(next)`.
+- Each interceptor: do pre-work on the request → `next.proceed(request)` → do post-work on the returned `Response` → return it.
+- Recursion unwinds: request travels down list, response travels back up in reverse.
+- `index` guards: `proceed` must be called exactly once per interceptor (asserts otherwise); index increments prevent re-entry.
 
-| | Application interceptor | Network interceptor |
-|---|---|---|
-| Position | Outermost (before retries/redirects) | Inner (after connection established) |
-| Called | Once per `Call`, always | Once per actual network request — **may run multiple times** (redirects, retries) or **zero times** (served from cache) |
-| Sees | The final, logical request/response | The on-the-wire request with all OkHttp headers, the raw network response (e.g. gzipped, `304`s) |
-| Use for | App-level concerns: auth tokens, logging the logical call | Wire-level concerns: observing redirects, network debugging, rewriting bytes |
+**Consequence of ordering:**
+- Application interceptor: called once per `Call`, sees the final response even across redirects/retries, doesn't see intermediate `Content-Encoding` (gzip stripped by `BridgeInterceptor` below it), may not run if cache hit short-circuits before `ConnectInterceptor`.
+- Network interceptor: runs once *per* network request (multiple on redirect), sees the raw wire request/response incl. `Connection`, gzip, and the actual socket via `chain.connection()`.
 
-A redirect handled by `RetryAndFollowUpInterceptor` loops back and calls `proceed()` again, so anything *below* it (bridge, cache, connect, network interceptors, callServer) runs once per redirect hop, while application interceptors above it see only the single logical call.
+Terminal `CallServerInterceptor` never calls `proceed` — it produces the `Response` that propagates back up.
 
-## Key guarantees
-
-- Each interceptor **must call `chain.proceed()` exactly once** (unless it short-circuits by returning its own response, like a cache hit, or throws).
-- The request returned up the chain and the response passed down must be consistent (OkHttp asserts, e.g., that `response.body` isn't null and that `proceed` wasn't called multiple times for the network).
-- Because it's a plain recursive list, the design is fully composable — your custom interceptor is indistinguishable in mechanism from OkHttp's built-in ones.
-
-This is OkHttp's implementation of the classic **chain-of-responsibility / pipeline** pattern, and it's what makes cross-cutting concerns (logging, auth, caching, compression, retries) cleanly separable.
-
-If you have OkHttp's source checked out in this repo, I can point you at the exact lines in `RealInterceptorChain` and `RealCall` — just say the word.
+Want the `getResponseWithInterceptorChain` source walked line-by-line, or a specific interceptor's internals?
+[usage] input=5185 cache_read=16729 cache_write=0 output=818

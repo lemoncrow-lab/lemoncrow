@@ -1,10 +1,1 @@
-{"handler_ms": 510, "overhead_ms": 1095, "response_size": 19548, "session_id": "d229e917-4a1f-4538-b368-1b1954e61fed", "status": "ok", "tool": "read", "total_ms": 1605, "ts": 1782778032.588317}
-{"handler_ms": 223, "overhead_ms": 3, "response_size": 2503, "session_id": "d229e917-4a1f-4538-b368-1b1954e61fed", "status": "ok", "tool": "read", "total_ms": 226, "ts": 1782778036.0829408}
-{"handler_ms": 295, "overhead_ms": 3, "response_size": 8420, "session_id": "d229e917-4a1f-4538-b368-1b1954e61fed", "status": "ok", "tool": "read", "total_ms": 298, "ts": 1782778041.4707592}
-{"handler_ms": 320, "overhead_ms": 3, "response_size": 10732, "session_id": "d229e917-4a1f-4538-b368-1b1954e61fed", "status": "ok", "tool": "read", "total_ms": 323, "ts": 1782778045.0898392}
-{"handler_ms": 226, "overhead_ms": 4, "response_size": 31986, "session_id": "d229e917-4a1f-4538-b368-1b1954e61fed", "status": "ok", "tool": "read", "total_ms": 230, "ts": 1782778050.5967457}
-{"handler_ms": 44, "overhead_ms": 2, "response_size": 409, "session_id": "d229e917-4a1f-4538-b368-1b1954e61fed", "status": "ok", "tool": "read", "total_ms": 46, "ts": 1782778054.0756218}
-{"handler_ms": 0, "overhead_ms": 5, "response_size": 41040, "session_id": "d229e917-4a1f-4538-b368-1b1954e61fed", "status": "ok", "tool": "read", "total_ms": 5, "ts": 1782778058.5870209}
-{"handler_ms": 216, "overhead_ms": 3, "response_size": 2994, "session_id": "d229e917-4a1f-4538-b368-1b1954e61fed", "status": "ok", "tool": "read", "total_ms": 219, "ts": 1782778062.1036854}
-{"handler_ms": 226, "overhead_ms": 4, "response_size": 18395, "session_id": "d229e917-4a1f-4538-b368-1b1954e61fed", "status": "ok", "tool": "read", "total_ms": 230, "ts": 1782778064.4888468}
-{"handler_ms": 215, "overhead_ms": 5, "response_size": 34915, "session_id": "d229e917-4a1f-4538-b368-1b1954e61fed", "status": "ok", "tool": "read", "total_ms": 220, "ts": 1782778070.239584}
+{"handler_ms": 178, "overhead_ms": 52, "response_size": 1950, "session_id": "1aa8f3ad-e332-48a7-b497-26af6cf896b9", "status": "ok", "tool": "code_search", "total_ms": 230, "ts": 1783513728.7660398}

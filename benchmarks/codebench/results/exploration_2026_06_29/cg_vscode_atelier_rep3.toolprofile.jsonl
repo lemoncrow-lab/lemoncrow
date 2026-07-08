@@ -1,2 +1,1 @@
-{"handler_ms": 2796, "overhead_ms": 1791, "response_size": 3317, "session_id": "92861c9b-4c5a-4a3f-9a20-cd631046c4ae", "status": "ok", "tool": "code_search", "total_ms": 4587, "ts": 1782778550.4337778}
-{"handler_ms": 143, "overhead_ms": 2, "response_size": 813, "session_id": "92861c9b-4c5a-4a3f-9a20-cd631046c4ae", "status": "ok", "tool": "code_search", "total_ms": 145, "ts": 1782778550.8429239}
+{"handler_ms": 123, "overhead_ms": 33, "response_size": 1925, "session_id": "63be85d0-a2cf-433d-8b90-a1af7c27c938", "status": "ok", "tool": "code_search", "total_ms": 156, "ts": 1783513916.3418875}

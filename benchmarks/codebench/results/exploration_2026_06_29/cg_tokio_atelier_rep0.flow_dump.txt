@@ -5,64 +5,124 @@ CronCreate
 CronDelete
 CronList
 DesignSync
-EnterWork
-[assistant] Tokio's scheduler is a work-stealing, multi-threaded executor built around a few core pieces. Here's how a task goes from "spawned" to "running."
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebSearch
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
-## The pieces
+The following MCP servers require authentication before their tools can be used:
+claude.ai Gmail
+claude.ai Google Calendar
 
-- **Task**: a heap-allocated `Future` plus its state, wrapped in a reference-counted cell (the `Header`/`Cell` in tokio's `task` module). The task is what gets scheduled — not the future directly.
-- **Worker threads**: by default one per CPU core (multi-thread runtime). Each owns a local run queue.
-- **Local run queue**: a fixed-size (256-slot) lock-free ring buffer per worker, holding ready-to-run tasks.
-- **Global (injection) queue**: a shared, mutex-guarded queue for overflow and for tasks spawned from outside a worker.
-- **Driver / reactor**: the I/O event loop (epoll/kqueue/IOCP via `mio`) plus the timer wheel. It's what wakes tasks blocked on I/O or timers.
+This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
 
-## Spawning
+Available agent types for the Agent tool:
+- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- atelier:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
-`tokio::spawn(future)` allocates the task and pushes it onto a run queue:
-- If called **from within a worker thread**, it goes onto that worker's **local queue** (cheap, no contention). If the local queue is full, half of it is offloaded to the global queue to keep things balanced.
-- If called **from outside** (e.g. the main thread or a blocking pool thread), it goes onto the **global injection queue**, and a worker is notified/unparked.
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
 
-`spawn` returns a `JoinHandle`, which is itself a future that resolves when the task completes.
+# MCP Server Instructions
 
-## The worker run loop
+The following MCP servers have provided instructions for how to use their tools and resources:
 
-Each worker spins in roughly this loop:
+## plugin:atelier:atelier
+Atelier replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
 
-1. **Poll for work**, in priority order:
-   - Occasionally check the **global queue first** (every ~61 ticks via the `global_queue_interval`) so global tasks don't starve — fairness.
-   - Otherwise pop from its **local queue**.
-   - If the local queue is empty, try the **global queue**.
-   - If that's empty, **steal** from a randomly chosen sibling worker's local queue (takes ~half its tasks).
-   - If nothing anywhere, register with the I/O driver and **park** (sleep) the thread.
+The following skills are available for use with the Skill tool:
 
-2. **Run the task**: call `Future::poll(cx)` with a `Waker` that knows how to re-schedule this exact task. Polling runs the future until it next returns `Poll::Pending` or `Poll::Ready`.
-   - `Ready` → task is done, result delivered to the `JoinHandle`, task deallocated.
-   - `Pending` → the future has arranged (via some resource) to be woken later. The worker drops it and moves on.
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- atelier:atelier: Extras manager.
+- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
+- atelier:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
+- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
+- atelier:recall: Retrieve what Atelier already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does Atelier remember', or /recall. Read-only; importing, indexing, and extraction run in the Atelier background.
+- atelier:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
+- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] ## Tokio scheduling model
 
-3. **Budget / preemption**: each task gets a *budget* (default 128 operations) on resource polls. When the budget runs out, tokio's resources return `Pending` even if data is ready, forcing the task to yield. This prevents a hot task from monopolizing a worker and starving others — cooperative scheduling with forced yield points.
+**Task = spawned future.** `tokio::spawn(fut)` boxes the future into a `Task`, hands it to the runtime. Task is a state machine polled to completion. Tokio owns it via an `Arc`-like intrusive refcount (the `Harness`).
 
-## How a pending task gets re-scheduled
+**Multi-thread runtime (default):** N worker threads, each with its own **local run queue** (fixed-size ring, 256 slots) + one shared **global (injection) queue**.
 
-When a future returns `Pending`, something must hold its `Waker`. Example: a socket read registers the waker with the I/O driver. Later:
+### Work-stealing scheduler
+- Each worker loops: pop task from local queue → `poll()` it → repeat.
+- Local queue empty → check global queue → else **steal** half the tasks from a random sibling worker's local queue.
+- New `spawn` from inside a worker → pushes to that worker's local queue (hot, cache-friendly). Local queue full → overflow spills to global. `spawn` from outside the runtime → global queue.
+- **LIFO slot:** each worker has a single-slot fast path for the most-recently-woken task (optimizes message-passing ping-pong: yield → immediately re-poll the woken partner). Not stealable for a short window; guarded against starvation.
 
-- `mio`/epoll reports the fd is readable → the driver calls `waker.wake()`.
-- `wake()` re-inserts the task into a run queue (the LIFO slot or local queue of the waking worker) and unparks a worker if needed.
-- A timer firing works the same way via the timer wheel.
+### How a task gets re-polled (the wake path)
+Poll returns one of:
+- `Poll::Ready` → task done, dropped.
+- `Poll::Pending` → task parked. Before returning Pending, the leaf future (I/O, timer, channel) stored the task's **`Waker`** in some reactor/other-task.
 
-There's also a **LIFO slot**: when a task wakes another task, the woken task goes into a single-slot "next" position and runs immediately next, optimizing message-passing ping-pong latency (with a cap so it can still be stolen).
+Task is **not** re-polled by spinning. It's inert until something calls `waker.wake()`:
+- **I/O readiness:** the **reactor** (one per runtime, epoll/kqueue/IOCP via `mio`) tracks fd interest. A worker with no work calls `park()` → blocks in the epoll syscall. Readiness event → reactor looks up the `Waker` → `wake()` reschedules the task onto a run queue.
+- **Timers:** hierarchical timing wheel; expiry wakes the task.
+- **Channels/notify:** the sending side calls `wake()`.
 
-## Driver integration
+`wake()` = push task back onto a run queue + unpark a sleeping worker if any.
 
-One worker at a time also acts as the driver-poller: before parking, it calls `epoll_wait` (with a timeout derived from the nearest timer) to collect I/O events, converting them into wakeups. This is why an idle runtime consumes no CPU — threads park in the kernel until an event or a new task arrives.
+### Fairness / preemption
+- Cooperative — a future that never yields (`Poll::Pending`) blocks its worker. `.await` points are the only yield opportunities.
+- **Budget:** each task gets a poll budget (~128 ops). Tokio resources (I/O, channels) decrement it; budget exhausted → the resource returns `Pending` even if ready, forcing the task to yield → prevents one busy task starving others.
+- Every ~61 local-queue polls, worker checks the **global queue** first → prevents global-queue starvation.
+- Blocking CPU/sync work → `spawn_blocking` (separate, unbounded-ish thread pool) so it doesn't stall a worker.
 
-## current-thread vs multi-thread
+### current-thread runtime
+Single thread, single queue, no stealing, no LIFO-steal concerns. `Runtime::block_on` drives the loop; parks on the reactor when idle. Same waker/budget mechanics, no cross-thread sync.
 
-The single-threaded runtime (`new_current_thread`) has the same task/queue/waker model but one queue and no stealing — everything runs on the thread calling `block_on`. The multi-thread runtime (`new_multi_thread`, the default) adds the worker pool, work-stealing, and the injection queue.
-
-## Blocking work
-
-`spawn_blocking` doesn't go on the async scheduler at all — it runs on a separate, dynamically-sized **blocking thread pool**, so CPU-bound or synchronous-blocking code can't stall the async workers (which must never block).
-
-**In one sentence:** tokio wraps futures in reference-counted tasks, dispatches them across per-core work-stealing queues, polls each future until it yields `Pending`, parks idle threads on epoll/timers, and re-queues tasks when their `Waker` fires — with a per-task budget enforcing fairness.
-
-If you'd like, I can point to the specific source files in the `tokio` crate (`runtime/scheduler/multi_thread/`) where each of these lives.
+**One-line model:** tasks live on per-worker queues, workers poll them, a `Poll::Pending` parks a task until its `Waker` fires from the reactor/timer/channel, idle workers steal or park on epoll, and a per-task budget forces yielding for fairness.
+[usage] input=5229 cache_read=16515 cache_write=221 output=1204

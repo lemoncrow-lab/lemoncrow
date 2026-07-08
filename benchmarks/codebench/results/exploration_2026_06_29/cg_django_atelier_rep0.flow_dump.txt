@@ -5,75 +5,125 @@ CronCreate
 CronDelete
 CronList
 DesignSync
-EnterWork
-[assistant] Django's ORM turns a `QuerySet` into SQL through a layered pipeline. The key idea is **laziness**: building a query does almost no work; execution happens only when results are actually needed. Here's the full path.
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebSearch
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
-## 1. The layers involved
+The following MCP servers require authentication before their tools can be used:
+claude.ai Gmail
+claude.ai Google Calendar
 
-```
-QuerySet  →  Query  →  SQLCompiler  →  DB backend / cursor  →  model instances
-(django.db.models.query)  (django.db.models.sql.query)  (django.db.models.sql.compiler)
-```
+This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
 
-- **`QuerySet`** — the public, user-facing API (`.filter()`, `.exclude()`, `.annotate()`, slicing, etc.). Holds a `Query` object in `self.query`.
-- **`Query`** — the internal, backend-agnostic representation of the query as a tree of objects (no SQL strings yet).
-- **`SQLCompiler`** — walks the `Query` and emits an actual SQL string + parameters for a specific database backend.
+Available agent types for the Agent tool:
+- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- atelier:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
-## 2. Building the query (lazy)
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
 
-Each chained method like `.filter(name="x")` does **not** hit the database. Instead:
+# MCP Server Instructions
 
-1. `QuerySet._clone()` makes a copy of the QuerySet and its `Query` (so QuerySets are immutable/chainable without side effects).
-2. The filter is translated into the `Query`'s internal structures:
-   - **`WhereNode`** — a tree of `Lookup` objects (e.g. `Exact`, `IContains`, `Gt`). Field paths like `author__name` are resolved against the model's `Meta` and `_meta.fields`.
-   - **`alias_map` / joins** — relational lookups (`__`) add `Join` entries; Django tracks table aliases and join promotion (INNER vs LEFT OUTER).
-   - Other attributes accumulate: `select`, `annotations` (an `OrderedDict` of `Expression`/`Aggregate` objects), `order_by`, `group_by`, `distinct`, `low_mark`/`high_mark` (for slicing/LIMIT-OFFSET).
+The following MCP servers have provided instructions for how to use their tools and resources:
 
-So `Author.objects.filter(...).exclude(...).order_by(...)` just mutates a cloned `Query` tree repeatedly. Still no SQL, no DB connection.
+## plugin:atelier:atelier
+Atelier replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
 
-## 3. Triggering execution
+The following skills are available for use with the Skill tool:
 
-Execution happens when the QuerySet is **evaluated** — iteration (`for x in qs`), `len()`, `list()`, `bool()`, slicing with a step, `repr()`, etc. Results are then cached in `qs._result_cache` so re-iteration is free.
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- atelier:atelier: Extras manager.
+- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
+- atelier:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
+- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
+- atelier:recall: Retrieve what Atelier already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does Atelier remember', or /recall. Read-only; importing, indexing, and extraction run in the Atelier background.
+- atelier:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
+- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] Django ORM query lifecycle — lazy build, single compile+execute at iteration.
 
-Internally, evaluation calls `qs._fetch_all()`, which runs the QuerySet's **iterable class** (e.g. `ModelIterable`), which asks the compiler to execute.
+## 1. QuerySet: lazy accumulator
+`QuerySet` holds a `Query` object (`django.db.models.sql.query.Query`), not results. Each `.filter()`/`.exclude()/.annotate()/.order_by()` **clones** the QuerySet (and its `Query`) and mutates the clone — chaining never hits the DB. Immutability by clone is why chains are side-effect-free.
 
-## 4. Compilation to SQL
+## 2. Query: the SQL-agnostic AST
+`Query` accumulates state:
+- `where` — a tree of nodes (`WhereNode`, `Lookup` objects). `.filter(price__gte=5)` resolves `price__gte` → field `price` + lookup `gte`, builds a `GreaterThanOrEqual` lookup node, ANDs it into `where`.
+- `alias_map` / `join` — table aliases + join graph. Spanning relations (`author__name`) calls `setup_joins()` → adds `Join` entries, deduped/promoted (INNER vs LOUTER).
+- `annotations`, `group_by`, `order_by`, `select`, `low_mark`/`high_mark` (slicing → LIMIT/OFFSET).
 
-`Query.get_compiler(using=db_alias)` returns a backend-specific `SQLCompiler`. Then `compiler.as_sql()`:
+Lookups resolve against the field's `get_lookup()` / `get_transform()`, so `__gte`, `__icontains`, `__date` map to registered lookup classes that know their SQL operator.
 
-1. **`pre_sql_setup()`** — resolves the SELECT columns, GROUP BY, ordering, and finalizes which joins are actually needed (prunes unused ones).
-2. Assembles the clauses by delegating to compiled sub-parts:
-   - SELECT columns from `get_select()`
-   - FROM + JOINs from the `alias_map`
-   - WHERE via `where.as_sql(compiler, connection)` (each `Lookup` emits its operator + a placeholder)
-   - GROUP BY / HAVING / ORDER BY / LIMIT
-3. Produces a tuple **`(sql_string, params)`** — parameters are kept separate and bound by the DB driver, which is what makes the ORM SQL-injection-safe.
+## 3. Compilation — trigger, then `SQLCompiler`
+Evaluation triggers on: iteration, `len()`, `list()`, `bool()`, slicing without step, `repr()`. Then:
 
-The backend (`django.db.backends.<engine>`) supplies dialect details: quoting, `LIMIT`/`OFFSET` vs `TOP`, operator mappings, etc. The same `Query` compiles to different SQL per backend.
+`QuerySet._fetch_all()` → `Query.get_compiler(using=db)` → `SQLCompiler.execute_sql()`.
 
-## 5. Execution and row → object mapping
+`SQLCompiler.as_sql()` assembles the string in order:
+1. `pre_sql_setup()` — resolves `SELECT` columns (`get_select()`), `group_by`, `order_by`.
+2. `get_from_clause()` — walks `alias_map` → `FROM main JOIN ...`.
+3. `where.as_sql(compiler, connection)` — each node recurses, emitting `%s` placeholders + collecting params **separately** (never string-interpolated → parametrized, SQL-injection-safe).
+4. Concatenate SELECT/FROM/WHERE/GROUP BY/HAVING/ORDER BY/LIMIT.
 
-1. The compiler gets a cursor: `connection.cursor()` and `cursor.execute(sql, params)`.
-2. `compiler.execute_sql()` fetches rows (in chunks via `cursor.fetchmany`, governed by `GET_ITERATOR_CHUNK_SIZE`).
-3. The **iterable class** maps each raw row back into Python:
-   - `ModelIterable` builds model instances via `model.from_db()`, populating fields by column position and setting up related objects (e.g. for `select_related`).
-   - `ValuesIterable` → dicts, `ValuesListIterable` → tuples, `FlatValuesListIterable` → scalars.
-4. Instances are stored in `_result_cache`.
+Backend (`connection.ops`, the vendor compiler) supplies dialect specifics — quoting, LIMIT vs `ROWNUM`, etc. Returns `(sql, params)`.
 
-## Putting it together
+## 4. Execution + hydration
+`execute_sql()` gets a cursor (`connection.cursor()`), `cursor.execute(sql, params)`. Rows come back as tuples. The compiler builds **converters** and an iterator (`results_iter` → `apply_converters`); for a model query the row → model instances via `Model.from_db()`, mapping columns to fields, wiring up `select_related` joined objects. `select_related` = extra JOINs hydrated inline; `prefetch_related` = separate queries joined in Python.
 
-```python
-qs = Author.objects.filter(name="x").order_by("id")   # builds Query tree, no DB
-                                                       # _clone + WhereNode + order_by
-list(qs)   # _fetch_all → ModelIterable → compiler.as_sql()
-           #   → (SELECT ... WHERE name = %s ORDER BY id, ["x"])
-           #   → cursor.execute → fetchmany → Author instances → _result_cache
-```
+Results cache in `QuerySet._result_cache` — re-iteration is free; a re-`filter()` returns a fresh QuerySet with an empty cache.
 
-**Key takeaways:**
-- QuerySets are **lazy and immutable** — chaining clones a `Query` tree, never touching the DB.
-- The `Query` is a **backend-agnostic object tree**; `SQLCompiler` is what turns it into dialect-specific SQL + params.
-- **Parameters stay separate** from SQL all the way to the driver (injection safety).
-- Evaluation is **triggered by consumption**, results are **cached**, and rows are mapped to objects by a pluggable **iterable class**.
+## One-line model
+`filter/annotate` → clone Query (AST) → lazy. Iterate → `SQLCompiler` walks alias_map + where tree → parametrized `(sql, params)` → `cursor.execute` → rows hydrated to objects → cached.
 
-If you'd like, I can trace a specific case end to end (e.g. a `select_related` join, an `annotate` with aggregation, or how `__` lookups become JOINs) against the actual Django source.
+Key files: `db/models/query.py` (QuerySet), `db/models/sql/query.py` (Query), `db/models/sql/compiler.py` (SQLCompiler), `db/models/lookups.py` (lookups), `db/models/sql/where.py` (WhereNode).
+[usage] input=5229 cache_read=14563 cache_write=2175 output=1389

@@ -1,4 +1,0 @@
-{"handler_ms": 2578, "overhead_ms": 1214, "response_size": 968, "session_id": "99e8b686-b7dd-4492-ac6f-d40821509e73", "status": "ok", "tool": "code_search", "total_ms": 3792, "ts": 1782778992.1898925}
-{"handler_ms": 90, "overhead_ms": 2, "response_size": 3184, "session_id": "99e8b686-b7dd-4492-ac6f-d40821509e73", "status": "ok", "tool": "code_search", "total_ms": 92, "ts": 1782778996.4927452}
-{"handler_ms": 171, "overhead_ms": 1, "response_size": 975, "session_id": "99e8b686-b7dd-4492-ac6f-d40821509e73", "status": "ok", "tool": "code_search", "total_ms": 172, "ts": 1782778996.8756368}
-{"handler_ms": 183, "overhead_ms": 1059, "response_size": 6947, "session_id": "99e8b686-b7dd-4492-ac6f-d40821509e73", "status": "ok", "tool": "read", "total_ms": 1242, "ts": 1782779006.7416494}

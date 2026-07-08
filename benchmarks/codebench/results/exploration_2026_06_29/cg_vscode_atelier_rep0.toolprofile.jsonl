@@ -1,2 +1,2 @@
-{"handler_ms": 2370, "overhead_ms": 1110, "response_size": 978, "session_id": "d58c18a2-54c6-4ac6-a973-b8c02f40d357", "status": "ok", "tool": "code_search", "total_ms": 3480, "ts": 1782777077.1917787}
-{"handler_ms": 81, "overhead_ms": 2, "response_size": 3184, "session_id": "d58c18a2-54c6-4ac6-a973-b8c02f40d357", "status": "ok", "tool": "code_search", "total_ms": 83, "ts": 1782777082.2524168}
+{"handler_ms": 19, "overhead_ms": 32, "response_size": 598, "session_id": "eb6c3596-0ff0-4a94-b6c9-86880de53903", "status": "ok", "tool": "bash", "total_ms": 51, "ts": 1783513361.3960443}
+{"handler_ms": 136, "overhead_ms": 4, "response_size": 1964, "session_id": "eb6c3596-0ff0-4a94-b6c9-86880de53903", "status": "ok", "tool": "code_search", "total_ms": 140, "ts": 1783513364.5390823}

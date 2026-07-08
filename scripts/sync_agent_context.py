@@ -42,6 +42,7 @@ CODING_GUIDELINES_PATH = ROOT / "integrations/agents/shared/coding-guidelines.md
 CORE_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/core-discipline.md"
 CHANGE_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/change-discipline.md"
 DESTRUCTIVE_GUARD_PATH = ROOT / "integrations/agents/shared/destructive-guard.md"
+RESPONSE_ECONOMY_PATH = ROOT / "integrations/agents/shared/response-economy.md"
 TOOL_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/tool-discipline.md"
 TOOL_DISCIPLINE_READ_PATH = ROOT / "integrations/agents/shared/tool-discipline-read.md"
 REPLY_REGISTER_PATH = ROOT / "integrations/agents/shared/reply-register.md"
@@ -55,6 +56,7 @@ SHARED_SECTIONS: dict[str, Path] = {
     "{{CORE_DISCIPLINE}}": CORE_DISCIPLINE_PATH,
     "{{CHANGE_DISCIPLINE}}": CHANGE_DISCIPLINE_PATH,
     "{{DESTRUCTIVE_GUARD}}": DESTRUCTIVE_GUARD_PATH,
+    "{{RESPONSE_ECONOMY}}": RESPONSE_ECONOMY_PATH,
     "{{TOOL_DISCIPLINE}}": TOOL_DISCIPLINE_PATH,
     "{{TOOL_DISCIPLINE_READ}}": TOOL_DISCIPLINE_READ_PATH,
     "{{REPLY_REGISTER}}": REPLY_REGISTER_PATH,

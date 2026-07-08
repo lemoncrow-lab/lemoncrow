@@ -1,3 +1,1 @@
-{"handler_ms": 2661, "overhead_ms": 1245, "response_size": 968, "session_id": "c3d9f90c-9240-4257-b7af-eae87b9fac1a", "status": "ok", "tool": "code_search", "total_ms": 3906, "ts": 1782777548.4455225}
-{"handler_ms": 127, "overhead_ms": 2, "response_size": 3337, "session_id": "c3d9f90c-9240-4257-b7af-eae87b9fac1a", "status": "ok", "tool": "code_search", "total_ms": 129, "ts": 1782777558.7822838}
-{"handler_ms": 6, "overhead_ms": 14077, "response_size": 568, "session_id": "c3d9f90c-9240-4257-b7af-eae87b9fac1a", "status": "ok", "tool": "bash", "total_ms": 14083, "ts": 1782777573.1621695}
+{"handler_ms": 103, "overhead_ms": 25, "response_size": 1954, "session_id": "8862770e-9228-4061-aedf-cf75272ce7a4", "status": "ok", "tool": "code_search", "total_ms": 128, "ts": 1783513549.9221005}

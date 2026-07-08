@@ -5,1386 +5,164 @@ CronCreate
 CronDelete
 CronList
 DesignSync
-EnterWork
-[assistant] I'll explore the Alamofire codebase to trace how a request is built, sent, and validated.[tool_use: Agent] {"description": "Trace Alamofire request build/send/validate", "prompt": "Explore the Alamofire Swift codebase (likely under Source/) to explain how Alamofire builds, sends, and validates an HTTP request. I need a thorough trace through the real source code with file names, key type names, and method names.\n\nInvestigate and report on these specific areas:\n\n1. BUILD: How a request is constructed. Start from `Session.request(...)` convenience methods. Cover:\n   - `Session` class (Session.swift) and how it creates a `Request`/`DataRequest`.\n   - `URLConvertible` and `URLRequestConvertible` protocols.\n   - `RequestConvertible` / `RequestEncodableConvertible` internal types.\n   - Parameter encoding: `ParameterEncoding` (URLEncoding, JSONEncoding) and `ParameterEncoder` (URLEncodedFormParameterEncoder, JSONParameterEncoder).\n   - `RequestInterceptor` / `RequestAdapter` (adapt step).\n   - How the `URLRequest` is created and the `DataRequest` is registered/queued.\n\n2. SEND: How the request actually gets sent. Cover:\n   - The `Request` lifecycle and state machine (Request.swift) — states like initialized/resumed/suspended/cancelled/finished.\n   - How `Session` performs the request via `perform(_:)` and the `requestQueue` / `rootQueue` / `serialRootQueue` design.\n   - `URLSession` / `URLSessionTask` creation, `SessionDelegate`, `URLSessionDelegate` callbacks.\n   - `RequestTaskMap`, and how data is accumulated for a `DataRequest`.\n   - `RequestRetrier` retry flow.\n\n3. VALIDATE: How responses are validated. Cover:\n   - `DataRequest.validate(...)` — status code validation, content type validation (Validation.swift / Request+Validation or similar).\n   - `Validation` typealias, `ValidationResult`, default validation.\n   - How validation errors become `AFError`.\n   - How `response`/`responseDecodable` handlers run on serialization queues and apply validation.\n\nQuote the key method signatures and short relevant code snippets. Identify the actual file paths. Give me a clear, structured architectural walkthrough I can relay — concrete, grounded in the actual code, not generic HTTP-client description. Do not modify any files.", "subagent_type": "Explore"}
-
-=== Turn 2 ===
-[user] <system-reminder>
-The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 EnterWorktree
 ExitWorktree
-Monito
-[assistant] I'll conduct a thorough exploration of the Alamofire codebase to trace how HTTP requests are built, sent, and validated. Let me start by understanding the repository structure and then dive into each area.[tool_use: Bash] {"command": "find /tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2 -type f -name \"*.swift\" | head -20"}
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebSearch
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
-=== Turn 3 ===
-[user] [tool_result] /tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Package@swift-6.1.swift
-/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Package@swift-6.0.swift
-/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_ateli
-[assistant] [tool_use: Bash] {"command": "ls -la /tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/"}
+The following MCP servers require authentication before their tools can be used:
+claude.ai Gmail
+claude.ai Google Calendar
 
-=== Turn 4 ===
-[user] [tool_result] Async agent launched successfully.
-agentId: a674e08e41e4a2071 (internal ID - do not mention to user. Use SendMessage with to: 'a674e08e41e4a2071', summary: '<5-10 word recap>' to continue this agent.)
-The agent is working in the background. You will be notified automatically when it co
-[assistant] I launched a read-only exploration agent to trace the request lifecycle through Alamofire's actual source (Session, Request, ParameterEncoder, SessionDelegate, Validation). I'll report back the full walkthrough once it returns.[tool_use: ScheduleWakeup] {"delaySeconds": 120, "reason": "Waiting for the Explore agent tracing Alamofire request lifecycle", "prompt": "Relay the Alamofire build/send/validate walkthrough from the explore agent"}
+This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
 
-=== Turn 5 ===
-[user] [tool_result] .rw-rw-r-- 1.7k pankaj 30 Jun 03:56 Alamofire.swift
-drwxrwxr-x    - pankaj 30 Jun 03:56 Core
-drwxrwxr-x    - pankaj 30 Jun 03:56 Extensions
-drwxrwxr-x    - pankaj 30 Jun 03:56 Features
-.rw-rw-r--  775 pankaj 30 Jun 03:56 Info.plist
-.rw-rw-r--  600 pankaj 30 Jun 03:56 PrivacyInfo.xcpriv
-[assistant] [tool_use: Bash] {"command": "find /tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source -type f -name \"*.swift\" | sort"}
+Available agent types for the Agent tool:
+- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- atelier:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- atelier:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
+- atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
-=== Turn 6 ===
-[user] [tool_result] Next wakeup scheduled for 04:00:00 (in 147s). Nothing more to do this turn — the harness re-invokes you when the wakeup fires or a task-notification arrives.
-[assistant] I'll relay the full walkthrough as soon as the exploration agent returns its findings.
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
 
-=== Turn 7 ===
-[user] [tool_result] /tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Alamofire.swift
-/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/AFError.swift
-/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atel
-[assistant] Perfect. Now let me read the key files in sequence to understand the architecture. I'll start with Session, then Request, then validation.[tool_use: mcp__plugin_atelier_atelier__read] {"files": 
-[
-  "/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Session.swift:expand",
-  "/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Request.swift:expand",
-  "/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/DataRequest.swift:expand"
-]
-}
+# MCP Server Instructions
 
-=== Turn 8 ===
-[user] ## Source/Core/Session.swift
-//
-//  Session.swift
-//
-//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)
-//
-//  Permission is hereby granted, free of charge, to any person obtaining a copy
-//  of this software and associated documentation files (the "Software"), to deal
-[assistant] (empty response, status=200)
+The following MCP servers have provided instructions for how to use their tools and resources:
 
-=== Turn 9 ===
-[user] [tool_result] Error: result (106,134 characters across 2,068 lines) exceeds maximum allowed tokens. Output has been saved to /tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/claude-config-atelier/projects/-tmp-codebench-workspaces-20260629T234322Z-36eed4b76d68-cg-alamofire-atelier-rep2/84289e
-[assistant] Let me read the files in sections to manage token usage:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Session.swift:L1-L150"]}
+## plugin:atelier:atelier
+Atelier replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
 
-=== Turn 10 ===
-[user] [tool_result] ## Source/Core/Session.swift:L1-L150
-//
-//  Session.swift
-//
-//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)
-//
-//  Permission is hereby granted, free of charge, to any person obtaining a copy
-//  of this software and associated documentation files (th
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Session.swift:L150-L350"]}
+The following skills are available for use with the Skill tool:
 
-=== Turn 11 ===
-[user] [tool_result] ## Source/Core/Session.swift:L150-L350
-        self.session = session
-        self.delegate = delegate
-        self.rootQueue = rootQueue
-        self.startRequestsImmediately = startRequestsImmediately
-        self.requestSetup = requestSetup
-        self.requestQueue = requestQueue ?
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Session.swift:L350-L550"]}
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- atelier:atelier: Extras manager.
+- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
+- atelier:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
+- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
+- atelier:recall: Retrieve what Atelier already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does Atelier remember', or /recall. Read-only; importing, indexing, and extraction run in the Atelier background.
+- atelier:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
+- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "Alamofire Session request build send validate"}
+[usage] input=5229 cache_read=16627 cache_write=0 output=132
 
-=== Turn 12 ===
-[user] [tool_result] ## Source/Core/Session.swift:L350-L550
-    }
+=== Turn 2 ===
+[user] [tool_result] no exact match -- ranked candidates
 
-    /// Creates a `DataRequest` from a `URLRequest` created using the passed components, `Encodable` parameters, and a
-    /// `RequestInterceptor`.
-    ///
-    /// - Parameters:
-    ///   - convertible:               `URLConvertible` value
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Session.swift:L550-L750"]}
+## src/atelier/infra/code_intel/lsp/transport.py
+### LspTransport.request L39-L45
+39	def request(self, method: str, params: dict[str, Any]) -> Any:
+        """Send a JSON-RPC request and return the decoded ``result`` payload.
 
-=== Turn 13 ===
-[user] [tool_result] ## Source/Core/Session.swift:L550-L750
-    ) -> WebSocketRequest where Parameters: Encodable & Sendable {
-        let convertible = RequestEncodableConvertible(url: url,
-                                                      method: .get,
-                                                
-[assistant] Now let me read the Request.swift file to understand the state machine and lifecycle:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Request.swift:L1-L200"]}
+        May raise :class:`LspTransportError` (or any exception) on failure; the
+        client catches it and degrades.
+44	        """
+        ...
 
-=== Turn 14 ===
-[user] [tool_result] ## Source/Core/Request.swift:L1-L200
-//
-//  Request.swift
-//
-//  Copyright (c) 2014-2024 Alamofire Software Foundation (http://alamofire.org/)
-//
-//  Permission is hereby granted, free of charge, to any person obtaining a copy
-//  of this software and associated documentation files (th
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Request.swift:L200-L450"]}
+related_symbols:
+benchmarks/codebench/eval_external_provider_mrr.py:L677-L680 method _SerenaMCPClient._send
+src/atelier/core/service/sync.py:L99-L120 _send_chunk
+benchmarks/codebench/eval_external_provider_mrr.py:L701-L717 method _SerenaMCPClient.call
+src/atelier/infra/code_intel/zoekt/binary.py:L133-L138 _validate
+src/atelier/core/capabilities/mcp_integration/loader.py:L264-L281 method MCPServerProcess._rpc
+src/atelier/core/capabilities/mcp_integration/loader.py:L310-L321 method MCPServerProcess._initialize
+src/atelier/infra/storage/sqlite_memory_store.py:L42-L46 _validate_embedding
+src/atelier/gateway/cli/commands/agents_skills.py:L187-L191 _validate_installable_skill
 
-=== Turn 15 ===
-[user] [tool_result] ## Source/Core/Request.swift:L200-L450
-        get { mutableState.read(\.credential) }
-        set { mutableState.write { $0.credential = newValue } }
-    }
+candidate_files: src/atelier/gateway/cli/commands/admin.py, src/atelier/gateway/adapters/mcp_server.py, src/atelier/core/service/api.py, src/atelier/gateway/cli/commands/sessions.py, src/atelier/core/capabilities/owned_execution_routing.py, src/atelier/core/capabilities/plugin_runtime.py, src/atelier/core/capabilities/code_context/engine.py, tests/benchmarks/fixtures/Sample.scala, src/atelier/core/capabilities/prompt_compilation/compiler.py, src/atelier/core/capabilities/cross_vendor_routing/configuration.py, src/atelier/core/capabilities/workflow_schema.py, tests/gateway/test_mcp_jsonrpc_e2e.py, tests/gateway/test_mcp_remote_mode.py, tests/gateway/test_mcp_workflow_runner.py, tests/gateway/test_update_command.py, src/atelier/core/capabilities/optimization/audit.py, src/atelier/core/capabilities/optimization/__init__.py, src/atelier/gateway/adapters/mcp_http.py, src/atelier/core/capabilities/quality_router/policy.py, tests/core/capabilities/test_web_fetch.py, integrations/codex/hooks/permission_request.py, src/atelier/gateway/cli/commands/route.py, src/atelier/gateway/cli/commands/savings.py, src/atelier/core/capabilities/mcp_integration/loader.py
 
-    // MARK: Validators
+(truncated; narrow with paths=)
+[assistant] Alamofire isn't in this workspace (this is a Python repo) — answering from the library's design.
 
-    /// `Validator` callback closures that store the validation calls enqueued.
-    let validators = Pr
-[assistant] Now let me search for validation-related code and check DataRequest:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Features/Validation.swift:L1-L200"]}
+**Build**
+- `Session` (default `AF`) is the entry point; wraps a `URLSession` + delegate + a serial `rootQueue`.
+- `AF.request(url, method:parameters:encoding:headers:)` → creates a `RequestConvertible`/`RequestEncodableConvertible` that captures the params.
+- On the `rootQueue`, `Session.perform` asks the convertible for a `URLRequest`:
+  - `URLRequest` built from `URLComponents` (url, method, headers).
+  - `ParameterEncoding` (`URLEncoding`/`JSONEncoding`) or `ParameterEncoder` (`URLEncodedFormParameterEncoder`/`JSONParameterEncoder`) mutates it — query string vs body, sets `Content-Type`.
+  - `RequestAdapter` (via `RequestInterceptor`) gets a last async pass — inject auth headers, sign, etc.
+- Result wrapped in a `DataRequest` (subclass of `Request`), state = `.initialized`.
 
-=== Turn 16 ===
-[user] [tool_result] ## Source/Features/Validation.swift:L1-L200
-//
-//  Validation.swift
-//
-//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)
-//
-//  Permission is hereby granted, free of charge, to any person obtaining a copy
-//  of this software and associated documentation
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Features/Validation.swift:L200-L350"]}
+**Send**
+- `Session` calls `request.didCreateURLRequest`, then builds a `URLSessionTask` from the `URLRequest` and resumes it (respects `startRequestsImmediately`).
+- The `SessionDelegate` receives `URLSession` callbacks on the delegate queue, routes them back to the `Request` on its `underlyingQueue`; bytes accumulate in the `DataRequest`'s buffer.
+- `RequestInterceptor.retry` decides on failure: `.retry` / `.retryWithDelay` re-runs the whole adapt→task cycle, or `.doNotRetry`.
+- Task completes → `Request` transitions to `.finished`.
 
-=== Turn 17 ===
-[user] [tool_result] ## Source/Features/Validation.swift:L200-L308
+**Validate**
+- `.validate()` appends a closure to the request's `validators`; multiple allowed. Two built-in forms:
+  - status code — default acceptable is `200..<300`; `.validate(statusCode:)` for a custom set.
+  - `Content-Type` — matches response MIME against the request's `Accept` header (or an explicit list).
+  - `.validate { request, response, data in ... }` for a custom `ValidationResult` (`.success`/`.failure(Error)`).
+- Validators run before the response serializer. A failure sets the request's `error` to `AFError.responseValidationFailed(reason:)`.
 
-    /// Validates that the response has a status code in the specified sequence.
-    ///
-    /// If validation fails, subsequent calls to response handlers will have an associated error.
-    ///
-    /// - Parameter acceptableStatusCodes: `
-[assistant] Now let me read the DataRequest to see how validation is stored and executed:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/DataRequest.swift:L1-L150"]}
+**Serialize/deliver**
+- `.responseDecodable(of:)` / `.responseData` / `.responseString` append a serializer that runs on a `serializationQueue` after validation.
+- Serializer sees the validation error first (short-circuits), else decodes the buffered data.
+- Final `AFDataResponse<T>` (request, response, data, metrics, `Result<T, AFError>`) dispatched to the caller's `queue` (default `.main`).
 
-=== Turn 18 ===
-[user] [tool_result] ## Source/Core/DataRequest.swift:L1-L150
-//
-//  DataRequest.swift
-//
-//  Copyright (c) 2014-2024 Alamofire Software Foundation (http://alamofire.org/)
-//
-//  Permission is hereby granted, free of charge, to any person obtaining a copy
-//  of this software and associated documentation f
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/DataRequest.swift:L150-L250"]}
-
-=== Turn 19 ===
-[user] [tool_result] ## Source/Core/DataRequest.swift:L150-L250
-            if case let .failure(error) = result {
-                self.error = error.asAFError(or: .responseValidationFailed(reason: .customValidationFailed(error: error)))
-            }
-
-            eventMonitor?.request(self,
-              
-[assistant] Now let me check the RequestInterceptor and how requests are performed:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Features/RequestInterceptor.swift"]}
-
-=== Turn 20 ===
-[user] [tool_result] ## Source/Features/RequestInterceptor.swift
-//
-//  RequestInterceptor.swift
-//
-//  Copyright (c) 2019 Alamofire Software Foundation (http://alamofire.org/)
-//
-//  Permission is hereby granted, free of charge, to any person obtaining a copy
-//  of this software and associated documentat
-[assistant] Now let me search for how the request is actually performed and understand the full flow:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Session.swift:L750-L950"]}
-
-=== Turn 21 ===
-[user] [tool_result] ## Source/Core/Session.swift:L750-L950
-        let request: any URLRequestConvertible
-        let uploadable: any UploadableConvertible
-
-        func createUploadable() throws -> UploadRequest.Uploadable {
-            try uploadable.createUploadable()
-        }
-
-        func asURLReque
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Session.swift:L950-L1150"]}
-
-=== Turn 22 ===
-[user] [tool_result] ## Source/Core/Session.swift:L950-L1150
-    ///
-    /// - Parameters:
-    ///   - multipartFormData:      `MultipartFormData` building closure.
-    ///   - url:                    `URLConvertible` value to be used as the `URLRequest`'s `URL`.
-    ///   - encodingMemoryThreshold: Byte t
-[assistant] Now let me search for the `perform` method and how requests are actually sent:[tool_use: Bash] {"command": "grep -n \"func perform\\|func performEagerly\" /tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Session.swift | head -20"}
-
-=== Turn 23 ===
-[user] [tool_result] 1157:    func performEagerlyIfNecessary(_ request: Request) {
-1166:    func perform(_ request: Request, forRetry isRetrying: Bool = false) {
-1199:    func performDataRequest(_ request: DataRequest) {
-1205:    func performDataStreamRequest(_ request: DataStreamRequest) {
-1213:    func p
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Session.swift:L1157-L1350"]}
-
-=== Turn 24 ===
-[user] [tool_result] ## Source/Core/Session.swift:L1157-L1350
-    func performEagerlyIfNecessary(_ request: Request) {
-        guard requestSetup == .eager else { return }
-
-        perform(request)
-    }
-
-    /// Starts performing the provided `Request`.
-    ///
-    /// - Parameter request: The `Request` t
-[assistant] Now let me look at URLConvertible and ParameterEncoding:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/URLConvertible+URLRequestConvertible.swift"]}
-
-=== Turn 25 ===
-[user] [tool_result] FIXME (convergence): 16 searches/reads, 0 edits. Pick the site and EDIT now.
-
-## Source/Core/URLConvertible+URLRequestConvertible.swift
-Projection: minified (line numbers differ from disk)
-
-import Foundation
-public protocol URLConvertible: Sendable {
-func asURL() throws -> URL
-}
-extens
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/ParameterEncoding.swift:L1-L200"]}
-
-=== Turn 26 ===
-[user] [tool_result] FIXME (convergence): 17 searches/reads, 0 edits. Pick the site and EDIT now.
-
-## Source/Core/ParameterEncoding.swift:L1-L200
-//
-//  ParameterEncoding.swift
-//
-//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)
-//
-//  Permission is hereby granted, free of 
-[assistant] Now let me check ParameterEncoder:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/ParameterEncoder.swift:L1-L150"]}
-
-=== Turn 27 ===
-[user] [tool_result] FIXME (convergence): 18 searches/reads, 0 edits. Pick the site and EDIT now.
-
-## Source/Core/ParameterEncoder.swift:L1-L150
-//
-//  ParameterEncoder.swift
-//
-//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)
-//
-//  Permission is hereby granted, free of ch
-[assistant] Now let me check the SessionDelegate to understand URLSession delegation:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/SessionDelegate.swift:L1-L200"]}
-
-=== Turn 28 ===
-[user] [tool_result] FIXME (convergence): 19 searches/reads, 0 edits. Pick the site and EDIT now.
-
-## Source/Core/SessionDelegate.swift:L1-L200
-//
-//  SessionDelegate.swift
-//
-//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)
-//
-//  Permission is hereby granted, free of char
-[assistant] Let me check RequestTaskMap:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/RequestTaskMap.swift"]}
-
-=== Turn 29 ===
-[user] [tool_result] FIXME (convergence): 20 searches/reads, 0 edits. Pick the site and EDIT now.
-
-## Source/Core/RequestTaskMap.swift
-//
-//  RequestTaskMap.swift
-//
-//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)
-//
-//  Permission is hereby granted, free of charge, to any
-[assistant] Now let me look at how responses are handled:[tool_use: Bash] {"command": "grep -n \"didCompleteTask\\|urlSession.*didFinish\" /tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/SessionDelegate.swift | head -10"}
-
-=== Turn 30 ===
-[user] [tool_result] 66:    func didCompleteTask(_ task: URLSessionTask, completion: @escaping () -> Void)
-214:    open func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
-215:        eventMonitor?.urlSession(session, task: task, didFinishColle
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/SessionDelegate.swift:L200-L300"]}
-
-=== Turn 31 ===
-[user] [tool_result] FIXME (convergence): 21 searches/reads, 0 edits. Pick the site and EDIT now.
-
-## Source/Core/SessionDelegate.swift:L200-L300
-    open func urlSession(_ session: URLSession,
-                         task: URLSessionTask,
-                         willPerformHTTPRedirection response: HTTP
-[assistant] Now let me look at the Request completion and finishing logic:[tool_use: Bash] {"command": "grep -n \"func didCompleteTask\\|func finish\\|func retryOrFinish\" /tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Request.swift | head -15"}
-
-=== Turn 32 ===
-[user] [tool_result] 515:    func didCompleteTask(_ task: URLSessionTask, with error: AFError?) {
-543:    func retryOrFinish(error: AFError?) {
-563:    func finish(error: AFError? = nil) {
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Request.swift:L500-L700"]}
-
-=== Turn 33 ===
-[user] [tool_result] FIXME (convergence): 22 searches/reads, 0 edits. Pick the site and EDIT now.
-
-## Source/Core/Request.swift:L500-L700
-
-        self.error = error
-
-        // Task will still complete, so didCompleteTask(_:with:) will handle retry.
-        eventMonitor?.request(self, didFailTask: task, e
-[assistant] Perfect. Now let me check the AFError to see validation error details:[tool_use: Bash] {"command": "grep -n \"ResponseValidationFailureReason\\|unacceptableStatusCode\\|unacceptableContentType\" /tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/AFError.swift | head -20"}
-
-=== Turn 34 ===
-[user] [tool_result] 100:    public enum ResponseValidationFailureReason: Sendable {
-109:        case unacceptableContentType(acceptableContentTypes: [String], responseContentType: String)
-111:        case unacceptableStatusCode(code: Int)
-215:    case responseValidationFailed(reason: ResponseValidationFai
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/AFError.swift:L100-L125"]}
-
-=== Turn 35 ===
-[user] [tool_result] FIXME (convergence): STOP GATHERING -- 23 searches/reads, 0 edits. Pick the site and EDIT now.
-
-(read-only output suppressed; next action must be an edit or test)
-
-## Source/Core/AFError.swift:L100-L125
-    public enum ResponseValidationFailureReason: Sendable {
-        /// The data fi
-[assistant] Now let me search for more information about the request flow to understand the full trace:[tool_use: Bash] {"command": "grep -n \"class Protected\\|struct Protected\" /tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Protected.swift"}
-
-=== Turn 36 ===
-[user] [tool_result] 84:final class Protected<Value> {
-[assistant] Excellent. Let me now compile a comprehensive report based on all the source code I've read. I'll create a detailed trace through the three areas requested.
-
-## Alamofire HTTP Request Architecture: Build, Send, and Validate
-
-Based on my thorough exploration of the Alamofire source code, here's a concrete architectural walkthrough of how HTTP requests are built, sent, and validated:
-
----
-
-## 1. BUILD: Request Construction
-
-### Entry Point: `Session.request(...)` Convenience Methods
-
-**File:** `/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Session.swift`
-
-The `Session` class provides multiple overloads of `request(...)`:
-
+Typical chain:
 ```swift
-open func request(_ convertible: any URLConvertible,
-                  method: HTTPMethod = .get,
-                  parameters: Parameters? = nil,
-                  encoding: any ParameterEncoding = URLEncoding.default,
-                  headers: HTTPHeaders? = nil,
-                  interceptor: (any RequestInterceptor)? = nil,
-                  shouldAutomaticallyResume: Bool? = nil,
-                  requestModifier: RequestModifier? = nil) -> DataRequest
+AF.request("https://api.example.com/users",
+           parameters: ["page": 1],
+           encoding: URLEncoding.default)
+  .validate(statusCode: 200..<300)
+  .validate(contentType: ["application/json"])
+  .responseDecodable(of: [User].self) { response in
+      switch response.result {
+      case .success(let users): …
+      case .failure(let error): …   // AFError
+      }
+  }
 ```
 
-or for `Encodable` types:
-
-```swift
-open func request<Parameters: Encodable & Sendable>(_ convertible: any URLConvertible,
-                                                    method: HTTPMethod = .get,
-                                                    parameters: Parameters? = nil,
-                                                    encoder: any ParameterEncoder = URLEncodedFormParameterEncoder.default,
-                                                    headers: HTTPHeaders? = nil,
-                                                    interceptor: (any RequestInterceptor)? = nil,
-                                                    shouldAutomaticallyResume: Bool? = nil,
-                                                    requestModifier: RequestModifier? = nil) -> DataRequest
-```
-
-### 1a. URLConvertible and URLRequestConvertible Protocols
-
-**File:** `/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/URLConvertible+URLRequestConvertible.swift`
-
-```swift
-public protocol URLConvertible: Sendable {
-    func asURL() throws -> URL
-}
-
-public protocol URLRequestConvertible: Sendable {
-    func asURLRequest() throws -> URLRequest
-}
-
-extension URLRequest {
-    public init(url: any URLConvertible, method: HTTPMethod, headers: HTTPHeaders? = nil) throws {
-        let url = try url.asURL()
-        self.init(url: url)
-        httpMethod = method.rawValue
-        allHTTPHeaderFields = headers?.dictionary
-    }
-}
-```
-
-- `String`, `URL`, and `URLComponents` conform to `URLConvertible`
-- `URLRequest` itself conforms to `URLRequestConvertible`
-
-### 1b. Request Convertible Types (Internal)
-
-**File:** `Source/Core/Session.swift` (lines ~285-310)
-
-Session creates two internal adapter types:
-
-```swift
-struct RequestConvertible: URLRequestConvertible {
-    let url: any URLConvertible
-    let method: HTTPMethod
-    let parameters: Parameters?
-    let encoding: any ParameterEncoding
-    let headers: HTTPHeaders?
-    let requestModifier: RequestModifier?
-
-    func asURLRequest() throws -> URLRequest {
-        var request = try URLRequest(url: url, method: method, headers: headers)
-        try requestModifier?(&request)
-        return try encoding.encode(request, with: parameters)
-    }
-}
-
-struct RequestEncodableConvertible<Parameters: Encodable & Sendable>: URLRequestConvertible {
-    let url: any URLConvertible
-    let method: HTTPMethod
-    let parameters: Parameters?
-    let encoder: any ParameterEncoder
-    let headers: HTTPHeaders?
-    let requestModifier: RequestModifier?
-
-    func asURLRequest() throws -> URLRequest {
-        var request = try URLRequest(url: url, method: method, headers: headers)
-        try requestModifier?(&request)
-        return try parameters.map { try encoder.encode($0, into: request) } ?? request
-    }
-}
-```
-
-These wrap the user's input and apply parameter encoding.
-
-### 1c. Parameter Encoding: ParameterEncoding Protocol
-
-**File:** `/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/ParameterEncoding.swift`
-
-```swift
-public protocol ParameterEncoding: Sendable {
-    func encode(_ urlRequest: any URLRequestConvertible, with parameters: Parameters?) throws -> URLRequest
-}
-
-public typealias Parameters = [String: any Any & Sendable]
-```
-
-**URLEncoding** (default):
-- Supports three destinations: `.methodDependent`, `.queryString`, `.httpBody`
-- For GET/HEAD/DELETE, appends to query string
-- For others with `.methodDependent`, sets as HTTP body with `Content-Type: application/x-www-form-urlencoded`
-- Supports `ArrayEncoding` (brackets, noBrackets, indexInBrackets, custom)
-- Supports `BoolEncoding` (numeric: true→"1", literal: true→"true")
-
-```swift
-public struct URLEncoding: ParameterEncoding {
-    public enum Destination: Sendable {
-        case methodDependent
-        case queryString
-        case httpBody
-    }
-    
-    public func encode(_ urlRequest: any URLRequestConvertible, with parameters: Parameters?) throws -> URLRequest {
-        var urlRequest = try urlRequest.asURLRequest()
-        guard let parameters else { return urlRequest }
-        
-        if destination.encodesParametersInURL(for: method) {
-            // Append to query string
-            urlComponents.percentEncodedQuery = percentEncodedQuery
-        } else {
-            // Set as body
-            urlRequest.headers.update(.contentType("application/x-www-form-urlencoded; charset=utf-8"))
-            urlRequest.httpBody = Data(query(parameters).utf8)
-        }
-        return urlRequest
-    }
-}
-```
-
-### 1d. Parameter Encoder: ParameterEncoder Protocol (for Encodable types)
-
-**File:** `/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/ParameterEncoder.swift`
-
-```swift
-public protocol ParameterEncoder: Sendable {
-    func encode<Parameters: Encodable & Sendable>(_ parameters: Parameters?, into request: URLRequest) throws -> URLRequest
-}
-```
-
-**JSONParameterEncoder**:
-```swift
-open class JSONParameterEncoder: ParameterEncoder {
-    public let encoder: JSONEncoder
-    
-    open func encode<Parameters: Encodable>(_ parameters: Parameters?,
-                                            into request: URLRequest) throws -> URLRequest {
-        guard let parameters else { return request }
-        
-        var request = request
-        do {
-            let data = try encoder.encode(parameters)
-            request.httpBody = data
-            if request.headers["Content-Type"] == nil {
-                request.headers.update(.contentType("application/json"))
-            }
-        } catch {
-            throw AFError.parameterEncodingFailed(reason: .jsonEncodingFailed(error: error))
-        }
-        return request
-    }
-}
-```
-
-**URLEncodedFormParameterEncoder**: Uses `URLEncodedFormEncoder` internally, similar to `URLEncoding` but for `Encodable`.
-
-### 1e. RequestInterceptor: Adapt Step
-
-**File:** `/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Features/RequestInterceptor.swift`
-
-```swift
-public protocol RequestAdapter: Sendable {
-    func adapt(_ urlRequest: URLRequest, for session: Session, completion: @escaping @Sendable (_ result: Result<URLRequest, any Error>) -> Void)
-    func adapt(_ urlRequest: URLRequest, using state: RequestAdapterState, completion: @escaping @Sendable (_ result: Result<URLRequest, any Error>) -> Void)
-}
-
-public protocol RequestRetrier: Sendable {
-    func retry(_ request: Request, for session: Session, dueTo error: any Error, completion: @escaping @Sendable (RetryResult) -> Void)
-}
-
-public protocol RequestInterceptor: RequestAdapter, RequestRetrier {}
-```
-
-- **Adapter** modifies the `URLRequest` (e.g., add auth headers)
-- **Retrier** decides if a failed request should be retried
-- **Interceptor** combines both
-
-Chain execution via `Interceptor` class:
-```swift
-open class Interceptor: RequestInterceptor {
-    public let adapters: [any RequestAdapter]
-    public let retriers: [any RequestRetrier]
-    
-    open func adapt(_ urlRequest: URLRequest, for session: Session, completion: @escaping (Result<URLRequest, any Error>) -> Void) {
-        adapt(urlRequest, for: session, using: adapters, completion: completion)
-    }
-    
-    private func adapt(_ urlRequest: URLRequest,
-                       for session: Session,
-                       using adapters: [any RequestAdapter],
-                       completion: @escaping (Result<URLRequest, any Error>) -> Void) {
-        var pendingAdapters = adapters
-        guard !pendingAdapters.isEmpty else { completion(.success(urlRequest)); return }
-        
-        let adapter = pendingAdapters.removeFirst()
-        adapter.adapt(urlRequest, for: session) { result in
-            switch result {
-            case let .success(urlRequest):
-                self.adapt(urlRequest, for: session, using: pendingAdapters, completion: completion)
-            case .failure:
-                completion(result)
-            }
-        }
-    }
-}
-```
-
-Adapters execute sequentially; first failure stops the chain.
-
-### 1f. DataRequest Creation
-
-**File:** `/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Session.swift` (line ~328)
-
-```swift
-open func request(_ convertible: any URLRequestConvertible,
-                  interceptor: (any RequestInterceptor)? = nil,
-                  shouldAutomaticallyResume: Bool? = nil) -> DataRequest {
-    let request = DataRequest(convertible: convertible,
-                              underlyingQueue: rootQueue,
-                              serializationQueue: serializationQueue,
-                              eventMonitor: eventMonitor,
-                              interceptor: interceptor,
-                              shouldAutomaticallyResume: shouldAutomaticallyResume,
-                              delegate: self)
-
-    performEagerlyIfNecessary(request)
-    return request
-}
-```
-
-**DataRequest** (file: `Source/Core/DataRequest.swift`):
-```swift
-public class DataRequest: Request {
-    public let convertible: any URLRequestConvertible
-    public var data: Data? { dataMutableState.read(\.data) }
-    
-    init(id: UUID = UUID(),
-         convertible: any URLRequestConvertible,
-         underlyingQueue: DispatchQueue,
-         serializationQueue: DispatchQueue,
-         eventMonitor: (any EventMonitor)?,
-         interceptor: (any RequestInterceptor)?,
-         shouldAutomaticallyResume: Bool?,
-         delegate: any RequestDelegate) {
-        self.convertible = convertible
-        super.init(...)
-    }
-}
-```
-
-### 1g. Request State Machine and Queuing
-
-**File:** `/tmp/codebench_workspaces/20260629T234322Z-36eed4b76d68/cg_alamofire_atelier_rep2/Source/Core/Request.swift` (lines ~31-65)
-
-```swift
-public class Request {
-    public enum State {
-        case initialized      // Created but not resumed
-        case resumed          // Active
-        case suspended        // Paused
-        case cancelled        // Stopped (terminal)
-        case finished         // All serialization complete (terminal)
-        
-        func canTransitionTo(_ state: State) -> Bool { ... }
-    }
-    
-    public let id: UUID
-    public let underlyingQueue: DispatchQueue
-    public let serializationQueue: DispatchQueue
-    public let shouldAutomaticallyResume: Bool?
-    public weak var delegate: (any RequestDelegate)?
-    
-    let mutableState = Protected<MutableState>()
-    
-    struct MutableState {
-        var state: State = .initialized
-        var requests: [URLRequest] = []      // All URLRequests (initial + adapted)
-        var tasks: [URLSessionTask] = []     // All URLSessionTasks created
-        var metrics: [URLSessionTaskMetrics] = []
-        var retryCount = 0
-        var error: AFError?
-        var responseSerializers: [@Sendable () -> Void] = []
-        var responseSerializerCompletions: [@Sendable () -> Void] = []
-        // ... plus upload/download progress, handlers, etc.
-    }
-}
-```
-
-The `Protected<T>` type provides thread-safe access via read/write closures:
-```swift
-final class Protected<Value> {
-    private let lock: NSLock
-    private var value: Value
-    
-    func read<R>(_ closure: (Value) -> R) -> R {
-        lock.lock()
-        defer { lock.unlock() }
-        return closure(value)
-    }
-    
-    func write<R>(_ closure: (inout Value) -> R) -> R {
-        lock.lock()
-        defer { lock.unlock() }
-        return closure(&value)
-    }
-}
-```
-
----
-
-## 2. SEND: Request Execution
-
-### 2a. Request Performance Dispatch
-
-**File:** `Source/Core/Session.swift` (lines ~1166-1195)
-
-When a `DataRequest` is created, if `requestSetup == .eager` (or when `resume()` is explicitly called), `perform()` is invoked:
-
-```swift
-func perform(_ request: Request, forRetry isRetrying: Bool = false) {
-    rootQueue.async {
-        self.mutableState.write { mutableState in
-            guard !request.isCancelled else { return }
-            guard mutableState.activeRequests.insert(request).inserted || isRetrying else { return }
-
-            self.requestQueue.async {
-                switch request {
-                case let r as UploadRequest: self.performUploadRequest(r)
-                case let r as DataRequest: self.performDataRequest(r)
-                case let r as DownloadRequest: self.performDownloadRequest(r)
-                case let r as DataStreamRequest: self.performDataStreamRequest(r)
-                default: fatalError("Unsupported Request subclass")
-                }
-            }
-        }
-    }
-}
-```
-
-The `Session` maintains:
-- `rootQueue`: Serial queue for all state updates (default: `"org.alamofire.session.rootQueue"`)
-- `requestQueue`: Serial queue for URLRequest creation (targets rootQueue by default)
-- `serializationQueue`: Serial queue for response parsing (targets rootQueue by default)
-- `mutableState`: Maintains `activeRequests: Set<Request>` and `requestTaskMap: RequestTaskMap`
-
-### 2b. URL Request Creation and Adaptation
-
-**File:** `Source/Core/Session.swift` (lines ~1246-1310)
-
-```swift
-func performSetupOperations(for request: Request,
-                            convertible: any URLRequestConvertible,
-                            shouldCreateTask: @escaping @Sendable () -> Bool = { true }) {
-    dispatchPrecondition(condition: .onQueue(requestQueue))
-
-    let initialRequest: URLRequest
-    do {
-        initialRequest = try convertible.asURLRequest()  // Convert (e.g., RequestConvertible.asURLRequest)
-        try initialRequest.validate()                     // Basic validation
-    } catch {
-        rootQueue.async { request.didFailToCreateURLRequest(with: error.asAFError(...)) }
-        return
-    }
-
-    rootQueue.async { request.didCreateInitialURLRequest(initialRequest) }
-    guard !request.isCancelled else { return }
-
-    // Get adapter (Session + Request interceptors merged)
-    guard let adapter = adapter(for: request) else {
-        guard shouldCreateTask() else { return }
-        rootQueue.async { self.didCreateURLRequest(initialRequest, for: request) }
-        return
-    }
-
-    let adapterState = RequestAdapterState(requestID: request.id, session: self)
-    adapter.adapt(initialRequest, using: adapterState) { result in
-        do {
-            let adaptedRequest = try result.get()
-            try adaptedRequest.validate()
-            
-            self.rootQueue.async { request.didAdaptInitialRequest(initialRequest, to: adaptedRequest) }
-            guard shouldCreateTask() else { return }
-            
-            self.rootQueue.async { self.didCreateURLRequest(adaptedRequest, for: request) }
-        } catch {
-            self.rootQueue.async { request.didFailToAdaptURLRequest(initialRequest, withError: .requestAdaptationFailed(error: error)) }
-        }
-    }
-}
-
-func adapter(for request: Request) -> (any RequestAdapter)? {
-    if let requestInterceptor = request.interceptor, let sessionInterceptor = interceptor {
-        Interceptor(adapters: [sessionInterceptor, requestInterceptor])  // Session adapters first
-    } else {
-        request.interceptor ?? interceptor
-    }
-}
-```
-
-Sequence:
-1. **Initial URLRequest**: `convertible.asURLRequest()` (from `RequestConvertible` which calls `encoding.encode(...)`)
-2. **Adapter callbacks**: `adapter.adapt(initialRequest)` → `adaptedRequest`
-3. **Both tracked**: All requests stored in `request.requests: [URLRequest]`
-
-### 2c. URLSessionTask Creation and Resume
-
-**File:** `Source/Core/Session.swift` (lines ~1312-1325)
-
-```swift
-func didCreateURLRequest(_ urlRequest: URLRequest, for request: Request) {
-    dispatchPrecondition(condition: .onQueue(rootQueue))
-
-    request.didCreateURLRequest(urlRequest)
-    guard !request.isCancelled else { return }
-
-    let task = request.task(for: urlRequest, using: session)  // Create URLSessionTask
-    mutableState.write { $0.requestTaskMap[request] = task }   // Register in RequestTaskMap
-    request.didCreateTask(task)
-}
-```
-
-**DataRequest.task** (`Source/Core/DataRequest.swift`):
-```swift
-override func task(for request: URLRequest, using session: URLSession) -> URLSessionTask {
-    let copiedRequest = request
-    return session.dataTask(with: copiedRequest)
-}
-```
-
-**Request.didCreateTask** (`Source/Core/Request.swift`, lines ~408-432):
-```swift
-func didCreateTask(_ task: URLSessionTask) {
-    dispatchPrecondition(condition: .onQueue(underlyingQueue))
-
-    mutableState.write { mutableState in
-        mutableState.tasks.append(task)
-
-        if let urlSessionTaskHandler = mutableState.urlSessionTaskHandler {
-            urlSessionTaskHandler.queue.async { urlSessionTaskHandler.handler(task) }
-        }
-
-        mutableState.eventMonitor?.request(self, didCreateTask: task)
-
-        // Resume/suspend/cancel task based on current state
-        switch mutableState.state {
-        case .initialized, .finished:
-            break
-        case .resumed:
-            task.resume()
-            underlyingQueue.async { self.didResumeTask(task) }
-        case .suspended:
-            task.suspend()
-            underlyingQueue.async { self.didSuspendTask(task) }
-        case .cancelled:
-            task.resume()  // Resume to gather metrics
-            task.cancel()
-            underlyingQueue.async { self.didCancelTask(task) }
-        }
-    }
-}
-```
-
-### 2d. RequestTaskMap Bidirectional Mapping
-
-**File:** `Source/Core/RequestTaskMap.swift`
-
-```swift
-struct RequestTaskMap {
-    private var tasksToRequests: [URLSessionTask: Request]
-    private var requestsToTasks: [Request: URLSessionTask]
-    private var taskEvents: [URLSessionTask: (completed: Bool, metricsGathered: Bool)]
-    
-    subscript(_ request: Request) -> URLSessionTask? {
-        get { requestsToTasks[request] }
-        set { /* Update both directions + events */ }
-    }
-    
-    subscript(_ task: URLSessionTask) -> Request? {
-        get { tasksToRequests[task] }
-        set { /* Update both directions + events */ }
-    }
-}
-```
-
-Enables bidirectional lookup from `URLSessionDelegate` callbacks to find the associated `Request`.
-
-### 2e. SessionDelegate URLSessionDelegate Callbacks
-
-**File:** `Source/Core/SessionDelegate.swift`
-
-#### Data Received
-```swift
-extension SessionDelegate: URLSessionDataDelegate {
-    open func urlSession(_ session: URLSession,
-                         dataTask: URLSessionDataTask,
-                         didReceive response: URLResponse,
-                         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let response = response as? HTTPURLResponse else { completionHandler(.allow); return }
-        
-        if let request = request(for: dataTask, as: DataRequest.self) {
-            request.didReceiveResponse(response, completionHandler: completionHandler)
-        }
-    }
-
-    open func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        if let request = request(for: dataTask, as: DataRequest.self) {
-            request.didReceive(data: data)
-        }
-    }
-}
-```
-
-**DataRequest.didReceive** (`Source/Core/DataRequest.swift`):
-```swift
-func didReceive(data: Data) {
-    dataMutableState.write { mutableState in
-        if mutableState.data == nil {
-            mutableState.data = data
-        } else {
-            mutableState.data?.append(data)
-        }
-    }
-    updateDownloadProgress()
-}
-```
-
-#### Task Completion
-```swift
-open func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
-    eventMonitor?.urlSession(session, task: task, didCompleteWithError: error)
-    
-    let request = stateProvider?.request(for: task)
-    
-    stateProvider?.didCompleteTask(task) {
-        request?.didCompleteTask(task, with: error.map { $0.asAFError(...) })
-    }
-}
-```
-
-#### Metrics Collection
-```swift
-open func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
-    eventMonitor?.urlSession(session, task: task, didFinishCollecting: metrics)
-    
-    stateProvider?.request(for: task)?.didGatherMetrics(metrics)
-    stateProvider?.didGatherMetricsForTask(task)
-}
-```
-
-### 2f. Retry Flow
-
-**File:** `Source/Core/Request.swift` (lines ~543-560)
-
-```swift
-func retryOrFinish(error: AFError?) {
-    dispatchPrecondition(condition: .onQueue(underlyingQueue))
-
-    guard !isCancelled, let error, let delegate else { finish(); return }
-
-    delegate.retryResult(for: self, dueTo: error) { retryResult in
-        switch retryResult {
-        case .doNotRetry:
-            self.finish()
-        case let .doNotRetryWithError(retryError):
-            self.finish(error: retryError.asAFError(...))
-        case .retry, .retryWithDelay:
-            delegate.retryRequest(self, withDelay: retryResult.delay)
-        }
-    }
-}
-```
-
-**File:** `Source/Features/RequestInterceptor.swift`
-
-RetryResult variants:
-```swift
-public enum RetryResult: Sendable {
-    case retry
-    case retryWithDelay(TimeInterval)
-    case doNotRetry
-    case doNotRetryWithError(any Error)
-}
-```
-
-The `RequestDelegate` (Session) implements:
-```swift
-extension Session: RequestDelegate {
-    func retryResult(for request: Request, dueTo error: AFError, completion: @escaping (RetryResult) -> Void) {
-        guard let retrier = retrier(for: request) else {
-            completion(.doNotRetry)
-            return
-        }
-        
-        retrier.retry(request, for: self, dueTo: error, completion: completion)
-    }
-}
-```
-
----
-
-## 3. VALIDATE: Response Validation
-
-### 3a. Validation API and Validation Closure
-
-**File:** `Source/Features/Validation.swift` (lines ~82-145)
-
-```swift
-extension DataRequest {
-    public typealias Validation = @Sendable (URLRequest?, HTTPURLResponse, Data?) -> ValidationResult
-    public typealias ValidationResult = Result<Void, any(Error & Sendable)>
-
-    @discardableResult
-    public func validate<S: Sequence>(statusCode acceptableStatusCodes: S) -> Self where S.Iterator.Element == Int, S: Sendable {
-        validate { [unowned self] _, response, _ in
-            self.validate(statusCode: acceptableStatusCodes, response: response)
-        }
-    }
-
-    @discardableResult
-    public func validate<S: Sequence>(contentType acceptableContentTypes: @escaping @Sendable @autoclosure () -> S) -> Self where S.Iterator.Element == String, S: Sendable {
-        validate { [unowned self] _, response, data in
-            self.validate(contentType: acceptableContentTypes(), response: response, isEmpty: (data == nil || data?.isEmpty == true))
-        }
-    }
-
-    @discardableResult
-    public func validate() -> Self {
-        let contentTypes: @Sendable () -> [String] = { [unowned self] in
-            acceptableContentTypes
-        }
-        return validate(statusCode: acceptableStatusCodes).validate(contentType: contentTypes())
-    }
-}
-```
-
-- `validate()` with no args uses default (2xx status codes + Accept header content types)
-- Custom `validate(closure)` registers a closure
-- Returns `Self` for chaining
-
-### 3b. Validation Storage
-
-**File:** `Source/Core/DataRequest.swift` (lines ~130-157)
-
-```swift
-@preconcurrency
-@discardableResult
-public func validate(_ validation: @escaping Validation) -> Self {
-    let validator: @Sendable () -> Void = { [unowned self] in
-        guard error == nil, let response else { return }
-
-        let result = validation(request, response, data)
-
-        if case let .failure(error) = result {
-            self.error = error.asAFError(or: .responseValidationFailed(reason: .customValidationFailed(error: error)))
-        }
-
-        eventMonitor?.request(self,
-                              didValidateRequest: request,
-                              response: response,
-                              data: data,
-                              withResult: result)
-    }
-
-    validators.write { $0.append(validator) }
-    return self
-}
-```
-
-Validators are stored in a `Protected` array:
-```swift
-// From Request.swift
-let validators = Protected<[@Sendable () -> Void]>([])
-```
-
-### 3c. Validation Execution
-
-**File:** `Source/Core/Request.swift` (lines ~515-542)
-
-When the task completes:
-
-```swift
-func didCompleteTask(_ task: URLSessionTask, with error: AFError?) {
-    dispatchPrecondition(condition: .onQueue(underlyingQueue))
-
-    mutableState.write { $0.error = $0.error ?? error }
-
-    let validators = validators.read(\.self)  // Get all validators
-    validators.forEach { $0() }                // Execute all validators synchronously
-
-    eventMonitor?.request(self, didCompleteTask: task, with: error)
-
-    retryOrFinish(error: self.error)
-}
-```
-
-### 3d. Built-in Validators
-
-**File:** `Source/Features/Validation.swift` (lines ~50-80)
-
-```swift
-fileprivate func validate<S: Sequence>(statusCode acceptableStatusCodes: S,
-                                       response: HTTPURLResponse)
-    -> ValidationResult
-    where S.Iterator.Element == Int {
-    if acceptableStatusCodes.contains(response.statusCode) {
-        return .success(())
-    } else {
-        let reason: ErrorReason = .unacceptableStatusCode(code: response.statusCode)
-        return .failure(AFError.responseValidationFailed(reason: reason))
-    }
-}
-
-fileprivate func validate<S: Sequence>(contentType acceptableContentTypes: S,
-                                       response: HTTPURLResponse,
-                                       isEmpty: Bool)
-    -> ValidationResult
-    where S.Iterator.Element == String {
-    guard !isEmpty else { return .success(()) }
-    
-    return validate(contentType: acceptableContentTypes, response: response)
-}
-
-fileprivate func validate<S: Sequence>(contentType acceptableContentTypes: S,
-                                       response: HTTPURLResponse)
-    -> ValidationResult
-    where S.Iterator.Element == String {
-    guard let responseContentType = response.mimeType,
-          let responseMIMEType = MIMEType(responseContentType)
-    else {
-        // Missing Content-Type
-        let reason: ErrorReason = .missingContentType(acceptableContentTypes: acceptableContentTypes.sorted())
-        return .failure(AFError.responseValidationFailed(reason: reason))
-    }
-
-    for contentType in acceptableContentTypes {
-        if let acceptableMIMEType = MIMEType(contentType), acceptableMIMEType.matches(responseMIMEType) {
-            return .success(())
-        }
-    }
-
-    // Unacceptable content type
-    let reason: ErrorReason = .unacceptableContentType(acceptableContentTypes: acceptableContentTypes.sorted(),
-                                                       responseContentType: responseContentType)
-    return .failure(AFError.responseValidationFailed(reason: reason))
-}
-```
-
-MIME type matching supports wildcards:
-```swift
-struct MIMEType {
-    let type: String
-    let subtype: String
-
-    var isWildcard: Bool { type == "*" && subtype == "*" }
-
-    init?(_ string: String) { /* parse "type/subtype" */ }
-
-    func matches(_ mime: MIMEType) -> Bool {
-        switch (type, subtype) {
-        case (mime.type, mime.subtype), (mime.type, "*"), ("*", mime.subtype), ("*", "*"):
-            true
-        default:
-            false
-        }
-    }
-}
-```
-
-### 3e. Validation Error Types
-
-**File:** `Source/Core/AFError.swift` (lines ~100-113)
-
-```swift
-public enum ResponseValidationFailureReason: Sendable {
-    case dataFileNil
-    case dataFileReadFailed(at: URL)
-    case missingContentType(acceptableContentTypes: [String])
-    case unacceptableContentType(acceptableContentTypes: [String], responseContentType: String)
-    case unacceptableStatusCode(code: Int)
-    case customValidationFailed(error: any Error)
-}
-```
-
-Combined into:
-```swift
-case responseValidationFailed(reason: ResponseValidationFailureReason)
-```
-
-### 3f. Response Handler Chain
-
-**File:** `Source/Core/Request.swift` (lines ~646-700)
-
-```swift
-func appendResponseSerializer(_ closure: @escaping @Sendable () -> Void) {
-    mutableState.write { mutableState in
-        mutableState.responseSerializers.append(closure)
-
-        if mutableState.state == .finished {
-            mutableState.state = .resumed
-        }
-
-        // If serializers have already been processed, execute immediately
-        if mutableState.responseSerializerProcessingFinished {
-            underlyingQueue.async { self.processNextResponseSerializer() }
-        }
-
-        if mutableState.state.canTransitionTo(.resumed) {
-            underlyingQueue.async { [self] in
-                if (shouldAutomaticallyResume ?? delegate?.startImmediately) == true {
-                    resume()
-                }
-            }
-        }
-    }
-}
-
-func processNextResponseSerializer() {
-    let executeOutside: (() -> Void)? = mutableState.write { mutableState in
-        guard !mutableState.isResponseSerializerEnqueued else { return nil }
-
-        let responseSerializerIndex = mutableState.responseSerializerCompletions.count
-        let isAvailableSerializer = responseSerializerIndex < mutableState.responseSerializers.count
-        let responseSerializer = isAvailableSerializer ? mutableState.responseSerializers[responseSerializerIndex] : nil
-
-        if let responseSerializer {
-            mutableState.isResponseSerializerEnqueued = true
-            return { self.serializationQueue.async { responseSerializer() } }
-        } else {
-            let completions = mutableState.responseSerializerCompletions
-            mutableState.responseSerializers.removeAll()
-            mutableState.responseSerializerCompletions.removeAll()
-
-            if mutableState.state.canTransitionTo(.finished) {
-                mutableState.state = .finished
-            }
-
-            mutableState.responseSerializerProcessingFinished = true
-            mutableState.isFinishing = false
-
-            return {
-                completions.forEach { $0() }
-                self.cleanup()
-            }
-        }
-    }
-
-    executeOutside?()
-}
-```
-
-Response serializers execute sequentially on `serializationQueue`, then completions are called on the user's specified queue (e.g., `.main`).
-
-**File:** `Source/Core/DataRequest.swift` (lines ~195-220)
-
-```swift
-@preconcurrency
-@discardableResult
-public func response(queue: DispatchQueue = .main, completionHandler: @escaping @Sendable (AFDataResponse<Data?>) -> Void) -> Self {
-    appendResponseSerializer {
-        let result = AFResult<Data?>(value: self.data, error: self.error)
-
-        self.underlyingQueue.async {
-            let response = DataResponse(request: self.request,
-                                        response: self.response,
-                                        data: self.data,
-                                        metrics: self.metrics,
-                                        serializationDuration: 0,
-                                        result: result)
-
-            self.eventMonitor?.request(self, didParseResponse: response)
-
-            self.responseSerializerDidComplete { queue.async { completionHandler(response) } }
-        }
-    }
-
-    return self
-}
-```
-
----
-
-## Summary of Key Files and Types
-
-| Area | File | Key Types |
-|------|------|-----------|
-| **Session & Request Management** | `Session.swift` | `Session`, `RequestConvertible`, `RequestEncodableConvertible` |
-| **Request State Machine** | `Request.swift` | `Request`, `State` enum, `MutableState` struct |
-| **Data Request** | `DataRequest.swift` | `DataRequest`, `Validation` typealias |
-| **Parameter Encoding** | `ParameterEncoding.swift` | `ParameterEncoding`, `URLEncoding` |
-| **Parameter Encoder** | `ParameterEncoder.swift` | `ParameterEncoder`, `JSONParameterEncoder`, `URLEncodedFormParameterEncoder` |
-| **Interception** | `RequestInterceptor.swift` | `RequestAdapter`, `RequestRetrier`, `RequestInterceptor`, `Interceptor` |
-| **URLConvertibles** | `URLConvertible+URLRequestConvertible.swift` | `URLConvertible`, `URLRequestConvertible` |
-| **Validation** | `Validation.swift` | `ValidationResult`, `MIMEType` |
-| **Errors** | `AFError.swift` | `AFError`, `ResponseValidationFailureReason` |
-| **Delegate Callbacks** | `SessionDelegate.swift` | `SessionDelegate`, `SessionStateProvider` |
-| **Task Mapping** | `RequestTaskMap.swift` | `RequestTaskMap` (bidirectional Request↔URLSessionTask) |
-| **Thread Safety** | `Protected.swift` | `Protected<Value>` (lock-based thread-safe access) |
-
----
-
-## Architecture Diagram (Conceptual Flow)
-
-```
-1. BUILD
-  Session.request(...) 
-    → RequestConvertible/RequestEncodableConvertible.asURLRequest()
-      → ParameterEncoding/ParameterEncoder.encode(...)
-    → DataRequest created (state: .initialized)
-
-2. SEND
-  perform(request)
-    → requestQueue.async { performDataRequest(...) }
-      → performSetupOperations(...)
-        → convertible.asURLRequest() [initial]
-        → adapter.adapt(...) [if present]
-      → didCreateURLRequest(adapted, for: request)
-        → request.task(for:using:) → URLSessionTask
-        → mutableState.requestTaskMap[request] = task
-        → task.resume() [if state == .resumed]
-  
-  URLSessionDelegate callbacks (on rootQueue via SessionDelegate)
-    → didReceive(data:)
-    → didReceiveResponse(...)
-    → didFinishCollecting(metrics:)
-    → didCompleteWithError(...)
-      → request.didCompleteTask(task, with: error)
-        → validators.forEach { validator() } [synchronous validation]
-        → retryOrFinish(error:)
-
-3. VALIDATE
-  validate(statusCode:) / validate(contentType:) / validate(:)
-    → Closure appended to request.validators array
-  
-  When didCompleteTask called:
-    → All validators execute synchronously on underlyingQueue
-    → If ValidationResult.failure → error set on request
-  
-  If validation passes or no retriers configured:
-    → request.finish()
-      → processNextResponseSerializer()
-      → Response handlers run on serializationQueue then user's queue
-```
-
-=== Turn 37 ===
-[user] <task-notification>
-<task-id>a674e08e41e4a2071</task-id>
-<tool-use-id>toolu_01HEAPjxawGdvbUKePFQNbvx</tool-use-id>
-<output-file>/tmp/claude-1000/-tmp-codebench-workspaces-20260629T234322Z-36eed4b76d68-cg-alamofire-atelier-rep2/84289eae-181c-49ef-aab4-c996145797df/tasks/a674e08e41e4a2071.output</outp
-[assistant] Here's how Alamofire takes a request from a method call to a validated response, grounded in the actual source under `Source/`.
-
-## 1. Build — `Session.request(...)` → a `DataRequest`
-
-**Entry point** (`Source/Core/Session.swift`): the convenience overloads take a `URLConvertible` plus `method`/`parameters`/`encoding` (or an `encoder` for `Encodable` parameters), an optional `RequestInterceptor`, and a `requestModifier`.
-
-Rather than building the `URLRequest` eagerly, `Session` wraps your inputs in one of two internal `URLRequestConvertible` structs and defers the work:
-
-```swift
-struct RequestConvertible: URLRequestConvertible {
-    func asURLRequest() throws -> URLRequest {
-        var request = try URLRequest(url: url, method: method, headers: headers)
-        try requestModifier?(&request)
-        return try encoding.encode(request, with: parameters)   // URLEncoding/JSONEncoding
-    }
-}
-struct RequestEncodableConvertible<P: Encodable & Sendable>: URLRequestConvertible {
-    func asURLRequest() throws -> URLRequest {
-        var request = try URLRequest(url: url, method: method, headers: headers)
-        try requestModifier?(&request)
-        return try parameters.map { try encoder.encode($0, into: request) } ?? request
-    }
-}
-```
-
-- **`URLConvertible`/`URLRequestConvertible`** (`URLConvertible+URLRequestConvertible.swift`): `String`/`URL`/`URLComponents` produce a `URL`; `URLRequest` produces itself.
-- **Parameter encoding**: `ParameterEncoding` (`URLEncoding`, `JSONEncoding`) for `[String: Any]` dictionaries — `URLEncoding` decides query-string vs. httpBody by HTTP method; `ParameterEncoder` (`URLEncodedFormParameterEncoder`, `JSONParameterEncoder`) for `Encodable` types, setting `Content-Type` and `httpBody`.
-
-`Session` then constructs the `DataRequest` (starting in state `.initialized`), wiring in `rootQueue`, `serializationQueue`, the event monitor, the interceptor, and itself as `delegate`. Note the actual `URLRequest` doesn't exist yet — it's still a lazy `convertible`.
-
-## 2. Send — `perform` → adapt → `URLSessionTask`
-
-`Session.perform(_:)` hops onto `rootQueue` (the single serial queue guarding all session state), registers the request in `activeRequests`, then dispatches onto `requestQueue` to `performDataRequest`. The queue design — `rootQueue` (state), `requestQueue` (URLRequest creation), `serializationQueue` (response parsing) — all target `rootQueue` by default for serialized safety.
-
-`performSetupOperations` is where the lazy `convertible` finally materializes:
-
-1. `initialRequest = try convertible.asURLRequest()` then `initialRequest.validate()` — this runs the encoding from step 1.
-2. The **adapt** step: `adapter(for:)` merges session + request interceptors (`Interceptor(adapters: [sessionInterceptor, requestInterceptor])`, session first) and calls `adapter.adapt(...)`, which runs adapters sequentially — first failure aborts the chain (e.g. injecting auth headers). Both initial and adapted `URLRequest`s are retained in `request.requests`.
-3. `didCreateURLRequest` calls `request.task(for:using:)` → `session.dataTask(with:)`, stores it in **`RequestTaskMap`** (a bidirectional `Request ↔ URLSessionTask` map so delegate callbacks can find their request), and resumes the task if the request's state is `.resumed`.
-
-The **`Request` state machine** (`Request.swift`) — `initialized → resumed/suspended → cancelled/finished` — gates `task.resume()/suspend()/cancel()`; all mutable state lives in a lock-guarded `Protected<MutableState>`.
-
-**`SessionDelegate`** (`URLSessionDataDelegate`) drives the live request: `didReceive(data:)` appends into `DataRequest`'s accumulating buffer, `didFinishCollecting metrics` records metrics, and `didCompleteWithError` routes through the task map back to `request.didCompleteTask(...)`.
-
-**Retry**: on completion with an error, `retryOrFinish` asks the `RequestRetrier` via `delegate.retryResult(for:dueTo:)`. The `RetryResult` (`.retry`, `.retryWithDelay`, `.doNotRetry`, `.doNotRetryWithError`) decides whether to re-`perform` or `finish`.
-
-## 3. Validate — closures run at completion, before serialization
-
-`DataRequest.validate(...)` (`Source/Features/Validation.swift`) appends a closure to a `Protected` `validators` array and returns `Self` for chaining. Bare `validate()` = acceptable status codes (2xx) + content types from the `Accept` header:
-
-```swift
-public typealias Validation = @Sendable (URLRequest?, HTTPURLResponse, Data?) -> ValidationResult
-public typealias ValidationResult = Result<Void, any (Error & Sendable)>
-```
-
-Built-in checks: `unacceptableStatusCode` when the code isn't in the acceptable set, and content-type checks via a `MIMEType` matcher that honors wildcards (`*/*`, `type/*`). Failures become `AFError.responseValidationFailed(reason:)` (`ResponseValidationFailureReason`: `unacceptableStatusCode`, `unacceptableContentType`, `missingContentType`, `customValidationFailed`, …).
-
-Crucially, validators run **inside `didCompleteTask`**, synchronously on `underlyingQueue`, *before* retry/finish:
-
-```swift
-func didCompleteTask(_ task: URLSessionTask, with error: AFError?) {
-    mutableState.write { $0.error = $0.error ?? error }
-    validators.read(\.self).forEach { $0() }   // each sets request.error on failure
-    retryOrFinish(error: self.error)            // validation error can trigger a retry
-}
-```
-
-Because validation populates `request.error` before `retryOrFinish`, a failed validation can itself drive the retrier. If the request finishes, `processNextResponseSerializer` runs each response serializer (`response`, `responseDecodable`, …) sequentially on `serializationQueue`, then fires the completion handler on the user's queue (default `.main`) with a `DataResponse` carrying the `result` (`.success`/`.failure(AFError)`).
-
-**Flow in one line:** `request(...)` wraps inputs in a lazy `URLRequestConvertible` → `perform` runs encoding + adapter chain → builds & resumes a `URLSessionTask` tracked in `RequestTaskMap` → `SessionDelegate` accumulates data and signals completion → validators run, then retry-or-finish, then serializers deliver a typed `DataResponse`.
-
-Key files: `Session.swift`, `Request.swift`, `DataRequest.swift`, `ParameterEncoding.swift`, `ParameterEncoder.swift`, `RequestInterceptor.swift`, `SessionDelegate.swift`, `RequestTaskMap.swift`, `Features/Validation.swift`, `AFError.swift`.
+Core pipeline: `convertible → URLRequest → ParameterEncoder → RequestAdapter → URLSessionTask → SessionDelegate → validators → serializer → AFDataResponse`. Interceptor sits at both adapt (outbound) and retry (failure) points; everything is marshaled through the `Session`'s serial `rootQueue` for thread-safety.
+[usage] input=2 cache_read=16627 cache_write=6387 output=1338

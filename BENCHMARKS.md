@@ -13,7 +13,7 @@ This document keeps benchmark proof out of the first-use README while preserving
 | SWE-bench wall-clock time                     |                      **10.9h** |                                14.3h |                 **23.7% faster** |                                  |
 | SWE-bench Lite, 10 tasks x 3 reps             |     **30 / 30 resolved (100%)** |                       28 / 30 (93.3%) |       **+6.7 percentage points** |                                  |
 | SWE-bench Pro, 10 tasks x 5 reps              | **45 / 50 resolved (90%)** |                      44 / 50 (88%) |       **+2.0 percentage points** |                                  |
-| Exploration tasks across 8 repos              |            **$10.94** | $25.37 |                      **57% cheaper** |                                  |
+| Exploration tasks across 7 repos              |            **$6.29** | $19.11 |                      **67% cheaper** |                                  |
 | Telegraphic output: reply prose per turn      |             **30 tokens** |                            67 tokens |               **2.7x less prose** |
 | Terminal-Bench 2.1, 89 tasks x 1 rep vs public leaderboard x 5 reps | 70 / 89 resolved (78.7%) | **70.25 / 89 expected (78.9%)** | -0.2 percentage points |
 | Terminal-Bench cost, 83/89 tasks w/ cost data |          **$69.52** | $96.76 | **28.1%\* cheaper** |
@@ -131,19 +131,20 @@ uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
 
 ## Exploration Tasks
 
-8 open-source codebases, 5 questions each, 5 reps, `claude-opus-4-8`. Costs are summed across all prompts and reps.
+7 open-source codebases, 1 exploration question each, 5 reps per arm, `claude-opus-4-8`. Costs are summed across all reps. The baseline arm is the 2026-06-29 run; the Atelier arm was re-run on 2026-07-08 against the current runtime — same tasks, prompts, model, timeout, and driver (protocol recorded in the run's `benchmark-manifest.json`).
 
 | Codebase   | Language / size                   |                 Atelier |        Baseline | Cost delta |
 | ------------ | ----------------------------------- | ------------------------: | ----------------: | -----------: |
-| VS Code    | TypeScript, 11k files, 3.3M lines |           $0.85 | $5.79 | **85% cheaper** |            |
-| Django     | Python, 3k files, 522k lines      |           $0.45 | $2.85 | **84% cheaper** |            |
-| Tokio      | Rust, 784 files, 176k lines       |           $0.47 | $2.15 | **78% cheaper** |            |
-| OkHttp     | Java, 596 files, 133k lines       |           $0.59 | $2.23 | **73% cheaper** |            |
-| Linux      | C, 95k files, 30M lines           |           $0.70 | $1.67 | **58% cheaper** |            |
-| Gin        | Go, 99 files, 24k lines           |           $0.53 | $1.04 | **49% cheaper** |            |
-| Alamofire  | Swift, 98 files, 44k lines        |           $1.81 | $2.41 | **25% cheaper** |            |
-| Excalidraw | TypeScript, 600 files, 171k lines |           $5.54 | $7.23 | **23% cheaper** |            |
-| **Total**  | 8 repos, 110k files, 34M lines    | **$10.94** | **$25.37** | **57% cheaper** |            |
+| Tokio      | Rust, 784 files, 176k lines       |           $0.34 | $2.69 | **87% cheaper** |            |
+| Alamofire  | Swift, 98 files, 44k lines        |           $0.74 | $4.83 | **85% cheaper** |            |
+| Django     | Python, 3k files, 522k lines      |           $0.37 | $2.31 | **84% cheaper** |            |
+| OkHttp     | Java, 596 files, 133k lines       |           $0.29 | $1.60 | **82% cheaper** |            |
+| VS Code    | TypeScript, 11k files, 3.3M lines |           $0.72 | $3.08 | **77% cheaper** |            |
+| Gin        | Go, 99 files, 24k lines           |           $0.29 | $1.09 | **73% cheaper** |            |
+| Excalidraw | TypeScript, 600 files, 171k lines |           $3.54 | $3.51 | +0.7% (even)    |            |
+| **Total**  | 7 repos, 16k files, 4.4M lines    | **$6.29** | **$19.11** | **67% cheaper** |            |
+
+Honest outlier: Excalidraw is a dead heat ($3.54 vs $3.51) — the one repo where Atelier's answer style spends as much as it saves. Every other repo is 73–87% cheaper. Beyond cost: 91% fewer turns (1,237 → 112), 92% fewer cache-read tokens, 84% fewer output tokens, at equal wall-clock.
 
 Raw data: [`benchmarks/codebench/results/exploration_2026_06_29/`](benchmarks/codebench/results/exploration_2026_06_29/)
 
@@ -152,7 +153,8 @@ Run it:
 ```bash
 atelier benchmark codebench \
   --arm baseline --arm atelier \
-  --task all \
+  --task cg_vscode --task cg_excalidraw --task cg_django --task cg_tokio \
+  --task cg_okhttp --task cg_gin --task cg_alamofire \
   --reps 5 \
   --model claude-opus-4-8 \
   --cli-driver claude
@@ -327,7 +329,7 @@ uv run python scripts/gen_harbor_cost_vs_savings_scatter.py
 
 ## Overall Assessment
 
-- **Cost/tokens/turns: Atelier wins on every suite measured.** SWE-bench Verified (-29.5% cost, -44.9% tokens, -37.7% turns), SWE-bench Lite (-12.9%/-20.5%/-15.8%), SWE-bench Pro (-18.1%/-30.8%/-25.4%), Exploration (-57% cost), Terminal-Bench (-28.1% cost on the 83/89 tasks with telemetry -- and that's a floor, not the true number: 5 Atelier trials hit the harness timeout with real, uncounted spend).
+- **Cost/tokens/turns: Atelier wins on every suite measured.** SWE-bench Verified (-29.5% cost, -44.9% tokens, -37.7% turns), SWE-bench Lite (-12.9%/-20.5%/-15.8%), SWE-bench Pro (-18.1%/-30.8%/-25.4%), Exploration (-67% cost), Terminal-Bench (-28.1% cost on the 83/89 tasks with telemetry -- and that's a floor, not the true number: 5 Atelier trials hit the harness timeout with real, uncounted spend).
 - **Correctness wins on every multi-rep suite.** Atelier leads SWE-bench Verified (+12.0pp over 250 task-reps), SWE-bench Lite (+6.7pp over 30 task-reps), and SWE-bench Pro (+2.0pp over 50 task-reps -- the 5-rep run flipped the earlier single-rep -10.0pp result, confirming that loss was n=1 noise). The one remaining (nominal) deficit is Terminal-Bench (-0.2pp, effectively a tie -- Atelier's single attempt against a 5-rep baseline average, including 5 Atelier timeouts scored as fails) -- still an n=1 number that needs a multi-rep run before it means anything on its own.
 - **Where overhead still shows up:** non-Python, larger, or more heterogeneous codebases (SWE-bench Pro's Go/TS repos, Terminal-Bench's one-off environments) see a smaller cost edge than the Python-heavy SWE-bench suites, and a few individual tasks (`tutanota`, `vuls`, `flipt`, and roughly a third of Terminal-Bench's sub-$0.50 tasks) cost Atelier *more* than baseline -- consistent with a fixed per-run overhead that amortizes on bigger/cheaper-per-token tasks but not on small or unusually turn-heavy ones. Terminal-Bench also surfaced a timeout-rate gap: Atelier hit the per-task timeout on 5.6% of tasks vs baseline's 1.6-3.4% (depending on normalization) -- baseline resolves 2 of those same 5 tasks comfortably in the same budget (`mailman`, `gpt2-codegolf`), while the other 3 are hard for baseline too, a narrower and more mixed signal than the prior cut.
 - **Bottom line:** the token/turn/cost compression is real and reproduces across every suite tested, at every scale from a $0.10 task to a $5 one. Whether that compression costs correctness is now disproven on all three multi-rep suites (Verified, Lite, Pro) and unresolved (not disproven, not confirmed) on the one remaining n=1 suite (Terminal-Bench). Read the per-suite sections above for the exact caveats before citing any single number out of context.

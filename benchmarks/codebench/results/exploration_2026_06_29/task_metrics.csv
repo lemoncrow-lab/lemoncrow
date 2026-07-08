@@ -1,8 +1,8 @@
 task,baseline_arm,candidate_arm,baseline_reps,candidate_reps,baseline_cost_usd_median,candidate_cost_usd_median,cost_savings_vs_baseline_pct,baseline_tokens_median,candidate_tokens_median,tokens_savings_vs_baseline_pct,baseline_duration_ms_median,candidate_duration_ms_median,duration_savings_vs_baseline_pct,baseline_tool_calls_median,candidate_tool_calls_median,tool_calls_savings_vs_baseline_pct
-cg_vscode,baseline,atelier,5,5,0.5073,0.2174,57.1,1487415,61957,95.8,21851.0,38392.0,-75.7,31,3,90.3
-cg_excalidraw,baseline,atelier,5,5,0.7508,0.6219,17.2,2203916,1608584,27.0,25328.0,22480.0,11.2,80,63,21.3
-cg_django,baseline,atelier,5,5,0.4219,0.0748,82.3,895750,20827,97.7,26243.0,28270.0,-7.7,34,0,100.0
-cg_tokio,baseline,atelier,5,5,0.5659,0.0736,87.0,1262239,20778,98.4,57601.0,29370.0,49.0,37,0,100.0
-cg_okhttp,baseline,atelier,5,5,0.3455,0.068,80.3,253590,20554,91.9,9504.0,23358.0,-145.8,14,0,100.0
-cg_gin,baseline,atelier,5,5,0.2008,0.1073,46.6,103804,40866,60.6,37310.0,29492.0,21.0,5,1,80.0
-cg_alamofire,baseline,atelier,5,5,0.9011,0.5389,40.2,2120545,1107840,47.8,39649.0,31359.0,20.9,54,33,38.9
+cg_vscode,baseline,atelier,5,5,0.5073,0.1335,73.7,1487415,45811,96.9,21851.0,23229.0,-6.3,31,1,96.8
+cg_excalidraw,baseline,atelier,5,5,0.7508,0.6601,12.1,2203916,485001,78.0,25328.0,134322.0,-430.3,80,19,76.2
+cg_django,baseline,atelier,5,5,0.4219,0.0725,82.8,895750,23444,97.4,26243.0,26368.0,-0.5,34,0,100.0
+cg_tokio,baseline,atelier,5,5,0.5659,0.0646,88.6,1262239,23104,98.2,57601.0,23831.0,58.6,37,0,100.0
+cg_okhttp,baseline,atelier,5,5,0.3455,0.0579,83.2,253590,22832,91.0,9504.0,18713.0,-96.9,14,0,100.0
+cg_gin,baseline,atelier,5,5,0.2008,0.0547,72.8,103804,22600,78.2,37310.0,18166.0,51.3,5,0,100.0
+cg_alamofire,baseline,atelier,5,5,0.9011,0.1434,84.1,2120545,46342,97.8,39649.0,29589.0,25.4,54,1,98.1
