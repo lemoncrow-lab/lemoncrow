@@ -12,10 +12,10 @@ _Copy blocks for the marketing site, top to bottom. Voice: witty but serious (se
 
 ## Hero
 
-### Same model. Sharper agent.
+### Atelier Runtime
 
-**Atelier is the runtime that turns a coding agent into a craftsman.**
-It reads the right line instead of the whole file, routes work through the right shape, keeps the transcript clean, and never pays twice for context it already found.
+**Open-source runtime for coding agents.**
+Give Claude Code, Codex, Cursor, and other coding agents a shared runtime for tools, context, skills, observability, cost control, and safer execution inside real codebases.
 
 > **+12.0pp resolved · 29.5% cheaper** on SWE-bench Verified — same model, same tasks, same environment. Every raw run published.
 
@@ -25,7 +25,7 @@ curl -fsSL https://install.atelier.ws | bash
 
 **[Install]**  ·  **[Estimate your savings →]**  ·  Apache-2.0 · local-first · no account to start
 
-_Subhead, small:_ Everyone's teaching agents to talk less. That's the easy 5%. Atelier compresses the other 95% — what the agent reads, calls, and re-reads.
+_Subhead, small:_ One runtime for the work around the model: grounded tools, reusable context, skill procedures, observability, budgets, and execution guardrails.
 
 ---
 
@@ -129,7 +129,7 @@ _Until these are real, run only the live badges + star count. Empty is honest; f
 
 ## Final CTA
 
-### Give your agent a workshop.
+### Run every coding agent on one runtime.
 
 ```bash
 curl -fsSL https://install.atelier.ws | bash

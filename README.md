@@ -1,13 +1,13 @@
 <!-- cspell:ignore Alamofire Excalidraw ast-grep codegraph ctags django jcodemunch nohit okhttp scip serena tokio vscode zoekt beasm Trendshift telegraphese -->
 
 <div align="center">
-# Atelier — The Runtime for Coding Agents
+# Atelier Runtime
 
-### Same model. Sharper agent
+### Open-source runtime for coding agents
 
-**Read smarter · Think sharper · Talk less · Never forget**
+**Tools · Context · Skills · Observability · Cost control · Safer execution**
 
-_Everyone's teaching agents to talk less. That's the easy 5%. Atelier compresses the other 95% — what the agent **reads, calls, and re-reads** — and publishes the receipts._
+_Give Claude Code, Codex, Cursor, and other coding agents a shared runtime for tools, context, skills, observability, cost control, and safer execution inside real codebases._
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
@@ -32,9 +32,9 @@ _Everyone's teaching agents to talk less. That's the easy 5%. Atelier compresses
 
 ---
 
-An **atelier** is a craftsman's workspace — precise tools, nothing wasted, every motion earning its place. That's the whole idea. Your coding agent already has a big brain; what it lacks is a workspace. Atelier is the bench, the tools, and the discipline that turn a capable model into a craftsman: it reads the right line instead of the whole file, routes work through the right shape, keeps the transcript clean, and never pays twice for context it already found.
+Atelier Runtime gives coding agents the shared operating layer they are missing: grounded tools, project context, skills, observability, cost controls, and safer execution inside real codebases.
 
-> A smaller **mouth** saves you output tokens. A smaller **loop** saves you the whole run. Atelier does the loop — and hands you the raw runs to prove it.
+> Claude Code, Codex, Cursor, and other coding agents can plug into the same runtime instead of rebuilding the same loop around every model.
 
 ## See it — the receipts
 
@@ -120,11 +120,11 @@ Measured on the same model, same tasks, and same environment:
 | SWE-bench Pro, 10 tasks x 5 reps                    |            88.0% |       **90.0%** |  **+2.0 pp** |   $39.01 |**$30.61** |   **21.5% cheaper** |         |
 | Exploration tasks across 8 large repos              |               — |              — |           — |   $25.37 |**$10.94** |     **57% cheaper** |         |
 | Terminal-Bench 2.1, 89 tasks vs public leaderboard* |   78.9% expected |           78.7% |      -0.2 pp | $96.76 |**$69.52**† | **28.1% cheaper**† |         |
-| Telegraphic Q&A (caveman repro), 20 tasks x 1 rep‡ |               — |              — |           — |     $1.44 |**$0.74** | **48.7% cheaper**‡ |         |
+| Telegraphic Q&A (caveman repro), 20 tasks x 1 rep‡ |               — |              — |           — |     $1.71 |**$1.37** | **19.9% cheaper**‡ |         |
 
 <sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task.
 † Other 5 tasks in Atelier timeout and can't capture cost, not zero-cost runs; see BENCHMARKS.md. </sub>
-<sub> ‡ n=1; real $ cost favors Atelier but raw output-token count is roughly flat in this cut (avg -2%, noisy per-prompt: stdev 35pp) -- baseline's blind tool-exploration retries burn input/cache tokens, not output text, so cost captures the win that raw output-token count doesn't; see BENCHMARKS.md.</sub>
+<sub> ‡ n=1, `claude-opus-4-8`; full atelier runtime (tools+MCP+persona) vs vanilla Claude Code -- two more arms isolate the reply-register alone and pit it against caveman's own skill; see BENCHMARKS.md for the full 4-arm breakdown.</sub>
 
 SWE-bench Verified detail:
 
