@@ -41,6 +41,7 @@ from atelier.core.environment import skill_installed_by_default
 CODING_GUIDELINES_PATH = ROOT / "integrations/agents/shared/coding-guidelines.md"
 CORE_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/core-discipline.md"
 CHANGE_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/change-discipline.md"
+DESTRUCTIVE_GUARD_PATH = ROOT / "integrations/agents/shared/destructive-guard.md"
 TOOL_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/tool-discipline.md"
 TOOL_DISCIPLINE_READ_PATH = ROOT / "integrations/agents/shared/tool-discipline-read.md"
 REPLY_REGISTER_PATH = ROOT / "integrations/agents/shared/reply-register.md"
@@ -53,6 +54,7 @@ SHARED_SECTIONS: dict[str, Path] = {
     "{{CODING_GUIDELINES}}": CODING_GUIDELINES_PATH,
     "{{CORE_DISCIPLINE}}": CORE_DISCIPLINE_PATH,
     "{{CHANGE_DISCIPLINE}}": CHANGE_DISCIPLINE_PATH,
+    "{{DESTRUCTIVE_GUARD}}": DESTRUCTIVE_GUARD_PATH,
     "{{TOOL_DISCIPLINE}}": TOOL_DISCIPLINE_PATH,
     "{{TOOL_DISCIPLINE_READ}}": TOOL_DISCIPLINE_READ_PATH,
     "{{REPLY_REGISTER}}": REPLY_REGISTER_PATH,

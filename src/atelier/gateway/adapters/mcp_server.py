@@ -7083,10 +7083,10 @@ _EDIT_DIAG_CAP = 20
     name="edit",
     input_schema=EDIT_TOOL_INPUT_SCHEMA,
     description=(
-        "Batch file edits. Default: edits=[{path: 'f.py:L10-L14', new}, ...] — "
-        "replaces those lines, no old needed; lines as-read, stale→rejected. "
-        "{path, old, new}, when no fresh range. Whole file: {path, new, "
-        "replace:true}. ALL edits in ONE call. No re-read after success."
+        "Batch file edits. Prefer {path: 'f.py:L10-L14', new}; batch many "
+        "range+new hunks in one call, even same-file hunks (ranges use the "
+        "original snapshot). Use {path, old, new} only without a fresh range. "
+        "Whole file: {path, new, replace:true}. No re-read after success."
     ),
     param_aliases={"post_edit_hooks": "hooks"},
     # Policy knobs, not agent choices: accepted by name (tests, power use) but
@@ -7114,34 +7114,17 @@ def tool_smart_edit(
 ) -> dict[str, Any]:
     """Apply many mechanical edits across files in one deterministic call.
 
-    Preferred form for fresh read/code_search ranges:
-      - Batch range replace: {path: "foo.py:L10-L20", new: "..."}
-      - Use MANY range+new edits in ONE call, including several hunks in the same file.
-      - All ranges in one batch resolve against the same original file snapshot;
-        earlier hunks do not shift later hunks.
+    Prefer fresh range edits: {path: "foo.py:L10-L20", new: "..."}. Batch
+    many range+new hunks in one call, including multiple hunks in the same file;
+    ranges resolve against the original snapshot. Use old_string/new_string only
+    when no fresh range is available.
 
-    Choose the right descriptor family for each edit (all must be the same family):
+    Descriptor families cannot be mixed:
+      - Rich: {path|file_path, new|new_string, old|old_string?, replace?}
+      - Legacy: {path, op: replace|insert_after|replace_range, ...}
+      - Structured: notebook cell, symbol, or projection edits
 
-    Rich (preferred) — ``file_path`` or ``path`` required:
-      - Line-scoped:     {path: "foo.py:L10-L20", new: "..."}
-      - Replace text:    {file_path, old_string, new_string} (only without a fresh range)
-      - Create/replace: {file_path, new_string, replace: true}
-      - Notebook cell:   {file_path, cell_action: insert_after|delete|..., new_string}
-      - Symbol:          {kind: "symbol", qualified_name|name, mode, new_body}
-      - Projection:      {kind: "projection", file_path, projection_mapping, projected_start+projected_end+new_string or projected_ranges}
-
-    Legacy — ``path`` + ``op`` required:
-      - replace:       {path, op: "replace", old_string, new_string, fuzzy?}
-      - insert_after:  {path, op: "insert_after", anchor, new_string}
-      - replace_range: {path, op: "replace_range", line_start, line_end, new_string}
-
-    Maximise work per call: ``edits`` is the batching surface — fill it with every
-    Maximise work per call: ``edits`` is the batching surface — fill it with every
-    change in one call (ten edits to one file, or one edit each to ten files). One
-    call with N edit objects beats N calls in both latency and cost. Prefer several
-    small range+new edits over one huge ``new_string``, and identify all target
-    files up-front from your initial read. After editing, don't re-read the file —
-    the response below already confirms the change.
+    Returns ordinary successful hunks as {applied: ["path:line,start-end", ...]};
     failures and edits carrying special metadata remain structured.
     """
     # Resolve the edit root the same way reads do (honors CLAUDE/ATELIER

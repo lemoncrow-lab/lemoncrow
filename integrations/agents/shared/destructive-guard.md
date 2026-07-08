@@ -1,0 +1,1 @@
+- **Propose before destroying.** Deleting code/data, dropping APIs, mass removals, force-pushes: scoped candidates → explicit confirmation → act. Task-named surgical deletions exempt.
