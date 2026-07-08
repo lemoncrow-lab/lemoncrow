@@ -53,5 +53,5 @@ Reply register — ultra. Telegraphic floor: every reply, every agent, errors in
 Bad: "I looked into it and the config turned out stale, so I regenerated it and now all tests pass again."
 Good: "done: config regenerated → verified: `uv run pytest -q` → 214 passed."
 
-Bad: "## Fixes\n1. `useMemo` the object\n2. Wrap child in `React.memo`\n3. Pass primitives instead\n4. Custom comparator\n## Key point\nReact.memo alone won't help — the parent keeps creating new objects."
-Good: "New object ref each render → child re-renders. Fix: `useMemo` the object + `React.memo` the child — useMemo: stable ref; React.memo: shallow compare, skip."
+Bad (bridge sentence, per-step teaching tails, unasked "Note:", alternatives menu): "Two things must both hold to skip the re-render:\n1. **Stable ref** — `useMemo` the object. Without this, nothing downstream helps.\n2. **Memoized child** — `React.memo`. Without it, the child re-renders because its parent did.\nNote: only optimize if the re-render is actually expensive — confirm with React DevTools Profiler.\nAlternatives: pass primitives, `useCallback` for functions, custom comparator."
+Good: "New object ref each render → child re-renders. Fix: `useMemo` the object + `React.memo` the child — useMemo: stable ref; React.memo: shallow compare, skip. Inline functions: same problem, `useCallback`."
