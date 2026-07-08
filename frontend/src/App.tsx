@@ -17,6 +17,7 @@ import Costs from "./pages/Costs";
 import Swarms from "./pages/Swarms";
 import System from "./pages/System";
 import { Button, Select, cx } from "./components/WorkbenchUI";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { applyTheme, getInitialTheme, type Theme } from "./lib/theme";
 import { useTimeRange, TIME_RANGE_OPTIONS } from "./lib/TimeRangeContext";
 
@@ -153,32 +154,34 @@ export default function App() {
 
       <main className="min-h-[calc(100vh-180px)] bg-gradient-to-br from-neutral-950 to-neutral-950/80">
         <div className="">
-          <Routes>
-            <Route path="/" element={<Navigate to="/overview" replace />} />
-            <Route path="/overview" element={<Overview />} />
-            <Route path="/sessions" element={<Sessions />} />
-            <Route path="/sessions/:id" element={<Sessions />} />
-            <Route
-              path="/knowledge"
-              element={<Navigate to="/knowledge/blocks" replace />}
-            />
-            <Route path="/knowledge/:section" element={<Learnings />} />
-            <Route
-              path="/knowledge/:section/:rubricId"
-              element={<Learnings />}
-            />
-            <Route
-              path="/costs"
-              element={<Navigate to="/costs/spend" replace />}
-            />
-            <Route path="/costs/:section" element={<Costs />} />
-            <Route path="/swarms" element={<Swarms />} />
-            <Route
-              path="/system"
-              element={<Navigate to="/system/health" replace />}
-            />
-            <Route path="/system/:section" element={<System />} />
-          </Routes>
+          <ErrorBoundary label="Page">
+            <Routes>
+              <Route path="/" element={<Navigate to="/overview" replace />} />
+              <Route path="/overview" element={<Overview />} />
+              <Route path="/sessions" element={<Sessions />} />
+              <Route path="/sessions/:id" element={<Sessions />} />
+              <Route
+                path="/knowledge"
+                element={<Navigate to="/knowledge/blocks" replace />}
+              />
+              <Route path="/knowledge/:section" element={<Learnings />} />
+              <Route
+                path="/knowledge/:section/:rubricId"
+                element={<Learnings />}
+              />
+              <Route
+                path="/costs"
+                element={<Navigate to="/costs/spend" replace />}
+              />
+              <Route path="/costs/:section" element={<Costs />} />
+              <Route path="/swarms" element={<Swarms />} />
+              <Route
+                path="/system"
+                element={<Navigate to="/system/health" replace />}
+              />
+              <Route path="/system/:section" element={<System />} />
+            </Routes>
+          </ErrorBoundary>
         </div>
       </main>
     </div>
