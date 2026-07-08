@@ -82,9 +82,9 @@ PYEOF
 }
 
 atelier_apply_reply_register_level() {
-    # Rewrite the baked-in strict reply-register in staged agent files to the
+    # Rewrite the baked-in ultra reply-register in staged agent files to the
     # active level: $ATELIER_TELEGRAPHIC env, else the cli.telegraphic key in
-    # <root>/plugin_settings.json (strict|mild|off). strict/unset = no-op. Self-contained
+    # <root>/plugin_settings.json (ultra|mild|off). ultra/unset = no-op. Self-contained
     # mirror of atelier.core.reply_register.apply_reply_register_level — keep in
     # sync. $1 = file or directory (recurses over *.md, *.mdc, *.toml).
     local target="$1"
@@ -116,12 +116,12 @@ if not level:
     except Exception:
         level = ""
 if level not in ("mild", "off"):
-    raise SystemExit(0)  # strict/unset/unknown -> keep files as shipped
+    raise SystemExit(0)  # ultra/unset/unknown -> keep files as shipped
 
 shared = Path(os.environ["ATELIER_RR_SHARED"])
-strict = (shared / "reply-register.md").read_text(encoding="utf-8").strip()
+default_body = (shared / "reply-register.md").read_text(encoding="utf-8").strip()
 repl = "" if level == "off" else (shared / "reply-register-mild.md").read_text(encoding="utf-8").strip()
-pairs = [(strict, repl)]
+pairs = [(default_body, repl)]
 bullet_path = shared / "telegraphic-default.md"
 if bullet_path.exists():
     bullet = bullet_path.read_text(encoding="utf-8").strip()

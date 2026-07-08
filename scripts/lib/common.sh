@@ -85,7 +85,7 @@ ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_NO_STACK="${ATELIER_NO_STACK:-0}"
 ATELIER_ADVANCED="${ATELIER_ADVANCED:-0}"
 ATELIER_MEMORY_BACKEND="${ATELIER_MEMORY_BACKEND:-}"   # letta | openmemory | (empty = none)
-ATELIER_TELEGRAPHIC="${ATELIER_TELEGRAPHIC:-}"         # strict | mild | off (empty = prompt, default strict)
+ATELIER_TELEGRAPHIC="${ATELIER_TELEGRAPHIC:-}"         # ultra | mild | off (empty = prompt, default ultra)
 ATELIER_AUTO_OPTIMIZE="${ATELIER_AUTO_OPTIMIZE:-1}"   # 1 = enable periodic optimize automation
 # Local knowledge extraction (opt-in; off by default to bound spend). Distils
 # review rules from .lessons into the reviewer overlay.
@@ -823,14 +823,14 @@ prompt_auto_optimize_selection() {
 
 prompt_telegraphic_selection() {
     # Reply-register level baked into installed agent personas.
-    # Flag/env wins; otherwise interactive selector; default strict.
+    # Flag/env wins; otherwise interactive selector; default ultra.
     # Change later without reinstalling: `atelier settings set cli.telegraphic <level>`.
     case "$ATELIER_TELEGRAPHIC" in
-        strict|mild|off) return 0 ;;
+        ultra|mild|off) return 0 ;;
         "") ;;
-        *) fail "--telegraphic must be 'strict', 'mild' or 'off', got: '$ATELIER_TELEGRAPHIC'" ;;
+        *) fail "--telegraphic must be 'ultra', 'mild' or 'off', got: '$ATELIER_TELEGRAPHIC'" ;;
     esac
-    ATELIER_TELEGRAPHIC="strict"
+    ATELIER_TELEGRAPHIC="ultra"
     [[ "$ATELIER_NON_INTERACTIVE" == "1" ]] && return 0
     has_interactive_input || return 0
     supports_interactive_selector || return 0
@@ -839,13 +839,13 @@ prompt_telegraphic_selection() {
         "Agent reply style (change later: /atelier set telegraphic <level>)?" \
         tg_idx \
         0 \
-        "Strict – terse telegraphic template (default)" \
-        "Mild – concise, no strict template" \
+        "Ultra – maximal telegraphic compression (default)" \
+        "Mild – concise, lighter register" \
         "Off – no reply-style instruction"
     case "$tg_idx" in
         1) ATELIER_TELEGRAPHIC="mild" ;;
         2) ATELIER_TELEGRAPHIC="off" ;;
-        *) ATELIER_TELEGRAPHIC="strict" ;;
+        *) ATELIER_TELEGRAPHIC="ultra" ;;
     esac
 }
 
@@ -1331,7 +1331,7 @@ for path in sorted(glob.glob(os.path.join(root, "integrations", "skills", "*", "
 
         if [[ ${#skill_names[@]} -gt 0 ]]; then
             local skills_csv=""
-            local skills_prompt="Optional skills (Install later: /atelier install skill <name>)"
+            local skills_prompt="Complimentary Skills (Install later: /atelier install skill <name>)"
             if supports_interactive_selector; then
                 local selected_skills=""
                 SELECTED_ITEMS=()
@@ -1376,6 +1376,8 @@ for path in sorted(glob.glob(os.path.join(root, "integrations", "skills", "*", "
         fi
     fi
     # --- end optional skills ----------------------------------------------------
+
+    prompt_telegraphic_selection
 
     local scope_choice=0
     if supports_interactive_selector; then

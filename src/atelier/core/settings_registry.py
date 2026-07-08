@@ -1904,9 +1904,9 @@ SETTINGS: list[SettingSpec] = [
         "cli.telegraphic",
         "ATELIER_TELEGRAPHIC",
         "str",
-        "strict",
+        "ultra",
         "cli",
-        "Reply-register level baked into installed agent personas: strict | mild | off. Setting it regenerates installed host agents (see atelier.core.reply_register).",
+        "Reply-register level baked into installed agent personas: ultra | mild | off. Setting it regenerates installed host agents (see atelier.core.reply_register).",
     ),
     # -- core: bootstrap/location knobs (read-only through this surface) --
     SettingSpec(

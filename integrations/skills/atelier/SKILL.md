@@ -43,7 +43,7 @@ Global scope by default. Add `--workspace <dir>` only if the user names a specif
 4. **`set <key> [<value>]`** — global, never host-scoped. Bare keys map to the dotted registry form (`telegraphic` → `cli.telegraphic`):
 
    ```bash
-   atelier settings set cli.telegraphic <strict|mild|off>   # reply-register level; regenerates installed agent personas across hosts
+   atelier settings set cli.telegraphic <ultra|mild|off>   # reply-register level; regenerates installed agent personas across hosts
    atelier settings show --category cli                     # browse current values
    ```
 
