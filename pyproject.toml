@@ -1,8 +1,8 @@
 [tool.uv]
 workspace = { members = ["benchmarks", "integrations"] }
 # langfuse>=3 needs opentelemetry-api>=1.33 while letta (memory-server) pins
-# ==1.30; they are mutually exclusive optional extras, so declare the conflict
-# to keep `uv lock` resolvable. Install at most one of them.
+# ==1.30.  langfuse is the primary observability integration (used in dev CI);
+# memory-server is rarely used.  They can't coexist, so declare the conflict.
 conflicts = [
     [{ extra = "langfuse" }, { extra = "memory-server" }],
 ]
@@ -219,4 +219,5 @@ dev = [
     "vulture>=2.16",
     "xgboost>=3.3.0",
     "litellm>=1.88.1",
+    "harbor>=0.13.1",
 ]

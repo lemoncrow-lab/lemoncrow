@@ -20,6 +20,7 @@
 # Binary files should be left untouched
 *.png binary
 *.jpg binary
+*.svg binary
 *.jpeg binary
 *.gif binary
 *.ico binary

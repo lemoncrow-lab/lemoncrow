@@ -24,7 +24,13 @@ def test_opencode_nudge_helper_emits_no_multi_file_context(tmp_path: Path) -> No
         env=env,
     )
 
-    assert result.stdout == ""
+    # The nudge may emit a stale-agent nudge for optional agents installed on
+    # this system (e.g. "explore installed, never used — remove: ...").  The
+    # key invariant: no multi-file context message is emitted for this prompt.
+    if result.stdout:
+        data = json.loads(result.stdout)
+        assert "uiMessage" in data, f"unexpected output: {result.stdout}"
+        assert "multi-file" not in data["uiMessage"].lower()
 
 
 def test_opencode_javascript_plugin_leaves_multi_file_prompt_unchanged(tmp_path: Path) -> None:

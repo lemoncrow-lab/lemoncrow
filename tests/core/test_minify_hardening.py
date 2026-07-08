@@ -30,7 +30,7 @@ from atelier.infra.code_intel.languages import (
     language_for_path,
 )
 
-_CORPUS = Path("/home/pankaj/Projects/eval/internal/daemon/testdata/with_comments")
+_CORPUS = Path(__file__).resolve().parent / "_corpus"
 
 
 def _reparses_clean(content: str, lang: str) -> bool:

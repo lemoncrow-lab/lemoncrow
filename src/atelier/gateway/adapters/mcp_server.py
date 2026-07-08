@@ -9314,7 +9314,8 @@ def _run_bash_tool(
     max_output_tokens: int | None = None,
     background: bool = False,
     session_id: str | None = None,
-    action: Literal["run", "poll", "cancel", "status"] = "run",
+    action: Literal["run", "poll", "cancel", "status", "update"] = "run",
+    kill_after: float | None = None,
 ) -> dict[str, Any] | _DeferredResult:
     """Execute a shell command and return compact structured output."""
     from atelier.core.capabilities.tool_supervision.bash_exec import (
@@ -9323,6 +9324,7 @@ def _run_bash_tool(
         peek_managed_command,
         poll_managed_command,
         start_managed_command,
+        update_managed_command,
     )
 
     def _render_grep_stdout(payload: dict[str, Any]) -> str:
@@ -9356,7 +9358,10 @@ def _run_bash_tool(
         workspace = os.getcwd()
     effective_cwd = cwd or workspace
 
-    if action in {"poll", "cancel", "status"}:
+    if kill_after is not None and kill_after <= 0:
+        raise ValueError("kill_after must be positive")
+
+    if action in {"poll", "cancel", "status", "update"}:
         if not session_id:
             raise ValueError(f"session_id is required for shell action={action}")
         if action == "cancel":
@@ -9365,6 +9370,10 @@ def _run_bash_tool(
             # Single non-blocking check -- unlike `poll`, never waits for the
             # command to finish and never reaps the session.
             return peek_managed_command(session_id)
+        if action == "update":
+            if kill_after is None:
+                raise ValueError("kill_after is required for shell action=update")
+            return update_managed_command(session_id, kill_after)
         # Block until the backgrounded command finishes (or its own timeout
         # kills it). No artificial window -- the command's timeout is the bound.
         delay = 0.02
@@ -9596,6 +9605,7 @@ def _run_bash_tool(
         timeout=timeout,
         max_lines=max_lines,
         max_chars=max_output_tokens * 4 if max_output_tokens is not None else None,
+        kill_after=kill_after,
     )
     managed_id = str(started.get("session_id") or "")
     if started.get("status") != "running" or not managed_id:
@@ -9725,6 +9735,16 @@ def _render_bash_text(result: dict[str, Any]) -> str:
     session_id = str(result.get("session_id") or "")
 
     parts: list[str] = []
+    if "updated" in result:
+        # action="update" response -- a distinct shape from the plain
+        # running/status payloads below, so render it up front and return.
+        remaining_ms = result.get("kill_after_remaining_ms")
+        if result.get("updated"):
+            remaining_txt = f"{int(remaining_ms) // 1000}s" if isinstance(remaining_ms, int) else "?"
+            parts.append(f"kill_after updated, {remaining_txt} left id={session_id}")
+        else:
+            parts.append(f"update failed: session already {status} id={session_id}")
+        return "\n".join(parts).strip()
     if status == "running":
         # Just the handle: pid/elapsed/timeout/log paths are dead weight the
         # model never acts on -- poll/status/cancel need only the id
@@ -10796,8 +10816,12 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         },
         "action": {
             "type": "string",
-            "enum": ["poll", "status", "cancel"],
-            "description": "With id: poll (default) = wait; status = peek, no wait; cancel = kill.",
+            "enum": ["poll", "status", "cancel", "update"],
+            "description": "With id: poll (default) = wait; status = peek, no wait; cancel = kill; update = change kill_after.",
+        },
+        "kill_after": {
+            "type": "number",
+            "description": "Hard-kill deadline in seconds since start (capped 24h). Unset = internal 1hr backstop only. action=update + id + kill_after moves a running job's deadline.",
         },
     },
     "additionalProperties": False,
@@ -10823,7 +10847,8 @@ def tool_bash(
     max_output_tokens: int | None = None,
     bg: bool = False,
     id: str | None = None,
-    action: Literal["run", "poll", "cancel", "status"] = "run",
+    action: Literal["run", "poll", "cancel", "status", "update"] = "run",
+    kill_after: float | None = None,
 ) -> str | _DeferredResult:
     """Execute a shell command and return compact text output.
 
@@ -10833,7 +10858,9 @@ def tool_bash(
     bg=True starts the command in the background and returns its `id`.
     bash(id=x) alone waits for that run to finish (poll); action="status"
     peeks without waiting (state + last 10 output lines); action="cancel"
-    kills it.
+    kills it. kill_after=N sets a real hard-kill deadline (seconds since
+    start), separate from the soft `timeout` budget; action="update" with
+    id= and kill_after= moves a running job's deadline.
     """
     if id and not command and action == "run":
         # bash(id=x) with no explicit action = wait for the run to finish.
@@ -10847,6 +10874,7 @@ def tool_bash(
         background=bg,
         session_id=id,
         action=action,
+        kill_after=kill_after,
     )
     # Phase 2: a deferred foreground command flows straight through to _handle,
     # which returns a _Deferred sentinel and lets the watcher render the result.

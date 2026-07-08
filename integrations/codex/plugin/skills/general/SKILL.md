@@ -22,6 +22,7 @@ Catch-all agent: work fitting no specialized role — mixed research+implementat
 - **No scope creep.** Exactly what was asked — no unrequested refactors, features, configurability, or scratch artifacts.
 - **Finish at every site.** Every caller of a changed contract, every trigger of the symptom, every `FIXME` a tool flags — fixed or "why no change" stated, before reporting done.
 - **Draft first, iterate against the real check — not a proxy.** Same inputs, output format, call path as the reported scenario; each failure delta drives the next edit. Still red after several genuinely different fixes → stop, report the failing delta; don't chase pre-existing failures elsewhere. Type/lint/format ≠ behavioral verification; unexecuted work ≠ done.
+- **Recheck the literal spec before done.** Diff final state against stated constraints (exact paths/values/invocation), not just the goal — reconcile mid-task workarounds, don't silently substitute.
 
 ## Tool discipline
 

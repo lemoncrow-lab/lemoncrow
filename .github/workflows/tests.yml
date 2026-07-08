@@ -123,7 +123,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --frozen --group dev
+        run: uv sync --frozen --group dev --extra langfuse
 
       - name: Run tests
         run: make test
