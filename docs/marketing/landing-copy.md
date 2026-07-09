@@ -6,7 +6,7 @@ _Copy blocks for the marketing site, top to bottom. Audience: people paying for 
 
 ## Nav
 
-`Atelier` · How it saves · Proof · Pricing · Docs · [GitHub ⭐ <live stars>] · **[Install]**
+`Atelier` · How it saves · Proof · Pricing · Docs · [GitHub ⭐ `<live stars>`] · **[Install]**
 
 ---
 
