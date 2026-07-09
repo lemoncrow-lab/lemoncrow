@@ -1117,13 +1117,36 @@ def _build_session_row(trace: Trace, store: ContextStore, host_name: str, root: 
             potential_tokens_saved = int(potential_saved_usd / in_rate) if in_rate > 0 else 0
         else:
             # No local ground truth: use the fleet rate shipped with the
-            # binary, priced at this session's model rates.
+            # binary, priced at this session's model rates.  Carry applies
+            # here because the routable calls are in the same session (no
+            # sub-agent split), so Atelier's context savings would compound
+            # across the session's own turns.
+            turns = max(len(trace.usage_entries), _tool_call_total(trace))
             potential_tokens_saved = routable_builtin * _FLEET_SAVED_TOKENS_PER_CALL
+            potential_carry_tokens = potential_tokens_saved * max(0, turns // 2)
             potential_saved_usd = potential_tokens_saved * in_rate
-        # No channel caps: the real savings computation (compute_savings_summary
-        # / statusline) reports measured savings without artificial ceilings, so
-        # the potential estimate must follow the same methodology to remain
-        # consistent with the plugin's real display.
+            potential_carry_usd = potential_carry_tokens * cr_rate
+            # Hard spend cap: turns//2 grows carry quadratically with session
+            # length (more tool calls -> more routable_builtin AND more
+            # turns), with nothing tying it back to reality -- a long session
+            # could "opportunity" itself into claiming more carry than the
+            # session could ever have spent. Carry can never legitimately
+            # exceed what the session actually spent re-reading cache
+            # (reread_cost) -- you cannot avoid re-reading more than you paid
+            # to re-read; likewise the one-time "saved" (not-fed) tokens
+            # can't exceed what was actually fed (feed_cost). This is the
+            # same invariant compute_savings_summary enforces via
+            # context-window residency, expressed against the session's own
+            # observed spend since the fleet-rate fallback has no per-turn
+            # residency data to work from.
+            if potential_carry_usd > reread_cost:
+                scale = reread_cost / potential_carry_usd if potential_carry_usd > 0 else 0.0
+                potential_carry_usd = reread_cost
+                potential_carry_tokens = int(potential_carry_tokens * scale)
+            if potential_saved_usd > feed_cost:
+                scale = feed_cost / potential_saved_usd if potential_saved_usd > 0 else 0.0
+                potential_saved_usd = feed_cost
+                potential_tokens_saved = int(potential_tokens_saved * scale)
     savings_estimated = host_name != "claude" and (saved_usd > 0 or carry_usd > 0)
     return {
         "host": host_name,
