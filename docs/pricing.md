@@ -1,7 +1,8 @@
 # Atelier plans & pricing
 
-Atelier is **open-core** and **local-first**: the whole runtime is Apache-2.0 and
-runs on your machine. **Free** is a genuinely
+Atelier is **open-core** and **local-first**: the engine is source-available
+([FSL-1.1-ALv2](../LICENSE)) and the SDKs, integrations, and docs are
+[Apache-2.0](../LICENSE-APACHE) — all of it runs on your machine. **Free** is a genuinely
 useful coding-agent runtime on its own. **Pro** unlocks the leverage — fast search
 and indexing across large repos, cross-session memory, the savings engine, and
 model routing. **Enterprise** adds very-large-repo scale, shared team context,
