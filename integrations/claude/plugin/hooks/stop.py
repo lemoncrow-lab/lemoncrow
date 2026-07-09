@@ -1202,7 +1202,7 @@ def _format_stats(
     # carry its own hand-rolled duplicate (with a 1-decimal-M/extra-B-tier
     # scheme that had drifted from the canonical 2-decimal-M formatter every
     # other Python savings surface uses); import it instead of redefining it.
-    from atelier.core.capabilities.savings_summary import _fmt_tok
+    from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
 
     inp = int(stats.get("input_tokens", 0) or 0)
     out = int(stats.get("output_tokens", 0) or 0)
@@ -1255,15 +1255,15 @@ def _format_stats(
     carry_tokens = int(savings.get("carry_tokens", 0) or 0)
     output_usd = float(savings.get("output_usd", 0.0) or 0.0)
     output_tokens = int(savings.get("output_tokens", 0) or 0)
-    savings_line = f"savings: ${saved_usd:.4f} · {tokens_saved:,} tok · {calls_avoided} calls avoided"
+    savings_line = f"savings: {_fmt_usd(saved_usd)} · {_fmt_tok(tokens_saved)} tok · {calls_avoided} calls avoided"
     if output_usd > 0:
-        out_tokens_str = f"/{output_tokens:,} tok" if output_tokens > 0 else ""
-        savings_line += f" · O ${output_usd:.4f}{out_tokens_str}"
+        out_tokens_str = f"/{_fmt_tok(output_tokens)} tok" if output_tokens > 0 else ""
+        savings_line += f" · O {_fmt_usd(output_usd)}{out_tokens_str}"
     if carry_usd > 0:
-        carry_tokens_str = f"/{carry_tokens:,} tok" if carry_tokens > 0 else ""
-        savings_line += f" · carry ${carry_usd:.4f}{carry_tokens_str}"
+        carry_tokens_str = f"/{_fmt_tok(carry_tokens)} tok" if carry_tokens > 0 else ""
+        savings_line += f" · carry {_fmt_usd(carry_usd)}{carry_tokens_str}"
     if routing_usd > 0:
-        savings_line += f" · routing ${routing_usd:.4f}"
+        savings_line += f" · routing {_fmt_usd(routing_usd)}"
     lines.append(savings_line)
 
     lines.append(f"top tools: {tools_str}")

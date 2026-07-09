@@ -392,7 +392,7 @@ def test_claude_stop_hook_shows_cache_and_estimated_session_savings(tmp_path: Pa
     assert "1 turn · 1 tool call" in message
     assert "tokens: 107.4k in (107.4k new + 10 cW) · 500 cR · 356 out · 108.3k total" in message
     # Savings come from transcript saved blocks — none in this test transcript, so $0.
-    assert "savings: $0.0000 · 0 tok · 0 calls avoided" in message
+    assert "savings: $0.00 · 0 tok · 0 calls avoided" in message
     assert "top tools: mcp__mcp-vector-search__codegraph_context" in message
 
 
@@ -442,7 +442,7 @@ def test_claude_stop_hook_dedupes_usage_and_prices_each_model(tmp_path: Path) ->
     message = output["systemMessage"]
     assert "2 turns · 2 tool calls" in message
     assert "tokens: 6.0k in (3.0k new + 3.0k cW) · 3.0k cR · 3.0k out · 12.0k total" in message
-    assert "est. cost: ~$0.0809" in message
+    assert "est. cost: ~$0.08" in message
     assert "top tools: Edit" in message
     assert "Read" in message
 
@@ -660,12 +660,12 @@ def test_statusline_shows_routing_savings(tmp_path: Path) -> None:
         env={**os.environ, "ATELIER_ROOT": str(root), "ATELIER_NO_COLOR": "1"},
     )
 
-    assert "routing: $0.230" in result.stdout
-    # Format: "$0.870(42k)" — saved USD with token count in parens.
+    assert "routing: $0.23" in result.stdout
+    # Format: "$0.87(42k)" — saved USD with token count in parens.
     # No calls-saved counter (hidden until calibration store feeds equivalent_calls).
-    assert "$0.870(42k)" in result.stdout
+    assert "$0.87(42k)" in result.stdout
     assert "calls saved" not in result.stdout
-    assert "↓ $0.870" in result.stdout
+    assert "↓ $0.87" in result.stdout
 
 
 def test_status_line_priority_and_weighted_rotation() -> None:
