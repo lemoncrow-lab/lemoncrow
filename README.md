@@ -6,7 +6,7 @@
 
 ### Honest and benchmark proven, get $ 30% more out of your Claude subscription - End to End savings
 
-Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls by up to **90%** and input/output tokens by up to **80%** -- keep using Claude Code normally; Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, reusable memory, and a live savings meter.
+Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls and input tokens by up to **90%** and reduces response output by up to 80%, while keeping code output byte-identical. Keep using Claude Code normally -- Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, reusable memory, and a live savings meter.
 
 [![License](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
