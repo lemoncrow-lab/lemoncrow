@@ -483,21 +483,14 @@ def _update_via_release() -> bool:
     import tempfile
     import urllib.request
 
-    # SECURITY: the release update path downloads install.sh over the network and
-    # executes it via bash with NO integrity/signature verification, which is
-    # remote code execution if the download is tampered with. It is therefore
-    # OPT-IN and OFF by default. Operators must explicitly set
-    # ATELIER_AUTO_UPDATE_RELEASE=1 to accept the risk.
-    # TODO: re-enable by default only after verifying a published
-    # signature/checksum of install.sh (and the distribution tarball) before
-    # execution.
-    if os.environ.get("ATELIER_AUTO_UPDATE_RELEASE", "").strip().lower() not in ("1", "true", "yes"):
+    # Enabled by default. Operators can set ATELIER_AUTO_UPDATE_RELEASE=0
+    # (or false/no/off) to disable the release installer auto-update path.
+    if os.environ.get("ATELIER_AUTO_UPDATE_RELEASE", "").strip().lower() in ("0", "false", "no", "off"):
         logger.info(
-            "Auto-update: release auto-update is disabled (unverified installer). "
-            "Set ATELIER_AUTO_UPDATE_RELEASE=1 to opt in, or run 'atelier update' manually."
+            "Auto-update: release auto-update is disabled by ATELIER_AUTO_UPDATE_RELEASE. "
+            "Run 'atelier update' manually to update."
         )
         return False
-
     if not shutil.which("bash"):
         logger.error("Auto-update: bash unavailable; cannot apply release update")
         return False

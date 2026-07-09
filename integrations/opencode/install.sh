@@ -342,11 +342,11 @@ except Exception:
 PYEOF
 )
     if [ "$HAS_PROVIDER" = "yes" ]; then
-        vpass "opencode provider.atelier and model are configured for Atelier OpenAI gateway"
+        vpass "opencode provider.atelier is configured for Atelier OpenAI gateway"
     elif [ "$HAS_PROVIDER" = "parse-error" ]; then
         vfail "opencode config parse error while validating provider settings"
     else
-        vfail "opencode provider/model config for Atelier gateway is missing"
+        vfail "opencode provider config for Atelier gateway is missing"
     fi
 else
     vfail "opencode config not found: $OC_FILE"
