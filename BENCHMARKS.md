@@ -183,7 +183,7 @@ Two findings worth the decomposition:
 1. **The blended 1.32x understates the style effect by 2x.** Code, tool parameters, and thinking are fixed by the task — identical work in both arms — and they are 81–91% of billed output. Isolate the reply prose and the telegraphic style is a **2.73x** reduction.
 2. **Thinking per turn is style-invariant** (239 vs 226 tokens). The whole thinking saving comes from needing fewer turns, so it belongs to the turn cut, not the reply style.
 
-These two measurements calibrate Atelier's live savings accounting: the turn-cut credit uses the measured 0.236 avoided turns per executed turn, and the output-style credit uses 1.88 — the prose ratio net of the output already attributed to avoided turns, so the two credits sum exactly to the measured end-to-end output delta (12.5k = 9.3k turn share + 3.2k prose compression).
+These two measurements originally calibrated Atelier's live savings accounting: the turn-cut credit uses the measured 0.236 avoided turns per executed turn, and the output-style credit used this bench's 1.88 — the prose ratio net of the output already attributed to avoided turns, so the two credits summed exactly to the measured end-to-end output delta (12.5k = 9.3k turn share + 3.2k prose compression). The output-style credit has since been recalibrated on the larger telegraphic Q&A benchmark below (200 runs vs. this bench's 10 instances) — see "Reply-prose ratio (code stripped)" under Telegraphic Q&A Benchmark; current default: **2.09**.
 
 Raw data (matched results + per-instance decomposition): [`benchmarks/codebench/results/swe_lite_telegraphic_2026_07_06/`](benchmarks/codebench/results/swe_lite_telegraphic_2026_07_06/)
 
@@ -220,6 +220,21 @@ Per-prompt output tokens (median across the 5 reps' mean would double-count nois
 
 Atelier (full runtime) vs baseline: mean 41%, median 40%, range 2%-71%, stdev 16pp across the 20 prompts -- one prompt (the error-boundary implementation, which actually needs a code block, not just prose) barely moves (2%); everything else is squarely in the 20-70% band.
 
+### Reply-prose ratio (code stripped)
+
+Repeating the anatomy cut from the swe-lite section above -- assistant text after stripping fenced code blocks and bare code/diff/JSON lines, applied identically to both arms -- on this benchmark's 200 runs (session-title turns excluded from both the prose basis and the turn counts, per the dagger note above):
+
+| | Baseline | Atelier | Ratio |
+| --- | ---: | ---: | ---: |
+| Reply prose (pooled, est. tokens) | 40,254 | 19,222 | **2.09x** |
+| Answering turns (title excluded) | 138 | 142 | 0.97x |
+
+Unlike the swe-lite anatomy above, there is no turn-cut overlap to net out here: once the title-generation artifact is excluded, the answering-turn counts are flat (138 vs 142 -- atelier needed marginally *more* turns, not fewer), so none of the measured prose delta double-counts with the turn_cut credit. The pooled ratio applies directly, no residual subtraction needed.
+
+Per-prompt ratios range 1.37x-8.33x across the 20 prompts (median 1.85x, mean 2.37x -- two outlier prompts pull the mean up; median is the more representative summary of a typical prompt).
+
+This is the larger and more representative sample (200 runs across 20 varied Q&A prompts vs. swe-lite's 10 instances), so it now calibrates the live default: `ATELIER_OUTPUT_STYLE_RATIO` = **2.09** (was 1.88).
+
 Raw data: [`benchmarks/codebench/results/telegraphic_2026_07_08_5rep/`](benchmarks/codebench/results/telegraphic_2026_07_08_5rep/) -- includes `summary.csv`, the full `results.jsonl`, and per-call `.flow_dump.txt` transcripts (raw `.flow` wire captures are gitignored; they carry bearer tokens).
 
 Run it:
@@ -233,6 +248,25 @@ uv run atelier benchmark telegraphic \
   --jobs 4 \
   -y
 ```
+
+## SWE-50 Turn & Context Savings
+
+A larger SWE-bench cut than the Verified/Lite/Pro suites above, run to calibrate the live turn-cut and per-turn-context credits rather than for a correctness headline: 50 SWE-bench instances (astropy, django, flask, pytest, requests, sympy, xarray, ...) x 5 reps x 2 arms, `claude-opus-4-8`, same disabled-tools list and `atelier:auto` persona. 489/500 runs completed without error (240/250 baseline, 249/250 atelier); the analysis below uses only successful runs.
+
+| Arm | successful runs | avg turns/run | avg cache-read tok/turn | avg cache-read tok/run |
+| --- | ---: | ---: | ---: | ---: |
+| Baseline | 240 | 28.59 | 26,077 | 745,543 |
+| Atelier | 249 | 17.41 | 22,428 | 390,515 |
+| **Ratio (baseline/atelier)** | | **1.642x** | **1.163x** | **1.909x** |
+
+The raw cache-read reduction (1.909x) factors cleanly into two independent effects:
+
+1. **Turns avoided.** Baseline needs 1.642x atelier's turn count -- `(28.59-17.41)/17.41 = 0.642` avoided turns per executed turn. Supersedes the smaller swe-lite sample's 0.236 (10 instances vs. this bench's 50 x 5). Per-task median across the 50 tasks is 0.695, consistent with the pooled 0.642. `ATELIER_TURN_CUT_RATIO` default: **0.642** (was 0.236).
+2. **Leaner context per turn.** Independent of turn count, each of atelier's *executed* turns still carries 1.163x less cache-read than baseline's would -- 22.4k vs 26.1k tokens/turn. This is the residual left after turn_cut: 1.642 x 1.163 = 1.909, matching the directly-measured total exactly (by construction -- turns x per-turn = total). This is a genuinely new, previously uncredited effect (analogous to `output_style`'s reply-prose compression, but for input): a new `ATELIER_INPUT_STYLE_RATIO` credit, default **1.16**, priced at the cache-read rate on the session's real incremental cache-read tokens, shown in the statusline as ↓In.
+
+Cross-checked directionally against the independent Harbor Terminal-Bench-2.1 suite (89 real long-horizon tasks, general terminal/ops/ML work rather than SWE-bench code fixes -- see Terminal-Bench below): blended total context (fresh input + cache, 83 matched tasks with cost data on both sides) is baseline/atelier = 48.05M/38.99M = **1.23x**. Same direction as the 1.909x cache-read-only figure here, smaller magnitude as expected -- Harbor's ratio blends in fresh input (which runs *higher* per turn for atelier, not lower -- its system prompt/tool catalog is bigger) and cache-creation, and covers a very different task/turn-count distribution. No turn-cut decomposition is possible on Harbor's data (the scraped tbench.ai baseline carries no turn counts), so it serves only as a directional sanity check, not a calibration source.
+
+Raw data: [`benchmarks/codebench/results/swe50_2026_06_30/`](benchmarks/codebench/results/swe50_2026_06_30/) -- `results.csv` has the per-run `num_turns`/`cache_read_tokens` this section is computed from.
 
 ## Retrieval Evaluation
 

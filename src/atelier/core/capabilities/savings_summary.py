@@ -690,6 +690,13 @@ class SavingsSummary:
     # reductions with ↓O.
     output_saved_usd: float = 0.0
     output_saved_tokens: int = 0
+    # Per-turn context-style breakdown (kind=="input_style" rows): cache-read
+    # tokens NOT re-sent because atelier's context stays leaner turn over turn
+    # (orthogonal to turn_cut, which credits whole avoided turns). Tracked
+    # separately AND included in saved_usd/ctx_saved; surfaced separately so
+    # the statusline/stop hook can label input reductions with ↓In.
+    input_saved_usd: float = 0.0
+    input_saved_tokens: int = 0
     # Read/retrieval-side savings (search_read, cached_read, scoped_recall
     # levers). Tracked separately AND included in saved_usd/ctx_saved; surfaced
     # separately so surfaces can label a Read component.
@@ -894,6 +901,36 @@ def _read_session_output_style(session_id: str, atelier_root: Path) -> tuple[int
     return tokens, round(usd, 6)
 
 
+def _read_session_input_style(session_id: str, atelier_root: Path) -> tuple[int, float]:
+    """Sum per-turn context-style savings (kind=="input_style" rows).
+
+    These rows are already inside the shared totals (:func:`_price_savings_row`
+    counts them); this reader only provides the ↓In display breakdown.
+    """
+    if not session_id:
+        return 0, 0.0
+    path = _find_savings_sidecar(session_id, atelier_root)
+    if not path.exists():
+        return 0, 0.0
+    tokens = 0
+    usd = 0.0
+    try:
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                ev = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if str(ev.get("kind") or "") == "input_style":
+                tokens += max(0, int(ev.get("tokens") or 0))
+                usd += max(0.0, float(ev.get("cost_saved_usd") or 0.0))
+    except OSError:
+        pass
+    return tokens, round(usd, 6)
+
+
 def _is_read_lever(tool: str) -> bool:
     """True when *tool* (a savings.jsonl row's ``tool`` field) normalizes to a
     read-side lever: ``search_read``, ``cached_read``, or ``scoped_recall``.
@@ -1088,8 +1125,20 @@ def _carry_credit(
         # token — it belongs only in the one-time ``saved`` figure.
         rows_by_window: dict[int | None, list[Row]] = {}
         for ev in events:
-            if str(ev.get("kind") or "") == "compaction":
+            ev_kind = str(ev.get("kind") or "")
+            if ev_kind == "compaction":
                 continue  # Claude reset boundary, not an Atelier saving row.
+            if ev_kind in ("input_style", "turn_cut"):
+                # Both are already recurring, per-turn credits re-earned fresh at
+                # every Stop fire (input_style: this turn's resend-volume gap;
+                # turn_cut: priced via calls/calls_usd, never tokens). Neither
+                # row represents a token that newly entered context and would
+                # sit there to be re-read later -- carrying them forward would
+                # compound the same per-turn gap on top of itself every
+                # subsequent turn, growing unboundedly with session length.
+                # Only rows for content that would have been WRITTEN into
+                # context (realized reads, output_style prose) belong here.
+                continue
             row_dt = _parse(str(ev.get("ts") or ""))
             if row_dt is None:
                 continue
@@ -1412,6 +1461,8 @@ def compute_savings_summary(
     result.routing_saved_usd = _read_session_routing_usd(session_id, root_path)
     # Telegraphic output-style breakdown (inside the totals; shown as ↓O).
     result.output_saved_tokens, result.output_saved_usd = _read_session_output_style(session_id, root_path)
+    # Per-turn context-style breakdown (inside the totals; shown as ↓In).
+    result.input_saved_tokens, result.input_saved_usd = _read_session_input_style(session_id, root_path)
     # Read/retrieval-side breakdown (inside the totals; shown as ↓Read).
     result.read_saved_tokens, result.read_saved_usd = _read_session_read_savings(session_id, root_path)
 
@@ -2679,12 +2730,14 @@ def savings_frames(
     # has_icon=False → plain text; SEP is prepended so it doesn't abut ctx% directly.
     frames: list[tuple[bool, str]] = []
 
-    # Frame 0: $cost(I:.. C:.. O:..) ↓ $<total saved>(R:recycled C:carry O:output Ro:routing) —
-    # cost segment is UNCHANGED. Savings + output-savings share + context-carry
-    # counterfactual are folded into ONE trailing ↓ segment (previously two
-    # separate ↓ savings / ♻ carry segments). R = tokens recycled into the
-    # realized savings (ctx_saved), C = carry tokens, O = output-style tokens
-    # not emitted, Ro = routing $ already inside the total (via saved_usd) —
+    # Frame 0: $cost(I:.. C:.. O:..) ↓ $<total saved>(R:recycled C:carry O:output In:input Ro:routing) —
+    # cost segment is UNCHANGED. Savings + output-savings share + input-savings
+    # share + context-carry counterfactual are folded into ONE trailing ↓
+    # segment (previously two separate ↓ savings / ♻ carry segments). R =
+    # tokens recycled into the realized savings (ctx_saved), C = carry tokens,
+    # O = output-style tokens not emitted, In = input-style (cache-read)
+    # tokens not re-sent, Ro = routing $ already inside the total (via
+    # saved_usd) — each shown only when contributing.
     # each shown only when contributing.
     in_f, cache_f, out_f = _fmt_tok(eff_in), _fmt_tok(eff_cache), _fmt_tok(eff_out)
     has_usage = eff_in > 0 or eff_cache > 0
@@ -2705,6 +2758,11 @@ def savings_frames(
             # saved_usd (see the field's docstring: "shown as ↓O"), shown here
             # as a breakdown of the total like R:/C:, not a separate addend.
             combined += f" O:{_fmt_tok(summary.output_saved_tokens)}"
+        if summary.input_saved_usd >= 0.001:
+            # Per-turn context-style savings — already inside total_saved via
+            # saved_usd (see the field's docstring: "shown as ↓In"), shown here
+            # as a breakdown of the total like R:/C:/O:, not a separate addend.
+            combined += f" In:{_fmt_tok(summary.input_saved_tokens)}"
         if summary.routing_saved_usd > 0:
             # Already inside total_saved via saved_usd — shown as a breakdown
             # of the total (like R:/C:/O:), never a separate addend, so this no

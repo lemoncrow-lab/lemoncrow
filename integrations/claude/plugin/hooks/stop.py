@@ -783,21 +783,24 @@ def _write_output_style_row(session_id: str, stats: dict[str, Any], transcript_p
     prose would have re-entered context). Code output and code fences are
     excluded from the basis. Incremental per Stop fire via the cumulative
     marker on the last ``output_style`` row. ``ATELIER_OUTPUT_STYLE_RATIO``
-    (<=1 disables) defaults to 1.88 -- measured AND reconciled, not guessed.
-    Matched swe-lite head-to-head (2026-07-06, opus-4-8, 10 instances,
-    prose isolated on both arms by stripping fences/code-ish lines/tool
-    args): baseline reply prose is 2.73x atelier's (10.1k vs 3.7k tokens).
-    But part of baseline's extra output lives in the turns the turn_cut row
-    already prices (29 avoided turns x 319 avg output = 9.3k of the 12.5k
-    total output delta), so the prose credit takes only the residual:
-    12.5k - 9.3k = 3.2k over the 3.7k atelier prose basis -> 1.88. The two
-    credits together reconcile exactly to the measured end-to-end output
-    delta; 2.73 is the correct value only when turn-cut crediting is off.
+    (<=1 disables) defaults to 2.09 -- measured AND reconciled, not guessed.
+    Matched telegraphic Q&A head-to-head (2026-07-08, opus-4-8, 20 prompts x
+    5 reps x 2 arms = 200 runs; prose isolated on both arms by stripping
+    fences/code-ish lines/the session-title JSON turn): baseline reply prose
+    is 2.09x atelier's pooled (40.3k vs 19.2k tokens). Supersedes swe-lite's
+    smaller 10-instance measurement. No turn-cut overlap to net out here
+    (unlike swe-lite): baseline's extra turns are 100% the benchmark
+    harness's title-generation turn (atelier skips it outright, 0/100 vs
+    100/100 runs); once that's excluded from both arms, answering-turn
+    counts are flat (138 vs 142), so none of the prose delta double-counts
+    with the turn_cut row -- the pooled ratio applies directly. Per-prompt
+    ratios ranged 1.37x-8.33x across the 20 prompts (median 1.85x). Raw data:
+    benchmarks/codebench/results/telegraphic_2026_07_08_5rep/.
     """
     if not session_id:
         return
     try:
-        ratio = float(os.environ.get("ATELIER_OUTPUT_STYLE_RATIO", "1.88"))
+        ratio = float(os.environ.get("ATELIER_OUTPUT_STYLE_RATIO", "2.09"))
     except ValueError:
         return
     if ratio <= 1.0:
@@ -851,7 +854,14 @@ def _write_output_style_row(session_id: str, stats: dict[str, Any], transcript_p
 # Avoided host turns per executed turn, measured on the matched swe-lite
 # head-to-head (2026-07-06, opus-4-8, 10 instances, reconciled reps):
 # baseline needed 152 median turns where atelier needed 123 — (152-123)/123.
-_TURN_CUT_RATIO_DEFAULT = 0.236
+# Avoided host turns per executed turn, measured on the swe50 head-to-head
+# (2026-06-30, opus-4-8, 50 SWE-bench instances x 5 reps x 2 arms, 489
+# successful runs -- supersedes the smaller 10-instance swe-lite sample):
+# baseline needed 28.59 avg turns/run where atelier needed 17.41 --
+# (28.59-17.41)/17.41. Per-task median across the 50 tasks is 0.695,
+# consistent with this pooled figure. Raw data:
+# benchmarks/codebench/results/swe50_2026_06_30/.
+_TURN_CUT_RATIO_DEFAULT = 0.642
 
 
 def _write_turn_cut_row(session_id: str, stats: dict[str, Any]) -> None:
@@ -930,6 +940,100 @@ def _write_turn_cut_row(session_id: str, stats: dict[str, Any]) -> None:
         "model": model,
         "ratio": ratio,
         "turns": turns,
+        "ts": datetime.datetime.now(datetime.UTC).isoformat(),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row_out) + "\n")
+
+
+# Baseline's avg cache-read per turn vs atelier's, measured on the same
+# swe50 head-to-head as turn_cut above: 26.1k vs 22.4k tokens/turn -- 1.163x.
+# See _write_input_style_row's docstring for the full derivation and the
+# cross-check against Harbor's independent Terminal-Bench-2.1 suite.
+_INPUT_STYLE_RATIO_DEFAULT = 1.16
+
+
+def _write_input_style_row(session_id: str, stats: dict[str, Any]) -> None:
+    """Credit leaner per-turn context: cache-read tokens NOT re-sent.
+
+    Complements ``_write_turn_cut_row`` above rather than overlapping it: that
+    credits *whole avoided turns* (each priced at the session's own avg
+    context/turn); this credits the other, orthogonal effect measured on the
+    same bench -- turns that DO execute still carry less context each,
+    because atelier's context stays leaner turn over turn (compressed reads,
+    code_search over raw grep/cat, prefix-cache-aware batching) than
+    baseline's would. Credit = incremental session cache-read tokens x
+    (ratio - 1), priced at the cache-read rate. Incremental per Stop fire via
+    the cumulative marker on the last ``input_style`` row, same pattern as
+    ``_write_output_style_row``.
+
+    ``ATELIER_INPUT_STYLE_RATIO`` (<=1 disables) defaults to 1.16 -- measured
+    on the same swe50 head-to-head as the turn_cut ratio above (2026-06-30,
+    opus-4-8, 50 SWE-bench instances x 5 reps x 2 arms, 489 successful runs):
+    baseline's avg cache-read is 26.1k tokens/turn vs atelier's 22.4k --
+    1.163x. That per-turn gap is the residual left over after turn_cut: the
+    raw cache-read delta (745.5k vs 390.5k tokens/run, 1.909x total) factors
+    as turn count (1.642x, matching 1+0.642) times per-turn leanness
+    (1.163x) -- this row's basis is the second factor only, so the two
+    credits are multiplicative on disjoint bases and never double-count.
+    Cross-checked directionally against the independent Harbor
+    Terminal-Bench-2.1 suite (89 real long-horizon tasks, no turn-cut
+    decomposition possible there -- see
+    context (fresh input + cache, 83 matched tasks with cost data on both
+    sides) there is 1.23x baseline/atelier -- same
+    direction, smaller than the isolated 1.909x cache-read figure here as
+    expected (blended across fresh input and cache-creation too, on a very
+    different task distribution/turn profile from SWE-bench code fixes).
+    Raw data: benchmarks/codebench/results/swe50_2026_06_30/.
+    """
+    if not session_id:
+        return
+    try:
+        ratio = float(os.environ.get("ATELIER_INPUT_STYLE_RATIO", str(_INPUT_STYLE_RATIO_DEFAULT)))
+    except ValueError:
+        return
+    if ratio <= 1.0:
+        return
+    path = _sidecar_path(session_id)
+    if path is None or not path.exists():
+        return  # no sidecar → session not Atelier-instrumented; nothing to fold into
+    cache_read_tokens = int(stats.get("cache_read_tokens") or 0)
+    if cache_read_tokens <= 0:
+        return
+    prev_cum = 0
+    with contextlib.suppress(OSError):
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("kind") == "input_style":
+                prev_cum = max(prev_cum, int(row.get("cum_cache_read_tokens") or 0))
+    delta = cache_read_tokens - prev_cum
+    if delta <= 0:
+        return
+    saved = int(delta * (ratio - 1.0))
+    if saved <= 0:
+        return
+    try:
+        from atelier.core.capabilities.pricing import get_model_pricing
+        from atelier.core.capabilities.savings_summary import resolve_model_id
+
+        model = str(stats.get("last_model") or stats.get("model") or "")
+        pricing = get_model_pricing(resolve_model_id(model)) if model else None
+        if pricing is None or not pricing.known or pricing.cache_read <= 0:
+            return  # never guess a rate
+        usd = pricing.request_cost_usd(cache_read_tokens=saved)
+    except Exception:
+        logger.exception("Failed to price input-style row")
+        return
+    row_out = {
+        "kind": "input_style",
+        "tokens": int(saved),
+        "cost_saved_usd": round(usd, 6),
+        "model": model,
+        "ratio": ratio,
+        "cum_cache_read_tokens": int(cache_read_tokens),
         "ts": datetime.datetime.now(datetime.UTC).isoformat(),
     }
     with path.open("a", encoding="utf-8") as fh:
@@ -1232,10 +1336,12 @@ def main() -> int:
         with contextlib.suppress(Exception):
             _write_token_event(stats, session_id)
 
-    # ── Fold output-style + external-compactor (rtk) savings into the ledger
-    # FIRST, so this Stop's own summary already includes them.
+    # ── Fold output-style + input-style + external-compactor (rtk) savings into
+    # the ledger FIRST, so this Stop's own summary already includes them.
     with contextlib.suppress(Exception):
         _write_output_style_row(session_id, stats or {}, transcript_path)
+    with contextlib.suppress(Exception):
+        _write_input_style_row(session_id, stats or {})
     with contextlib.suppress(Exception):
         _write_turn_cut_row(session_id, stats or {})
     with contextlib.suppress(Exception):
