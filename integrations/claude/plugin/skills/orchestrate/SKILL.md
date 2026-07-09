@@ -10,11 +10,14 @@ description: "Run one multi-step task end-to-end on the right execution surface 
 
 Runs a **single structured multi-step task** end-to-end — "Claude with a plan": picks the right execution surface (background task, durable workflow, or direct subagent), runs the steps, hands back a result or a trackable `run_id`.
 
-When invoked, gather inputs via `AskUserQuestion`.
+`/orchestrate <goal>` — the text after `/orchestrate` IS the goal, use it verbatim, never re-ask it.
+Invoked bare (no argument) → ask ONE free-text `AskUserQuestion`: `"What should I orchestrate?"`
+Whatever the phrasing — a task, or a question about orchestrate itself — it's the goal to run;
+never substitute a hand-written explanation for actually picking a surface and running it.
 
 ## Operating loop
 
-1. Ground: goal, expected deliverable, acceptance signal.
+1. Ground: goal (from the argument, or the answer above), expected deliverable, acceptance signal.
 2. Pick the narrowest execution surface (`AskUserQuestion` only when the user's intent doesn't decide it):
    - durable/resumable run → the **`workflow`** MCP tool: smallest valid spec, `workflow` with `op="run"`
    - **`isolated`** (detached/background) → the host's background-task surface
@@ -23,9 +26,9 @@ When invoked, gather inputs via `AskUserQuestion`.
 
 ## Questions to gather
 
-`AskUserQuestion` for what's missing — unknowns batched into a single call (up to 4 questions). Gather until clear:
+`AskUserQuestion` for what's still missing after the goal is set — unknowns batched into a single call (up to 4 questions). Gather until clear:
 
-- exact goal/deliverable
+- deliverable / acceptance signal, if not already clear from the goal
 - launch mode: durable workflow, isolated/background, or direct subagent
 - workflow shape, if a prompt workflow is needed
 - plan review / approval gating required?
