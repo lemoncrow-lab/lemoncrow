@@ -30,6 +30,7 @@ import argparse
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -39,7 +40,6 @@ MIRROR_DEV_TAG = "refs/mirror/last"  # watermark: last mirrored source SHA
 MIRROR_PUB_TAG = "refs/mirror/last-pub"  # public SHA created by last run
 DEFAULT_PUBLIC_REMOTE = "https://github.com/atelier-ws/atelier.git"
 DEV_REMOTE = "origin"  # atelier-dev -- where the watermark refs live
-EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 # Files injected into the public repo that don't exist in the dev repo's public paths.
 # Each entry is (source_path_in_dev_repo, dest_path_in_public_tree).
@@ -108,49 +108,151 @@ def get_blob_sha(commit_sha: str, path: str) -> str | None:
     return sha
 
 
-def build_filtered_tree(commit_sha: str, public_prefixes: list[str]) -> str:
-    """Return a new tree SHA with only files matching the public allowlist."""
+def _index_env(index_path: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env["GIT_INDEX_FILE"] = str(index_path)
+    return env
+
+
+def _update_index_info(index_path: Path, lines: list[str]) -> None:
+    """Batch-add/update entries in the scratch index (one subprocess call, any count)."""
+    if not lines:
+        return
+    subprocess.run(
+        ["git", "update-index", "--index-info"],
+        input="\n".join(lines) + "\n",
+        text=True,
+        capture_output=True,
+        check=True,
+        cwd=REPO_ROOT,
+        env=_index_env(index_path),
+    )
+
+
+def _force_remove(index_path: Path, paths: list[str]) -> None:
+    """Batch-remove paths from the scratch index (one subprocess call, any count)."""
+    if not paths:
+        return
+    subprocess.run(
+        ["git", "update-index", "--force-remove", "--stdin"],
+        input="\n".join(paths) + "\n",
+        text=True,
+        capture_output=True,
+        check=True,
+        cwd=REPO_ROOT,
+        env=_index_env(index_path),
+    )
+
+
+def _write_tree(index_path: Path) -> str:
+    result = subprocess.run(
+        ["git", "write-tree"],
+        text=True,
+        capture_output=True,
+        check=True,
+        cwd=REPO_ROOT,
+        env=_index_env(index_path),
+    )
+    return result.stdout.strip()
+
+
+def build_filtered_tree_full(commit_sha: str, public_prefixes: list[str], index_path: Path) -> str:
+    """Full build: seed the scratch index from `commit_sha`'s tree, filtered to the
+    public allowlist, then write it out.
+
+    O(files) -- a single `update-index --index-info` + `write-tree` call. Tree
+    hierarchy is reconstructed by git itself in one process, not by shelling out
+    to `git mktree` once per directory (that fan-out -- ~3500 subprocess calls
+    for this repo -- was the actual cost of every previous `make mirror` run).
+    """
+    if index_path.exists():
+        index_path.unlink()
     ls = _run(["git", "ls-tree", "-r", "--full-tree", commit_sha]).stdout
-    blobs: list[tuple[str, str, str, str]] = []
+    lines = []
     for line in ls.splitlines():
         meta, _, path = line.partition("\t")
-        mode, obj_type, sha = meta.split()
+        mode, _obj_type, sha = meta.split()
         if is_public(path, public_prefixes):
-            blobs.append((mode, obj_type, sha, path))
-
-    # Inject files from private paths into new public locations.
+            lines.append(f"{mode} {sha} 0\t{path}")
     for src_path, dest_path in INJECTED_FILES:
         blob_sha = get_blob_sha(commit_sha, src_path)
         if blob_sha:
-            blobs.append(("100644", "blob", blob_sha, dest_path))
+            lines.append(f"100644 {blob_sha} 0\t{dest_path}")
+    _update_index_info(index_path, lines)
+    return _write_tree(index_path)
 
-    return _make_tree(blobs, "") if blobs else EMPTY_TREE
+
+def seed_index_from_tree(index_path: Path, tree_sha: str) -> None:
+    """Seed the scratch index from an already-filtered public tree (e.g. last run's
+    public HEAD), instead of rebuilding from the source tree. Lets an incremental
+    run resume without ever re-scanning the full repo.
+    """
+    if index_path.exists():
+        index_path.unlink()
+    subprocess.run(
+        ["git", "read-tree", tree_sha],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        env=_index_env(index_path),
+    )
 
 
-def _make_tree(blobs: list[tuple[str, str, str, str]], prefix: str) -> str:
-    """Recursively build a git tree from a flat blob list."""
-    direct: dict[str, tuple[str, str, str]] = {}
-    subdirs: dict[str, list[tuple[str, str, str, str]]] = {}
+def _diff_add_remove(prev_dev_sha: str, curr_dev_sha: str, public_prefixes: list[str]) -> tuple[list[str], list[str]]:
+    """Diff two source commits; return (add_lines, remove_paths) restricted to the
+    public allowlist. add_lines are ready for `update-index --index-info`
+    ("<mode> <sha> 0\\t<path>"); remove_paths are plain paths for --force-remove.
 
-    for mode, obj_type, sha, path in blobs:
-        rel = path[len(prefix) :].lstrip("/") if prefix else path
-        slash = rel.find("/")
-        if slash == -1:
-            direct[rel] = (mode, obj_type, sha)
+    Uses `--raw` so mode + blob sha come straight out of the diff -- no extra
+    per-changed-path `ls-tree`/`get_blob_sha` round trip.
+    """
+    out = _run(["git", "diff-tree", "-r", "--raw", prev_dev_sha, curr_dev_sha]).stdout
+    add_lines: list[str] = []
+    remove_paths: list[str] = []
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        meta, _, rest = line.partition("\t")
+        meta_parts = meta.split()  # :old_mode new_mode old_sha new_sha status
+        new_mode, new_sha, status = meta_parts[1], meta_parts[3], meta_parts[4]
+        status_code = status[0]  # R100 -> R, etc.
+        paths = rest.split("\t")
+        if status_code == "D":
+            remove_paths.append(paths[0])
+            continue
+        # A / M / T, and R / C (rename/copy target is the last field).
+        target_path = paths[-1]
+        if is_public(target_path, public_prefixes):
+            add_lines.append(f"{new_mode} {new_sha} 0\t{target_path}")
         else:
-            name = rel[:slash]
-            subdirs.setdefault(name, []).append((mode, obj_type, sha, path))
+            remove_paths.append(target_path)
+        if status_code in ("R", "C") and len(paths) > 1:
+            remove_paths.append(paths[0])
+    return add_lines, remove_paths
 
-    entries: list[str] = []
-    for name, sub_blobs in subdirs.items():
-        sub_prefix = (prefix + "/" + name).lstrip("/")
-        sub_tree = _make_tree(sub_blobs, sub_prefix)
-        entries.append(f"040000 tree {sub_tree}\t{name}")
-    for name, (mode, obj_type, sha) in direct.items():
-        entries.append(f"{mode} {obj_type} {sha}\t{name}")
 
-    stdin = "\n".join(entries) + "\n" if entries else ""
-    return _run(["git", "mktree"], input=stdin).stdout.strip()
+def update_filtered_tree(
+    prev_dev_sha: str,
+    curr_dev_sha: str,
+    public_prefixes: list[str],
+    index_path: Path,
+) -> str:
+    """Incremental update: apply only the paths that changed between `prev_dev_sha`
+    and `curr_dev_sha` to the scratch index, then write it out.
+
+    O(files changed in this commit), not O(files in repo) -- the fix for the slow
+    `make mirror` / `make release`: previously every commit re-walked and
+    re-`mktree`'d the *entire* filtered tree regardless of diff size.
+    """
+    add_lines, remove_paths = _diff_add_remove(prev_dev_sha, curr_dev_sha, public_prefixes)
+    for src_path, dest_path in INJECTED_FILES:
+        blob_sha = get_blob_sha(curr_dev_sha, src_path)
+        if blob_sha:
+            add_lines.append(f"100644 {blob_sha} 0\t{dest_path}")
+    _force_remove(index_path, remove_paths)
+    _update_index_info(index_path, add_lines)
+    return _write_tree(index_path)
 
 
 # ---------------------------------------------------------------------------
@@ -347,47 +449,72 @@ def main() -> int:
 
     print(f"Found {len(commits)} commit(s) to mirror.")
 
-    # Replay commits -- build filtered objects in the local object store
-    dev_to_pub: dict[str, str] = {}
-    current_pub_parent = initial_pub_parent  # None on fresh run
+    # Replay commits -- build filtered trees via a scratch git index (single
+    # update-index + write-tree per commit; no per-directory `mktree` fan-out).
+    # Incremental runs seed the index from last run's already-filtered public
+    # tree, so we never rescan the full source repo -- only the commit diffs.
+    index_path = Path(tempfile.mktemp(prefix="atelier-mirror-index-"))
+    try:
+        dev_to_pub: dict[str, str] = {}
+        current_pub_parent = initial_pub_parent  # None on fresh run
+        prev_dev_sha = watermark_dev  # None on fresh run
+        seeded = False
 
-    for i, dev_sha in enumerate(commits):
-        meta = get_commit_metadata(dev_sha)
-        filtered_tree = build_filtered_tree(dev_sha, public_prefixes)
-        dev_parents = get_commit_parents(dev_sha)
+        for i, dev_sha in enumerate(commits):
+            meta = get_commit_metadata(dev_sha)
 
-        if i == 0:
-            pub_parents = [current_pub_parent] if current_pub_parent else []
-        else:
-            pub_parents = [dev_to_pub[dp] for dp in dev_parents if dp in dev_to_pub]
-            # Merge commit whose other parents predate the watermark:
-            # fall back to current tip so history stays connected.
-            if not pub_parents and dev_parents and current_pub_parent:
-                pub_parents = [current_pub_parent]
+            if not seeded:
+                if prev_dev_sha is not None and initial_pub_parent is not None:
+                    # Incremental run: resume from last run's public tree instead
+                    # of rebuilding the filtered tree from the source repo.
+                    pub_tree = git("rev-parse", f"{initial_pub_parent}^{{tree}}")
+                    seed_index_from_tree(index_path, pub_tree)
+                    filtered_tree = update_filtered_tree(prev_dev_sha, dev_sha, public_prefixes, index_path)
+                else:
+                    filtered_tree = build_filtered_tree_full(dev_sha, public_prefixes, index_path)
+                seeded = True
+            else:
+                assert prev_dev_sha is not None
+                filtered_tree = update_filtered_tree(prev_dev_sha, dev_sha, public_prefixes, index_path)
+            prev_dev_sha = dev_sha
 
-        new_sha = create_filtered_commit(filtered_tree, pub_parents, meta)
-        dev_to_pub[dev_sha] = new_sha
-        current_pub_parent = new_sha
+            dev_parents = get_commit_parents(dev_sha)
 
-        if args.verbose:
-            subject = (meta["message"].splitlines()[0] if meta["message"] else "")[:72]
-            print(f"  {dev_sha[:12]} -> {new_sha[:12]}  {subject}")
-        elif (i + 1) % 100 == 0 or (i + 1) == len(commits):
-            print(f"  {i + 1}/{len(commits)} commits processed...")
+            if i == 0:
+                pub_parents = [current_pub_parent] if current_pub_parent else []
+            else:
+                pub_parents = [dev_to_pub[dp] for dp in dev_parents if dp in dev_to_pub]
+                # Merge commit whose other parents predate the watermark:
+                # fall back to current tip so history stays connected.
+                if not pub_parents and dev_parents and current_pub_parent:
+                    pub_parents = [current_pub_parent]
 
-    if not current_pub_parent:
-        print("Nothing produced.")
+            new_sha = create_filtered_commit(filtered_tree, pub_parents, meta)
+            dev_to_pub[dev_sha] = new_sha
+            current_pub_parent = new_sha
+
+            if args.verbose:
+                subject = (meta["message"].splitlines()[0] if meta["message"] else "")[:72]
+                print(f"  {dev_sha[:12]} -> {new_sha[:12]}  {subject}")
+            elif (i + 1) % 100 == 0 or (i + 1) == len(commits):
+                print(f"  {i + 1}/{len(commits)} commits processed...")
+
+        if not current_pub_parent:
+            print("Nothing produced.")
+            return 0
+
+        push_to_public(
+            remote_url,
+            current_pub_parent,
+            force=(fresh or args.force),
+            dry_run=args.dry_run,
+        )
+        set_watermark(dev_tip, current_pub_parent, dry_run=args.dry_run)
+        print(f"Done. Mirrored {len(commits)} commit(s). Public HEAD: {current_pub_parent[:12]}")
         return 0
-
-    push_to_public(
-        remote_url,
-        current_pub_parent,
-        force=(fresh or args.force),
-        dry_run=args.dry_run,
-    )
-    set_watermark(dev_tip, current_pub_parent, dry_run=args.dry_run)
-    print(f"Done. Mirrored {len(commits)} commit(s). Public HEAD: {current_pub_parent[:12]}")
-    return 0
+    finally:
+        if index_path.exists():
+            index_path.unlink()
 
 
 if __name__ == "__main__":
