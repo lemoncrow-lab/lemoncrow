@@ -36,8 +36,7 @@ The installer merges:
 
 1. `mcp.atelier` for `atelier mcp`
 2. `provider.atelier` for OpenAI-compatible chat completions (`http://127.0.0.1:8787/v1`)
-3. `model: "atelier/atelier-default"`
-4. A local `chat.message` plugin that injects Atelier guidance before a user prompt is sent
+3. A local `chat.message` plugin that injects Atelier guidance before a user prompt is sent
 
 MCP entry:
 
