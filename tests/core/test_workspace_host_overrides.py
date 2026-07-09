@@ -235,7 +235,9 @@ def test_write_workspace_codex_agents_projects_standalone_files(tmp_path: Path, 
     assert len(written) == len(overrides.DEFAULT_ROLE_IDS)
     assert 'name = "atelier.code"' in content
     assert 'developer_instructions = """' in content
-    assert "{{CORE_DISCIPLINE}}" not in content
+    # Catches any mode-doc token (e.g. {{AGENT_RULE}}) missing from the
+    # renderer's substitution map, not just {{CORE_DISCIPLINE}}.
+    assert "{{" not in content
     # Parity with sync_agent_context: partials splice in verbatim (no injected
     # headings) and inline tool names carry the codex `atelier.` prefix — except
     # the "Shell `grep`" phrase, which is about shell grep and stays bare.
