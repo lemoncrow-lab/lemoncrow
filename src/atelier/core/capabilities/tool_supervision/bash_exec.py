@@ -1883,6 +1883,14 @@ def _close_managed_process_pipes(managed: _ManagedCommand) -> None:
                 stream.close()
 
 
+def _finish_managed_readers(managed: _ManagedCommand, grace_s: float) -> bool:
+    reader_wedged = _join_readers_within(managed.readers, grace_s)
+    if reader_wedged:
+        _close_managed_process_pipes(managed)
+        _join_readers_within(managed.readers, 0.2)
+    return reader_wedged
+
+
 def _join_readers_within(readers: list[threading.Thread], grace_s: float) -> bool:
     """Join every reader thread against one shared deadline, not `grace_s`
     per reader -- a naive `for r in readers: r.join(timeout=grace_s)` lets N
@@ -1987,8 +1995,7 @@ def _watch_managed_command(session_id: str) -> None:
     # once. Bounded for the same reason as poll_managed_command's join below --
     # a still-open duplicate of the pipe (e.g. a detached backgrounded server)
     # must not wedge this cleanup thread forever.
-    _join_readers_within(managed.readers, _READER_JOIN_GRACE_S)
-    _close_managed_process_pipes(managed)
+    _finish_managed_readers(managed, _READER_JOIN_GRACE_S)
     with contextlib.suppress(Exception):
         managed.stdout_file.close()
     with contextlib.suppress(Exception):
@@ -2201,8 +2208,7 @@ def poll_managed_command(session_id: str, *, cancel: bool = False) -> dict[str, 
     # instead. Join outside the lock: a drain takes the lock to flag
     # truncation. One shared deadline across every reader (not one grace
     # window each) -- see _join_readers_within.
-    reader_wedged = _join_readers_within(managed.readers, _READER_JOIN_GRACE_S)
-    _close_managed_process_pipes(managed)
+    reader_wedged = _finish_managed_readers(managed, _READER_JOIN_GRACE_S)
 
     with _MANAGED_COMMANDS_LOCK:
         if managed.reaped:
