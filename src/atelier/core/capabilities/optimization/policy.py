@@ -253,13 +253,13 @@ def _write_optimization_config(root: Path, config: dict[str, Any]) -> Path:
 
 def _tier(value: object, fallback: ModelTier) -> ModelTier:
     if value in {"cheap", "medium", "expensive"}:
-        return cast(ModelTier, value)
+        return value
     return fallback
 
 
 def _confidence(value: object, fallback: ConfidenceLevel) -> ConfidenceLevel:
     if value in {"low", "medium", "high"}:
-        return cast(ConfidenceLevel, value)
+        return value
     return fallback
 
 
