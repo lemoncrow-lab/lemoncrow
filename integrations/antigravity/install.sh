@@ -208,6 +208,21 @@ if ! $WORKSPACE_SET && [[ -d "$PLUGIN_SRC" ]]; then
     else
         run "mkdir -p '$AGY_PLUGIN_DIR'"
         run "cp -r '${PLUGIN_SRC}/.' '$AGY_PLUGIN_DIR/'"
+        PLUGIN_MANIFEST="${AGY_PLUGIN_DIR}/plugin.json" PROJECT_PYPROJECT="${ATELIER_REPO}/pyproject.toml" python3 - <<'PYEOF'
+import json
+import os
+import re
+from pathlib import Path
+
+manifest = Path(os.environ["PLUGIN_MANIFEST"])
+pyproject = Path(os.environ["PROJECT_PYPROJECT"])
+version_match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(encoding="utf-8"), re.MULTILINE)
+if not version_match:
+    raise SystemExit(f"could not parse project version from {pyproject}")
+data = json.loads(manifest.read_text(encoding="utf-8"))
+data["version"] = version_match.group(1)
+manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PYEOF
         info "installed plugin -> $AGY_PLUGIN_DIR"
     fi
 fi

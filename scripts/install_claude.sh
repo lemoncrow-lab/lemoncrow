@@ -191,6 +191,25 @@ run "rm -rf '$STAGING_DIR'"
 run "mkdir -p '$STAGING_DIR/.claude-plugin'"
 run "cp '${SOURCE_PLUGIN_DIR}/.claude-plugin/plugin.json' '$STAGING_DIR/.claude-plugin/'"
 run "cp '${SOURCE_PLUGIN_DIR}/.claude-plugin/marketplace.json' '$STAGING_DIR/.claude-plugin/'"
+if ! $DRY_RUN; then
+    PLUGIN_MANIFEST="${STAGING_DIR}/.claude-plugin/plugin.json" PROJECT_PYPROJECT="${ATELIER_REPO}/pyproject.toml" python3 - <<'PYEOF'
+import json
+import os
+import re
+from pathlib import Path
+
+manifest = Path(os.environ["PLUGIN_MANIFEST"])
+pyproject = Path(os.environ["PROJECT_PYPROJECT"])
+version_match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(encoding="utf-8"), re.MULTILINE)
+if not version_match:
+    raise SystemExit(f"could not parse project version from {pyproject}")
+data = json.loads(manifest.read_text(encoding="utf-8"))
+data["version"] = version_match.group(1)
+manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PYEOF
+else
+    echo "  [dry-run] stamp ${STAGING_DIR}/.claude-plugin/plugin.json with project version"
+fi
 run "mkdir -p '$STAGING_DIR/agents'"
 info "Staging Claude plugin"
 for agent in "${ROLES_ARR[@]}"; do

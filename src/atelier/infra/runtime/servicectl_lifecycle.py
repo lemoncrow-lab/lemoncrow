@@ -384,6 +384,17 @@ def _github_latest_version() -> str | None:
         return None
 
 
+def _version_key(version: str) -> tuple[int, ...]:
+    """Dotted version -> comparable int tuple (non-numeric chunks count as 0)."""
+    import re
+
+    parts: list[int] = []
+    for chunk in version.split("."):
+        match = re.match(r"\d+", chunk)
+        parts.append(int(match.group()) if match else 0)
+    return tuple(parts)
+
+
 def _detect_auto_update_method() -> tuple[str, str | None]:
     """Detect the install method for auto-update.
 
@@ -427,6 +438,32 @@ def _update_via_git(project_root: str) -> bool:
     )
     if verify.returncode != 0:
         logger.info(f"Auto-update: {remote_ref} not found; skipping git update.")
+        return False
+
+    show = subprocess.run(
+        ["git", "show", f"{remote_ref}:pyproject.toml"],
+        cwd=project_root_p,
+        capture_output=True,
+        text=True,
+    )
+    if show.returncode != 0:
+        logger.info(f"Auto-update: could not read {remote_ref}:pyproject.toml; skipping git update.")
+        return False
+
+    import re
+
+    match = re.search(r'^version\s*=\s*"([^"]+)"', show.stdout, re.MULTILINE)
+    if not match:
+        logger.info(f"Auto-update: could not parse version from {remote_ref}:pyproject.toml; skipping git update.")
+        return False
+
+    remote_version = match.group(1)
+    current_version = _atelier_version()
+    if _version_key(remote_version) <= _version_key(current_version):
+        logger.info(
+            f"Auto-update: remote version {remote_version} is not newer than "
+            f"current version {current_version}; skipping git update."
+        )
         return False
 
     res = subprocess.run(
@@ -500,7 +537,7 @@ def _update_via_release() -> bool:
         logger.error("Auto-update: could not determine latest release version")
         return False
     current = _atelier_version()
-    if latest == current:
+    if _version_key(latest) <= _version_key(current):
         return False
 
     installer_url = f"{_RELEASE_LATEST_URL}/install.sh"

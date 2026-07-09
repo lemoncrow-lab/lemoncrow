@@ -89,6 +89,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _version_key(version: str) -> tuple[int, ...]:
+    """Dotted version -> comparable int tuple (non-numeric chunks count as 0)."""
+    parts: list[int] = []
+    for chunk in version.split("."):
+        match = re.match(r"\d+", chunk)
+        parts.append(int(match.group()) if match else 0)
+    return tuple(parts)
+
+
 def _warm_pricing_table() -> None:
     """Pre-build the LiteLLM-backed pricing table off the response path.
 
@@ -1104,14 +1113,12 @@ def _check_auto_update() -> None:
             return
 
         remote_version = match.group(1)
-        _log.info("current=%s  remote=%s", atelier_version, remote_version)
-
-        if remote_version == atelier_version:
-            _log.info("already up-to-date")
+        if _version_key(remote_version) <= _version_key(atelier_version):
+            _log.info("remote version is not newer; skipping auto-update")
             return
 
-        # Newer (or different) version detected - pull and reinstall
-        _log.info("version changed - pulling %s/%s ...", default_branch, default_branch)
+        # Newer version detected - pull and reinstall
+        _log.info("newer version detected - pulling %s/%s ...", default_branch, default_branch)
         subprocess.run(
             ["git", "pull", "--ff-only", "origin", default_branch],
             cwd=str(repo),
@@ -1120,7 +1127,6 @@ def _check_auto_update() -> None:
             timeout=60,
             check=True,
         )
-
         install_script = repo / "scripts" / "install.sh"
         if install_script.exists():
             _log.info("running install script...")
