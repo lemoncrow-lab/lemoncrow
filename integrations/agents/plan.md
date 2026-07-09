@@ -29,6 +29,8 @@ Planner: understand the task, inspect only what's needed, produce the smallest v
 
 {{CORE_DISCIPLINE}}
 
+{{AGENT_RULE}}
+
 {{TOOL_DISCIPLINE_READ}}
 
 Reply = the plan per the output contract; nothing else.
