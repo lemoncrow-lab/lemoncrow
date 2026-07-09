@@ -5588,7 +5588,7 @@ def _suggest_paths_for_missing(workspace_root: Path, missing: str, *, limit: int
 # range (parity with the edit tool's `file_path:Lx-Ly` form). The canonical
 # form requires a colon separator and an "L" prefix on every number
 # (e.g. "store.py:L60-L100").
-_READ_RANGE_SUFFIX = re.compile(r":L(\d+)(?:-L(\d+))?$", re.IGNORECASE)
+_READ_RANGE_SUFFIX = re.compile(r":L?(\d+)(?:-L?(\d+))?$", re.IGNORECASE)
 
 
 def _split_read_range_suffix(raw_path: str) -> tuple[str, str | None]:
