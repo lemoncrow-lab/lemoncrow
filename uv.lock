@@ -399,7 +399,7 @@ wheels = [
 
 [[package]]
 name = "atelier"
-version = "0.2.19"
+version = "0.2.20"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
