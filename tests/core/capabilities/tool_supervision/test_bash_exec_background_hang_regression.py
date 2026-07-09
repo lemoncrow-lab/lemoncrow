@@ -24,6 +24,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 import atelier.core.capabilities.tool_supervision.bash_exec as bx
 
 _BOUND_S = bx._READER_JOIN_GRACE_S + 3.0  # generous margin over the join grace
@@ -50,6 +52,7 @@ def _kill_stray(pattern: str) -> None:
         subprocess.run(["pkill", "-f", pattern], check=False, timeout=5)
 
 
+@pytest.mark.slow
 def test_kv_store_grpc_pattern_start_server_and_check_port(tmp_path: Path) -> None:
     """terminal-bench kv-store-grpc: `nohup <server> > log 2>&1 & \\n sleep N;
     cat log; ss | grep <port>` -- backgrounds a grpc server, then inline-checks
@@ -82,6 +85,7 @@ def test_kv_store_grpc_pattern_start_server_and_check_port(tmp_path: Path) -> No
         _kill_stray(f"http.server {port}")
 
 
+@pytest.mark.slow
 def test_pypi_server_pattern_background_then_tail_log(tmp_path: Path) -> None:
     """terminal-bench pypi-server: `nohup pypi-server run -p PORT dist/ >log
     2>&1 & \\n sleep 3; ...` -- same shape, different sleep/check timing."""
@@ -103,6 +107,7 @@ def test_pypi_server_pattern_background_then_tail_log(tmp_path: Path) -> None:
         _kill_stray(f"http.server {port}")
 
 
+@pytest.mark.slow
 def test_install_windows_websockify_pattern_process_check(tmp_path: Path) -> None:
     """terminal-bench install-windows-3.11: `nohup websockify ... &` then a
     process-list check (rather than a port check) to confirm it's up."""
@@ -146,6 +151,7 @@ def test_explicitly_wedged_pipe_via_lingering_fork_is_bounded(tmp_path: Path) ->
     assert "still be running" in str(result["stderr"])
 
 
+@pytest.mark.slow
 def test_background_with_disown_returns_promptly(tmp_path: Path) -> None:
     """A task that explicitly disowns the backgrounded job (common advice for
     'don't let this get killed when the shell exits') must not change the
@@ -168,6 +174,7 @@ def test_background_with_disown_returns_promptly(tmp_path: Path) -> None:
         _kill_stray(f"http.server {port}")
 
 
+@pytest.mark.slow
 def test_two_backgrounded_processes_in_one_command(tmp_path: Path) -> None:
     """Multiple independent backgrounded descendants (not just one) must all be
     tolerated -- the bounded join must not need every wedging descendant to
@@ -192,6 +199,7 @@ def test_two_backgrounded_processes_in_one_command(tmp_path: Path) -> None:
         _kill_stray(f"http.server {port_b}")
 
 
+@pytest.mark.slow
 def test_nested_subshell_background_pattern(tmp_path: Path) -> None:
     """A backgrounded job launched from inside a subshell `( ... ) &` -- a
     slightly different fork/exec path than a plain `cmd &` -- must be equally

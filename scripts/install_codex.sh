@@ -247,8 +247,13 @@ backup_file() {
     if $WORKSPACE_SET; then return; fi
     if [ -f "$path" ]; then
         local backup="${path}.atelier-backup.$(date +%Y%m%dT%H%M%S)"
-        run "cp $(printf %q "$path") $(printf %q "$backup")"
-        info "backed up $path → $backup"
+        if $DRY_RUN; then
+            echo "  [dry-run] cp $(printf %q "$path") $(printf %q "$backup")"
+        elif cp "$path" "$backup" 2>/dev/null; then
+            info "backed up $path → $backup"
+        else
+            warn "backup skipped for $path; continuing install"
+        fi
     fi
 }
 
@@ -257,15 +262,25 @@ backup_path() {
     if $WORKSPACE_SET; then return; fi
     if [ -e "$path" ]; then
         local backup="${path}.atelier-backup.$(date +%Y%m%dT%H%M%S)"
-        if [ -d "$path" ]; then
-            run "cp -R $(printf %q "$path") $(printf %q "$backup")"
+        if $DRY_RUN; then
+            if [ -d "$path" ]; then
+                echo "  [dry-run] cp -R $(printf %q "$path") $(printf %q "$backup")"
+            else
+                echo "  [dry-run] cp $(printf %q "$path") $(printf %q "$backup")"
+            fi
+        elif [ -d "$path" ]; then
+            if cp -R "$path" "$backup" 2>/dev/null; then
+                info "backed up $path → $backup"
+            else
+                warn "backup skipped for $path; continuing install"
+            fi
+        elif cp "$path" "$backup" 2>/dev/null; then
+            info "backed up $path → $backup"
         else
-            run "cp $(printf %q "$path") $(printf %q "$backup")"
+            warn "backup skipped for $path; continuing install"
         fi
-        info "backed up $path → $backup"
     fi
 }
-
 merge_agents_file() {
     local source_file="$1"
     local dest_file="$2"
@@ -407,24 +422,112 @@ PYEOF
     PLUGIN_ID="atelier@${MARKETPLACE_NAME}"
 }
 
+snapshot_codex_plugin_cache() {
+    CODEX_CACHE_SNAPSHOT=""
+    if $DRY_RUN; then
+        echo "  [dry-run] snapshot existing Codex plugin cache roots for ${PLUGIN_ID}"
+        return
+    fi
+    local cache_root="${USER_CODEX_HOME}/plugins/cache/${MARKETPLACE_NAME}/atelier"
+    [ -d "$cache_root" ] || return
+    CODEX_CACHE_SNAPSHOT="$(mktemp "${TMPDIR:-/tmp}/atelier-codex-cache.XXXXXX")"
+    find "$cache_root" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) -print >"$CODEX_CACHE_SNAPSHOT"
+}
+prune_codex_plugin_cache_aliases() {
+    local ttl_days="${ATELIER_CODEX_CACHE_ALIAS_TTL_DAYS:-7}"
+    if $DRY_RUN; then
+        echo "  [dry-run] prune Atelier-created Codex plugin cache aliases older than ${ttl_days} day(s)"
+        return
+    fi
+    local cache_root="${USER_CODEX_HOME}/plugins/cache/${MARKETPLACE_NAME}/atelier"
+    [ -d "$cache_root" ] || return
+    CODEX_CACHE_ROOT="$cache_root" CODEX_CACHE_ALIAS_TTL_DAYS="$ttl_days" python3 - <<'PYEOF'
+import os
+import time
+from pathlib import Path
+
+try:
+    ttl_days = float(os.environ.get("CODEX_CACHE_ALIAS_TTL_DAYS", "7"))
+except ValueError:
+    ttl_days = 7.0
+if ttl_days < 0:
+    raise SystemExit(0)
+cache_root = Path(os.environ["CODEX_CACHE_ROOT"])
+cutoff = time.time() - (ttl_days * 86400)
+for path in cache_root.iterdir():
+    if not path.is_symlink():
+        continue
+    try:
+        target = path.resolve(strict=False)
+        # Only prune aliases that point back into this plugin cache root.
+        target.relative_to(cache_root)
+    except Exception:
+        continue
+    try:
+        if path.lstat().st_mtime > cutoff:
+            continue
+        path.unlink()
+        print(f"[atelier:codex] pruned old plugin cache alias: {path}")
+    except FileNotFoundError:
+        pass
+PYEOF
+}
+
+preserve_codex_plugin_cache_aliases() {
+    if $DRY_RUN; then
+        echo "  [dry-run] preserve old Codex plugin cache roots for running sessions"
+        prune_codex_plugin_cache_aliases
+        return
+    fi
+    if [ -n "${CODEX_CACHE_SNAPSHOT:-}" ] && [ -f "$CODEX_CACHE_SNAPSHOT" ]; then
+        CODEX_CACHE_SNAPSHOT_PATH="$CODEX_CACHE_SNAPSHOT" CODEX_CACHE_ROOT="${USER_CODEX_HOME}/plugins/cache/${MARKETPLACE_NAME}/atelier" python3 - <<'PYEOF'
+import os
+from pathlib import Path
+
+snapshot = Path(os.environ["CODEX_CACHE_SNAPSHOT_PATH"])
+cache_root = Path(os.environ["CODEX_CACHE_ROOT"])
+if not cache_root.exists():
+    raise SystemExit(0)
+current = sorted((p for p in cache_root.iterdir() if p.is_dir() and not p.is_symlink()), key=lambda p: p.stat().st_mtime, reverse=True)
+if not current:
+    raise SystemExit(0)
+target = current[0]
+for raw in snapshot.read_text(encoding="utf-8").splitlines():
+    old = Path(raw)
+    if old.exists() or old == target:
+        continue
+    try:
+        old.symlink_to(target, target_is_directory=True)
+        print(f"[atelier:codex] preserved running-session plugin cache path: {old} -> {target}")
+    except FileExistsError:
+        pass
+PYEOF
+        rm -f "$CODEX_CACHE_SNAPSHOT"
+    fi
+    prune_codex_plugin_cache_aliases
+}
 install_codex_plugin() {
+    snapshot_codex_plugin_cache
     if $DRY_RUN; then
         echo "  [dry-run] attempt to install ${PLUGIN_ID}; otherwise restart Codex and use /plugins"
+        preserve_codex_plugin_cache_aliases
         return
     fi
     codex_cmd plugin remove "atelier@openai-curated" >/dev/null 2>&1 || true
     if codex_cmd plugin add "$PLUGIN_ID" >/dev/null 2>&1; then
         info "installed Codex plugin ${PLUGIN_ID}"
+        preserve_codex_plugin_cache_aliases
         return
     fi
     if codex_cmd plugin install "$PLUGIN_ID" >/dev/null 2>&1; then
         info "installed Codex plugin ${PLUGIN_ID}"
+        preserve_codex_plugin_cache_aliases
         return
     fi
+    preserve_codex_plugin_cache_aliases
     PLUGIN_INSTALL_PENDING=true
     warn "Codex did not activate ${PLUGIN_ID} non-interactively; restart Codex, open /plugins, and enable Atelier."
 }
-
 project_custom_agents() {
     cleanup_legacy_codex_config "$CODEX_CONFIG"
     if $DRY_RUN; then
