@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import csv
+import functools
 import hashlib
 import json
 import os
@@ -225,6 +226,43 @@ STOPWORDS = frozenset(
 ATELIER_CLAUDE_PLUGIN_ROOT = Path(
     os.environ.get("ATELIER_BENCH_PLUGIN_ROOT") or (REPO_ROOT / "integrations" / "claude" / "plugin")
 )
+
+_PLUGIN_STAGE_LOCK = threading.Lock()
+
+
+@functools.cache
+def _lean_plugin_root(persona: str) -> Path:
+    """Stage a bench-lean copy of the Claude plugin: one persona, zero skills.
+
+    The repo plugin dir doubles as the on-demand install SOURCE (every role
+    agent + optional skills), so mounting/loading it raw ships every agent
+    persona and the full skill list into the system prompt on every turn --
+    dead prefix weight never exercised by a single-persona benchmark arm
+    (measured: ~950 output-of-context tokens per call on a plain Q&A prompt).
+    Strip ``agents/`` down to *persona*'s own file and drop ``skills/``
+    entirely; the bench measures the CODING surface only.
+
+    Cached per persona and guarded by a lock: two concurrent arms/jobs
+    staging different personas must not interleave rmtree/copytree on a
+    shared dest. The pid+persona suffix keeps a fresh driver process from
+    clobbering a still-running older one and keeps personas isolated from
+    each other within one process.
+    """
+    dest = Path(tempfile.gettempdir()) / f"codebench-plugin-lean-{os.getpid()}-{persona.replace(':', '_')}"
+    with _PLUGIN_STAGE_LOCK:
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(ATELIER_CLAUDE_PLUGIN_ROOT, dest)
+        agents = dest / "agents"
+        if agents.is_dir():
+            keep = persona.split(":", 1)[-1]
+            for p in agents.glob("*.md"):
+                if p.stem != keep:
+                    p.unlink()
+        skills = dest / "skills"
+        if skills.is_dir():
+            shutil.rmtree(skills)
+    return dest
 
 
 def _free_port() -> int:
@@ -1425,8 +1463,10 @@ def run_arm(
                 cmd += ["--resume" if should_resume_session else "--session-id", session_id]
                 cmd += ["--add-dir", str(ws)]
             if spec.plugin:
-                # Load the generated Atelier plugin so its agents/MCP/hooks resolve.
-                cmd += ["--plugin-dir", str(ATELIER_CLAUDE_PLUGIN_ROOT)]
+                # Load a bench-lean copy of the plugin: only this arm's persona
+                # (no other agent personas) and zero skills -- see
+                # _lean_plugin_root. Its agents/MCP/hooks still resolve.
+                cmd += ["--plugin-dir", str(_lean_plugin_root(persona or "atelier:auto"))]
             if persona:
                 # Pin the arm to one agent persona: a built-in twin (e.g. "Explore"
                 # / "Plan") for baseline, or "atelier:<x>" for the candidate. None
@@ -3178,7 +3218,7 @@ def main() -> int:
         default=[],
         help="Setup command run inside each ad-hoc workspace; repeatable.",
     )
-    p.add_argument("--max-turns", type=int, default=15, help="Turn cap for the claude driver in ad-hoc mode.")
+    p.add_argument("--max-turns", type=int, default=50, help="Turn cap for the claude driver in ad-hoc mode.")
     p.add_argument(
         "--estimate-only",
         action="store_true",

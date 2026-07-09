@@ -962,7 +962,7 @@ def benchmark_codebench_cmd(
 )
 @click.option("--model", default="sonnet", show_default=True)
 @click.option("--reps", type=int, default=1, show_default=True)
-@click.option("--max-turns", type=int, default=15, show_default=True, help="Turn cap per run.")
+@click.option("--max-turns", type=int, default=50, show_default=True, help="Turn cap per run.")
 @click.option(
     "--arm",
     "arms",
@@ -1109,12 +1109,18 @@ def benchmark_local_cmd(
         "large real repo lets agents wander it for unrelated tokens/cost noise."
     ),
 )
-@click.option("--model", default="sonnet", show_default=True)
+@click.option(
+    "--model",
+    default="claude-opus-4-8",
+    show_default=True,
+    help="Every committed telegraphic number in BENCHMARKS.md/caveman.astro is opus-4-8 -- "
+    "overriding this produces a run that isn't comparable to the checked-in baseline.",
+)
 @click.option("--reps", type=int, default=1, show_default=True)
 @click.option(
     "--max-turns",
     type=int,
-    default=6,
+    default=50,
     show_default=True,
     help="Turn cap per run (Q&A prompts need 1-2; small headroom, not codebench's 15).",
 )
@@ -1124,13 +1130,12 @@ def benchmark_local_cmd(
     multiple=True,
     default=("baseline", "atelier"),
     show_default=True,
-    type=click.Choice(["baseline", "atelier", "atelier-telegraphic", "caveman"]),
+    type=click.Choice(["baseline", "atelier", "caveman"]),
     help=(
         "baseline/atelier run through the full codebench harness (plugin+MCP for "
-        "atelier). atelier-telegraphic/caveman are vanilla Claude Code plus ONE "
-        "appended system prompt (atelier's ultra register, or caveman's own "
-        "SKILL.md verbatim) -- no plugin, no agent, no MCP; isolates the reply "
-        "style alone, the way caveman's own harness does."
+        "atelier). caveman is vanilla Claude Code plus ONE appended system prompt "
+        "(its own SKILL.md verbatim) -- no plugin, no agent, no MCP; isolates the "
+        "reply style alone, the way caveman's own harness does."
     ),
 )
 @click.option(
@@ -1138,7 +1143,7 @@ def benchmark_local_cmd(
     type=click.Choice(["claude", "copilot", "codex", "opencode", "atelier-run"]),
     default="claude",
     show_default=True,
-    help="CLI host to benchmark (codebench arms only -- atelier-telegraphic/caveman always use claude).",
+    help="CLI host to benchmark (codebench arms only -- caveman always uses claude).",
 )
 @click.option(
     "--jobs",
@@ -1326,10 +1331,16 @@ def benchmark_telegraphic_cmd(
         done = 0
         for idx, entry in enumerate(prompt_entries):
             task_id = f"local{idx + 1}"
+            # Same batch{N}/local{n} layout codebench arms use above, so an extra
+            # arm's flow_dump.txt sits next to baseline/atelier's for the same task.
+            batch_dir = run_dir / f"batch{idx // _BATCH}"
+            batch_dir.mkdir(parents=True, exist_ok=True)
+            local_n = idx % _BATCH + 1
             for arm in extra_arm_list:
                 for rep in range(reps):
                     done += 1
                     click.echo(f"[{done}/{total_extra}] {task_id} {arm} rep{rep}")
+                    flow_path = batch_dir / f"local{local_n}_{arm}_rep{rep}.flow" if capture else None
                     merged.append(
                         run_extra_arm(
                             arm=arm,
@@ -1338,6 +1349,7 @@ def benchmark_telegraphic_cmd(
                             model=model,
                             rep=rep,
                             make_baseline_config=_make_baseline_config,
+                            flow_path=flow_path,
                         )
                     )
 
