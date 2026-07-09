@@ -140,9 +140,9 @@ Retrieval quality (MRR) across ~7,200 query/gold pairs on 14 repos -- ripgrep, a
 | ripgrep                       |     0.376 |     0.320 |   66ms |
 | universal-ctags (worst rival) |     0.237 |     0.226 |    1ms |
 
-None of these 10 tools had ever been scored against each other, on a shared query set, before this table existed -- most publish a number about themselves, on their own terms, against their own baseline (grep, file-by-file reading), never against a rival. Full 13-row table and a per-tool "what they claim vs. what it scored" breakdown, with sources: [atelier.ws/vs](https://atelier.ws/vs) and [docs.atelier.ws/benchmarks/results](https://docs.atelier.ws/benchmarks/results).
+No one had scored these 10 tools against each other on a shared query set before -- each publishes its own number, on its own terms, against its own baseline. Full 13-row table and per-tool "claim vs. scored" breakdown: [atelier.ws/vs](https://atelier.ws/vs) · [docs.atelier.ws/benchmarks/results](https://docs.atelier.ws/benchmarks/results).
 
-Two more worth a look, neither of which is a code-search tool: [rtk](https://atelier.ws/vs/rtk) is a 69.6k-star Rust CLI proxy that compresses command output -- its self-estimated savings table (never run against a real coding task) vs. Atelier's actual accuracy-checked Terminal-Bench number. ["Just tell Claude to be terse"](https://atelier.ws/vs/caveman) is the free DIY alternative anyone can try before installing anything -- benchmarked head-to-head against Atelier's runtime on the same 20 prompts, including the prompt where it backfires.
+Also worth a look, two comparisons outside code search: [rtk](https://atelier.ws/vs/rtk), a 69.6k-star Rust CLI proxy -- self-estimated savings vs. Atelier's accuracy-checked Terminal-Bench number. ["Just tell Claude to be terse"](https://atelier.ws/vs/caveman), the free DIY alternative -- benchmarked head-to-head on the same 20 prompts, including the one where it backfires.
 
 ## Why it works
 
@@ -157,7 +157,7 @@ Atelier does not make Claude a different model. It makes the loop around Claude 
 
 ## What you get
 
-- Works with Claude Code, Codex, Cursor, opencode, and other coding agents that use MCP-style tools.
+- Works with Claude Code, Codex, Copilot, Cursor, opencode, Hermes Agent, LangChain, the OpenAI SDK, Gemini ADK, and any other MCP-compatible coding agent.
 - Runs locally by default.
 - Apache-2.0 open source runtime.
 - No account needed to start.
