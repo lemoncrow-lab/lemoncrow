@@ -121,7 +121,7 @@ def main() -> None:
         status = v["status"]
         if status == "ok":
             ratio = float(v["reward"] or 0.0)
-            suffix = f"×{v['n_ok']}" if v["n_ok"] > 1 else ""
+            suffix = f"x{v['n_ok']}" if v["n_ok"] > 1 else ""
             return f"({ratio:.1f}){float(v['cost'] or 0.0):.2f}{suffix}"
         if status == "timeout":
             ratio = float(v["reward"] or 0.0)
@@ -249,7 +249,7 @@ def main() -> None:
     print(
         "base=n_pass/n_reps (pass-rate decimal) cost$   (r)=reward ratio for that run's attempt (1.0=correct, 0.0=incorrect) then cost$"
     )
-    print("multi-rep runs: (r) & cost are the MEAN over that run's reps of the task; ×N marks N priced reps averaged")
+    print("multi-rep runs: (r) & cost are the MEAN over that run's reps of the task; xN marks N priced reps averaged")
     print("sav%=(baseline-latest)/baseline  sav$=baseline-latest ($), += cheaper/saved, -=pricier")
     print("TO=timeout(no cost) -=incomplete .=not attempted/na ...=running now")
 
