@@ -16,7 +16,7 @@ data, and [Marketing & Positioning](../marketing/strategy.md) for voice.
 | SWE-bench Pro | 10 tasks x 5 reps, Go/TS/Python, ScaleAI harness | 44/50 (88%), $39.01 | **45/50 (90%), $30.61** | [`swe-pro_2026_07_07/`](https://github.com/atelier-ws/atelier/tree/main/benchmarks/codebench/results/swe-pro_2026_07_07) |
 | Exploration tasks | 7 large repos x 5 reps, one open-ended question each | $19.11 | **$6.29 (67% cheaper)** | [`exploration_2026_06_29/`](https://github.com/atelier-ws/atelier/tree/main/benchmarks/codebench/results/exploration_2026_06_29) |
 | Telegraphic output anatomy | Output-token decomposition (prose vs. fixed payload vs. thinking) | 67 prose tok/turn | **30 prose tok/turn (2.7x less)** | [`swe_lite_telegraphic_2026_07_06/`](https://github.com/atelier-ws/atelier/tree/main/benchmarks/codebench/results/swe_lite_telegraphic_2026_07_06) |
-| Telegraphic Q&A | 20 engineering Q&A prompts x 5 reps, no repo, no golden patch | $8.93 | **$6.81 (23.7% cheaper)** | [`telegraphic_2026_07_08_5rep/`](https://github.com/atelier-ws/atelier/tree/main/benchmarks/codebench/results/telegraphic_2026_07_08_5rep) |
+| Telegraphic Q&A | 20 engineering Q&A prompts x 5 reps, no repo, no golden patch | $8.93 | **$5.34 (40.2% cheaper)** | [`telegraphic_2026_07_08/`](https://github.com/atelier-ws/atelier/tree/main/benchmarks/codebench/results/telegraphic_2026_07_08) |
 | Retrieval evaluation | Code-search quality (MRR/recall/latency) vs. 10 named tools, 14 repos, ~7,213 query/gold pairs | best rival 0.557 MRR (cocoindex-code) | **0.727 MRR (+semantic)** | [`retrieval_2026_07_05/`](https://github.com/atelier-ws/atelier/tree/main/benchmarks/codebench/results/retrieval_2026_07_05) |
 | Indexing time | Cold full-rebuild time, 14 repos, lexical/zoekt/semantic phases | -- | see table below | same as above |
 | Embedder sweep | 9 embedding models scored on definition/content/semantic MRR | best alternative 0.783 avg | **0.847 avg (BGE-Code-v1, Atelier's default)** | `benchmarks/codebench/run_embedder_sweep.py` |
@@ -92,13 +92,16 @@ both get their own page on [atelier.ws/vs](https://atelier.ws/vs) instead.
 - **["Just tell Claude to be terse"](https://atelier.ws/vs/caveman)** is the
   free DIY alternative every reader can try with no install: a system-prompt
   instruction (`benchmarks/telegraphic/caveman_skill.md`) layered on vanilla
-  Claude Code. Real data from a 1-rep, 4-arm exploratory run
-  (`benchmarks/codebench/results/telegraphic_2026_07_08/`): it beats
-  Atelier's full-runtime average (42% vs. 29% fewer output tokens) but with
-  triple the variance (30pp vs. 21pp stdev) and one real regression --
-  `error-boundary` produces 52% *more* output than baseline, because a
-  wording instruction can't tell a prompt that needs a code block from one
-  that needs compressing.
+  Claude Code. Real data from the same 5-rep, 3-arm run as the flagship
+  comparison (`benchmarks/codebench/results/telegraphic_2026_07_08/`): it
+  cuts output tokens almost as much as Atelier's full runtime (43% vs. 46%
+  fewer, mean pooled) but with more variance across prompts (16pp vs. 11pp
+  stdev), and it barely moves cost (-2% vs. Atelier's -40%) -- a wording
+  instruction only compresses replies, it can't touch the input/context
+  tokens that actually drive the bill. Its weakest prompt is `error-boundary`
+  (a real code-block answer, not prose to compress) at a 3% output-token cut;
+  its worst *cost* outcome is `async-refactor`, a 12% cost increase despite a
+  47% token cut there.
 
 ## Indexing time (cold full rebuild)
 

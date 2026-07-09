@@ -466,6 +466,20 @@ class AtelierClaudeCodeHarborAgent(AtelierHarborAgent):
                 "/opt/atelier-venv/bin/atelier init"
             ),
         )
+        # Bench-lean copy of the plugin: keep only the persona this arm runs
+        # (solve) and drop skills/ entirely -- mounting/reading the raw plugin
+        # dir ships every agent persona + the full skill list into the system
+        # prompt on every turn, dead prefix weight this benchmark never
+        # exercises (mirrors benchmarks/codebench/run.py's _lean_plugin_root).
+        await self.exec_as_root(
+            environment,
+            command=(
+                "rm -rf /opt/atelier-plugin-lean && "
+                "cp -r /atelier/integrations/claude/plugin /opt/atelier-plugin-lean && "
+                "find /opt/atelier-plugin-lean/agents -maxdepth 1 -name '*.md' ! -name 'solve.md' -delete && "
+                "rm -rf /opt/atelier-plugin-lean/skills"
+            ),
+        )
         await _install_rtk(self, environment)
         # Reward-hacking compliance (TB leaderboard rule): block the agent from
         # reaching the Terminal-Bench website/leaderboard so it cannot look up
@@ -505,9 +519,7 @@ class AtelierClaudeCodeHarborAgent(AtelierHarborAgent):
         # making the plugin the ONLY variable vs the "on" arm. Select the
         # baseline at run time with `--ak bench_mode=off`.
         plugin_flags = (
-            ""
-            if self._bench_mode == "off"
-            else "--plugin-dir /atelier/integrations/claude/plugin --agent atelier:solve "
+            "" if self._bench_mode == "off" else "--plugin-dir /opt/atelier-plugin-lean --agent atelier:solve "
         )
         # Atelier arm only: build the code index BEFORE claude starts so the first
         # MCP grep hits a ready FTS index instead of racing a lazy/incremental
