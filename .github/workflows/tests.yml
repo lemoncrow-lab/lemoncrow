@@ -34,10 +34,18 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: python
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
 
       - name: Analyze
         uses: github/codeql-action/analyze@v3

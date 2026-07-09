@@ -1307,11 +1307,11 @@ def benchmark_telegraphic_cmd(
         if capture:
             from benchmarks.flowlib.dump import extract
 
-            for flow_path in sorted(batch_dir.glob("*.flow")):
-                if flow_path.stat().st_size == 0:
+            for fp in sorted(batch_dir.glob("*.flow")):
+                if fp.stat().st_size == 0:
                     continue
                 with contextlib.suppress(Exception), contextlib.redirect_stdout(io.StringIO()):
-                    extract(str(flow_path), str(flow_path.with_suffix(".flow_dump.txt")))
+                    extract(str(fp), str(fp.with_suffix(".flow_dump.txt")))
         offset = batch_idx * _BATCH
         for row in load_results(batch_dir):
             m = re.match(r"^local(\d+)$", str(row.get("task", "")))
