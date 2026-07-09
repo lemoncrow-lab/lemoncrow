@@ -224,6 +224,28 @@ stage_plugin_bundle() {
     PLUGIN_TEMPLATE="$STAGING_DIR"
 }
 
+stamp_plugin_manifest_version() {
+    if $DRY_RUN; then
+        echo "  [dry-run] stamp ${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json with project version"
+        return
+    fi
+    PLUGIN_MANIFEST="${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json" PROJECT_PYPROJECT="${ATELIER_REPO}/pyproject.toml" python3 - <<'PYEOF'
+import json
+import os
+import re
+from pathlib import Path
+
+manifest = Path(os.environ["PLUGIN_MANIFEST"])
+pyproject = Path(os.environ["PROJECT_PYPROJECT"])
+version_match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(encoding="utf-8"), re.MULTILINE)
+if not version_match:
+    raise SystemExit(f"could not parse project version from {pyproject}")
+data = json.loads(manifest.read_text(encoding="utf-8"))
+data["version"] = version_match.group(1)
+manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PYEOF
+}
+
 backup_file() {
     local path="$1"
     if $WORKSPACE_SET; then return; fi
@@ -429,12 +451,12 @@ PYEOF
 }
 
 stage_plugin_bundle
+stamp_plugin_manifest_version
 info "Installing Codex plugin source → $PLUGIN_DIR"
 install_plugin_bundle
 run "chmod +x $(printf %q "${PLUGIN_DIR}/scripts/")*.sh 2>/dev/null || true"
 patch_plugin_hooks
 patch_plugin_mcp
-write_marketplace
 install_codex_plugin
 merge_agents_file "${ATELIER_REPO}/integrations/AGENTS.atelier.md" "$AGENTS_FILE"
 if $WORKSPACE_SET; then

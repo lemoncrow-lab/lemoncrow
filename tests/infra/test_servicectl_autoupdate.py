@@ -61,6 +61,21 @@ def test_update_via_release_noop_when_current(monkeypatch: pytest.MonkeyPatch) -
     assert svc._update_via_release() is False
 
 
+def test_update_via_release_noop_when_latest_is_lower(monkeypatch: pytest.MonkeyPatch) -> None:
+    import shutil
+
+    monkeypatch.delenv("ATELIER_AUTO_UPDATE_RELEASE", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/bash")
+    monkeypatch.setattr(svc, "_github_latest_version", lambda: "1.0.0")
+    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.1.0")
+
+    def _boom(*_a: object, **_k: object) -> object:
+        raise AssertionError("must not launch installer for a lower version")
+
+    monkeypatch.setattr(svc.subprocess, "Popen", _boom)
+    assert svc._update_via_release() is False
+
+
 def test_update_via_release_launches_detached_installer(monkeypatch: pytest.MonkeyPatch) -> None:
     import shutil
     import urllib.request
@@ -154,10 +169,13 @@ def test_update_via_git_tracks_origin_main_not_upstream(monkeypatch: pytest.Monk
 
     def fake_run(cmd: list[str], **_kwargs: object) -> _FakeCompleted:
         calls.append(cmd)
+        if cmd[:2] == ["git", "show"]:
+            return _FakeCompleted(stdout='version = "2.0.0"\n')
         if cmd[:2] == ["git", "rev-list"]:
             return _FakeCompleted(stdout="2\n")
         return _FakeCompleted(returncode=0)
 
+    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.0.0")
     monkeypatch.setattr(svc.subprocess, "run", fake_run)
 
     assert svc._update_via_git(str(tmp_path)) is True
@@ -174,12 +192,30 @@ def test_update_via_git_returns_false_when_cannot_fast_forward(monkeypatch: pyte
     tick — the bug that spammed 'Auto-update failed'."""
 
     def fake_run(cmd: list[str], **_kwargs: object) -> _FakeCompleted:
+        if cmd[:2] == ["git", "show"]:
+            return _FakeCompleted(stdout='version = "2.0.0"\n')
         if cmd[:2] == ["git", "rev-list"]:
             return _FakeCompleted(stdout="5\n")
         if cmd[:2] == ["git", "merge"]:
             return _FakeCompleted(returncode=1, stderr="fatal: Not possible to fast-forward")
         return _FakeCompleted(returncode=0)
 
+    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.0.0")
+    monkeypatch.setattr(svc.subprocess, "run", fake_run)
+    assert svc._update_via_git(str(tmp_path)) is False
+
+
+def test_update_via_git_skips_when_remote_version_is_not_higher(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_run(cmd: list[str], **_kwargs: object) -> _FakeCompleted:
+        if cmd[:2] == ["git", "show"]:
+            return _FakeCompleted(stdout='version = "1.0.0"\n')
+        if cmd[:2] == ["git", "merge"]:
+            raise AssertionError("must not merge a non-higher version")
+        return _FakeCompleted(returncode=0)
+
+    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.1.0")
     monkeypatch.setattr(svc.subprocess, "run", fake_run)
     assert svc._update_via_git(str(tmp_path)) is False
 
