@@ -208,15 +208,20 @@ def _run_mypyc(files: list[str], cwd: pathlib.Path) -> None:
     env = os.environ.copy()
     env["NPROC"] = "1"
     env["MAX_JOBS"] = "1"
-    # Pre-create the temp build directory so gcc can write __native_*.o there.
+    # Pre-create directories so gcc can write __native_*.o there.
     # mypyc places build/__native_*.c at the build/ root (not in a subdir), and
     # setuptools may not create build/temp.{plat}-cpython-{ver}/build/ in time.
     import sysconfig
 
     _plat = sysconfig.get_platform()
     _ver = f"{sys.version_info.major}{sys.version_info.minor}"
-    _temp_build = cwd / "build" / f"temp.{_plat}-cpython-{_ver}" / "build"
+    _build_root = cwd / "build"
+    _temp_build = _build_root / f"temp.{_plat}-cpython-{_ver}" / "build"
+    _build_root.mkdir(parents=True, exist_ok=True)
     _temp_build.mkdir(parents=True, exist_ok=True)
+    print(f"[hatch-mypyc] cwd={cwd}", flush=True)
+    print(f"[hatch-mypyc] build_root={_build_root} exists={_build_root.exists()}", flush=True)
+    print(f"[hatch-mypyc] temp_build={_temp_build} exists={_temp_build.exists()}", flush=True)
 
     result = subprocess.run(
         [sys.executable, "-m", "mypyc", "--ignore-missing-imports", "--allow-untyped-decorators", *files],
