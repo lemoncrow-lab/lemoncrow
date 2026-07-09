@@ -51,7 +51,7 @@ def _parse_target(raw_path: str) -> TargetSpec:
     if "#cell=" in raw_path:
         path, cell = raw_path.split("#cell=", 1)
         return TargetSpec(path=path, cell=cell)
-    match = re.search(r":L(\d+)(?:-L(\d+))?$", raw_path, re.IGNORECASE)
+    match = re.search(r":L?(\d+)(?:-L?(\d+))?$", raw_path, re.IGNORECASE)
     if match:
         return TargetSpec(
             path=raw_path[: match.start()],

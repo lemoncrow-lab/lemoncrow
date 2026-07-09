@@ -24,12 +24,20 @@ resolve_atelier_python() {
         fi
     fi
 
-    local wrapper py
+    local wrapper py shebang
     wrapper="$(command -v atelier 2>/dev/null || true)"
     if [[ -n "${wrapper}" ]]; then
+        # Modern uv tool wrappers are a python script whose shebang IS the venv
+        # interpreter (e.g. "#!/Users/x/.atelier/uv-tools/atelier/bin/python").
+        # Older uv versions embedded a literal "...atelier.real" path instead --
+        # check both so this resolves regardless of uv wrapper generation.
+        shebang="$(head -1 "${wrapper}" 2>/dev/null | sed -n 's/^#!//p')"
+        if [[ -x "${shebang}" ]] && "${shebang}" -c "import atelier" 2>/dev/null; then
+            echo "${shebang}"; return 0
+        fi
         # The wrapper exec's atelier.real in the uv venv; the python lives next to it.
         local real venv_bin
-        real="$(grep -oE '"[^"]*atelier.real"' "${wrapper}" 2>/dev/null | head -1 | tr -d '"')"
+        real="$(grep -oE '"[^"]*atelier\.real"' "${wrapper}" 2>/dev/null | head -1 | tr -d '"')"
         if [[ -x "${real}" ]]; then
             venv_bin="$(dirname "${real}")"
             for py in "${venv_bin}/python" "${venv_bin}/python3"; do
