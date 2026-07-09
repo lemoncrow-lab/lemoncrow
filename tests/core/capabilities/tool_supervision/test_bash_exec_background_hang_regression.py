@@ -58,10 +58,17 @@ def test_kv_store_grpc_pattern_start_server_and_check_port(tmp_path: Path) -> No
     but the agent phase itself was recorded as AgentTimeoutError)."""
     port = _free_port()
     log = tmp_path / "server.log"
+    probe_script = tmp_path / "probe_port.py"
+    probe_script.write_text(
+        "import socket, sys\n"
+        "port = int(sys.argv[1])\n"
+        "socket.create_connection(('127.0.0.1', port), 2).close()\n"
+        "print(port)\n",
+        encoding="utf-8",
+    )
     command = (
         f"cd {tmp_path} && nohup {sys.executable} -m http.server {port} > {log} 2>&1 &\n"
-        f'sleep 1; echo "log:"; cat {log}; echo "---port---"; '
-        f"(ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null) | grep {port}"
+        f'sleep 1; echo "log:"; cat {log}; echo "---port---"; {sys.executable} {probe_script} {port}'
     )
     started = bx.start_managed_command(command, timeout=5)
     sid = str(started["session_id"])

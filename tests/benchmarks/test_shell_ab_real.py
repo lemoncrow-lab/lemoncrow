@@ -12,7 +12,7 @@ import pytest
 
 from atelier.gateway.adapters.mcp_server import _reset_runtime_cache_for_testing, tool_bash
 
-pytestmark = pytest.mark.ab
+pytestmark = [pytest.mark.ab, pytest.mark.slow]
 
 
 @dataclass

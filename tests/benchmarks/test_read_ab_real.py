@@ -26,6 +26,9 @@ from pathlib import Path
 import pytest
 
 from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+
+pytestmark = [pytest.mark.ab, pytest.mark.slow]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
