@@ -9,6 +9,12 @@
 # venv and runs `atelier session stats`. The venv is cached under /tmp keyed by
 # release tag + platform, so repeated runs are fast.
 #
+# Per-session realized savings (the "Savings" column) come from
+# compute_savings_summary() — the exact same function the statusline uses —
+# so they are guaranteed consistent with the plugin's real display.
+# The "Opportunity" column is a forward-looking estimate of additional
+# savings possible if more calls were routed through Atelier.
+#
 # Examples:
 #   bash scripts/sessions.sh
 #   bash scripts/sessions.sh --since 30d --top 10
@@ -331,6 +337,9 @@ fi
 # Scan live host session directories and print an aggregate potential-savings
 # report. This is intentionally read-only: live scans import into a temporary
 # store and do not require Atelier login or provider API keys.
+# Realized savings (the "Savings" column) use compute_savings_summary() —
+# the exact same function the statusline relies on — so they are guaranteed
+# consistent with the plugin's real display.
 _run_stats() {
     "${ATELIER_BIN}" session stats "$@" 2> >(
         grep -vE \

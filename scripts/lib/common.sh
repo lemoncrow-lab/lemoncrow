@@ -855,7 +855,7 @@ prompt_telegraphic_selection() {
         "Agent reply style (change later: /atelier set telegraphic <level>)?" \
         tg_idx \
         0 \
-        "Ultra – maximal telegraphic compression (default)" \
+        "Ultra – maximal output compression" \
         "Lite – concise, lighter register" \
         "Off – no reply-style instruction"
     case "$tg_idx" in
