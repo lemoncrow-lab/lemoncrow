@@ -79,6 +79,7 @@ ATELIER_TOOL_DIR="${ATELIER_TOOL_DIR:-${HOME}/.atelier/uv-tools}"
 ATELIER_INSTALL_RECORD="${ATELIER_INSTALL_RECORD:-${HOME}/.atelier/install_dir}"
 ATELIER_NO_HOSTS="${ATELIER_NO_HOSTS:-0}"
 ATELIER_NO_SERVICECTL="${ATELIER_NO_SERVICECTL:-0}"
+ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 
 persist_install_record() {
     local record_dir
@@ -1576,7 +1577,7 @@ install_uv_if_needed() {
     # selects a newer ABI. `uv python pin` writes ./.python-version, so only do
     # it for a repo checkout (ATELIER_LOCAL=1). Binary installs pin per-install
     # via ATELIER_PYTHON_VERSION inside bundle.sh's install_atelier_from_wheel.
-    if [[ "${ATELIER_LOCAL:-0}" == "1" && "$ATELIER_DRY_RUN" != "1" ]]; then
+    if [[ "${ATELIER_LOCAL:-0}" == "1" && "${ATELIER_DRY_RUN:-0}" != "1" ]]; then
         uv python install 3.13 >/dev/null 2>&1 || true
         uv python pin 3.13 >/dev/null 2>&1 || true
     fi

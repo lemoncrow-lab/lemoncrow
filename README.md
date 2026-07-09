@@ -2,7 +2,7 @@
 
 <div align="center">
 
-# Atelier Runtime
+# <img src="docs-site/favicon.png" width="36" height="36" alt="" style="vertical-align: middle;"> Atelier Runtime
 
 ### Honestly, get 30% more out of your Claude subscription
 
@@ -152,6 +152,7 @@ Claude is strong, but the work around Claude is often wasteful. Atelier reduces 
 - **Better outputs:** command output and replies stay compact without losing exact technical facts.
 - **Better memory:** useful context can be reused instead of rediscovered.
 - **Better guardrails:** tools and hooks reduce risky edits, oversized reads, and unverified "done" states.
+- **Better discipline:** think before coding, simplicity first, surgical changes, goal-driven execution — enforced in every Atelier persona, not typed into a prompt once. Checked against the raw runs in [Results](#results), not asserted.
 
 Atelier does not make Claude a different model. It makes the loop around Claude cleaner, which is why the same model solved more tasks in the benchmark.
 
@@ -172,13 +173,19 @@ Atelier does not make Claude a different model. It makes the loop around Claude 
 - [CLI reference](docs/cli.md)
 - [Architecture](docs/architecture.md)
 
-## GitHub Star Trends
+---
 
-<div align="center">
+## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=atelier-ws/atelier&type=Date)](https://star-history.com/#atelier-ws/atelier&Date)
+<a href="https://star-history.com/#atelier-ws/atelier&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=atelier-ws/atelier&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=atelier-ws/atelier&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=atelier-ws/atelier&type=Date" />
+  </picture>
+</a>
 
-</div>
+---
 
 ## License
 

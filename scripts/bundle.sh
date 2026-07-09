@@ -21,6 +21,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 # A distribution install is never a source checkout; keep host configs global
 # unless an explicit --workspace is provided.
 ATELIER_LOCAL=0
+ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_PYTHON_VERSION="${ATELIER_PYTHON_VERSION:-3.13}"
 
 # ---- arg parsing ------------------------------------------------------------
