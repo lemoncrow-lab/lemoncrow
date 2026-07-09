@@ -1038,15 +1038,14 @@ def _check_auto_update() -> None:
     the install script.  Logs errors and emits telemetry on failure but
     never blocks the MCP server.
 
-    Opt-in only: does nothing unless ``ATELIER_AUTO_UPDATE=1`` is set in the
-    environment. Running ``git pull`` + the install script from origin on every
-    startup is a supply-chain/RCE risk, so it must be explicitly enabled.
+    Enabled by default. Set ``ATELIER_AUTO_UPDATE=0`` (or false/no/off) to
+    disable startup git checkout auto-update.
     """
     import re
     import subprocess
 
-    if os.environ.get("ATELIER_AUTO_UPDATE") != "1":
-        _log.debug("auto-update disabled (set ATELIER_AUTO_UPDATE=1 to enable)")
+    if os.environ.get("ATELIER_AUTO_UPDATE", "").strip().lower() in ("0", "false", "no", "off"):
+        _log.debug("auto-update disabled by ATELIER_AUTO_UPDATE")
         return
 
     _log.info("checking for auto-update...")

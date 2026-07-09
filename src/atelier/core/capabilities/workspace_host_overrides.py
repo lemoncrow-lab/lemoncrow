@@ -190,11 +190,10 @@ def write_opencode_agents(
     Mirrors :func:`write_codex_agents`'s pattern: generic ``target_dir`` used
     for both global installs (``$OPENCODE_CONFIG_HOME/agents``) and workspace
     installs (``<repo>/.opencode/agents``). ``model_workspace`` scopes
-    per-role model overrides via ``resolve_host_model``; pass ``None`` for a
-    global install to use global/default model settings. Stale legacy
-    filenames (bare ``atelier.md``, bare role names, and any current
-    ``atelier.<role>.md``) are removed first so the set always matches the
-    current roles.
+    explicit per-role host model overrides; absent pins inherit the OpenCode
+    session model. Stale legacy filenames (bare ``atelier.md``, bare role
+    names, and any current ``atelier.<role>.md``) are removed first so the set
+    always matches the current roles.
     """
     root = _resolve_repo_root(repo_root)
     target = Path(target_dir).expanduser().resolve()
@@ -217,7 +216,7 @@ def write_opencode_agents(
         out = target / f"atelier.{role_id}.md"
         model = normalize_model_for_host(
             "opencode",
-            resolve_host_model("opencode", role_id, workspace_root=model_workspace, fallback=None),
+            resolve_explicit_host_model("opencode", role_id, workspace_root=model_workspace),
         )
         body = apply_reply_register_level(
             source.read_text(encoding="utf-8"), _integration_resource(root, "agents", "shared")
