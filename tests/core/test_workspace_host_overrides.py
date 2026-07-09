@@ -188,6 +188,40 @@ def test_write_workspace_opencode_agents_role_ids_override_installs_requested_ro
     assert len(written) == 2
 
 
+def test_write_workspace_opencode_agents_omit_runtime_default_model(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    settings = workspace / ".atelier" / "settings.json"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(
+        json.dumps({"models": {"runtime": {"roles": {"code": "claude-opus-4.8"}}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / "global-root"))
+
+    write_workspace_opencode_agents(workspace)
+    content = (workspace / ".opencode" / "agents" / "atelier.code.md").read_text(encoding="utf-8")
+
+    assert "model:" not in content.split("---", 2)[1]
+
+
+def test_write_workspace_opencode_agents_normalize_explicit_host_model(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    settings = workspace / ".atelier" / "settings.json"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(
+        json.dumps({"models": {"hosts": {"opencode": {"roles": {"code": "claude-opus-4.8"}}}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / "global-root"))
+
+    write_workspace_opencode_agents(workspace)
+    content = (workspace / ".opencode" / "agents" / "atelier.code.md").read_text(encoding="utf-8")
+
+    assert "model: anthropic/claude-opus-4-8" in content.split("---", 2)[1]
+
+
 def test_write_workspace_codex_agents_projects_standalone_files(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()

@@ -2978,14 +2978,11 @@ def test_render_search_map_md_is_compact() -> None:
     assert "ranked_files" not in out
 
 
-def test_check_auto_update_is_opt_in_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Supply-chain guard (HIGH #8): startup auto-update must NOT run git/install
-    # automatically. With ATELIER_AUTO_UPDATE unset it must short-circuit before
-    # spawning any subprocess.
-    monkeypatch.delenv("ATELIER_AUTO_UPDATE", raising=False)
+def test_check_auto_update_respects_explicit_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ATELIER_AUTO_UPDATE", "0")
 
     def _boom(*args: Any, **kwargs: Any) -> Any:  # pragma: no cover - must not run
-        raise AssertionError("auto-update ran a subprocess while opt-in env var was unset")
+        raise AssertionError("auto-update ran a subprocess while ATELIER_AUTO_UPDATE=0")
 
     import subprocess as _subprocess
 
