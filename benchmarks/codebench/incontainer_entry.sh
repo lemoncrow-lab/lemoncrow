@@ -61,7 +61,7 @@ done
 export BASH_ENV="$_act"
 
 ARM="${CODEBENCH_ARM:-baseline}"
-MODEL="${CODEBENCH_MODEL:-sonnet}"
+MODEL="${CODEBENCH_MODEL:-opus}"
 
 # Atelier arm: build the FULL code index BEFORE the timed agent run (setup, not
 # graded). The live MCP server only READS this index -- it must never build on

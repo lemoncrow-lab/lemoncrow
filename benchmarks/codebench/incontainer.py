@@ -15,24 +15,21 @@ That is the vanilla-vs-Atelier isolation, same model, same task.
 from __future__ import annotations
 
 import contextlib
-import functools
 import io
 import os
 import shutil
 import subprocess
 import sys
-import tempfile
-import threading
 import time
 from pathlib import Path
 from typing import Protocol
 
 from benchmarks.codebench.run import (
-    ATELIER_CLAUDE_PLUGIN_ROOT,
     CA_CERT,
     REPO_ROOT,
     ArmResult,
     _free_port,
+    _lean_plugin_root,
     _parse_claude_result,
     _wait_port,
 )
@@ -59,43 +56,6 @@ _DIFF_END = "<<<CODEBENCH_DIFF_END>>>"
 
 # Persona per arm for the "code" capability (mirrors run.ARM_SPECS).
 _ARM_AGENT: dict[str, str | None] = {"baseline": None, "atelier": "atelier:auto"}
-
-
-_PLUGIN_STAGE_LOCK = threading.Lock()
-
-
-@functools.lru_cache(maxsize=1)
-def _lean_plugin_root() -> str:
-    """Stage a bench-lean copy of the Claude plugin for the container mount.
-
-    The repo plugin dir doubles as the on-demand install SOURCE (every role
-    agent + optional skills), so mounting it raw ships 10 agent personas and
-    the full skill list into every container's system prompt -- dead prefix
-    weight re-read on every turn of every run. The bench measures the CODING
-    surface only: exactly one persona (_ARM_AGENT) and ZERO skills.
-
-    Guarded by a lock and staged per-process: lru_cache does NOT serialize the
-    first computation, so two parallel jobs could otherwise interleave rmtree/
-    copytree while one of them is mounting the dir (observed: first-scheduled
-    instance dying at turn 0 with an empty flow). The pid suffix keeps a fresh
-    driver process from clobbering a still-running older one.
-    """
-    src = ATELIER_CLAUDE_PLUGIN_ROOT
-    dest = Path(tempfile.gettempdir()) / f"codebench-plugin-lean-{os.getpid()}"
-    with _PLUGIN_STAGE_LOCK:
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.copytree(src, dest)
-        agents = dest / "agents"
-        if agents.is_dir():
-            keep = (_ARM_AGENT.get("atelier") or "atelier:auto").split(":", 1)[-1]
-            for p in agents.glob("*.md"):
-                if p.stem != keep:
-                    p.unlink()
-        skills = dest / "skills"
-        if skills.is_dir():
-            shutil.rmtree(skills)
-    return str(dest)
 
 
 # Installed into every overlay: Node + the claude CLI on top of the instance image.
@@ -421,7 +381,7 @@ def _docker_run_cmd(
         f"{CA_CERT}:/mnt/mitm.pem:ro",
     ]
     if arm == "atelier":
-        cmd += ["-v", f"{_lean_plugin_root()}:/mnt/plugin:ro"]
+        cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('atelier') or 'atelier:auto')}:/mnt/plugin:ro"]
         cmd += ["-v", f"{TIKTOKEN_CACHE_HOST}:/opt/tiktoken-cache:ro"]
         # Overlay the live repo source onto the baked-in (pure-Python) install so
         # tool-behavior changes take effect without rebuilding 12 overlay images.

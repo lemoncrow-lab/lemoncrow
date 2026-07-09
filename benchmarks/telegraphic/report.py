@@ -1,5 +1,5 @@
-"""Render the telegraphic savings table -- baseline vs any of: full atelier
-runtime, atelier's telegraphic register alone, caveman's own skill alone.
+"""Render the telegraphic savings table -- baseline vs full atelier runtime,
+or caveman's own skill alone.
 
 Reads ``results.jsonl`` (one row per (prompt, arm, rep), ``ArmResult``-shaped
 for codebench arms, ``extra_arms.run_extra_arm``-shaped for the isolated
@@ -23,7 +23,6 @@ _TASK_RE = re.compile(r"^local(\d+)$")
 _ARM_LABELS = {
     "baseline": "Baseline",
     "atelier": "Atelier (full runtime)",
-    "atelier-telegraphic": "Atelier (telegraphic only)",
     "caveman": "Caveman",
 }
 
