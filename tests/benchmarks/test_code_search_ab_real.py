@@ -11,7 +11,7 @@ import pytest
 
 from atelier.core.capabilities.code_context.engine import CodeContextEngine
 
-pytestmark = pytest.mark.ab
+pytestmark = [pytest.mark.ab, pytest.mark.slow]
 
 
 @dataclass
