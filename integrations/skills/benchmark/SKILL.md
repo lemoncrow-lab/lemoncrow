@@ -49,12 +49,23 @@ repository** with the user's **own coding prompts** — same model and driver
 both arms, so the delta is attributable to Atelier (tools, agents, routing),
 not noise.
 
+**`/benchmark <anything>` always runs a command — never just an explanation.** The argument is
+the prompt to run through step 2, no matter how it's phrased — a task ("refactor X"), a
+question ("how do you compute token savings"), or a meta-question about Atelier itself ("is
+this worth it"). Do **not** answer it yourself by reading source/docs and replying in prose;
+that is never a substitute for actually invoking `atelier eval sessions` or
+`atelier benchmark local`. If the text genuinely isn't a task to run (e.g. "how do I use this
+skill") say so and point at this file — don't silently swap in a free-form explanation.
+
 ### 1. Gather inputs
 
 - **Repo**: always the current working directory. Never ask.
 - **Model**: inherit from the current session model. Never ask.
 - **Setup**: omit `--setup` entirely. The benchmark runner handles workspace setup.
-- **Prompts**: the only thing to ask. Use `AskUserQuestion` with a single question:
+- **Prompts**: `/benchmark <prompt>` — the text after `/benchmark` IS the prompt, verbatim, even
+  if it reads like a question. Non-empty argument → use it as prompt 1 (split additional
+  prompts on newlines or `;` if the user listed several); skip asking, go straight to step 2.
+  Only when invoked bare (`/benchmark` with no argument), ask via `AskUserQuestion`:
   `"What coding tasks should I benchmark? (one per line)"` — free-text input.
 
 ### 2. Run the local benchmark
