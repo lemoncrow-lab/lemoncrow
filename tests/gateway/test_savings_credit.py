@@ -359,6 +359,38 @@ def test_carry_credit_ignores_avoided_calls(tmp_path: Path) -> None:
     assert carry_usd == pytest.approx(pricing.request_cost_usd(cache_read_tokens=2000), abs=1e-9)
 
 
+def test_carry_credit_ignores_input_style_and_turn_cut_rows(tmp_path: Path) -> None:
+    """input_style and turn_cut rows are recurring, per-turn credits re-earned
+    fresh at every Stop fire (input_style: this turn's resend-volume gap;
+    turn_cut: priced via calls/calls_usd, never a token that entered context).
+    Neither represents a token newly written into context, so carrying them
+    forward would compound the same per-turn gap on every later turn as well
+    -- only real realized/output-style rows (genuine avoided context writes)
+    should carry."""
+    base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    def at(minutes: int) -> str:
+        return (base + timedelta(minutes=minutes)).isoformat()
+
+    _write_sidecar(
+        tmp_path,
+        "s1",
+        [
+            {"kind": "input_style", "tokens": 50_000, "cost_saved_usd": 0.05, "model": MODEL, "ts": at(0)},
+            {"kind": "turn_cut", "calls": 5, "calls_usd": 0.10, "model": MODEL, "ts": at(0)},
+            {"tool": "read", "tokens": 1000, "calls": 0, "model": MODEL, "ts": at(1)},
+        ],
+    )
+    turn_ts = [at(0), at(3), at(4)]
+    carry_tokens, carry_usd = _carry_credit("s1", tmp_path, turn_ts)
+    pricing = get_model_pricing(MODEL)
+    assert pricing is not None
+    # Only the 1000-token realized row carries, over its 2 later real turns;
+    # the 50k input_style tokens and the turn_cut calls add nothing.
+    assert carry_tokens == 2000
+    assert carry_usd == pytest.approx(pricing.request_cost_usd(cache_read_tokens=2000), abs=1e-9)
+
+
 def test_carry_credit_caps_resident_at_context_window(tmp_path: Path) -> None:
     """Tokens carried into any single later turn cannot exceed the model's
     context window: a session that saved more than a window's worth before a
