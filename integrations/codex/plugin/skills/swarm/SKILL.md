@@ -10,14 +10,18 @@ description: "Launch N parallel attempts at one hard task in isolated worktrees,
 
 Launches **N parallel attempts at the same task** in isolated worktrees — each runs independently; the best result wins. For N tries at a hard problem rather than one sequential run (`/orchestrate` for that).
 
-When invoked, gather inputs via `AskUserQuestion`.
+`/swarm <goal>` — the text after `/swarm` IS the goal, use it verbatim, never re-ask it.
+Invoked bare (no argument) → ask ONE free-text `AskUserQuestion`: `"What should the swarm work on?"`
+Whatever the phrasing — a task, or a question about swarm itself — it's the goal to launch;
+never substitute a hand-written explanation for actually calling the swarm surface (step 4).
 
 ## Operating loop
 
 1. Swarm vs single `orchestrate` run unclear → `AskUserQuestion` first.
-2. `AskUserQuestion` for launch parameters — up to 4 related unknowns per call.
-3. Launch via the existing swarm surface (`atelier swarm ...` or the matching service API) — never a new custom runtime.
-4. Return the `run_id` + the exact status/log/apply surface to use next.
+2. Goal missing (bare invocation) → the one free-text question above; goal already given → skip straight to 3.
+3. Launch parameters still unresolved after explicit args + repo inference → `AskUserQuestion`, up to 4 related unknowns per call.
+4. Launch via the existing swarm surface (`atelier swarm ...` or the matching service API) — never a new custom runtime.
+5. Return the `run_id` + the exact status/log/apply surface to use next.
 
 ## Parameters to gather → launch contract
 

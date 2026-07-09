@@ -34,8 +34,8 @@ _SHORT_NAME_MODELS: dict[str, str] = {
 # Heuristic per-turn token shape when no historical runs are available to
 # calibrate against. A non-trivial coding turn reads a few files and emits a
 # patch; these are deliberately conservative round numbers, not measurements.
-_HEURISTIC_INPUT_TOKENS_PER_TURN = 9000
-_HEURISTIC_OUTPUT_TOKENS_PER_TURN = 700
+_HEURISTIC_INPUT_TOKENS_PER_TURN = 900
+_HEURISTIC_OUTPUT_TOKENS_PER_TURN = 70
 
 # Minimum historical samples required before we trust a calibrated median.
 _MIN_CALIBRATION_SAMPLES = 3
@@ -144,9 +144,7 @@ def estimate_cost(
     if len(matching) >= _MIN_CALIBRATION_SAMPLES:
         per_run_usd = float(statistics.median(matching))
         basis = "calibrated"
-        assumption = (
-            f"median of {len(matching)} historical per-run costs for " f"{target_family or 'comparable'} models"
-        )
+        assumption = f"median of {len(matching)} historical per-run costs for {target_family or 'comparable'} models"
     else:
         input_tokens = max_turns * _HEURISTIC_INPUT_TOKENS_PER_TURN
         output_tokens = max_turns * _HEURISTIC_OUTPUT_TOKENS_PER_TURN
