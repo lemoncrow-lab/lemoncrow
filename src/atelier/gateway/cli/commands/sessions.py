@@ -1079,7 +1079,6 @@ def _build_session_row(trace: Trace, store: ContextStore, host_name: str, root: 
     builtin_calls = int(potential["builtin_calls"])
     total_calls = atelier_calls + builtin_calls
     atelier_share = atelier_calls / max(1, total_calls)
-    builtin_share = builtin_calls / max(1, total_calls)
     # Channel cap bases: saved tokens would have been fed once (input/cache-
     # write spend); carry tokens are re-reads (cache-read spend).
     feed_cost = breakdown["input"] + breakdown["cache_write"]
@@ -1128,17 +1127,10 @@ def _build_session_row(trace: Trace, store: ContextStore, host_name: str, root: 
             potential_carry_tokens = potential_tokens_saved * max(0, turns // 2)
             potential_saved_usd = potential_tokens_saved * in_rate
             potential_carry_usd = potential_carry_tokens * cr_rate
-        # Same channel caps as actual savings, on the builtin share.
-        saved_cap = feed_cost * builtin_share
-        carry_cap = reread_cost * min(1.0, builtin_share * 2)
-        if potential_saved_usd > saved_cap:
-            scale = saved_cap / potential_saved_usd if potential_saved_usd > 0 else 0.0
-            potential_saved_usd = saved_cap
-            potential_tokens_saved = int(potential_tokens_saved * scale)
-        if potential_carry_usd > carry_cap:
-            scale = carry_cap / potential_carry_usd if potential_carry_usd > 0 else 0.0
-            potential_carry_usd = carry_cap
-            potential_carry_tokens = int(potential_carry_tokens * scale)
+        # No channel caps: the real savings computation (compute_savings_summary
+        # / statusline) reports measured savings without artificial ceilings, so
+        # the potential estimate must follow the same methodology to remain
+        # consistent with the plugin's real display.
     savings_estimated = host_name != "claude" and (saved_usd > 0 or carry_usd > 0)
     return {
         "host": host_name,

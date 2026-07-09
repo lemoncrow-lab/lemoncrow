@@ -4,7 +4,7 @@
 
 # <img src="docs-site/favicon.png" width="36" height="36" alt="" style="vertical-align: middle;"> Atelier Runtime
 
-### Honestly, get $$$ 30% more out of your Claude subscription - End to End savings
+### Honest and benchmark proven, get $ 30% more out of your Claude subscription - End to End savings
 
 Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls by up to **90%** and input/output tokens by up to **80%** -- keep using Claude Code normally; Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, reusable memory, and a live savings meter.
 
