@@ -41,15 +41,12 @@ const config: Config = {
     image: "img/atelier-logo.svg",
     colorMode: {
       defaultMode: "light",
-      respectPrefersColorScheme: true,
+      respectPrefersColorScheme: false,
       disableSwitch: false,
     },
     navbar: {
-      title: "Atelier",
-      logo: {
-        alt: "Atelier Logo",
-        src: "img/atelier-logo.svg",
-      },
+      // No title/logo config -- src/theme/Logo renders the chip+wordmark
+      // lockup directly, matching landing/src/components/Nav.tsx.
       items: [
         {
           type: "docSidebar",
@@ -58,7 +55,7 @@ const config: Config = {
           label: "Docs",
         },
         {
-          to: "/blog",
+          href: "https://github.com/atelier-ws/atelier/blob/main/BENCHMARKS.md",
           label: "Benchmarks",
           position: "left",
         },
@@ -66,16 +63,21 @@ const config: Config = {
           href: "https://atelier.ws",
           label: "Website",
           position: "right",
+          className: "navbar-cta",
+        },
+        {
+          type: "custom-githubStars",
+          position: "right",
         },
         {
           href: "https://github.com/atelier-ws/atelier",
           label: "GitHub",
           position: "right",
+          className: "header-github-link",
         },
       ],
     },
     footer: {
-      style: "dark",
       links: [
         {
           title: "Docs",
