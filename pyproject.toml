@@ -20,12 +20,11 @@ version = "0.2.14"
 description = "Agent runtime for coding agents — reusable procedures, code intelligence, cost tracking, and model routing."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
-license = { text = "Apache-2.0" }
+license = { text = "FSL-1.1-ALv2" }
 authors = [{ name = "Atelier" }]
 
-classifiers = [
-    "License :: OSI Approved :: Apache Software License",
-]
+# FSL-1.1-ALv2 has no OSI-approved trove classifier; omit rather than misstate.
+classifiers = []
 
 dependencies = [
     "pydantic>=2.6",

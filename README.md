@@ -8,7 +8,7 @@
 
 Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls by up to **90%** and input/output tokens by up to **80%** -- keep using Claude Code normally; Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, reusable memory, and a live savings meter.
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
 [![Stars](https://img.shields.io/github/stars/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier)
 
@@ -210,4 +210,4 @@ Atelier does not make Claude a different model. It makes the loop around Claude 
 
 ## License
 
-Apache 2.0 — see [`LICENSE`](LICENSE).
+Open-core. The engine (`src/atelier/core`, `bench`, `infra`, `gateway` minus `gateway/sdk`, plus `tests/`, `benchmarks/`) is licensed under the [Functional Source License, v1.1, ALv2 Future License](LICENSE) (FSL-1.1-ALv2) — free for internal use, non-commercial research, and professional services; converts to Apache-2.0 two years after each release. SDK bindings, host integrations, install scripts, and docs (`src/atelier/sdk/`, `src/atelier/gateway/sdk/`, `integrations/`, `scripts/`, `docs/`, `docs-site/`) are [Apache-2.0](LICENSE-APACHE).
