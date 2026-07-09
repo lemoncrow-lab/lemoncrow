@@ -1434,6 +1434,8 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     if event != "Stop":
         return {"no_output": True}
 
+    from atelier.core.capabilities.savings_summary import _fmt_usd
+
     session_id = str(payload.get("session_id") or "default")
     state = update_session_stats(root, payload)
     statusline_cost = 0.0
@@ -1529,15 +1531,15 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     # exactly: Output/Carry/Routing are omitted when exactly $0 (Codex used to
     # always show routing/carry even at $0.0000, and never showed Output at
     # all); the headline total and calls-avoided always show.
-    savings_line = f"savings: ${saved_usd:.4f} · {tokens_saved:,} tokens saved · {calls_avoided} calls avoided"
+    savings_line = f"savings: {_fmt_usd(saved_usd)} · {_codex_fmt_tokens(tokens_saved)} tokens saved · {calls_avoided} calls avoided"
     if output_saved_usd > 0:
-        out_tok = f"/{output_saved_tokens:,} tok" if output_saved_tokens > 0 else ""
-        savings_line += f" · O ${output_saved_usd:.4f}{out_tok}"
+        out_tok = f"/{_codex_fmt_tokens(output_saved_tokens)} tok" if output_saved_tokens > 0 else ""
+        savings_line += f" · O {_fmt_usd(output_saved_usd)}{out_tok}"
     if carry_usd > 0:
-        carry_tok = f"/{carry_tokens:,} tok" if carry_tokens > 0 else ""
-        savings_line += f" · carry ${carry_usd:.4f}{carry_tok}"
+        carry_tok = f"/{_codex_fmt_tokens(carry_tokens)} tok" if carry_tokens > 0 else ""
+        savings_line += f" · carry {_fmt_usd(carry_usd)}{carry_tok}"
     if routing_saved_usd > 0:
-        savings_line += f" · routing ${routing_saved_usd:.4f}"
+        savings_line += f" · routing {_fmt_usd(routing_saved_usd)}"
     lines.append(savings_line)
     if compactions > 0:
         lines.append(f"compactions: {compactions}")

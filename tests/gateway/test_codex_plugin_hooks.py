@@ -68,7 +68,7 @@ def test_codex_statusline_renders_native_footer_in_claude_format(tmp_path: Path)
 
     result = _run_statusline(tmp_path / ".atelier", native)
 
-    assert result.stdout.strip() == ("❯ atelier | gpt-5.5 xhigh ctx 1.1M $0.000(I:19.4M C:0 O:61k) $0.000(R:0)")
+    assert result.stdout.strip() == ("❯ atelier | gpt-5.5 xhigh ctx 1.1M $0.00(I:19.40M C:0 O:61.1k) ↓ $0.00(I:0)")
 
 
 def test_codex_statusline_renders_json_token_fields_in_claude_format(tmp_path: Path) -> None:
@@ -83,7 +83,7 @@ def test_codex_statusline_renders_json_token_fields_in_claude_format(tmp_path: P
 
     result = _run_statusline(tmp_path / ".atelier", json.dumps(payload))
 
-    assert result.stdout.strip() == ("❯ atelier | gpt-5.5 xhigh ctx 1.1M 12% $1.235(I:19.4M C:0 O:61k) $0.000(R:0)")
+    assert result.stdout.strip() == ("❯ atelier | gpt-5.5 xhigh ctx 1.1M 12% $1.23(I:19.40M C:0 O:61.1k) ↓ $0.00(I:0)")
 
 
 def test_codex_multi_file_prompt_emits_no_runtime_context(tmp_path: Path) -> None:
@@ -315,9 +315,9 @@ def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
     # Routing/carry/output are all 0 in this fixture -- suppressed like
     # Claude Code's stop hook (component omitted at exactly $0), instead of
     # Codex's old always-show-at-$0.0000 behavior.
-    assert "savings: $0.0006 · 500 tokens saved · 2 calls avoided" in message
-    assert "routing $0.0000" not in message
-    assert "carry $0.0000" not in message
+    assert "savings: $0.00 · 500 tokens saved · 2 calls avoided" in message
+    assert "routing $0.00" not in message
+    assert "carry $0.00" not in message
     assert "tools: mcp__atelier__edit×1" in message
 
 
@@ -385,7 +385,7 @@ def test_codex_stop_hook_reads_status_style_token_fields(tmp_path: Path) -> None
 
     message = result["systemMessage"]
     assert "tokens: 19.5M input (19.4M new + 100.0k cW) / 2.5M cR / 61.1k out  (22.1M total)" in message
-    assert "est. cost: ~$20.4610" in message
+    assert "est. cost: ~$20.46" in message
 
 
 def test_codex_stop_hook_uses_native_statusline_snapshot_without_session_id(tmp_path: Path) -> None:
@@ -410,7 +410,7 @@ def test_codex_stop_hook_uses_native_statusline_snapshot_without_session_id(tmp_
 
     message = result["systemMessage"]
     assert "tokens: 19.4M input (19.4M new + 0 cW) / 0 cR / 61.1k out  (19.5M total)" in message
-    assert "est. cost: ~$20.0110" in message
+    assert "est. cost: ~$20.01" in message
 
 
 def test_codex_stop_hook_recovers_usage_from_local_codex_transcript(
@@ -542,7 +542,7 @@ def test_codex_stop_hook_recovers_usage_from_local_codex_transcript(
         "token breakdown: new input 500 · cache read 800 · cache write 0 · output 70 (40 reasoning, 30 visible)"
         in message
     )
-    assert "est. cost: ~$0.0013" in message
+    assert "est. cost: ~$0.00" in message
     assert "tools: apply_patch×1 · exec_command×1" in message
 
 

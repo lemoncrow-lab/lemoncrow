@@ -116,10 +116,10 @@ def test_statusline_reads_session_savings(tmp_path: Path) -> None:
     (tmp_path / "auth.json").write_text(json.dumps({"authenticated": True}), encoding="utf-8")
     output = _run_statusline(tmp_path, _payload())
 
-    # Cost segment unchanged: "$0.4200(I:100 C:300 O:50)". Trailing segment is
-    # the folded total-saved figure: "$0.0360(R:12.0k)".
-    assert "$0.4200(I:100 C:300 O:50)" in output
-    assert "$0.0360(R:12.0k)" in output
+    # Cost segment unchanged: "$0.42(I:100 C:300 O:50)". Trailing segment is
+    # the folded total-saved figure: "$0.04(I:12.0k)".
+    assert "$0.42(I:100 C:300 O:50)" in output
+    assert "$0.04(I:12.0k)" in output
     assert "calls saved" not in output
 
 
@@ -176,8 +176,8 @@ def test_statusline_prices_fallback_savings_from_claude_transcript_model_mix(
     # + 1 Sonnet turn (2k in @ $3/MTok) -> weighted = (2x15 + 1x3) / (2+2) = 8.25/MTok
     # -> 12k x 8.25/MTok ~ $0.099. Env model does NOT affect pricing.
     # Just verify savings are non-zero and the I/O/R breakdown is shown.
-    assert "(I:" in sonnet_output and "$0.0000(I:" not in sonnet_output
-    assert "(I:" in opus_output and "$0.0000(I:" not in opus_output
+    assert "(I:" in sonnet_output and "$0.00(I:" not in sonnet_output
+    assert "(I:" in opus_output and "$0.00(I:" not in opus_output
 
 
 def test_statusline_falls_back_to_workspace_session_state(tmp_path: Path) -> None:
@@ -201,8 +201,8 @@ def test_statusline_falls_back_to_workspace_session_state(tmp_path: Path) -> Non
     # Subagent session has no direct sidecar, and workspace fallback is not yet
     # wired in compute_savings_summary, so savings are zero — but the cost
     # segment still reflects live usage from the payload.
-    assert "$0.4200(I:100 C:300 O:50)" in output
-    assert "$0.0000(R:0)" in output
+    assert "$0.42(I:100 C:300 O:50)" in output
+    assert "$0.00(I:0)" in output
 
 
 def test_statusline_does_not_fallback_when_session_id_is_missing(tmp_path: Path) -> None:
@@ -223,9 +223,9 @@ def test_statusline_does_not_fallback_when_session_id_is_missing(tmp_path: Path)
 
     output = _run_statusline(tmp_path, payload, env_extra={"CLAUDE_WORKSPACE_ROOT": str(workspace)})
 
-    assert "$0.4200(I:100 C:300 O:50)" in output
-    assert "$0.0000(R:0)" in output
-    assert "$0.0360(R:12.0k)" not in output
+    assert "$0.42(I:100 C:300 O:50)" in output
+    assert "$0.00(I:0)" in output
+    assert "$0.04(I:12.0k)" not in output
 
 
 def test_statusline_ignores_lifetime_savings_files(tmp_path: Path) -> None:
@@ -255,8 +255,8 @@ def test_statusline_ignores_lifetime_savings_files(tmp_path: Path) -> None:
 
     output = _run_statusline(tmp_path, _payload())
 
-    assert "$0.4200(I:100 C:300 O:50)" in output
-    assert "$0.0060(R:2.0k)" in output
+    assert "$0.42(I:100 C:300 O:50)" in output
+    assert "$0.01(I:2.0k)" in output
     assert "calls saved" not in output
 
 

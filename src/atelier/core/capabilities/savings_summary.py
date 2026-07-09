@@ -1634,14 +1634,11 @@ def _resolve_status_text(atelier_root: str | Path | None = None) -> str:
 
 
 def _fmt_usd(v: float) -> str:
-    """Shared currency formatter: <$1 -> 4 decimals, else 2 decimals + thousands
-    separators. Plain module-level function (importable by CLI commands,
-    session_report.py, dashboard.py, audit.py, api.py, etc.) so every Python
-    surface renders dollar amounts the same way.
+    """Shared currency formatter: 2 decimal places. Plain module-level function
+    (importable by CLI commands, session_report.py, dashboard.py, audit.py,
+    api.py, etc.) so every Python surface renders dollar amounts the same way.
     """
     v = float(v or 0.0)
-    if abs(v) < 1:
-        return f"${v:.4f}"
     return f"${v:,.2f}"
 
 
@@ -2730,15 +2727,10 @@ def savings_frames(
     # has_icon=False → plain text; SEP is prepended so it doesn't abut ctx% directly.
     frames: list[tuple[bool, str]] = []
 
-    # Frame 0: $cost(I:.. C:.. O:..) ↓ $<total saved>(R:recycled C:carry O:output In:input Ro:routing) —
-    # cost segment is UNCHANGED. Savings + output-savings share + input-savings
-    # share + context-carry counterfactual are folded into ONE trailing ↓
-    # segment (previously two separate ↓ savings / ♻ carry segments). R =
-    # tokens recycled into the realized savings (ctx_saved), C = carry tokens,
-    # O = output-style tokens not emitted, In = input-style (cache-read)
-    # tokens not re-sent, Ro = routing $ already inside the total (via
-    # saved_usd) — each shown only when contributing.
-    # each shown only when contributing.
+    # Frame 0: $cost(I:.. C:.. O:..) ↓ $<total saved>(I:input C:cache K:carry O:output R:routing)
+    # Single-letter labels: I=input, C=cache, K=carry/keep, O=output, R=routing.
+    # cost segment uses I/C/O for usage totals; savings uses same letters for
+    # savings breakdown — visually separated by the ↓ token.
     in_f, cache_f, out_f = _fmt_tok(eff_in), _fmt_tok(eff_cache), _fmt_tok(eff_out)
     has_usage = eff_in > 0 or eff_cache > 0
     display_cost = summary.est_cost_usd if summary.est_cost_usd > 0 else live_cost_usd
@@ -2750,24 +2742,15 @@ def savings_frames(
         # output_saved_usd here previously double-counted output, since
         # output_saved_usd is already inside saved_usd.
         total_saved = summary.total_saved_usd
-        combined += f" {C_GREEN}↓ {_fmt_usd(total_saved)}{C_DIM}(R:{_fmt_tok(summary.ctx_saved)}"
+        combined += f" {C_GREEN}↓ {_fmt_usd(total_saved)}{C_DIM}(I:{_fmt_tok(summary.ctx_saved)}"
         if summary.carry_usd >= 0.001:
-            combined += f" C:{_fmt_tok(summary.carry_tokens)}"
+            combined += f" K:{_fmt_tok(summary.carry_tokens)}"
         if summary.output_saved_usd >= 0.001:
-            # Telegraphic output-style savings — already inside total_saved via
-            # saved_usd (see the field's docstring: "shown as ↓O"), shown here
-            # as a breakdown of the total like R:/C:, not a separate addend.
             combined += f" O:{_fmt_tok(summary.output_saved_tokens)}"
         if summary.input_saved_usd >= 0.001:
-            # Per-turn context-style savings — already inside total_saved via
-            # saved_usd (see the field's docstring: "shown as ↓In"), shown here
-            # as a breakdown of the total like R:/C:/O:, not a separate addend.
-            combined += f" In:{_fmt_tok(summary.input_saved_tokens)}"
+            combined += f" C:{_fmt_tok(summary.input_saved_tokens)}"
         if summary.routing_saved_usd > 0:
-            # Already inside total_saved via saved_usd — shown as a breakdown
-            # of the total (like R:/C:/O:), never a separate addend, so this no
-            # longer reads as double-counted.
-            combined += f" Ro:{_fmt_usd(summary.routing_saved_usd)}"
+            combined += f" R:{_fmt_usd(summary.routing_saved_usd)}"
         combined += f"){C_RESET}"
     frames.append((True, combined))
 

@@ -4,9 +4,9 @@
 
 # <img src="docs-site/favicon.png" width="36" height="36" alt="" style="vertical-align: middle;"> Atelier Runtime
 
-### Honestly, get 30% more out of your Claude subscription
+### Honestly, get $$$ 30% more out of your Claude subscription - End to End savings
 
-Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. Keep using Claude Code normally; Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, reusable memory, and a live savings meter.
+Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls by up to **90%** and input/output tokens by up to **80%** -- keep using Claude Code normally; Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, reusable memory, and a live savings meter.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
@@ -117,15 +117,36 @@ Measured on the same model, same tasks, and same environment:
 
 <sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Other 5 tasks in Atelier timeout and cannot capture cost; see .</sub>
 
-SWE-bench Verified detail:
+SWE-bench Verified detail 250 baseline vs 250 Atelier runs:
 
 | Metric        | Baseline | Atelier |            Delta |
 | --------------- | ---------: | --------: | -----------------: |
 | Turns         |    6,962 |   4,336 |  **37.7% fewer** |
 | Output tokens |    3.04M |   2.19M |  **27.9% fewer** |
 | Wall-clock    |    14.3h |   10.9h | **23.7% faster** |
+| Bash                 |           3,327 |           1,785 | **-46.3%** |
+| Read                 |           1,733 |           1,050 | **-39.4%** |
+| Edit + Write         |           1,628 |             759 | **-53.4%** |
+| Search (code_search) |               - |             568 | atelier-only |
+| Total tool calls     |           6,700 |           4,167 | **-37.8%** |
 
-Raw runs, setup notes, and reproduction commands live in [BENCHMARKS.md](BENCHMARKS.md) and [`benchmarks/codebench/results/`](benchmarks/codebench/results/).
+Exploration and explanation tasks detail (7 large repos x 5 reps, read-only codebase Q&A, no edits):
+
+| Tool                          | Baseline calls | Atelier calls |    Delta |
+| ------------------------------- | ----------------: | ----------------: | ---------: |
+| Read                          |             672 |             23 | **-96.6%** |
+| Bash                          |             508 |             71 | **-86.0%** |
+| Search (code_search)          |               - |             23 | atelier-only |
+| Agent + orchestration calls\* |              79 |              1 | **-98.7%** |
+| Total tool calls              |           1,259 |            118 | **-90.6%** |
+| input                           |    286,191 |    205,967 | **-28.0%** |
+| cache read                      | 35,862,919 |  2,753,393 | **-92.3%** |
+| cache write                     |  2,811,356 |    233,381 | **-91.7%** |
+| output                          |    426,367 |     68,893 | **-83.8%** |
+| input + cache write             |  3,097,547 |    439,348 | **-85.8%** |
+
+Source: [`benchmarks/codebench/results/exploration_2026_06_29/`](benchmarks/codebench/results/exploration_2026_06_29/), 35 baseline + 35 Atelier runs,
+[`benchmarks/codebench/results/telegraphic_2026_07_08`](benchmarks/codebench/results/telegraphic_2026_07_08), 100 baseline + 100 atelier runs.
 
 ## Code search vs 10 named tools
 
@@ -175,14 +196,14 @@ Atelier does not make Claude a different model. It makes the loop around Claude 
 
 ---
 
-## ⭐ Star History
+## Star History
 
-<a href="https://star-history.com/#atelier-ws/atelier&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=atelier-ws/atelier&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=atelier-ws/atelier&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=atelier-ws/atelier&type=Date" />
-  </picture>
+<a href="https://www.star-history.com/?repos=atelier-ws%2Fatelier">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=atelier-ws/atelier&type=date&theme=dark&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=atelier-ws/atelier&type=date&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=atelier-ws/atelier&type=date&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
+ </picture>
 </a>
 
 ---

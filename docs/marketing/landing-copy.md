@@ -14,7 +14,7 @@ _Copy blocks for the marketing site, top to bottom. Audience: people paying for 
 
 ### Honestly, get 30% more out of your Claude subscription.
 
-Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It gives your agent better search, shorter file reads, cleaner tool output, and reusable memory so more of your subscription goes into fixing code instead of rereading the same noise.
+Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls by up to 90% and input/output tokens by up to 80% -- and gives your agent better search, shorter file reads, cleaner tool output, and reusable memory so more of your subscription goes into fixing code instead of rereading the same noise.
 
 > In our same-model SWE-bench Verified run, Atelier was **29.5% cheaper** and solved **+12.0 percentage points more tasks** than the baseline. Same model. Same tasks. Same environment. Raw runs published.
 

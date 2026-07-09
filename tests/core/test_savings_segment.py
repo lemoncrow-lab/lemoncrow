@@ -36,9 +36,9 @@ def _segment(root: Path, counter: int, **kw: object) -> str:
 def test_frame0_shows_cost_and_total_saved_breakdown(atelier_root: Path) -> None:
     # Frame 0: cost + I/C/O breakdown (unchanged), then total-saved + R/C breakdown.
     seg = _segment(atelier_root, 0, live_in_tok=10_000, live_cache_tok=50_000, live_out_tok=2_000)
-    assert seg.startswith(" $0.0000(I:10.0k C:50.0k O:2.0k)"), f"expected cost-led output, got: {seg!r}"
-    # No realized/output/carry savings configured — trailing savings is $0.0000.
-    assert "$0.0000(R:0)" in seg
+    assert seg.startswith(" $0.00(I:10.0k C:50.0k O:2.0k)"), f"expected cost-led output, got: {seg!r}"
+    # No realized/output/carry savings configured — trailing savings is $0.00.
+    assert "$0.00(I:0)" in seg
 
 
 def test_frame0_folds_savings_output_and_carry_into_one_headline(
@@ -86,7 +86,7 @@ def test_frame0_folds_savings_output_and_carry_into_one_headline(
     assert "1.242" not in frame0, f"realized savings must not appear standalone in {frame0!r}"
     assert "1.932" not in frame0, f"carry usd must not appear standalone in {frame0!r}"
     # Carry TOKENS still surface as their own breakdown field.
-    assert "C:1.90M" in frame0, f"expected carry token breakdown in {frame0!r}"
+    assert "K:1.90M" in frame0, f"expected carry token breakdown in {frame0!r}"
     assert "↓ $3.17" in frame0, f"expected ↓-led folded total in {frame0!r}"
     assert "♻" not in frame0, f"no separate carry icon expected in {frame0!r}"
 
@@ -104,7 +104,7 @@ def test_frame_wraps_when_few_frames(atelier_root: Path) -> None:
     is the sole frame and is shown for every counter."""
     for i in range(4):
         seg = _segment(atelier_root, i)
-        assert "$0.0000(I:0 C:0 O:0)" in seg, f"counter={i}: {seg!r}"
+        assert "$0.00(I:0 C:0 O:0)" in seg, f"counter={i}: {seg!r}"
         assert seg.startswith(" $"), f"counter={i}: {seg!r}"
 
 
