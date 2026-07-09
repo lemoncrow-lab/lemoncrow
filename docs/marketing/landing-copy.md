@@ -12,7 +12,7 @@ _Copy blocks for the marketing site, top to bottom. Audience: people paying for 
 
 ## Hero
 
-### Honestly, get 30% more out of your Claude subscription.
+### Honest and benchmark proven -- cut Claude Code costs by 30%, audited head-to-head (up to 67% on some workloads).
 
 Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls by up to 90% and input/output tokens by up to 80% -- and gives your agent better search, shorter file reads, cleaner tool output, and reusable memory so more of your subscription goes into fixing code instead of rereading the same noise.
 
