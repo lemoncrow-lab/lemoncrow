@@ -172,6 +172,14 @@ Atelier does not make Claude a different model. It makes the loop around Claude 
 - [CLI reference](docs/cli.md)
 - [Architecture](docs/architecture.md)
 
+## GitHub Star Trends
+
+<div align="center">
+
+[![Star History Chart](https://api.star-history.com/svg?repos=atelier-ws/atelier&type=Date)](https://star-history.com/#atelier-ws/atelier&Date)
+
+</div>
+
 ## License
 
 Apache 2.0 — see [`LICENSE`](LICENSE).
