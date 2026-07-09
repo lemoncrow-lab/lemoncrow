@@ -871,6 +871,58 @@ def _read_session_routing_usd(session_id: str, atelier_root: Path) -> float:
     return round(total, 6)
 
 
+def read_session_end_carry(session_id: str, atelier_root: Path) -> tuple[float, int] | None:
+    """Persisted carry from this session's newest ``session_end`` row.
+
+    This is the SAME value :func:`_fold_session_file` folds into the
+    day-bucketed aggregate that backs every windowed savings surface
+    (statusline, CLI stats, web Savings page) -- frozen at the moment the
+    Stop hook last fired. ``compute_savings_summary``'s ``carry_usd`` instead
+    re-derives carry live via :func:`_carry_credit`, which re-prices every
+    carried row through the CURRENT pricing table; if that table's
+    resolution for a model drifts between the Stop fire and a later caller
+    (e.g. a pricing data update), the live figure silently diverges from the
+    frozen snapshot the aggregate already committed to. Callers that want a
+    number guaranteed to reconcile with the statusline/aggregate for an
+    already-Stopped session should prefer this over a live recompute.
+
+    Returns ``None`` when no ``session_end`` row exists yet (session never
+    Stopped -- callers should fall back to a live recompute in that case).
+    """
+    if not session_id:
+        return None
+    path = _find_savings_sidecar(session_id, atelier_root)
+    if not path.exists():
+        return None
+    end_ts = 0.0
+    end_carry = 0.0
+    end_carry_tokens = 0
+    found = False
+    try:
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if row.get("kind") != "session_end":
+                continue
+            ts = _row_epoch(str(row.get("ts", "")))
+            if ts is None or ts < end_ts:
+                continue
+            end_ts = ts
+            end_carry = float(row.get("carry_usd") or 0.0)
+            end_carry_tokens = int(row.get("carry_tokens") or 0)
+            found = True
+    except OSError:
+        return None
+    if not found:
+        return None
+    return round(end_carry, 6), end_carry_tokens
+
+
 def _read_session_output_style(session_id: str, atelier_root: Path) -> tuple[int, float]:
     """Sum telegraphic output-style savings (kind=="output_style" rows).
 

@@ -433,18 +433,39 @@ def _claude_live_savings_summary(
     if not session_id:
         return 0.0, 0, 0, 0.0, 0, 0.0, 0.0
     try:
-        from atelier.core.capabilities.savings_summary import compute_savings_summary
+        from atelier.core.capabilities.savings_summary import (
+            compute_savings_summary,
+            read_session_end_carry,
+        )
 
         summary = compute_savings_summary(session_id, atelier_root=root)
     except Exception:
         logging.exception("failed to read Claude savings summary for session=%s", session_id)
         return 0.0, 0, 0, 0.0, 0, 0.0, 0.0
+    # Prefer the persisted last-Stop carry snapshot over a fresh live
+    # recompute: it's the exact value the day-bucketed aggregate (and thus
+    # the statusline's windowed ↓ figure) already folded in, frozen at the
+    # moment Stop last fired. Re-deriving carry live can drift from that
+    # frozen number if pricing data changes between the Stop fire and this
+    # call (see read_session_end_carry docstring) -- reusing it here keeps
+    # `session stats`/`session list` byte-identical with the statusline for
+    # any session that has produced at least one Stop snapshot. Sessions
+    # still active with no snapshot yet fall back to the live recompute.
+    carry_usd = float(summary.carry_usd or 0.0)
+    carry_tokens = int(summary.carry_tokens or 0)
+    try:
+        persisted_carry = read_session_end_carry(session_id, root)
+    except Exception:
+        logging.exception("failed to read persisted carry for session=%s", session_id)
+        persisted_carry = None
+    if persisted_carry is not None:
+        carry_usd, carry_tokens = persisted_carry
     return (
         float(summary.saved_usd or 0.0),
         int(summary.ctx_saved or 0),
         int(summary.smart_calls or 0),
-        float(summary.carry_usd or 0.0),
-        int(summary.carry_tokens or 0),
+        carry_usd,
+        carry_tokens,
         float(summary.est_cost_usd or 0.0),
         float(summary.read_saved_usd or 0.0),
     )
@@ -616,9 +637,13 @@ def _render_hosts_footer_rich(rows: list[dict[str, Any]], since_label: str) -> N
             f"  [dim]Subagents     [/]  [white]{total_subagents}[/]  [dim]≈${total_sub_cost:,.4f}  ({sub_pct:.1f}%)[/]"
         )
 
+    # Headline "Saved" is the canonical total (saved_usd + carry_usd, same
+    # sum as SavingsSummary.total_saved_usd / WindowSavings.total_saved_usd)
+    # so it reconciles with the statusline's single "↓ $X" figure; carry is
+    # still broken out as a sub-line for detail.
     savings_lines = [
-        f"  [dim]Saved         [/]  [bright_green]${total_saved:,.4f}[/]",
-        f"  [dim]Carry         [/]  [magenta]${total_carry:,.4f}[/]",
+        f"  [dim]Saved         [/]  [bright_green]${total_saved + total_carry:,.4f}[/]",
+        f"  [dim]  of which carry[/]  [magenta]${total_carry:,.4f}[/]",
     ]
     if total_saved_tokens > 0:
         savings_lines.append(f"  [dim]Tok saved     [/]  [bright_green]{_fmt_tok_compact(total_saved_tokens)}[/]")
@@ -829,10 +854,12 @@ def _render_stats_rich(
     if total_saved + total_carry > 0:
         baseline = total_cost + total_saved + total_carry
         pct = 100 * (total_saved + total_carry) / baseline
+        # "Saved" is the canonical total (saved_usd + carry_usd) so it matches
+        # the statusline's single "↓ $X" headline; carry stays as a sub-line.
         cost_lines = [
             f"  [dim]Total cost    [/]  [bright_red]${total_cost:,.2f}[/]",
-            f"  [dim]Saved         [/]  [bright_green]${total_saved:,.2f}[/]",
-            f"  [dim]Carry         [/]  [magenta]${total_carry:,.2f}[/]",
+            f"  [dim]Saved         [/]  [bright_green]${total_saved + total_carry:,.2f}[/]",
+            f"  [dim]  of which carry[/]  [magenta]${total_carry:,.2f}[/]",
             f"  [dim]Baseline      [/]  [dim]≈${baseline:,.2f}[/]",
             f"  [dim]Reduction     [/]  [bright_green]-{pct:.1f}%[/]",
         ]
@@ -857,8 +884,8 @@ def _render_stats_rich(
         atelier_border = "yellow dim"
     else:
         atelier_lines = [
-            f"  [dim]Saved         [/]  [bright_green]${total_saved:,.2f}[/]",
-            f"  [dim]Carry         [/]  [magenta]${total_carry:,.2f}[/]",
+            f"  [dim]Saved         [/]  [bright_green]${total_saved + total_carry:,.2f}[/]",
+            f"  [dim]  of which carry[/]  [magenta]${total_carry:,.2f}[/]",
             f"  [dim]Atelier calls [/]  [cyan]{total_atelier:,}[/]  [dim]({atelier_pct_t}%)[/]",
             f"  [dim]Atelier sess. [/]  [bright_cyan]{n_atelier}[/]  [dim]of {n}[/]",
         ]
