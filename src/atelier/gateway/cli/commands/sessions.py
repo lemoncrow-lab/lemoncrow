@@ -1118,11 +1118,8 @@ def _build_session_row(trace: Trace, store: ContextStore, host_name: str, root: 
         else:
             # No local ground truth: use the fleet rate shipped with the
             # binary, priced at this session's model rates.
-            turns = max(len(trace.usage_entries), _tool_call_total(trace))
             potential_tokens_saved = routable_builtin * _FLEET_SAVED_TOKENS_PER_CALL
-            potential_carry_tokens = potential_tokens_saved * max(0, turns // 2)
             potential_saved_usd = potential_tokens_saved * in_rate
-            potential_carry_usd = potential_carry_tokens * cr_rate
         # No channel caps: the real savings computation (compute_savings_summary
         # / statusline) reports measured savings without artificial ceilings, so
         # the potential estimate must follow the same methodology to remain
