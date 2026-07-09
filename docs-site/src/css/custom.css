@@ -1,12 +1,31 @@
+/* Same font/color language as landing (atelier.ws): JetBrains Mono for UI
+   chrome/labels, system sans for body copy, warm cream light theme, brand
+   purple accent. See landing/tailwind.config.mjs + landing/src/styles/global.css. */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 :root {
-  --ifm-color-primary: #a379c3;
-  --ifm-color-primary-dark: #8a66c8;
-  --ifm-color-primary-darker: #7a58b8;
-  --ifm-color-primary-darkest: #6a4aa8;
-  --ifm-color-primary-light: #ac86ea;
-  --ifm-color-primary-lighter: #bd97fb;
-  --ifm-color-primary-lightest: #ceadff;
+  --ifm-color-primary: #6a39b3;
+  --ifm-color-primary-dark: #5a3196;
+  --ifm-color-primary-darker: #55308c;
+  --ifm-color-primary-darkest: #49287a;
+  --ifm-color-primary-light: #7b46cb;
+  --ifm-color-primary-lighter: #865ed2;
+  --ifm-color-primary-lightest: #9b75d9;
+
+  --ifm-background-color: #f8f6f1;
+  --ifm-background-surface-color: #ffffff;
+  --ifm-navbar-background-color: rgba(248, 246, 241, 0.9);
+  --ifm-footer-background-color: #f8f6f1;
+  --ifm-font-color-base: #262626;
+  --ifm-heading-color: #0a0a0a;
+  --ifm-font-family-base: system-ui, -apple-system, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', 'Hack Nerd Font Mono',
+    'Droid Sans Mono', monospace;
   --ifm-code-font-size: 95%;
+  --ifm-menu-color-background-active: #ebe5fb;
+  --ifm-menu-color-background-hover: #f5f2fd;
+
   /* Homepage hero */
   --hero-bg: #ffffff;
   --hero-text: #1a1a1a;
@@ -18,7 +37,17 @@
   --card-text: #666666;
 }
 
-html[data-theme="dark"] {
+html[data-theme='dark'] {
+  --ifm-background-color: #0a0a0a;
+  --ifm-background-surface-color: #171717;
+  --ifm-navbar-background-color: rgba(10, 10, 10, 0.9);
+  --ifm-footer-background-color: #0a0a0a;
+  --ifm-font-color-base: #d4d4d4;
+  --ifm-heading-color: #fafafa;
+  --ifm-color-primary: #9b75d9;
+  --ifm-menu-color-background-active: rgba(106, 57, 179, 0.25);
+  --ifm-menu-color-background-hover: rgba(106, 57, 179, 0.12);
+
   --hero-bg: #0a0a0a;
   --hero-text: #fafafa;
   --hero-subtext: #a1a1aa;
@@ -28,24 +57,122 @@ html[data-theme="dark"] {
   --card-text: #a1a1aa;
 }
 
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------------------------------------------------------------------------
+   Navbar -- fixed, blurred cream bar, mono uppercase tracked links (matches
+   landing/src/components/Nav.tsx)
+--------------------------------------------------------------------------- */
 .navbar {
-  border-bottom: 1px solid #a379c333;
+  border-bottom: 1px solid #e5e5e5;
+  backdrop-filter: blur(8px);
+  box-shadow: none;
 }
 
-.navbar__title {
-  color: #a379c3 !important;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+html[data-theme='dark'] .navbar {
+  border-bottom: 1px solid #27272a;
 }
 
+.navbar__link {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #737373;
+}
+
+.navbar__link:hover,
+.navbar__link--active {
+  color: var(--ifm-heading-color);
+}
+
+.navbar__items {
+  gap: 0.5rem;
+}
+
+.navbar__items--right {
+  gap: 0.7rem;
+}
+
+.navbar-cta {
+  border: 1px solid #0a0a0a !important;
+  background: #0a0a0a !important;
+  color: #fff !important;
+  padding: 0.4rem 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+.navbar-cta:hover {
+  background: #262626 !important;
+  color: #fff !important;
+  opacity: 1;
+}
+
+.navbar-cta :global(svg) {
+  fill: #fff !important;
+}
+
+.header-github-link {
+  padding: 0.55rem !important;
+  font-size: 0;
+}
+
+/* landing's nav/footer never show an "opens in new tab" glyph on external
+   links (Benchmarks -> GitHub, footer's Website/GitHub/Contact, etc.) --
+   drop it everywhere in the navbar and footer chrome, not just the two
+   items that had it originally. */
+.navbar svg[aria-label="(opens in new tab)"],
+.footer svg[aria-label="(opens in new tab)"] {
+  display: none;
+}
+
+.header-github-link::before {
+  content: '';
+  display: flex;
+  width: 18px;
+  height: 18px;
+  background-color: currentColor;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 .5C5.73.5.98 5.24.98 11.52c0 5.02 3.26 9.28 7.78 10.78.57.1.78-.25.78-.55v-1.94c-3.17.69-3.84-1.53-3.84-1.53-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.75 1.18 1.75 1.18 1.02 1.75 2.68 1.24 3.33.95.1-.74.4-1.24.72-1.53-2.53-.29-5.19-1.27-5.19-5.63 0-1.24.44-2.26 1.17-3.06-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.14 1.17a10.9 10.9 0 0 1 5.72 0c2.18-1.48 3.14-1.17 3.14-1.17.62 1.57.23 2.73.11 3.02.73.8 1.17 1.82 1.17 3.06 0 4.37-2.66 5.34-5.2 5.62.41.36.77 1.06.77 2.14v3.17c0 .3.21.66.79.55C19.76 20.79 23 16.53 23 11.52 23 5.24 18.27.5 12 .5Z'/%3E%3C/svg%3E");
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+}
+
+/* ---------------------------------------------------------------------------
+   Footer -- cream, mono uppercase column headers (matches
+   landing/src/components/Footer.tsx)
+--------------------------------------------------------------------------- */
 .footer {
-  border-top: 1px solid #27272a;
+  --ifm-footer-color: #525252;
+  --ifm-footer-link-color: #525252;
+  --ifm-footer-link-hover-color: #0a0a0a;
+  --ifm-footer-title-color: #a3a3a3;
 }
 
-html[data-theme="light"] .footer {
-  border-top: 1px solid #e5e5e5;
+html[data-theme='dark'] .footer {
+  --ifm-footer-color: #a1a1aa;
+  --ifm-footer-link-color: #a1a1aa;
+  --ifm-footer-link-hover-color: #fafafa;
+  --ifm-footer-title-color: #71717a;
+}
+
+.footer__title {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+}
+
+.footer__link-item {
+  font-size: 13px;
+  text-decoration: none;
 }
 
 .table-of-contents__link--active {
-  color: #a379c3;
+  color: var(--ifm-color-primary);
 }

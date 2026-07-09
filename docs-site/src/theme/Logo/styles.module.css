@@ -1,0 +1,28 @@
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-decoration: none !important;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  background: #0a0a0a;
+  color: #d7ccf7;
+  font-family: 'JetBrains Mono', 'Hack Nerd Font Mono', monospace;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.wordmark {
+  font-family: 'JetBrains Mono', 'Hack Nerd Font Mono', monospace;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--ifm-heading-color);
+}

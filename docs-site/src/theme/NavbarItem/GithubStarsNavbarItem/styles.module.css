@@ -1,0 +1,33 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid #d4d4d4;
+  padding: 0.3rem 0.55rem;
+  font-family: var(--ifm-font-family-base);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #404040 !important;
+  text-decoration: none !important;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.badge:hover {
+  border-color: #0a0a0a;
+  color: #0a0a0a !important;
+}
+
+html[data-theme='dark'] .badge {
+  border-color: #3f3f46;
+  color: #d4d4d4 !important;
+}
+
+html[data-theme='dark'] .badge:hover {
+  border-color: #fafafa;
+  color: #fafafa !important;
+}
+
+.star {
+  fill: #fbbf24;
+  flex-shrink: 0;
+}
