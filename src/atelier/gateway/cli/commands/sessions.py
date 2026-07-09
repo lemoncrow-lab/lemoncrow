@@ -1108,17 +1108,13 @@ def _build_session_row(trace: Trace, store: ContextStore, host_name: str, root: 
     potential_carry_tokens = 0
     if routable_builtin > 0:
         if host_name == "claude" and (saved_usd + carry_usd) > 0 and atelier_calls > 0:
-            # Session's own measured rate per routed call (stop-hook ground
-            # truth) already blends compression, dedup, and carry; apply it
-            # to every builtin call with an Atelier equivalent.
-            actual_total = saved_usd + carry_usd
-            rate = actual_total / atelier_calls
-            pot_total = rate * routable_builtin
-            saved_frac = saved_usd / actual_total
-            potential_saved_usd = pot_total * saved_frac
-            potential_carry_usd = pot_total * (1.0 - saved_frac)
+            # Rate from measured direct savings only (compact reads / shell
+            # output / dedup).  Carry is excluded because it's a session-level
+            # property (context compression reduces cache re-reads across
+            # turns) that doesn't transfer to individual "what-if" calls.
+            rate = saved_usd / atelier_calls
+            potential_saved_usd = rate * routable_builtin
             potential_tokens_saved = int(potential_saved_usd / in_rate) if in_rate > 0 else 0
-            potential_carry_tokens = int(potential_carry_usd / cr_rate) if cr_rate > 0 else 0
         else:
             # No local ground truth: use the fleet rate shipped with the
             # binary, priced at this session's model rates.
