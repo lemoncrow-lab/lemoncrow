@@ -22,6 +22,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 # compatibility but unused in source mode; ATELIER_LOCAL marks this as a
 # source-checkout install so run_setup wires host configs into the repo.
 ATELIER_BINARY_MODE="${ATELIER_BINARY_MODE:-0}"
+ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
 ATELIER_LOCAL=1
 
 # ---- source-only: Python package install ------------------------------------
@@ -145,7 +146,7 @@ main() {
     export ATELIER_INSTALL_DIR
 
     step_start "Installing Atelier"
-    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+    if [[ "${ATELIER_DRY_RUN:-0}" == "1" ]]; then
         install_console_scripts
     else
         spin_tail "Installing packages" install_console_scripts
@@ -153,7 +154,7 @@ main() {
     persist_install_record
     # Mark as a dev install so the MCP server enables debug logging automatically.
     # Production installs (bundle.sh / install.sh) never create this file.
-    if [[ "$ATELIER_DRY_RUN" != "1" ]]; then
+    if [[ "${ATELIER_DRY_RUN:-0}" != "1" ]]; then
         mkdir -p "${HOME}/.atelier" && touch "${HOME}/.atelier/.dev_mode" 2>/dev/null || true
     fi
     step_done
