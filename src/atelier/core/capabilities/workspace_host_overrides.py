@@ -584,6 +584,7 @@ def _render_codex_mode_body(body: str, repo_root: Path) -> str:
     shared_dir = repo_root / "integrations" / "agents" / "shared"
     shared = {
         "{{CORE_DISCIPLINE}}": core_discipline_body(shared_dir),
+        "{{AGENT_RULE}}": _markdown_body(shared_dir / "agent-rule.md"),
         "{{CHANGE_DISCIPLINE}}": _markdown_body(shared_dir / "change-discipline.md"),
         "{{DESTRUCTIVE_GUARD}}": _markdown_body(shared_dir / "destructive-guard.md"),
         "{{RESPONSE_ECONOMY}}": _markdown_body(shared_dir / "response-economy.md"),
