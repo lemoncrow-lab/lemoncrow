@@ -209,19 +209,15 @@ if ! $WORKSPACE_SET && [[ -d "$PLUGIN_SRC" ]]; then
     else
         run "mkdir -p $(printf %q "$AGY_PLUGIN_DIR")"
         run "cp -r $(printf %q "${PLUGIN_SRC}/.") $(printf %q "$AGY_PLUGIN_DIR/")"
-        PLUGIN_MANIFEST="${AGY_PLUGIN_DIR}/plugin.json" PROJECT_PYPROJECT="${ATELIER_REPO}/pyproject.toml" python3 - <<'PYEOF'
+        ATELIER_VERSION="$(atelier_resolve_version "$ATELIER_REPO")"
+        PLUGIN_MANIFEST="${AGY_PLUGIN_DIR}/plugin.json" ATELIER_VERSION="$ATELIER_VERSION" python3 - <<'PYEOF'
 import json
 import os
-import re
 from pathlib import Path
 
 manifest = Path(os.environ["PLUGIN_MANIFEST"])
-pyproject = Path(os.environ["PROJECT_PYPROJECT"])
-version_match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(encoding="utf-8"), re.MULTILINE)
-if not version_match:
-    raise SystemExit(f"could not parse project version from {pyproject}")
 data = json.loads(manifest.read_text(encoding="utf-8"))
-data["version"] = version_match.group(1)
+data["version"] = os.environ["ATELIER_VERSION"]
 manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PYEOF
         atelier_apply_reply_register_level "$AGY_PLUGIN_DIR" false
