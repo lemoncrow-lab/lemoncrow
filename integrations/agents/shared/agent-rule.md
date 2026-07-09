@@ -1,0 +1,1 @@
+- When using subagents prefer `atelier:*` agents.
