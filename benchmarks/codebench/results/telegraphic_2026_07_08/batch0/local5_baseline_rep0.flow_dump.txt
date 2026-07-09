@@ -13,8 +13,8 @@ function getUser(id, callback) {
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Convert callback function to async/await"}
-[usage] input=611 cache_read=0 cache_write=0 output=15
+[assistant] {"title": "Convert Node.js callback to async/await"}
+[usage] input=611 cache_read=0 cache_write=0 output=17
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -66,16 +66,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: Bash] {"command": "grep -rl \"getUser\" /tmp/codebench_workspaces/batch0-dce9479a53ee/local5_baseline_rep0 2>/dev/null | head", "description": "Search for getUser in the repo"}
-[usage] input=2973 cache_read=15192 cache_write=2182 output=157
-
-=== Turn 3 ===
-[user] [tool_result] /tmp/codebench_workspaces/batch0-dce9479a53ee/local5_baseline_rep0/reports/benchmark/telegraphic/20260708T110104Z/batch0/results.jsonl
-[assistant] This function is only referenced in a benchmark data file, not an actual source file — so I'll just give you the refactored code directly.
-
-Assuming `db.query` can return a promise (most modern drivers support this, e.g. `mysql2/promise` or `pg`):
-
-```js
+[assistant] ```javascript
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -83,35 +74,24 @@ async function getUser(id) {
 }
 ```
 
-A few notes depending on your driver:
+This assumes `db.query` returns a promise. A few notes:
 
-**If `db.query` is still callback-only** (e.g. classic `node-mysql`), wrap it with `util.promisify` or a manual Promise:
+- **Callers change too.** Instead of `getUser(id, (err, user) => {...})`, callers now use `const user = await getUser(id)` inside a `try/catch`, or `.then()/.catch()`.
 
-```js
-const { promisify } = require('util');
-const query = promisify(db.query).bind(db);
+- **If `db.query` is still callback-based** (only takes a callback), wrap it with `util.promisify` first:
 
-async function getUser(id) {
-  const rows = await query('SELECT * FROM users WHERE id = ?', [id]);
-  if (!rows.length) throw new Error('Not found');
-  return rows[0];
-}
-```
+  ```javascript
+  const { promisify } = require('util');
+  const query = promisify(db.query).bind(db);
 
-**If you're using `pg`**, results come back as `{ rows }`, so destructure:
+  async function getUser(id) {
+    const rows = await query('SELECT * FROM users WHERE id = ?', [id]);
+    if (!rows.length) throw new Error('Not found');
+    return rows[0];
+  }
+  ```
 
-```js
-async function getUser(id) {
-  const { rows } = await db.query('SELECT * FROM users WHERE id = $1', [id]);
-  if (!rows.length) throw new Error('Not found');
-  return rows[0];
-}
-```
+  The `.bind(db)` preserves `db` as `this`; drop it only if `db.query` doesn't rely on `this`.
 
-Key changes:
-- Errors now propagate via `throw`/rejection instead of an `err` callback argument — callers use `try/catch` or `.catch()`.
-- The success value is `return`ed instead of passed to `callback(null, ...)`.
-- No callback parameter needed.
-
-Callers change from `getUser(1, (err, user) => {...})` to `const user = await getUser(1)` (inside a `try/catch`).
-[usage] input=2 cache_read=17374 cache_write=3204 output=613
+- **Errors now propagate as exceptions** rather than a first-argument `err`, which is the main behavioral shift for calling code.
+[usage] input=2973 cache_read=15192 cache_write=2184 output=411

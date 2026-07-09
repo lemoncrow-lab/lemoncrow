@@ -58,45 +58,39 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] A hash table handles collisions — when two different keys hash to the same bucket index — using one of two main families of strategies:
+[assistant] This is a general computer-science question, so no codebase work is needed.
+
+A hash table handles collisions — cases where two keys hash to the same bucket index — using one of two main strategies:
 
 ## 1. Separate Chaining
-Each bucket holds a *secondary data structure* (usually a linked list, sometimes a dynamic array or balanced tree) containing all entries that hash to that index.
+Each bucket holds a secondary data structure (usually a linked list, sometimes a dynamic array or balanced tree) containing all entries that hashed there.
 
-- **Insert:** compute the index, append the key/value to that bucket's list.
+- **Insert:** compute the index, append/prepend the key-value pair to that bucket's list.
 - **Lookup:** compute the index, then scan the list comparing keys.
+- **Delete:** find and unlink the entry from the list.
 
-```
-index 3 → [ ("cat",1) ] → [ ("dog",2) ]   # both hashed to 3
-```
-
-- Simple; the table never "fills up."
-- Performance degrades to O(n) if many keys land in one bucket. Java's `HashMap` mitigates this by converting a long chain into a balanced tree (O(log n)).
+If one bucket gets very long, some implementations (e.g. Java's `HashMap`) convert its list into a balanced tree so worst-case lookup for that bucket drops from O(n) to O(log n).
 
 ## 2. Open Addressing
-All entries live *in the array itself*. On collision, you *probe* for another open slot using a defined sequence:
+All entries live directly in the array. On a collision, you *probe* for another open slot according to a fixed sequence:
 
-- **Linear probing:** try `i+1, i+2, i+3, …` (cache-friendly, but causes "clustering").
-- **Quadratic probing:** try `i+1², i+2², …` (reduces clustering).
-- **Double hashing:** step size determined by a second hash function (best distribution).
+- **Linear probing:** try index+1, index+2, … (cache-friendly, but suffers from *primary clustering*).
+- **Quadratic probing:** try index+1², index+2², … (reduces clustering).
+- **Double hashing:** step size is determined by a second hash function (best distribution).
 
-Lookup follows the same probe sequence until it finds the key or an empty slot. Deletion needs care — you use a "tombstone" marker so probe chains aren't broken.
+Lookup follows the same probe sequence until it finds the key or an empty slot. Deletion needs care — you can't just empty a slot or you'd break probe chains, so entries are marked with a *tombstone*.
 
-## Key supporting factors
-
-- **Load factor** (entries ÷ buckets): when it exceeds a threshold (commonly ~0.75), the table **resizes and rehashes** all entries into a larger array to keep operations near O(1). This is essential for open addressing, which fails when full.
-- **Good hash function:** distributing keys uniformly is the first line of defense — fewer collisions means fewer to resolve.
-
-## Quick comparison
+## Keeping collisions rare
+Both approaches degrade as the table fills, measured by the **load factor** (entries ÷ buckets). When it crosses a threshold (commonly ~0.75), the table **resizes** — allocates a larger array and rehashes every element — to keep the average number of collisions low and operations at amortized **O(1)**.
 
 | | Separate chaining | Open addressing |
 |---|---|---|
-| Storage | External lists | In-array |
-| Load factor | Can exceed 1 | Must stay < 1 |
+| Storage | Pointers + external nodes | All in one array |
 | Cache locality | Worse | Better |
-| Deletion | Easy | Needs tombstones |
+| Max load factor | Can exceed 1.0 | Must stay < 1.0 |
+| Deletion | Simple | Needs tombstones |
 
-**In short:** collisions are inevitable (pigeonhole principle), so hash tables either *chain* colliding entries together in each bucket or *probe* for alternative slots — while keeping the load factor low via resizing to preserve average O(1) performance.
+**In short:** collisions are inevitable (pigeonhole principle), so hash tables either *chain* colliding entries together in each bucket or *probe* for alternative slots — and resize to keep collisions infrequent.
 
-Want me to show a concrete implementation of either approach in a specific language?
-[usage] input=2973 cache_read=15192 cache_write=2078 output=842
+Want me to show a concrete implementation of either approach in a particular language?
+[usage] input=2973 cache_read=15192 cache_write=2072 output=795

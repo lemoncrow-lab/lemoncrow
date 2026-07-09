@@ -1,8 +1,0 @@
-{"handler_ms": 443, "overhead_ms": 26, "response_size": 24946, "session_id": "d62463ed-cc03-43fd-bdaa-e102fbca8ef3", "status": "ok", "tool": "bash", "total_ms": 469, "ts": 1783520460.4401355}
-{"handler_ms": 357, "overhead_ms": 4, "response_size": 7110, "session_id": "d62463ed-cc03-43fd-bdaa-e102fbca8ef3", "status": "ok", "tool": "read", "total_ms": 361, "ts": 1783520464.8868878}
-{"handler_ms": 65, "overhead_ms": 3, "response_size": 2312, "session_id": "d62463ed-cc03-43fd-bdaa-e102fbca8ef3", "status": "ok", "tool": "code_search", "total_ms": 68, "ts": 1783520469.9501908}
-{"handler_ms": 40, "overhead_ms": 10, "response_size": 6383, "session_id": "d62463ed-cc03-43fd-bdaa-e102fbca8ef3", "status": "ok", "tool": "read", "total_ms": 50, "ts": 1783520478.5260952}
-{"handler_ms": 346, "overhead_ms": 2, "response_size": 47, "session_id": "d62463ed-cc03-43fd-bdaa-e102fbca8ef3", "status": "ok", "tool": "edit", "total_ms": 348, "ts": 1783520494.0043323}
-{"handler_ms": 11, "overhead_ms": 3320, "response_size": 6, "session_id": "d62463ed-cc03-43fd-bdaa-e102fbca8ef3", "status": "ok", "tool": "bash", "total_ms": 3331, "ts": 1783520500.477278}
-{"handler_ms": 2, "overhead_ms": 12, "response_size": 647, "session_id": "d62463ed-cc03-43fd-bdaa-e102fbca8ef3", "status": "ok", "tool": "bash", "total_ms": 14, "ts": 1783520511.0963142}
-{"handler_ms": 2, "overhead_ms": 9471, "response_size": 54, "session_id": "d62463ed-cc03-43fd-bdaa-e102fbca8ef3", "status": "ok", "tool": "bash", "total_ms": 9473, "ts": 1783520523.0440755}

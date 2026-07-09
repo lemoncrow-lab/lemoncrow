@@ -58,35 +58,31 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] CORS errors come from the **browser**, not your code crashing — they're a security mechanism. When your frontend (say `http://localhost:3000`) makes a request to a different origin (say `http://localhost:8000` or an API domain), the browser blocks the response unless the server explicitly says "this origin is allowed to read me" via response headers.
+[assistant] CORS (Cross-Origin Resource Sharing) errors happen when your browser blocks a request because the **server** at the target origin didn't return the headers the browser requires to allow a page from a *different* origin to read the response. It's a browser-enforced security rule — the request often actually reaches the server; the browser just refuses to hand the response back to your JS.
 
-## What the error actually means
-
-The request usually *does* reach the server. The browser just refuses to hand the response to your JavaScript because the required headers are missing. So a CORS error is almost always a **server configuration** problem, not a frontend one.
+## What counts as "cross-origin"
+Any difference in **scheme + host + port** between the page and the request target:
+- `http://localhost:3000` → `http://localhost:8000` (different port) ✅ cross-origin
+- `https://app.com` → `http://app.com` (different scheme) ✅ cross-origin
+- `https://app.com` → `https://api.app.com` (different subdomain) ✅ cross-origin
 
 ## Most common causes
+1. **Server doesn't send `Access-Control-Allow-Origin`** — the #1 cause. The fix is on the *server*, not the client.
+2. **Preflight failing** — for non-simple requests (custom headers, `PUT`/`DELETE`, `Content-Type: application/json`), the browser first sends an `OPTIONS` request. If the server doesn't answer it with the right `Access-Control-Allow-Methods` / `Access-Control-Allow-Headers`, the real request never fires.
+3. **Credentials mismatch** — using `credentials: 'include'` (cookies/auth) requires `Access-Control-Allow-Credentials: true` **and** a specific origin (you can't use `*` with credentials).
 
-1. **Server doesn't send `Access-Control-Allow-Origin`** — the #1 cause. The API needs to include this header naming your frontend's origin (or `*`).
-2. **Preflight (`OPTIONS`) request failing** — for non-simple requests (custom headers, `PUT`/`DELETE`, JSON with certain content types), the browser first sends an `OPTIONS` request. If the server doesn't handle it and return the right `Access-Control-Allow-Methods` / `Access-Control-Allow-Headers`, you get a CORS error.
-3. **Credentials mismatch** — if you send cookies/auth (`credentials: 'include'`), the server must send `Access-Control-Allow-Credentials: true` AND cannot use `*` for the origin; it must name the exact origin.
-4. **Wrong URL/protocol** — hitting `http` vs `https`, or a typo in the API host, makes it a cross-origin request you didn't intend.
-
-## The fix depends on your stack
-
-The real fix is on the **API server**. For example:
-
-- **Express**: `app.use(cors({ origin: 'http://localhost:3000', credentials: true }))`
-- **FastAPI**: add `CORSMiddleware` with `allow_origins=[...]`
-- **In development**: a dev-server proxy (Vite/CRA `proxy`) sidesteps CORS by making requests same-origin.
-
-⚠️ Don't "fix" it with a browser extension or by disabling web security — that only hides it on your machine; real users still hit the wall.
+## The actual message matters
+The exact console text tells you which case you're in, e.g.:
+- *"No 'Access-Control-Allow-Origin' header is present"* → cause #1
+- *"Response to preflight request doesn't pass"* → cause #2
+- *"...must not be the wildcard '*' when credentials mode is 'include'"* → cause #3
 
 ---
 
-To give you the actual fix, tell me (or point me at the code):
-- What's your **frontend** (React/Vite/etc.) and its origin?
-- What's your **backend/API** framework and origin?
-- Can you paste the **exact error text** from the console? It names the blocked origin and which header is missing.
+I can give you a targeted fix if you share:
+1. **The exact error text** from the console
+2. **Your stack** — what's serving the API (Express, FastAPI, nginx, etc.)
+3. The **two origins** involved (page URL and request URL)
 
-Want me to look through your project to find the server setup and pinpoint it?
-[usage] input=2973 cache_read=15192 cache_write=2083 output=1027
+Want me to look through your project's server/frontend config to spot the missing CORS setup? If so, just point me at the backend directory or tell me the framework.
+[usage] input=2973 cache_read=15192 cache_write=2077 output=977

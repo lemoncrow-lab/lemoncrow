@@ -1,7 +1,0 @@
-{"handler_ms": 86, "overhead_ms": 184, "response_size": 705, "session_id": "45ebcce4-9783-40ae-bebc-f345cac7dd86", "status": "ok", "tool": "bash", "total_ms": 270, "ts": 1783520454.9350352}
-{"handler_ms": 273, "overhead_ms": 5, "response_size": 10104, "session_id": "45ebcce4-9783-40ae-bebc-f345cac7dd86", "status": "ok", "tool": "read", "total_ms": 278, "ts": 1783520458.2377954}
-{"handler_ms": 2, "overhead_ms": 15, "response_size": 544, "session_id": "45ebcce4-9783-40ae-bebc-f345cac7dd86", "status": "ok", "tool": "bash", "total_ms": 17, "ts": 1783520466.9510999}
-{"handler_ms": 79, "overhead_ms": 4, "response_size": 4900, "session_id": "45ebcce4-9783-40ae-bebc-f345cac7dd86", "status": "ok", "tool": "read", "total_ms": 83, "ts": 1783520470.2490127}
-{"handler_ms": 2, "overhead_ms": 11, "response_size": 72, "session_id": "45ebcce4-9783-40ae-bebc-f345cac7dd86", "status": "ok", "tool": "bash", "total_ms": 13, "ts": 1783520479.857903}
-{"handler_ms": 285, "overhead_ms": 3, "response_size": 41, "session_id": "45ebcce4-9783-40ae-bebc-f345cac7dd86", "status": "ok", "tool": "edit", "total_ms": 288, "ts": 1783520486.478797}
-{"handler_ms": 2, "overhead_ms": 3367, "response_size": 40, "session_id": "45ebcce4-9783-40ae-bebc-f345cac7dd86", "status": "ok", "tool": "bash", "total_ms": 3369, "ts": 1783520493.9748998}

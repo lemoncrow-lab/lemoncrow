@@ -5,8 +5,8 @@ Explain the difference between git rebase and git merge. When should I use each 
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Compare git rebase and git merge"}
-[usage] input=542 cache_read=0 cache_write=0 output=15
+[assistant] {"title": "Git rebase vs merge tradeoffs"}
+[usage] input=542 cache_read=0 cache_write=0 output=16
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -58,71 +58,65 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] # Git Rebase vs. Git Merge
+[assistant] Both `git merge` and `git rebase` integrate changes from one branch into another, but they do it in fundamentally different ways.
 
-Both integrate changes from one branch into another, but they build **different histories**.
+## The core difference
 
-## Merge
-
-`git merge` takes the commits from your branch and the target and ties them together with a new **merge commit** that has two parents.
+**Merge** combines two branches by creating a new "merge commit" that ties their histories together. Your branch's history is preserved exactly as it happened.
 
 ```
       A---B---C  feature
      /         \
-D---E---F---G---M  main
+D---E---F---G---M  main   (M is the merge commit)
 ```
 
-- History is **preserved exactly** as it happened — non-destructive.
-- The merge commit records *when* and *where* branches came together.
-- Downside: many merge commits can clutter history and make `git log` noisy.
-
-## Rebase
-
-`git rebase` **replays** your branch's commits on top of the target, creating new commits with new hashes.
+**Rebase** replays your branch's commits one-by-one on top of another branch, creating brand-new commits with new hashes. It rewrites history to make it look linear.
 
 ```
-D---E---F---G---A'---B'---C'  feature (rebased onto main)
+              A'--B'--C'  feature (replayed onto G)
+             /
+D---E---F---G  main
 ```
 
-- Produces a **linear, clean** history — as if you'd written the work starting from the latest main.
-- No merge commits.
-- Downside: it **rewrites history** (new commit SHAs), so it's destructive to the original commits.
+## Mental models
+
+- **Merge** = "record what actually happened," including the fact that two lines of work happened in parallel.
+- **Rebase** = "tell the story as if I did my work starting from the latest main."
 
 ## When to use each
 
 **Use merge when:**
-- Integrating a completed feature branch into a shared/long-lived branch (`main`, `develop`).
-- You want an accurate, auditable record of when work was integrated.
-- The branch is **public/shared** — others may have based work on it.
+- Integrating a finished feature branch into a shared branch (`main`, `develop`). A merge commit is a useful record of "this feature landed here."
+- The branch is shared — other people have based work on it, or it's already pushed.
+- You value an accurate, auditable history over a tidy one.
 
 **Use rebase when:**
-- Updating your *local, in-progress* feature branch with the latest `main` before finishing.
-- Cleaning up your own commits before opening a PR (`git rebase -i` to squash, reword, reorder).
-- You want a tidy, linear history that's easy to read and `git bisect`.
+- Updating your *local, private* feature branch with the latest `main` before you're done, so you're working against current code (`git rebase main`).
+- Cleaning up your own commits before sharing (`git rebase -i` to squash, reorder, reword).
+- You want a clean, linear history that's easy to read and `git bisect`.
 
-## The tradeoffs at a glance
+A very common combined workflow: **rebase your local branch to keep it current, then merge it into main** (often a `--no-ff` merge) when it's ready.
+
+## Tradeoffs
 
 | | Merge | Rebase |
 |---|---|---|
-| History | True, non-linear | Linear, curated |
-| Commit hashes | Unchanged | Rewritten |
-| Merge commits | Yes | No |
-| Safe on shared branches | ✅ | ⚠️ Avoid |
-| Conflict resolution | Once, in the merge commit | Potentially per replayed commit |
+| History | True, but can get noisy with many merge commits | Clean, linear, easy to follow |
+| Commit hashes | Preserved | Rewritten (new commits) |
+| Conflict handling | Resolve once, in the merge commit | May resolve conflicts repeatedly, per replayed commit |
+| Safety | Non-destructive | Rewrites history — risky if shared |
+| Traceability | Merge commit shows when/where work integrated | That context is lost |
 
 ## The golden rule
 
-> **Never rebase commits that others have already pulled.** Rewriting shared history forces everyone else into painful reconciliations.
+**Never rebase commits that others may have already pulled** (e.g. a pushed shared branch). Rebasing rewrites commits, so anyone who based work on the originals ends up with a divergent, conflicting history. Keep rebasing to your own local, unpublished work.
 
-Rebase *private* work to keep it clean; merge *public* work to keep it honest.
+If you've already pushed a branch that only you use and you rebase it, you'll need `git push --force-with-lease` — which is safer than `--force` because it refuses to overwrite if someone else pushed in the meantime.
 
-## A common hybrid workflow
+## Quick heuristics
+- Solo cleanup / staying current with main → **rebase**
+- Landing shared work / preserving real history → **merge**
+- Branch already shared and pulled by others → **merge** (don't rewrite)
 
-1. Work on a feature branch.
-2. Periodically `git rebase main` to stay current (while the branch is still yours alone).
-3. When done, `git merge --no-ff feature` into main — often with a single merge commit that marks the feature's arrival.
-
-This gives you clean, linear feature history *and* a clear integration point. Many teams also enable "squash and merge" on their PR platform, which collapses a branch into one commit on main — a middle ground between the two.
-
-Want me to walk through resolving conflicts during a rebase, or set up any of these as aliases?
-[usage] input=2973 cache_read=15192 cache_write=2095 output=966
+Want me to walk through the actual commands for a specific scenario, like updating your feature branch or squashing commits before a PR?
+[usage] input=2973 cache_read=15192 cache_write=2097 output=1057

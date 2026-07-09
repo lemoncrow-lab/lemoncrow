@@ -58,46 +58,55 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Great question — the choice comes down to **delivery semantics**: does each message need to be processed by exactly one consumer, or fanned out to many?
+[assistant] Good architectural question. The short version: **use a queue when a message should be processed once by one consumer, and a topic when the same message should reach many independent consumers.**
 
-## Use a Queue when...
+## Queue (point-to-point)
 
-You want **each message processed once, by exactly one consumer** (point-to-point / competing consumers).
+One message → one consumer. Multiple workers can pull from the same queue, but each message is delivered to exactly one of them. The queue holds work until someone takes it.
 
-- **Work distribution** — Multiple workers pull from the same queue; each job goes to whichever worker is free. Adding workers scales throughput.
-- **Load leveling** — Buffer bursts of work and drain them at a sustainable rate.
-- **Task/command processing** — Order placement, image resizing, email sending, payment processing.
-- You care about **not losing or duplicating** work.
+**Use when:**
+- You're distributing *work* — tasks, jobs, commands ("process this payment", "resize this image").
+- You want to scale throughput by adding more workers (competing consumers) that share the load.
+- Each unit of work must happen once and only once (ideally with idempotency to guard against retries).
+- You care about load leveling — smoothing bursts so a slow downstream isn't overwhelmed.
 
-Mental model: *"This job must get done once."*
+**Mental model:** a to-do list where any available worker grabs the next item.
 
-## Use a Topic (pub/sub) when...
+## Topic (publish/subscribe)
 
-You want **each message delivered to all interested subscribers** (fan-out / broadcast).
+One message → every subscriber. Each subscriber (or subscriber group) gets its own copy. The publisher doesn't know or care who's listening.
 
-- **Event notification** — One event, many independent reactions. An `OrderPlaced` event triggers billing, inventory, shipping, and analytics — each a separate subscriber.
-- **Decoupling producers from consumers** — The publisher doesn't know or care who's listening; you add subscribers without touching the producer.
-- **State propagation / cache invalidation** — Broadcast "this changed" to everyone who holds a copy.
+**Use when:**
+- You're broadcasting *events* — facts about something that happened ("order placed", "user signed up").
+- Multiple independent systems need to react to the same event (billing, email, analytics, search indexing all react to "order placed").
+- You want loose coupling — new consumers can be added later without touching the producer.
 
-Mental model: *"This thing happened; whoever cares can react."*
+**Mental model:** a newsletter — every subscriber gets their own copy of each issue.
 
-## Quick decision guide
+## The deciding question
 
-| Question | Queue | Topic |
-|---|---|---|
-| How many consumers process each message? | Exactly one | All subscribers |
-| Adding a consumer... | ...shares the load | ...adds a new reaction |
-| Coupling | Command ("do this") | Event ("this happened") |
-| Typical use | Jobs, tasks | Events, notifications |
+Ask: **"If I add a second consumer, should the work be split between them, or should both get everything?"**
 
-## Practical notes
+- Split the load → **queue**
+- Both get everything → **topic**
 
-- **You often combine both.** A common pattern is *topic → queues*: a topic fans an event out, and each subscriber has its own queue behind it (competing consumers within each subscriber, broadcast across subscribers). This is exactly what AWS **SNS→SQS**, GCP Pub/Sub, and Kafka consumer groups give you.
-- **Kafka** blurs the line: a single topic supports both — consumers in the *same* consumer group split partitions (queue-like), while *different* groups each get the full stream (topic-like).
-- **Ordering:** queues preserve order per queue (or per message-group/partition key); fan-out generally doesn't guarantee cross-subscriber ordering.
-- **Naming varies by broker** — RabbitMQ uses exchanges + bindings, JMS has explicit Queue vs Topic, Azure Service Bus has both, and Kafka unifies them under topics + consumer groups.
+## A common hybrid
 
-**Rule of thumb:** if you'd say *"do this task,"* use a queue. If you'd say *"this happened,"* use a topic.
+Real systems often combine them: publish an event to a topic, and each subscriber has its own queue behind it. That gives you fan-out (each system gets the event) *and* competing consumers within each system (scale workers per subscriber). This is exactly the model behind:
+- **Kafka** — topics with consumer groups (fan-out across groups, load-balance within a group).
+- **AWS SNS + SQS** — SNS topic fans out to multiple SQS queues.
+- **Google Pub/Sub**, **Azure Service Bus topics with subscriptions** — same pattern.
 
-Want me to map this to a specific broker you're using (Kafka, RabbitMQ, SQS/SNS, etc.)?
-[usage] input=2973 cache_read=15192 cache_write=2085 output=1004
+## Rule of thumb
+
+| Signal | Choice |
+|---|---|
+| Distributing tasks/commands | Queue |
+| Broadcasting events/facts | Topic |
+| One-and-only-one processing | Queue |
+| N independent reactions | Topic |
+| Scale by adding workers | Queue (competing consumers) |
+| Decouple producer from unknown future consumers | Topic |
+
+If you tell me which system you're on (RabbitMQ, Kafka, SQS/SNS, Service Bus, etc.), I can get more concrete — the semantics and terminology differ a fair bit between them.
+[usage] input=2973 cache_read=15192 cache_write=2079 output=957

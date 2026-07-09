@@ -58,49 +58,56 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Good instinct to pause before committing. Microservices solve organizational and scaling problems, but they add distributed-systems complexity that often makes a slow monolith *slower to work with*, not faster. Here's how I'd frame the decision.
+[assistant] Good instinct to pause and analyze before committing to microservices — the split is often blamed for problems that turn out to be fixable in the monolith, and it's much harder to reverse than to undo. Here are the key factors I'd weigh.
 
-## First: is "slow" a reason to split at all?
+## First: is the monolith actually the problem?
 
-Splitting rarely fixes performance directly — you're adding network hops, serialization, and remote calls where you had in-process function calls. Before anything architectural, find out *why* it's slow:
+"Slow" has many causes, and most of them don't require splitting anything. Before architecture, confirm *what* is slow:
 
-- **Profile real requests** (Django Silk, `django-debug-toolbar`, or an APM like Datadog/Sentry). Slowness is usually one of: N+1 queries, missing DB indexes, unbounded querysets, synchronous work that should be a background job, or no caching.
-- **Check the database first.** 80% of "the monolith is slow" turns out to be the ORM. `select_related`/`prefetch_related`, indexes, and query-count budgets often reclaim more than a rewrite.
-- **Offload slow work** to Celery/RQ instead of blocking the request cycle.
+- **Database** — N+1 queries, missing indexes, no `select_related`/`prefetch_related`, unbounded querysets. This is the #1 cause of slow Django apps and microservices won't fix it — you'll just have the same slow queries behind an HTTP hop.
+- **No caching** — missing per-view/queryset caching, no Redis/Memcached layer.
+- **Synchronous work in the request cycle** — emails, image processing, external API calls that belong in Celery/RQ.
+- **Under-provisioned or single-process serving** — wrong Gunicorn/uWSGI worker count, no connection pooling.
+- **No profiling** — before anything, get `django-silk` or APM (Datadog/Sentry Performance/New Relic) in and find the actual hot paths.
 
-If you haven't done this, do it first. It's days of work versus months, and you keep a single deployable.
+If you haven't profiled, do that first. Microservices frequently get proposed to fix problems that a week of query optimization and a Redis cache would solve — at a fraction of the cost and risk.
 
-## If it's genuinely an architecture/scaling problem, weigh these factors
+## If it's genuinely an architecture/scaling problem, the real factors:
 
-**1. Team & organizational structure (the real driver).** Microservices pay off when independent teams need to deploy independently without coordinating. One team of 5–10 on one codebase almost never benefits — you get the costs (distributed debugging, versioned APIs, infra overhead) without the payoff. Conway's Law cuts both ways.
+**1. Team & organizational structure (Conway's Law).** Microservices are as much an org strategy as a technical one. If you have 2–3 teams that keep stepping on each other in the same codebase, service boundaries that match team boundaries can genuinely help. If you're one team of five, microservices mostly add overhead you'll feel daily.
 
-**2. Do clean domain boundaries exist?** Can you point to parts of the app that rarely change together and share little data? If everything touches the same core models (users, orders, billing all deeply intertwined), extraction will be painful and you'll end up with a "distributed monolith" — the worst of both worlds, where a change still requires deploying five services in lockstep.
+**2. Do clear domain boundaries even exist?** Splitting a tangled monolith produces a *distributed* tangled monolith — the worst of both worlds. Can you draw bounded contexts (billing, catalog, notifications, auth) with minimal chatter between them? If everything touches everything, you're not ready.
 
-**3. Data ownership.** This is the hardest part. Each service ideally owns its data. Django makes cross-app queries and joins trivial today; across services they become API calls or event streams. You lose ACID transactions across boundaries and inherit eventual consistency, sagas, and reconciliation logic.
+**3. Data ownership and the database.** This is the hardest part. Django's ORM, migrations, and cross-table joins assume one database. Splitting means:
+   - Each service owns its data; no cross-service joins or foreign keys.
+   - You trade ACID transactions for eventual consistency and patterns like sagas/outbox.
+   - Reporting/analytics that relied on joining everything gets much harder.
+   
+   If your pain is DB-bound, note you can often get a read replica, sharding, or a separate reporting DB *without* microservices.
 
-**4. Operational maturity.** Do you have CI/CD, containerization, centralized logging, distributed tracing, service discovery, and on-call practices? Microservices multiply your deployment and observability surface. Without this foundation, you're trading a performance problem for an operations problem.
+**4. Operational maturity.** Microservices demand infrastructure a monolith doesn't: service discovery, centralized logging, distributed tracing, per-service CI/CD, container orchestration, monitoring/alerting, and a way to debug failures that span services. Do you have this, or the people to build and run it? This is where teams underestimate the cost most.
 
-**5. What actually needs to scale?** Usually one or two hotspots (e.g., a reporting endpoint, image processing, a public API). You can often scale those independently *without* full microservices.
+**5. Which problem are you actually solving?**
+   - *Scaling one hot component* (e.g. a CPU-heavy endpoint) → you may only need to extract *that one piece*, not go full microservices.
+   - *Deploy velocity / independent releases* → a valid microservices driver.
+   - *Fault isolation* → valid, but adds network-failure modes you didn't have before.
+   - *"It's slow"* → usually not a microservices problem (see above).
 
-## The pragmatic middle ground
+## The middle paths — usually the right move
 
-Most teams should consider these before microservices:
+You rarely have to choose between "keep the mess" and "full microservices":
 
-- **Optimize the monolith** — the profiling work above.
-- **Modular monolith** — enforce internal boundaries (separate Django apps with explicit interfaces, no cross-app model imports) while keeping one deployable. This gets you most of the maintainability benefit and makes future extraction *possible* if you ever need it.
-- **Extract one service** — the strangler-fig pattern. Pull out a single well-bounded, genuinely-independent piece (e.g., notifications, search, PDF generation). Learn the operational cost on something low-risk before betting the architecture on it.
-- **Scale horizontally** — run more instances of the monolith behind a load balancer; add read replicas and caching (Redis). Django scales this way surprisingly far.
+- **Modular monolith first.** Enforce clean module boundaries *inside* the Django app (separate apps, explicit interfaces, no cross-module ORM reaching). This gives you most of the org/clarity benefits and makes any future extraction dramatically easier. Do this first regardless — it's the prerequisite for a clean split anyway.
+- **Strangler fig.** If you do split, extract *one* well-bounded, painful service, learn the operational cost for real, then decide whether to continue. Never a big-bang rewrite.
+- **Extract async workloads.** Move heavy/slow work to Celery workers — separate scaling and fault isolation without the distributed-systems tax on your request path.
 
-## A decision checklist
+## My recommendation
 
-Ask the team:
-1. Have we profiled and know *specifically* what's slow?
-2. Is the pain **performance**, or is it actually **team velocity / merge conflicts / deploy coupling**? (These point to different solutions.)
-3. Can we name 2–3 clean boundaries with minimal shared data?
-4. Do we have the ops maturity to run distributed systems today?
-5. Could a modular monolith + targeted optimization solve this for 20% of the effort?
+1. **Profile first.** Get real data on what's slow. Most "we need microservices" conversations end here.
+2. **Fix the cheap wins** — queries, indexes, caching, async tasks.
+3. **If you still need structural change**, do a modular monolith, then strangler-fig one service out and measure the true cost before committing the org to it.
 
-If the honest answers are "no, we haven't profiled" and "it's really about performance" — start there. If it's "our 4 teams keep blocking each other on deploys and we have clear domain seams" — then a measured extraction (not a big-bang rewrite) makes sense.
+---
 
-Want me to dig into any of these — e.g., look at your actual codebase to assess coupling and find the real performance bottlenecks?
-[usage] input=2973 cache_read=15192 cache_write=2107 output=1489
+If you want, point me at the repo and I can profile the slow paths, audit the ORM usage for N+1s and missing indexes, and sketch where natural module/service boundaries actually fall. That would turn this debate into a data-driven decision. Want me to dig in?
+[usage] input=2973 cache_read=15192 cache_write=2109 output=1666

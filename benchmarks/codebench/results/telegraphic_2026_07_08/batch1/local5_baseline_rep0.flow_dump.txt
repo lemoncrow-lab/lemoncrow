@@ -58,43 +58,43 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] The SQL `EXPLAIN` command shows you the **query execution plan** — how the database engine intends to run your query, without actually executing it (in most cases). It's your primary tool for understanding and diagnosing query performance.
+[assistant] The SQL `EXPLAIN` command shows you the **query execution plan** — how the database engine intends to run your query *before* (or instead of) actually running it. It's the primary tool for diagnosing why a query is slow.
 
 ## What it tells you
 
-**1. Access method (how tables are read)**
-- Full table scan vs. index scan vs. index seek
-- Whether an index is used at all, and *which* index
+**1. Access method — how each table is read**
+- Full table scan (reads every row) vs. index scan/seek (uses an index)
+- Which index, if any, was chosen
+- This is usually the biggest performance signal: a full scan on a large table is a common culprit for slow queries.
 
-**2. Join strategy**
-- The order tables are joined in
-- The algorithm used: nested loop, hash join, or merge join
+**2. Join strategy — how tables are combined**
+- Nested loop, hash join, or merge join
+- The order in which tables are joined
 
 **3. Cost & row estimates**
-- The optimizer's **estimated** number of rows at each step
-- A relative "cost" number to compare plan steps
-- These are estimates from table statistics — they can be wrong if stats are stale
+- The optimizer's *estimated* cost (relative units)
+- Estimated number of rows at each step
+- When estimates are wildly off from reality, it often means stale statistics.
 
 **4. Extra operations**
-- Sorting (`ORDER BY`), grouping, temporary tables, filtering steps
+- Sorts, aggregations, temporary tables, filtering steps
 
-## Common variants
+## `EXPLAIN` vs `EXPLAIN ANALYZE`
+- **`EXPLAIN`** — shows the *estimated* plan without running the query.
+- **`EXPLAIN ANALYZE`** — *actually executes* the query and shows real timing and actual row counts alongside the estimates. This lets you spot where estimates diverge from reality. ⚠️ Because it runs the query, be careful with `INSERT`/`UPDATE`/`DELETE` — wrap those in a transaction you can roll back.
 
-| Command | What it does |
-|---|---|
-| `EXPLAIN <query>` | Shows the estimated plan (no execution) |
-| `EXPLAIN ANALYZE <query>` | **Actually runs** the query and shows *real* timings and row counts vs. estimates — Postgres, MySQL 8.0+ |
-| `EXPLAIN (ANALYZE, BUFFERS)` | Postgres: also shows disk/cache I/O |
-| `EXPLAIN FORMAT=JSON` | MySQL: detailed machine-readable output |
+## What to look for
+- Full/sequential scans on large tables → consider adding an index
+- Big gaps between estimated and actual rows → update table statistics
+- Unexpected sorts or temp tables → may indicate missing indexes or rewritable queries
 
-⚠️ `EXPLAIN ANALYZE` executes the statement — be careful with `INSERT`/`UPDATE`/`DELETE` (wrap in a transaction and roll back).
+## A note on syntax
+Details vary by database:
+- **PostgreSQL** — `EXPLAIN`, `EXPLAIN ANALYZE`, plus `FORMAT JSON` and options like `BUFFERS`
+- **MySQL** — `EXPLAIN`, `EXPLAIN ANALYZE` (8.0.18+), `EXPLAIN FORMAT=JSON`
+- **SQL Server** — uses execution plans (`SET SHOWPLAN_ALL ON` / graphical plans) rather than `EXPLAIN`
+- **Oracle** — `EXPLAIN PLAN FOR ...` then query `DBMS_XPLAN`
+- **SQLite** — `EXPLAIN QUERY PLAN`
 
-## What to look for when tuning
-
-- **Full/sequential scans** on large tables → maybe a missing index
-- **Big gaps** between estimated and actual rows (in `ANALYZE`) → stale statistics; run `ANALYZE`/`ANALYZE TABLE`
-- **Expensive sorts** or temp tables → consider an index that provides the ordering
-- **Nested loops over large row counts** → often a sign a better join or index is needed
-
-Exact output format and keywords differ by engine (PostgreSQL, MySQL, SQL Server's `SET SHOWPLAN`/execution plan, Oracle's `EXPLAIN PLAN`). If you tell me which database you're using — and paste a query plan — I can help you read it and spot the bottleneck.
-[usage] input=2973 cache_read=15192 cache_write=2084 output=835
+Want me to walk through reading an actual `EXPLAIN` output for a specific query and database?
+[usage] input=2973 cache_read=15192 cache_write=2078 output=887

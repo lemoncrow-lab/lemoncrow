@@ -19,29 +19,38 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-
-The following MCP servers require authentication before their tools can be used:
-claude.ai Gmail
-claude.ai Google Calendar
-
-This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
-
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Google Drive
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
-- atelier:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -65,13 +74,6 @@ Atelier replaces the grep→read→re-read loop.
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:atelier: Extras manager.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
-- atelier:recall: Retrieve what Atelier already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does Atelier remember', or /recall. Read-only; importing, indexing, and extraction run in the Atelier background.
-- atelier:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -88,103 +90,89 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] This is a general how-to question with no codebase to modify, so I'll answer directly.
-
-## PostgreSQL Connection Pool in Node.js (`pg`)
+[assistant] `pg` (node-postgres) Pool — full timeout + error config:
 
 ```js
-// db.js
-const { Pool } = require('pg');
+import { Pool } from 'pg';
 
 const pool = new Pool({
   host: process.env.PGHOST,
-  port: process.env.PGPORT || 5432,
+  port: 5432,
+  database: process.env.PGDATABASE,
   user: process.env.PGUSER,
   password: <redacted>,
-  database: process.env.PGDATABASE,
 
-  // --- Pool sizing ---
-  max: 20,                      // max clients in pool
-  min: 0,                       // min idle clients kept open
+  max: 20,                       // max clients in pool
+  min: 0,                        // keep-warm floor
+  idleTimeoutMillis: 30_000,     // close idle client after 30s
+  connectionTimeoutMillis: 5_000,// error if no client acquired in 5s
+  maxUses: 7_500,                // recycle a client after N queries (guards leaks)
 
-  // --- Timeouts ---
-  connectionTimeoutMillis: 5000,   // wait max 5s to get a connection from pool, else error
-  idleTimeoutMillis: 30000,        // close idle clients after 30s
-  maxLifetimeSeconds: 3600,        // recycle a client after 1h (pg >= 8.8)
+  // per-connection socket-level timeouts (passed to pg driver)
+  statement_timeout: 10_000,     // kill any single query > 10s (server-side)
+  query_timeout: 10_000,         // client-side query cap
+  idle_in_transaction_session_timeout: 10_000, // kill idle-open txns
 
-  // --- Per-query / socket timeouts (passed to each client) ---
-  statement_timeout: 10000,        // cancel any query running > 10s (server-side)
-  query_timeout: 10000,            // client-side query timeout
-  idle_in_transaction_session_timeout: 10000, // kill idle-open transactions
-
-  // --- TLS (managed/hosted PG) ---
+  // TLS for managed PG (RDS/Supabase/etc.)
   ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: true } : false,
+  keepAlive: true,
 });
 ```
 
-### Error handling — the critical part
-
-The pool emits `error` on **idle** clients (e.g. DB restart, network drop). If unhandled, it crashes the process:
+Error handling — the one everyone misses:
 
 ```js
+// idle clients emit 'error' on backend crash / network drop.
+// UNHANDLED → process crashes. This listener is mandatory.
 pool.on('error', (err) => {
-  console.error('Unexpected idle client error', err);
-  // Don't throw — pool auto-removes the broken client and continues.
+  console.error('idle client error', err);
 });
 ```
 
-### Querying safely
+Query — always via the pool (auto acquire/release), never leak a client:
 
 ```js
-// Simple queries: pool.query auto-acquires + releases a client.
-async function getUser(id) {
-  const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
-  return rows[0];
+async function q(text, params) {
+  const start = Date.now();
+  const res = await pool.query(text, params); // acquire+release handled
+  console.log({ text, ms: Date.now() - start, rows: res.rowCount });
+  return res;
 }
+```
 
-// Transactions: acquire a client, ALWAYS release in finally.
-async function transfer(from, to, amount) {
-  const client = await pool.connect();
+Manual client only for transactions — release in `finally`:
+
+```js
+async function tx(fn) {
+  const client = await pool.connect();       // rejects after connectionTimeoutMillis
   try {
     await client.query('BEGIN');
-    await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [amount, from]);
-    await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [amount, to]);
+    const out = await fn(client);
     await client.query('COMMIT');
-  } catch (err) {
+    return out;
+  } catch (e) {
     await client.query('ROLLBACK');
-    throw err;
+    throw e;
   } finally {
-    client.release(); // release(true) to destroy a suspect client instead of reusing
+    client.release();                        // ALWAYS — else pool starves
   }
 }
 ```
 
-### Graceful shutdown
+Graceful shutdown — drain before exit:
 
 ```js
-async function shutdown() {
-  await pool.end(); // drains + closes all clients; waits for active queries
-  process.exit(0);
-}
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+process.on('SIGTERM', async () => { await pool.end(); process.exit(0); });
 ```
 
-### Key configuration rationale
+Knobs that matter, decisions:
+- `connectionTimeoutMillis` — fail fast under load; unset = requests hang forever waiting for a client.
+- `statement_timeout` (server) vs `query_timeout` (client) — set both; server one survives a dead client.
+- `idle_in_transaction_session_timeout` — reclaims connections held by a stuck transaction; without it one bug locks rows indefinitely.
+- `max` — size to `DB max_connections / instances`, not higher; too many pools × too-big `max` exhausts the server.
+- `maxUses` — rotate clients to dodge slow memory leaks / stale server state behind proxies (PgBouncer).
 
-| Option | Why it matters |
-|---|---|
-| `connectionTimeoutMillis` | Prevents requests hanging forever when the pool is exhausted or DB is unreachable. |
-| `statement_timeout` | Server-side guard against runaway queries holding connections. |
-| `idle_in_transaction_session_timeout` | Frees connections leaked by forgotten `COMMIT`/`ROLLBACK`. |
-| `idleTimeoutMillis` | Releases idle resources; keeps you under `max_connections`. |
-| `maxLifetimeSeconds` | Avoids stale connections behind load balancers/proxies (e.g. PgBouncer, RDS Proxy). |
-| `max` | Cap total connections. Rule of thumb: keep `max × instances` under the server's `max_connections`. |
-| `pool.on('error')` | Mandatory — unhandled idle-client errors crash Node. |
+Gotcha: with an external pooler (PgBouncer transaction mode), disable `statement_timeout` at client and set it server-side; prepared statements can break — use `statement_timeout` on the DB role instead.
 
-**Install:** `npm install pg` (add `pg-native` only if you need libpq).
-
-**Gotchas:** never forget `client.release()` in `finally` (leaks exhaust the pool); size `max` against your total instance count, not per-process; and behind PgBouncer in transaction mode, disable prepared statements / server-side timeouts set via connection.
-
-Want this adapted to a specific setup (TypeScript, Knex/Sequelize/Drizzle, serverless/Lambda, or PgBouncer)?
-[usage] input=5185 cache_read=15197 cache_write=0 output=1519
+`pg-pool` is built into `pg` — no separate install.
+[usage] input=3998 cache_read=16543 cache_write=0 output=1217

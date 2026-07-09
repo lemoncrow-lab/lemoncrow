@@ -58,73 +58,82 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Here's a solid setup using `node-postgres` (`pg`), which is the standard choice.
+[assistant] Here's how to set up a robust PostgreSQL connection pool in Node.js using the `pg` library (the standard choice).
 
-## Basic pool configuration
+## Installation
 
-```js
+```bash
+npm install pg
+```
+
+## Basic Pool Setup with Timeouts & Error Handling
+
+```javascript
 // db.js
 const { Pool } = require('pg');
 
 const pool = new Pool({
-  host: process.env.PGHOST,
-  port: process.env.PGPORT ?? 5432,
+  host: process.env.PGHOST || 'localhost',
+  port: process.env.PGPORT || 5432,
   database: process.env.PGDATABASE,
   user: process.env.PGUSER,
   password: <redacted>,
 
   // --- Pool sizing ---
   max: 20,                        // max clients in the pool
-  min: 0,                         // keep 0 idle when quiet (or set a warm floor)
+  min: 2,                         // keep a few warm (pg >= 8.10 via `min`)
 
-  // --- Timeouts ---
-  idleTimeoutMillis: 30_000,      // close idle clients after 30s
-  connectionTimeoutMillis: 5_000, // fail fast if no connection within 5s
-  maxUses: 7_500,                 // recycle a client after N queries (avoids leaks/stale conns)
+  // --- Timeouts (all in milliseconds) ---
+  connectionTimeoutMillis: 5000,  // fail if a connection can't be acquired in 5s
+  idleTimeoutMillis: 30000,       // close idle clients after 30s
+  maxLifetimeSeconds: 3600,       // recycle a client after 1h (pg >= 8.8)
 
-  // --- Per-query safety limits (applied to every connection) ---
-  statement_timeout: 30_000,             // abort any single query after 30s
-  query_timeout: 30_000,                 // client-side query timeout
-  idle_in_transaction_session_timeout: 10_000, // kill connections stuck mid-transaction
+  // --- Query-level timeouts (applied per client) ---
+  statement_timeout: 30000,       // abort any statement running > 30s
+  query_timeout: 30000,           // client-side query timeout
+  idle_in_transaction_session_timeout: 60000, // kill idle-in-transaction sessions
 
-  // --- TLS (for managed/cloud DBs) ---
-  ssl: process.env.PGSSL === 'true'
-    ? { rejectUnauthorized: true }
-    : false,
+  // --- TLS (for managed/cloud Postgres) ---
+  // ssl: { rejectUnauthorized: true, ca: fs.readFileSync('ca.pem').toString() },
 });
 
-module.exports = { pool };
+module.exports = pool;
 ```
 
-## Error handling
+## Critical: Handle Idle Client Errors
 
-The critical piece people miss: **idle clients can emit errors** (e.g. the DB restarts or a network blip drops a pooled connection). If you don't attach a listener, it crashes the process.
+This is the part people most often miss. A client can emit an `error` event while idle in the pool (e.g., the DB restarts or a network blip drops the connection). **If you don't handle it, the error is unhandled and crashes the process.**
 
-```js
+```javascript
 pool.on('error', (err, client) => {
-  // Fires for errors on IDLE clients in the pool, not on active queries
-  console.error('Unexpected error on idle Postgres client', err);
-  // Don't exit — the pool will discard the bad client and create new ones.
+  console.error('Unexpected error on idle PostgreSQL client', err);
+  // Don't exit — the pool will remove the broken client and create a new one.
+  // Just log/alert. The process should survive transient DB issues.
 });
 
-pool.on('connect', (client) => {
-  // Optional: runs for every new physical connection
-  // e.g. client.query('SET search_path TO app');
-});
+// Optional lifecycle hooks for observability
+pool.on('connect', () => console.debug('New client connected to pool'));
+pool.on('remove', () => console.debug('Client removed from pool'));
 ```
 
-## Querying safely
+## Querying Safely
 
-For simple queries, use the pool directly — it checks out and releases a client for you:
+**For simple queries**, use `pool.query()` — it checks out a client and returns it automatically:
 
-```js
-const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+```javascript
+async function getUser(id) {
+  const { rows } = await pool.query(
+    'SELECT * FROM users WHERE id = $1',  // always parameterize — never string-concat
+    [id]
+  );
+  return rows[0];
+}
 ```
 
-For transactions or multiple statements on one connection, check out a client and **always release it in `finally`**, even on error:
+**For transactions or multi-statement work**, check out a client explicitly and always release it in `finally`:
 
-```js
-async function transfer(fromId, toId, amount) {
+```javascript
+async function transferFunds(fromId, toId, amount) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -135,34 +144,50 @@ async function transfer(fromId, toId, amount) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
-    client.release(); // returns it to the pool — forgetting this leaks connections
+    client.release();  // ALWAYS release, even on error — or you leak the connection
   }
 }
 ```
 
-If a client is in a broken state, you can pass `client.release(true)` (or `release(err)`) to destroy it instead of returning it to the pool.
+If a client throws an unrecoverable error, you can pass it to `release` to discard it from the pool instead of reusing it:
 
-## Graceful shutdown
-
-Drain the pool on exit so in-flight queries finish and connections close cleanly:
-
-```js
-async function shutdown() {
-  await pool.end(); // waits for active clients to finish, then closes all
+```javascript
+} catch (err) {
+  client.release(err);  // destroys the client rather than returning it to the pool
+  throw err;
 }
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
 ```
 
-## Key points to get right
+## Graceful Shutdown
 
-- **`connectionTimeoutMillis`** — without it, requests hang indefinitely when the pool is exhausted or the DB is unreachable. Set it so you fail fast.
-- **`statement_timeout`** — your backstop against a runaway query holding a connection forever. This is enforced server-side.
-- **`idle_in_transaction_session_timeout`** — prevents a bug (forgotten `COMMIT`/`ROLLBACK`) from pinning a connection and blocking others.
-- **`max`** — size it against your DB's `max_connections`, remembering *every* app instance has its own pool. If you run 10 instances at `max: 20`, that's 200 connections. For serverless/high-fanout, consider a proxy like PgBouncer.
-- **One pool per process** — create it once and reuse it; don't make a new pool per request.
-- **Always attach `pool.on('error')`** — otherwise a dropped idle connection is an unhandled error that can take down the process.
+Drain the pool on shutdown so in-flight queries finish and connections close cleanly:
 
-Want me to adapt this for a specific setup — TypeScript, an ORM/query builder (Prisma, Drizzle, Knex), serverless (Lambda/Vercel), or PgBouncer?
-[usage] input=2973 cache_read=15192 cache_write=2098 output=1671
+```javascript
+async function shutdown() {
+  console.log('Draining PostgreSQL pool...');
+  await pool.end();   // waits for active clients to finish, then closes all
+  process.exit(0);
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+```
+
+## Key Points to Remember
+
+| Setting | Why it matters |
+|---|---|
+| `connectionTimeoutMillis` | Prevents requests hanging forever when the DB is unreachable |
+| `idleTimeoutMillis` | Frees connections your app isn't using |
+| `statement_timeout` | Server-side guard against runaway queries |
+| `idle_in_transaction_session_timeout` | Stops a hung transaction from holding locks |
+| `pool.on('error')` | **Prevents crashes** from idle-client disconnects |
+| `client.release()` in `finally` | Prevents connection leaks that exhaust `max` |
+| `pool.end()` | Clean shutdown without dropping active queries |
+
+## Sizing Tip
+
+Don't over-size `max`. Postgres has its own `max_connections` limit (often 100). If you run N app instances, `N × pool.max` must stay comfortably under it. For high concurrency, put **PgBouncer** in front and keep per-app pools small — but note that PgBouncer in *transaction* mode doesn't support prepared statements or session-level features.
+
+Want me to adapt this for a specific setup — a managed provider (RDS/Supabase/Neon), TypeScript, or an ORM like Prisma/Drizzle/Knex?
+[usage] input=2973 cache_read=15192 cache_write=2100 output=1905

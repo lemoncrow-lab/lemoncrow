@@ -19,32 +19,16 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
-The following MCP servers require authentication before their tools can be used:
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
 claude.ai Gmail
 claude.ai Google Calendar
+claude.ai Google Drive
 
-This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
-- atelier:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -68,13 +52,6 @@ Atelier replaces the grep→read→re-read loop.
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:atelier: Extras manager.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
-- atelier:recall: Retrieve what Atelier already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does Atelier remember', or /recall. Read-only; importing, indexing, and extraction run in the Atelier background.
-- atelier:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -91,38 +68,29 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] This is a conceptual/advisory question — no codebase action needed. I'll answer directly and concisely.
+[assistant] Not a tooling problem yet — establish whether the monolith's slowness is even a decomposition problem. Most Django slowness is fixable in-place; microservices add latency, not remove it.
 
-## Key factors before splitting your Django monolith
+**First: is splitting the actual fix?**
+Profile before deciding. Common Django slowness, all fixable in the monolith:
+- N+1 queries → `select_related`/`prefetch_related`
+- missing DB indexes → `EXPLAIN ANALYZE`
+- synchronous slow work → Celery/task queue
+- no caching → Redis, per-view/fragment
+- fat unpaginated endpoints → pagination, `.only()`/`.defer()`
 
-**First: is the monolith actually the problem?**
-Slowness is usually fixable inside the monolith, and it's far cheaper than distributing it. Rule out these before committing:
-- **N+1 queries** — the #1 Django killer. `select_related`/`prefetch_related`, `django-debug-toolbar`, `nplusone`.
-- **Missing DB indexes**, slow queries — profile with `pg_stat_statements`.
-- **No caching layer** — Redis/Memcached for hot reads, cached template fragments.
-- **Sync work that should be async** — offload to Celery (emails, exports, third-party calls).
-- **Vertical/horizontal scaling** — more Gunicorn workers, read replicas, a bigger box.
-- **Missing connection pooling** (PgBouncer), inefficient serialization.
+If the bottleneck is the DB (usually is), microservices make it *worse* — same DB, now behind network hops, or a distributed-data problem you didn't have.
 
-Microservices *do not* make code faster — they add network latency. They solve **team/scaling/deploy** problems, not raw performance.
+**If splitting is genuinely warranted — the factors:**
 
-**If the real problem is organizational/scaling, then weigh:**
+- **Bounded contexts / seams.** Can you name modules with clean domain boundaries and few cross-references? No clear seam → premature. The split follows domain lines (`billing`, `catalog`, `auth`), not "the slow part."
+- **Data ownership.** Each service owns its tables, no shared DB. Django's ORM + cross-app FKs and JOINs are the hardest thing to sever. If two candidate services JOIN each other constantly, they're one service.
+- **Team topology (Conway).** Do you have teams to own services independently? One team + N services = distributed monolith, all the cost, none of the autonomy.
+- **Independent scaling need.** Real driver = one component needs to scale/deploy separately (e.g. one endpoint is 90% of load). If everything scales together, one service scaling horizontally (more Django workers) is simpler.
+- **Operational maturity.** Service mesh, distributed tracing, centralized logging, CI/CD per service, on-call. Without these, debugging gets harder, not easier.
+- **Transaction boundaries.** DB ACID transactions across a split become sagas / eventual consistency. Anywhere you rely on atomic multi-table writes is a red flag for that seam.
+- **Latency budget.** In-process call → network call: +ms each hop, + failure modes (retries, timeouts, partial failure). Chatty boundaries kill you.
 
-| Factor | Question to answer |
-|---|---|
-| **Domain boundaries** | Can you draw clear seams (bounded contexts)? If you can't cleanly separate modules *inside* the monolith, you can't separate them across a network. |
-| **Data ownership** | Each service needs its own data. Are your tables a tangle of cross-domain foreign keys and JOINs? Splitting those is the hardest part. |
-| **Transactions** | Logic that spans domains loses ACID guarantees — you inherit eventual consistency, sagas, distributed failures. |
-| **Team topology** | Multiple teams blocked by one deploy pipeline is a real reason to split. One small team is usually a reason *not* to. |
-| **Operational maturity** | Do you have CI/CD, centralized logging, distributed tracing, monitoring, service discovery, on-call? Microservices multiply ops burden. |
-| **Independent scaling** | Is one component (e.g. image processing, search) the actual bottleneck? That component is a good extraction candidate; the rest may not be. |
-| **Deploy/release cadence** | Do parts of the app need to ship at very different speeds? |
-| **Latency budget** | In-process calls become network hops. Chatty domains suffer badly once separated. |
+**Pragmatic path:** modular monolith first — enforce boundaries as Django apps with no cross-imports, service-layer between them, split the DB schemas logically. Get the seams right in-process (cheap to refactor), extract a *single* service only when a concrete scaling/team/deploy need forces it. Strangler-fig, not big-bang rewrite.
 
-**The pragmatic middle path (recommended default):**
-1. **Fix the performance issues in place first** — you'll likely recover most of the speed and buy time.
-2. **Modularize the monolith** — enforce clean module boundaries, kill cross-domain imports/FK tangles. A well-structured "modular monolith" gets ~80% of the benefit with none of the distributed-systems tax.
-3. **Extract one service** — the clearest, most independently-scaled seam — via the **strangler-fig pattern**. Learn the operational cost on a low-risk boundary before committing the whole org.
-
-**Rough decision rule:** split for **team autonomy and independent scaling of a specific bottleneck**, not for "the app feels slow." If you can't name the bounded context and its data owner today, you're not ready to split yet — profile and modularize first.
-[usage] input=5229 cache_read=15206 cache_write=0 output=1085
+One-line test before any split: "what specific pain does a network boundary solve that a module boundary doesn't?" No crisp answer → don't split yet.
+[usage] input=3514 cache_read=16552 cache_write=0 output=963

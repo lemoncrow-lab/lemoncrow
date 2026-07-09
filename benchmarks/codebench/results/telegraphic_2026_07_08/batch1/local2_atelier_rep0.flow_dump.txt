@@ -20,28 +20,8 @@ TaskStop
 TaskUpdate
 WebSearch
 
-The following MCP servers require authentication before their tools can be used:
-claude.ai Gmail
-claude.ai Google Calendar
-
-This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
-
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Google Drive
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
-
 Available agent types for the Agent tool:
 - atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
-- atelier:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -65,13 +45,6 @@ Atelier replaces the grep→read→re-read loop.
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:atelier: Extras manager.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
-- atelier:recall: Retrieve what Atelier already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does Atelier remember', or /recall. Read-only; importing, indexing, and extraction run in the Atelier background.
-- atelier:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -88,43 +61,28 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] This is a conceptual question, not a codebase task — answering directly.
+[assistant] Database connection pooling: reuse a fixed set of open DB connections instead of opening/closing one per request.
 
-## Database Connection Pooling
+**Why**: TCP handshake + TLS + DB auth per connection = expensive (tens of ms). DBs also cap concurrent connections (Postgres default ~100); unbounded opening exhausts them → errors.
 
-**The problem it solves:** Opening a database connection is expensive — TCP handshake, authentication, TLS negotiation, session setup — often 10–100ms. If every request opens and closes its own connection, that overhead dominates and the database gets overwhelmed by connection churn.
+**Mechanism**: pool holds N live connections. Request checks one out → runs query → returns it to pool (not closed). Idle connection waits for next borrower.
 
-**The idea:** A connection pool keeps a set of open, ready-to-use connections. Instead of creating a connection per request, your app **borrows** one from the pool, uses it, and **returns** it (rather than closing it). Connections are reused across many requests.
+**Key params**:
+- `pool_size` / max: ceiling on concurrent connections. Set to DB capacity ÷ app instances, leaving headroom.
+- `min`/idle: kept-warm connections at rest.
+- `max_overflow`: temporary connections above pool_size under burst.
+- `timeout`: how long a request waits for a free connection before erroring.
+- `max_lifetime` / recycle: retire a connection after T seconds → avoids stale sockets, DB-side idle timeouts, load-balancer drift.
+- health check / `pre_ping`: validate before handing out → drops dead connections silently.
 
-### How it works
-1. On startup, the pool opens N connections (or grows lazily up to a limit).
-2. A request asks the pool for a connection → gets an idle one immediately.
-3. If none are idle and the pool is below `max`, a new one is created.
-4. If the pool is at `max`, the request **waits** in a queue (up to a timeout).
-5. When done, the connection goes back to the pool — still open — for the next borrower.
+**Sizing**: bigger ≠ faster. Optimal ≈ number of DB cores for CPU-bound work; oversized pools cause contention + memory pressure. Total connections across all app instances must stay under the DB max.
 
-### Key parameters
-- **min / max size** — connections kept warm vs. hard ceiling. Max prevents overloading the DB (each connection costs memory/CPU server-side).
-- **acquire timeout** — how long a request waits for a free connection before erroring.
-- **idle timeout** — close connections unused for too long to free resources.
-- **max lifetime** — recycle connections periodically (avoids stale/leaked server-side state, respects DB-side timeouts).
-- **validation / health check** — test a connection before handing it out (e.g. ping) so you don't get a dead one.
+**Gotchas**:
+- Leaked connections (checked out, never returned) → pool exhaustion, hangs. Always return in `finally`/context manager.
+- Long transactions hold a connection the whole time → shrinks effective pool.
+- Serverless/many-instances: per-instance pools multiply → use an external pooler (PgBouncer, RDS Proxy) in transaction-pooling mode.
 
-### Why it matters
-- **Latency** — amortizes connection setup cost across requests.
-- **Throughput & stability** — caps concurrent DB connections, protecting the database from being swamped.
-- **Backpressure** — the wait queue naturally throttles the app under load instead of crashing the DB.
+**Where it lives**: app-side (HikariCP, SQLAlchemy `QueuePool`, `pgxpool`) or a proxy between app and DB (PgBouncer). Proxy wins when instance count is high or bursty.
 
-### Common pitfalls
-- **Pool too small** → requests queue and time out under load.
-- **Pool too large** → the database runs out of connections/memory (a DB has its own `max_connections`; sum across all app instances must fit under it).
-- **Connection leaks** — borrowing without returning (missing `finally`/`close`) slowly drains the pool until it deadlocks.
-- **Long-held connections** — running slow work or transactions while holding a connection starves others; borrow late, return early.
-- **Serverless mismatch** — many short-lived instances each with a pool can blow past DB limits; use an external pooler (e.g. PgBouncer, RDS Proxy).
-
-### Where the pool lives
-- **In-process** — library-level: HikariCP (Java), `database/sql` (Go), SQLAlchemy `QueuePool` (Python), node-postgres `Pool`.
-- **External/sidecar** — PgBouncer, PgPool, ProxySQL, RDS Proxy — shared across many app instances, essential at scale and for serverless.
-
-**One-line mental model:** a pool is a small warm cache of reusable connections with a borrow/return lifecycle and a size cap that trades a little wait for a lot of stability.
-[usage] input=5185 cache_read=15171 cache_write=0 output=1040
+One-line model: a pool trades a handful of persistent connections for the cost of setup, bounded so you never overrun the DB.
+[usage] input=3352 cache_read=16306 cache_write=205 output=717

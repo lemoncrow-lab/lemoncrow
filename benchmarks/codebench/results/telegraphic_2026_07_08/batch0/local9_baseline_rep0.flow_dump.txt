@@ -58,48 +58,45 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] The race condition happens because you're reading the counter, incrementing it in JavaScript, then writing it back — three separate steps. Two concurrent requests both read the same value before either writes, so they produce the same result. The fix is to make the increment atomic inside the database.
+[assistant] The race condition comes from a **read-modify-write** pattern where you read the current value in one query, add 1 in JavaScript, then write it back in another query. Two concurrent requests both read the same starting value, both compute the same "next" value, and one overwrites the other (a lost update).
 
-## The problem (read-modify-write)
+The fix is to make the increment **atomic in a single SQL statement** so PostgreSQL does the arithmetic under a row lock.
+
+## The typical broken code
 
 ```js
-// ❌ Racy: SELECT then UPDATE in separate statements
-const { rows } = await client.query('SELECT value FROM counters WHERE id = $1', [id]);
+// ❌ RACE CONDITION
+const { rows } = await pool.query('SELECT value FROM counters WHERE id = $1', [id]);
 const next = rows[0].value + 1;
-await client.query('UPDATE counters SET value = $1 WHERE id = $2', [next, id]);
+await pool.query('UPDATE counters SET value = $1 WHERE id = $2', [next, id]);
 return next;
 ```
 
-## The fix: atomic increment with `RETURNING`
+Two requests interleave between the SELECT and the UPDATE → both return the same value.
 
-Let PostgreSQL do the increment in a single statement. `UPDATE ... SET value = value + 1` takes a row lock, so concurrent requests are serialized by the database, and `RETURNING` hands back the new value.
+## The fix: atomic increment + RETURNING
 
 ```js
-// ✅ Atomic: one statement, no lost updates
-const { rows } = await client.query(
+// ✅ Atomic — the read, add, and write happen as one locked operation
+const { rows } = await pool.query(
   'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
   [id]
 );
 return rows[0].value;
 ```
 
-Each concurrent request now gets a distinct, correctly-incremented value.
+`value = value + 1` is evaluated by PostgreSQL while holding a row-level lock, so concurrent requests are serialized on that row. `RETURNING value` hands you the post-increment result in the same round trip, so each caller gets a distinct value with no separate SELECT.
 
-## Things worth checking
+## Why this works and other approaches to know
 
-1. **Connection pooling.** Make sure each request gets its own connection from the pool (`pool.query(...)` or `pool.connect()` per request). Sharing one client across concurrent requests causes a *different* set of bugs.
+- **Single-statement UPDATE (above)** — best default. No explicit transaction needed; the statement is atomic on its own.
+- **`SELECT ... FOR UPDATE`** — only needed if you must read, run logic in JS, *then* write within a transaction. It locks the row so other transactions block until you commit. More overhead; avoid unless you genuinely need the intermediate value in app code.
+- **A `SEQUENCE`** (`nextval('counter_seq')`) — if you only need monotonically increasing unique numbers (not a stored, resettable count), sequences are gap-tolerant but never hand out the same value twice, even across transactions.
 
-2. **Transactions.** If the increment is part of a larger transaction, the atomic `UPDATE` still holds the row lock until commit — good. Just keep the transaction short so you don't serialize everything.
+## Two common gotchas
 
-3. **If you need a gap-free sequence per request**, the atomic UPDATE above is right. If you just need unique increasing numbers and gaps are acceptable, a Postgres `SEQUENCE` (`nextval()`) is lock-free and faster:
-   ```sql
-   SELECT nextval('my_counter_seq');
-   ```
-   Note sequences can leave gaps on rollback, but they never hand out duplicates under concurrency.
+1. **Pool, not a shared client.** Make sure you're using `pool.query(...)` (or a per-request client). Concurrent requests sharing one `Client` will corrupt each other regardless of the SQL.
+2. **Don't wrap it in a needless transaction with a prior SELECT.** If you kept a `SELECT` before the `UPDATE` "to get the current value," that reintroduces the race. Delete it — `RETURNING` replaces it.
 
-4. **Don't reach for application-level locks** (mutexes, `SELECT ... FOR UPDATE` loops) for this — the single atomic statement is simpler and correct.
-
-The key principle: **never read a value into your app, compute the next one, and write it back.** Push the arithmetic into a single SQL statement so the database's row locking guarantees correctness.
-
-Want to share your actual endpoint code? I can point out the exact line to change.
-[usage] input=2973 cache_read=15192 cache_write=2113 output=939
+If you paste your actual endpoint code I can point to the exact lines to change, but 95% of the time swapping in the atomic `UPDATE ... RETURNING` is the whole fix.
+[usage] input=2973 cache_read=15192 cache_write=2115 output=1045

@@ -5,8 +5,8 @@ What's the difference between TCP and UDP?
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "TCP and UDP protocol comparison"}
-[usage] input=525 cache_read=0 cache_write=0 output=13
+[assistant] {"title": "Understand TCP vs UDP differences"}
+[usage] input=525 cache_read=0 cache_write=0 output=14
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -58,44 +58,39 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] TCP and UDP are both transport-layer protocols, but they make opposite trade-offs between reliability and speed.
+[assistant] **TCP** (Transmission Control Protocol) and **UDP** (User Datagram Protocol) are the two main transport-layer protocols. The core trade-off is **reliability vs. speed**.
 
-## TCP (Transmission Control Protocol)
+## TCP — Connection-oriented, reliable
 
-**Connection-oriented** — establishes a connection via a three-way handshake (SYN, SYN-ACK, ACK) before any data flows.
+- **Handshake first:** Establishes a connection via a 3-way handshake (SYN → SYN-ACK → ACK) before any data flows.
+- **Guaranteed delivery:** Every packet is acknowledged; lost packets are retransmitted.
+- **Ordered:** Data arrives in the sequence it was sent (packets are reassembled in order).
+- **Flow & congestion control:** Adapts sending rate to the receiver's capacity and network conditions.
+- **Higher overhead:** Larger headers (20+ bytes) and extra round-trips add latency.
 
-Key guarantees:
-- **Reliable delivery** — every packet is acknowledged; lost packets are retransmitted
-- **Ordered** — data arrives in the sequence it was sent
-- **Error-checked** — corrupted segments are detected and resent
-- **Flow control** (won't overwhelm a slow receiver) and **congestion control** (backs off when the network is congested)
+## UDP — Connectionless, "fire and forget"
 
-The cost: more overhead, higher latency, larger headers (20+ bytes).
-
-## UDP (User Datagram Protocol)
-
-**Connectionless** — just fires packets ("datagrams") at the destination with no handshake.
-
-Characteristics:
-- **No delivery guarantee** — packets can be lost silently
-- **No ordering** — packets may arrive out of sequence
-- **No congestion/flow control**
-- Minimal overhead, tiny 8-byte header, very low latency
+- **No handshake:** Just sends packets (datagrams) with no setup.
+- **No delivery guarantee:** Lost packets are simply lost — no retransmission or acknowledgment.
+- **No ordering:** Packets may arrive out of order.
+- **No congestion control** (by default) — sends as fast as told.
+- **Lower overhead:** Small 8-byte header, minimal latency.
 
 ## Quick comparison
 
-| | TCP | UDP |
+| Feature | TCP | UDP |
 |---|---|---|
-| Connection | Yes (handshake) | No |
+| Connection | Required (handshake) | None |
 | Reliability | Guaranteed | Best-effort |
 | Ordering | Yes | No |
-| Speed | Slower | Faster |
-| Header size | 20+ bytes | 8 bytes |
+| Speed/latency | Slower | Faster |
+| Header size | 20–60 bytes | 8 bytes |
+| Flow/congestion control | Yes | No |
 
-## When each is used
+## When to use which
 
-- **TCP:** web (HTTP/HTTPS), email, file transfer, SSH — anything where correctness matters more than speed
-- **UDP:** live video/voice, gaming, DNS lookups, streaming — where speed matters and occasional loss is tolerable
+- **TCP:** Web (HTTP/HTTPS), email, file transfer (SSH, FTP) — anything where every byte must arrive correctly.
+- **UDP:** Live video/voice (VoIP), gaming, DNS lookups, streaming — where speed matters more than perfect delivery, and a dropped packet is better than a delayed one.
 
-A useful rule of thumb: use TCP when you can't afford to lose data, UDP when you can't afford to wait for it. (Note: modern protocols like QUIC/HTTP-3 build TCP-like reliability *on top of* UDP to get the best of both.)
-[usage] input=2973 cache_read=15192 cache_write=2080 output=710
+**One nuance:** Modern protocols blur the line. QUIC (used by HTTP/3) is built *on top of* UDP but adds TCP-like reliability and ordering in user space, getting the best of both.
+[usage] input=2973 cache_read=15192 cache_write=2074 output=780

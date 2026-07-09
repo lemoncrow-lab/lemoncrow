@@ -4,7 +4,7 @@
 
 # Atelier Runtime
 
-### Honestly, get 30% more out of your Claude subscription.
+### Honestly, get 30% more out of your Claude subscription
 
 Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. Keep using Claude Code normally; Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, reusable memory, and a live savings meter.
 
@@ -18,12 +18,7 @@ Atelier is a 30-second install that helps Claude Code waste fewer tokens while y
 [![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://atelier.ws)
 [![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://atelier.ws)
 
-[Install](#install-in-30-seconds)<br />
-[Check your savings first](#check-your-own-savings)<br />
-[Why trust the numbers?](#why-trust-the-numbers)<br />
-[Results](#results)<br />
-[Compare vs named tools](#code-search-vs-10-named-tools)<br />
-[Pricing](#pricing)
+[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](#pricing)
 
 </div>
 
@@ -113,14 +108,14 @@ Measured on the same model, same tasks, and same environment:
 
 | Benchmark                                           | Baseline correct | Atelier correct | Correct delta |        Baseline cost |        Atelier cost | Cost delta |
 | ----------------------------------------------------- | -----------------: | ----------------: | --------------: | ---------------------: | --------------------: | -----------: |
-| SWE-bench Verified, 50 tasks x 5 reps | 80.8% | **92.8%** | **+12.0 pp** | $234.84 | **$165.45** | **29.5% cheaper** |
-| SWE-bench Lite, 10 tasks x 3 reps | 93.3% | **100%** | **+6.7 pp** | $12.38 | **$10.79** | **12.9% cheaper** |
-| SWE-bench Pro, 10 tasks x 5 reps | 88.0% | **90.0%** | **+2.0 pp** | $39.01 | **$30.61** | **21.5% cheaper** |
-| Exploration tasks across 7 large repos x 5 reps | - | - | - | $19.11 | **$6.29** | **67% cheaper** |
-| Telegraphic Q&A, 20 prompts x 5 reps | - | - | - | $8.93 | **$6.81** | **23.7% cheaper** |
-| Terminal-Bench 2.1, 89 tasks vs public leaderboard* | 78.9% expected | 78.7% | -0.2 pp | $96.76 | **$69.52**† | **28.1% cheaper**† |
+| SWE-bench Verified, 50 tasks x 5 reps               |            80.8% |       **92.8%** |  **+12.0 pp** | $234.84 |**$165.45** |   **29.5% cheaper** |            |
+| SWE-bench Lite, 10 tasks x 3 reps                   |            93.3% |        **100%** |   **+6.7 pp** |   $12.38 |**$10.79** |   **12.9% cheaper** |            |
+| SWE-bench Pro, 10 tasks x 5 reps                    |            88.0% |       **90.0%** |   **+2.0 pp** |   $39.01 |**$30.61** |   **21.5% cheaper** |            |
+| Exploration tasks across 7 large repos x 5 reps     |                - |               - |             - |    $19.11 |**$6.29** |     **67% cheaper** |            |
+| Telegraphic Q&A, 20 prompts x 5 reps | - | - | - | $8.93 | **$5.34** | **40.2% cheaper** |
+| Terminal-Bench 2.1, 89 tasks vs public leaderboard* |   78.9% expected |           78.7% |       -0.2 pp | $96.76 |**$69.52**† | **28.1% cheaper**† |            |
 
-<sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Other 5 tasks in Atelier timeout and cannot capture cost; see [BENCHMARKS.md](BENCHMARKS.md).</sub>
+<sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Other 5 tasks in Atelier timeout and cannot capture cost; see .</sub>
 
 SWE-bench Verified detail:
 
@@ -136,14 +131,14 @@ Raw runs, setup notes, and reproduction commands live in [BENCHMARKS.md](BENCHMA
 
 Retrieval quality (MRR) across ~7,200 query/gold pairs on 14 repos -- ripgrep, ast-grep, universal-ctags, Serena, CodeGraph, cocoindex-code, codebase-memory-mcp, fff-mcp, code-index-mcp, and jCodeMunch all scored on the identical corpus:
 
-| Provider | MRR | rec@1 | p95 |
-| --- | ---: | ---: | ---: |
-| **Atelier +semantic (BGE)** | **0.727** | **0.650** | 390ms |
-| Atelier lexical (default) | 0.676 | 0.582 | 134ms |
-| cocoindex-code (best rival) | 0.557 | 0.457 | 595ms |
-| serena | 0.401 | 0.359 | 3834ms |
-| ripgrep | 0.376 | 0.320 | 66ms |
-| universal-ctags (worst rival) | 0.237 | 0.226 | 1ms |
+| Provider                      |       MRR |     rec@1 |    p95 |
+| ------------------------------- | ----------: | ----------: | -------: |
+| **Atelier +semantic (BGE)**   | **0.727** | **0.650** |  390ms |
+| Atelier lexical (default)     |     0.676 |     0.582 |  134ms |
+| cocoindex-code (best rival)   |     0.557 |     0.457 |  595ms |
+| serena                        |     0.401 |     0.359 | 3834ms |
+| ripgrep                       |     0.376 |     0.320 |   66ms |
+| universal-ctags (worst rival) |     0.237 |     0.226 |    1ms |
 
 None of these 10 tools had ever been scored against each other, on a shared query set, before this table existed -- most publish a number about themselves, on their own terms, against their own baseline (grep, file-by-file reading), never against a rival. Full 13-row table and a per-tool "what they claim vs. what it scored" breakdown, with sources: [atelier.ws/vs](https://atelier.ws/vs) and [docs.atelier.ws/benchmarks/results](https://docs.atelier.ws/benchmarks/results).
 
@@ -168,16 +163,6 @@ Atelier does not make Claude a different model. It makes the loop around Claude 
 - No account needed to start.
 - Live local stats for cost, tokens, and savings.
 - Optional paid features for heavy users and teams.
-
-## Pricing
-
-| Plan | Price | Best for |
-| --- | ---: | --- |
-| Free | $0 | Local runtime, Claude Code setup, better tools, skills, and headline savings estimates. |
-| Pro | $19/mo | Heavy users who want large-repo search, session recall, full savings breakdown, model routing, and swarm workflows. |
-| Enterprise | Contact us | Teams that need shared context, governance, SSO, retention, audit, and very large repos. |
-
-Full breakdown: [docs/pricing.md](docs/pricing.md).
 
 ## Learn more
 
