@@ -214,12 +214,21 @@ def create_filtered_commit(
 
 
 def fetch_watermark() -> None:
-    """Best-effort: pull the watermark refs from origin so a fresh checkout can resume incrementally."""
-    subprocess.run(
-        ["git", "fetch", DEV_REMOTE, f"{MIRROR_DEV_TAG}:{MIRROR_DEV_TAG}", f"{MIRROR_PUB_TAG}:{MIRROR_PUB_TAG}"],
+    """Pull the watermark refs from origin so a fresh checkout can resume incrementally.
+
+    Uses forced refspecs (+src:dst) so a stale local watermark can never silently
+    block the update: without the force prefix, git refuses non-fast-forward ref
+    updates and this fetch fails silently (capture_output swallows stderr), leaving
+    get_watermark() to fall back to the stale local ref and report a bogus count.
+    """
+    result = subprocess.run(
+        ["git", "fetch", DEV_REMOTE, f"+{MIRROR_DEV_TAG}:{MIRROR_DEV_TAG}", f"+{MIRROR_PUB_TAG}:{MIRROR_PUB_TAG}"],
         cwd=REPO_ROOT,
         capture_output=True,
+        text=True,
     )
+    if result.returncode != 0:
+        print(f"WARNING: failed to fetch watermark refs from {DEV_REMOTE}: {result.stderr.strip()}", file=sys.stderr)
 
 
 def get_watermark() -> tuple[str, str] | None:
