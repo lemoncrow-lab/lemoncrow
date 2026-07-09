@@ -21,7 +21,7 @@ import pytest
 
 from atelier.gateway.adapters.mcp_server import tool_grep, tool_smart_search
 
-pytestmark = pytest.mark.ab
+pytestmark = [pytest.mark.ab, pytest.mark.slow]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"

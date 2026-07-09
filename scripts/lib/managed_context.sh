@@ -48,6 +48,47 @@ PY
     fi
 }
 
+atelier_resolve_version() {
+    local repo_root="${1:-${ATELIER_REPO:-}}"
+    local version=""
+
+    if [[ -n "$repo_root" && -f "$repo_root/pyproject.toml" ]]; then
+        version="$(PROJECT_PYPROJECT="$repo_root/pyproject.toml" python3 - <<'PYEOF' 2>/dev/null || true
+import os
+import re
+from pathlib import Path
+
+text = Path(os.environ["PROJECT_PYPROJECT"]).read_text(encoding="utf-8")
+match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+print(match.group(1) if match else "")
+PYEOF
+)"
+    fi
+
+    if [[ -z "$version" ]]; then
+        version="$(python3 - <<'PYEOF' 2>/dev/null || true
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    print(version("atelier"))
+except PackageNotFoundError:
+    print("")
+PYEOF
+)"
+    fi
+
+    if [[ -z "$version" ]] && command -v atelier >/dev/null 2>&1; then
+        version="$(atelier --version 2>/dev/null | sed -n 's/^atelier, version //p' | head -n 1)"
+    fi
+
+    if [[ -z "$version" ]]; then
+        echo "[atelier] ERROR: could not resolve Atelier version" >&2
+        return 1
+    fi
+
+    printf '%s\n' "$version"
+}
+
 atelier_write_managed_copy() {
     local source_file="$1"
     local dest_file="$2"

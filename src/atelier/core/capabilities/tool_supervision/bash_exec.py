@@ -1876,6 +1876,13 @@ def compact_host_bash_output(command: str, stdout: str, stderr: str, exit_code: 
     )
 
 
+def _close_managed_process_pipes(managed: _ManagedCommand) -> None:
+    for stream in (managed.proc.stdout, managed.proc.stderr):
+        with contextlib.suppress(Exception):
+            if stream is not None:
+                stream.close()
+
+
 def _join_readers_within(readers: list[threading.Thread], grace_s: float) -> bool:
     """Join every reader thread against one shared deadline, not `grace_s`
     per reader -- a naive `for r in readers: r.join(timeout=grace_s)` lets N
@@ -1981,6 +1988,7 @@ def _watch_managed_command(session_id: str) -> None:
     # a still-open duplicate of the pipe (e.g. a detached backgrounded server)
     # must not wedge this cleanup thread forever.
     _join_readers_within(managed.readers, _READER_JOIN_GRACE_S)
+    _close_managed_process_pipes(managed)
     with contextlib.suppress(Exception):
         managed.stdout_file.close()
     with contextlib.suppress(Exception):
@@ -2194,6 +2202,7 @@ def poll_managed_command(session_id: str, *, cancel: bool = False) -> dict[str, 
     # truncation. One shared deadline across every reader (not one grace
     # window each) -- see _join_readers_within.
     reader_wedged = _join_readers_within(managed.readers, _READER_JOIN_GRACE_S)
+    _close_managed_process_pipes(managed)
 
     with _MANAGED_COMMANDS_LOCK:
         if managed.reaped:
