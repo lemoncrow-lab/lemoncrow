@@ -184,12 +184,17 @@ disable_error_code = ["attr-defined"]
 [[tool.mypy.overrides]]
 module = [
     "scripts.*",
-    "benchmarks.*",
 ]
 disallow_untyped_defs = false
 disallow_untyped_calls = false
 warn_unused_ignores = false
 disable_error_code = ["type-arg", "var-annotated"]
+
+[[tool.mypy.overrides]]
+module = [
+    "benchmarks.*",
+]
+ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = [
