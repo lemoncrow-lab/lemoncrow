@@ -11885,12 +11885,22 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                 rendered_text: str | None = None
                 _loop_note: str | None = None
                 _args = args if isinstance(args, dict) else {}
+                _calls_saved_credit = 0
                 if not remote_routed:
                     if isinstance(result, dict):
                         result = _clean_tool_result(result, name)
 
                     # Compute MD text for read-heavy tools
                     rendered_text = render_tool_result_text(name, result)
+
+                    # Pull the internal `calls_saved` credit out of `result` NOW,
+                    # before the JSON-dump fallback below can serialize it verbatim.
+                    # `render_tool_result_text` has already used it (e.g. edit's
+                    # silent-success check); anything that falls through to
+                    # `json.dumps(result, ...)` because rendered_text is falsy must
+                    # not still be carrying this model-invisible bookkeeping key.
+                    if isinstance(result, dict) and "calls_saved" in result:
+                        _calls_saved_credit = _coerce_saved_tokens(result.pop("calls_saved", None))
 
                     # Spiral nudge: surface a soft note when the agent repeats an
                     # identical tool call -- a narrow, false-positive-free
@@ -12140,7 +12150,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                 # credited against bytes we just elided).
                 if not dedup_stubbed and isinstance(result, dict):
                     saved_tokens = _extract_tokens_saved(result) + _format_saved + _trim_saved
-                    saved_calls = _coerce_saved_tokens(result.pop("calls_saved", None))
+                    saved_calls = _calls_saved_credit
                     if saved_tokens > 0 or saved_calls > 0:
                         content_item["saved"] = {
                             "tokens": int(saved_tokens),
