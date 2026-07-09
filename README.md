@@ -117,6 +117,10 @@ Measured on the same model, same tasks, and same environment:
 
 <sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Other 5 tasks in Atelier timeout and cannot capture cost; see .</sub>
 
+<p align="center">
+  <img src="benchmarks/cost_vs_savings_scatter.svg" alt="Atelier vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, Telegraphic Q&A, and Terminal-Bench" width="720">
+</p>
+
 SWE-bench Verified detail 250 baseline vs 250 Atelier runs:
 
 | Metric        | Baseline | Atelier |            Delta |
@@ -181,7 +185,7 @@ Atelier does not make Claude a different model. It makes the loop around Claude 
 
 - Works with Claude Code, Codex, Copilot, Cursor, opencode, Hermes Agent, LangChain, the OpenAI SDK, Gemini ADK, and any other MCP-compatible coding agent.
 - Runs locally by default.
-- Apache-2.0 open source runtime.
+- Open-core runtime: FSL-1.1-ALv2 engine, Apache-2.0 SDKs/integrations/docs.
 - No account needed to start.
 - Live local stats for cost, tokens, and savings.
 - Optional paid features for heavy users and teams.
