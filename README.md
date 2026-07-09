@@ -6,9 +6,9 @@
 
 ### Honest and benchmark proven, get $ 30% more out of your Claude subscription - End to End savings
 
-Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls by up to **90%** and input/output tokens by up to **80%** -- keep using Claude Code normally; Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, reusable memory, and a live savings meter.
+Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls and input tokens by up to **90%** and reduces response output by up to 80%, while keeping code output byte-identical. Keep using Claude Code normally -- Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, reusable memory, and a live savings meter.
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
 [![Stars](https://img.shields.io/github/stars/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier)
 
@@ -117,6 +117,10 @@ Measured on the same model, same tasks, and same environment:
 
 <sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Other 5 tasks in Atelier timeout and cannot capture cost; see .</sub>
 
+<p align="center">
+  <img src="benchmarks/cost_vs_savings_scatter.svg" alt="Atelier vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, Telegraphic Q&A, and Terminal-Bench" width="720">
+</p>
+
 SWE-bench Verified detail 250 baseline vs 250 Atelier runs:
 
 | Metric        | Baseline | Atelier |            Delta |
@@ -181,7 +185,7 @@ Atelier does not make Claude a different model. It makes the loop around Claude 
 
 - Works with Claude Code, Codex, Copilot, Cursor, opencode, Hermes Agent, LangChain, the OpenAI SDK, Gemini ADK, and any other MCP-compatible coding agent.
 - Runs locally by default.
-- Apache-2.0 open source runtime.
+- Open-core runtime: FSL-1.1-ALv2 engine, Apache-2.0 SDKs/integrations/docs.
 - No account needed to start.
 - Live local stats for cost, tokens, and savings.
 - Optional paid features for heavy users and teams.
@@ -210,4 +214,4 @@ Atelier does not make Claude a different model. It makes the loop around Claude 
 
 ## License
 
-Apache 2.0 — see [`LICENSE`](LICENSE).
+Open-core. The engine (`src/atelier/core`, `bench`, `infra`, `gateway` minus `gateway/sdk`, plus `tests/`, `benchmarks/`) is licensed under the [Functional Source License, v1.1, ALv2 Future License](LICENSE) (FSL-1.1-ALv2) — free for internal use, non-commercial research, and professional services; converts to Apache-2.0 two years after each release. SDK bindings, host integrations, install scripts, and docs (`src/atelier/sdk/`, `src/atelier/gateway/sdk/`, `integrations/`, `scripts/`, `docs/`, `docs-site/`) are [Apache-2.0](LICENSE-APACHE).
