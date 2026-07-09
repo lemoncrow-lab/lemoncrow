@@ -46,6 +46,7 @@ RESPONSE_ECONOMY_PATH = ROOT / "integrations/agents/shared/response-economy.md"
 TOOL_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/tool-discipline.md"
 TOOL_DISCIPLINE_READ_PATH = ROOT / "integrations/agents/shared/tool-discipline-read.md"
 REPLY_REGISTER_PATH = ROOT / "integrations/agents/shared/reply-register.md"
+AGENT_RULE_PATH = ROOT / "integrations/agents/shared/agent-rule.md"
 AGENTS_GUIDE_PATH = ROOT / "integrations/AGENTS.atelier.md"
 
 # Bare ``{{TOKEN}}`` placeholders a mode doc may embed; each expands verbatim
@@ -60,6 +61,7 @@ SHARED_SECTIONS: dict[str, Path] = {
     "{{TOOL_DISCIPLINE}}": TOOL_DISCIPLINE_PATH,
     "{{TOOL_DISCIPLINE_READ}}": TOOL_DISCIPLINE_READ_PATH,
     "{{REPLY_REGISTER}}": REPLY_REGISTER_PATH,
+    "{{AGENT_RULE}}": AGENT_RULE_PATH,
 }
 HOST_SKILL_DIRS = {
     "claude": ROOT / "integrations" / "claude" / "plugin" / "skills",

@@ -59,6 +59,9 @@ release: ## Bump version, commit, push, mirror, tag public repo: make release ta
 	 PUSH_FLAG=; \
 	 [ "$$FORCE" = "1" ] && PUSH_FLAG=--force; \
 	 git push --no-verify $$PUSH_FLAG origin $$TAG; \
+	 if [ "$$(uname -s)" = "Darwin" ] && command -v gh >/dev/null 2>&1; then \
+	   gh auth setup-git >/dev/null 2>&1 || true; \
+	 fi; \
 	 echo "Mirroring to public repo..."; \
 	 ATELIER_MIRROR_RUNNING=1 uv run python -m scripts.mirror; \
 	 PUB_SHA=$$(git rev-parse refs/mirror/last-pub); \

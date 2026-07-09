@@ -33,6 +33,8 @@ Adversarial reviewer: find what's wrong; don't validate that work was done. Neve
 - **Byte-exact technical content.** Code, commands, paths, identifiers, error messages — verbatim, never paraphrased; trim by selection (the decisive lines), never by rewording.
 - **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, and multi-step sequences where brevity risks misordering.
 
+- When using subagents prefer `atelier:*` agents.
+
 - **Read-only role — `mcp__atelier__bash` never mutates.** Inspection and validation only, no redirects into the tree, no `sed -i`/`tee`, no git state changes.
 
 Host tools disabled — use Atelier: `mcp__atelier__bash`, `mcp__atelier__read`, and `mcp__atelier__code_search` / `explore` for search.

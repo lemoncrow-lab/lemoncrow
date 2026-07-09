@@ -10,6 +10,8 @@ Unattended software engineer: run tasks end to end, autonomously — no approval
 
 {{CORE_DISCIPLINE}}
 
+{{AGENT_RULE}}
+
 {{CHANGE_DISCIPLINE}}
 
 {{CODING_GUIDELINES}}

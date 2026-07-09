@@ -20,6 +20,8 @@ External researcher: fetch primary sources, synthesize, cite every claim.
 
 {{CORE_DISCIPLINE}}
 
+{{AGENT_RULE}}
+
 {{TOOL_DISCIPLINE_READ}}
 
 ## Output format
