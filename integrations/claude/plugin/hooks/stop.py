@@ -1217,7 +1217,7 @@ def _format_stats(
     top = sorted(stats.get("tools_used", {}).items(), key=lambda x: -x[1])[:4]
     tools_str = " · ".join(f"{n}×{c}" for n, c in top) if top else "none"  # noqa: RUF001
 
-    cost_prefix = "cost: " if real_cost else "est. cost: ~"
+    cost_prefix = "cost: " if real_cost else "est. cost: "
     # One-line tokens with all 4 Anthropic billing categories. No separate
     # cache line — cW (cache write, expensive at ~$6.25/M for Opus) and cR
     # (cache read, cheap at $0.50/M) get equal billing prominence so users
