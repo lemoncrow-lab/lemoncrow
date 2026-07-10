@@ -13,7 +13,6 @@ Atelier is a 30-second install that helps Claude Code waste fewer tokens while y
 [![License](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
 [![Stars](https://img.shields.io/github/stars/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier)
-<a href="https://www.producthunt.com/products/atelier-runtime?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-atelier-runtime-for-coding-agents" target="_blank" rel="noopener noreferrer"><img alt="Atelier Runtime for coding agents - Cut token costs by 30%. Up to 67% on some workloads. | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1192165&theme=neutral&t=1783646693153"></a>
 
 [![Claude Code](https://img.shields.io/badge/Claude_Code-supported-blue?style=flat-square)](integrations/claude)
 [![Codex](https://img.shields.io/badge/Codex-supported-blue?style=flat-square)](integrations/codex)
