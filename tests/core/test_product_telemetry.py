@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from atelier.core.foundation.identity import get_anon_id
 from atelier.core.service.telemetry import emit_product
 from atelier.core.service.telemetry.banner import maybe_show_banner
 from atelier.core.service.telemetry.config import load_telemetry_config, save_telemetry_config
@@ -64,8 +66,12 @@ def test_public_rollup_payload_is_minimal_and_session_scoped(telemetry_env: Path
     )
 
     assert payload is not None
-    assert payload["anon_id"]
-    assert payload["session_id"] == "session-1"
+    # Privacy: only one-way hashed keys leave the machine, never raw ids.
+    assert "anon_id" not in payload
+    assert "session_id" not in payload
+    anon_id = get_anon_id()
+    assert payload["install_key"] == hashlib.sha256(anon_id.encode()).hexdigest()
+    assert payload["session_key"] == hashlib.sha256(f"{anon_id}:session-1".encode()).hexdigest()
     assert payload["atelier_version"]
     assert payload["source"] == "codex"
     assert payload["saved_usd"] == 0.123457
@@ -100,7 +106,9 @@ def test_public_rollup_always_fires_regardless_of_product_telemetry_setting(
     )
     assert result is True
     assert len(calls) == 1
-    assert calls[0]["session_id"] == "session-always"
+    anon_id = get_anon_id()
+    assert "session_id" not in calls[0]
+    assert calls[0]["session_key"] == hashlib.sha256(f"{anon_id}:session-always".encode()).hexdigest()
 
 
 def test_public_rollup_posts_correct_payload(
@@ -128,7 +136,9 @@ def test_public_rollup_posts_correct_payload(
     assert len(calls) == 1
     endpoint, payload, timeout_s = calls[0]
     assert endpoint == "https://example.test/rollup"
-    assert payload["session_id"] == "session-1"
+    anon_id = get_anon_id()
+    assert "session_id" not in payload
+    assert payload["session_key"] == hashlib.sha256(f"{anon_id}:session-1".encode()).hexdigest()
     assert payload["saved_usd"] == 1.25
     assert payload["tokens_saved"] == 1000
     assert payload["calls_avoided"] == 4
