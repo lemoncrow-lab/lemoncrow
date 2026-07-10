@@ -1842,7 +1842,8 @@ def test_tool_explore_respects_budget_and_keeps_identity_fields(tmp_path: Path) 
         assert "path" in payload["entry_points"][0]
 
 
-def test_tool_status_reports_index_cache_and_freshness(tmp_path: Path) -> None:
+def test_tool_status_reports_index_cache_and_freshness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATELIER_CODE_AUTOSYNC", raising=False)
     _write_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
     engine.index_repo()
