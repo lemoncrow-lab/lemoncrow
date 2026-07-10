@@ -90,7 +90,7 @@ def estimate_cost_usd(
     is supplied (1h writes bill at a higher rate). ``long_context=True`` prices
     the bucket at the model's >200k per-request premium rates.
 
-    Falls back to Sonnet 4.6 rates when the model is unknown so we never
+    Falls back to Sonnet 4.5 rates when the model is unknown so we never
     silently show $0 for an active session.
     """
     try:
@@ -109,7 +109,14 @@ def estimate_cost_usd(
         )
     except Exception:
         logging.exception("Recovered from broad exception handler")
-        return ((input_tokens or 0) * 3 + (output_tokens or 0) * 15) / 1_000_000
+        from atelier.core.capabilities.pricing import fallback_cost_usd
+
+        return fallback_cost_usd(
+            input_tokens=int(input_tokens or 0),
+            output_tokens=int(output_tokens or 0),
+            cache_read_tokens=int(cache_read_tokens or 0),
+            cache_write_tokens=int(cache_write_tokens or 0) + int(cache_write_1h_tokens or 0),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +422,9 @@ def _bucket_cost_usd(model_id: str, b: dict[str, int]) -> float:
 # lines. A source that shrinks (rewrite/truncation) forces a full rebuild.
 _transcript_stats_cache: dict[str, dict[str, Any]] = {}  # main path → {cursors, fold, stats}
 _TRANSCRIPT_CACHE_MAX = 8  # main transcripts tracked per process
+# Guards the cache AND the shared per-entry _TranscriptFold: two threads folding
+# the same transcript concurrently would corrupt the running fold state.
+_transcript_stats_lock = threading.Lock()
 
 
 class _TranscriptFold:
@@ -613,53 +623,54 @@ def read_transcript_stats(transcript_path: str | Path) -> "TranscriptStats | Non
         except OSError:
             sizes[str(source)] = 0
 
-    entry = _transcript_stats_cache.get(key)
-    if entry is not None and any(sizes.get(k, 0) < off for k, off in entry["cursors"].items()):
-        entry = None  # a source shrank (rewrite): fold state is invalid
-    if (
-        entry is not None
-        and entry.get("stats") is not None
-        and all(sizes[str(s)] <= entry["cursors"].get(str(s), 0) for s, _ in sources)
-    ):
-        return entry["stats"]  # type: ignore[no-any-return]
-    if entry is None:
-        entry = {"cursors": {}, "fold": _TranscriptFold(), "stats": None}
+    with _transcript_stats_lock:
+        entry = _transcript_stats_cache.get(key)
+        if entry is not None and any(sizes.get(k, 0) < off for k, off in entry["cursors"].items()):
+            entry = None  # a source shrank (rewrite): fold state is invalid
+        if (
+            entry is not None
+            and entry.get("stats") is not None
+            and all(sizes[str(s)] <= entry["cursors"].get(str(s), 0) for s, _ in sources)
+        ):
+            return entry["stats"]  # type: ignore[no-any-return]
+        if entry is None:
+            entry = {"cursors": {}, "fold": _TranscriptFold(), "stats": None}
 
-    fold: _TranscriptFold = entry["fold"]
-    cursors: dict[str, int] = entry["cursors"]
-    for source, is_main in sources:
-        skey = str(source)
-        offset = cursors.get(skey, 0)
-        if sizes.get(skey, 0) <= offset:
-            continue
-        try:
-            with source.open("rb") as fh:
-                fh.seek(offset)
-                chunk = fh.read()
-        except OSError:
-            continue
-        # Only consume complete lines; a partially written tail line stays
-        # unconsumed (the cursor stops at the last newline) for the next call.
-        last_nl = chunk.rfind(b"\n")
-        if last_nl < 0:
-            continue
-        cursors[skey] = offset + last_nl + 1
-        for raw in chunk[: last_nl + 1].decode("utf-8", errors="replace").splitlines():
-            raw = raw.strip()
-            if not raw:
+        fold: _TranscriptFold = entry["fold"]
+        cursors: dict[str, int] = entry["cursors"]
+        for source, is_main in sources:
+            skey = str(source)
+            offset = cursors.get(skey, 0)
+            if sizes.get(skey, 0) <= offset:
                 continue
             try:
-                fold.fold_line(raw, is_main=is_main, source_key=skey)
-            except Exception:
-                logging.exception("Recovered from broad exception handler")
+                with source.open("rb") as fh:
+                    fh.seek(offset)
+                    chunk = fh.read()
+            except OSError:
                 continue
+            # Only consume complete lines; a partially written tail line stays
+            # unconsumed (the cursor stops at the last newline) for the next call.
+            last_nl = chunk.rfind(b"\n")
+            if last_nl < 0:
+                continue
+            cursors[skey] = offset + last_nl + 1
+            for raw in chunk[: last_nl + 1].decode("utf-8", errors="replace").splitlines():
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    fold.fold_line(raw, is_main=is_main, source_key=skey)
+                except Exception:
+                    logging.exception("Recovered from broad exception handler")
+                    continue
 
-    stats = fold.finalize()
-    entry["stats"] = stats
-    _transcript_stats_cache[key] = entry
-    while len(_transcript_stats_cache) > _TRANSCRIPT_CACHE_MAX:
-        _transcript_stats_cache.pop(next(iter(_transcript_stats_cache)))
-    return stats
+        stats = fold.finalize()
+        entry["stats"] = stats
+        _transcript_stats_cache[key] = entry
+        while len(_transcript_stats_cache) > _TRANSCRIPT_CACHE_MAX:
+            _transcript_stats_cache.pop(next(iter(_transcript_stats_cache)))
+        return stats
 
 
 # ---------------------------------------------------------------------------
@@ -718,12 +729,16 @@ def estimate_collapse_saving_fraction(
     WITHOUT Atelier (the replay's estimate, and any what-if surface). Models both
     effects, so callers get a consistent number:
 
-    1. **Removed round-trips** -- Atelier does the loop in one code_search at the
-       start, so the later re-read rounds are eliminated; their full priced usage
-       (cache-write dominates) is saved.
-    2. **Leaner surviving context** -- content written in the eliminated rounds is
-       no longer re-read by the rounds that survive after them, so their
-       cache-read shrinks (credited via a carry term).
+    1. **Removed round-trips** -- Atelier does each loop in one code_search at the
+       start, so the later re-read rounds are eliminated.
+    2. **Leaner surviving context** -- content written in an eliminated round is no
+       longer re-read by the rounds kept after it, so a kept round's cache-read
+       shrinks by the eliminated cache-write that preceded it.
+
+    Bounded by construction: it prices the rounds Atelier would KEEP (the first
+    round of each loop as the code_search stand-in, plus every non-loop round), so
+    the estimated Atelier cost is a sum of real rounds and never collapses to $0
+    even when a session is almost all loops.
 
     Args:
         per_round_usage: one dict per assistant round with token counts under
@@ -738,39 +753,33 @@ def estimate_collapse_saving_fraction(
     if not rounds:
         return 0.0
 
-    def _price(u: dict[str, int]) -> float:
+    def _g(u: dict[str, int], key: str) -> int:
+        return int(u.get(key, 0) or 0)
+
+    def _price(in_: int, out_: int, cr_: int, cw_: int) -> float:
         return estimate_cost_usd(
-            model_id=model,
-            input_tokens=int(u.get("in", 0) or 0),
-            output_tokens=int(u.get("out", 0) or 0),
-            cache_read_tokens=int(u.get("cache_read", 0) or 0),
-            cache_write_tokens=int(u.get("cache_write", 0) or 0),
+            model_id=model, input_tokens=in_, output_tokens=out_, cache_read_tokens=cr_, cache_write_tokens=cw_
         )
 
-    baseline = sum(_price(u) for u in rounds)
+    baseline = sum(_price(_g(u, "in"), _g(u, "out"), _g(u, "cache_read"), _g(u, "cache_write")) for u in rounds)
     if baseline <= 0:
         return 0.0
     loop = sorted({r for r in collapsed_rounds if 0 <= r < len(rounds)})
-    eliminated = loop[1:]  # keep the first round as the code_search stand-in
+    eliminated = set(loop[1:])  # keep the first loop round (the code_search stand-in)
     if not eliminated:
         return 0.0
-    elim = set(eliminated)
-    n = len(rounds)
-    saved = 0.0
-    carry_tokens = 0
-    for r in eliminated:
-        u = rounds[r]
-        saved += _price(u)  # the removed round-trip re-read the whole context
-        surviving_after = sum(1 for x in range(r + 1, n) if x not in elim)
-        carry_tokens += int(u.get("cache_write", 0) or 0) * surviving_after
-    if carry_tokens:
-        saved += estimate_cost_usd(
-            model_id=model,
-            input_tokens=0,
-            output_tokens=0,
-            cache_read_tokens=carry_tokens,
-            cache_write_tokens=0,
-        )
+
+    # Price the KEPT rounds; a kept round re-reads less by the eliminated
+    # cache-write that preceded it (leaner context), floored at its own input.
+    removed_cw = 0
+    atelier = 0.0
+    for i, u in enumerate(rounds):
+        if i in eliminated:
+            removed_cw += _g(u, "cache_write")
+            continue
+        cr = max(_g(u, "in"), _g(u, "cache_read") - removed_cw)
+        atelier += _price(_g(u, "in"), _g(u, "out"), cr, _g(u, "cache_write"))
+    saved = baseline - atelier
     return max(0.0, min(1.0, saved / baseline))
 
 
@@ -913,25 +922,20 @@ def _find_savings_sidecar(session_id: str, root: Path) -> Path:
     return session_dir(root, detect_host(), session_id) / "savings.jsonl"
 
 
-def _read_claude_session_savings(session_id: str, atelier_root: Path) -> tuple[int, int, float, int]:
-    """Return ``(tokens_saved, calls_saved, usd_saved, unpriced_tokens)``.
+def _load_savings_rows(session_id: str, atelier_root: Path) -> list[dict[str, Any]]:
+    """Parse ``sessions/<id>/savings.jsonl`` ONCE into a row list.
 
-    Every row is priced through :func:`_price_savings_row` — the shared rule the
-    statusline, stop hook, CLI, dashboard, and web Savings page all use — so the
-    per-session live total and the windowed totals never disagree.  Rows with no
-    priceable model are returned via ``unpriced_tokens`` so the caller can apply
-    a single weighted fallback rate without distorting the usd/token ratio.
+    Every per-session reader (totals, routing/output/input/read breakdowns,
+    carry, cliff) accepts this list so :func:`compute_savings_summary` — the
+    statusline hot path — reads the sidecar a single time instead of seven.
+    Empty list when the session or file does not exist.
     """
     if not session_id:
-        return 0, 0, 0.0, 0
+        return []
     path = _find_savings_sidecar(session_id, atelier_root)
     if not path.exists():
-        return 0, 0, 0.0, 0
-
-    priced_tokens = 0
-    calls_total = 0
-    usd_total = 0.0
-    unpriced_tokens = 0
+        return []
+    rows: list[dict[str, Any]] = []
     try:
         for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
             raw = raw.strip()
@@ -941,20 +945,40 @@ def _read_claude_session_savings(session_id: str, atelier_root: Path) -> tuple[i
                 ev = json.loads(raw)
             except json.JSONDecodeError:
                 continue
-            except Exception:
-                logging.exception("Recovered from broad exception handler")
-                continue
-            pt, usd, c, calls_usd, up = _price_savings_row(ev)
-            priced_tokens += pt
-            usd_total += usd + calls_usd
-            calls_total += c
-            unpriced_tokens += up
+            if isinstance(ev, dict):
+                rows.append(ev)
     except OSError:
         pass
+    return rows
+
+
+def _read_claude_session_savings(
+    session_id: str, atelier_root: Path, rows: list[dict[str, Any]] | None = None
+) -> tuple[int, int, float, int]:
+    """Return ``(tokens_saved, calls_saved, usd_saved, unpriced_tokens)``.
+
+    Every row is priced through :func:`_price_savings_row` — the shared rule the
+    statusline, stop hook, CLI, dashboard, and web Savings page all use — so the
+    per-session live total and the windowed totals never disagree.  Rows with no
+    priceable model are returned via ``unpriced_tokens`` so the caller can apply
+    a single weighted fallback rate without distorting the usd/token ratio.
+    """
+    if rows is None:
+        rows = _load_savings_rows(session_id, atelier_root)
+    priced_tokens = 0
+    calls_total = 0
+    usd_total = 0.0
+    unpriced_tokens = 0
+    for ev in rows:
+        pt, usd, c, calls_usd, up = _price_savings_row(ev)
+        priced_tokens += pt
+        usd_total += usd + calls_usd
+        calls_total += c
+        unpriced_tokens += up
     return priced_tokens, calls_total, usd_total, unpriced_tokens
 
 
-def _read_session_routing_usd(session_id: str, atelier_root: Path) -> float:
+def _read_session_routing_usd(session_id: str, atelier_root: Path, rows: list[dict[str, Any]] | None = None) -> float:
     """Sum model-routing savings from the per-session sidecar.
 
     The MCP server appends a ``kind == "routing"`` row (priced at decision time)
@@ -966,25 +990,12 @@ def _read_session_routing_usd(session_id: str, atelier_root: Path) -> float:
     for the realized-savings total. Read from the small per-session file rather
     than scanning the large ``live_savings_events.jsonl`` on every render.
     """
-    if not session_id:
-        return 0.0
-    path = _find_savings_sidecar(session_id, atelier_root)
-    if not path.exists():
-        return 0.0
+    if rows is None:
+        rows = _load_savings_rows(session_id, atelier_root)
     total = 0.0
-    try:
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                ev = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if str(ev.get("kind") or "") == "routing":
-                total += max(0.0, float(ev.get("usd") or 0.0))
-    except OSError:
-        pass
+    for ev in rows:
+        if str(ev.get("kind") or "") == "routing":
+            total += max(0.0, float(ev.get("usd") or 0.0))
     return round(total, 6)
 
 
@@ -1040,63 +1051,41 @@ def read_session_end_carry(session_id: str, atelier_root: Path) -> tuple[float, 
     return round(end_carry, 6), end_carry_tokens
 
 
-def _read_session_output_style(session_id: str, atelier_root: Path) -> tuple[int, float]:
+def _read_session_output_style(
+    session_id: str, atelier_root: Path, rows: list[dict[str, Any]] | None = None
+) -> tuple[int, float]:
     """Sum telegraphic output-style savings (kind=="output_style" rows).
 
     These rows are already inside the shared totals (:func:`_price_savings_row`
     counts them); this reader only provides the ↓O display breakdown.
     """
-    if not session_id:
-        return 0, 0.0
-    path = _find_savings_sidecar(session_id, atelier_root)
-    if not path.exists():
-        return 0, 0.0
+    if rows is None:
+        rows = _load_savings_rows(session_id, atelier_root)
     tokens = 0
     usd = 0.0
-    try:
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                ev = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if str(ev.get("kind") or "") == "output_style":
-                tokens += max(0, int(ev.get("tokens") or 0))
-                usd += max(0.0, float(ev.get("cost_saved_usd") or 0.0))
-    except OSError:
-        pass
+    for ev in rows:
+        if str(ev.get("kind") or "") == "output_style":
+            tokens += max(0, int(ev.get("tokens") or 0))
+            usd += max(0.0, float(ev.get("cost_saved_usd") or 0.0))
     return tokens, round(usd, 6)
 
 
-def _read_session_input_style(session_id: str, atelier_root: Path) -> tuple[int, float]:
+def _read_session_input_style(
+    session_id: str, atelier_root: Path, rows: list[dict[str, Any]] | None = None
+) -> tuple[int, float]:
     """Sum per-turn context-style savings (kind=="input_style" rows).
 
     These rows are already inside the shared totals (:func:`_price_savings_row`
     counts them); this reader only provides the ↓In display breakdown.
     """
-    if not session_id:
-        return 0, 0.0
-    path = _find_savings_sidecar(session_id, atelier_root)
-    if not path.exists():
-        return 0, 0.0
+    if rows is None:
+        rows = _load_savings_rows(session_id, atelier_root)
     tokens = 0
     usd = 0.0
-    try:
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                ev = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if str(ev.get("kind") or "") == "input_style":
-                tokens += max(0, int(ev.get("tokens") or 0))
-                usd += max(0.0, float(ev.get("cost_saved_usd") or 0.0))
-    except OSError:
-        pass
+    for ev in rows:
+        if str(ev.get("kind") or "") == "input_style":
+            tokens += max(0, int(ev.get("tokens") or 0))
+            usd += max(0.0, float(ev.get("cost_saved_usd") or 0.0))
     return tokens, round(usd, 6)
 
 
@@ -1123,7 +1112,9 @@ def _is_read_lever(tool: str) -> bool:
     return False
 
 
-def _read_session_read_savings(session_id: str, atelier_root: Path) -> tuple[int, float]:
+def _read_session_read_savings(
+    session_id: str, atelier_root: Path, rows: list[dict[str, Any]] | None = None
+) -> tuple[int, float]:
     """Sum read/retrieval-side savings (search_read, cached_read, scoped_recall).
 
     These are plain per-tool-call rows (no ``kind`` field — routing,
@@ -1133,33 +1124,20 @@ def _read_session_read_savings(session_id: str, atelier_root: Path) -> tuple[int
     ``tool`` name with :func:`_is_read_lever` to provide the Read display
     breakdown, the same way :func:`_read_session_output_style` provides Output.
     """
-    if not session_id:
-        return 0, 0.0
-    path = _find_savings_sidecar(session_id, atelier_root)
-    if not path.exists():
-        return 0, 0.0
+    if rows is None:
+        rows = _load_savings_rows(session_id, atelier_root)
     tokens = 0
     usd = 0.0
-    try:
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                ev = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if ev.get("kind"):
-                continue
-            if not _is_read_lever(str(ev.get("tool") or "")):
-                continue
-            t = max(0, int(ev.get("tokens") or ev.get("tokens_saved") or 0))
-            if t > 2_000_000:
-                continue
-            tokens += t
-            usd += max(0.0, float(ev.get("cost_saved_usd") or 0.0))
-    except OSError:
-        pass
+    for ev in rows:
+        if ev.get("kind"):
+            continue
+        if not _is_read_lever(str(ev.get("tool") or "")):
+            continue
+        t = max(0, int(ev.get("tokens") or ev.get("tokens_saved") or 0))
+        if t > 2_000_000:
+            continue
+        tokens += t
+        usd += max(0.0, float(ev.get("cost_saved_usd") or 0.0))
     return tokens, round(usd, 6)
 
 
@@ -1193,6 +1171,7 @@ def _carry_credit(
     subagent_turn_timestamps: list[list[str]] | None = None,
     *,
     context_ceiling: int = 0,
+    rows: list[dict[str, Any]] | None = None,
 ) -> tuple[int, float]:
     """Context-carry credit for saved tokens, attributed per context window.
 
@@ -1226,8 +1205,9 @@ def _carry_credit(
     """
     if not session_id:
         return 0, 0.0
-    path = _find_savings_sidecar(session_id, atelier_root)
-    if not path.exists():
+    if rows is None:
+        rows = _load_savings_rows(session_id, atelier_root)
+    if not rows:
         return 0, 0.0
     import bisect
     from datetime import datetime
@@ -1269,17 +1249,7 @@ def _carry_credit(
     # (ts, tokens, model, long_context) for one savings row.
     Row = tuple[datetime, int, str, bool]
     try:
-        events: list[dict[str, Any]] = []
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                ev = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(ev, dict):
-                events.append(ev)
+        events: list[dict[str, Any]] = rows
 
         compactions = sorted(
             ts
@@ -1418,6 +1388,8 @@ def _cliff_credit(
     atelier_root: Path,
     turn_usage: list[dict[str, Any]],
     subagent_turn_timestamps: list[list[str]] | None = None,
+    *,
+    rows: list[dict[str, Any]] | None = None,
 ) -> float:
     """Long-context cliff-avoidance credit, fully measured.
 
@@ -1433,8 +1405,9 @@ def _cliff_credit(
     """
     if not session_id or not turn_usage:
         return 0.0
-    path = _find_savings_sidecar(session_id, atelier_root)
-    if not path.exists():
+    if rows is None:
+        rows = _load_savings_rows(session_id, atelier_root)
+    if not rows:
         return 0.0
     import bisect
     from datetime import datetime
@@ -1454,31 +1427,24 @@ def _cliff_credit(
 
     saved_rows: list[tuple[datetime, int]] = []
     compactions: list[datetime] = []
-    try:
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                ev = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(ev, dict):
-                continue
-            row_dt = _parse(str(ev.get("ts") or ""))
-            if row_dt is None:
-                continue
-            if str(ev.get("kind") or "") == "compaction":
-                compactions.append(row_dt)
-                continue
-            t = max(0, int(ev.get("tokens") or ev.get("tokens_saved") or 0))
-            if t <= 0 or t > 2_000_000:
-                continue
-            if any(s <= row_dt <= e for s, e in sub_windows):
-                continue  # subagent-saved tokens never inflate the main window
-            saved_rows.append((row_dt, t))
-    except OSError:
-        return 0.0
+    for ev in rows:
+        row_dt = _parse(str(ev.get("ts") or ""))
+        if row_dt is None:
+            continue
+        kind = str(ev.get("kind") or "")
+        if kind == "compaction":
+            compactions.append(row_dt)
+            continue
+        if kind in ("input_style", "turn_cut"):
+            # Same exclusion as _carry_credit: recurring per-turn credits, not
+            # tokens that would otherwise still be resident in the main window.
+            continue
+        t = max(0, int(ev.get("tokens") or ev.get("tokens_saved") or 0))
+        if t <= 0 or t > 2_000_000:
+            continue
+        if any(s <= row_dt <= e for s, e in sub_windows):
+            continue  # subagent-saved tokens never inflate the main window
+        saved_rows.append((row_dt, t))
     if not saved_rows:
         return 0.0
     saved_rows.sort(key=lambda r: r[0])
@@ -1570,10 +1536,9 @@ def compute_savings_summary(
         env_root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
         root_path = Path(env_root) if env_root else Path.home() / ".atelier"
 
-    # --- savings rows (primary source) ---
-    priced_tokens, calls, row_usd, unpriced_tokens = (
-        _read_claude_session_savings(session_id, root_path) if session_id else (0, 0, 0.0, 0)
-    )
+    # --- savings rows (primary source; sidecar parsed ONCE for all readers) ---
+    rows = _load_savings_rows(session_id, root_path)
+    priced_tokens, calls, row_usd, unpriced_tokens = _read_claude_session_savings(session_id, root_path, rows=rows)
 
     # Fallback: subagent sessions have no sidecar — look for parent session in transcript.
     # Discriminator: a *subagent* transcript has NO entries whose sessionId matches
@@ -1611,29 +1576,37 @@ def compute_savings_summary(
                 continue
 
         if parent_id and parent_id != session_id:
-            priced_tokens, calls, row_usd, unpriced_tokens = _read_claude_session_savings(parent_id, root_path)
+            parent_rows = _load_savings_rows(parent_id, root_path)
+            priced_tokens, calls, row_usd, unpriced_tokens = _read_claude_session_savings(
+                parent_id, root_path, rows=parent_rows
+            )
             if priced_tokens > 0 or unpriced_tokens > 0 or calls > 0:
                 session_id = parent_id  # use the found session for transcript lookup too
+                rows = parent_rows
 
     if priced_tokens == 0 and unpriced_tokens == 0 and calls == 0 and workspace:
         workspace_session_id = _resolve_workspace_session_id(workspace, root_path)
         if workspace_session_id and workspace_session_id != session_id:
-            ws_tokens, ws_calls, ws_usd, ws_unpriced = _read_claude_session_savings(workspace_session_id, root_path)
+            ws_rows = _load_savings_rows(workspace_session_id, root_path)
+            ws_tokens, ws_calls, ws_usd, ws_unpriced = _read_claude_session_savings(
+                workspace_session_id, root_path, rows=ws_rows
+            )
             if ws_tokens > 0 or ws_unpriced > 0 or ws_calls > 0:
                 session_id = workspace_session_id
                 priced_tokens, calls, row_usd, unpriced_tokens = ws_tokens, ws_calls, ws_usd, ws_unpriced
+                rows = ws_rows
 
     result.smart_calls = calls
     # Per-session model-routing savings: read cheaply from the sidecar
     # (kind="routing" rows); folded into saved_usd below (still tracked here
     # separately for the ↓routing display breakdown), same as output.
-    result.routing_saved_usd = _read_session_routing_usd(session_id, root_path)
+    result.routing_saved_usd = _read_session_routing_usd(session_id, root_path, rows=rows)
     # Telegraphic output-style breakdown (inside the totals; shown as ↓O).
-    result.output_saved_tokens, result.output_saved_usd = _read_session_output_style(session_id, root_path)
+    result.output_saved_tokens, result.output_saved_usd = _read_session_output_style(session_id, root_path, rows=rows)
     # Per-turn context-style breakdown (inside the totals; shown as ↓In).
-    result.input_saved_tokens, result.input_saved_usd = _read_session_input_style(session_id, root_path)
+    result.input_saved_tokens, result.input_saved_usd = _read_session_input_style(session_id, root_path, rows=rows)
     # Read/retrieval-side breakdown (inside the totals; shown as ↓Read).
-    result.read_saved_tokens, result.read_saved_usd = _read_session_read_savings(session_id, root_path)
+    result.read_saved_tokens, result.read_saved_usd = _read_session_read_savings(session_id, root_path, rows=rows)
 
     # --- cost baseline + model from transcript ---
     paths = claude_transcript_candidates(session_id) if session_id else []
@@ -1657,12 +1630,13 @@ def compute_savings_summary(
             stats.turn_timestamps,
             stats.subagent_turn_timestamps,
             context_ceiling=peak_ctx,
+            rows=rows,
         )
     # --- long-context cliff-avoidance, folded into the carry line: both are
     # measured context effects, and one field keeps every display surface
     # (statusline, stop hook, history snapshots) consistent ---
     if stats is not None and stats.turn_usage:
-        cliff = _cliff_credit(session_id, root_path, stats.turn_usage, stats.subagent_turn_timestamps)
+        cliff = _cliff_credit(session_id, root_path, stats.turn_usage, stats.subagent_turn_timestamps, rows=rows)
         if cliff > 0:
             result.carry_usd = round(result.carry_usd + cliff, 6)
 
@@ -2903,9 +2877,9 @@ def savings_frames(
 
     # Historical savings — one sessions/** pass fills all three windows.
     hist = _read_historical_savings_many((1, 7, 30), root)
-    usd_1d, tok_1d, calls_1d, _turns_1d, spend_1d, carry_1d, routing_1d, *_rest_1d = hist[1]
-    usd_7d, tok_7d, calls_7d, _turns_7d, spend_7d, carry_7d, routing_7d, *_rest_7d = hist[7]
-    usd_30d, tok_30d, calls_30d, _turns_30d, spend_30d, carry_30d, routing_30d, *_rest_30d = hist[30]
+    usd_1d, _tok_1d, calls_1d, _turns_1d, spend_1d, carry_1d, routing_1d, *_rest_1d = hist[1]
+    usd_7d, _tok_7d, calls_7d, _turns_7d, spend_7d, carry_7d, routing_7d, *_rest_7d = hist[7]
+    usd_30d, _tok_30d, calls_30d, _turns_30d, spend_30d, carry_30d, routing_30d, *_rest_30d = hist[30]
     first_ts = _first_savings_ts(root)
     days_active = (time.time() - first_ts) / 86_400 if first_ts > 0 else 0.0
 
@@ -2944,7 +2918,7 @@ def savings_frames(
             combined += f" {C_BRAND}⚡ {fmt_duration(summary.time_saved_seconds)} faster{C_RESET}"
     frames.append((True, combined))
 
-    def _hist_frame(label: str, usd: float, tok: int, calls: int, spend: float, carry: float, routing: float) -> str:
+    def _hist_frame(label: str, usd: float, calls: int, spend: float, carry: float, routing: float) -> str:
         """Format: label: ↑ $spent ↓ $total_saved · N turns (spend + carry + routing combined)."""
         # Combine all savings into one number: realized savings + carry + routing
         total_saved = usd + carry + routing
@@ -2967,15 +2941,15 @@ def savings_frames(
 
     # Frame 2: 1-day window — spent · saved · tokens less · calls fewer
     if usd_1d > 0 or carry_1d > 0 or spend_1d > 0 or routing_1d > 0:
-        frames.append((False, _hist_frame("1d:", usd_1d, tok_1d, calls_1d, spend_1d, carry_1d, routing_1d)))
+        frames.append((False, _hist_frame("1d:", usd_1d, calls_1d, spend_1d, carry_1d, routing_1d)))
 
     # Frame 3: 7-day window — only after ≥1 day of usage.
     if (usd_7d > 0 or carry_7d > 0 or spend_7d > 0 or routing_7d > 0) and days_active >= 1:
-        frames.append((False, _hist_frame("7d:", usd_7d, tok_7d, calls_7d, spend_7d, carry_7d, routing_7d)))
+        frames.append((False, _hist_frame("7d:", usd_7d, calls_7d, spend_7d, carry_7d, routing_7d)))
 
     # Frame 4: 30-day window — only after ≥7 days of usage.
     if (usd_30d > 0 or carry_30d > 0 or spend_30d > 0 or routing_30d > 0) and days_active >= 7:
-        frames.append((False, _hist_frame("30d:", usd_30d, tok_30d, calls_30d, spend_30d, carry_30d, routing_30d)))
+        frames.append((False, _hist_frame("30d:", usd_30d, calls_30d, spend_30d, carry_30d, routing_30d)))
 
     # Frame 6: status tip / update notice (text-only)
     # Backtick-wrapped tool names are highlighted in brand purple; rest is dim.
