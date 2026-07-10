@@ -48,7 +48,7 @@ def _write(tmp_path: Path) -> Path:
 
 
 def test_replay_help_exits_zero() -> None:
-    result = CliRunner().invoke(cli, ["replay", "--help"])
+    result = CliRunner().invoke(cli, ["session", "replay", "--help"])
     assert result.exit_code == 0, result.output
     assert "no model is re-run" in result.output.lower()
     assert "--html" in result.output
@@ -59,6 +59,7 @@ def test_replay_file_text(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         cli,
         [
+            "session",
             "replay",
             "--file",
             str(f),
@@ -78,7 +79,7 @@ def test_replay_file_text(tmp_path: Path) -> None:
 
 def test_replay_file_json(tmp_path: Path) -> None:
     f = _write(tmp_path)
-    result = CliRunner().invoke(cli, ["replay", "--file", str(f), "--json", "--no-live"])
+    result = CliRunner().invoke(cli, ["session", "replay", "--file", str(f), "--json", "--no-live"])
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     replay = data["replays"][0]
@@ -90,7 +91,9 @@ def test_replay_file_json(tmp_path: Path) -> None:
 def test_replay_html_output(tmp_path: Path) -> None:
     f = _write(tmp_path)
     out = tmp_path / "replay.html"
-    result = CliRunner().invoke(cli, ["replay", "--file", str(f), "--html", str(out), "--no-live", "--no-open"])
+    result = CliRunner().invoke(
+        cli, ["session", "replay", "--file", str(f), "--html", str(out), "--no-live", "--no-open"]
+    )
     assert result.exit_code == 0, result.output
     assert out.exists()
     html = out.read_text(encoding="utf-8")
@@ -100,6 +103,6 @@ def test_replay_html_output(tmp_path: Path) -> None:
 
 
 def test_replay_missing_session_exits_1() -> None:
-    result = CliRunner().invoke(cli, ["replay", "--session-id", "no-such-session-xyz", "--host", "claude"])
+    result = CliRunner().invoke(cli, ["session", "replay", "--session-id", "no-such-session-xyz", "--host", "claude"])
     assert result.exit_code == 1
     assert "no transcript found" in result.output.lower()
