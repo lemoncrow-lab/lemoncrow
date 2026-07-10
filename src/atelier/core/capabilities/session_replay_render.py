@@ -8,6 +8,7 @@ the full transcript with the grep→read loops struck out and the collapsing
 from __future__ import annotations
 
 import html
+import re
 from typing import Any
 
 from atelier.core.capabilities.session_replay import (
@@ -60,6 +61,17 @@ _ORANGE = "\x1b[33m"  # replaced marker
 _BOLD = "\x1b[1m"
 
 
+def _dur(seconds: float) -> str:
+    """Human duration via the canonical formatter (single source of truth)."""
+    try:
+        from atelier.core.capabilities.savings_summary import fmt_duration
+
+        return str(fmt_duration(float(seconds)))
+    except Exception:  # noqa: BLE001
+        s = max(0.0, float(seconds))
+        return f"{s:.0f}s" if s < 90 else f"{s / 60:.1f}m"
+
+
 def render_text(replay: Replay, *, color: bool = True) -> str:
     def c(code: str, text: str) -> str:
         return f"{code}{text}{_RESET}" if color else text
@@ -80,21 +92,21 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
         sav = estimate_savings(replay)
         lines.append(
             "  "
+            + c(_BOLD, f"total cost ${sav['total_cost_usd']:.4f}")
+            + "    "
+            + c(_GREEN + _BOLD, f"saved ${sav['cost_saved_usd']:.4f}")
+            + "    "
+            + c(_GREEN + _BOLD, f"time saved {_dur(sav['time_saved_seconds'])}")
+            + c(_DIM, "   (est)")
+        )
+        lines.append(
+            "  "
             + c(
-                _GREEN + _BOLD,
-                f"you save (est): {sav['calls_saved']} tool calls · "
-                f"~{sav['input_tokens_saved']:,} tokens of tool-output re-read · ≈${sav['cost_saved_usd']:.4f}",
+                _DIM,
+                f"{sav['calls_saved']} tool calls · ~{sav['input_tokens_saved']:,} input + "
+                f"~{sav['output_tokens_saved']:,} output tokens saved (telegraphic est.)",
             )
         )
-        if s.verbose_output_tokens:
-            lines.append(
-                "  "
-                + c(
-                    _DIM,
-                    f"assistant prose: ~{s.verbose_output_tokens:,} output tokens — Atelier's telegraphic "
-                    "register writes far terser (measured up to ~80% fewer; persona-driven, estimate)",
-                )
-            )
     lines.append("  " + c(_DIM, "reconstructed from history — no model re-run, $0"))
     lines.append("")
 
@@ -120,6 +132,16 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
             lines.extend(_text_collapse(ep_after[idx], color=color))
         if idx in batch_after:
             lines.extend(_text_batch(batch_after[idx], color=color))
+
+    if replay.subagent_replays:
+        lines.append("")
+        lines.append(c(_BOLD, f"  Subagents ({len(replay.subagent_replays)}) — expandable in the HTML replay:"))
+        for sr in replay.subagent_replays:
+            st = sr.summary
+            lines.append(
+                c(_DIM, f"    ↳ {sr.session_id[:12]}: {st.total_turns if st else 0} turns, ")
+                + c(_DIM, f"{st.kept_tool_calls if st else 0} tool calls")
+            )
     return "\n".join(lines)
 
 
@@ -232,7 +254,7 @@ def _html_turn(turn: dict[str, Any], mark: str | None, tool_results: dict[str, s
         inner.append(f'<div class="say user">{_esc(turn.get("content"))}</div>')
     elif kind == "agent_message":
         inner.append('<div class="role">assistant</div>')
-        inner.append(f'<div class="say">{_esc(turn.get("content"))}</div>')
+        inner.append(_telegraphic_html(str(turn.get("content") or "")))
     elif kind == "thinking":
         inner.append('<div class="role">thinking</div>')
         inner.append(f'<div class="say think">{_esc(turn.get("content"))}</div>')
@@ -247,7 +269,13 @@ def _html_turn(turn: dict[str, Any], mark: str | None, tool_results: dict[str, s
     elif kind == "todo_write":
         inner.append(f'<div class="say meta">☐ {_esc(turn.get("summary"))}</div>')
     elif kind == "subagent_event":
-        inner.append(f'<div class="role">subagent</div><div class="say">{_esc(turn.get("summary"))}</div>')
+        name = _esc(turn.get("subagent_name") or turn.get("tool_name") or "subagent")
+        summ = _esc(turn.get("summary") or "subagent")
+        prompt = _esc(turn.get("content") or turn.get("subagent_description") or "")
+        inner.append(f'<div class="role">subagent · {name}</div>')
+        inner.append(
+            f'<details class="sub-inline"><summary>{summ}</summary><pre class="an-out">{prompt}</pre></details>'
+        )
     else:
         return ""
 
@@ -278,6 +306,109 @@ def _html_tool_call(turn: dict[str, Any], tool_results: dict[str, str]) -> str:
     if isinstance(atelier, dict):
         parts.append(_html_atelier(atelier))
     return "".join(parts)
+
+
+# Function words the telegraphic register drops: articles, copulas, connectors,
+# hedges, filler, pleasantries. Heuristic only — illustrates the compression, it
+# is NOT what the model deterministically produces.
+_FILLER_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "am",
+        "'s",
+        "'re",
+        "so",
+        "thus",
+        "therefore",
+        "hence",
+        "however",
+        "moreover",
+        "furthermore",
+        "then",
+        "but",
+        "that",
+        "which",
+        "as",
+        "of",
+        "to",
+        "in",
+        "on",
+        "for",
+        "with",
+        "just",
+        "really",
+        "actually",
+        "quite",
+        "very",
+        "rather",
+        "somewhat",
+        "likely",
+        "roughly",
+        "probably",
+        "perhaps",
+        "maybe",
+        "basically",
+        "essentially",
+        "simply",
+        "please",
+        "sure",
+        "okay",
+        "ok",
+        "well",
+        "now",
+        "let",
+        "let's",
+        "me",
+        "i'll",
+        "i'm",
+        "we'll",
+        "going",
+        "go",
+        "here",
+        "there",
+    }
+)
+
+
+def _telegraphic_html(text: str) -> str:
+    """Grey out the filler/connector words the telegraphic register would drop.
+
+    Heuristic illustration only — labelled as such. Content words stay; function
+    words are struck so the compression is visible on the real recorded prose.
+    """
+    if not text.strip():
+        return '<div class="say"></div>'
+    chunks = re.findall(r"[A-Za-z][A-Za-z']*|[^A-Za-z]+", text)
+    total = kept = 0
+    out: list[str] = []
+    for chunk in chunks:
+        if chunk[:1].isalpha():
+            total += 1
+            if chunk.lower() in _FILLER_WORDS:
+                out.append(f'<span class="filler">{_esc(chunk)}</span>')
+            else:
+                kept += 1
+                out.append(_esc(chunk))
+        else:
+            out.append(_esc(chunk))
+    dropped = total - kept
+    body = f'<div class="say tele">{"".join(out)}</div>'
+    if dropped <= 0 or total < 4:
+        return f'<div class="say">{_esc(text)}</div>'
+    note = (
+        f'<div class="tele-note">telegraphic register would drop ~{dropped} filler/connector words '
+        f"({total} &rarr; {kept}) · heuristic simulation only</div>"
+    )
+    return body + note
 
 
 def _html_atelier(a: dict[str, Any]) -> str:
@@ -373,25 +504,39 @@ def _html_session(replay: Replay) -> str:
 
     tiles = ""
     if s:
-        tele = ""
-        if s.verbose_output_tokens:
-            tele = (
-                f'<div class="tile"><div class="k">Assistant prose</div><div class="v">~{s.verbose_output_tokens:,}</div>'
-                '<div class="d before">output tokens &middot; telegraphic est.</div></div>'
-            )
         sav = estimate_savings(replay)
         tiles = (
+            '<div class="tiles hero-row">'
+            f'<div class="tile hero"><div class="k">Total cost</div><div class="v">${sav["total_cost_usd"]:.4f}</div><div class="d before">this session (recorded usage)</div></div>'
+            f'<div class="tile hero good"><div class="k">Total saved</div><div class="v">${sav["cost_saved_usd"]:.4f}</div><div class="d">est.</div></div>'
+            f'<div class="tile hero good"><div class="k">Time saved</div><div class="v">{_dur(sav["time_saved_seconds"])}</div><div class="d">est.</div></div>'
+            "</div>"
             '<div class="tiles">'
-            f'<div class="tile hero"><div class="k">Est. cost saved</div><div class="v">${sav["cost_saved_usd"]:.4f}</div><div class="d">this session</div></div>'
             f'<div class="tile"><div class="k">Tool calls</div><div class="v">{s.total_tool_calls} &rarr; {s.kept_tool_calls}</div><div class="d">&minus;{s.calls_saved} calls</div></div>'
-            f'<div class="tile"><div class="k">Tokens saved</div><div class="v">~{sav["input_tokens_saved"]:,}</div><div class="d">tool-output re-read</div></div>'
+            f'<div class="tile"><div class="k">Tokens saved</div><div class="v">~{sav["input_tokens_saved"] + sav["output_tokens_saved"]:,}</div><div class="d">~{sav["input_tokens_saved"]:,} in &middot; ~{sav["output_tokens_saved"]:,} out</div></div>'
             f'<div class="tile"><div class="k">Grep/read loops</div><div class="v">{s.episode_count}</div><div class="d before">&rarr; 1 code_search each</div></div>'
             f'<div class="tile"><div class="k">Read/edit batches</div><div class="v">{s.batch_count}</div><div class="d before">&rarr; 1 batched call each</div></div>'
-            f"{tele}"
             "</div>"
         )
 
     task = f'<div class="task"><b>Task:</b> {_esc(replay.task.splitlines()[0][:200])}</div>' if replay.task else ""
+    subs_html = ""
+    if replay.subagent_replays:
+        items = []
+        for sr in replay.subagent_replays:
+            st = sr.summary
+            head = (
+                f"▸ subagent {sr.session_id[:12]} — {st.total_turns if st else 0} turns, "
+                f"{st.kept_tool_calls if st else 0} tool calls"
+            )
+            items.append(f'<details class="subagent"><summary>{_esc(head)}</summary>{_html_session(sr)}</details>')
+        subs_html = (
+            f'<div class="subs"><div class="subs-h">Subagents ({len(replay.subagent_replays)}) '
+            "— click to replay each</div>" + "".join(items) + "</div>"
+        )
+    sub_badge = (
+        f'<span class="badge">{len(replay.subagent_replays)} subagents</span>' if replay.subagent_replays else ""
+    )
     return (
         '<section class="session-block">'
         '<div class="session"><div class="row">'
@@ -399,12 +544,14 @@ def _html_session(replay: Replay) -> str:
         f'<span class="sid">session {_esc(replay.session_id)}</span>'
         f'<span class="badge">{_esc(replay.model or "unknown model")}</span>'
         f'<span class="badge">{s.total_turns if s else 0} turns</span>'
+        f"{sub_badge}"
         f"</div>{task}</div>"
         f"{tiles}"
         '<div class="legend">'
         '<span><i class="swatch cut"></i> eliminated by Atelier</span>'
         '<span><i class="swatch atl"></i> inserted one-shot search</span></div>'
         f'<div class="timeline">{"".join(rows)}</div>'
+        f"{subs_html}"
         "</section>"
     )
 
@@ -459,8 +606,11 @@ h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
 .tile .v{font-size:20px;font-weight:650;margin-top:5px;font-variant-numeric:tabular-nums}
 .tile .d{font-size:12px;margin-top:3px;color:var(--accent);font-weight:600}
 .tile .d.before{color:var(--muted);font-weight:500}
-.tile.hero{background:var(--accent-soft);border-color:var(--accent)}
-.tile.hero .v{color:var(--accent)}
+.hero-row{grid-template-columns:repeat(3,1fr)!important}
+.tile.hero{border-width:1px}
+.tile.hero .v{font-size:26px}
+.tile.hero.good{background:var(--accent-soft);border-color:var(--accent)}
+.tile.hero.good .v{color:var(--accent)}
 @media(max-width:640px){.tiles{grid-template-columns:1fr 1fr}}
 .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:10px}
 .legend span{display:inline-flex;align-items:center;gap:6px}
@@ -472,6 +622,17 @@ h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
 .say{font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
 .say.user{font-weight:550}
 .say.think{color:var(--muted);font-style:italic}
+.say.tele .filler{color:var(--faint);opacity:.45;text-decoration:line-through;text-decoration-color:var(--faint)}
+.tele-note{font-size:11px;color:var(--faint);font-style:italic;margin-top:3px;font-family:var(--font-mono)}
+.sub-inline summary{cursor:pointer;font-size:13.5px}
+.sub-inline pre{margin:5px 0 0;white-space:pre-wrap;font-size:12px;background:var(--surface-2);padding:7px;border-radius:6px;max-height:240px;overflow:auto}
+.subs{margin-top:22px;border-top:2px solid var(--border);padding-top:14px}
+.subs-h{font-family:var(--font-mono);font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin-bottom:8px}
+details.subagent{border:1px solid var(--border);border-radius:10px;margin:8px 0;background:var(--surface)}
+details.subagent>summary{cursor:pointer;padding:10px 12px;font-family:var(--font-mono);font-size:12.5px;color:var(--accent)}
+details.subagent[open]>summary{border-bottom:1px solid var(--border)}
+details.subagent .session-block{padding:0 12px 8px}
+details.subagent .wrap{padding:0}
 .say.meta{color:var(--muted);font-size:13px}
 .call{font-family:var(--font-mono);font-size:12.5px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin:5px 0;overflow-x:auto}
 .call .tool{color:var(--accent);font-weight:600}
