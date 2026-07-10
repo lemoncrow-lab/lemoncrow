@@ -29,7 +29,7 @@ EXTERNAL_PERIODS ?= today week month
 #         make prod
 
 dev: ## Install Atelier in editable/dev mode; run /mcp reconnect in Claude Code after
-	ATELIER_INSTALL_RTK=1 bash scripts/local.sh
+	bash scripts/local.sh
 
 build: ## Build and package for production distribution
 	bash scripts/build.sh

@@ -17,6 +17,10 @@ Atelier is a 30-second install that helps Claude Code waste fewer tokens while y
 [![Claude Code](https://img.shields.io/badge/Claude_Code-supported-blue?style=flat-square)](integrations/claude)
 [![Codex](https://img.shields.io/badge/Codex-supported-blue?style=flat-square)](integrations/codex)
 [![opencode](https://img.shields.io/badge/opencode-supported-blue?style=flat-square)](integrations/opencode)
+[![Cursor](https://img.shields.io/badge/Cursor-coming_soon-lightgray?style=flat-square)](integrations/cursor)
+[![Copilot](https://img.shields.io/badge/Copilot-coming_soon-lightgray?style=flat-square)](integrations/copilot)
+[![Hermes Agent](https://img.shields.io/badge/Hermes_Agent-coming_soon-lightgray?style=flat-square)](scripts/install_hermes.sh)
+[![Antigravity](https://img.shields.io/badge/Antigravity-coming_soon-lightgray?style=flat-square)](integrations/antigravity)
 
 **Live savings across Atelier sessions**
 
