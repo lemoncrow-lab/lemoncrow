@@ -444,6 +444,43 @@ def test_shell_search_query_cleans_regex() -> None:
     assert _shell_search_query("rg detect_episodes src/") == "detect_episodes"
 
 
+def test_bash_with_description_not_misclassified_as_subagent() -> None:
+    # Regression: Bash carries a `description`, which used to trip the subagent
+    # heuristic -> shell greps vanished from the timeline -> 0 savings detected.
+    from atelier.gateway.hosts.session_parsers._session_parser import parse_session_turns
+
+    bash = {
+        "type": "assistant",
+        "message": {
+            "id": "m1",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "Bash",
+                    "input": {"command": "grep -rn Foo .", "description": "search for Foo"},
+                }
+            ],
+            "usage": {},
+        },
+    }
+    kinds = [t["kind"] for t in parse_session_turns(json.dumps(bash), "claude")]
+    assert "shell_command" in kinds
+    assert "subagent_event" not in kinds
+    # a real Task (subagent_type present) is still detected as a subagent event
+    task = {
+        "type": "assistant",
+        "message": {
+            "id": "m2",
+            "content": [
+                {"type": "tool_use", "id": "t2", "name": "Task", "input": {"subagent_type": "explore", "prompt": "go"}}
+            ],
+            "usage": {},
+        },
+    }
+    assert any(t["kind"] == "subagent_event" for t in parse_session_turns(json.dumps(task), "claude"))
+
+
 def test_collapse_saving_fraction_canonical() -> None:
     from atelier.core.capabilities.savings_summary import estimate_collapse_saving_fraction
 
@@ -463,6 +500,10 @@ def test_collapse_saving_fraction_canonical() -> None:
     assert estimate_collapse_saving_fraction(rounds, [], "claude-sonnet-5") == 0.0
     assert estimate_collapse_saving_fraction([], [0, 1], "claude-sonnet-5") == 0.0
     assert 0.0 <= estimate_collapse_saving_fraction(rounds, [2], "claude-sonnet-5") <= 1.0
+    # Bounded: even an all-loop session never estimates a 100% saving (Atelier
+    # still costs the code_search rounds it keeps).
+    all_loop = estimate_collapse_saving_fraction(rounds, list(range(len(rounds))), "claude-sonnet-5")
+    assert all_loop < 1.0
 
 
 def test_shell_grep_read_loop_collapses() -> None:
