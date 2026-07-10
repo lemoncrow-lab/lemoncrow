@@ -460,50 +460,79 @@ def build_replay(content: str, *, host: str, session_id: str) -> Replay:
     )
 
 
-def _benchmark_ab(session_id: str) -> dict[str, Any] | None:
-    """If ``session_id`` is one arm of an ``atelier benchmark local`` run, return
-    the REAL per-arm costs/durations for both arms from that run's results.jsonl.
+def _estimate_loop_saving(replay: Replay, model: str) -> float:
+    """Estimate the $ Atelier would save on THIS session, from the session alone.
 
-    Lets a baseline replay show what Atelier ACTUALLY cost on the same task
-    (from the paired atelier arm) instead of an estimate. Returns
-    ``{this_arm, costs:{baseline, atelier}, durations:{...}}`` or None.
+    This is what a real user gets: they only have their own vanilla sessions,
+    never a paired Atelier run. Atelier collapses each grep/read loop into one
+    ``code_search``, so the *intermediate* assistant rounds -- each of which
+    re-read the whole accumulated context (cache-read dominates cost) -- are
+    eliminated. We estimate the saving as the priced token usage of those
+    eliminated rounds, taken from the transcript's own per-round usage and
+    priced with the canonical ``estimate_cost_usd``.
+
+    Conservative: it credits only the removed round-trips, not the leaner context
+    Atelier would also give the surviving rounds. Returns 0 when the transcript
+    carries no per-round token usage (e.g. non-Claude hosts).
     """
-    if not session_id:
-        return None
-    base = Path.cwd() / "reports" / "benchmark" / "local"
-    if not base.is_dir():
-        return None
-    for run in sorted(base.glob("*"), reverse=True):
-        arm_sid: dict[str, str] = {}
-        for sf in run.glob("state/*/state.json"):
-            arm = "atelier" if "atelier" in sf.parent.name else "baseline" if "baseline" in sf.parent.name else ""
-            if not arm:
-                continue
-            try:
-                sid = str(json.loads(sf.read_text(encoding="utf-8")).get("session_id") or "")
-            except (OSError, ValueError):
-                continue
-            if sid:
-                arm_sid[arm] = sid
-        if session_id not in arm_sid.values():
+    if not replay.collapsed_indices:
+        return 0.0
+    # Assign every turn to its assistant round. A round begins on the turn that
+    # carries the round's token usage (the parser puts usage on the first block
+    # of each assistant message; later blocks in the same round carry {}).
+    round_tokens: list[dict[str, Any]] = []
+    round_of: list[int] = []
+    cur = -1
+    for turn in replay.turns:
+        tok = turn.get("tokens")
+        if isinstance(tok, dict) and tok:
+            cur += 1
+            round_tokens.append(tok)
+        round_of.append(cur)
+    if not round_tokens:
+        return 0.0
+    loop_rounds = sorted({round_of[i] for i in replay.collapsed_indices if 0 <= i < len(round_of) and round_of[i] >= 0})
+    # Atelier does the whole loop in ONE code_search at the START (cheap, small
+    # context); the LATER rounds -- the wasteful re-greps and whole-file re-reads
+    # whose cache-read ballooned -- are what gets eliminated. Keep the first loop
+    # round as the stand-in for the code_search round; eliminate the rest.
+    eliminated = loop_rounds[1:]
+    if not eliminated:
+        return 0.0
+    try:
+        from atelier.core.capabilities.savings_summary import estimate_cost_usd
+    except Exception:  # noqa: BLE001
+        return 0.0
+    elim_set = set(eliminated)
+    n_rounds = len(round_tokens)
+    saved = 0.0
+    carry_tokens = 0
+    for rnd in eliminated:
+        if not (0 <= rnd < n_rounds):
             continue
-        this_arm = next((a for a, s in arm_sid.items() if s == session_id), None)
-        res = run / "results.jsonl"
-        costs: dict[str, float] = {}
-        durations: dict[str, float] = {}
-        if res.is_file():
-            for line in res.read_text(encoding="utf-8", errors="replace").splitlines():
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue
-                arm = str(row.get("arm") or "")
-                if arm:
-                    costs[arm] = float(row.get("cost_usd") or 0.0)
-                    durations[arm] = float(row.get("duration_ms") or 0.0)
-        if this_arm and "atelier" in costs and "baseline" in costs:
-            return {"this_arm": this_arm, "costs": costs, "durations": durations}
-    return None
+        u = round_tokens[rnd]
+        # (1) the removed round-trip itself (it re-read the whole context).
+        saved += estimate_cost_usd(
+            model_id=model,
+            input_tokens=int(u.get("in", 0) or 0),
+            output_tokens=int(u.get("out", 0) or 0),
+            cache_read_tokens=int(u.get("cache_read", 0) or 0),
+            cache_write_tokens=int(u.get("cache_write", 0) or 0),
+        )
+        # (2) leaner context: what this round WROTE into context (a whole-file
+        # read, a grep dump) is no longer re-read by the rounds that survive
+        # after it -- the compounding cache-read the surviving rounds avoid.
+        surviving_after = sum(1 for r in range(rnd + 1, n_rounds) if r not in elim_set)
+        carry_tokens += int(u.get("cache_write", 0) or 0) * surviving_after
+    if carry_tokens:
+        saved += estimate_cost_usd(
+            model_id=model,
+            input_tokens=0,
+            output_tokens=0,
+            cache_read_tokens=carry_tokens,
+            cache_write_tokens=0,
+        )
+    return saved
 
 
 def estimate_savings(replay: Replay) -> dict[str, Any]:
@@ -569,21 +598,8 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
     calls_saved = replay.summary.calls_saved if replay.summary else 0
 
     # --- What would this task cost run with Atelier? --------------------- #
-    pair = _benchmark_ab(replay.session_id)
-    if pair is not None:
-        # Real A/B: paired benchmark arms. Use each arm's measured cost.
-        costs = pair["costs"]
-        durations = pair["durations"]
-        arm = str(pair["this_arm"])
-        total_cost = float(costs.get(arm, total_cost))
-        atelier_cost = float(costs.get("atelier", total_cost))
-        saved = max(0.0, float(costs.get("baseline", total_cost)) - atelier_cost)
-        baseline_ref = float(costs.get("baseline", total_cost))
-        time_saved = max(0.0, (float(durations.get("baseline", 0.0)) - float(durations.get("atelier", 0.0))) / 1000.0)
-        atelier_measured = True
-        saved_measured = True
-    elif is_atelier:
-        # This session already ran with Atelier -> its own cost is the Atelier cost.
+    if is_atelier:
+        # This session already ran with Atelier -> its own cost IS the Atelier cost.
         atelier_cost = total_cost
         saved = measured_saved
         baseline_ref = total_cost + saved  # what it would have cost without Atelier
@@ -591,35 +607,10 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
         atelier_measured = True
         saved_measured = True
     else:
-        # Vanilla session, no paired run: estimate the Atelier cost by subtracting
-        # a conservative carry-based opportunity (eliminated tool output would be
-        # re-read on every later turn), priced via the canonical estimate_cost_usd.
-        kinds = [t.get("kind") for t in replay.turns]
-        once_tokens = 0
-        carry_tokens = 0
-        for i in replay.collapsed_indices:
-            if not (0 <= i < len(replay.turns)):
-                continue
-            tok = len(tr.get(str(replay.turns[i].get("tool_use_id") or ""), "")) // 4
-            once_tokens += tok
-            later_turns = sum(1 for k in kinds[i + 1 :] if k == "agent_message")
-            carry_tokens += tok * max(1, later_turns)
-        opportunity = 0.0
-        if once_tokens > 0:
-            try:
-                from atelier.core.capabilities.savings_summary import estimate_cost_usd
-
-                opportunity = estimate_cost_usd(
-                    model_id=model,
-                    input_tokens=once_tokens,
-                    output_tokens=0,
-                    cache_read_tokens=carry_tokens,
-                    cache_write_tokens=0,
-                )
-            except Exception:  # noqa: BLE001
-                opportunity = 0.0
-        atelier_cost = max(0.0, total_cost - opportunity)
-        saved = opportunity
+        # Vanilla session -- the ONLY thing a real user has. Estimate the saving
+        # from THIS session alone: the round-trips Atelier's code_search removes.
+        saved = _estimate_loop_saving(replay, model)
+        atelier_cost = max(0.0, total_cost - saved)
         baseline_ref = total_cost
         try:
             from atelier.core.capabilities.savings_summary import estimate_time_saved_seconds
