@@ -6,9 +6,9 @@
 
 # Atelier Runtime
 
-### Honest and benchmark proven — cut Claude Code costs by 30%, audited head-to-head (up to 67% on some workloads)
+### Honest and benchmark proven — a faster Claude Code: one-shot code search, **37.7% fewer turns**, **23.7% less wall-clock** (and 30% cheaper as a result), audited head-to-head
 
-Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls and input tokens by up to **90%** and reduces response output by up to 80%, while keeping code output byte-identical. Keep using Claude Code normally -- Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, reusable memory, and a live savings meter.
+Atelier is a 30-second install that makes Claude Code **faster**. Its one-shot code search returns the exact symbol, its callers, and the ranked source in a single call — no grep-loop-then-read-whole-file — so the agent finds the right code on the first try and finishes the same task in **37.7% fewer turns** and **23.7% less wall-clock** (SWE-bench Verified, 250 runs a side). Fewer round-trips also means fewer tokens: tool calls and input down up to **90%**, output down up to 80%, code byte-identical. Speed is the win you feel at the keyboard; the ~30% lower cost falls out of the same tighter loop. Keep using Claude Code normally — Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, and reusable memory.
 
 [![License](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
@@ -22,11 +22,12 @@ Atelier is a 30-second install that helps Claude Code waste fewer tokens while y
 [![Hermes Agent](https://img.shields.io/badge/Hermes_Agent-coming_soon-lightgray?style=flat-square)](scripts/install_hermes.sh)
 [![Antigravity](https://img.shields.io/badge/Antigravity-coming_soon-lightgray?style=flat-square)](integrations/antigravity)
 
-**Live savings across Atelier sessions**
+**Live savings and time saved across Atelier sessions**
 
 [![Cost saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dsavings&style=for-the-badge&color=04ba0d)](https://atelier.ws)
 [![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://atelier.ws)
 [![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://atelier.ws)
+[![Time saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtime_per_day&style=for-the-badge&color=9b75d9)](https://atelier.ws)
 
 [Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](#pricing)
 
@@ -73,12 +74,12 @@ Atelier does not ask you to learn a new coding app. It improves the work Claude 
 
 | Before                                                       | With Atelier                                                                   |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Claude reads broad files and long terminal output.           | Claude gets the exact code ranges and compact results it needs.                |
-| The same context gets rediscovered again and again.          | Useful session context can be reused.                                          |
-| You pay for long explanations inside the working transcript. | Outputs stay shorter while code, commands, filenames, and errors remain exact. |
-| Savings are hard to see.                                     | A local meter shows tokens, cost, and savings adding up.                       |
+| Claude greps, reads a whole file, greps again to find code.  | One-shot code search returns the symbol, its callers, and exact ranges in a single call. |
+| The same context gets rediscovered again and again.          | Useful session context can be reused, not re-searched.                         |
+| Long grep-and-read loops burn turns and wall-clock time.     | Fewer round-trips: 37.7% fewer turns, 23.7% less wall-clock on SWE-bench Verified. |
+| Speed and savings are hard to see.                           | A local meter shows turns, tokens, and cost dropping in real time.             |
 
-The point is simple: more of your Claude subscription should go into useful work, not repeated setup and paid noise.
+The point is simple: the agent should spend its turns on useful work, not on wandering the codebase — so you finish faster and pay less.
 
 ### What actually gets replaced
 
@@ -195,18 +196,18 @@ Measured on the same model, same tasks, and same environment:
   <img src="benchmarks/cost_vs_savings_scatter.svg" alt="Atelier vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, Telegraphic Q&A, and Terminal-Bench" width="720">
 </p>
 
-SWE-bench Verified detail 250 baseline vs 250 Atelier runs:
+SWE-bench Verified detail — where the speed comes from (250 baseline vs 250 Atelier runs). One-shot search collapses the grep-and-read loop, so turns, wall-clock, and tool calls all drop together:
 
 | Metric               | Baseline | Atelier |            Delta |
 | ---------------------- | ---------: | --------: | -----------------: |
 | Turns                |    6,962 |   4,336 |  **37.7% fewer** |
-| Output tokens        |    3.04M |   2.19M |  **27.9% fewer** |
 | Wall-clock           |    14.3h |   10.9h | **23.7% faster** |
+| Total tool calls     |    6,700 |   4,167 |       **-37.8%** |
+| Output tokens        |    3.04M |   2.19M |  **27.9% fewer** |
 | Bash                 |    3,327 |   1,785 |       **-46.3%** |
 | Read                 |    1,733 |   1,050 |       **-39.4%** |
 | Edit + Write         |    1,628 |     759 |       **-53.4%** |
 | Search (code_search) |        - |     568 |     atelier-only |
-| Total tool calls     |    6,700 |   4,167 |       **-37.8%** |
 
 Exploration and explanation tasks detail (7 large repos x 5 reps, read-only codebase Q&A, no edits):
 
@@ -226,9 +227,9 @@ Exploration and explanation tasks detail (7 large repos x 5 reps, read-only code
 Source: [`benchmarks/codebench/results/exploration_2026_06_29/`](benchmarks/codebench/results/exploration_2026_06_29/), 35 baseline + 35 Atelier runs,
 [`benchmarks/codebench/results/telegraphic_2026_07_08`](benchmarks/codebench/results/telegraphic_2026_07_08), 100 baseline + 100 atelier runs.
 
-## Code search vs 10 named tools
+## One-shot code search vs 10 named tools
 
-Retrieval quality (MRR) across ~7,200 query/gold pairs on 14 repos -- ripgrep, ast-grep, universal-ctags, Serena, CodeGraph, cocoindex-code, codebase-memory-mcp, fff-mcp, code-index-mcp, and jCodeMunch all scored on the identical corpus:
+The search is the engine: it puts the right code in front of the agent on the first try, which is what kills the extra turns. Retrieval quality (MRR) and first-hit rate (rec@1) across ~7,200 query/gold pairs on 14 repos -- ripgrep, ast-grep, universal-ctags, Serena, CodeGraph, cocoindex-code, codebase-memory-mcp, fff-mcp, code-index-mcp, and jCodeMunch all scored on the identical corpus. Atelier's rec@1 of 0.650 means it returns the right code on the very first result two times in three, at 134ms p95 -- versus ripgrep's 0.320 and Serena's 3,834ms:
 
 | Provider                      |       MRR |     rec@1 |    p95 |
 | ------------------------------- | ----------: | ----------: | -------: |
@@ -245,15 +246,16 @@ Also worth a look, two comparisons outside code search: [rtk](https://atelier.ws
 
 ## Why it works
 
-Claude is strong, but the work around Claude is often wasteful. Atelier reduces that waste.
+Claude is strong, but the work around Claude is often slow and wasteful — grep, read a whole file, grep again. Atelier collapses that loop.
 
-- **Better inputs:** the agent gets relevant symbols and exact file ranges instead of whole files.
+- **One-shot search:** the agent gets the symbol, its callers, and exact ranges in a single call instead of a grep-and-read loop — the biggest single source of the turn and wall-clock savings.
+- **Better inputs:** relevant symbols and exact file ranges instead of whole files.
 - **Better outputs:** command output and replies stay compact without losing exact technical facts.
 - **Better memory:** useful context can be reused instead of rediscovered.
 - **Better guardrails:** tools and hooks reduce risky edits, oversized reads, and unverified "done" states.
 - **Better discipline:** think before coding, simplicity first, surgical changes, goal-driven execution — enforced in every Atelier persona, not typed into a prompt once. Checked against the raw runs in [Results](#results), not asserted.
 
-Atelier does not make Claude a different model. It makes the loop around Claude cleaner, which is why the same model solved more tasks in the benchmark.
+Atelier does not make Claude a different model. It makes the loop around Claude tighter and faster, which is why the same model solved more tasks in fewer turns and less wall-clock time.
 
 ## What you get
 
