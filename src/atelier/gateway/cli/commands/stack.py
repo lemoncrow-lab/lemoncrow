@@ -32,6 +32,8 @@ from atelier.infra.runtime.servicectl_lifecycle import (
 from atelier.infra.runtime.stack_lifecycle import (
     _clear_stack_pidfiles,
     _ensure_stack_frontend_dependencies,
+    _get_node_dir,
+    _get_npm_path,
     _read_stack_state,
     _signal_process_group,
     _stack_dir,
@@ -193,6 +195,15 @@ def stack_run(
     )
     frontend_env = os.environ.copy()
     frontend_env["VITE_API_URL"] = f"http://localhost:{service_port}"
+    # npm's shebang needs `node` on PATH even when npm itself is invoked by
+    # full path (see _get_node_dir) -- matters under a minimal-PATH spawner
+    # like launchd, which the frontend can otherwise fail to start under.
+    # Resolve npm once and pass it through so node is paired with the same
+    # install rather than picked independently (avoids a node/npm mismatch).
+    _npm_path = _get_npm_path()
+    _node_dir = _get_node_dir(_npm_path)
+    if _node_dir:
+        frontend_env["PATH"] = f"{_node_dir}:{frontend_env.get('PATH', '')}"
 
     service_proc = subprocess.Popen(
         [
@@ -214,7 +225,7 @@ def stack_run(
     )
     frontend_proc = subprocess.Popen(
         [
-            "npm",
+            _npm_path,
             "exec",
             "vite",
             "--",

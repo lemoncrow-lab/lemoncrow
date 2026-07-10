@@ -331,10 +331,10 @@ def _servicectl_prune_workspaces(root: Path, *, max_age_days: int = _WORKSPACE_P
 
 def _atelier_version() -> str:
     """Return the installed Atelier version string."""
-    try:
-        from importlib.metadata import version
+    from atelier.core.foundation.update_state import installed_cli_version
 
-        return version("atelier")
+    try:
+        return installed_cli_version() or "0.0.0"
     except Exception:
         logging.exception("Recovered from broad exception handler")
         return "0.0.0"
@@ -601,19 +601,14 @@ def _servicectl_check_and_apply_updates(root: Path) -> bool:
                 logger.info("Auto-update: already up-to-date.")
                 return False
 
-            # In-process version is unchanged after a git pull; read the new
-            # version from pyproject.toml for the SessionStart notification.
+            # The daemon's in-process version is unchanged after a git pull;
+            # query the installed CLI after sync for the notification state.
             try:
-                import re
-
                 from atelier.core.foundation.update_state import write_update_state
 
-                pyproject = Path(project_root) / "pyproject.toml"
-                match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text("utf-8"), re.MULTILINE)
-                new_version = match.group(1) if match else previous_version
                 write_update_state(
                     previous_version=previous_version,
-                    current_version=new_version,
+                    current_version=_atelier_version(),
                     method=method,
                     root=root,
                 )

@@ -60,7 +60,54 @@ TRANSFORM_CACHE_MAX_ITEMS = 128
 DNS_TIMEOUT_S = 10.0
 _DNS_MAX_WORKERS = 4
 
-DEFAULT_USER_AGENT = "Atelier web_fetch/0.2 (+https://github.com/atelier-ws/atelier)"
+# A browser-like UA + Sec-Fetch-*/Accept-Language set cuts false-positive WAF
+# challenges (e.g. Cloudflare Bot Management) on sites that score bare/bot-ish
+# clients harshly -- these headers don't change what content is requested,
+# only how bot-like the request looks on the wire.
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+_BROWSER_LIKE_HEADERS = {
+    "Accept-Language": "en-US,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+}
+
+
+def _request_headers(accept: str) -> dict[str, str]:
+    return {"User-Agent": DEFAULT_USER_AGENT, "Accept": accept, **_BROWSER_LIKE_HEADERS}
+
+
+# A bare 403 from a WAF-fronted origin is frequently a per-request bot-score
+# coin flip, not a real block -- the same request often succeeds on an
+# immediate retry (observed empirically against a Cloudflare-fronted site).
+# Bounded and scoped to 403 only (never other 4xx/5xx, which are the origin's
+# real, stable answer) so a genuine permanent block still surfaces as-is.
+# 403 covers WAF/bot-management false positives; 408/425/429/5xx cover classic
+# transient-origin conditions (timeout, rate limit, momentary server error).
+# Anything else (404, 401, other 4xx) is the origin's stable answer -- not retried.
+_RETRY_STATUSES = frozenset({403, 408, 425, 429, 500, 502, 503, 504})
+_MAX_FETCH_ATTEMPTS = 3
+_RETRY_BACKOFF_S = 0.25
+
+
+def _retry_should_continue(attempt: int, deadline: float, status: int | None) -> bool:
+    """Shared retry-continuation policy for both the sync and async fetch loops.
+
+    ``status`` is the HTTP status of a successful-but-retriable response, or
+    ``None`` when the previous attempt raised a transport ``RuntimeError``.
+    Bounding on ``deadline`` (wall-clock, not just attempt count) keeps a
+    caller-supplied ``timeout_s`` an overall budget rather than a per-attempt
+    one -- otherwise a persistently slow origin can block the caller for up
+    to ``_MAX_FETCH_ATTEMPTS * timeout_s`` instead of roughly ``timeout_s``.
+    """
+    if attempt >= _MAX_FETCH_ATTEMPTS or time.monotonic() >= deadline:
+        return False
+    return status is None or status in _RETRY_STATUSES
+
 
 _MARKDOWN_TYPES = {"text/markdown", "text/x-markdown", "text/vnd.daringfireball.markdown"}
 _HTML_TYPES = {"text/html", "application/xhtml+xml"}
@@ -628,8 +675,30 @@ async def _async_read_limited_body(
 
 
 async def _async_fetch_uncached(url: str, *, accept: str, timeout_s: float) -> _RawFetchResult:
+    """Fetch *url*, retrying transient failures (a retriable status, or a
+    genuine transport error) a bounded number of times.
+
+    A permanent failure -- SSRF block, unsupported content type, malformed
+    redirect, too many redirects -- raises ``ValueError`` and is never retried.
+    """
+    attempt = 1
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            result = await _async_fetch_uncached_once(url, accept=accept, timeout_s=timeout_s)
+        except RuntimeError:
+            if not _retry_should_continue(attempt, deadline, None):
+                raise
+        else:
+            if not _retry_should_continue(attempt, deadline, result.status):
+                return result
+        await asyncio.sleep(_RETRY_BACKOFF_S * attempt)
+        attempt += 1
+
+
+async def _async_fetch_uncached_once(url: str, *, accept: str, timeout_s: float) -> _RawFetchResult:
     current_url = _validate_public_url(url)
-    headers = {"User-Agent": DEFAULT_USER_AGENT, "Accept": accept}
+    headers = _request_headers(accept)
     timeout = aiohttp.ClientTimeout(connect=timeout_s, sock_connect=timeout_s, sock_read=timeout_s)
     connector = aiohttp.TCPConnector(
         resolver=_ValidatingResolver(),
@@ -788,8 +857,30 @@ def _fetch_with_cache(url: str, *, accept: str, timeout_s: float) -> _RawFetchRe
 
 
 def _fetch_uncached(url: str, *, accept: str, timeout_s: float) -> _RawFetchResult:
+    """Fetch *url*, retrying transient failures (a retriable status, or a
+    genuine transport error) a bounded number of times.
+
+    A permanent failure -- SSRF block, unsupported content type, malformed
+    redirect, too many redirects -- raises ``ValueError`` and is never retried.
+    """
+    attempt = 1
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            result = _fetch_uncached_once(url, accept=accept, timeout_s=timeout_s)
+        except RuntimeError:
+            if not _retry_should_continue(attempt, deadline, None):
+                raise
+        else:
+            if not _retry_should_continue(attempt, deadline, result.status):
+                return result
+        time.sleep(_RETRY_BACKOFF_S * attempt)
+        attempt += 1
+
+
+def _fetch_uncached_once(url: str, *, accept: str, timeout_s: float) -> _RawFetchResult:
     current_url = _validate_public_url(url)
-    headers = {"User-Agent": DEFAULT_USER_AGENT, "Accept": accept}
+    headers = _request_headers(accept)
     timeout = urllib3.Timeout(connect=timeout_s, read=timeout_s)
 
     for _redirect_index in range(MAX_REDIRECTS + 1):
