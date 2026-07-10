@@ -188,6 +188,14 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
+        from .replay import replay_cmd
+
+        # replay reconstructs a past session and marks Atelier short-circuits.
+        cli.add_command(replay_cmd)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
         from .benchmark import benchmark_group
 
         cli.add_command(benchmark_group)
