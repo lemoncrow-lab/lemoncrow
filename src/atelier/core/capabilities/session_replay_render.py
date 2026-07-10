@@ -103,26 +103,29 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
         detail = f"  ({', '.join(parts)})" if parts else ""
         lines.append("  tool calls: " + c(_BOLD, f"{s.total_tool_calls} → {s.kept_tool_calls}") + c(_GREEN, detail))
         sav = estimate_savings(replay)
-        cost_line = "  " + c(_BOLD, f"total cost ${sav['total_cost_usd']:.4f}")
-        if sav["is_atelier_session"]:
-            cost_line += (
-                "    "
-                + c(_GREEN + _BOLD, f"measured saved ${sav['measured_saved_usd']:.4f}")
-                + "    "
-                + c(_GREEN + _BOLD, f"time saved {_dur(sav['measured_time_saved_seconds'])}")
-            )
-        lines.append(cost_line)
+        saved_label = "saved" if sav["saved_is_measured"] else "savings opp."
+        est_tag = "" if sav["saved_is_measured"] else c(_DIM, " est")
+        lines.append(
+            "  "
+            + c(_BOLD, f"cost ${sav['total_cost_usd']:.4f}")
+            + "     "
+            + c(_GREEN + _BOLD, f"{saved_label} ${sav['saved_usd']:.4f}")
+            + est_tag
+            + "     "
+            + c(_GREEN + _BOLD, f"time saved {_dur(sav['time_saved_seconds'])}")
+        )
         lines.append(
             "  "
             + c(
                 _DIM,
-                f"would collapse {sav['calls_saved']} tool calls · ~{sav['collapsed_output_tokens']:,} tokens "
-                "of tool-output removed (structural counterfactual)",
+                f"{s.total_tool_calls} → {s.kept_tool_calls} tool calls · {sav['calls_saved']} collapsed · "
+                f"{s.episode_count} search loops · {s.batch_count} batches",
             )
         )
-        if not sav["is_atelier_session"]:
+        if not sav["saved_is_measured"]:
             lines.append(
-                "  " + c(_DIM, "measured $ saving needs a real run — see `atelier benchmark` (baseline vs Atelier)")
+                "  "
+                + c(_DIM, "savings opp. = estimate; the measured saving is the benchmark A/B (baseline vs Atelier)")
             )
     lines.append("  " + c(_DIM, "reconstructed from history — no model re-run, $0"))
     lines.append("")
@@ -522,25 +525,19 @@ def _html_session(replay: Replay) -> str:
     tiles = ""
     if s:
         sav = estimate_savings(replay)
-        if sav["is_atelier_session"]:
-            hero = (
-                '<div class="tiles hero-row">'
-                f'<div class="tile hero"><div class="k">Total cost</div><div class="v">${sav["total_cost_usd"]:.4f}</div><div class="d before">recorded usage</div></div>'
-                f'<div class="tile hero good"><div class="k">Measured saved</div><div class="v">${sav["measured_saved_usd"]:.4f}</div><div class="d">Atelier engine</div></div>'
-                f'<div class="tile hero good"><div class="k">Time saved</div><div class="v">{_dur(sav["measured_time_saved_seconds"])}</div><div class="d">Atelier engine</div></div>'
-                "</div>"
-            )
-        else:
-            hero = (
-                '<div class="tiles hero-row">'
-                f'<div class="tile hero"><div class="k">Total cost</div><div class="v">${sav["total_cost_usd"]:.4f}</div><div class="d before">recorded usage</div></div>'
-                f'<div class="tile hero"><div class="k">Would collapse</div><div class="v">{sav["calls_saved"]} calls</div><div class="d before">~{sav["collapsed_output_tokens"]:,} tokens of tool-output</div></div>'
-                '<div class="tile hero"><div class="k">Measured $ saving</div><div class="v" style="font-size:15px">run atelier benchmark</div><div class="d before">no Atelier savings recorded (vanilla session)</div></div>'
-                "</div>"
-            )
+        saved_label = "Saved" if sav["saved_is_measured"] else "Savings opportunity"
+        saved_sub = "measured (Atelier engine)" if sav["saved_is_measured"] else "estimate"
+        # The three numbers that matter most, up top.
+        hero = (
+            '<div class="tiles hero-row">'
+            f'<div class="tile hero"><div class="k">Cost</div><div class="v">${sav["total_cost_usd"]:.4f}</div><div class="d before">recorded usage</div></div>'
+            f'<div class="tile hero good"><div class="k">{saved_label}</div><div class="v">${sav["saved_usd"]:.4f}</div><div class="d">{saved_sub}</div></div>'
+            f'<div class="tile hero good"><div class="k">Time saved</div><div class="v">{_dur(sav["time_saved_seconds"])}</div><div class="d">{saved_sub}</div></div>'
+            "</div>"
+        )
         tiles = (
             hero + '<div class="tiles">'
-            f'<div class="tile"><div class="k">Tool calls</div><div class="v">{s.total_tool_calls} &rarr; {s.kept_tool_calls}</div><div class="d">&minus;{s.calls_saved} calls</div></div>'
+            f'<div class="tile"><div class="k">Tool calls</div><div class="v">{s.total_tool_calls} &rarr; {s.kept_tool_calls}</div><div class="d">&minus;{s.calls_saved} collapsed</div></div>'
             f'<div class="tile"><div class="k">Grep/read loops</div><div class="v">{s.episode_count}</div><div class="d before">&rarr; 1 code_search each</div></div>'
             f'<div class="tile"><div class="k">Read/edit batches</div><div class="v">{s.batch_count}</div><div class="d before">&rarr; 1 batched call each</div></div>'
             "</div>"
@@ -612,7 +609,6 @@ _HTML_SHELL = """<!doctype html>
 <title>{{TITLE}}</title>
 <style>
 :root{--bg:#f4f7f5;--surface:#fff;--surface-2:#eef3f0;--text:#16201b;--muted:#5c6b63;--faint:#8a988f;--border:#dde6e0;--rail:#cdd8d1;--accent:#1a7f3c;--accent-soft:#e3f3e8;--waste:#b23b2e;--waste-soft:#f6e5e2;--font-sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--font-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace}
-@media(prefers-color-scheme:dark){:root{--bg:#0b110e;--surface:#111a15;--surface-2:#0e1712;--text:#dce6df;--muted:#93a399;--faint:#66756c;--border:#20302a;--rail:#2a3b33;--accent:#3fb950;--accent-soft:#12251a;--waste:#e5705f;--waste-soft:#24140f}}
 :root[data-theme=dark]{--bg:#0b110e;--surface:#111a15;--surface-2:#0e1712;--text:#dce6df;--muted:#93a399;--faint:#66756c;--border:#20302a;--rail:#2a3b33;--accent:#3fb950;--accent-soft:#12251a;--waste:#e5705f;--waste-soft:#24140f}
 :root[data-theme=light]{--bg:#f4f7f5;--surface:#fff;--surface-2:#eef3f0;--text:#16201b;--muted:#5c6b63;--faint:#8a988f;--border:#dde6e0;--rail:#cdd8d1;--accent:#1a7f3c;--accent-soft:#e3f3e8;--waste:#b23b2e;--waste-soft:#f6e5e2}
 *{box-sizing:border-box}
@@ -682,7 +678,6 @@ details.subagent .wrap{padding:0}
 .turn.cut .say,.turn.cut .role{opacity:.6;color:var(--faint)}
 .turn.cut .call{text-decoration:line-through;text-decoration-color:var(--faint);color:var(--faint);opacity:.72;background:transparent;border:1px dashed #c2611d}
 .cut-tag{font-family:var(--font-mono);font-size:10.5px;color:#c2611d;font-weight:600;margin-left:7px;text-decoration:none;display:inline-block;opacity:1}
-@media(prefers-color-scheme:dark){.turn.cut .body{border-left-color:#d98a4a}.turn.cut .call{border-color:#d98a4a}.cut-tag{color:#d98a4a}}
 :root[data-theme=dark] .turn.cut .body{border-left-color:#d98a4a}
 :root[data-theme=dark] .turn.cut .call{border-color:#d98a4a}
 :root[data-theme=dark] .cut-tag{color:#d98a4a}

@@ -375,16 +375,21 @@ def test_estimate_savings_from_engine_only() -> None:
     for key in (
         "total_cost_usd",
         "measured_saved_usd",
-        "measured_time_saved_seconds",
+        "opportunity_saved_usd",
+        "saved_usd",
+        "saved_is_measured",
+        "time_saved_seconds",
         "is_atelier_session",
         "calls_saved",
         "collapsed_output_tokens",
     ):
         assert key in sav
-    # A session with no recorded Atelier savings must report 0 measured saving,
-    # never a fabricated dollar figure.
+    # A session with no recorded Atelier savings must report 0 MEASURED saving
+    # (never fabricated); the headline saved falls back to the opportunity estimate.
     assert sav["measured_saved_usd"] == 0.0
     assert sav["is_atelier_session"] is False
+    assert sav["saved_is_measured"] is False
+    assert sav["saved_usd"] == sav["opportunity_saved_usd"]
     # structural counterfactual is still surfaced
     assert sav["calls_saved"] >= 1
 
