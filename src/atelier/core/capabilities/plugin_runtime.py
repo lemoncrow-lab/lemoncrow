@@ -1552,6 +1552,8 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
                 calls_avoided=calls_avoided,
                 output_saved_tokens=output_saved_tokens,
             ),
+            output_saved_tokens=output_saved_tokens,
+            output_saved_usd=output_saved_usd,
         )
 
     model = str(session.get("last_model") or session.get("model") or _codex_payload_model(payload) or "")
