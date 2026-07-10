@@ -460,8 +460,61 @@ def build_replay(content: str, *, host: str, session_id: str) -> Replay:
     )
 
 
+def _benchmark_ab(session_id: str) -> dict[str, Any] | None:
+    """If ``session_id`` is one arm of an ``atelier benchmark local`` run, return
+    the REAL per-arm costs/durations for both arms from that run's results.jsonl.
+
+    Lets a baseline replay show what Atelier ACTUALLY cost on the same task
+    (from the paired atelier arm) instead of an estimate. Returns
+    ``{this_arm, costs:{baseline, atelier}, durations:{...}}`` or None.
+    """
+    if not session_id:
+        return None
+    base = Path.cwd() / "reports" / "benchmark" / "local"
+    if not base.is_dir():
+        return None
+    for run in sorted(base.glob("*"), reverse=True):
+        arm_sid: dict[str, str] = {}
+        for sf in run.glob("state/*/state.json"):
+            arm = "atelier" if "atelier" in sf.parent.name else "baseline" if "baseline" in sf.parent.name else ""
+            if not arm:
+                continue
+            try:
+                sid = str(json.loads(sf.read_text(encoding="utf-8")).get("session_id") or "")
+            except (OSError, ValueError):
+                continue
+            if sid:
+                arm_sid[arm] = sid
+        if session_id not in arm_sid.values():
+            continue
+        this_arm = next((a for a, s in arm_sid.items() if s == session_id), None)
+        res = run / "results.jsonl"
+        costs: dict[str, float] = {}
+        durations: dict[str, float] = {}
+        if res.is_file():
+            for line in res.read_text(encoding="utf-8", errors="replace").splitlines():
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                arm = str(row.get("arm") or "")
+                if arm:
+                    costs[arm] = float(row.get("cost_usd") or 0.0)
+                    durations[arm] = float(row.get("duration_ms") or 0.0)
+        if this_arm and "atelier" in costs and "baseline" in costs:
+            return {"this_arm": this_arm, "costs": costs, "durations": durations}
+    return None
+
+
 def estimate_savings(replay: Replay) -> dict[str, Any]:
-    """Cost + savings for a replay, sourced from the CANONICAL engine only.
+    """Cost + what Atelier would cost + savings, from real sources where possible.
+
+    ``atelier_cost_usd`` answers "what would this task cost run with Atelier?":
+    - benchmark session -> the paired atelier arm's REAL cost (results.jsonl);
+    - session that ran with Atelier -> its own cost;
+    - otherwise -> ``cost - opportunity`` where opportunity is a conservative
+      carry-based estimate (priced via the canonical estimate_cost_usd).
+    All pricing/savings numbers come from ``savings_summary`` -- no local math.
 
     No local pricing/savings math (that drifts): everything comes from
     ``savings_summary`` — the same engine the dashboard, badges and statusline
@@ -515,13 +568,32 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
             collapsed_chars += int(a.get("chars_omitted", 0) or 0)
     calls_saved = replay.summary.calls_saved if replay.summary else 0
 
-    # Savings opportunity ($): for a session that did NOT run with Atelier, a
-    # conservative estimate of what Atelier would have saved. Models the dominant
-    # "carry" effect (the eliminated tool output would otherwise be re-read on
-    # every later turn) and prices it with the canonical estimate_cost_usd at the
-    # cache-read rate. Conservative vs the measured A/B (which also cuts turns).
-    opportunity = 0.0
-    if not is_atelier and collapsed_chars > 0:
+    # --- What would this task cost run with Atelier? --------------------- #
+    pair = _benchmark_ab(replay.session_id)
+    if pair is not None:
+        # Real A/B: paired benchmark arms. Use each arm's measured cost.
+        costs = pair["costs"]
+        durations = pair["durations"]
+        arm = str(pair["this_arm"])
+        total_cost = float(costs.get(arm, total_cost))
+        atelier_cost = float(costs.get("atelier", total_cost))
+        saved = max(0.0, float(costs.get("baseline", total_cost)) - atelier_cost)
+        baseline_ref = float(costs.get("baseline", total_cost))
+        time_saved = max(0.0, (float(durations.get("baseline", 0.0)) - float(durations.get("atelier", 0.0))) / 1000.0)
+        atelier_measured = True
+        saved_measured = True
+    elif is_atelier:
+        # This session already ran with Atelier -> its own cost is the Atelier cost.
+        atelier_cost = total_cost
+        saved = measured_saved
+        baseline_ref = total_cost + saved  # what it would have cost without Atelier
+        time_saved = measured_time
+        atelier_measured = True
+        saved_measured = True
+    else:
+        # Vanilla session, no paired run: estimate the Atelier cost by subtracting
+        # a conservative carry-based opportunity (eliminated tool output would be
+        # re-read on every later turn), priced via the canonical estimate_cost_usd.
         kinds = [t.get("kind") for t in replay.turns]
         once_tokens = 0
         carry_tokens = 0
@@ -532,35 +604,42 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
             once_tokens += tok
             later_turns = sum(1 for k in kinds[i + 1 :] if k == "agent_message")
             carry_tokens += tok * max(1, later_turns)
-        try:
-            from atelier.core.capabilities.savings_summary import estimate_cost_usd
+        opportunity = 0.0
+        if once_tokens > 0:
+            try:
+                from atelier.core.capabilities.savings_summary import estimate_cost_usd
 
-            opportunity = estimate_cost_usd(
-                model_id=model,
-                input_tokens=once_tokens,
-                output_tokens=0,
-                cache_read_tokens=carry_tokens,
-                cache_write_tokens=0,
-            )
-        except Exception:  # noqa: BLE001
-            opportunity = 0.0
-
-    time_saved = measured_time
-    if not is_atelier:
+                opportunity = estimate_cost_usd(
+                    model_id=model,
+                    input_tokens=once_tokens,
+                    output_tokens=0,
+                    cache_read_tokens=carry_tokens,
+                    cache_write_tokens=0,
+                )
+            except Exception:  # noqa: BLE001
+                opportunity = 0.0
+        atelier_cost = max(0.0, total_cost - opportunity)
+        saved = opportunity
+        baseline_ref = total_cost
         try:
             from atelier.core.capabilities.savings_summary import estimate_time_saved_seconds
 
             time_saved = estimate_time_saved_seconds(calls_avoided=calls_saved)
         except Exception:  # noqa: BLE001
             time_saved = float(calls_saved) * 4.5
+        atelier_measured = False
+        saved_measured = False
 
+    # Saving is always a fraction of the WITHOUT-Atelier (baseline) cost.
+    saved_pct = round(100.0 * saved / baseline_ref, 1) if baseline_ref > 0 else 0.0
     return {
         "model": model,
         "total_cost_usd": round(total_cost, 4),
-        "measured_saved_usd": round(measured_saved, 4),
-        "opportunity_saved_usd": round(opportunity, 4),
-        "saved_usd": round(measured_saved if is_atelier else opportunity, 4),
-        "saved_is_measured": is_atelier,
+        "atelier_cost_usd": round(atelier_cost, 4),
+        "atelier_cost_is_measured": atelier_measured,
+        "saved_usd": round(saved, 4),
+        "saved_pct": saved_pct,
+        "saved_is_measured": saved_measured,
         "time_saved_seconds": round(time_saved, 1),
         "is_atelier_session": is_atelier,
         "calls_saved": calls_saved,
