@@ -156,13 +156,13 @@ curl -fsSL https://savings.atelier.ws | bash -s -- --host codex --limit 20
 
 ### Replay a past session
 
-`atelier replay` plays back a recorded session and, for each native call, **runs the real Atelier tool that would have replaced it** — grep/read loops collapse into one `code_search`, whole-file reads become budgeted outlines, `bash` logs get capped. No model re-run, nothing written; opens a shareable HTML page.
+`atelier session replay` plays back a recorded session and, for each native call, **runs the real Atelier tool that would have replaced it** — grep/read loops collapse into one `code_search`, whole-file reads become budgeted outlines, `bash` logs get capped. It then estimates — from that session alone — the **cost, savings opportunity, and time** Atelier would have saved. No model re-run, nothing written; opens a shareable HTML page.
 
 ```bash
-atelier replay --last 1
+atelier session replay --last 1
 ```
 
-Works on Claude Code, Codex, and opencode sessions. Live re-measured A/B: `atelier benchmark local`.
+Works on Claude Code, Codex, and opencode sessions. The saving is an estimate; the live re-measured A/B is `atelier benchmark local`.
 
 ## Why trust the numbers?
 
