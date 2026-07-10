@@ -368,13 +368,25 @@ def test_subagent_transcripts_nested(tmp_path: Path) -> None:
     assert len(r.to_dict()["subagents"]) == 1
 
 
-def test_estimate_savings_headline_numbers() -> None:
-    r = build_replay(_claude_transcript(), host="claude", session_id="s1")
+def test_estimate_savings_from_engine_only() -> None:
+    # No source_path / no savings.jsonl -> engine returns 0 saved (vanilla).
+    r = build_replay(_claude_transcript(), host="claude", session_id="unknown-xyz")
     sav = estimate_savings(r)
-    for key in ("total_cost_usd", "cost_saved_usd", "time_saved_seconds", "input_tokens_saved", "output_tokens_saved"):
+    for key in (
+        "total_cost_usd",
+        "measured_saved_usd",
+        "measured_time_saved_seconds",
+        "is_atelier_session",
+        "calls_saved",
+        "collapsed_output_tokens",
+    ):
         assert key in sav
-    assert sav["cost_saved_usd"] >= 0.0
-    assert sav["time_saved_seconds"] >= 0.0
+    # A session with no recorded Atelier savings must report 0 measured saving,
+    # never a fabricated dollar figure.
+    assert sav["measured_saved_usd"] == 0.0
+    assert sav["is_atelier_session"] is False
+    # structural counterfactual is still surfaced
+    assert sav["calls_saved"] >= 1
 
 
 # --------------------------------------------------------------------------- #
