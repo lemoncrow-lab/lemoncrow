@@ -103,23 +103,27 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
         detail = f"  ({', '.join(parts)})" if parts else ""
         lines.append("  tool calls: " + c(_BOLD, f"{s.total_tool_calls} → {s.kept_tool_calls}") + c(_GREEN, detail))
         sav = estimate_savings(replay)
-        lines.append(
-            "  "
-            + c(_BOLD, f"total cost ${sav['total_cost_usd']:.4f}")
-            + "    "
-            + c(_GREEN + _BOLD, f"saved ${sav['cost_saved_usd']:.4f}")
-            + "    "
-            + c(_GREEN + _BOLD, f"time saved {_dur(sav['time_saved_seconds'])}")
-            + c(_DIM, "   (est)")
-        )
+        cost_line = "  " + c(_BOLD, f"total cost ${sav['total_cost_usd']:.4f}")
+        if sav["is_atelier_session"]:
+            cost_line += (
+                "    "
+                + c(_GREEN + _BOLD, f"measured saved ${sav['measured_saved_usd']:.4f}")
+                + "    "
+                + c(_GREEN + _BOLD, f"time saved {_dur(sav['measured_time_saved_seconds'])}")
+            )
+        lines.append(cost_line)
         lines.append(
             "  "
             + c(
                 _DIM,
-                f"{sav['calls_saved']} tool calls · ~{sav['input_tokens_saved']:,} input + "
-                f"~{sav['output_tokens_saved']:,} output tokens saved (telegraphic est.)",
+                f"would collapse {sav['calls_saved']} tool calls · ~{sav['collapsed_output_tokens']:,} tokens "
+                "of tool-output removed (structural counterfactual)",
             )
         )
+        if not sav["is_atelier_session"]:
+            lines.append(
+                "  " + c(_DIM, "measured $ saving needs a real run — see `atelier benchmark` (baseline vs Atelier)")
+            )
     lines.append("  " + c(_DIM, "reconstructed from history — no model re-run, $0"))
     lines.append("")
 
@@ -518,15 +522,25 @@ def _html_session(replay: Replay) -> str:
     tiles = ""
     if s:
         sav = estimate_savings(replay)
+        if sav["is_atelier_session"]:
+            hero = (
+                '<div class="tiles hero-row">'
+                f'<div class="tile hero"><div class="k">Total cost</div><div class="v">${sav["total_cost_usd"]:.4f}</div><div class="d before">recorded usage</div></div>'
+                f'<div class="tile hero good"><div class="k">Measured saved</div><div class="v">${sav["measured_saved_usd"]:.4f}</div><div class="d">Atelier engine</div></div>'
+                f'<div class="tile hero good"><div class="k">Time saved</div><div class="v">{_dur(sav["measured_time_saved_seconds"])}</div><div class="d">Atelier engine</div></div>'
+                "</div>"
+            )
+        else:
+            hero = (
+                '<div class="tiles hero-row">'
+                f'<div class="tile hero"><div class="k">Total cost</div><div class="v">${sav["total_cost_usd"]:.4f}</div><div class="d before">recorded usage</div></div>'
+                f'<div class="tile hero"><div class="k">Would collapse</div><div class="v">{sav["calls_saved"]} calls</div><div class="d before">~{sav["collapsed_output_tokens"]:,} tokens of tool-output</div></div>'
+                '<div class="tile hero"><div class="k">Measured $ saving</div><div class="v" style="font-size:15px">run atelier benchmark</div><div class="d before">no Atelier savings recorded (vanilla session)</div></div>'
+                "</div>"
+            )
         tiles = (
-            '<div class="tiles hero-row">'
-            f'<div class="tile hero"><div class="k">Total cost</div><div class="v">${sav["total_cost_usd"]:.4f}</div><div class="d before">this session (recorded usage)</div></div>'
-            f'<div class="tile hero good"><div class="k">Total saved</div><div class="v">${sav["cost_saved_usd"]:.4f}</div><div class="d">est.</div></div>'
-            f'<div class="tile hero good"><div class="k">Time saved</div><div class="v">{_dur(sav["time_saved_seconds"])}</div><div class="d">est.</div></div>'
-            "</div>"
-            '<div class="tiles">'
+            hero + '<div class="tiles">'
             f'<div class="tile"><div class="k">Tool calls</div><div class="v">{s.total_tool_calls} &rarr; {s.kept_tool_calls}</div><div class="d">&minus;{s.calls_saved} calls</div></div>'
-            f'<div class="tile"><div class="k">Tokens saved</div><div class="v">~{sav["input_tokens_saved"] + sav["output_tokens_saved"]:,}</div><div class="d">~{sav["input_tokens_saved"]:,} in &middot; ~{sav["output_tokens_saved"]:,} out</div></div>'
             f'<div class="tile"><div class="k">Grep/read loops</div><div class="v">{s.episode_count}</div><div class="d before">&rarr; 1 code_search each</div></div>'
             f'<div class="tile"><div class="k">Read/edit batches</div><div class="v">{s.batch_count}</div><div class="d before">&rarr; 1 batched call each</div></div>'
             "</div>"
