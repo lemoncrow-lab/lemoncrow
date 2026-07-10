@@ -312,6 +312,165 @@ def _opencode_candidates(cutoff: float) -> list[_Candidate]:
     return out
 
 
+def _load_copilot(path: Path) -> list[str]:
+    from atelier.gateway.hosts.session_parsers._session_parser import parse_session_turns
+
+    return _snippets_from_turns(parse_session_turns(_read_text(path), "copilot"))
+
+
+def _copilot_candidates(cutoff: float) -> list[_Candidate]:
+    try:
+        from atelier.gateway.hosts.session_parsers.copilot import find_copilot_sessions
+    except ImportError:
+        return []
+    out: list[_Candidate] = []
+    for session_dir in find_copilot_sessions():
+        events = session_dir / "events.jsonl"
+        try:
+            mtime = events.stat().st_mtime
+        except OSError:
+            continue
+        if mtime < cutoff:
+            continue
+        out.append(
+            _Candidate(
+                session_id=session_dir.name,
+                change_key=mtime,
+                host="copilot",
+                project="copilot",
+                load=partial(_load_copilot, events),
+            )
+        )
+    return out
+
+
+def _load_cursor(session_id: str, db_path: Path) -> list[str]:
+    """Prose snippets for one Cursor composer session, read from state.vscdb.
+
+    Reuses the importer's text extraction (plain ``text`` first, then the
+    ``richText`` tree) so recall sees the same prose the imported Trace does.
+    """
+    import sqlite3
+
+    from atelier.gateway.hosts.session_parsers.cursor import _extract_row_text
+
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT json_extract(value, '$.type'), "
+                "json_extract(value, '$.text'), "
+                "json_extract(value, '$.richText') "
+                "FROM cursorDiskKV WHERE key LIKE ? "
+                "AND ROWID IN (SELECT MAX(ROWID) FROM cursorDiskKV WHERE key LIKE ? GROUP BY key) "
+                "ORDER BY ROWID ASC",
+                (f"bubbleId:{session_id}:%", f"bubbleId:{session_id}:%"),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return []
+    out: list[str] = []
+    for bubble_type, text, rich_text in rows:
+        prose = _extract_row_text(text, rich_text)
+        if len(prose) < _MIN_SNIPPET_CHARS:
+            continue
+        role = "user" if int(bubble_type or 0) == 1 else "assistant"
+        out.append(f"[{role}] {prose[:_MAX_SNIPPET_CHARS]}")
+        if len(out) >= _MAX_SNIPPETS_PER_SESSION:
+            break
+    return out
+
+
+def _cursor_candidates(cutoff: float) -> list[_Candidate]:
+    try:
+        from atelier.gateway.hosts.session_parsers.cursor import find_cursor_db
+    except ImportError:
+        return []
+    import sqlite3
+
+    db_path = find_cursor_db()
+    if db_path is None:
+        return []
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            # Newest createdAt per composer; createdAt is an ISO-8601 string
+            # on every bubble the importer reads (see cursor.py import_all).
+            rows = conn.execute(
+                "SELECT substr(key, 10, instr(substr(key, 10), ':') - 1), "
+                "MAX(json_extract(value, '$.createdAt')) "
+                "FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' "
+                "GROUP BY 1"
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return []
+    out: list[_Candidate] = []
+    for composer_id, created_at in rows:
+        composer_id = str(composer_id or "").strip()
+        if not composer_id or not created_at:
+            continue
+        # Strict parse: an unparseable createdAt must skip the session, not
+        # default to "now" (which would always pass the cutoff).
+        try:
+            dt = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        change_key = (dt if dt.tzinfo else dt.replace(tzinfo=UTC)).timestamp()
+        if change_key < cutoff:
+            continue
+        out.append(
+            _Candidate(
+                session_id=composer_id,
+                change_key=change_key,
+                host="cursor",
+                project="cursor",
+                load=partial(_load_cursor, composer_id, db_path),
+            )
+        )
+    return out
+
+
+def _load_hermes(session_row: dict[str, Any], db_path: Path) -> list[str]:
+    from atelier.gateway.hosts.session_parsers._session_parser import parse_session_turns
+    from atelier.gateway.hosts.session_parsers.hermes import serialize_hermes_session
+
+    return _snippets_from_turns(parse_session_turns(serialize_hermes_session(session_row, db_path), "hermes"))
+
+
+def _hermes_candidates(cutoff: float) -> list[_Candidate]:
+    try:
+        from atelier.gateway.hosts.session_parsers.hermes import find_hermes_db, find_hermes_sessions
+    except ImportError:
+        return []
+    db_path = find_hermes_db()
+    if db_path is None:
+        return []
+    out: list[_Candidate] = []
+    for row in find_hermes_sessions(db_path):
+        session_id = str(row.get("id") or "").strip()
+        if not session_id:
+            continue
+        try:
+            change_key = float(row.get("last_active") or row.get("started_at") or 0)
+        except (TypeError, ValueError):
+            continue
+        if change_key < cutoff:
+            continue
+        out.append(
+            _Candidate(
+                session_id=session_id,
+                change_key=change_key,
+                host="hermes",
+                project="hermes",
+                load=partial(_load_hermes, row, db_path),
+            )
+        )
+    return out
+
+
 def _discover_candidates(window_days: int) -> list[_Candidate]:
     from datetime import UTC, datetime, timedelta
 
@@ -331,6 +490,18 @@ def _discover_candidates(window_days: int) -> list[_Candidate]:
         candidates.extend(_opencode_candidates(cutoff))
     except Exception:  # noqa: BLE001
         _log.warning("recall discovery failed for host opencode", exc_info=True)
+    try:
+        candidates.extend(_copilot_candidates(cutoff))
+    except Exception:  # noqa: BLE001
+        _log.warning("recall discovery failed for host copilot", exc_info=True)
+    try:
+        candidates.extend(_cursor_candidates(cutoff))
+    except Exception:  # noqa: BLE001
+        _log.warning("recall discovery failed for host cursor", exc_info=True)
+    try:
+        candidates.extend(_hermes_candidates(cutoff))
+    except Exception:  # noqa: BLE001
+        _log.warning("recall discovery failed for host hermes", exc_info=True)
     return candidates
 
 
@@ -344,9 +515,9 @@ def index_sessions(
 ) -> dict[str, Any]:
     """Incrementally index recent session transcripts into the recall store.
 
-    Covers Claude, Codex, and OpenCode. When *paths* is given they are treated as
-    Claude transcript files (tests / manual runs); otherwise sessions are
-    discovered across all three hosts. The bounded ``max_sessions`` budget is
+    Covers Claude, Codex, OpenCode, Copilot, and Cursor. When *paths* is given
+    they are treated as Claude transcript files (tests / manual runs); otherwise
+    sessions are discovered across all hosts. The bounded ``max_sessions`` budget is
     spent newest-first across hosts, after dropping sessions already current in
     the index (so a backlog never starves never-indexed sessions).
     """

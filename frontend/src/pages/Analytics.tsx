@@ -1157,13 +1157,13 @@ export default function Analytics() {
 
   const codeburnSnapshot = useMemo(() => {
     return (
-      dashboard?.external.latest.find((item) => item.tool === "codeburn") ??
+      dashboard?.external?.latest?.find((item) => item.tool === "codeburn") ??
       null
     );
   }, [dashboard]);
 
   const externalProviderRows = useMemo<CompactLeaderboardRow[]>(() => {
-    return (dashboard?.external.by_provider ?? []).slice(0, 5).map((row) => ({
+    return (dashboard?.external?.by_provider ?? []).slice(0, 5).map((row) => ({
       label: row.providerDisplayName || row.provider,
       sublabel: `${row.calls.toLocaleString()} calls · ${row.models.toLocaleString()} models`,
       value: fmtUsd(row.costUSD),

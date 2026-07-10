@@ -667,6 +667,44 @@ def read_transcript_stats(transcript_path: str | Path) -> "TranscriptStats | Non
 # ---------------------------------------------------------------------------
 
 
+# --- Estimated time saved ("faster") --------------------------------------
+# Atelier's speed win is fewer round-trips: every tool call it avoids removes a
+# full model round-trip (emit the call, wait on the tool, re-ingest the result),
+# and every line of prose it does not emit is generation time not spent. There is
+# no live baseline to diff wall-clock against, so time saved is ESTIMATED from
+# the same avoided quantities the cost-savings engine already tracks, via two
+# constants calibrated against SWE-bench Verified (250 baseline vs 250 Atelier
+# runs: ~2,533 tool calls avoided coincided with ~3.4h less wall-clock, i.e.
+# ~4.8s per avoided call -- rounded down to 4.5s to stay conservative).
+_SECONDS_PER_AVOIDED_CALL = 4.5
+_GENERATION_TOKENS_PER_SECOND = 50.0
+
+
+def estimate_time_saved_seconds(*, calls_avoided: int, output_saved_tokens: int = 0) -> float:
+    """Estimated wall-clock seconds saved: avoided round-trips + unemitted prose.
+
+    Conservative and monotonic -- proportional to the tool calls Atelier avoided,
+    plus a small credit for output tokens it did not have to generate. Never
+    negative. Single source of truth for every "faster" surface.
+    """
+    calls = max(0, int(calls_avoided or 0))
+    out = max(0, int(output_saved_tokens or 0))
+    return calls * _SECONDS_PER_AVOIDED_CALL + out / _GENERATION_TOKENS_PER_SECOND
+
+
+def fmt_duration(seconds: float) -> str:
+    """Compact human duration: ``45s`` / ``12m`` / ``1.5h`` / ``128h``."""
+    s = max(0.0, float(seconds or 0.0))
+    if s < 60:
+        return f"{int(s)}s"
+    if s < 3600:
+        return f"{round(s / 60)}m"
+    hours = s / 3600.0
+    if hours < 10:
+        return f"{hours:.1f}h"
+    return f"{round(hours)}h"
+
+
 @dataclass
 class SavingsSummary:
     saved_usd: float = 0.0
@@ -714,6 +752,16 @@ class SavingsSummary:
     # statusline segment fields). Keyed by tool name -> {calls, input_tokens,
     # output_tokens}.
     tool_token_ledger: dict[str, dict[str, int]] = field(default_factory=dict)
+
+    @property
+    def time_saved_seconds(self) -> float:
+        """Estimated wall-clock time saved this session (avoided round-trips +
+        unemitted prose). Derived, so it always tracks smart_calls/output."""
+        return estimate_time_saved_seconds(
+            calls_avoided=self.smart_calls,
+            output_saved_tokens=self.output_saved_tokens,
+        )
+
     tool_ledger_input_tokens: int = 0
     tool_ledger_output_tokens: int = 0
 
@@ -1797,6 +1845,9 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
         lines.append(f"  Saved            {_fmt_usd(saved)}")
     lines.append(f"  Calls avoided    {_int(calls)}")
     lines.append(f"  Tokens kept out  {_fmt_tok(tokens)}")
+    faster_s = float(payload.get("time_saved_seconds") or 0.0)
+    if faster_s >= 60:
+        lines.append(f"  Faster (est.)    ~{fmt_duration(faster_s)}   (fewer round-trips)")
     routing_total = float((payload.get("live") or {}).get("routing_saved_usd") or 0.0)
     if routing_total > 0:
         lines.append(f"  Routing saved    {_fmt_usd(routing_total)}   (model routing · included in Saved)")
@@ -2556,6 +2607,12 @@ class WindowSavings:
     read_saved_tokens: int = 0
 
     @property
+    def time_saved_seconds(self) -> float:
+        """Estimated wall-clock time saved over this window, from avoided tool
+        round-trips (windows do not break out output tokens; see class doc)."""
+        return estimate_time_saved_seconds(calls_avoided=self.calls_saved)
+
+    @property
     def would_have_cost_usd(self) -> float:
         """What the window would have cost without the realized savings."""
         return self.saved_usd + self.spend_usd
@@ -2804,6 +2861,9 @@ def savings_frames(
         if summary.routing_saved_usd > 0:
             combined += f" R:{_fmt_usd(summary.routing_saved_usd)}"
         combined += f"){C_RESET}"
+        # "faster" — estimated wall-clock saved, the speed companion to $saved.
+        if summary.time_saved_seconds >= 60:
+            combined += f" {C_BRAND}⚡ {fmt_duration(summary.time_saved_seconds)} faster{C_RESET}"
     frames.append((True, combined))
 
     def _hist_frame(label: str, usd: float, tok: int, calls: int, spend: float, carry: float, routing: float) -> str:
@@ -2821,6 +2881,9 @@ def savings_frames(
         body = " ".join(money)
         if calls > 0:
             body += dot + f"{C_DIM}{calls} turns avoided{C_RESET}"
+        _t = estimate_time_saved_seconds(calls_avoided=calls)
+        if _t >= 60:
+            body += dot + f"{C_BRAND}~{fmt_duration(_t)} faster{C_RESET}"
 
         return f"{C_DIM}{label}{C_RESET} {body}"
 
@@ -2840,6 +2903,25 @@ def savings_frames(
     # Backtick-wrapped tool names are highlighted in brand purple; rest is dim.
     if summary.status_text:
         frames.append((False, _colorize_tip(summary.status_text, C_DIM, C_BRAND, C_RESET)))
+
+    # Login nudge frame (free/unauthenticated only): fold a sign-in reminder
+    # into the rotating frames so free users see it on every cycle, instead of
+    # the once-a-day statusline.sh marker (which this replaces). Same auth
+    # signal as the MCP FeatureLocked path -- ATELIER_AUTH_TOKEN env, then
+    # <root>/auth_token (see licensing/store.py load_auth_token). Read from the
+    # resolved `root` directly (not load_auth_token, which keys off
+    # default_store_root and would ignore the atelier_root param). The
+    # anonymous local-trial marker is a separate free-mode file and does NOT
+    # count as signed in.
+    try:
+        _signed_in = bool(os.environ.get("ATELIER_AUTH_TOKEN", "").strip())
+        if not _signed_in:
+            _tok_file = root / "auth_token"
+            _signed_in = _tok_file.exists() and bool(_tok_file.read_text(encoding="utf-8").strip())
+    except OSError:
+        _signed_in = True  # unknown auth state -> never nag
+    if not _signed_in:
+        frames.append((False, f"{C_DIM}not signed in -- {C_BRAND}/atelier login{C_DIM} to unlock Pro{C_RESET}"))
 
     # Frame 0 (cost+savings+carry) gets 3 slots at 5s each = ~15s; others get 5s
     # each. Weighting frame 0 higher than this made the line feel static — the

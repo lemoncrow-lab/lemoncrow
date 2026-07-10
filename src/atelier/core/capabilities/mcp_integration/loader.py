@@ -111,6 +111,14 @@ class MCPTool:
     input_schema: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class _RPCError:
+    """JSON-RPC error response, carried back to callers so the server's
+    actual error message reaches the model instead of being swallowed."""
+
+    message: str
+
+
 def _add_mcp_servers(
     servers: Any,
     configs: list[MCPServerConfig],
@@ -262,23 +270,61 @@ class MCPServerProcess:
             return False
 
     def _rpc(self, method: str, params: dict[str, Any] | None = None) -> Any:
-        """Send a JSON-RPC request and return the result."""
+        """Send a JSON-RPC request and return the matching response's result.
+
+        Reads stdout lines until the response whose ``id`` matches this
+        request's id, skipping notifications and server-to-client requests
+        (which carry a ``method``) so an interleaved ``notifications/message``
+        emitted before the response does not desynchronize the stream. An
+        ``error`` response is returned as :class:`_RPCError` so the server's
+        message can be propagated instead of silently dropped.
+        """
         with self._rpc_lock:
             if self._proc is None or self._proc.stdin is None or self._proc.stdout is None:
                 return None
             self._request_id += 1
-            request = {"jsonrpc": "2.0", "id": self._request_id, "method": method, "params": params or {}}
+            request_id = self._request_id
+            request = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}}
             try:
                 line = json.dumps(request) + "\n"
                 self._proc.stdin.write(line.encode())
                 self._proc.stdin.flush()
-                response_line = self._read_response_line()
-                if response_line:
-                    resp = json.loads(response_line)
+                while True:
+                    response_line = self._read_response_line()
+                    if not response_line:
+                        return None
+                    try:
+                        resp = json.loads(response_line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(resp, dict):
+                        continue
+                    # Skip notifications and server->client requests: both
+                    # carry a "method"; only our response carries our id.
+                    if "method" in resp or resp.get("id") != request_id:
+                        continue
+                    error = resp.get("error")
+                    if error is not None:
+                        message = error.get("message") if isinstance(error, dict) else str(error)
+                        return _RPCError(str(message))
                     return resp.get("result")
             except Exception as exc:  # noqa: BLE001 - rpc is best-effort
                 logger.debug("MCP RPC error for %s: %s", self.config.name, exc)
         return None
+
+    def _notify(self, method: str, params: dict[str, Any] | None = None) -> None:
+        """Send a JSON-RPC notification: no ``id``, no response expected."""
+        with self._rpc_lock:
+            if self._proc is None or self._proc.stdin is None:
+                return
+            message: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+            if params:
+                message["params"] = params
+            try:
+                self._proc.stdin.write((json.dumps(message) + "\n").encode())
+                self._proc.stdin.flush()
+            except Exception as exc:  # noqa: BLE001 - notify is best-effort
+                logger.debug("MCP notify error for %s: %s", self.config.name, exc)
 
     def _read_response_line(self) -> bytes | None:
         """Read one response line with a timeout; terminate a hung server.
@@ -317,8 +363,8 @@ class MCPServerProcess:
                 "clientInfo": {"name": "atelier", "version": "0.1.0"},
             },
         )
-        if result:
-            self._rpc("notifications/initialized")
+        if result and not isinstance(result, _RPCError):
+            self._notify("notifications/initialized")
 
     def list_tools(self) -> list[MCPTool]:
         """Fetch tool definitions from the server."""
@@ -351,6 +397,8 @@ class MCPServerProcess:
         bounds the result instead of the overflow being silently dropped here.
         """
         result = self._rpc("tools/call", {"name": tool_name, "arguments": arguments})
+        if isinstance(result, _RPCError):
+            return f"Error: MCP tool call failed for {tool_name}: {result.message}"
         if result is None:
             return f"Error: MCP tool call failed for {tool_name}"
         # MCP tools return content blocks

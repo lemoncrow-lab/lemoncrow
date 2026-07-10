@@ -34,6 +34,10 @@ def _write_session_state(session_id: str, cwd: str | None = None) -> None:
     except (json.JSONDecodeError, OSError):
         state = {}
     state["session_id"] = session_id
+    # Stamp the writing host: the MCP server only trusts this workspace-shared
+    # slot when the stamp matches its own host, so a sid written here can never
+    # be adopted by an OpenCode/other-host server sharing the repo.
+    state["host"] = "codex"
     p.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 

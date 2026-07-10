@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -99,7 +100,10 @@ def main() -> int:
         state = _load()
         edited = set(state.get("edited_paths") or [])
         for target in _edit_targets(ti):
-            edited.add(Path(target.split("#")[0]).name)
+            # Strip '#fragment' and ':Lx-Ly' range suffixes (same pattern as
+            # rich_edit._parse_target) so ranged edits record the bare basename.
+            bare = re.sub(r":L?\d+(?:-L?\d+)?$", "", target.split("#")[0], flags=re.I)
+            edited.add(Path(bare).name)
         state["edited_paths"] = sorted(edited)[-80:]
         _save(state)
     except Exception:  # noqa: BLE001 - lifecycle hooks must be fail-open

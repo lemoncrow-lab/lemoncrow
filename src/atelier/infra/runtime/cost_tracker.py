@@ -29,9 +29,12 @@ with one catalog while still forcing deterministic values in tests.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import os
 import re
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -163,7 +166,53 @@ def load_cost_history(root: Path) -> dict[str, Any]:
 def save_cost_history(root: Path, history: dict[str, Any]) -> None:
     p = _history_path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(history, indent=2, sort_keys=True), encoding="utf-8")
+    # Write to a sibling temp file then atomically rename, so a crash or a
+    # concurrent reader mid-write can never observe a truncated/torn file
+    # (which load_cost_history would silently turn into an empty history,
+    # wiping all accumulated data on the next save).
+    tmp = p.with_name(f"{p.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(history, indent=2, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, p)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _acquire_history_flock(root: Path) -> Any:
+    """Best-effort POSIX exclusive flock on a sidecar lock file so concurrent
+    processes can't lose-update cost_history.json in the load->append->save
+    critical section. Returns an open handle the caller must release, or None
+    where flock is unavailable."""
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    handle = None
+    try:
+        p = _history_path(root)
+        lock_path = p.parent / (p.name + ".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(lock_path, "w", encoding="utf-8")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        return handle
+    except OSError:
+        if handle is not None:
+            handle.close()
+        return None
+
+
+def _release_history_flock(handle: Any) -> None:
+    if handle is None:
+        return
+    try:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except (ImportError, OSError):
+        pass
+    with contextlib.suppress(OSError):
+        handle.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -240,19 +289,25 @@ class CostTracker:
         domain: str | None,
         task: str,
     ) -> None:
-        history = load_cost_history(self.root)
-        ops = history.setdefault("operations", {})
-        entry = ops.setdefault(
-            rec.op_key,
-            {
-                "domain": domain or "-",
-                "task_sample": task or rec.operation,
-                "first_seen": rec.at,
-                "calls": [],
-            },
-        )
-        entry["calls"].append(rec.to_dict())
-        save_cost_history(self.root, history)
+        # Hold an exclusive flock across the load->append->save critical
+        # section so a sibling process can't lose-update the shared history.
+        lock = _acquire_history_flock(self.root)
+        try:
+            history = load_cost_history(self.root)
+            ops = history.setdefault("operations", {})
+            entry = ops.setdefault(
+                rec.op_key,
+                {
+                    "domain": domain or "-",
+                    "task_sample": task or rec.operation,
+                    "first_seen": rec.at,
+                    "calls": [],
+                },
+            )
+            entry["calls"].append(rec.to_dict())
+            save_cost_history(self.root, history)
+        finally:
+            _release_history_flock(lock)
 
     # ----- savings -------------------------------------------------------- #
 

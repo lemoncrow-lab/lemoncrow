@@ -140,12 +140,24 @@ def run_case(
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         # Use baseline_tokens (not 0) so a crash doesn't look like 100% savings.
-        # The agent would still have to use the baseline on failure.
+        # The agent would still have to use the baseline on failure. Cases with
+        # a measured baseline leave the static field at 0, so run the builder
+        # here too; fall back to min_baseline_tokens if it also fails.
+        failed_baseline_tokens = case.baseline_tokens
+        if case.baseline_builder is not None:
+            try:
+                measurement = case.baseline_builder(case)
+                if isinstance(measurement, BaselineMeasurement):
+                    failed_baseline_tokens = _tokens(measurement.payload)
+                else:
+                    failed_baseline_tokens = _tokens(measurement)
+            except Exception:
+                failed_baseline_tokens = max(case.baseline_tokens, case.min_baseline_tokens)
         return CaseResult(
             case=case,
             response={},
-            atelier_tokens=case.baseline_tokens,
-            baseline_tokens=case.baseline_tokens,
+            atelier_tokens=failed_baseline_tokens,
+            baseline_tokens=failed_baseline_tokens,
             quality_score=case.quality_score,
             input_file_tokens=0,
             baseline_commands=[],

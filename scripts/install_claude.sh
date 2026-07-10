@@ -441,15 +441,16 @@ if $WORKSPACE_SET; then
             info "Creating ${CLAUDE_LOCAL_SETTINGS} with env.CLAUDE_WORKSPACE_ROOT"
             echo "{}" > "${CLAUDE_LOCAL_SETTINGS}"
         fi
-        python3 - <<PYEOF
+        ATELIER_CLAUDE_LOCAL_SETTINGS="${CLAUDE_LOCAL_SETTINGS}" ATELIER_WORKSPACE="${WORKSPACE}" python3 - <<'PYEOF'
 import json
+import os
 from pathlib import Path
 
-path = Path('${CLAUDE_LOCAL_SETTINGS}')
+path = Path(os.environ['ATELIER_CLAUDE_LOCAL_SETTINGS'])
 data = json.loads(path.read_text(encoding='utf-8') or '{}')
-data.setdefault('env', {})['CLAUDE_WORKSPACE_ROOT'] = '${WORKSPACE}'
+data.setdefault('env', {})['CLAUDE_WORKSPACE_ROOT'] = os.environ['ATELIER_WORKSPACE']
 path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
-print("[atelier:claude] CLAUDE_WORKSPACE_ROOT written to ${CLAUDE_LOCAL_SETTINGS}")
+print(f"[atelier:claude] CLAUDE_WORKSPACE_ROOT written to {path}")
 PYEOF
     fi
 

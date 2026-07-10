@@ -267,17 +267,15 @@ atelier init
 
 ### MCP
 
-| Variable              | Default                 | Description                           |
-| --------------------- | ----------------------- | ------------------------------------- |
-| `ATELIER_MCP_MODE`    | `local`                 | `local` or `remote`                   |
-| `ATELIER_SERVICE_URL` | `http://localhost:8787` | Remote service URL in MCP remote mode |
+| Variable              | Default | Description                                                        |
+| --------------------- | ------- | ------------------------------------------------------------------ |
+| `ATELIER_SERVICE_URL` | unset   | Remote service URL; when set, core MCP calls route to this service |
 
 ### Telemetry
 
-| Variable                    | Default | Description                               |
-| --------------------------- | ------- | ----------------------------------------- |
-| `ATELIER_TELEMETRY`         | enabled | Disable with `0`, `false`, `off`, or `no` |
-| `ATELIER_USD_PER_1K_TOKENS` | `0.003` | Token cost estimate for savings reporting |
+| Variable            | Default | Description                               |
+| ------------------- | ------- | ----------------------------------------- |
+| `ATELIER_TELEMETRY` | enabled | Disable with `0`, `false`, `off`, or `no` |
 
 ## Source Checkout and Contributor Install
 

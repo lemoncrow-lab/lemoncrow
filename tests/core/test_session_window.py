@@ -106,6 +106,34 @@ def test_register_noop_when_no_window(tmp_path: Path, monkeypatch: Any) -> None:
     assert not list(sw.windows_dir(tmp_path, ws).glob("*.json"))
 
 
+def test_ps_host_window_id_walks_ancestry(monkeypatch: Any) -> None:
+    # pid -> (ppid, btime, name): 300 (worker) <- 200 (claude) <- 100 (zsh)
+    table = {300: (200, 5555, "bash"), 200: (100, 4444, "claude"), 100: (1, 3333, "zsh")}
+    monkeypatch.setattr(sw, "_ps_proc_table", lambda: table)
+    monkeypatch.setattr(sw.os.path, "isdir", lambda p: False)  # no /proc -> ps path
+    assert sw.host_window_id(300) == (200, 4444)
+    # No claude ancestor -> None (env fallback)
+    assert sw.host_window_id(100) is None
+    # Unknown pid -> None
+    assert sw.host_window_id(999) is None
+
+
+def test_ps_proc_table_parses_lstart_lines(monkeypatch: Any) -> None:
+    out = (
+        "  200   100 Fri Jul 10 18:17:26 2026 claude\n"
+        "  300   200 Fri Jul  4 08:01:02 2026 /usr/local/bin/some tool\n"
+        "garbage line\n"
+    )
+
+    class _P:
+        stdout = out
+
+    monkeypatch.setattr(sw.subprocess, "run", lambda *a, **k: _P())
+    table = sw._ps_proc_table()
+    assert table[200][0] == 100 and table[200][2] == "claude"
+    assert table[300][2] == "some tool" and table[300][1] > 0
+
+
 def test_prune_removes_dead_window_files(tmp_path: Path, monkeypatch: Any) -> None:
     ws = "deadbeef0010"
     # A stale file from a dead window, plus the live window registering now.
