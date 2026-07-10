@@ -366,6 +366,36 @@ def test_subagent_transcripts_nested(tmp_path: Path) -> None:
     assert r.subagent_replays[0].summary.episode_count == 1
     # subagents surface in the JSON model
     assert len(r.to_dict()["subagents"]) == 1
+    # subagent replays are flagged as such
+    assert r.subagent_replays[0].is_subagent is True
+
+
+def test_subagent_does_not_inherit_parent_savings(monkeypatch) -> None:
+    import types
+
+    import atelier.core.capabilities.savings_summary as ss_mod
+    from atelier.core.capabilities.session_replay import Replay, estimate_savings
+
+    # A parent with recorded savings; the engine would fall back to it for a
+    # subagent (no own sidecar) -- which must NOT happen.
+    fake = types.SimpleNamespace(total_saved_usd=10.0, time_saved_seconds=100.0, smart_calls=5, est_cost_usd=20.0)
+    monkeypatch.setattr(ss_mod, "compute_savings_summary", lambda sid, **k: fake)
+    common = dict(
+        host="claude",
+        model="claude-sonnet-5",
+        task="t",
+        turns=[{"kind": "user_message", "content": "x"}],
+        collapsed_indices=[],
+        episodes=[],
+        summary=build_replay("", host="claude", session_id="z").summary,
+    )
+    parent = estimate_savings(Replay(session_id="p", **common))
+    sub = estimate_savings(Replay(session_id="s", is_subagent=True, **common))
+    # parent uses the measured savings; subagent must NOT inherit them
+    assert parent["saved_is_measured"] is True
+    assert parent["saved_usd"] == 10.0
+    assert sub["saved_is_measured"] is False
+    assert sub["saved_usd"] != 10.0
 
 
 def test_estimate_savings_from_engine_only() -> None:
