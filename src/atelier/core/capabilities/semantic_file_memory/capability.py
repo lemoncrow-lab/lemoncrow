@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from atelier.core.capabilities.native_read_baseline import claude_read_baseline_text
+from atelier.core.capabilities.prompt_compilation.tokens import count_tokens
 from atelier.infra.code_intel.languages import language_for_path
 
 from .graph_analytics import GraphAnalytics
@@ -113,35 +114,6 @@ def _outline_saves_enough(outline_text: str, source: str) -> bool:
     ships *larger* than its own body (and forces a full=true round-trip).
     """
     return len(outline_text) + _outline_notice_chars() <= int(len(source) * 0.75)
-
-
-@lru_cache(maxsize=1)
-def _tiktoken_encoder() -> Any:
-    """Return a tiktoken encoder, or None if tiktoken is unavailable.
-
-    cl100k_base is the encoder OpenAI ships for GPT-4/3.5; it is the closest
-    publicly-available proxy for Anthropic's tokenizer (Anthropic does not
-    publish theirs). Empirically ~3.3-3.8 chars/token on code, vs the previous
-    chars/4 heuristic which undercounted tokens by ~15-20%.
-    """
-    try:
-        import tiktoken
-
-        return tiktoken.get_encoding("cl100k_base")
-    except Exception as exc:
-        logging.exception("Recovered from broad exception handler")
-        _logger.warning("tiktoken unavailable, falling back to chars/4 heuristic: %s", exc)
-        return None
-
-
-def _count_tokens(text: str) -> int:
-    """Token count via tiktoken cl100k_base, with chars/4 fallback."""
-    if not text:
-        return 0
-    enc = _tiktoken_encoder()
-    if enc is None:
-        return len(text) // 4
-    return len(enc.encode(text, disallowed_special=()))
 
 
 try:
@@ -341,8 +313,8 @@ class SemanticFileMemoryCapability:
 
     @staticmethod
     def _token_savings(baseline_text: str, returned_text: str) -> int:
-        full_tokens = max(1, _count_tokens(baseline_text))
-        returned_tokens = max(1, _count_tokens(returned_text))
+        full_tokens = max(1, count_tokens(baseline_text))
+        returned_tokens = max(1, count_tokens(returned_text))
         return max(0, full_tokens - returned_tokens)
 
     @staticmethod
@@ -666,8 +638,8 @@ class SemanticFileMemoryCapability:
                 if compact.applied:
                     mode, payload = "compact", compact.content
         baseline = claude_read_baseline_text(source)
-        raw_tokens = _count_tokens(baseline)
-        tokens = raw_tokens if payload == baseline else _count_tokens(payload)
+        raw_tokens = count_tokens(baseline)
+        tokens = raw_tokens if payload == baseline else count_tokens(payload)
         return {
             "mode": mode,
             "language": language,
@@ -706,7 +678,7 @@ class SemanticFileMemoryCapability:
             source = file_path.read_text(encoding="utf-8", errors="replace")
         language = cls._language_for(file_path)
         effective_loc = cls._effective_loc(source, language)
-        raw_tokens = _count_tokens(claude_read_baseline_text(source))
+        raw_tokens = count_tokens(claude_read_baseline_text(source))
 
         # Outline forced eligible (threshold=-1) so its savings show even when
         # the real threshold skips it; o_mode != "outline" means it can't earn 25%.
@@ -739,7 +711,7 @@ class SemanticFileMemoryCapability:
             "winner": winner,
             "modes": {
                 "outline": {
-                    "tokens": _count_tokens(o_text) if outline_ok else raw_tokens,
+                    "tokens": count_tokens(o_text) if outline_ok else raw_tokens,
                     "text": o_text if outline_ok else None,
                     "available": outline_ok,
                 },

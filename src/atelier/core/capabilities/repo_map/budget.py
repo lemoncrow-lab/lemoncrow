@@ -1,33 +1,32 @@
-"""Token budget fitting for repo maps."""
+"""Token budget fitting for repo maps.
+
+Both counters delegate to the canonical ``prompt_compilation.tokens`` module;
+the names are kept re-exported here for existing importers.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import tiktoken
-
-_ENCODING: tiktoken.Encoding | None = None
+from atelier.core.capabilities.prompt_compilation.tokens import (
+    approx_tokens as _approx_tokens,
+)
+from atelier.core.capabilities.prompt_compilation.tokens import (
+    count_tokens as _count_tokens,
+)
 
 
 def count_tokens(text: str) -> int:
-    # Lazy: loading the cl100k BPE table costs ~80ms, so keep it off module import.
-    global _ENCODING
-    if _ENCODING is None:
-        import tiktoken
-
-        _ENCODING = tiktoken.get_encoding("cl100k_base")
-    return len(_ENCODING.encode(text))
+    """Exact tiktoken BPE count (delegates to canonical ``count_tokens``)."""
+    return _count_tokens(text)
 
 
 def estimate_tokens(text: str) -> int:
-    """Fast char-based token approximation for budget *gating*, where an exact
-    BPE count is unnecessary. cl100k averages ~3.6 chars/token on source code,
-    so dividing by 3.6 (rounded up) trends slightly conservative (it never badly
-    under-counts) while costing ~50x less than ``count_tokens`` -- which matters
-    in hot loops that re-measure a growing context once per binary-search step."""
-    return -(-len(text) * 10 // 36)  # ceil(len / 3.6)
+    """Fast char-based token approximation for budget *gating* (delegates to
+    canonical ``approx_tokens``). Unified from the former ceil(len/3.6) to
+    ``approx_tokens``' len/4 -- a deliberate minor change: the binary search in
+    ``fit_to_budget`` gates on the exact ``count_tokens`` and stays correct."""
+    return _approx_tokens(text)
 
 
 def fit_to_budget(

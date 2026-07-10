@@ -731,7 +731,8 @@ def optimize_compress_context(file: Path, do_write: bool) -> None:
     prose is compressed. Dry-run by default; --write applies it after saving
     the original to <file>.bak.
     """
-    from atelier.core.capabilities.tool_supervision.compact_output import _count_tokens, gate_compact
+    from atelier.core.capabilities.prompt_compilation.tokens import count_tokens
+    from atelier.core.capabilities.tool_supervision.compact_output import gate_compact
     from atelier.infra.internal_llm import InternalLLMError, summarize
 
     original = file.read_text(encoding="utf-8")
@@ -753,8 +754,8 @@ def optimize_compress_context(file: Path, do_write: bool) -> None:
             f"savings {gate.savings_ratio:.0%} < required {gate.threshold:.0%}) — leaving {file} unchanged"
         )
 
-    before_tokens = _count_tokens(original)
-    after_tokens = _count_tokens(compressed)
+    before_tokens = count_tokens(original)
+    after_tokens = count_tokens(compressed)
     click.echo(compressed)
     click.echo(
         f"tokens: {before_tokens} -> {after_tokens} "
