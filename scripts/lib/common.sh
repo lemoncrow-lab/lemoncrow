@@ -953,7 +953,6 @@ prompt_rtk_selection() {
     # it for token-compact output (runtime opt-out: ATELIER_BASH_EXTERNAL_COMPACTORS=0).
     [[ "${ATELIER_INSTALL_RTK:-}" == "0" ]] && return 0
     command -v rtk >/dev/null 2>&1 && { INSTALL_RTK=1; return 0; }
-    command -v cargo >/dev/null 2>&1 || return 0
     if [[ "${ATELIER_INSTALL_RTK:-}" == "1" ]]; then
         INSTALL_RTK=1
         return 0
@@ -1764,10 +1763,10 @@ install_jj_if_needed() {
     case "$OS_NAME" in
         darwin)
             if command -v brew >/dev/null 2>&1; then
-                spin "Installing jj (Jujutsu)" brew install jj \
+                spin_tail "Installing jj (Jujutsu)" brew install jj \
                     || warn "jj install failed — continuing without it"
             elif command -v cargo >/dev/null 2>&1; then
-                spin "Installing jj (Jujutsu)" cargo install --locked jj-cli \
+                spin_tail "Installing jj (Jujutsu)" cargo install --locked jj-cli \
                     || warn "jj install failed — continuing without it"
             else
                 warn "Neither Homebrew nor cargo found. Install jj manually: https://martinvonz.github.io/jj/latest/install-and-setup"
@@ -1775,10 +1774,10 @@ install_jj_if_needed() {
             ;;
         linux)
             if command -v cargo >/dev/null 2>&1; then
-                spin "Installing jj (Jujutsu)" cargo install --locked jj-cli \
+                spin_tail "Installing jj (Jujutsu)" cargo install --locked jj-cli \
                     || warn "jj install failed — continuing without it"
             elif command -v brew >/dev/null 2>&1; then
-                spin "Installing jj (Jujutsu)" brew install jj \
+                spin_tail "Installing jj (Jujutsu)" brew install jj \
                     || warn "jj install failed — continuing without it"
             else
                 warn "cargo not found. Install jj manually: https://martinvonz.github.io/jj/latest/install-and-setup"
@@ -1790,6 +1789,17 @@ install_jj_if_needed() {
 # Install rtk when prompt_rtk_selection opted in. Soft integration: a failed
 # install only warns — it must never fail the Atelier install. Pinned to
 # ATELIER_RTK_TAG so release-time installs are reproducible.
+# Bootstrap a minimal Rust toolchain via rustup when cargo is missing, so the
+# optional rtk install (`cargo install --git ...`) below has something to run.
+# Runs rustup's own installer, which persists PATH into the shell profile
+# itself. Failure here is soft: rtk stays skipped, nothing else in the
+# installer depends on cargo.
+_install_rustup() {
+    command -v curl >/dev/null 2>&1 || return 1
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y -q --default-toolchain stable --profile minimal
+}
+
 install_rtk_if_selected() {
     [[ "$INSTALL_RTK" != "1" ]] && return 0
     local rtk_ref=()
@@ -1805,7 +1815,20 @@ install_rtk_if_selected() {
         echo "[dry-run] cargo install --git https://github.com/rtk-ai/rtk${ATELIER_RTK_TAG:+ --tag ${ATELIER_RTK_TAG}}"
         return 0
     fi
-    spin "Installing rtk ${ATELIER_RTK_TAG:-HEAD} (command compactor)" \
+    if ! command -v cargo >/dev/null 2>&1; then
+        # spin_tail (not spin): rustup's download+extract takes a while with
+        # no output otherwise, which reads as a hung spinner.
+        spin_tail "Installing Rust toolchain (cargo, for rtk)" _install_rustup \
+            || warn "rustup install failed — install cargo manually from https://rustup.rs to enable rtk."
+        [[ -x "${HOME}/.cargo/bin/cargo" ]] && export PATH="${HOME}/.cargo/bin:${PATH}"
+    fi
+    if ! command -v cargo >/dev/null 2>&1; then
+        warn "cargo unavailable — skipping rtk (Atelier works without it)."
+        return 0
+    fi
+    # spin_tail: a from-source cargo build can take minutes; stream the
+    # "Compiling ..." lines so it doesn't look stuck.
+    spin_tail "Installing rtk ${ATELIER_RTK_TAG:-HEAD} (command compactor)" \
         cargo install --git https://github.com/rtk-ai/rtk ${rtk_ref[@]+"${rtk_ref[@]}"} \
         || warn "rtk install failed — Atelier works without it (soft integration)."
 }
@@ -1889,7 +1912,7 @@ install_code_tools() {
             _SPINNER_MSG="JS/TS tooling already installed"
             _spinner_stop ok
         else
-            spin "Installing JS/TS tooling" npm install -g --prefix "$ATELIER_NODE_DIR" --no-fund eslint ts-morph typescript
+            spin_tail "Installing JS/TS tooling" npm install -g --prefix "$ATELIER_NODE_DIR" --no-fund eslint ts-morph typescript
         fi
     else
         warn "npm not found - skipping JS/TS tools. Install Node.js 20+ to enable."

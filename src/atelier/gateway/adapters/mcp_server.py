@@ -7088,10 +7088,11 @@ _EDIT_DIAG_CAP = 20
     name="edit",
     input_schema=EDIT_TOOL_INPUT_SCHEMA,
     description=(
-        "Batch file edits. Prefer {path: 'f.py:L10-L14', new}; batch many "
-        "range+new hunks in one call, even same-file hunks (ranges use the "
-        "original snapshot). Use {path, old, new} only without a fresh range. "
-        "Whole file: {path, new, replace:true}. No re-read after success."
+        "Batch file edits. Use edits=[{path: 'f.py:L10-L14', new}, ...]; "
+        "batch many range+new hunks in one call, even same-file hunks "
+        "(ranges use the original snapshot). Use {path, old, new} only without "
+        "a fresh range. Whole file: {path, new, replace:true}. "
+        "No re-read after success."
     ),
     param_aliases={"post_edit_hooks": "hooks"},
     # Policy knobs, not agent choices: accepted by name (tests, power use) but

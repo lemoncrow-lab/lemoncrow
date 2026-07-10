@@ -256,9 +256,9 @@ def resolve_swarm_spec_path(
 ) -> tuple[Path, Literal["explicit", "default"], bool]:
     resolved_root = Path(project_root).expanduser().resolve()
     if spec_path is None or not str(spec_path).strip():
-        candidate = resolved_root / "PROGRAM.md"
+        candidate = resolved_root / "program.md"
         if not candidate.exists():
-            candidate = resolved_root / "program.md"
+            candidate = resolved_root / "PROGRAM.md"
         if not candidate.exists():
             raise RuntimeError(f"default swarm spec not found: {candidate}")
         if not candidate.is_file():
