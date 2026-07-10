@@ -1,9 +1,9 @@
 from pathlib import Path
 from typing import Any
 
+from atelier.core.capabilities.prompt_compilation.tokens import count_tokens as _count_tokens
 from atelier.core.capabilities.semantic_file_memory.capability import (
     SemanticFileMemoryCapability,
-    _count_tokens,
     claude_read_baseline_text,
 )
 from atelier.gateway.adapters.mcp_server import _handle

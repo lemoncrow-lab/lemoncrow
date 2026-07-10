@@ -1552,6 +1552,8 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
                 calls_avoided=calls_avoided,
                 output_saved_tokens=output_saved_tokens,
             ),
+            output_saved_tokens=output_saved_tokens,
+            output_saved_usd=output_saved_usd,
         )
 
     model = str(session.get("last_model") or session.get("model") or _codex_payload_model(payload) or "")
@@ -1610,6 +1612,13 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     if compactions > 0:
         lines.append(f"compactions: {compactions}")
     lines.append(f"tools: {_codex_tools_text(session.get('tools_used'))}")
+    # Dynamic statusline messages (historical windows, status tip, login
+    # nudge): Codex statusline support is version-dependent, so fold the same
+    # rotating-frame content into the Stop summary where it always renders.
+    with suppress(Exception):
+        from atelier.core.capabilities.savings_summary import dynamic_status_lines
+
+        lines.extend(dynamic_status_lines(session_id, atelier_root=root))
     return {"systemMessage": "\n".join(lines), "report": report}
 
 

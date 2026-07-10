@@ -214,6 +214,7 @@ These commands support performance validation and cost-accounting workflows.
 | `atelier benchmark ...`   | Run benchmark suites (`mini`, `harbor`, `codebench`, `swe`, `local`). |
 | `atelier benchmark local` | BYO-repo A/B: Atelier vs vanilla on your repo. |
 | `atelier savings`         | Aggregate cost and token savings.              |
+| `atelier session replay`  | Replay a past session; mark what one-shot search would collapse. |
 | `atelier dashboard`       | Show the spend & savings dashboard.            |
 
 Examples:
@@ -221,6 +222,34 @@ Examples:
 ```bash
 atelier benchmark mini --dry-run --json
 atelier savings --json
+atelier session replay --last 1
+```
+
+`atelier session replay` reconstructs a recorded session (Claude Code, Codex, or
+opencode) from its transcript and replays it turn by turn — assistant text,
+thinking, tool calls and outputs. For each native call it then invokes the
+**real** Atelier tool that would have replaced it and shows the actual output:
+grep/read loops collapse into a real `code_search` (whose ranked hit is checked
+against the file the loop landed on), whole-file reads show the real `read`
+outline, and `edit`/`bash` are shown as **safe previews** — never written or
+executed. No model is re-run. By default it prints the terminal timeline, writes
+an HTML page, and opens it in the browser.
+
+| Flag | Effect |
+| ---- | ------ |
+| `--session-id <id> --host claude\|codex\|opencode` | Locate a session under a host's store. |
+| `--file <path.jsonl>` | Replay a specific transcript directly (any host). |
+| `--last N` | Replay the N most recent sessions. |
+| `--repo <path>` | Repo root for real `code_search`/`read` (default: cwd). |
+| `--no-live` | Structural view only — skip calling real Atelier tools. |
+| `--no-open` | Do not open the HTML in a browser. |
+| `--html <path>` / `--json` / `--no-color` | Output controls. |
+
+```bash
+atelier session replay --last 1                          # most recent session (+ opens HTML)
+atelier session replay --session-id <id> --host codex    # a specific session
+atelier session replay --file ./session.jsonl --repo .   # explicit transcript + repo
+atelier session replay --last 1 --no-live --no-open      # structural only, no browser
 ```
 
 `atelier benchmark local` is the user-facing BYO benchmark, also surfaced as the

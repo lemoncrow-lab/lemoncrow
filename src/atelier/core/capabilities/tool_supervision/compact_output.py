@@ -20,9 +20,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-import tiktoken
 from pydantic import BaseModel, ConfigDict
 
+from atelier.core.capabilities.prompt_compilation.tokens import count_tokens
 from atelier.infra.internal_llm import InternalLLMError, summarize
 
 CompactMethod = Literal["passthrough", "deterministic_truncate", "llm_summary"]
@@ -76,13 +76,6 @@ class CompactResult(BaseModel):
     recovery_hint: str
     method: CompactMethod
     content_type: str
-
-
-_ENCODING = tiktoken.get_encoding("cl100k_base")
-
-
-def _count_tokens(text: str) -> int:
-    return len(_ENCODING.encode(text))
 
 
 def compress_tool_output(
@@ -250,7 +243,7 @@ def compact(
         enable_llm:    If True, attempt LLM summarization for large outputs
                        when Internal LLM is available. Adds latency; off by default.
     """
-    original_tokens = _count_tokens(content)
+    original_tokens = count_tokens(content)
     hint = recovery_hint or "Re-run the original tool call or request the full output by path/range."
 
     # Passthrough: under the validated char threshold — no compression needed
@@ -275,7 +268,7 @@ def compact(
         except InternalLLMError:
             method = "deterministic_truncate"
 
-    compacted_tokens = _count_tokens(compacted)
+    compacted_tokens = count_tokens(compacted)
     return CompactResult(
         compacted=compacted,
         original_tokens=original_tokens,
@@ -333,8 +326,8 @@ def compress_history(
             tail_chars=tail_chars,
         )
         if stats is not None and compressed != content:
-            orig_tokens = _count_tokens(content)
-            comp_tokens = _count_tokens(compressed)
+            orig_tokens = count_tokens(content)
+            comp_tokens = count_tokens(compressed)
             stats.record(len(content), len(compressed), orig_tokens, comp_tokens)
         result.append({**msg, "content": compressed})
     return result

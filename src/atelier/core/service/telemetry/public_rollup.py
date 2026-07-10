@@ -8,6 +8,7 @@ the process.  Never raises into hooks.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -21,6 +22,17 @@ from typing import Any
 from atelier.core.foundation.identity import get_anon_id
 
 logger = logging.getLogger("atelier.product.telemetry.public_rollup")
+
+
+def _hash_hex(value: str) -> str:
+    """One-way hash so only an opaque key ever leaves the machine.
+
+    Must match the formula the server previously applied to raw ids
+    (functions/api/telemetry/rollup.ts), so already-stored session/install
+    keys stay stable across the cutover.
+    """
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
 
 DEFAULT_PUBLIC_ROLLUP_ENDPOINT = "https://atelier.ws/api/telemetry/rollup"
 DEFAULT_TIMEOUT_SECONDS = 0.75
@@ -40,6 +52,8 @@ def publish_public_savings_rollup(
     est_cost_usd: float = 0.0,
     time_saved_seconds: float = 0.0,
     domain: str = "code",
+    output_saved_tokens: int = 0,
+    output_saved_usd: float = 0.0,
 ) -> bool:
     """Publish one sanitized savings rollup (a single session, or one daily aggregate).
 
@@ -65,6 +79,8 @@ def publish_public_savings_rollup(
             est_cost_usd=est_cost_usd,
             time_saved_seconds=time_saved_seconds,
             domain=domain,
+            output_saved_tokens=output_saved_tokens,
+            output_saved_usd=output_saved_usd,
         )
         if payload is None:
             return False
@@ -109,35 +125,35 @@ def _payload(
     est_cost_usd: float = 0.0,
     time_saved_seconds: float = 0.0,
     domain: str = "code",
+    output_saved_tokens: int = 0,
+    output_saved_usd: float = 0.0,
 ) -> dict[str, Any] | None:
     session = str(session_id or "").strip()
     if not session:
         return None
-    saved = max(0.0, float(saved_usd or 0.0))
-    tokens = max(0, int(tokens_saved or 0))
-    calls = max(0, int(calls_avoided or 0))
+    anon_id = get_anon_id()
+    install_key = _hash_hex(anon_id)
+    session_key = _hash_hex(f"{anon_id}:{session}")
+    # Signed: real benchmarks can be net-negative. cost/turns/carry stay >= 0.
+    saved = float(saved_usd or 0.0)
+    tokens = int(tokens_saved or 0)
+    calls = int(calls_avoided or 0)
     turns = max(0, int(turn_count or 0))
     carry_s = max(0.0, float(carry_usd or 0.0))
     carry_t = max(0, int(carry_tokens or 0))
     cost = max(0.0, float(est_cost_usd or 0.0))
-    time_s = max(0.0, float(time_saved_seconds or 0.0))
-    if (
-        saved <= 0
-        and tokens <= 0
-        and calls <= 0
-        and turns <= 0
-        and carry_s <= 0
-        and carry_t <= 0
-        and cost <= 0
-        and time_s <= 0
-    ):
+    time_s = float(time_saved_seconds or 0.0)
+    out_tok = max(0, int(output_saved_tokens or 0))
+    out_usd = max(0.0, float(output_saved_usd or 0.0))
+    # Skip only a wholly empty rollup; a negative-but-nonzero one is real signal.
+    if not (saved or tokens or calls or turns or carry_s or carry_t or cost or time_s or out_tok or out_usd):
         return None
     at = occurred_at or datetime.now(UTC)
     if at.tzinfo is None:
         at = at.replace(tzinfo=UTC)
     return {
-        "anon_id": get_anon_id(),
-        "session_id": session,
+        "install_key": install_key,
+        "session_key": session_key,
         "atelier_version": _service_version(),
         "source": _label(source, fallback="atelier", max_length=40),
         # Which retrieval vertical produced the savings (code today; docs,
@@ -152,6 +168,8 @@ def _payload(
         "turn_count": turns,
         "est_cost_usd": round(cost, 6),
         "time_saved_seconds": round(time_s, 3),
+        "output_saved_tokens": out_tok,
+        "output_saved_usd": round(out_usd, 6),
         "occurred_at": at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
     }
 
@@ -226,5 +244,7 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
         carry_usd=float(totals["carry_usd"]),
         est_cost_usd=float(totals["est_cost_usd"]),
         time_saved_seconds=estimate_time_saved_seconds(calls_avoided=int(totals["calls_avoided"])),
+        output_saved_tokens=int(totals.get("output_saved_tokens", 0) or 0),
+        output_saved_usd=float(totals.get("output_saved_usd", 0.0) or 0.0),
     )
     return {"flushed": ok, "through_day": last_day}, last_day

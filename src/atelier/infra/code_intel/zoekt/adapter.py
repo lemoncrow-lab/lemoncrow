@@ -226,11 +226,11 @@ class ZoektSupervisor:
         prefer_source: bool = True,
         _include_index_age: bool = True,
     ) -> SearchReadResult:
+        from atelier.core.capabilities.prompt_compilation.tokens import approx_tokens as _count_tokens
         from atelier.core.capabilities.tool_supervision.search_read import (
             FileMatch,
             SearchReadResult,
             Snippet,
-            _count_tokens,
             _detect_lang,
             _file_outline,
         )

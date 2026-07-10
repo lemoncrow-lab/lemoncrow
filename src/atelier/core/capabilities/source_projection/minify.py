@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from atelier.core.capabilities.prompt_compilation.tokens import (
-    estimate_tokens as _count_tokens,
+    count_tokens as _count_tokens,
 )
 from atelier.core.capabilities.source_projection.models import (
     ProjectionMapping,
@@ -401,7 +401,7 @@ def _parser_for(normalized_lang: str) -> Any | None:
         # Use the standard tree-sitter binding (bytes parse, byte offsets);
         # the pack's native get_parser exposes an incompatible str-based API.
         # Parser instances are unsendable; create per call.
-        return Parser(get_language(parser_name))  # type: ignore[arg-type]
+        return Parser(get_language(parser_name))
     except Exception:
         logging.exception("Recovered from broad exception handler")
         _logger.debug("tree-sitter parser unavailable for %s", normalized_lang)

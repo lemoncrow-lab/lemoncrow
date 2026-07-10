@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import math
 import re
-from functools import lru_cache
 from typing import Any
 
-import tiktoken
-
+from atelier.core.capabilities.prompt_compilation.tokens import count_tokens
 from atelier.core.foundation._minhash import MinHash
 
 from .bm25 import bm25_score, build_idf, tokenise
@@ -24,15 +22,6 @@ _DEFAULT_TOKEN_BUDGET = 2000
 _DEDUP_THRESHOLD = 0.75
 _MINHASH_PERMUTATIONS = 128
 _MIN_DEDUP_TOKENS = 5
-
-
-@lru_cache(maxsize=1)
-def _encoder() -> tiktoken.Encoding:
-    return tiktoken.get_encoding("cl100k_base")
-
-
-def _count_tokens(text: str) -> int:
-    return len(_encoder().encode(text))
 
 
 def _recency_score(last_used_ts: float, now_ts: float, *, half_life_days: float = 7.0) -> float:
@@ -115,7 +104,7 @@ def _pack_ranked(
     for item in ranked:
         if len(packed) >= limit:
             break
-        item_tokens = _count_tokens(f"{item.title}\n{item.snippet}")
+        item_tokens = count_tokens(f"{item.title}\n{item.snippet}")
         if token_budget is not None and token_budget >= 0:
             if tokens_used + item_tokens > token_budget and packed:
                 continue

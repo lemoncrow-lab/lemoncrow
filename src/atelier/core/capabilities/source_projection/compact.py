@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 
 from atelier.core.capabilities.prompt_compilation.tokens import (
-    estimate_tokens as _count_tokens,
+    count_tokens as _count_tokens,
 )
 from atelier.core.capabilities.source_projection.mapping import build_compact_mapping
 from atelier.core.capabilities.source_projection.models import ProjectionMapping
