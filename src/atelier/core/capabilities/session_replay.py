@@ -459,96 +459,68 @@ def build_replay(content: str, *, host: str, session_id: str) -> Replay:
     )
 
 
-# Estimated fraction of assistant output tokens the telegraphic register removes.
-# Persona-driven, so this is a labelled estimate; conservative vs the measured
-# "output down up to 80%" headline. Tune here.
-_TELEGRAPHIC_OUTPUT_REDUCTION = 0.5
-
-
-def _sum_usage(replay: Replay) -> dict[str, int]:
-    totals = {"in": 0, "out": 0, "cache_read": 0, "cache_write": 0}
-    for turn in replay.turns:
-        tok = turn.get("tokens")
-        if isinstance(tok, dict):
-            for key in totals:
-                try:
-                    totals[key] += int(tok.get(key, 0) or 0)
-                except (TypeError, ValueError):
-                    continue
-    return totals
-
-
 def estimate_savings(replay: Replay) -> dict[str, Any]:
-    """Estimate this session's total cost and what Atelier saves (all estimates).
+    """Cost + savings for a replay, sourced from the CANONICAL engine only.
 
-    Three headline numbers: ``total_cost_usd`` (baseline, priced from the
-    transcript's own recorded token usage), ``cost_saved_usd``, and
-    ``time_saved_seconds`` (the repo's single ``estimate_time_saved_seconds``).
+    No local pricing/savings math (that drifts): everything comes from
+    ``savings_summary`` — the same engine the dashboard, badges and statusline
+    use.
 
-    Savings sources:
-    - input side: recorded output of every collapsed grep/read turn + the chars a
-      bash output-cap drops (not re-read under code_search);
-    - output side: telegraphic register shrinks assistant prose
-      (``_TELEGRAPHIC_OUTPUT_REDUCTION`` of recorded output tokens);
-    - fewer round-trips (code_search collapse + read/edit batching).
+    - ``total_cost_usd``: real baseline cost via ``read_transcript_stats.est_cost_usd``.
+    - ``measured_saved_usd`` / ``measured_time_saved_seconds``: the recorded
+      Atelier savings for THIS session via ``compute_savings_summary`` (its
+      ``total_saved_usd`` = saved_usd + carry_usd). **0 for a session that ran
+      without Atelier** (e.g. a benchmark baseline) — the real A/B saving is a
+      cross-run difference, not reconstructable from one transcript.
+    - ``calls_saved`` / ``collapsed_output_tokens``: the STRUCTURAL counterfactual
+      this replay illustrates (grep/read loops + read/edit batches collapsed).
+      Not priced — shown as "what would collapse", not a dollar figure.
     """
+    total_cost = 0.0
+    measured_saved = 0.0
+    measured_time = 0.0
+    is_atelier = False
+    if replay.source_path:
+        try:
+            from atelier.core.capabilities.savings_summary import read_transcript_stats
+
+            st = read_transcript_stats(replay.source_path)
+            if st is not None:
+                total_cost = float(st.est_cost_usd)
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        from atelier.core.capabilities.savings_summary import compute_savings_summary
+
+        summ = compute_savings_summary(replay.session_id)
+        measured_saved = float(summ.total_saved_usd)
+        measured_time = float(summ.time_saved_seconds)
+        is_atelier = measured_saved > 0 or summ.smart_calls > 0
+        if not total_cost:
+            total_cost = float(summ.est_cost_usd)
+    except Exception:  # noqa: BLE001
+        pass
+
     tr = replay.tool_results
-    search_chars = sum(
+    collapsed_chars = sum(
         len(tr.get(str(replay.turns[i].get("tool_use_id") or ""), ""))
         for i in replay.collapsed_indices
         if 0 <= i < len(replay.turns)
     )
-    bash_chars = 0
     for turn in replay.turns:
         a = turn.get("atelier")
         if isinstance(a, dict) and a.get("tool") == "bash" and a.get("mode") == "simulated":
-            bash_chars += int(a.get("chars_omitted", 0) or 0)
-
-    usage = _sum_usage(replay)
-    verbose_out = replay.summary.verbose_output_tokens if replay.summary else 0
-    recorded_out = usage["out"] or verbose_out
-    calls_saved = replay.summary.calls_saved if replay.summary else 0
-
-    input_tokens_saved = (search_chars + bash_chars) // 4
-    output_tokens_saved = int(recorded_out * _TELEGRAPHIC_OUTPUT_REDUCTION)
-    model = replay.model or "claude-sonnet-4-5"
-
-    total_cost = _cost(model, usage["in"], usage["out"], usage["cache_read"], usage["cache_write"])
-    cost_saved = _cost(model, input_tokens_saved, output_tokens_saved, 0, 0)
-    try:
-        from atelier.core.capabilities.savings_summary import estimate_time_saved_seconds
-
-        time_saved = estimate_time_saved_seconds(calls_avoided=calls_saved, output_saved_tokens=output_tokens_saved)
-    except Exception:  # noqa: BLE001
-        time_saved = float(calls_saved * 8)
+            collapsed_chars += int(a.get("chars_omitted", 0) or 0)
 
     return {
-        "model": model,
+        "model": replay.model or "claude-sonnet-4-5",
         "total_cost_usd": round(total_cost, 4),
-        "cost_saved_usd": round(cost_saved, 4),
-        "time_saved_seconds": round(time_saved, 1),
-        "calls_saved": calls_saved,
-        "input_tokens_saved": input_tokens_saved,
-        "output_tokens_saved": output_tokens_saved,
-        "search_output_chars": search_chars,
-        "bash_chars_saved": bash_chars,
-        "recorded_output_tokens": recorded_out,
+        "measured_saved_usd": round(measured_saved, 4),
+        "measured_time_saved_seconds": round(measured_time, 1),
+        "is_atelier_session": is_atelier,
+        "calls_saved": replay.summary.calls_saved if replay.summary else 0,
+        "collapsed_output_tokens": collapsed_chars // 4,
     }
-
-
-def _cost(model: str, input_tokens: int, output_tokens: int, cache_read: int, cache_write: int) -> float:
-    try:
-        from atelier.core.capabilities.savings_summary import estimate_cost_usd
-
-        return estimate_cost_usd(
-            model_id=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cache_read_tokens=cache_read,
-            cache_write_tokens=cache_write,
-        )
-    except Exception:  # noqa: BLE001
-        return (input_tokens * 3 + output_tokens * 15) / 1_000_000
 
 
 def _estimate_tokens(text: str) -> int:
