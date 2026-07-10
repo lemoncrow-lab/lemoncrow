@@ -43,6 +43,18 @@ def _usage_line(msg_id: str, ts: str) -> dict[str, Any]:
     }
 
 
+@pytest.mark.parametrize(
+    ("model", "input_rate"),
+    (("gpt-5.6-sol", 5.00), ("gpt-5.6-terra", 2.50), ("gpt-5.6-luna", 1.00)),
+)
+def test_legacy_saved_tokens_reprice_with_gpt_5_6_models(model: str, input_rate: float) -> None:
+    from atelier.core.capabilities.savings_summary import _price_savings_row
+
+    tokens, usd, calls, calls_usd, unpriced = _price_savings_row({"tokens": 1_000_000, "model": model})
+    assert (tokens, calls, calls_usd, unpriced) == (1_000_000, 0, 0.0, 0)
+    assert usd == pytest.approx(input_rate)
+
+
 def test_read_claude_session_savings_includes_calls_usd(tmp_path: Path) -> None:
     _write_sidecar(
         tmp_path,
