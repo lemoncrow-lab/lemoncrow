@@ -550,15 +550,32 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
             collapsed_chars += int(a.get("chars_omitted", 0) or 0)
     calls_saved = replay.summary.calls_saved if replay.summary else 0
 
+    # Did this session RUN with Atelier (used code_search / an mcp__atelier tool)?
+    ran_with_atelier = any(
+        "atelier" in str(t.get("tool_name") or "").lower() or "code_search" in str(t.get("tool_name") or "").lower()
+        for t in replay.turns
+    )
+
     # --- What would this task cost run with Atelier? --------------------- #
     if is_atelier:
-        # This session already ran with Atelier -> its own cost IS the Atelier cost.
+        # Ran with Atelier AND has its own recorded savings -> show what it SAVED.
         atelier_cost = total_cost
         saved = measured_saved
         baseline_ref = total_cost + saved  # what it would have cost without Atelier
         time_saved = measured_time
         atelier_measured = True
         saved_measured = True
+    elif ran_with_atelier:
+        # Ran with Atelier but has no per-node recorded savings -- e.g. a subagent,
+        # whose savings are billed to the PARENT session. Estimating "what Atelier
+        # would save" is meaningless here (it already used Atelier), so show
+        # neither an estimate nor a fake 0 -- the render surfaces "ran with Atelier".
+        atelier_cost = total_cost
+        saved = 0.0
+        baseline_ref = total_cost
+        time_saved = 0.0
+        atelier_measured = True
+        saved_measured = False
     else:
         # Vanilla session -- the ONLY thing a real user has. Estimate the saving
         # from THIS session alone via the canonical savings engine: what fraction
@@ -597,6 +614,7 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
         "saved_is_measured": saved_measured,
         "time_saved_seconds": round(time_saved, 1),
         "is_atelier_session": is_atelier,
+        "ran_with_atelier": ran_with_atelier,
         "calls_saved": calls_saved,
         "collapsed_output_tokens": collapsed_chars // 4,
     }
