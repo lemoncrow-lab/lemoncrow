@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 
 from atelier.core.capabilities.knowledge_extract import (
-    estimate_cost_usd,
     extract_rules,
     gather_sources,
     merge_into_overlay,
     parse_rules,
+    preflight_cost_usd,
 )
 
 
@@ -39,11 +39,11 @@ def test_parse_rules_bullets_fallback() -> None:
 
 
 def test_estimate_cost_free_for_ollama() -> None:
-    assert estimate_cost_usd("x" * 1000, "ollama", "llama3") == 0.0
+    assert preflight_cost_usd("x" * 1000, "ollama", "llama3") == 0.0
 
 
 def test_estimate_cost_paid_for_auto() -> None:
-    assert estimate_cost_usd("x" * 4000, "auto", "") > 0.0
+    assert preflight_cost_usd("x" * 4000, "auto", "") > 0.0
 
 
 def test_merge_into_overlay_dedups(tmp_path: Path) -> None:
