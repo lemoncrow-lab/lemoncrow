@@ -460,26 +460,15 @@ def build_replay(content: str, *, host: str, session_id: str) -> Replay:
     )
 
 
-def _estimate_loop_saving(replay: Replay, model: str) -> float:
-    """Estimate the $ Atelier would save on THIS session, from the session alone.
+def _round_usage(replay: Replay) -> tuple[list[dict[str, Any]], list[int]]:
+    """Extract per-assistant-round token usage and the round indices touched by
+    collapsed loop calls, for the savings estimator.
 
-    This is what a real user gets: they only have their own vanilla sessions,
-    never a paired Atelier run. Atelier collapses each grep/read loop into one
-    ``code_search``, so the *intermediate* assistant rounds -- each of which
-    re-read the whole accumulated context (cache-read dominates cost) -- are
-    eliminated. We estimate the saving as the priced token usage of those
-    eliminated rounds, taken from the transcript's own per-round usage and
-    priced with the canonical ``estimate_cost_usd``.
-
-    Conservative: it credits only the removed round-trips, not the leaner context
-    Atelier would also give the surviving rounds. Returns 0 when the transcript
-    carries no per-round token usage (e.g. non-Claude hosts).
+    A round begins on the turn carrying the round's usage (the parser puts usage
+    on the first block of each assistant message; later blocks carry {}). This is
+    pure transcript parsing -- the SAVINGS MATH lives in
+    ``savings_summary.estimate_collapse_saving_fraction`` (single source).
     """
-    if not replay.collapsed_indices:
-        return 0.0
-    # Assign every turn to its assistant round. A round begins on the turn that
-    # carries the round's token usage (the parser puts usage on the first block
-    # of each assistant message; later blocks in the same round carry {}).
     round_tokens: list[dict[str, Any]] = []
     round_of: list[int] = []
     cur = -1
@@ -489,50 +478,8 @@ def _estimate_loop_saving(replay: Replay, model: str) -> float:
             cur += 1
             round_tokens.append(tok)
         round_of.append(cur)
-    if not round_tokens:
-        return 0.0
     loop_rounds = sorted({round_of[i] for i in replay.collapsed_indices if 0 <= i < len(round_of) and round_of[i] >= 0})
-    # Atelier does the whole loop in ONE code_search at the START (cheap, small
-    # context); the LATER rounds -- the wasteful re-greps and whole-file re-reads
-    # whose cache-read ballooned -- are what gets eliminated. Keep the first loop
-    # round as the stand-in for the code_search round; eliminate the rest.
-    eliminated = loop_rounds[1:]
-    if not eliminated:
-        return 0.0
-    try:
-        from atelier.core.capabilities.savings_summary import estimate_cost_usd
-    except Exception:  # noqa: BLE001
-        return 0.0
-    elim_set = set(eliminated)
-    n_rounds = len(round_tokens)
-    saved = 0.0
-    carry_tokens = 0
-    for rnd in eliminated:
-        if not (0 <= rnd < n_rounds):
-            continue
-        u = round_tokens[rnd]
-        # (1) the removed round-trip itself (it re-read the whole context).
-        saved += estimate_cost_usd(
-            model_id=model,
-            input_tokens=int(u.get("in", 0) or 0),
-            output_tokens=int(u.get("out", 0) or 0),
-            cache_read_tokens=int(u.get("cache_read", 0) or 0),
-            cache_write_tokens=int(u.get("cache_write", 0) or 0),
-        )
-        # (2) leaner context: what this round WROTE into context (a whole-file
-        # read, a grep dump) is no longer re-read by the rounds that survive
-        # after it -- the compounding cache-read the surviving rounds avoid.
-        surviving_after = sum(1 for r in range(rnd + 1, n_rounds) if r not in elim_set)
-        carry_tokens += int(u.get("cache_write", 0) or 0) * surviving_after
-    if carry_tokens:
-        saved += estimate_cost_usd(
-            model_id=model,
-            input_tokens=0,
-            output_tokens=0,
-            cache_read_tokens=carry_tokens,
-            cache_write_tokens=0,
-        )
-    return saved
+    return round_tokens, loop_rounds
 
 
 def estimate_savings(replay: Replay) -> dict[str, Any]:
@@ -608,8 +555,19 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
         saved_measured = True
     else:
         # Vanilla session -- the ONLY thing a real user has. Estimate the saving
-        # from THIS session alone: the round-trips Atelier's code_search removes.
-        saved = _estimate_loop_saving(replay, model)
+        # from THIS session alone via the canonical savings engine: what fraction
+        # of the cost collapsing the grep/read loops would save (removed round-trips
+        # + leaner surviving context). Applied to the canonical est_cost so 'Cost'
+        # stays consistent with the dashboard/session-stats surfaces.
+        round_tokens, loop_rounds = _round_usage(replay)
+        fraction = 0.0
+        try:
+            from atelier.core.capabilities.savings_summary import estimate_collapse_saving_fraction
+
+            fraction = estimate_collapse_saving_fraction(round_tokens, loop_rounds, model)
+        except Exception:  # noqa: BLE001
+            fraction = 0.0
+        saved = total_cost * fraction
         atelier_cost = max(0.0, total_cost - saved)
         baseline_ref = total_cost
         try:

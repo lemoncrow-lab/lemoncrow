@@ -705,6 +705,75 @@ def fmt_duration(seconds: float) -> str:
     return f"{round(hours)}h"
 
 
+def estimate_collapse_saving_fraction(
+    per_round_usage: list[dict[str, int]],
+    collapsed_rounds: list[int],
+    model: str,
+) -> float:
+    """Fraction of a session's cost Atelier would save by collapsing its grep/read
+    loop(s) into one code_search -- estimated from the session's OWN per-round token
+    usage, with NO recorded Atelier run required.
+
+    Single source of truth for the "savings opportunity" on a session that ran
+    WITHOUT Atelier (the replay's estimate, and any what-if surface). Models both
+    effects, so callers get a consistent number:
+
+    1. **Removed round-trips** -- Atelier does the loop in one code_search at the
+       start, so the later re-read rounds are eliminated; their full priced usage
+       (cache-write dominates) is saved.
+    2. **Leaner surviving context** -- content written in the eliminated rounds is
+       no longer re-read by the rounds that survive after them, so their
+       cache-read shrinks (credited via a carry term).
+
+    Args:
+        per_round_usage: one dict per assistant round with token counts under
+            ``in`` / ``out`` / ``cache_read`` / ``cache_write``.
+        collapsed_rounds: round indices that belong to collapsed loop tool calls.
+        model: model id for pricing (via :func:`estimate_cost_usd`).
+
+    Returns a fraction in ``[0, 1]`` -- multiply by the session's cost to get the
+    estimated dollar saving.
+    """
+    rounds = [r for r in per_round_usage if isinstance(r, dict)]
+    if not rounds:
+        return 0.0
+
+    def _price(u: dict[str, int]) -> float:
+        return estimate_cost_usd(
+            model_id=model,
+            input_tokens=int(u.get("in", 0) or 0),
+            output_tokens=int(u.get("out", 0) or 0),
+            cache_read_tokens=int(u.get("cache_read", 0) or 0),
+            cache_write_tokens=int(u.get("cache_write", 0) or 0),
+        )
+
+    baseline = sum(_price(u) for u in rounds)
+    if baseline <= 0:
+        return 0.0
+    loop = sorted({r for r in collapsed_rounds if 0 <= r < len(rounds)})
+    eliminated = loop[1:]  # keep the first round as the code_search stand-in
+    if not eliminated:
+        return 0.0
+    elim = set(eliminated)
+    n = len(rounds)
+    saved = 0.0
+    carry_tokens = 0
+    for r in eliminated:
+        u = rounds[r]
+        saved += _price(u)  # the removed round-trip re-read the whole context
+        surviving_after = sum(1 for x in range(r + 1, n) if x not in elim)
+        carry_tokens += int(u.get("cache_write", 0) or 0) * surviving_after
+    if carry_tokens:
+        saved += estimate_cost_usd(
+            model_id=model,
+            input_tokens=0,
+            output_tokens=0,
+            cache_read_tokens=carry_tokens,
+            cache_write_tokens=0,
+        )
+    return max(0.0, min(1.0, saved / baseline))
+
+
 @dataclass
 class SavingsSummary:
     saved_usd: float = 0.0
@@ -2982,3 +3051,31 @@ def savings_segment(
     root = _resolve_atelier_root(atelier_root)
     idx = _get_frame_index(root / "statusline_frame_state.json", len(frames))
     return frames[idx]
+
+
+def dynamic_status_lines(
+    session_id: str = "",
+    *,
+    atelier_root: str | Path | None = None,
+) -> list[str]:
+    """Return the dynamic statusline messages as plain-text lines, deduped.
+
+    Every rotating frame beyond frame 0 -- historical 1d/7d/30d windows,
+    status tip, login nudge -- for hosts that cannot rotate a statusline
+    (e.g. the Codex Stop hook, which folds them into its systemMessage).
+    Derived from :func:`savings_frames` so every gate (days-active
+    thresholds, tip resolution, auth signal) stays single-sourced. Frame 0
+    (live cost/savings) is excluded: Stop output already prints those
+    figures on dedicated lines.
+    """
+    lines: list[str] = []
+    for frame in savings_frames(session_id, atelier_root=atelier_root, no_color=True):
+        text = frame.strip()
+        # Icon-led frames (live cost/savings, weighted 3x) have no leading
+        # separator; text frames arrive as "| <content>[ | review: ...]".
+        if not text.startswith("|"):
+            continue
+        text = text.lstrip("|").strip().split(" | ")[0].strip()
+        if text and text not in lines:
+            lines.append(text)
+    return lines
