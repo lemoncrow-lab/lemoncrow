@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from atelier.core.capabilities.prompt_compilation.tokens import estimate_tokens
 from atelier.gateway.hosts.session_parsers._session_parser import parse_session_turns
 
 SUPPORTED_HOSTS = ("claude", "codex", "opencode")
@@ -523,17 +524,8 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
     }
 
 
-def _estimate_tokens(text: str) -> int:
-    try:
-        from atelier.core.capabilities.prompt_compilation.tokens import estimate_tokens
-
-        return int(estimate_tokens(text))
-    except Exception:  # noqa: BLE001 - counting is best-effort
-        return max(1, len(text) // 4)
-
-
 def _verbose_output_tokens(turns: list[dict[str, Any]]) -> int:
-    return sum(_estimate_tokens(str(t.get("content") or "")) for t in turns if t.get("kind") == "agent_message")
+    return sum(estimate_tokens(str(t.get("content") or "")) for t in turns if t.get("kind") == "agent_message")
 
 
 # --------------------------------------------------------------------------- #
