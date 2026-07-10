@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
@@ -23,6 +24,7 @@ from atelier.core.capabilities import (
     SemanticFileMemoryCapability,
     ToolSupervisionCapability,
 )
+from atelier.core.capabilities.retrieval import Retriever, default_retriever_factory
 from atelier.core.capabilities.tool_supervision.sql_inspect import SqlInspectCapability
 from atelier.core.foundation.paths import (
     WorkspaceNotRegisteredError,
@@ -56,11 +58,20 @@ class AtelierRuntimeCore:
         "tool_supervision": "Redundancy detection, observation cache, and efficiency metrics.",
     }
 
-    def __init__(self, root: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        root: str | Path | None = None,
+        *,
+        retriever_factory: Callable[[str | Path], Retriever] | None = None,
+    ) -> None:
         resolved_root = default_store_root() if root is None else Path(root).resolve()
         self.root = resolved_root
         self.store = ContextStore(self.root)
         self.store.init()
+        # One-shot retriever over the workspace corpus. Defaults to the code
+        # vertical (CodeContextEngine); any Retriever-conforming corpus
+        # (docs, tickets, chat memory) can be injected instead.
+        self.retriever_factory: Callable[[str | Path], Retriever] = retriever_factory or default_retriever_factory
 
         self.context_reuse = ContextReuseCapability(self.store, self.root)
         self.semantic_memory = SemanticFileMemoryCapability(self.root)
@@ -124,7 +135,6 @@ class AtelierRuntimeCore:
         memory_context = ""
         recalled_passages: list[dict[str, str | float]] = []
         try:
-            from atelier.core.capabilities.code_context import CodeContextEngine
             from atelier.core.service.bootstrap_context import (
                 bootstrap_status,
                 render_bootstrap_context,
@@ -132,7 +142,7 @@ class AtelierRuntimeCore:
             from atelier.infra.storage.factory import make_memory_store
 
             workspace_root = resolve_workspace_root(self.root)
-            bootstrap_repo_id = CodeContextEngine(workspace_root).repo_id
+            bootstrap_repo_id = self.retriever_factory(workspace_root).source_id
             memory_store = make_memory_store(self.root)
             bootstrap_state = bootstrap_status(memory_store, bootstrap_repo_id)
             bootstrap_context, bootstrap_blocks = render_bootstrap_context(memory_store, bootstrap_repo_id)

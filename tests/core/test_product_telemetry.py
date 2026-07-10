@@ -73,6 +73,22 @@ def test_public_rollup_payload_is_minimal_and_session_scoped(telemetry_env: Path
     assert payload["calls_avoided"] == 3
     assert payload["turn_count"] == 5
     assert payload["occurred_at"] == "2026-06-16T10:00:00Z"
+    assert payload["domain"] == "code"  # default vertical
+
+
+def test_public_rollup_payload_tags_custom_domain(telemetry_env: Path) -> None:
+    payload = _payload(
+        session_id="session-docs",
+        saved_usd=0.5,
+        tokens_saved=100,
+        calls_avoided=1,
+        turn_count=2,
+        source="claude",
+        occurred_at=datetime(2026, 6, 16, 10, 0, tzinfo=UTC),
+        domain="docs",
+    )
+    assert payload is not None
+    assert payload["domain"] == "docs"
 
 
 def test_public_rollup_always_fires_regardless_of_product_telemetry_setting(

@@ -39,6 +39,7 @@ def publish_public_savings_rollup(
     carry_tokens: int = 0,
     est_cost_usd: float = 0.0,
     time_saved_seconds: float = 0.0,
+    domain: str = "code",
 ) -> bool:
     """Publish one sanitized savings rollup (a single session, or one daily aggregate).
 
@@ -63,6 +64,7 @@ def publish_public_savings_rollup(
             carry_tokens=carry_tokens,
             est_cost_usd=est_cost_usd,
             time_saved_seconds=time_saved_seconds,
+            domain=domain,
         )
         if payload is None:
             return False
@@ -106,6 +108,7 @@ def _payload(
     carry_tokens: int = 0,
     est_cost_usd: float = 0.0,
     time_saved_seconds: float = 0.0,
+    domain: str = "code",
 ) -> dict[str, Any] | None:
     session = str(session_id or "").strip()
     if not session:
@@ -137,6 +140,10 @@ def _payload(
         "session_id": session,
         "atelier_version": _service_version(),
         "source": _label(source, fallback="atelier", max_length=40),
+        # Which retrieval vertical produced the savings (code today; docs,
+        # tickets, chat memory as the engine generalizes). Forward-compatible
+        # aggregation key for per-domain rollups.
+        "domain": _label(domain, fallback="code", max_length=40),
         "saved_usd": round(saved, 6),
         "tokens_saved": tokens,
         "calls_avoided": calls,

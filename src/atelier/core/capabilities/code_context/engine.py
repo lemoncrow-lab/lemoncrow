@@ -4781,6 +4781,33 @@ class CodeContextEngine:
         self._cache_set("code.files", cache_args, payload)
         return payload
 
+    # ----- domain-neutral Retriever conformance --------------------------- #
+    # CodeContextEngine is the code vertical of the engine's one-shot
+    # retrieval contract (atelier.core.capabilities.retrieval.Retriever):
+    # one call returns a budget-packed context payload; follow-up queries
+    # are allowed, retry loops are never required.
+
+    @property
+    def source_id(self) -> str:
+        """Stable corpus identifier (the repo id) for the Retriever protocol."""
+        return self.repo_id
+
+    def retrieve(
+        self,
+        query: str,
+        *,
+        budget_tokens: int = 2000,
+        max_items: int = 8,
+        seeds: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """One-shot retrieval (Retriever protocol) -- delegates to tool_explore."""
+        return self.tool_explore(
+            query,
+            seed_files=seeds,
+            max_files=max_items,
+            budget_tokens=budget_tokens,
+        )
+
     def tool_explore(
         self,
         query: str,
