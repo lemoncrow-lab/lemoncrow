@@ -103,14 +103,13 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
         detail = f"  ({', '.join(parts)})" if parts else ""
         lines.append("  tool calls: " + c(_BOLD, f"{s.total_tool_calls} → {s.kept_tool_calls}") + c(_GREEN, detail))
         sav = estimate_savings(replay)
-        saved_label = "saved" if sav["saved_is_measured"] else "savings opp."
-        est_tag = "" if sav["saved_is_measured"] else c(_DIM, " est")
+        tag = "" if sav["atelier_cost_is_measured"] else c(_DIM, " est")
         lines.append(
             "  "
             + c(_BOLD, f"cost ${sav['total_cost_usd']:.4f}")
             + "     "
-            + c(_GREEN + _BOLD, f"{saved_label} ${sav['saved_usd']:.4f}")
-            + est_tag
+            + c(_GREEN + _BOLD, f"atelier cost ${sav['atelier_cost_usd']:.4f} (-{sav['saved_pct']}%)")
+            + tag
             + "     "
             + c(_GREEN + _BOLD, f"time saved {_dur(sav['time_saved_seconds'])}")
         )
@@ -122,10 +121,9 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
                 f"{s.episode_count} search loops · {s.batch_count} batches",
             )
         )
-        if not sav["saved_is_measured"]:
+        if not sav["atelier_cost_is_measured"]:
             lines.append(
-                "  "
-                + c(_DIM, "savings opp. = estimate; the measured saving is the benchmark A/B (baseline vs Atelier)")
+                "  " + c(_DIM, "atelier cost & saving are estimates — run `atelier benchmark` for the measured A/B")
             )
     lines.append("  " + c(_DIM, "reconstructed from history — no model re-run, $0"))
     lines.append("")
@@ -525,14 +523,13 @@ def _html_session(replay: Replay) -> str:
     tiles = ""
     if s:
         sav = estimate_savings(replay)
-        saved_label = "Saved" if sav["saved_is_measured"] else "Savings opportunity"
-        saved_sub = "measured (Atelier engine)" if sav["saved_is_measured"] else "estimate"
+        atc_sub = "measured (paired run)" if sav["atelier_cost_is_measured"] else "estimate"
         # The three numbers that matter most, up top.
         hero = (
             '<div class="tiles hero-row">'
-            f'<div class="tile hero"><div class="k">Cost</div><div class="v">${sav["total_cost_usd"]:.4f}</div><div class="d before">recorded usage</div></div>'
-            f'<div class="tile hero good"><div class="k">{saved_label}</div><div class="v">${sav["saved_usd"]:.4f}</div><div class="d">{saved_sub}</div></div>'
-            f'<div class="tile hero good"><div class="k">Time saved</div><div class="v">{_dur(sav["time_saved_seconds"])}</div><div class="d">{saved_sub}</div></div>'
+            f'<div class="tile hero"><div class="k">Cost</div><div class="v">${sav["total_cost_usd"]:.4f}</div><div class="d before">this session</div></div>'
+            f'<div class="tile hero good"><div class="k">Atelier cost</div><div class="v">${sav["atelier_cost_usd"]:.4f}</div><div class="d">&minus;{sav["saved_pct"]}% &middot; {atc_sub}</div></div>'
+            f'<div class="tile hero good"><div class="k">Time saved</div><div class="v">{_dur(sav["time_saved_seconds"])}</div><div class="d">{atc_sub}</div></div>'
             "</div>"
         )
         tiles = (
