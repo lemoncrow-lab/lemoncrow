@@ -2225,7 +2225,7 @@ def _fold_session_file(p: Path, root: Path, transcript_for: Callable[[str], Path
     days: dict[str, list[float]] = {}
 
     def _bucket(ts: float) -> list[float]:
-        return days.setdefault(_day_key(ts), [0.0] * 10)
+        return days.setdefault(_day_key(ts), [0.0] * 12)
 
     end_ts = 0.0
     end_spend = 0.0
@@ -2266,6 +2266,11 @@ def _fold_session_file(p: Path, root: Path, transcript_for: Callable[[str], Path
             b[2] += row_calls
             if row_usd > 0 or row_tok > 0:
                 b[3] += 1
+            if str(row.get("kind") or "") == "output_style":
+                # Telegraphic output-compression breakdown (already inside
+                # b[0]/b[1]; tracked separately so the daily rollup can push it).
+                b[10] += max(0, int(row.get("tokens") or 0))
+                b[11] += max(0.0, float(row.get("cost_saved_usd") or 0.0))
             if not row.get("kind") and _is_read_lever(str(row.get("tool") or "")):
                 rt = max(0, int(row.get("tokens") or row.get("tokens_saved") or 0))
                 if rt <= 2_000_000:
@@ -2687,6 +2692,8 @@ def aggregate_savings_since_day(
         "turn_count": 0,
         "est_cost_usd": 0.0,
         "carry_usd": 0.0,
+        "output_saved_tokens": 0,
+        "output_saved_usd": 0.0,
     }
     last_day: str | None = None
     for entry in agg.get("sessions", {}).values():
@@ -2699,6 +2706,8 @@ def aggregate_savings_since_day(
             totals["turn_count"] = int(totals["turn_count"]) + int(vals[3])
             totals["est_cost_usd"] = float(totals["est_cost_usd"]) + float(vals[4])
             totals["carry_usd"] = float(totals["carry_usd"]) + float(vals[5])
+            totals["output_saved_tokens"] = int(totals["output_saved_tokens"]) + int(vals[10] if len(vals) > 10 else 0)
+            totals["output_saved_usd"] = float(totals["output_saved_usd"]) + float(vals[11] if len(vals) > 11 else 0.0)
             if last_day is None or day > last_day:
                 last_day = day
     return totals, last_day
