@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/update_notification.py\""
+            "command": "ATELIER_AGENT=codex PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/update_notification.py\""
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/user_prompt.py\""
+            "command": "ATELIER_AGENT=codex PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/user_prompt.py\""
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/pre_tool_use.py\""
+            "command": "ATELIER_AGENT=codex PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/pre_tool_use.py\""
           }
         ]
       }
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/permission_request.py\""
+            "command": "ATELIER_AGENT=codex PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/permission_request.py\""
           }
         ]
       }
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/savings_reporter.py\""
+            "command": "ATELIER_AGENT=codex PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/savings_reporter.py\""
           }
         ]
       }
@@ -56,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/subagent.py\""
+            "command": "ATELIER_AGENT=codex PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/subagent.py\""
           }
         ]
       }
@@ -66,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/subagent.py\""
+            "command": "ATELIER_AGENT=codex PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/subagent.py\""
           }
         ]
       }
@@ -76,7 +76,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/compact.py\""
+            "command": "ATELIER_AGENT=codex PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/compact.py\""
           }
         ]
       }
@@ -86,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/compact.py\""
+            "command": "ATELIER_AGENT=codex PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/compact.py\""
           }
         ]
       }
@@ -96,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/stop.py\""
+            "command": "ATELIER_AGENT=codex PYTHONPATH=\"__ATELIER_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__ATELIER_PYTHON__\" \"${PLUGIN_ROOT}/hooks/stop.py\""
           }
         ]
       }

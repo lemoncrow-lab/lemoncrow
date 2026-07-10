@@ -71,6 +71,31 @@ def test_codex_statusline_renders_native_footer_in_claude_format(tmp_path: Path)
     assert result.stdout.strip() == ("❯ atelier | gpt-5.5 xhigh ctx 1.1M $0.00(I:19.40M C:0 O:61.1k) ↓ $0.00(I:0)")
 
 
+def test_codex_statusline_recovers_session_from_workspace_state(tmp_path: Path) -> None:
+    from atelier.core.foundation.paths import session_dir, workspace_key
+
+    root = tmp_path / ".atelier"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_dir = root / "workspaces" / workspace_key(workspace)
+    state_dir.mkdir(parents=True)
+    (state_dir / "session_state.json").write_text(json.dumps({"session_id": "codex-1"}), encoding="utf-8")
+    sidecar = session_dir(root, "codex", "codex-1") / "savings.jsonl"
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text(
+        json.dumps({"tool": "code_search", "tokens": 12_000, "model": "gpt-5.6-terra"}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_statusline(
+        root,
+        "gpt-5.6-terra high · ~/workspace · 1.11M used · 19.4M in · 61.1K out",
+        env_extra={"CODEX_WORKSPACE_ROOT": str(workspace)},
+    )
+
+    assert "$0.03(I:12.0k)" in result.stdout
+
+
 def test_codex_statusline_renders_json_token_fields_in_claude_format(tmp_path: Path) -> None:
     payload = {
         "model": {"name": "gpt-5.5"},
@@ -590,6 +615,10 @@ def test_codex_hooks_manifest_wires_reporter_and_update() -> None:
     assert "__ATELIER_PYTHON__" in rendered
     assert "__ATELIER_REPO_SRC__" in rendered
     assert "ATELIER_CODEX_PLUGIN_ROOT" not in rendered
+    for groups in data["hooks"].values():
+        for group in groups:
+            for hook in group["hooks"]:
+                assert hook["command"].startswith("ATELIER_AGENT=codex ")
     for event in ("PreCompact", "PostCompact", "SubagentStart", "SubagentStop"):
         assert event in data["hooks"]
 

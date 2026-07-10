@@ -14,7 +14,7 @@ import socket
 import threading
 from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -86,6 +86,28 @@ class _PdfHandler(BaseHTTPRequestHandler):
         body = _build_minimal_pdf("Hello PDF")
         self.send_response(200)
         self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_a: Any) -> None:
+        pass
+
+
+class _FlakyForbiddenHandler(BaseHTTPRequestHandler):
+    """403 on the first hit (simulated WAF false positive), 200 after."""
+
+    calls: ClassVar[int] = 0
+
+    def do_GET(self) -> None:
+        type(self).calls += 1
+        if type(self).calls == 1:
+            body = b"forbidden"
+            self.send_response(403)
+        else:
+            body = b"ok now"
+            self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -173,6 +195,21 @@ def test_async_rejects_binary_content_type() -> None:
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_async_retries_transient_403_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 403 is a possible WAF/bot-management false positive: retried a bounded
+    number of times on the async path too before being accepted as final."""
+    monkeypatch.setattr(web_fetch, "_RETRY_BACKOFF_S", 0.0)
+    _FlakyForbiddenHandler.calls = 0
+    srv, port = _loopback_server(_FlakyForbiddenHandler)
+    try:
+        result = asyncio.run(web_fetch._async_fetch_uncached(f"http://127.0.0.1:{port}/", accept="*/*", timeout_s=5.0))
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert result.status == 200
+    assert _FlakyForbiddenHandler.calls == 2
 
 
 def test_async_accepts_and_extracts_pdf() -> None:

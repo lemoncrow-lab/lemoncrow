@@ -51,10 +51,35 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
         from atelier.core.capabilities.savings_summary import savings_segment
 
         _session_id = os.environ.get("ATELIER_STATUS_SESSION_ID", "")
+        _status_host = os.environ.get("ATELIER_STATUS_HOST", "")
         _live_cost = float(os.environ.get("ATELIER_STATUSLINE_COST_USD") or 0)
         _live_in = int(os.environ.get("ATELIER_STATUSLINE_LIVE_IN_TOK") or 0)
         _live_cache = int(os.environ.get("ATELIER_STATUSLINE_LIVE_CACHE_TOK") or 0)
         _live_out = int(os.environ.get("ATELIER_STATUSLINE_LIVE_OUT_TOK") or 0)
+        if _status_host == "codex":
+            from atelier.core.capabilities.plugin_runtime import record_codex_statusline_snapshot
+
+            record_codex_statusline_snapshot(
+                ctx.obj["root"],
+                {
+                    "session_id": _session_id,
+                    "cwd": os.environ.get("ATELIER_STATUS_WORKSPACE_ROOT", ""),
+                    "model": os.environ.get("ATELIER_STATUS_MODEL", ""),
+                    "cost": {"total_usd": _live_cost},
+                    "context_window": {
+                        "current_usage": {
+                            "input_tokens": _live_in,
+                            "cache_read_input_tokens": _live_cache,
+                            "output_tokens": _live_out,
+                        }
+                    },
+                },
+            )
+            if not _session_id:
+                from atelier.core.capabilities.savings_summary import _resolve_workspace_session_id
+
+                workspace = os.environ.get("ATELIER_STATUS_WORKSPACE_ROOT") or os.getcwd()
+                _session_id = _resolve_workspace_session_id(workspace, ctx.obj["root"])
         _no_color = bool(os.environ.get("ATELIER_STATUSLINE_NO_COLOR") or os.environ.get("ATELIER_NO_COLOR"))
         # Write directly — click.echo strips ANSI when stdout is not a TTY
         # (always the case when captured via $() in statusline.sh).

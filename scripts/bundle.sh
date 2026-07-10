@@ -147,6 +147,7 @@ main() {
 
     install_uv_if_needed
     install_node_if_needed
+    _capture_install_previous_version
     install_atelier_from_wheel
 
     # Prevent set -e from aborting on partial failures (degrade() sets

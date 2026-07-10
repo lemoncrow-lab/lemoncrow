@@ -42,11 +42,11 @@ class _FakeRedirectResponse:
 
 
 class _FakeErrorResponse:
-    status = 404
     headers: ClassVar[dict[str, str]] = {"content-type": "text/plain; charset=utf-8"}
 
-    def __init__(self, body: bytes = b"Not Found") -> None:
+    def __init__(self, body: bytes = b"Not Found", status: int = 404) -> None:
         self._body = body
+        self.status = status
 
     def stream(self, amt: int = 65536, decode_content: bool = True) -> Iterator[bytes]:
         yield self._body
@@ -479,14 +479,65 @@ def test_returns_http_error_response_instead_of_raising(monkeypatch: pytest.Monk
     """A non-2xx is the origin's answer, not a tool failure -- it comes back as a
     normal result (with the real status) so the MCP layer never wraps it in a
     generic tool-call error."""
+    calls = 0
+
+    def _request(*_a: object, **_kw: object) -> Any:
+        nonlocal calls
+        calls += 1
+        return _FakeErrorResponse()
+
     fake_http = _FakeHTTP()
-    fake_http.request = lambda *a, **kw: _FakeErrorResponse()
+    fake_http.request = _request
     monkeypatch.setattr(web_fetch, "_HTTP", fake_http)
     monkeypatch.setattr(web_fetch, "_resolve_host_safe", lambda host, timeout: "1.2.3.4")
 
     result = web_fetch._fetch_uncached("https://example.com/missing", accept="*/*", timeout_s=5.0)
     assert result.status == 404
     assert result.body == b"Not Found"
+    # 404 is the origin's stable, permanent answer -- not in _RETRY_STATUSES, so
+    # exactly one attempt.
+    assert calls == 1
+
+
+def test_retries_transient_403_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 403 is treated as a possible WAF/bot-management false positive: retried
+    a bounded number of times before being accepted as the final answer."""
+    responses = [_FakeErrorResponse(body=b"forbidden", status=403), _FakeResponse(b"# OK\n\nBody")]
+    fake_http = _FakeHTTP()
+
+    def _request(*_a: object, **_kw: object) -> Any:
+        fake_http.calls += 1
+        return responses.pop(0)
+
+    fake_http.request = _request
+    monkeypatch.setattr(web_fetch, "_HTTP", fake_http)
+    monkeypatch.setattr(web_fetch, "_resolve_host_safe", lambda host, timeout: "1.2.3.4")
+    monkeypatch.setattr(web_fetch, "_RETRY_BACKOFF_S", 0.0)
+
+    result = web_fetch._fetch_uncached("https://example.com/flaky", accept="*/*", timeout_s=5.0)
+    assert result.status == 200
+    assert fake_http.calls == 2
+
+
+def test_retries_exhaust_on_persistent_403(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 403 on every attempt is a real, stable block -- retried up to the
+    bound, then surfaced as-is (never raised as a tool error)."""
+    calls = 0
+
+    def _request(*_a: object, **_kw: object) -> Any:
+        nonlocal calls
+        calls += 1
+        return _FakeErrorResponse(status=403)
+
+    fake_http = _FakeHTTP()
+    fake_http.request = _request
+    monkeypatch.setattr(web_fetch, "_HTTP", fake_http)
+    monkeypatch.setattr(web_fetch, "_resolve_host_safe", lambda host, timeout: "1.2.3.4")
+    monkeypatch.setattr(web_fetch, "_RETRY_BACKOFF_S", 0.0)
+
+    result = web_fetch._fetch_uncached("https://example.com/blocked", accept="*/*", timeout_s=5.0)
+    assert result.status == 403
+    assert calls == web_fetch._MAX_FETCH_ATTEMPTS
 
 
 def test_fetch_url_surfaces_http_error_status(monkeypatch: pytest.MonkeyPatch) -> None:

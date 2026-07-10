@@ -80,6 +80,64 @@ Atelier does not ask you to learn a new coding app. It improves the work Claude 
 
 The point is simple: more of your Claude subscription should go into useful work, not repeated setup and paid noise.
 
+### What actually gets replaced
+
+Atelier is not a different coding app and not a different model. `atelier init` gives Claude Code 5 tools and hides the built-ins behind them, so the model isn't choosing between two ways to do the same thing:
+
+| Atelier tool  | Replaces (hidden from the model) | Why                                                                                                      |
+| --------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `code_search` | Grep, Glob                       | One call returns the symbol, its callers/callees, and ranked source -- no grep-loop-then-read-whole-file |
+| `read`        | Read                             | Returns an outline or the exact`:L10-L40` range, budgeted, instead of the full file                      |
+| `edit`        | Edit, Write                      | Verified, cross-file edits in one call instead of per-file patch-or-create guessing                      |
+| `bash`        | Bash                             | Output is capped and structured so a noisy build log can't blow the context window                       |
+| `web_fetch`   | WebFetch                         | Strips a page to clean Markdown instead of a raw HTML dump                                               |
+
+What's unchanged: Claude Code itself, the model, your workflow. Full internals: [Architecture](docs/architecture.md).
+
+### Why a runtime, not just tools
+
+A bare MCP server is a library: tools the model can call *if* it remembers to. A runtime decides what's callable at all, what's callable safely, and what happens when something goes wrong -- four separate jobs, each closed by a different layer:
+
+| Layer                            | What still goes wrong without it                                                                                                             | What closes it                                                                                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agents** -- process isolation  | A general-purpose agent edits mid-"exploration," or calls`bash` with no verification gate -- the right tool is *available*, not *obligatory* | `explore` / `plan` / `research` / `review` hard-deny `edit`/`write` via `disallowedTools` at the host-config level -- a capability the model doesn't have, not a rule it might break |
+| **Skills** -- standard library   | A recurring multi-step task (perf gates, UX gates, swarm coordination) gets re-improvised each session -- different depth, missed steps      | Skills encode the procedure once; any agent invokes it the same way every time                                                                                                       |
+| **Hooks** -- interrupts          | Nothing stops a bad call*in the moment* -- re-reading a file just edited, or declaring "done" without ever running a check                   | `pre_tool_discipline.py` denies wasteful re-reads and ungrounded risky edits before they execute; `verify_before_done.py` blocks session close until verification actually ran       |
+| **MCP tools** -- syscall surface | Agents fall back to grep-and-read-whole-file under pressure -- "use grounded retrieval" is one instruction competing for attention           | `code_search`/`read`/`edit`/`bash`/`web_fetch` are the *only* tools the model can see for those jobs -- natives are hidden, not just discouraged                                     |
+
+### Agents
+
+Packaged in [integrations/agents/](integrations/agents/) -- each is a distinct capability grant (subagent name `atelier:<mode>`), not a persona typed into a prompt:
+
+| Agent      | Writes? | Use                                                                                                                        |
+| ------------ | :-------: | ---------------------------------------------------------------------------------------------------------------------------- |
+| `code`     |   Yes   | Default interactive mode -- edits, refactors, bug fixes, features; grounded in Atelier tools, validates before concluding  |
+| `auto`     |   Yes   | Fully autonomous, unattended -- no plan approval, no questions; CI/headless runs                                           |
+| `solve`    |   Yes   | Autonomous end-to-end solving for a well-defined task with a clear check -- faster than`code` when the goal is unambiguous |
+| `execute`  |   Yes   | Focused, isolated execution of an already-accepted plan -- one complete verified pass, then stops                          |
+| `general`  |   Yes   | Catch-all for work that fits no specialized role -- mixed research + implementation, ad hoc chores                         |
+| `bare`     |   Yes   | Minimal-toolset mode -- token-heavy tools stripped(Workflow, ScheduletTasks), same discipline                              |
+| `explore`  |   No   | Read-only codebase exploration -- locate and cite, hard write-lock                                                         |
+| `plan`     |   No   | Read-only planning -- smallest viable plan another agent can execute, then stops for a human checkpoint                    |
+| `review`   |   No   | Adversarial, read-only review -- finds what's wrong, never "fixes" what it's reviewing                                     |
+| `research` |   No   | External web/repo research -- cited memo, never edits files                                                                |
+
+Hosts can still spawn other agents as they see fit.
+
+### Skills
+
+Packaged in [integrations/skills/](integrations/skills/):
+
+| Skill         | What it does                                                                                                                                                  |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `atelier`     | Manages Atelier itself -- install/remove/list/configure agents, skills, and settings via the CLI                                                              |
+| `benchmark`   | Measures what Atelier saves on*your* repo and prompts -- free offline session-history scan, or a real online A/B run vs vanilla Claude Code                   |
+| `orchestrate` | Runs a single structured multi-step task end-to-end, routed to the right execution surface -- subagent, detached background, or a durable, resumable workflow |
+| `swarm`       | Launches N parallel attempts at the same task in isolated worktrees -- best result wins                                                                       |
+| `perf-review` | Gates a code change against measured performance signals -- latency, hot paths, memory/leaks, I/O, scaling -- by running it, not reading it                   |
+| `ux-review`   | Gates shipped UI against objective checks -- a11y, design tokens, responsive/render, states, visual regression -- in a real browser                           |
+| `recall`      | Retrieves what Atelier learned from past sessions -- semantic recall, durable facts, lessons                                                                  |
+
 ## Check your own savings
 
 Do not take our 30% claim on faith. Before installing, you can scan your own local agent history:
@@ -126,7 +184,7 @@ Measured on the same model, same tasks, and same environment:
 | SWE-bench Lite, 10 tasks x 3 reps                   |            93.3% |        **100%** |   **+6.7 pp** |   $12.38 |**$10.79** |   **12.9% cheaper** |            |
 | SWE-bench Pro, 10 tasks x 5 reps                    |            88.0% |       **90.0%** |   **+2.0 pp** |   $39.01 |**$30.61** |   **21.5% cheaper** |            |
 | Exploration tasks across 7 large repos x 5 reps     |                - |               - |             - |    $19.11 |**$6.29** |     **67% cheaper** |            |
-| Telegraphic Q&A, 20 prompts x 5 reps | - | - | - | $8.93 | **$5.34** | **40.2% cheaper** |
+| Telegraphic Q&A, 20 prompts x 5 reps                |                - |               - |             - |     $8.93 |**$5.34** |   **40.2% cheaper** |            |
 | Terminal-Bench 2.1, 89 tasks vs public leaderboard* |   78.9% expected |           78.7% |       -0.2 pp | $96.76 |**$69.52**† | **28.1% cheaper**† |            |
 
 <sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Other 5 tasks in Atelier timeout and cannot capture cost; see .</sub>
@@ -137,31 +195,31 @@ Measured on the same model, same tasks, and same environment:
 
 SWE-bench Verified detail 250 baseline vs 250 Atelier runs:
 
-| Metric        | Baseline | Atelier |            Delta |
-| --------------- | ---------: | --------: | -----------------: |
-| Turns         |    6,962 |   4,336 |  **37.7% fewer** |
-| Output tokens |    3.04M |   2.19M |  **27.9% fewer** |
-| Wall-clock    |    14.3h |   10.9h | **23.7% faster** |
-| Bash                 |           3,327 |           1,785 | **-46.3%** |
-| Read                 |           1,733 |           1,050 | **-39.4%** |
-| Edit + Write         |           1,628 |             759 | **-53.4%** |
-| Search (code_search) |               - |             568 | atelier-only |
-| Total tool calls     |           6,700 |           4,167 | **-37.8%** |
+| Metric               | Baseline | Atelier |            Delta |
+| ---------------------- | ---------: | --------: | -----------------: |
+| Turns                |    6,962 |   4,336 |  **37.7% fewer** |
+| Output tokens        |    3.04M |   2.19M |  **27.9% fewer** |
+| Wall-clock           |    14.3h |   10.9h | **23.7% faster** |
+| Bash                 |    3,327 |   1,785 |       **-46.3%** |
+| Read                 |    1,733 |   1,050 |       **-39.4%** |
+| Edit + Write         |    1,628 |     759 |       **-53.4%** |
+| Search (code_search) |        - |     568 |     atelier-only |
+| Total tool calls     |    6,700 |   4,167 |       **-37.8%** |
 
 Exploration and explanation tasks detail (7 large repos x 5 reps, read-only codebase Q&A, no edits):
 
-| Tool                          | Baseline calls | Atelier calls |    Delta |
-| ------------------------------- | ----------------: | ----------------: | ---------: |
-| Read                          |             672 |             23 | **-96.6%** |
-| Bash                          |             508 |             71 | **-86.0%** |
-| Search (code_search)          |               - |             23 | atelier-only |
-| Agent + orchestration calls\* |              79 |              1 | **-98.7%** |
-| Total tool calls              |           1,259 |            118 | **-90.6%** |
-| input                           |    286,191 |    205,967 | **-28.0%** |
-| cache read                      | 35,862,919 |  2,753,393 | **-92.3%** |
-| cache write                     |  2,811,356 |    233,381 | **-91.7%** |
-| output                          |    426,367 |     68,893 | **-83.8%** |
-| input + cache write             |  3,097,547 |    439,348 | **-85.8%** |
+| Tool                          | Baseline calls | Atelier calls |        Delta |
+| ------------------------------- | ---------------: | --------------: | -------------: |
+| Read                          |            672 |            23 |   **-96.6%** |
+| Bash                          |            508 |            71 |   **-86.0%** |
+| Search (code_search)          |              - |            23 | atelier-only |
+| Agent + orchestration calls\* |             79 |             1 |   **-98.7%** |
+| Total tool calls              |          1,259 |           118 |   **-90.6%** |
+| input                         |        286,191 |       205,967 |   **-28.0%** |
+| cache read                    |     35,862,919 |     2,753,393 |   **-92.3%** |
+| cache write                   |      2,811,356 |       233,381 |   **-91.7%** |
+| output                        |        426,367 |        68,893 |   **-83.8%** |
+| input + cache write           |      3,097,547 |       439,348 |   **-85.8%** |
 
 Source: [`benchmarks/codebench/results/exploration_2026_06_29/`](benchmarks/codebench/results/exploration_2026_06_29/), 35 baseline + 35 Atelier runs,
 [`benchmarks/codebench/results/telegraphic_2026_07_08`](benchmarks/codebench/results/telegraphic_2026_07_08), 100 baseline + 100 atelier runs.

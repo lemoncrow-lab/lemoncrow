@@ -128,16 +128,20 @@ def test_release_apply_does_not_signal_exit(monkeypatch: pytest.MonkeyPatch, tmp
 
 def test_git_apply_signals_exit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Git path returns True (caller exits for an immediate restart on new code)."""
-    (tmp_path / "pyproject.toml").write_text('version = "9.9.9"\n', encoding="utf-8")
     monkeypatch.setattr(svc, "_detect_auto_update_method", lambda: ("git", str(tmp_path)))
-    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.0.0")
+    versions = iter(("2.3.4", "9.9.9"))
+    monkeypatch.setattr(svc, "_atelier_version", lambda: next(versions))
+
     monkeypatch.setattr(svc, "_update_via_git", lambda _root: True)
     monkeypatch.setattr(svc, "_stack_restart", lambda: None)
 
     import atelier.core.foundation.update_state as update_state
 
-    monkeypatch.setattr(update_state, "write_update_state", lambda **_k: None)
+    recorded: dict[str, object] = {}
+    monkeypatch.setattr(update_state, "write_update_state", lambda **kwargs: recorded.update(kwargs))
     assert svc._servicectl_check_and_apply_updates(tmp_path) is True
+    assert recorded["previous_version"] == "2.3.4"
+    assert recorded["current_version"] == "9.9.9"
 
 
 def test_git_apply_noop_when_up_to_date(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

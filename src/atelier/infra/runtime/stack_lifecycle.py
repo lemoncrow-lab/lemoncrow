@@ -86,16 +86,41 @@ def _write_stack_state(root: Path, payload: dict[str, Any]) -> None:
     state_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _get_npm_path() -> str:
-    # Try common locations if not in PATH
-    for path in ["/opt/homebrew/bin/npm", "/usr/local/bin/npm", "/usr/bin/npm"]:
+def _resolve_bin_in_common_locations(name: str, common_paths: list[str]) -> str | None:
+    # Try common install locations first, then fall back to a PATH search --
+    # the child process (e.g. launchd's minimal-PATH spawner) may not inherit
+    # the interactive shell's PATH.
+    for path in common_paths:
         if os.path.exists(path):
             return path
-    # Fallback to PATH search
-    npm_path = shutil.which("npm")
-    if npm_path:
-        return npm_path
-    return "npm"  # Will likely fail, but let's keep the signature consistent
+    return shutil.which(name)
+
+
+def _get_npm_path() -> str:
+    return (
+        _resolve_bin_in_common_locations("npm", ["/opt/homebrew/bin/npm", "/usr/local/bin/npm", "/usr/bin/npm"])
+        or "npm"  # Will likely fail, but let's keep the signature consistent
+    )
+
+
+def _get_node_dir(npm_path: str | None = None) -> str | None:
+    # npm's own shebang is "#!/usr/bin/env node", so even a fully-resolved
+    # npm path (see _get_npm_path) still fails to launch under a minimal
+    # PATH -- e.g. launchd's default /usr/bin:/bin:/usr/sbin:/sbin, which
+    # has neither -- unless node's directory is added to PATH too.
+    #
+    # Prefer the node installed alongside the resolved npm (matters for
+    # version-managed installs like nvm/volta, where node+npm are paired --
+    # picking an unrelated node from a hardcoded location could mismatch the
+    # version npm was built/tested against).
+    if npm_path and npm_path != "npm":
+        sibling_node = os.path.join(os.path.dirname(npm_path), "node")
+        if os.path.exists(sibling_node):
+            return os.path.dirname(sibling_node)
+    node_bin = _resolve_bin_in_common_locations(
+        "node", ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"]
+    )
+    return os.path.dirname(node_bin) if node_bin else None
 
 
 def _stack_frontend_dir() -> Path:

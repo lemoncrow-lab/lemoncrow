@@ -24,6 +24,7 @@ OUT_TOK=""
 CACHE_R="0"
 CACHE_W="0"
 HOST_LINE=""
+WORKSPACE=""
 
 tok_to_int() {
   local raw="${1:-0}"
@@ -53,7 +54,7 @@ fmt_ctx() {
 }
 
 if command -v jq >/dev/null 2>&1 && [ -n "$input" ] && printf '%s' "$input" | jq -e . >/dev/null 2>&1; then
-  mapfile -t fields < <(printf '%s' "$input" | jq -r '
+  json_fields="$(printf '%s' "$input" | jq -r '
     [ (.model.name // .model_display_name // .model // .modelName // ""),
       (.effort // .reasoning_effort // .reasoning.effort // .model.effort // ""),
       (.cwd // .workspace.cwd // .workspace_root // .workspaceRoot // ""),
@@ -65,17 +66,26 @@ if command -v jq >/dev/null 2>&1 && [ -n "$input" ] && printf '%s' "$input" | jq
       (.usage.output_tokens // .output_tokens // .tokens.output // .tokens_out // .outputTokens // ""),
       (.usage.cache_read_tokens // .usage.cached_input_tokens // .cache_read_tokens // .cached_input_tokens // .tokens.cache_read // .tokens.cache.read // ""),
       (.usage.cache_write_tokens // .usage.cache_creation_input_tokens // .cache_write_tokens // .cache_creation_input_tokens // .tokens.cache_write // .tokens.cache.write // "")
-    ][]' 2>/dev/null || true)
-  MODEL="${fields[0]:-}"
-  EFFORT="${fields[1]:-}"
-  SESSION_ID="${fields[3]:-}"
-  COST="${fields[4]:-0}"
-  CTX_PCT="${fields[5]:-}"
-  USED_TOK="${fields[6]:-}"
-  IN_TOK="${fields[7]:-}"
-  OUT_TOK="${fields[8]:-}"
-  CACHE_R="${fields[9]:-0}"
-  CACHE_W="${fields[10]:-0}"
+    ][]' 2>/dev/null || true)"
+  field_index=0
+  while IFS= read -r field; do
+    case "$field_index" in
+      0) MODEL="$field" ;;
+      1) EFFORT="$field" ;;
+      2) WORKSPACE="$field" ;;
+      3) SESSION_ID="$field" ;;
+      4) COST="${field:-0}" ;;
+      5) CTX_PCT="$field" ;;
+      6) USED_TOK="$field" ;;
+      7) IN_TOK="$field" ;;
+      8) OUT_TOK="$field" ;;
+      9) CACHE_R="${field:-0}" ;;
+      10) CACHE_W="${field:-0}" ;;
+    esac
+    field_index=$((field_index + 1))
+  done <<EOF
+$json_fields
+EOF
 else
   HOST_LINE="$(printf '%s' "$input" | sed -n '1s/[[:space:]]*$//p')"
   MODEL="$(printf '%s' "$HOST_LINE" | awk -F ' · ' '{print $1}')"
@@ -117,6 +127,7 @@ export ATELIER_STATUS_ROOT
 export ATELIER_ROOT="${ATELIER_STATUS_ROOT}"
 export ATELIER_STATUS_HOST="codex"
 export ATELIER_STATUS_SESSION_ID="${SESSION_ID:-${CODEX_SESSION_ID:-}}"
+export ATELIER_STATUS_WORKSPACE_ROOT="${WORKSPACE:-${CODEX_WORKSPACE_ROOT:-$PWD}}"
 export ATELIER_STATUS_MODEL="${MODEL:-$MODEL_DISPLAY}"
 export ATELIER_STATUS_MODEL_DISPLAY="${MODEL_DISPLAY}"
 export ATELIER_STATUSLINE_COST_USD="${COST:-0}"

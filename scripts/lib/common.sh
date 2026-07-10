@@ -2052,11 +2052,25 @@ _ensure_path_persistence() {
     info "Added Atelier directories to PATH in ${profile_file/#$HOME/~}"
 }
 
+# _capture_install_previous_version — preserve the executable version before
+# the installer replaces it. The shared writer runs after replacement, when
+# `atelier --version` can only report the new version.
+_capture_install_previous_version() {
+    [[ -n "${ATELIER_PREVIOUS_VERSION:-}" ]] && return 0
+    local atelier_bin="${ATELIER_BIN_DIR}/atelier"
+    [[ -x "$atelier_bin" ]] || atelier_bin="atelier"
+    command -v "$atelier_bin" >/dev/null 2>&1 || return 0
+
+    local previous_version
+    previous_version=$("$atelier_bin" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+    [[ -n "$previous_version" ]] && export ATELIER_PREVIOUS_VERSION="$previous_version"
+}
+
 # _write_install_update_state — record a version bump so the SessionStart hook
 # can show an update notification in Claude Code on the next session start.
-# Reads the previously known version from ~/.atelier/update_state.json and
-# only writes when the version actually changed (skips fresh installs and
-# same-version reinstalls). Fail-open: errors are silently swallowed.
+# Uses the version captured before replacement, then falls back to the last
+# known state for older install paths. Fresh installs and same-version
+# reinstalls do not notify. Fail-open: errors are silently swallowed.
 _write_install_update_state() {
     [[ "${ATELIER_DRY_RUN:-0}" == "1" ]] && return 0
     local atelier_bin="${ATELIER_BIN_DIR}/atelier"
@@ -2068,8 +2082,8 @@ _write_install_update_state() {
     [[ -n "$new_ver" ]] || return 0
 
     local state_file="${HOME}/.atelier/update_state.json"
-    local prev_ver=""
-    if [[ -f "$state_file" ]]; then
+    local prev_ver="${ATELIER_PREVIOUS_VERSION:-}"
+    if [[ -z "$prev_ver" && -f "$state_file" ]]; then
         # current_version in the existing file is the version that was known
         # before this install (possibly already shown/notified to the user).
         prev_ver=$(python3 -c "

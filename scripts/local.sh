@@ -144,6 +144,7 @@ main() {
 
     ATELIER_INSTALL_DIR="$(pwd)"
     export ATELIER_INSTALL_DIR
+    _capture_install_previous_version
 
     step_start "Installing Atelier"
     if [[ "${ATELIER_DRY_RUN:-0}" == "1" ]]; then

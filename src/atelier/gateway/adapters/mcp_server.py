@@ -1039,6 +1039,13 @@ def _detect_default_branch(repo: Path) -> str | None:
 _log = logging.getLogger("atelier.mcp")
 
 
+def _installed_cli_version() -> str | None:
+    """Return the version reported by the installed ``atelier`` executable."""
+    from atelier.core.foundation.update_state import installed_cli_version
+
+    return installed_cli_version()
+
+
 def _check_auto_update() -> None:
     """Check git remote for a newer version and auto-update if found.
 
@@ -1072,6 +1079,11 @@ def _check_auto_update() -> None:
         if not (repo / ".git").exists():
             _log.debug("not a git checkout - skipping auto-update")
             return  # Not a git checkout, nothing to auto-update
+
+        # The MCP server can remain alive across source updates, leaving the
+        # imported ``atelier_version`` at the version it started with. Query
+        # the installed executable instead.
+        local_version = _installed_cli_version() or atelier_version
 
         # Fetch latest remote info
         _log.info("fetching latest remote refs from origin...")
@@ -1113,7 +1125,7 @@ def _check_auto_update() -> None:
             return
 
         remote_version = match.group(1)
-        if _version_key(remote_version) <= _version_key(atelier_version):
+        if _version_key(remote_version) <= _version_key(local_version):
             _log.info("remote version is not newer; skipping auto-update")
             return
 
@@ -1141,21 +1153,13 @@ def _check_auto_update() -> None:
             _log.info("auto-update complete")
 
             # Write update-state so SessionStart hooks can notify the user.
-            # Re-read the version from pyproject.toml since the install script
-            # may have updated it but the in-process version hasn't changed.
+            # The server's imported version may be stale after the install.
             try:
                 from atelier.core.foundation.update_state import write_update_state
 
-                new_pyproject = repo / "pyproject.toml"
-                if new_pyproject.exists():
-                    m2 = re.search(r'^version\s*=\s*"([^"]+)"', new_pyproject.read_text("utf-8"), re.MULTILINE)
-                    new_ver = m2.group(1) if m2 else atelier_version
-                else:
-                    new_ver = atelier_version
-
                 write_update_state(
-                    previous_version=atelier_version,
-                    current_version=new_ver,
+                    previous_version=local_version,
+                    current_version=_installed_cli_version() or remote_version,
                     method="git",
                 )
             except Exception:  # noqa: BLE001
