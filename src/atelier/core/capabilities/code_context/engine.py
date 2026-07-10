@@ -954,6 +954,76 @@ def _safe_relpath(repo_root: Path, path: Path) -> str:
         return str(resolved)
 
 
+# Binary/non-text extensions to skip when walking non-source files for the
+# Python-text-search fallback.  Kept small and conservative — the walk is
+# only reached when rg is unavailable and the FTS index is empty.
+_SKIP_EXTENSIONS = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".ico",
+        ".webp",
+        ".svg",
+        ".mp3",
+        ".mp4",
+        ".wav",
+        ".avi",
+        ".mov",
+        ".mkv",
+        ".zip",
+        ".tar",
+        ".gz",
+        ".bz2",
+        ".xz",
+        ".7z",
+        ".rar",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".eot",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".sqlite",
+        ".sqlite3",
+        ".db",
+        ".so",
+        ".dylib",
+        ".dll",
+        ".o",
+        ".a",
+        ".pyc",
+        ".pyo",
+        ".class",
+    }
+)
+
+
+def _walk_non_source_files(root: Path) -> list[Path]:
+    """Yield readable non-source files under *root* (best-effort, shallow)."""
+    results: list[Path] = []
+    try:
+        for entry in sorted(root.rglob("*")):
+            if not entry.is_file():
+                continue
+            if entry.suffix.lower() in _SKIP_EXTENSIONS:
+                continue
+            # Skip hidden dirs and common junk dirs.
+            parts = entry.relative_to(root).parts
+            if any(p.startswith(".") or p in {"node_modules", "__pycache__", "vendor", ".git"} for p in parts[:-1]):
+                continue
+            results.append(entry)
+    except OSError:
+        pass
+    return results
+
+
 # IDF pruning cap for the FTS OR/prefix channels: a query token present in more
 # than this fraction of all indexed symbols (e.g. "get", "name", "field") is
 # non-discriminative -- it contributes a huge bm25 posting-list scan while the
@@ -13827,6 +13897,27 @@ class CodeContextEngine:
                     matches.append(TextMatch(file_path=rel, line=line_no, column=column + 1, text=line))
                     if len(matches) >= limit:
                         return matches
+        # Source-file search exhausted (or rg unavailable).  Walk remaining
+        # non-source files so that prose/config/doc literals are discoverable
+        # — mirrors what rg would return over the same directory.
+        if not matches and not search_path.is_file():
+            seen = {p.resolve() for p in paths}
+            for path in _walk_non_source_files(search_path):
+                if path.resolve() in seen or len(matches) >= limit:
+                    break
+                try:
+                    rel = _safe_relpath(self.repo_root, path)
+                    for line_no, line in enumerate(
+                        path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+                    ):
+                        hay = line.lower() if ignore_case else line
+                        column = hay.find(query_cmp)
+                        if column >= 0:
+                            matches.append(TextMatch(file_path=rel, line=line_no, column=column + 1, text=line))
+                            if len(matches) >= limit:
+                                return matches
+                except (OSError, UnicodeDecodeError):
+                    continue
         return matches
 
     def _sync_symbol_intel(self) -> None:

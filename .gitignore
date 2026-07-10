@@ -161,6 +161,7 @@ tests/core/test_*.py:[0-9]*
 # Database dumps (ignore at root, but allow migrations)
 *.sql
 !src/**/*.sql
+!tests/fixtures/**/*.sql
 *.sqlite3
 vector_cache.sqlite
 dump.rdb
