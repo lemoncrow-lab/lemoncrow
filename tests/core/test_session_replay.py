@@ -40,6 +40,18 @@ def test_classifies_grep_read_and_atelier() -> None:
     assert not _is_grep(_tc("Edit", file_path="a.py"))
 
 
+def test_atelier_read_is_not_a_wasteful_whole_file_read() -> None:
+    # Atelier's read is batched/ranged by design -- classifying it as a wasteful
+    # whole-file read inflated collapse/batch stats on ran-with-Atelier sessions.
+    assert not _is_whole_file_read(_tc("mcp__atelier__read", files=["a.py", "b.py:L1-L20"]))
+    assert not _is_whole_file_read(_tc("mcp__atelier__read", symbol="fold_line"))
+    # files/symbol args are targeted on ANY read tool
+    assert not _is_whole_file_read(_tc("read", files=["a.py"]))
+    assert not _is_whole_file_read(_tc("read", symbol="foo"))
+    # a plain whole-file Read still counts
+    assert _is_whole_file_read(_tc("Read", file_path="a.py"))
+
+
 # --------------------------------------------------------------------------- #
 # Episode detection (host-agnostic — operates on normalized turns)
 # --------------------------------------------------------------------------- #
@@ -239,6 +251,35 @@ def test_render_html_is_wellformed() -> None:
     assert "code_search" in out
     assert "turn cut" in out  # a struck-through loop turn
     assert out.count("<html") == 1 and out.count("</html>") == 1
+    assert 'class="tabs"' not in out  # single session -> no tab bar
+
+
+def test_render_html_tabs_for_multiple_sessions() -> None:
+    a = build_replay(_claude_transcript(), host="claude", session_id="s1")
+    b = build_replay(_claude_transcript(), host="claude", session_id="s2")
+    out = render_html([a, b])
+    assert out.count('class="tab-panel') == 2  # one panel per session
+    assert out.count('class="tab-btn') == 2  # one button per session
+    assert "function selTab" in out
+
+
+def test_arg_summary_covers_list_and_scalar_args() -> None:
+    from atelier.core.capabilities.session_replay_render import _arg_summary
+
+    read = {
+        "kind": "tool_call",
+        "tool_name": "mcp__atelier__read",
+        "arguments": {"files": ["a.py", "b.py:L1-L9", "c.py", "d.py"]},
+    }
+    edit = {
+        "kind": "tool_call",
+        "tool_name": "mcp__atelier__edit",
+        "arguments": {"edits": [{"path": "x.py:L1-L4", "new": "..."}]},
+    }
+    assert _arg_summary(read) == "mcp__atelier__read(a.py, b.py:L1-L9, c.py, +1 more)"
+    assert _arg_summary(edit) == "mcp__atelier__edit(x.py:L1-L4)"
+    # unknown scalar-only tool still surfaces its first value, never a bare ellipsis
+    assert _arg_summary({"kind": "tool_call", "tool_name": "X", "arguments": {"n": 42}}) == "X(42)"
 
 
 def test_load_replays_from_file(tmp_path: Path) -> None:
@@ -300,10 +341,28 @@ def test_single_edit_no_batch() -> None:
 
 
 def test_build_replay_counts_batches() -> None:
-    turns_json = _opencode_transcript()  # has a grep loop, not batches
-    r = build_replay(turns_json, host="opencode", session_id="oc1")
+    # The base opencode transcript is one grep loop: its reads are episode-
+    # collapsed (never double-counted as a batch) and the lone edit is no batch.
+    r = build_replay(_opencode_transcript(), host="opencode", session_id="oc1")
     assert r.summary is not None
-    assert r.summary.batch_count == r.summary.batch_count  # smoke: field present
+    assert r.summary.batch_count == 0
+    assert r.summary.batch_calls_saved == 0
+
+    # A second adjacent edit forms one edit batch (-1 call).
+    extra = json.dumps(
+        {
+            "_type": "part",
+            "data": {
+                "type": "tool",
+                "tool": "edit",
+                "state": {"input": {"filePath": "other.py", "old_string": "a", "new_string": "b"}},
+            },
+        }
+    )
+    r2 = build_replay(_opencode_transcript() + "\n" + extra, host="opencode", session_id="oc2")
+    assert r2.summary is not None
+    assert r2.summary.batch_count == 1
+    assert r2.summary.batch_calls_saved == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -504,6 +563,139 @@ def test_collapse_saving_fraction_canonical() -> None:
     # still costs the code_search rounds it keeps).
     all_loop = estimate_collapse_saving_fraction(rounds, list(range(len(rounds))), "claude-sonnet-5")
     assert all_loop < 1.0
+
+
+def test_collapse_saving_keeps_one_standin_per_episode() -> None:
+    from atelier.core.capabilities.savings_summary import estimate_collapse_saving_fraction
+
+    rounds = [
+        {"in": 100, "out": 50, "cache_read": 1000, "cache_write": 200},
+        {"in": 2, "out": 60, "cache_read": 1200, "cache_write": 100},
+        {"in": 2, "out": 70, "cache_read": 1400, "cache_write": 100},
+        {"in": 2, "out": 80, "cache_read": 1600, "cache_write": 100},
+    ]
+    # Two disjoint single-round loops: each round IS its own code_search
+    # stand-in, so nothing is eliminated and nothing is saved.
+    assert estimate_collapse_saving_fraction(rounds, [[0], [2]], "claude-sonnet-5") == 0.0
+    # A two-round loop plus a single-round loop eliminates exactly one round;
+    # the flat form treats all three as ONE loop and (wrongly, for two
+    # episodes) eliminates two -- grouped must save strictly less.
+    grouped = estimate_collapse_saving_fraction(rounds, [[0, 1], [3]], "claude-sonnet-5")
+    flat = estimate_collapse_saving_fraction(rounds, [0, 1, 3], "claude-sonnet-5")
+    assert 0.0 < grouped < flat
+
+
+def test_codex_replay_prices_tokens_for_savings() -> None:
+    # codex/opencode transcripts cannot be folded by the Claude-only stats
+    # reader -- the replay must price the parsed per-turn usage instead of
+    # showing Cost $0.0000.
+    lines = [
+        {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "find the bug"}]},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": "grep -rn foo ."})},
+        {"type": "function_call", "name": "read_file", "arguments": json.dumps({"path": "a.py"})},
+        {
+            "type": "message",
+            "role": "assistant",
+            "model": "gpt-5",
+            "usage": {"input_tokens": 9000, "output_tokens": 400, "cached_input_tokens": 2000},
+            "content": [{"type": "text", "text": "found it"}],
+        },
+    ]
+    r = build_replay("\n".join(json.dumps(x) for x in lines), host="codex", session_id="cx-usage-zzz")
+    sav = estimate_savings(r)
+    assert sav["total_cost_usd"] > 0.0  # priced from parsed per-turn tokens
+    assert sav["atelier_cost_usd"] <= sav["total_cost_usd"]
+
+
+def _claude_usage_transcript() -> str:
+    def asst(mid: str, tool: str, args: dict[str, object], usage: dict[str, int]) -> dict[str, object]:
+        return {
+            "type": "assistant",
+            "timestamp": f"2026-07-02T00:00:0{mid[-1]}Z",
+            "message": {
+                "id": mid,
+                "model": "claude-sonnet-4-5",
+                "usage": usage,
+                "content": [{"type": "tool_use", "id": f"t-{mid}", "name": tool, "input": args}],
+            },
+        }
+
+    lines = [
+        {"type": "user", "sessionId": "vanilla-frac-x1", "message": {"content": "find TokenRefresh and fix it"}},
+        asst("m1", "Grep", {"pattern": "TokenRefresh"}, {"input_tokens": 3000, "output_tokens": 100}),
+        asst(
+            "m2",
+            "Read",
+            {"file_path": "auth/middleware.py"},
+            {
+                "input_tokens": 5,
+                "output_tokens": 120,
+                "cache_read_input_tokens": 20000,
+                "cache_creation_input_tokens": 6000,
+            },
+        ),
+        asst(
+            "m3",
+            "Read",
+            {"file_path": "auth/token.py"},
+            {
+                "input_tokens": 5,
+                "output_tokens": 130,
+                "cache_read_input_tokens": 26000,
+                "cache_creation_input_tokens": 5000,
+            },
+        ),
+        asst(
+            "m4",
+            "Edit",
+            {"file_path": "auth/token.py", "old_string": "a", "new_string": "b"},
+            {
+                "input_tokens": 5,
+                "output_tokens": 300,
+                "cache_read_input_tokens": 31000,
+                "cache_creation_input_tokens": 2000,
+            },
+        ),
+    ]
+    return "\n".join(json.dumps(x) for x in lines)
+
+
+def test_vanilla_savings_fraction_applies_to_main_cost_only(tmp_path: Path) -> None:
+    # Same MAIN transcript twice; one copy also has a huge-usage subagent
+    # transcript. The vanilla fraction must be applied to the main-transcript
+    # cost only, so the estimated saving must not grow with the subagent bill.
+    from atelier.core.capabilities import savings_summary as ss
+
+    ss._transcript_stats_cache.clear()
+    a = tmp_path / "a" / "vanilla-frac-x1.jsonl"
+    a.parent.mkdir(parents=True)
+    a.write_text(_claude_usage_transcript() + "\n", encoding="utf-8")
+
+    b = tmp_path / "b" / "vanilla-frac-x1.jsonl"
+    subdir = tmp_path / "b" / "vanilla-frac-x1" / "subagents"
+    subdir.mkdir(parents=True)
+    b.write_text(_claude_usage_transcript() + "\n", encoding="utf-8")
+    sub = {
+        "type": "assistant",
+        "timestamp": "2026-07-02T00:01:00Z",
+        "message": {
+            "id": "sub-m1",
+            "model": "claude-sonnet-4-5",
+            "usage": {"input_tokens": 500000, "output_tokens": 80000},
+            "content": [{"type": "text", "text": "subagent output"}],
+        },
+    }
+    (subdir / "sub1.jsonl").write_text(json.dumps(sub) + "\n", encoding="utf-8")
+
+    sav_main = estimate_savings(load_replays(host="claude", file=a)[0])
+    sav_with_sub = estimate_savings(load_replays(host="claude", file=b)[0])
+
+    assert sav_main["saved_usd"] > 0.0  # non-zero usage exercises fraction x cost
+    assert sav_main["atelier_cost_usd"] < sav_main["total_cost_usd"]
+    # subagent usage is billed to the session...
+    assert sav_with_sub["total_cost_usd"] > sav_main["total_cost_usd"]
+    # ...but the collapse fraction never multiplies the subagent bill
+    assert abs(sav_with_sub["saved_usd"] - sav_main["saved_usd"]) < 1e-6
 
 
 def test_shell_grep_read_loop_collapses() -> None:

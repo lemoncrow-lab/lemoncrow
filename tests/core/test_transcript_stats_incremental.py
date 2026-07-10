@@ -54,6 +54,56 @@ def test_incremental_append_and_cache_hit(tmp_path: Path) -> None:
     assert third is not None and third.turns == 3 and third.input_tokens == 300
 
 
+def test_streamed_usage_rows_keep_last_for_savings(tmp_path: Path) -> None:
+    ss._transcript_stats_cache.clear()
+    t = tmp_path / "s-stream.jsonl"
+
+    def row(out_t: int, in_t: int = 100, cr: int = 0, cw: int = 0) -> str:
+        return json.dumps(
+            {
+                "type": "assistant",
+                "timestamp": "2026-07-02T00:00:00Z",
+                "message": {
+                    "id": "m1",
+                    "model": "claude-sonnet-4-5",
+                    "usage": {
+                        "input_tokens": in_t,
+                        "output_tokens": out_t,
+                        "cache_read_input_tokens": cr,
+                        "cache_creation_input_tokens": cw,
+                    },
+                    "content": [],
+                },
+            }
+        )
+
+    # Claude Code streams multiple usage rows per assistant message id with
+    # growing output_tokens -- the LAST row is authoritative, not the first.
+    t.write_text(row(10) + "\n" + row(50) + "\n", encoding="utf-8")
+    first = ss.read_transcript_stats(t)
+    assert first is not None and first.turns == 1
+    assert first.output_tokens == 50
+
+    # ...including across incremental folds (append after a prior read).
+    with t.open("a", encoding="utf-8") as fh:
+        fh.write(row(200, in_t=120, cr=300, cw=40) + "\n")
+    second = ss.read_transcript_stats(t)
+    assert second is not None and second.turns == 1  # still ONE turn
+    assert second.input_tokens == 120
+    assert second.output_tokens == 200
+    assert second.cache_read_tokens == 300
+    assert second.cache_write_tokens == 40
+    # est_cost prices the LAST row only, not the sum of partial streamed rows.
+    expected = ss.estimate_cost_usd(
+        model_id="claude-sonnet-4-5",
+        input_tokens=120,
+        output_tokens=200,
+        cache_read_tokens=300,
+        cache_write_tokens=40,
+    )
+    assert abs(second.est_cost_usd - expected) < 1e-9
+
+
 def test_partial_tail_line_left_for_next_call(tmp_path: Path) -> None:
     ss._transcript_stats_cache.clear()
     t = tmp_path / "s2.jsonl"

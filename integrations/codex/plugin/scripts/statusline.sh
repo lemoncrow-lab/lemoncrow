@@ -140,12 +140,38 @@ if [ -n "${CODEX_WORKSPACE_ROOT:-}" ]; then
 fi
 
 DYNAMIC_SEG=""
-ATELIER_BIN="$(command -v atelier 2>/dev/null || true)"
-if [ -n "$ATELIER_BIN" ]; then
-  DYNAMIC_SEG="$("$ATELIER_BIN" savings --segment 2>/dev/null || true)"
+# Short-TTL per-session cache (mirrors the Claude statusline's 8s pattern) so
+# a render doesn't spawn the CLI every frame. Keyed strictly by the real
+# session id with NO fallback key: an unkeyed cache would leak one window's
+# savings segment into another, so with no session id we skip caching.
+_NOW_S=$(date +%s)
+_SEG_SID="${SESSION_ID:-${CODEX_SESSION_ID:-}}"
+_SEG_CACHE="${ATELIER_STATUS_ROOT}/statusline_segment_cache_codex_${_SEG_SID}"
+_SEG_CACHE_TS="${ATELIER_STATUS_ROOT}/statusline_segment_ts_codex_${_SEG_SID}"
+if [ -n "${_SEG_SID}" ]; then
+  _CACHED_TS=$(cat "${_SEG_CACHE_TS}" 2>/dev/null || echo 0)
+  _CACHE_AGE=$(( _NOW_S - ${_CACHED_TS:-0} ))
+  if [ "${_CACHE_AGE}" -le 8 ] && [ -f "${_SEG_CACHE}" ]; then
+    DYNAMIC_SEG=$(cat "${_SEG_CACHE}" 2>/dev/null || true)
+  fi
 fi
 if [ -z "${DYNAMIC_SEG:-}" ]; then
-  DYNAMIC_SEG="$(uv run --quiet atelier savings --segment 2>/dev/null || true)"
+  ATELIER_BIN="$(command -v atelier 2>/dev/null || true)"
+  if [ -n "$ATELIER_BIN" ]; then
+    DYNAMIC_SEG="$("$ATELIER_BIN" savings --segment 2>/dev/null || true)"
+  fi
+  if [ -z "${DYNAMIC_SEG:-}" ]; then
+    DYNAMIC_SEG="$(uv run --quiet atelier savings --segment 2>/dev/null || true)"
+  fi
+  # Cache only with a real session id and real live usage -- never a shared,
+  # unkeyed slot, never a stale zero-token segment. Atomic renames so a
+  # concurrent render never reads a torn file.
+  if [ -n "${DYNAMIC_SEG:-}" ] && [ -n "${_SEG_SID}" ] && [ "${USED_INT:-0}" -gt 0 ] 2>/dev/null; then
+    printf '%s' "${DYNAMIC_SEG}" > "${_SEG_CACHE}.$$" 2>/dev/null \
+      && mv -f "${_SEG_CACHE}.$$" "${_SEG_CACHE}" 2>/dev/null || true
+    printf '%s' "${_NOW_S}" > "${_SEG_CACHE_TS}.$$" 2>/dev/null \
+      && mv -f "${_SEG_CACHE_TS}.$$" "${_SEG_CACHE_TS}" 2>/dev/null || true
+  fi
 fi
 
 if [ -n "${ATELIER_NO_COLOR:-}" ]; then

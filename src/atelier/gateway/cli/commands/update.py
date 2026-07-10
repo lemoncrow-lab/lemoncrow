@@ -123,13 +123,18 @@ def _git_remote_version(project_root: str) -> str | None:
         return None
 
 
-def _version_key(version: str) -> tuple[int, ...]:
-    """Dotted version → comparable int tuple (non-numeric chunks count as 0)."""
+def _version_key(version: str) -> tuple[int, ...] | None:
+    """Dotted version → comparable int tuple, or None when nothing numeric parses."""
     parts: list[int] = []
+    any_numeric = False
     for chunk in version.split("."):
         match = re.match(r"\d+", chunk)
-        parts.append(int(match.group()) if match else 0)
-    return tuple(parts)
+        if match:
+            any_numeric = True
+            parts.append(int(match.group()))
+        else:
+            parts.append(0)
+    return tuple(parts) if any_numeric else None
 
 
 # ---------------------------------------------------------------------------
@@ -265,19 +270,25 @@ def _reconcile_companions(project_root: str) -> None:
 @click.command("update")
 @click.option("--check", "check_only", is_flag=True, help="Only check for updates, do not apply.")
 @click.option("--force", "force_update", is_flag=True, help="Reinstall even if same version.")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON (requires --check).")
 @click.pass_context
-def update_cmd(ctx: click.Context, check_only: bool, force_update: bool) -> None:
+def update_cmd(ctx: click.Context, check_only: bool, force_update: bool, as_json: bool) -> None:
     """Check for and apply Atelier updates.
 
     Detects your install method (git checkout or GitHub-release install) and
     runs the matching upgrade.
+
+    With --check: exits 0 when up-to-date, 1 when an update is available.
     """
+    if as_json and not check_only:
+        raise click.UsageError("--json requires --check")
     root: Path = ctx.obj.get("root", Path.home() / ".atelier")
 
     # 1. Detect install method
     method, project_root = _detect_method()
-    click.echo(f"  Current version: {current_version}")
-    click.echo(f"  Install method:  {method}")
+    if not as_json:
+        click.echo(f"  Current version: {current_version}")
+        click.echo(f"  Install method:  {method}")
 
     # 2. Check remote version
     if method == "git" and project_root:
@@ -288,20 +299,45 @@ def update_cmd(ctx: click.Context, check_only: bool, force_update: bool) -> None
     if remote_version is None:
         raise click.ClickException("Could not determine latest available version. Check your internet connection.")
 
-    click.echo(f"  Remote version:  {remote_version}")
+    if not as_json:
+        click.echo(f"  Remote version:  {remote_version}")
+
+    remote_key = _version_key(remote_version)
+    if remote_key is None:
+        # An unparseable remote tag must never compare as 0.0 (→ false "up-to-date").
+        raise click.ClickException(f"Could not parse remote version {remote_version!r}.")
 
     # 3. Compare (ordered — a local checkout ahead of the remote is not an update)
-    if _version_key(remote_version) <= _version_key(current_version) and not force_update:
+    local_key = _version_key(current_version) or ()
+    update_available = remote_key > local_key
+
+    if check_only:
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "current_version": current_version,
+                        "remote_version": remote_version,
+                        "method": method,
+                        "update_available": update_available,
+                    }
+                )
+            )
+        elif update_available:
+            click.echo(f"\n  ◇ Update available: {current_version} → {remote_version}")
+            click.echo("  ◇ Run `atelier update` to apply.")
+        else:
+            click.echo("\n  ✓ Already up-to-date.")
+        if update_available:
+            ctx.exit(1)
+        return
+
+    if not update_available and not force_update:
         click.echo("\n  ✓ Already up-to-date.")
         return
 
-    if check_only:
-        click.echo(f"\n  ◇ Update available: {current_version} → {remote_version}")
-        click.echo("  ◇ Run `atelier update` to apply.")
-        return
-
     # 4. Apply
-    click.echo("")
+    click.echo(f"\n  ◆ Updating {current_version} → {remote_version} ({method} install)...")
     previous = current_version
 
     if method == "git":

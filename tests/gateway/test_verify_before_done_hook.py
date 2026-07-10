@@ -103,6 +103,57 @@ def test_python_c_snippet_does_not_count_as_verification(tmp_path: Path) -> None
     assert _blocked(_run(t))
 
 
+def _assistant_with_id(name: str, tool_input: dict, tool_use_id: str) -> dict:
+    return {
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": tool_use_id, "name": name, "input": tool_input}],
+        },
+    }
+
+
+def _tool_result(tool_use_id: str, is_error: bool) -> dict:
+    return {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": tool_use_id, "is_error": is_error, "content": "..."}],
+        },
+    }
+
+
+def test_test_run_before_edit_does_not_count(tmp_path: Path) -> None:
+    # A pre-edit test run proves nothing about the change: still blocks.
+    t = _transcript(
+        tmp_path,
+        _assistant(("Bash", {"command": "pytest -q"})),
+        _assistant(("Edit", {"file_path": "app/core.py"})),
+    )
+    assert _blocked(_run(t))
+
+
+def test_failed_test_run_does_not_count(tmp_path: Path) -> None:
+    # A test run whose tool_result is_error=True is a failed verification.
+    t = _transcript(
+        tmp_path,
+        _assistant(("Edit", {"file_path": "app/core.py"})),
+        _assistant_with_id("Bash", {"command": "pytest -q"}, "tu1"),
+        _tool_result("tu1", True),
+    )
+    assert _blocked(_run(t))
+
+
+def test_passing_test_run_after_edit_allows(tmp_path: Path) -> None:
+    t = _transcript(
+        tmp_path,
+        _assistant(("Edit", {"file_path": "app/core.py"})),
+        _assistant_with_id("Bash", {"command": "pytest -q"}, "tu1"),
+        _tool_result("tu1", False),
+    )
+    assert not _blocked(_run(t))
+
+
 def test_docs_only_edit_allows(tmp_path: Path) -> None:
     t = _transcript(tmp_path, _assistant(("Edit", {"file_path": "README.md"})))
     assert not _blocked(_run(t))

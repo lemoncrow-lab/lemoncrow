@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -62,7 +63,67 @@ def _edited_paths() -> set[str]:
 def _is_read(name: str, ti: dict[str, Any]) -> bool:
     if name.endswith("__read") or name == "read":
         return True
-    return "path" in ti and "edits" not in ti and "command" not in ti
+    return ("path" in ti or "files" in ti) and "edits" not in ti and "command" not in ti
+
+
+# ':Lx-Ly' / ':full' / ':head=N' / ':tail=N' / ':summary' / ':outline' suffixes
+# accepted by the read tool's files=[] string entries.
+_BOUND_SUFFIX = re.compile(r":(L?\d+(?:-L?\d+)?|full|head=\d+|tail=\d+|summary|outline)$", re.IGNORECASE)
+
+
+def _split_suffix(raw: str) -> tuple[str, str]:
+    """Return (path, suffix) with '#fragment' and the read-tool suffix stripped."""
+    bare = raw.split("#")[0]
+    m = _BOUND_SUFFIX.search(bare)
+    if m:
+        return bare[: m.start()], m.group(1).lower()
+    return bare, ""
+
+
+def _resolve(path: str) -> str:
+    """Workspace-anchored absolute path; '' when resolution is impossible."""
+    if not path:
+        return ""
+    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    try:
+        p = Path(path).expanduser()
+        if not p.is_absolute():
+            p = Path(workspace) / p
+        return str(p.resolve())
+    except (OSError, RuntimeError, ValueError):
+        return ""
+
+
+def _full_read_targets(ti: dict[str, Any]) -> list[str]:
+    """Paths this read call would ingest whole (no range/head/tail/summary bound).
+
+    Covers both input shapes: legacy top-level {path, full} and the files=[]
+    schema whose entries are plain strings ('a.py', 'a.py:full', 'a.py:L1-L9')
+    or dicts ({path, full?, range?, head?, tail?, summary?, outline?}).
+    """
+    targets: list[str] = []
+    raw_path = str(ti.get("path") or "")
+    if raw_path and bool(ti.get("full")) and not (bool(ti.get("range")) or "#" in raw_path):
+        targets.append(raw_path.split("#")[0])
+    files = ti.get("files")
+    if isinstance(files, list):
+        for entry in files:
+            if isinstance(entry, str):
+                path, suffix = _split_suffix(entry)
+                # Bare path string = whole-file read; ':full' is explicit.
+                if path and suffix in ("", "full"):
+                    targets.append(path)
+            elif isinstance(entry, dict):
+                raw = entry.get("path")
+                if not isinstance(raw, str) or not raw:
+                    continue
+                path, suffix = _split_suffix(raw)
+                if not path or (suffix and suffix != "full"):
+                    continue
+                bounded = any(entry.get(k) for k in ("range", "head", "tail", "summary", "outline"))
+                if not bounded:
+                    targets.append(path)
+    return targets
 
 
 def _deny(reason: str) -> None:
@@ -100,15 +161,29 @@ def main() -> int:
         return 0
     if not _is_read(name, ti):
         return 0
-    raw_path = str(ti.get("path") or "")
-    has_range = bool(ti.get("range")) or "#" in raw_path
-    if not bool(ti.get("full")) or has_range:
+    edited = _edited_paths()
+    if not edited:
         return 0
-    base = Path(raw_path.split("#")[0]).name
-    if not base or base not in _edited_paths():
+    # Entries are resolved absolute paths; a bare basename is the recorder's
+    # last-resort fallback when resolution failed. Compare full paths first --
+    # basename-only matching false-positives on common names (utils.py).
+    basename_entries = {e for e in edited if "/" not in e and "\\" not in e}
+    all_basenames = {Path(e).name for e in edited}
+    hit = ""
+    for target in _full_read_targets(ti):
+        resolved = _resolve(target)
+        base = Path(target).name
+        if (
+            (resolved and resolved in edited)
+            or (base and base in basename_entries)
+            or (not resolved and base in all_basenames)
+        ):
+            hit = base or target
+            break
+    if not hit:
         return 0
     reason = (
-        f'Edited {base} already -- read a range (range="L1-L120"), not the whole file; :full re-caches it every turn.'
+        f'Edited {hit} already -- read a range (range="L1-L120"), not the whole file; :full re-caches it every turn.'
     )
     _deny(reason)
     return 0

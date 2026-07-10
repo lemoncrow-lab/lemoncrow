@@ -26,6 +26,7 @@ from typing import Any
 import click
 
 from atelier.core.capabilities.optimization.optimizer import potential_savings_breakdown
+from atelier.core.capabilities.pricing import fallback_cost_usd
 from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
 
 logger = logging.getLogger(__name__)
@@ -408,7 +409,10 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
 
         cost_v = cost_map.get(sid, float(snap.get("cost", {}).get("total_cost_usd", 0.0)))
         if cost_v == 0 and "input_tokens" in snap:
-            cost_v = (snap.get("input_tokens", 0) * 3 + snap.get("output_tokens", 0) * 15) / 1_000_000.0
+            cost_v = fallback_cost_usd(
+                input_tokens=int(snap.get("input_tokens", 0) or 0),
+                output_tokens=int(snap.get("output_tokens", 0) or 0),
+            )
 
         saved_v = savings_map.get(sid, 0.0)
         routing_v = routing_map.get(sid, 0.0)
@@ -524,7 +528,10 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
 
         cost_v = cost_map.get(sid, float(d.get("cost", {}).get("total_cost_usd", 0.0)))
         if cost_v == 0 and "input_tokens" in d:
-            cost_v = (d.get("input_tokens", 0) * 3 + d.get("output_tokens", 0) * 15) / 1_000_000.0
+            cost_v = fallback_cost_usd(
+                input_tokens=int(d.get("input_tokens", 0) or 0),
+                output_tokens=int(d.get("output_tokens", 0) or 0),
+            )
 
         saved_v = savings_map.get(sid, 0.0)
         routing_v = routing_map.get(sid, 0.0)

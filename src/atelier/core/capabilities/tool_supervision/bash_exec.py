@@ -273,6 +273,11 @@ class _ManagedCommand:
     # being a soft response budget floored at _MANAGED_COMMAND_HARD_CAP_S --
     # see _effective_deadline_s.
     deadline_explicit: bool = False
+    # Enforced kill deadline in seconds since start, installed at start time
+    # when the caller explicitly passed `timeout` (see start_managed_command);
+    # None = no start-time deadline, so the kill floors at the 1h hard cap.
+    # An action="update" deadline (deadline_explicit) supersedes it.
+    kill_deadline_s: float | None = None
     state: str = "running"
     # First-line provenance when _inject_stable_flags modified the executed
     # command; prepended to the compacted stdout at poll time.
@@ -321,6 +326,15 @@ _READER_JOIN_GRACE_S = 2.0
 # hard cap is the actual backstop against a forgotten/orphaned process
 # running forever.
 _MANAGED_COMMAND_HARD_CAP_S = 3600.0
+# Kill-deadline floor applied when the caller *explicitly* passed a timeout at
+# start (start_managed_command(..., timeout_explicit=True)): the process is
+# killed at max(timeout, this floor). The floor — not the raw timeout — keeps
+# the soft-budget contract intact for small values: bash(timeout=5) still
+# returns a handle at 5s and lets a slightly-over-budget command finish for a
+# follow-up poll, instead of turning the response budget into an instant kill
+# switch. 60s is late enough for that grace and still reaps a runaway
+# foreground command 60x sooner than the 1h hard cap.
+_EXPLICIT_TIMEOUT_KILL_FLOOR_S = 60.0
 # Absolute ceiling on an action="update"-installed explicit deadline (see
 # _ManagedCommand.deadline_explicit and update_managed_command): the real
 # backstop against a caller granting a forgotten background job unbounded
@@ -1186,15 +1200,19 @@ def _is_noexec_shell(tokens: list[str]) -> bool:
 _SHELL_INLINE_SHORT_RE = re.compile(r"^-[a-zA-Z]*[cs]")
 
 
-def _is_script_file_run(tokens: list[str], *, cwd: Path | None) -> bool:
-    """True for ``bash <existing script> [args...]`` — no inline code on the line.
+_SCRIPT_SCAN_MAX_BYTES = 64 * 1024
+
+
+def _script_file_target(tokens: list[str], *, cwd: Path | None) -> Path | None:
+    """Resolved script path for ``bash <existing script> [args...]``, else None.
 
     ``bash -c '...'`` (inline) and ``bash -s`` (stdin) stay blocked: their
     command text is opaque to the per-segment blocklist. A script that exists
     on disk is an auditable on-disk artifact — the same risk class as
-    ``python file.py`` or ``make``, which the policy already allows. A missing
-    path falls through to the block (catches ``bash <(curl ...)`` styles and
-    typos).
+    ``python file.py`` or ``make``, which the policy already allows — and its
+    contents still get the blocklist scan (_scan_script_for_blocked). A
+    missing path yields None so the caller blocks (catches ``bash
+    <(curl ...)`` styles and typos).
     """
     i = 1
     while i < len(tokens):
@@ -1204,7 +1222,7 @@ def _is_script_file_run(tokens: list[str], *, cwd: Path | None) -> bool:
             break
         if tok.startswith("-"):
             if not tok.startswith("--") and _SHELL_INLINE_SHORT_RE.match(tok):
-                return False  # -c / -s (possibly bundled): inline or stdin code
+                return None  # -c / -s (possibly bundled): inline or stdin code
             if tok == "-o":
                 i += 2  # -o consumes its option value
                 continue
@@ -1212,16 +1230,55 @@ def _is_script_file_run(tokens: list[str], *, cwd: Path | None) -> bool:
             continue
         break
     if i >= len(tokens):
-        return False  # bare `bash`: interactive / stdin
+        return None  # bare `bash`: interactive / stdin
     script = Path(tokens[i])
     if not script.is_absolute():
         if cwd is None:
-            return False
+            return None
         script = cwd / script
     try:
-        return script.is_file()
+        return script if script.is_file() else None
     except OSError:
-        return False
+        return None
+
+
+def _scan_script_for_blocked(
+    script: Path, *, cwd: Path | None, rm_safe_roots: list[Path] | None, visited: set[Path]
+) -> CommandPolicyDecision | None:
+    """Block-check an on-disk script's contents before letting ``bash script`` run.
+
+    Without this, the blocklist is bypassed by writing the dangerous command
+    into a file first — ``bash cleanup.sh`` never had its contents inspected.
+    Reads a bounded prefix (_SCRIPT_SCAN_MAX_BYTES); this is a static gate,
+    not an interpreter. Fail-open on an unreadable file: pre-scan behavior let
+    bash surface its own runtime error, and a file this process cannot read
+    would fail the same way under bash. ``visited`` breaks the cycle when
+    scripts invoke each other (a.sh -> b.sh -> a.sh).
+    """
+    try:
+        resolved = script.resolve()
+    except OSError:
+        return None
+    if resolved in visited:
+        return None
+    visited.add(resolved)
+    try:
+        with open(resolved, encoding="utf-8", errors="replace") as handle:
+            text = handle.read(_SCRIPT_SCAN_MAX_BYTES)
+    except OSError:
+        return None  # unreadable: same as pre-scan behavior — bash reports it at runtime
+    for line in text.splitlines():
+        if line.lstrip().startswith("#"):
+            continue  # shebang / full-line comment
+        for segment in _split_command_segments(line):
+            decision = _block_check_segment(segment, cwd=cwd, rm_safe_roots=rm_safe_roots, visited=visited)
+            if decision is not None:
+                return CommandPolicyDecision(
+                    category=decision.category,
+                    action="block",
+                    reason=f"blocked command inside script {script}: {decision.reason}",
+                )
+    return None
 
 
 _ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -1288,7 +1345,11 @@ def _strip_command_prefixes(tokens: list[str]) -> list[str]:
 
 
 def _block_check_segment(
-    tokens: list[str], *, cwd: Path | None = None, rm_safe_roots: list[Path] | None = None
+    tokens: list[str],
+    *,
+    cwd: Path | None = None,
+    rm_safe_roots: list[Path] | None = None,
+    visited: set[Path] | None = None,
 ) -> CommandPolicyDecision | None:
     """Return a block decision if *tokens* (one segment) is dangerous, else None.
 
@@ -1308,20 +1369,29 @@ def _block_check_segment(
     head = tokens[0].lower()
     # ``busybox <applet> ...``: the applet (sh/rm/...) is the effective head.
     if head == "busybox" and len(tokens) > 1:
-        return _block_check_segment(tokens[1:], cwd=cwd, rm_safe_roots=rm_safe_roots)
+        return _block_check_segment(tokens[1:], cwd=cwd, rm_safe_roots=rm_safe_roots, visited=visited)
     # ``eval``/``exec <words>``: the remaining words run as a fresh command line,
     # so re-tokenize and block-check them (catches ``eval \"rm -rf x\"``).
     if head in _EVAL_WRAPPERS and len(tokens) > 1:
         for inner in _split_command_segments(" ".join(tokens[1:])):
-            decision = _block_check_segment(inner, cwd=cwd, rm_safe_roots=rm_safe_roots)
+            decision = _block_check_segment(inner, cwd=cwd, rm_safe_roots=rm_safe_roots, visited=visited)
             if decision is not None:
                 return decision
         return None
     if head in _SHELL_INTERPRETERS:
         if _is_noexec_shell(tokens):
             return None  # `bash -n` / `-o noexec`: parse-only, runs nothing
-        if _is_script_file_run(tokens, cwd=cwd):
-            return None  # `bash existing-script.sh`: on-disk artifact, like `python file.py`
+        script = _script_file_target(tokens, cwd=cwd)
+        if script is not None:
+            # `bash existing-script.sh`: on-disk artifact, like `python file.py`
+            # — but its contents get the same blocklist scan the command line
+            # gets, so a dangerous command can't be laundered through a file.
+            return _scan_script_for_blocked(
+                script,
+                cwd=cwd,
+                rm_safe_roots=rm_safe_roots,
+                visited=visited if visited is not None else set(),
+            )
         return CommandPolicyDecision(
             category="shell-interpreter",
             action="block",
@@ -1367,6 +1437,17 @@ _FETCH_SETUP_RE = re.compile(
     r"|&&\s*(?:tar|unzip|pip|sh|bash|make|python|\./)",
     re.IGNORECASE,
 )
+# curl/wget flags that carry request semantics — headers, method, body/data,
+# auth, forms, uploads, cookies — which the plain-URL web_fetch rewrite would
+# silently drop. Their presence disables the rewrite; the command runs as-is
+# (a false positive here only means no rewrite, never a block).
+_FETCH_REQUEST_FLAGS_RE = re.compile(
+    r"(?:^|\s)(?:"
+    r"--(?:header|request|method|data[-a-z]*|json|user|form(?:-string)?|upload-file"
+    r"|cookie(?:-jar)?|user-agent|referer|post-data|post-file|body-data|body-file|head)(?:=|\s|$)"
+    r"|-[A-Za-z]*[HXduFTbIA][A-Za-z]*(?=\s|$)"
+    r")"
+)
 _FIND_NAME_RE = re.compile(r"\bfind\s+(?:(\S+)\s+)?-(?:i?name|wholename)\s+['\"]?([^'\"\s|>;]+)", re.IGNORECASE)
 _SED_PRINT_RE = re.compile(r"\bsed\s+-n\s+['\"]?(\d+)(?:,(\d+))?\s*p['\"]?\s+(\S+)", re.IGNORECASE)
 
@@ -1374,6 +1455,10 @@ _SED_PRINT_RE = re.compile(r"\bsed\s+-n\s+['\"]?(\d+)(?:,(\d+))?\s*p['\"]?\s+(\S
 def _redirect_known_bad(command: str) -> CommandPolicyDecision | None:
     """Rewrite known-bad read-only calls to the right tool (executed inline). Never blocks."""
     if _FETCH_RE.search(command) and not _FETCH_SETUP_RE.search(command):
+        if _FETCH_REQUEST_FLAGS_RE.search(command):
+            # Headers/method/auth/body present: a plain-URL web_fetch rewrite
+            # would silently drop them and fetch the wrong thing — run as-is.
+            return None
         m = _FETCH_URL_RE.search(command)
         if m:  # plain content fetch -> run web_fetch behind the scenes
             return CommandPolicyDecision(
@@ -1421,6 +1506,28 @@ def classify_command(
         blocked = _block_check_segment(segment, cwd=resolved_cwd, rm_safe_roots=rm_safe_roots)
         if blocked is not None:
             return blocked
+
+    # Shell file-writes (`cat > file`, inline `python -c` open/write) must stay
+    # inside the allowed write roots; outside them the edit tool is the right
+    # surface. The OS temp dir is additionally allowed for the same reason
+    # `rm -rf` is allowed there: scratch files are the agent's own.
+    if allowed_write_roots and _is_shell_file_write(command):
+        targets = _extract_write_targets(command)
+        # Fail-open when no write target can be resolved statically (targets
+        # is None: a variable/f-string path or a .write_text receiver, or an
+        # empty list). Blocking what we cannot parse would break legitimate
+        # $TMPDIR-style writes; the destructive blocklist above still applies,
+        # and a genuinely wrong opaque path just fails at runtime.
+        if targets and not _file_write_within_allowed(command, [*allowed_write_roots, Path(tempfile.gettempdir())]):
+            return CommandPolicyDecision(
+                category="file-write",
+                action="block",
+                reason=(
+                    "shell write outside the allowed write roots blocked "
+                    f"(target(s): {', '.join(targets)}) — use the edit tool to "
+                    "create or modify files, or target a path inside the workspace"
+                ),
+            )
 
     bad = _redirect_known_bad(command)
     if bad is not None:
@@ -1921,9 +2028,17 @@ def _effective_deadline_s(managed: _ManagedCommand) -> float:
     `managed.timeout` IS the exact, enforced deadline -- no more floor --
     since installing it that way (bash action="update") is a deliberate act
     rather than the passive default nobody thought about.
+
+    In between: a caller that explicitly passed `timeout` at start
+    (timeout_explicit=True) installed `kill_deadline_s` =
+    max(timeout, _EXPLICIT_TIMEOUT_KILL_FLOOR_S) — a real kill deadline that
+    honors the stated budget without turning tiny soft budgets into instant
+    kills.
     """
     if managed.deadline_explicit:
         return float(managed.timeout)
+    if managed.kill_deadline_s is not None:
+        return managed.kill_deadline_s
     return max(float(managed.timeout), _MANAGED_COMMAND_HARD_CAP_S)
 
 
@@ -2030,8 +2145,15 @@ def start_managed_command(
     timeout: int = 30,
     max_lines: int = 200,
     max_chars: int | None = None,
+    timeout_explicit: bool = False,
 ) -> dict[str, Any]:
-    """Start a command without blocking the MCP request."""
+    """Start a command without blocking the MCP request.
+
+    ``timeout`` is the soft response budget. When the caller states the user
+    passed it explicitly (``timeout_explicit=True``), a real kill deadline is
+    also installed at ``max(timeout, _EXPLICIT_TIMEOUT_KILL_FLOOR_S)`` —
+    otherwise the kill floors at the 1h hard cap (see _effective_deadline_s).
+    """
     policy = classify_command(command, cwd=cwd)
     if policy.action == "block":
         return {
@@ -2087,6 +2209,7 @@ def start_managed_command(
         injected_note=injected_note,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
+        kill_deadline_s=(max(float(timeout), _EXPLICIT_TIMEOUT_KILL_FLOOR_S) if timeout_explicit else None),
     )
     managed.readers = [
         threading.Thread(target=_spool_managed_stream, args=(proc.stdout, stdout_file, managed), daemon=True),

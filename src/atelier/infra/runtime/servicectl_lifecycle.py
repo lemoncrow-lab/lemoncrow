@@ -80,7 +80,16 @@ def _read_servicectl_state(root: Path) -> dict[str, Any]:
 def _write_servicectl_state(root: Path, payload: dict[str, Any]) -> None:
     state_path = _servicectl_state_path(root)
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    # Atomic tmp + rename (run_ledger.persist pattern): a crash mid-write must
+    # never leave a truncated state.json behind.
+    tmp = state_path.with_name(f"{state_path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, state_path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
 
 
 def _read_servicectl_pid(root: Path) -> int | None:
@@ -102,22 +111,29 @@ def _clear_servicectl_pid(root: Path) -> None:
 
 
 def _kill_orphan_servicectl_processes(current_root: Path) -> None:
-    """Kill any servicectl run processes started with a root other than current_root.
+    """Kill stale/duplicate ``servicectl run`` daemons of THIS root only.
 
-    Prevents accumulation of stale daemons pointing at old/project-local stores
-    when the canonical root changes (e.g. after moving from project/.atelier to
-    ~/.atelier).  Only runs on Linux (requires /proc).
+    A daemon whose cmdline names a different ``--root`` belongs to another
+    install and is never touched. Duplicates for the current root (left
+    behind by a crashed supervisor) are terminated so exactly one daemon
+    serves the store; the pid recorded in this root's pidfile is reaped too.
+    The /proc cmdline scan only runs on Linux.
     """
     import glob as _glob
 
     my_pid = os.getpid()
+    pidfile_pid = _read_servicectl_pid(current_root)
+    if pidfile_pid is not None and pidfile_pid != my_pid and _pid_is_running(pidfile_pid):
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(pidfile_pid, signal.SIGTERM)
+
     current_root_str = str(current_root.resolve())
     for cmdline_file in _glob.glob("/proc/*/cmdline"):
         try:
             pid = int(cmdline_file.split("/")[2])
         except (ValueError, IndexError):
             continue
-        if pid == my_pid:
+        if pid == my_pid or pid == pidfile_pid:
             continue
         try:
             raw = Path(cmdline_file).read_bytes()
@@ -128,7 +144,7 @@ def _kill_orphan_servicectl_processes(current_root: Path) -> None:
             "atelier.gateway.cli" in cmdline
             and "servicectl" in cmdline
             and " run " in cmdline
-            and current_root_str not in cmdline
+            and current_root_str in cmdline
         ):
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.kill(pid, signal.SIGTERM)
@@ -156,6 +172,7 @@ def _servicectl_status_payload(root: Path) -> dict[str, Any]:
         "last_session_import_at": state.get("last_session_import_at"),
         "last_exit_reason": state.get("last_exit_reason"),
         "started_at": state.get("started_at"),
+        "subprocess_timeouts": state.get("subprocess_timeouts", {}),
         "job_queue_health": job_queue_health,
     }
 
@@ -207,39 +224,54 @@ def _servicectl_refresh_host_status(root: Path) -> dict[str, str]:
     return status
 
 
-def _run_tick_subprocess(cmd: list[str], *, timeout: int, what: str) -> subprocess.CompletedProcess[bytes] | None:
+_SESSION_IMPORT_TIMEOUT_SECONDS = 300
+_RECALL_INDEX_TIMEOUT_SECONDS = 300
+_WORKSPACE_PRUNE_TIMEOUT_SECONDS = 600
+# After this many CONSECUTIVE timeouts of the same tick subprocess, its
+# periodic key advances anyway (deferring the retry to the next interval) so
+# one pathological store cannot starve every other periodic duty.
+_TICK_TIMEOUT_BACKOFF_AFTER = 3
+
+
+def _run_tick_subprocess(
+    cmd: list[str], *, timeout: int, what: str
+) -> tuple[subprocess.CompletedProcess[bytes] | None, bool]:
     """``subprocess.run`` guarded against timeout/launch failures.
 
     A tick subprocess (import, recall index, workspace prune) can legitimately
     run long under load. Letting ``TimeoutExpired`` propagate would abort
     ``_servicectl_tick`` before its periodic-job timestamp and state file are
-    written, so the same subprocess would re-run and re-time-out on every
-    subsequent tick forever, starving recall indexing / pruning / job
-    processing behind it. Return ``None`` instead so callers can record the
-    attempt (advance the periodic key) and let the tick continue.
+    written. Returns ``(result, timed_out)``: ``(None, True)`` on timeout so
+    the tick can keep the periodic key un-advanced and retry with an
+    escalated budget, ``(None, False)`` on launch failure.
     """
     try:
-        return subprocess.run(cmd, capture_output=True, timeout=timeout)
+        return subprocess.run(cmd, capture_output=True, timeout=timeout), False
     except subprocess.TimeoutExpired:
         logging.warning("%s subprocess timed out after %ds", what, timeout)
-        return None
+        return None, True
     except OSError:
         logging.exception("failed to launch %s subprocess", what)
-        return None
+        return None, False
 
 
-def _servicectl_import_sessions(root: Path) -> dict[str, int]:
+def _servicectl_import_sessions(root: Path, *, timeout: int = _SESSION_IMPORT_TIMEOUT_SECONDS) -> dict[str, int] | None:
     """Import host sessions by delegating to the ``atelier import`` CLI subprocess.
 
     Running import out-of-process keeps JSON parsing, importer-level dedup, and
     the ``sync_usage`` upload out of the daemon's heap. ``sync_usage`` is called
     inside the subprocess, so there is no double-upload.
+
+    Returns ``None`` when the subprocess timed out (caller keeps the periodic
+    key un-advanced and retries with a bigger budget), ``{}`` on failure.
     """
-    result = _run_tick_subprocess(
+    result, timed_out = _run_tick_subprocess(
         [sys.executable, "-m", "atelier.gateway.cli", "--root", str(root), "import", "--json"],
-        timeout=300,
+        timeout=timeout,
         what="session import",
     )
+    if timed_out:
+        return None
     if result is None:
         return {}
     if result.returncode != 0:
@@ -257,17 +289,21 @@ def _servicectl_import_sessions(root: Path) -> dict[str, int]:
         return {}
 
 
-def _servicectl_index_recall(root: Path) -> dict[str, int]:
+def _servicectl_index_recall(root: Path, *, timeout: int = _RECALL_INDEX_TIMEOUT_SECONDS) -> dict[str, int] | None:
     """Index recent session transcripts via the ``atelier session recall index`` CLI subprocess.
 
     Keeps embedding work and SQLite writes out of the daemon's heap. The subprocess
     is incremental by default (unchanged sessions are skipped).
+
+    Returns ``None`` on subprocess timeout, ``{}`` on failure.
     """
-    result = _run_tick_subprocess(
+    result, timed_out = _run_tick_subprocess(
         [sys.executable, "-m", "atelier.gateway.cli", "--root", str(root), "session", "recall", "index", "--json"],
-        timeout=300,
+        timeout=timeout,
         what="recall index",
     )
+    if timed_out:
+        return None
     if result is None:
         return {}
     if result.returncode != 0:
@@ -285,7 +321,12 @@ def _servicectl_index_recall(root: Path) -> dict[str, int]:
         return {}
 
 
-def _servicectl_prune_workspaces(root: Path, *, max_age_days: int = _WORKSPACE_PRUNE_MAX_AGE_DAYS) -> dict[str, Any]:
+def _servicectl_prune_workspaces(
+    root: Path,
+    *,
+    max_age_days: int = _WORKSPACE_PRUNE_MAX_AGE_DAYS,
+    timeout: int = _WORKSPACE_PRUNE_TIMEOUT_SECONDS,
+) -> dict[str, Any] | None:
     """Remove orphaned / stale workspace indexes via the ``code prune`` CLI subprocess.
 
     Runs once a day.  Removes orphaned indexes (no ``session_state.json``),
@@ -293,8 +334,10 @@ def _servicectl_prune_workspaces(root: Path, *, max_age_days: int = _WORKSPACE_P
     ``--max-age-days`` — indexes inactive for more than ``max_age_days`` days.
     Runs out-of-process to keep the rmtree/walk work off the daemon heap,
     matching the import/recall pattern.
+
+    Returns ``None`` on subprocess timeout, ``{}`` on failure.
     """
-    result = _run_tick_subprocess(
+    result, timed_out = _run_tick_subprocess(
         [
             sys.executable,
             "-m",
@@ -309,9 +352,11 @@ def _servicectl_prune_workspaces(root: Path, *, max_age_days: int = _WORKSPACE_P
             str(max_age_days),
             "--json",
         ],
-        timeout=600,
+        timeout=timeout,
         what="workspace prune",
     )
+    if timed_out:
+        return None
     if result is None:
         return {}
     if result.returncode != 0:
@@ -520,11 +565,12 @@ def _update_via_release() -> bool:
     import tempfile
     import urllib.request
 
-    # Enabled by default. Operators can set ATELIER_AUTO_UPDATE_RELEASE=0
-    # (or false/no/off) to disable the release installer auto-update path.
-    if os.environ.get("ATELIER_AUTO_UPDATE_RELEASE", "").strip().lower() in ("0", "false", "no", "off"):
+    # Opt-in: this path downloads and executes an installer script from the
+    # release channel, so it stays OFF unless ATELIER_AUTO_UPDATE_RELEASE is
+    # explicitly enabled (1/true/yes/on). Absence disables it.
+    if os.environ.get("ATELIER_AUTO_UPDATE_RELEASE", "").strip().lower() not in ("1", "true", "yes", "on"):
         logger.info(
-            "Auto-update: release auto-update is disabled by ATELIER_AUTO_UPDATE_RELEASE. "
+            "Auto-update: release auto-update is disabled (opt in with ATELIER_AUTO_UPDATE_RELEASE=1). "
             "Run 'atelier update' manually to update."
         )
         return False
@@ -645,7 +691,7 @@ def _servicectl_tick(
     auto_update_interval_seconds: int = 3600,
 ) -> dict[str, Any]:
     from atelier.core.capabilities.optimization import load_automation_config
-    from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS, JOB_OPTIMIZE
+    from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS, JOB_OPTIMIZE, JOB_RETENTION_CLEANUP
     from atelier.infra.storage.factory import create_store
 
     SESSION_IMPORT_KEY = "import_host_sessions"
@@ -660,6 +706,32 @@ def _servicectl_tick(
     now = datetime.now(UTC)
     state = _read_servicectl_state(root)
     periodic = state.setdefault("periodic_jobs", {})
+
+    # Consecutive-timeout health per tick subprocess. A timed-out subprocess
+    # does NOT advance its periodic key (its work never happened); the next
+    # attempt runs with an escalated budget (2x per consecutive timeout,
+    # capped at 4x the base). After _TICK_TIMEOUT_BACKOFF_AFTER consecutive
+    # timeouts the key advances anyway so one pathological store cannot
+    # starve the other periodic duties; the counter stays in state.json as a
+    # health signal (surfaced by ``servicectl status``).
+    timeouts_raw = state.get("subprocess_timeouts")
+    subprocess_timeouts: dict[str, int] = (
+        {str(k): int(v) for k, v in timeouts_raw.items() if isinstance(v, (int, float))}
+        if isinstance(timeouts_raw, dict)
+        else {}
+    )
+
+    def _scaled_timeout(key: str, base: int) -> int:
+        scale: int = min(4, 1 << subprocess_timeouts.get(key, 0))
+        return base * scale
+
+    def _note_subprocess_outcome(key: str, timed_out: bool) -> bool:
+        """Track timeout health for *key*; return whether to advance its periodic key."""
+        if not timed_out:
+            subprocess_timeouts.pop(key, None)
+            return True
+        subprocess_timeouts[key] = subprocess_timeouts.get(key, 0) + 1
+        return subprocess_timeouts[key] >= _TICK_TIMEOUT_BACKOFF_AFTER
 
     # 0. Check for auto-updates
     if auto_update:
@@ -708,8 +780,12 @@ def _servicectl_tick(
         import_due = (now - last_session_import_at).total_seconds() >= session_import_interval_seconds
     imported_sessions: dict[str, int] = {}
     if import_due:
-        imported_sessions = _servicectl_import_sessions(root)
-        periodic[SESSION_IMPORT_KEY] = now.isoformat()
+        imported = _servicectl_import_sessions(
+            root, timeout=_scaled_timeout(SESSION_IMPORT_KEY, _SESSION_IMPORT_TIMEOUT_SECONDS)
+        )
+        if _note_subprocess_outcome(SESSION_IMPORT_KEY, imported is None):
+            periodic[SESSION_IMPORT_KEY] = now.isoformat()
+        imported_sessions = imported or {}
 
     # Recall indexing (semantic past-session recall) runs on the maintenance cadence.
     RECALL_INDEX_KEY = "index_recall_sessions"
@@ -720,8 +796,12 @@ def _servicectl_tick(
         recall_index_due = (now - last_recall_index_at).total_seconds() >= maintenance_interval_seconds
     indexed_recall: dict[str, int] = {}
     if recall_index_due:
-        indexed_recall = _servicectl_index_recall(root)
-        periodic[RECALL_INDEX_KEY] = now.isoformat()
+        indexed = _servicectl_index_recall(
+            root, timeout=_scaled_timeout(RECALL_INDEX_KEY, _RECALL_INDEX_TIMEOUT_SECONDS)
+        )
+        if _note_subprocess_outcome(RECALL_INDEX_KEY, indexed is None):
+            periodic[RECALL_INDEX_KEY] = now.isoformat()
+        indexed_recall = indexed or {}
 
     WORKSPACE_PRUNE_KEY = "prune_workspaces"
     last_workspace_prune_at = _periodic_timestamp(WORKSPACE_PRUNE_KEY)
@@ -731,8 +811,12 @@ def _servicectl_tick(
     )
     pruned_workspaces: dict[str, Any] = {}
     if workspace_prune_due:
-        pruned_workspaces = _servicectl_prune_workspaces(root)
-        periodic[WORKSPACE_PRUNE_KEY] = now.isoformat()
+        pruned = _servicectl_prune_workspaces(
+            root, timeout=_scaled_timeout(WORKSPACE_PRUNE_KEY, _WORKSPACE_PRUNE_TIMEOUT_SECONDS)
+        )
+        if _note_subprocess_outcome(WORKSPACE_PRUNE_KEY, pruned is None):
+            periodic[WORKSPACE_PRUNE_KEY] = now.isoformat()
+        pruned_workspaces = pruned or {}
 
     PUBLIC_ROLLUP_KEY = "public_rollup"
     last_public_rollup_at = _periodic_timestamp(PUBLIC_ROLLUP_KEY)
@@ -770,6 +854,27 @@ def _servicectl_tick(
             )
             enqueued.append(job_id)
             periodic[JOB_CONSOLIDATE_BLOCKS] = now.isoformat()
+
+    # Jobs-table retention runs on the same maintenance cadence: without it,
+    # succeeded/failed rows accumulate forever.
+    last_retention_enqueue_at = _periodic_timestamp(JOB_RETENTION_CLEANUP)
+    if maintenance_interval_seconds <= 0 or last_retention_enqueue_at is None:
+        retention_due = True
+    else:
+        retention_due = (now - last_retention_enqueue_at).total_seconds() >= maintenance_interval_seconds
+    if retention_due:
+        active_retention_jobs = [
+            job
+            for job in store.list_jobs(job_type=JOB_RETENTION_CLEANUP, limit=200)
+            if job["status"] in {"pending", "running", "failed"}
+        ]
+        if not active_retention_jobs:
+            job_id = store.enqueue_job(
+                JOB_RETENTION_CLEANUP,
+                {"days": 14, "source": "servicectl"},
+            )
+            enqueued.append(job_id)
+            periodic[JOB_RETENTION_CLEANUP] = now.isoformat()
 
     automation = load_automation_config(root)
     if automation.enabled:
@@ -842,6 +947,7 @@ def _servicectl_tick(
         "public_rollup_checkpoint_day": public_rollup_checkpoint_day,
         "last_exit_reason": state.get("last_exit_reason"),
         "periodic_jobs": periodic,
+        "subprocess_timeouts": subprocess_timeouts,
         "started_at": state.get("started_at"),
         "job_queue_health": store.job_queue_health(),
     }

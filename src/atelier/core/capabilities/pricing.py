@@ -630,6 +630,33 @@ def is_placeholder_model(model_id: str | None) -> bool:
     return str(model_id or "").strip() in _PLACEHOLDER_MODEL_IDS
 
 
+# Last-resort static fallback rates (Sonnet-class, USD per million tokens) for
+# callers that must show a non-zero estimate even when the pricing table lookup
+# itself fails. Single source for the previously duplicated "$3 in / $15 out"
+# constants (savings_summary.estimate_cost_usd, reporting/dashboard,
+# model_routing/cache_cost).
+FALLBACK_INPUT_USD_PER_MTOK = 3.0
+FALLBACK_OUTPUT_USD_PER_MTOK = 15.0
+FALLBACK_CACHE_READ_USD_PER_MTOK = 0.30
+FALLBACK_CACHE_WRITE_USD_PER_MTOK = 3.75
+
+
+def fallback_cost_usd(
+    *,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+) -> float:
+    """Price a request at the static Sonnet-class fallback rates."""
+    return (
+        max(0, input_tokens) * FALLBACK_INPUT_USD_PER_MTOK
+        + max(0, output_tokens) * FALLBACK_OUTPUT_USD_PER_MTOK
+        + max(0, cache_read_tokens) * FALLBACK_CACHE_READ_USD_PER_MTOK
+        + max(0, cache_write_tokens) * FALLBACK_CACHE_WRITE_USD_PER_MTOK
+    ) / 1_000_000
+
+
 _DOT_VERSION_RE = re.compile(r"(\d+)\.(\d+)")
 
 

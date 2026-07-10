@@ -88,8 +88,16 @@ if [[ -f "${_PYTHON_CACHE}" ]]; then
     cached_py="$(sed -n '1p' "${_PYTHON_CACHE}")"
     cached_fingerprint="$(tail -n +2 "${_PYTHON_CACHE}")"
     if [[ -n "${cached_py}" && "${cached_fingerprint}" == "$(_current_fingerprint)" ]] \
-        && [[ -x "${cached_py}" ]] && "${cached_py}" -c "import atelier" 2>/dev/null; then
+        && [[ -x "${cached_py}" ]]; then
+        # Cache hit: exec directly, skipping the `import atelier` probe (that
+        # probe cost a full python spawn on every hook call). Validation is
+        # lazy: `execfail` makes a failed exec return here instead of killing
+        # the shell, so we drop the stale cache and fall through to a full
+        # re-resolve below.
+        shopt -s execfail
         exec "${cached_py}" "$@"
+        shopt -u execfail
+        rm -f "${_PYTHON_CACHE}" 2>/dev/null || true
     fi
 fi
 
