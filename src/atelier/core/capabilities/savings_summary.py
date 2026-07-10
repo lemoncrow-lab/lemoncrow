@@ -2904,6 +2904,25 @@ def savings_frames(
     if summary.status_text:
         frames.append((False, _colorize_tip(summary.status_text, C_DIM, C_BRAND, C_RESET)))
 
+    # Login nudge frame (free/unauthenticated only): fold a sign-in reminder
+    # into the rotating frames so free users see it on every cycle, instead of
+    # the once-a-day statusline.sh marker (which this replaces). Same auth
+    # signal as the MCP FeatureLocked path -- ATELIER_AUTH_TOKEN env, then
+    # <root>/auth_token (see licensing/store.py load_auth_token). Read from the
+    # resolved `root` directly (not load_auth_token, which keys off
+    # default_store_root and would ignore the atelier_root param). The
+    # anonymous local-trial marker is a separate free-mode file and does NOT
+    # count as signed in.
+    try:
+        _signed_in = bool(os.environ.get("ATELIER_AUTH_TOKEN", "").strip())
+        if not _signed_in:
+            _tok_file = root / "auth_token"
+            _signed_in = _tok_file.exists() and bool(_tok_file.read_text(encoding="utf-8").strip())
+    except OSError:
+        _signed_in = True  # unknown auth state -> never nag
+    if not _signed_in:
+        frames.append((False, f"{C_DIM}not signed in -- {C_BRAND}/atelier login{C_DIM} to unlock Pro{C_RESET}"))
+
     # Frame 0 (cost+savings+carry) gets 3 slots at 5s each = ~15s; others get 5s
     # each. Weighting frame 0 higher than this made the line feel static — the
     # render path refreshes every 5-10s at best (sidecar rate-limit / cache TTL),

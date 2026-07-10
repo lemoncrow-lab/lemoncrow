@@ -385,25 +385,11 @@ except Exception:
   fi
 fi
 
-# --- Login reminder: no OAuth session on this device -- surface it once a
-# day so Pro-gated features aren't a silent dead end. Same signal the MCP
-# FeatureLocked message uses (ATELIER_AUTH_TOKEN env, then
-# ~/.atelier/auth_token; see licensing/store.py load_auth_token()). The
-# anonymous local-trial marker (claim_anonymous_trial) is a separate
-# free-mode file and intentionally does NOT count as signed in.
-LOGIN_SEG=""
-_LOGIN_TODAY=$(date +%F 2>/dev/null || echo "")
-if [ -z "${ATELIER_AUTH_TOKEN:-}" ] && [ ! -s "${ATELIER_STATUS_ROOT}/auth_token" ] && [ -n "${_LOGIN_TODAY}" ]; then
-  _ATELIER_LOGIN_MARKER="${ATELIER_STATUS_ROOT}/login_nudge_shown_date"
-  _LOGIN_LAST=$(cat "${_ATELIER_LOGIN_MARKER}" 2>/dev/null || echo "")
-  if [ "${_LOGIN_LAST}" != "${_LOGIN_TODAY}" ]; then
-    mkdir -p "${ATELIER_STATUS_ROOT}" 2>/dev/null
-    printf '%s' "${_LOGIN_TODAY}" > "${_ATELIER_LOGIN_MARKER}.$$" 2>/dev/null \
-      && mv -f "${_ATELIER_LOGIN_MARKER}.$$" "${_ATELIER_LOGIN_MARKER}" 2>/dev/null || true
-    LOGIN_SEG=" ${SEP} ${C_DIM}not signed in -- /atelier login to unlock Pro${C_RESET}"
-  fi
-fi
-
+# --- Login reminder: folded into the rotating dynamic segment.
+# The free/unauthenticated sign-in nudge is now one of the rotating frames
+# emitted by the backend (atelier savings --segment / MCP sidecar; see
+# savings_summary.savings_frames), so it recurs every cycle for free users
+# instead of once a day. No standalone LOGIN_SEG here anymore.
 # --- Staleness nudge: an installed OPTIONAL agent/skill unused for
 # --stale-days (default 7, ATELIER_STALE_NUDGE_DAYS) is worth flagging for
 # removal. Takes priority over the generic install tip below when present so
@@ -444,7 +430,7 @@ fi
 # Suppressed for a render where the staleness nudge above already fired.
 TIP_SEG=""
 _ATELIER_TIP_MARKER="${ATELIER_STATUS_ROOT}/agent_install_tip_shown_date"
-if [ -z "${STALE_SEG:-}" ] && [ -z "${LOGIN_SEG:-}" ] && [ -n "${_TODAY}" ]; then
+if [ -z "${STALE_SEG:-}" ] && [ -n "${_TODAY}" ]; then
   _TIP_LAST=$(cat "${_ATELIER_TIP_MARKER}" 2>/dev/null || echo "")
   if [ "${_TIP_LAST}" != "${_TODAY}" ]; then
     TIP_SEG=" ${SEP} ${C_DIM}more agents/skills: /atelier install <name>${C_RESET}"
@@ -454,7 +440,7 @@ if [ -z "${STALE_SEG:-}" ] && [ -z "${LOGIN_SEG:-}" ] && [ -n "${_TODAY}" ]; the
   fi
 fi
 
-printf '%s%s%s %s %s ctx %s %s%%%s%s%s%s%s%s\n' \
+printf '%s%s%s %s %s ctx %s %s%%%s%s%s%s%s\n' \
   "$C_BRAND" "$PLUGIN_LABEL" "$C_RESET" \
   "$PIPE" "$MODEL" "$ACTUAL_CTX_F" "$PCT_INT" \
-  "${DYNAMIC_SEG}" "$TASKS_SEG" "${UPDATE_SEG}" "${LOGIN_SEG}" "${STALE_SEG}" "${TIP_SEG}"
+  "${DYNAMIC_SEG}" "$TASKS_SEG" "${UPDATE_SEG}" "${STALE_SEG}" "${TIP_SEG}"
