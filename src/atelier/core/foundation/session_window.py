@@ -22,9 +22,9 @@ server reads its own window's file. One writer per file, so concurrent windows
 in a shared workspace never clobber each other. Both sides run on atelier's venv python
 (hooks via ``_run_hook.sh``), so this one module serves both.
 
-Linux/proc only. On platforms without ``/proc`` (or when no ``claude`` ancestor
-is found) :func:`host_window_id` returns ``None`` and callers fall back to the
-env var, preserving today's behavior.
+Linux resolves the ancestry via ``/proc``; macOS/BSD via one ``ps`` table
+sweep. When no ``claude`` ancestor is found :func:`host_window_id` returns
+``None`` and callers fall back to the env var, preserving today's behavior.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ import contextlib
 import json
 import logging
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -81,16 +82,77 @@ def _argv0_basename(pid: int) -> str:
     return os.path.basename(first.decode("utf-8", "replace"))
 
 
+# `ps -o lstart=` format under LC_ALL=C: "Fri Jul 10 18:17:26 2026".
+_PS_LSTART_FMT = "%a %b %d %H:%M:%S %Y"
+
+
+def _ps_proc_table() -> dict[int, tuple[int, int, str]]:
+    """``pid -> (ppid, starttime_epoch, name)`` via ONE ``ps`` sweep (macOS/BSD).
+
+    The whole table in a single subprocess so the ancestor walk needs no
+    per-hop ``ps`` calls. ``lstart`` (second resolution) stands in for Linux's
+    starttime ticks as the PID-reuse guard -- writers and readers on the same
+    platform derive the same value, which is all the key needs. Empty dict on
+    any failure (callers then return ``None`` -> env fallback).
+    """
+    try:
+        proc = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,lstart=,comm="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+            env={**os.environ, "LC_ALL": "C"},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    table: dict[int, tuple[int, int, str]] = {}
+    for line in proc.stdout.splitlines():
+        # pid ppid dow mon day time year comm... (comm may contain spaces)
+        parts = line.split(None, 7)
+        if len(parts) < 8:
+            continue
+        try:
+            pid = int(parts[0])
+            ppid = int(parts[1])
+            btime = int(time.mktime(time.strptime(" ".join(parts[2:7]), _PS_LSTART_FMT)))
+        except (ValueError, OverflowError):
+            continue
+        table[pid] = (ppid, btime, os.path.basename(parts[7]))
+    return table
+
+
+def _ps_host_window_id(start_pid: int) -> tuple[int, int] | None:
+    """``host_window_id`` for /proc-less platforms (macOS/BSD) via ``ps``."""
+    table = _ps_proc_table()
+    pid = start_pid
+    seen: set[int] = set()
+    while pid and pid > 1 and pid not in seen:
+        seen.add(pid)
+        entry = table.get(pid)
+        if entry is None:
+            return None
+        ppid, btime, name = entry
+        if name in _HOST_PROCESS_NAMES:
+            return pid, btime
+        pid = ppid
+    return None
+
+
 def host_window_id(start_pid: int | None = None) -> tuple[int, int] | None:
     """Return ``(pid, starttime)`` of the nearest ``claude`` ancestor, or ``None``.
 
-    Walks the process-parent chain from *start_pid* (default: this process).
-    ``starttime`` (proc start ticks) is included so callers can guard against
-    PID reuse: a recycled pid will have a different start time. Returns ``None``
-    on non-Linux, on any ``/proc`` read error, or when no ``claude`` ancestor
-    exists -- callers then fall back to env-based resolution.
+    Walks the process-parent chain from *start_pid* (default: this process) --
+    via ``/proc`` on Linux, via one ``ps`` table sweep on macOS/BSD.
+    ``starttime`` (proc start ticks on Linux, epoch seconds elsewhere) is
+    included so callers can guard against PID reuse: a recycled pid will have
+    a different start time. Returns ``None`` on any read error or when no
+    ``claude`` ancestor exists -- callers then fall back to env-based
+    resolution.
     """
     pid = start_pid if start_pid is not None else os.getpid()
+    if not os.path.isdir("/proc"):
+        return _ps_host_window_id(pid)
     seen: set[int] = set()
     while pid and pid > 1 and pid not in seen:
         seen.add(pid)
