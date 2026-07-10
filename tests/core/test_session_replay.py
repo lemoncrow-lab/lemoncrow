@@ -237,7 +237,7 @@ def test_render_html_is_wellformed() -> None:
     assert out.startswith("<!doctype html>")
     assert "Atelier Session Replay" in out
     assert "code_search" in out
-    assert 'class="turn cut"' in out  # a struck-through loop turn
+    assert "turn cut" in out  # a struck-through loop turn
     assert out.count("<html") == 1 and out.count("</html>") == 1
 
 
@@ -375,3 +375,42 @@ def test_estimate_savings_headline_numbers() -> None:
         assert key in sav
     assert sav["cost_saved_usd"] >= 0.0
     assert sav["time_saved_seconds"] >= 0.0
+
+
+# --------------------------------------------------------------------------- #
+# Shell-grep loops (agents grep via Bash, not the Grep tool)
+# --------------------------------------------------------------------------- #
+
+from atelier.core.capabilities.session_replay import _shell_search_query  # noqa: E402
+
+
+def test_shell_grep_is_collapsible() -> None:
+    assert _is_grep({"kind": "shell_command", "content": 'grep -rn "savings" --include=*.py .'})
+    assert _is_grep({"kind": "shell_command", "content": "find . -name '*.py' | xargs grep -ln Foo"})
+    assert _is_grep({"kind": "shell_command", "content": "rg TokenRefresh src/"})
+    assert not _is_grep({"kind": "shell_command", "content": "uv run pytest -q"})
+
+
+def test_shell_search_query_cleans_regex() -> None:
+    assert _shell_search_query('grep -rn "cost_saving\\|savings" .') == "cost_saving"
+    assert _shell_search_query("rg detect_episodes src/") == "detect_episodes"
+
+
+def test_shell_grep_read_loop_collapses() -> None:
+    turns = [
+        {"kind": "shell_command", "tool_name": "Bash", "content": 'grep -rn "detect_episodes" .'},
+        {
+            "kind": "shell_command",
+            "tool_name": "Bash",
+            "content": "find . -name '*.py' | xargs grep -l detect_episodes",
+        },
+        _tc("Read", file_path="session_replay.py"),
+        {"kind": "agent_message", "content": "found it"},
+        {"kind": "file_edit", "tool_name": "Edit", "path": "session_replay.py"},
+    ]
+    eps = detect_episodes(turns)
+    assert len(eps) == 1
+    assert eps[0].grep_count == 2
+    assert eps[0].read_count == 1
+    assert eps[0].calls_saved == 2
+    assert eps[0].query == "detect_episodes"

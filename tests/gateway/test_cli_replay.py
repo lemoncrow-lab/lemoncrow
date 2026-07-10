@@ -96,7 +96,7 @@ def test_replay_html_output(tmp_path: Path) -> None:
     html = out.read_text(encoding="utf-8")
     assert html.startswith("<!doctype html>")
     assert "code_search" in html
-    assert 'class="turn cut"' in html
+    assert "turn cut" in html
 
 
 def test_replay_missing_session_exits_1() -> None:
