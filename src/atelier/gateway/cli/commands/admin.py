@@ -71,6 +71,9 @@ from atelier.core.foundation.paths import ensure_gitignore as _ensure_gitignore 
 _RUNTIME_ROLE_PROMPT_ORDER = ("code", "execute", "solve", "general", "explore", "plan", "research", "review")
 _HOST_ROLE_PROMPT_ORDER = ("code", "execute", "solve", "explore", "plan", "research", "review")
 _CUSTOM_MODEL_OPTION = "Others (Enter model)"
+# Matches C_PURPLE in scripts/lib/common.sh, so the interactive selectors in
+# this file and the shell installer read as one consistent accent color.
+_PURPLE = (155, 117, 217)
 
 
 def _is_interactive_terminal() -> bool:
@@ -109,16 +112,20 @@ def _selector_action(key: str) -> str:
 def _interactive_single_select(prompt: str, options: tuple[str, ...], *, default: str | None = None) -> str:
     selected = options.index(default) if default in options else 0
     click.echo("")
-    click.secho(prompt, fg="magenta")
+    click.secho(prompt, fg=_PURPLE)
     rendered = 0
     while True:
         if rendered:
             _clear_rendered_lines(rendered)
         lines = [
-            *(f"  {'▸ ●' if index == selected else '  ○'}  {option}" for index, option in enumerate(options)),
-            "",
-            "  ↑↓ navigate  ·  enter select",
+            f"  {click.style('▸ ●', fg=_PURPLE) if index == selected else '  ○'}  {option}"
+            for index, option in enumerate(options)
         ]
+        lines.append("")
+        lines.append(
+            f"  {click.style('↑↓', fg=_PURPLE)} {click.style('navigate  ·  ', dim=True)}"
+            f"{click.style('enter', fg=_PURPLE)} {click.style('select', dim=True)}"
+        )
         for line in lines:
             click.echo(line)
         rendered = len(lines)
@@ -130,7 +137,7 @@ def _interactive_single_select(prompt: str, options: tuple[str, ...], *, default
         elif action == "enter":
             break
     _clear_rendered_lines(rendered)
-    click.echo(f"  ●  {options[selected]}")
+    click.echo(click.style(f"  ●  {options[selected]}", dim=True))
     return options[selected]
 
 
@@ -149,14 +156,14 @@ def _interactive_model_select(label: str, *, default: str, allow_auto: bool, sho
     custom_value = ""
 
     click.echo("")
-    click.secho(label, fg="magenta")
+    click.secho(label, fg=_PURPLE)
     while True:
         if rendered:
             _clear_rendered_lines(rendered)
 
         lines: list[str] = []
         for index, option in enumerate(options):
-            marker = "▸ ●" if index == selected else "  ○"
+            marker = click.style("▸ ●", fg=_PURPLE) if index == selected else "  ○"
             if option == _CUSTOM_MODEL_OPTION and index == selected:
                 value = custom_value or click.style("Type custom model...", dim=True)
                 if custom_value:
@@ -165,9 +172,22 @@ def _interactive_model_select(label: str, *, default: str, allow_auto: bool, sho
             else:
                 lines.append(f"  {marker}  {option}")
         if options[selected] == _CUSTOM_MODEL_OPTION:
-            lines.extend(["", "  type to edit  ·  enter confirm  ·  esc cancel"])
+            lines.extend(
+                [
+                    "",
+                    f"  {click.style('type to edit  ·  ', dim=True)}{click.style('enter', fg=_PURPLE)}"
+                    f"{click.style(' confirm  ·  ', dim=True)}{click.style('esc', fg=_PURPLE)}"
+                    f"{click.style(' cancel', dim=True)}",
+                ]
+            )
         else:
-            lines.extend(["", "  ↑↓ navigate  ·  enter select"])
+            lines.extend(
+                [
+                    "",
+                    f"  {click.style('↑↓', fg=_PURPLE)} {click.style('navigate  ·  ', dim=True)}"
+                    f"{click.style('enter', fg=_PURPLE)} {click.style('select', dim=True)}",
+                ]
+            )
 
         for line in lines:
             click.echo(line)
@@ -178,7 +198,7 @@ def _interactive_model_select(label: str, *, default: str, allow_auto: bool, sho
             if key in ("\r", "\n"):
                 if custom_value.strip():
                     _clear_rendered_lines(rendered)
-                    click.echo(f"  ●  {custom_value.strip()}")
+                    click.echo(click.style(f"  ●  {custom_value.strip()}", dim=True))
                     return custom_value.strip()
                 continue
             if key in ("\x7f", "\b"):
@@ -206,6 +226,8 @@ def _interactive_model_select(label: str, *, default: str, allow_auto: bool, sho
             selected = (selected + 1) % len(options)
         elif action == "enter":
             _clear_rendered_lines(rendered)
+            click.echo(click.style(f"  ●  {options[selected]}", dim=True))
+            return options[selected]
             click.echo(f"  ●  {options[selected]}")
             return options[selected]
 
@@ -243,11 +265,11 @@ def _confirm_customize_models() -> bool:
     if _supports_interactive_selector():
         selection = _interactive_single_select(
             "Customize role models",
-            ("Customize now", "Keep current defaults"),
-            default="Customize now",
+            ("Keep current defaults", "Customize now"),
+            default="Keep current defaults",
         )
         return selection == "Customize now"
-    return click.confirm("Customize role models?", default=True)
+    return click.confirm("Customize role models?", default=False)
 
 
 def _confirm_optional(prompt: str, *, default: bool, yes_label: str, no_label: str) -> bool:
@@ -669,10 +691,12 @@ def init(
     else:
         _ensure_gitignore(Path.cwd())
         click.echo(f"registered {Path.cwd()} as an Atelier workspace (no git repository detected)")
+    # Hidden for now (needs more work) — no longer auto-prompts on a bare
+    # `atelier init`; only runs when explicitly requested via --configure-models.
     should_offer_model_config = bool(git_root is not None and _is_interactive_terminal())
     if configure_models and not should_offer_model_config:
         raise click.ClickException("--configure-models requires an interactive terminal inside a git repository.")
-    if should_offer_model_config and configure_models is not False:
+    if should_offer_model_config and configure_models is True:
         assert git_root is not None
         payload = _prompt_workspace_model_config(git_root)
         if payload is not None:
