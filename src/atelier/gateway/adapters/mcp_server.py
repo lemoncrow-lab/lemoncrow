@@ -9584,12 +9584,42 @@ def _run_bash_tool(
                 "duration_ms": 0,
             }
 
+    # Literal-text "search" rewrite: simple rg/grep queries without regex
+    # metacharacters are rewritten to the grep tool (content_regex), which
+    # handles the search natively without requiring rg/grep on PATH.
+    if policy.action == "rewrite" and policy.rewrite_target == "search" and policy.rewrite_payload:
+        _sq = str(policy.rewrite_payload.get("query") or "")
+        _search_path = str(policy.rewrite_payload.get("path") or ".")
+        if _sq:
+            _resolved_sp = Path(_search_path)
+            if not _resolved_sp.is_absolute():
+                _resolved_sp = (Path(effective_cwd) / _search_path).resolve()
+            _search_payload: dict[str, Any] = {
+                "path": str(_resolved_sp),
+                "content_regex": _sq,
+                "ignore_case": False,
+                "output_mode": "file_paths_with_content",
+                "lines_after": 0,
+                "lines_before": 0,
+            }
+            _search_handler: Callable[[dict[str, Any]], Any] = TOOLS["grep"]["handler"]
+            _rewritten = cast(dict[str, Any], _search_handler(_search_payload))
+            _rewritten_stdout = _render_grep_stdout(_rewritten)
+            return {
+                "stdout": _rewritten_stdout,
+                "stderr": "",
+                "exit_code": 0,
+                "truncated": False,
+                "lines_omitted": 0,
+                "duration_ms": 0,
+            }
+
     # One execution model: every command runs as a managed session; the only
     # variable is how long we block inline before returning a poll handle.
     #   background → 0s (detach immediately, poll/cancel by session)
     #   default    → full timeout (block until the command finishes, or hand
     #                back a still-running session handle at the deadline --
-    #                see the deferred branch below. The command itself is NOT
+    #                see the deferred branch below.  The command itself is NOT
     #                killed just because this call stopped waiting for it.)
     inline_wait = 0.0 if background else float(timeout)
 
