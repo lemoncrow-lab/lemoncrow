@@ -246,30 +246,66 @@ class TestAtelierAnthropicTools:
         assert call_events[0].payload["cache_read_tokens"] == 400
         assert call_events[0].payload["input_tokens"] == 1000
 
+    @staticmethod
+    def _tool_response(name: str, tool_input: dict[str, Any]) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.usage = MagicMock()
+        mock_response.usage.input_tokens = 100
+        mock_response.usage.output_tokens = 50
+        mock_response.usage.cache_read_input_tokens = 0
+        mock_response.model = "claude-haiku-4-5"
+        mock_response.stop_reason = "tool_use"
+
+        tool_block = MagicMock()
+        tool_block.type = "tool_use"
+        tool_block.name = name
+        tool_block.input = tool_input
+        mock_response.content = [tool_block]
+        return mock_response
+
     def test_dispatch_loop_detection_on_tool_use(self) -> None:
         _, dispatch, ledger = self._make()
 
-        for _ in range(3):
-            mock_response = MagicMock()
-            mock_response.usage = MagicMock()
-            mock_response.usage.input_tokens = 100
-            mock_response.usage.output_tokens = 50
-            mock_response.usage.cache_read_input_tokens = 0
-            mock_response.model = "claude-haiku-4-5"
-            mock_response.stop_reason = "tool_use"
-
-            tool_block = MagicMock()
-            tool_block.type = "tool_use"
-            tool_block.name = "bash"
-            mock_response.content = [tool_block]
-            dispatch(mock_response)
+        for _ in range(4):
+            dispatch(self._tool_response("bash", {"command": "ls"}))
 
         alerts = [
             e
             for e in ledger.events
             if e.kind == "watchdog_alert" and e.payload.get("event_type") == "REPEATED_TOOL_CALL"
         ]
-        assert len(alerts) >= 1
+        # Fires exactly once per streak, not on every call past the threshold
+        assert len(alerts) == 1
+        assert alerts[0].payload["tool"] == "bash"
+
+    def test_dispatch_no_loop_alert_for_distinct_args(self) -> None:
+        _, dispatch, ledger = self._make()
+
+        for i in range(5):
+            dispatch(self._tool_response("read_file", {"path": f"file_{i}.py"}))
+
+        alerts = [
+            e
+            for e in ledger.events
+            if e.kind == "watchdog_alert" and e.payload.get("event_type") == "REPEATED_TOOL_CALL"
+        ]
+        assert alerts == []
+
+    def test_dispatch_loop_alert_rearms_after_streak_breaks(self) -> None:
+        _, dispatch, ledger = self._make()
+
+        for _ in range(3):
+            dispatch(self._tool_response("bash", {"command": "ls"}))
+        dispatch(self._tool_response("bash", {"command": "pwd"}))  # breaks streak
+        for _ in range(3):
+            dispatch(self._tool_response("bash", {"command": "ls"}))
+
+        alerts = [
+            e
+            for e in ledger.events
+            if e.kind == "watchdog_alert" and e.payload.get("event_type") == "REPEATED_TOOL_CALL"
+        ]
+        assert len(alerts) == 2
 
     def test_without_telemetry_tool(self) -> None:
         from atelier.infra.runtime.run_ledger import RunLedger

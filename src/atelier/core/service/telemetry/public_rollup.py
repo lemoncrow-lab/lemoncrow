@@ -1,9 +1,9 @@
 """Public aggregate savings rollup publisher.
 
 Sends only the anonymous aggregate fields used by the public landing-page
-counters (saved_usd, tokens_saved, calls_avoided, turn_count).  Always on—
-no opt-out.  Install IDs and session IDs are SHA-256 hashed before leaving
-the process.  Never raises into hooks.
+counters (saved_usd, tokens_saved, calls_avoided, turn_count).  Install IDs
+and session IDs are SHA-256 hashed before leaving the process.  Never raises
+into hooks.
 """
 
 from __future__ import annotations
@@ -236,8 +236,15 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
         source="claude",
         carry_usd=float(totals["carry_usd"]),
         est_cost_usd=float(totals["est_cost_usd"]),
-        time_saved_seconds=estimate_time_saved_seconds(calls_avoided=int(totals["calls_avoided"])),
+        time_saved_seconds=estimate_time_saved_seconds(
+            calls_avoided=int(totals["calls_avoided"]),
+            output_saved_tokens=int(totals.get("output_saved_tokens", 0) or 0),
+        ),
         output_saved_tokens=int(totals.get("output_saved_tokens", 0) or 0),
         output_saved_usd=float(totals.get("output_saved_usd", 0.0) or 0.0),
     )
-    return {"flushed": ok, "through_day": last_day}, last_day
+    if not ok:
+        # Failed POST: keep the old checkpoint so these days are retried on
+        # the next flush instead of being dropped permanently.
+        return {"flushed": False, "through_day": last_day, "reason": "post_failed"}, checkpoint_day
+    return {"flushed": True, "through_day": last_day}, last_day

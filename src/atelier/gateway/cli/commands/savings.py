@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 @click.group("savings", invoke_without_command=True)
-@click.option("--json", "as_json", is_flag=True)
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.option(
     "--segment",
     is_flag=True,
@@ -52,10 +52,18 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
 
         _session_id = os.environ.get("ATELIER_STATUS_SESSION_ID", "")
         _status_host = os.environ.get("ATELIER_STATUS_HOST", "")
-        _live_cost = float(os.environ.get("ATELIER_STATUSLINE_COST_USD") or 0)
-        _live_in = int(os.environ.get("ATELIER_STATUSLINE_LIVE_IN_TOK") or 0)
-        _live_cache = int(os.environ.get("ATELIER_STATUSLINE_LIVE_CACHE_TOK") or 0)
-        _live_out = int(os.environ.get("ATELIER_STATUSLINE_LIVE_OUT_TOK") or 0)
+
+        def _env_num(name: str) -> float:
+            # Statusline render path — malformed env must degrade to 0, never traceback.
+            try:
+                return float(os.environ.get(name) or 0)
+            except ValueError:
+                return 0.0
+
+        _live_cost = _env_num("ATELIER_STATUSLINE_COST_USD")
+        _live_in = int(_env_num("ATELIER_STATUSLINE_LIVE_IN_TOK"))
+        _live_cache = int(_env_num("ATELIER_STATUSLINE_LIVE_CACHE_TOK"))
+        _live_out = int(_env_num("ATELIER_STATUSLINE_LIVE_OUT_TOK"))
         if _status_host == "codex":
             from atelier.core.capabilities.plugin_runtime import record_codex_statusline_snapshot
 
@@ -820,8 +828,16 @@ def savings_detail(ctx: click.Context, as_json: bool, limit: int) -> None:
 
 
 @click.command("savings-reset")
+@click.option("-f", "--force", is_flag=True, help="Skip confirmation prompt.")
+@click.option("--dry-run", is_flag=True, help="Show what would be reset without changing anything.")
 @click.pass_context
-def savings_reset(ctx: click.Context) -> None:
+def savings_reset(ctx: click.Context, force: bool, dry_run: bool) -> None:
+    """Reset savings state — cache counters and per-operation cost history."""
+    if dry_run:
+        click.echo("Would reset: savings counters (calls_avoided, tokens_saved) + cost history (all operations)")
+        return
+    if not force:
+        click.confirm("Reset savings counters and cost history?", abort=True)
     s = _load_smart_state(ctx.obj["root"])
     s["savings"] = {"calls_avoided": 0, "tokens_saved": 0}
     _save_smart_state(ctx.obj["root"], s)

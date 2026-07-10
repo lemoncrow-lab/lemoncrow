@@ -1,11 +1,17 @@
 """LangChain ``BaseCallbackHandler`` middleware for Atelier.
 
-Intercepts LLM calls to:
-- Inject ``cache_control: {"type": "ephemeral"}`` on the system prompt
-  and tool-schema messages (provider-side KV-cache pinning)
+Observes LLM calls to:
 - Record each call in RunLedger with real cache_read_tokens
 - Fire watchdog loop-detection on tool calls
-- Track prefix hash changes across turns
+- Track prefix hash changes across turns and detect prefix-cache misses
+
+LangChain callbacks are observational: handlers receive copies of the
+invocation data and cannot mutate the outgoing request, so this middleware
+does **not** inject ``cache_control`` blocks.  To pin the stable prefix in
+Anthropic's prompt cache, set ``cache_control: {"type": "ephemeral"}`` on
+your own system prompt / stable message blocks and keep them byte-identical
+across turns; this middleware detects misses (``PREFIX_CACHE_MISS`` alerts)
+but cannot fix them.
 
 Usage::
 
@@ -34,44 +40,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _inject_cache_control(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Inject ``cache_control: {"type": "ephemeral"}`` on eligible message parts.
-
-    Eligible: system messages and the last human message (which typically
-    carries the compiled tool schema / instructions block).  This pins the
-    stable prefix in Anthropic's prompt KV cache.
-    """
-    out: list[dict[str, Any]] = []
-    for i, msg in enumerate(messages):
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-
-        if role == "system":
-            if isinstance(content, str):
-                out.append(
-                    {
-                        **msg,
-                        "content": [{"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}],
-                    }
-                )
-            else:
-                out.append(msg)
-            continue
-
-        # Pin the last tool-schema-bearing human turn (index 0 in most agents)
-        if role == "human" and i == 0 and isinstance(content, str):
-            out.append(
-                {
-                    **msg,
-                    "content": [{"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}],
-                }
-            )
-            continue
-
-        out.append(msg)
-    return out
-
-
 class LangChainMiddleware:
     """LangChain ``BaseCallbackHandler``-compatible Atelier middleware.
 
@@ -97,19 +65,9 @@ class LangChainMiddleware:
         prompts: list[str],
         **kwargs: Any,
     ) -> None:
-        """Called before each LLM invocation.
-
-        Injects cache_control headers if the underlying invocation_params
-        are accessible, and records the call start time.
-        """
+        """Called before each LLM invocation.  Records the call start time."""
         run_id = str(kwargs.get("run_id", ""))
         self._call_start[run_id] = time.monotonic()
-
-        # Attempt to inject cache_control via invocation_params mutation.
-        # This works when the LangChain model supports param forwarding.
-        invocation_params = kwargs.get("invocation_params") or {}
-        if "messages" in invocation_params:
-            invocation_params["messages"] = _inject_cache_control(invocation_params["messages"])
 
     def on_chat_model_start(
         self,
@@ -220,7 +178,11 @@ class LangChainMiddleware:
                     {
                         "event_type": "PREFIX_CACHE_MISS",
                         "turns": len(last3),
-                        "hint": "Ensure system prompt and tool schemas are stable across turns.",
+                        "hint": (
+                            "Atelier detects cache misses but cannot fix them from a callback. "
+                            "Set cache_control: {'type': 'ephemeral'} on your system prompt / "
+                            "stable prefix blocks and keep them byte-identical across turns."
+                        ),
                     },
                 )
 

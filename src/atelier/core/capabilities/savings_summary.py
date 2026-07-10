@@ -427,6 +427,10 @@ _TRANSCRIPT_CACHE_MAX = 8  # main transcripts tracked per process
 _transcript_stats_lock = threading.Lock()
 
 
+def _new_model_bucket() -> dict[str, int]:
+    return {"in": 0, "out": 0, "cR": 0, "cW": 0, "cW1": 0} | {f"{k}_lc": 0 for k in ("in", "out", "cR", "cW", "cW1")}
+
+
 class _TranscriptFold:
     """Running accumulator for one transcript + its subagent transcripts.
 
@@ -452,7 +456,11 @@ class _TranscriptFold:
         # Per-subagent turn timestamps keyed by subagent transcript path so an
         # incremental append lands in the right bucket.
         self.sub_ts: dict[str, list[str]] = {}
-        self.seen_usage_message_ids: set[str] = set()
+        # Last-counted usage contribution per assistant message id. Streamed
+        # messages write multiple usage rows per id with growing counts; the
+        # LAST row is authoritative, so a repeat row retracts the previous
+        # contribution and counts itself instead (keep-last semantics).
+        self.usage_by_message_id: dict[str, dict[str, Any]] = {}
         self.seen_tool_use_ids: set[str] = set()
         self.lc_thresholds: dict[str, int] = {}
 
@@ -486,17 +494,69 @@ class _TranscriptFold:
         cw1_t = int(cache_creation.get("ephemeral_1h_input_tokens", 0) or 0) if isinstance(cache_creation, dict) else 0
         cw1_t = min(cw1_t, cw_t)
         has_usage = bool(in_t or out_t or cr_t or cw_t)
-        count_usage = has_usage
-        if has_usage and msg_id:
-            if msg_id in self.seen_usage_message_ids:
-                count_usage = False
-            else:
-                self.seen_usage_message_ids.add(msg_id)
-        if count_usage:
+        prev = self.usage_by_message_id.get(msg_id) if (has_usage and msg_id) else None
+        if prev is not None:
+            # Repeat usage row for an already-counted message id (streamed
+            # write with growing counts): keep-last — retract the previous
+            # contribution and count this row instead. Turn count and
+            # timestamps stay first-occurrence-once.
+            self.input_tokens += in_t - int(prev["in"])
+            self.output_tokens += out_t - int(prev["out"])
+            self.cache_read_tokens += cr_t - int(prev["cR"])
+            self.cache_write_tokens += cw_t - int(prev["cW"])
+            turn_row = prev.get("turn_row")
+            if isinstance(turn_row, dict):
+                turn_row.update({"in": in_t, "out": out_t, "cR": cr_t, "cW": cw_t})
+            bucket_model = str(prev.get("bucket_model") or "")
+            had_bucket = bool(bucket_model)
+            if not had_bucket:
+                turn_model = str(msg.get("model") or entry.get("model") or "").strip()
+                if is_real_model(turn_model):
+                    bucket_model = turn_model
+                    prev["bucket_model"] = bucket_model
+            lc = False
+            if bucket_model:
+                bucket = self.per_model.setdefault(bucket_model, _new_model_bucket())
+                old_in = int(prev["in"]) if had_bucket else 0
+                old_out = int(prev["out"]) if had_bucket else 0
+                old_cr = int(prev["cR"]) if had_bucket else 0
+                old_cw = int(prev["cW"]) if had_bucket else 0
+                old_cw1 = int(prev["cW1"]) if had_bucket else 0
+                bucket["in"] += in_t - old_in
+                bucket["out"] += out_t - old_out
+                bucket["cR"] += cr_t - old_cr
+                bucket["cW"] += cw_t - old_cw
+                bucket["cW1"] += cw1_t - old_cw1
+                if had_bucket and prev["lc"]:
+                    bucket["in_lc"] -= old_in
+                    bucket["out_lc"] -= old_out
+                    bucket["cR_lc"] -= old_cr
+                    bucket["cW_lc"] -= old_cw
+                    bucket["cW1_lc"] -= old_cw1
+                threshold = _long_context_threshold(bucket_model, self.lc_thresholds)
+                lc = bool(threshold and (in_t + cr_t + cw_t) > threshold)
+                if lc:
+                    bucket["in_lc"] += in_t
+                    bucket["out_lc"] += out_t
+                    bucket["cR_lc"] += cr_t
+                    bucket["cW_lc"] += cw_t
+                    bucket["cW1_lc"] += cw1_t
+            prev.update({"in": in_t, "out": out_t, "cR": cr_t, "cW": cw_t, "cW1": cw1_t, "lc": lc})
+        elif has_usage:
             self.input_tokens += in_t
             self.output_tokens += out_t
             self.cache_read_tokens += cr_t
             self.cache_write_tokens += cw_t
+            record: dict[str, Any] = {
+                "in": in_t,
+                "out": out_t,
+                "cR": cr_t,
+                "cW": cw_t,
+                "cW1": cw1_t,
+                "bucket_model": "",
+                "lc": False,
+                "turn_row": None,
+            }
             # A turn = one assistant message with non-zero usage.
             # Dedup on msg_id (same dedup as token accumulation).
             ts_raw = str(entry.get("timestamp") or "")
@@ -514,15 +574,12 @@ class _TranscriptFold:
             if is_main and ts_raw and is_real_model(turn_model):
                 # Per-turn request usage — lets _cliff_credit reprice turns
                 # that stayed under the >200k threshold only thanks to savings.
-                self.turn_usage.append(
-                    {"ts": ts_raw, "model": turn_model, "in": in_t, "out": out_t, "cR": cr_t, "cW": cw_t}
-                )
+                turn_row = {"ts": ts_raw, "model": turn_model, "in": in_t, "out": out_t, "cR": cr_t, "cW": cw_t}
+                self.turn_usage.append(turn_row)
+                record["turn_row"] = turn_row
             if is_real_model(turn_model):
-                bucket = self.per_model.setdefault(
-                    turn_model,
-                    {"in": 0, "out": 0, "cR": 0, "cW": 0, "cW1": 0}
-                    | {f"{k}_lc": 0 for k in ("in", "out", "cR", "cW", "cW1")},
-                )
+                bucket = self.per_model.setdefault(turn_model, _new_model_bucket())
+                record["bucket_model"] = turn_model
                 bucket["in"] += in_t
                 bucket["out"] += out_t
                 bucket["cR"] += cr_t
@@ -533,11 +590,14 @@ class _TranscriptFold:
                 # (e.g. 200k).
                 threshold = _long_context_threshold(turn_model, self.lc_thresholds)
                 if threshold and (in_t + cr_t + cw_t) > threshold:
+                    record["lc"] = True
                     bucket["in_lc"] += in_t
                     bucket["out_lc"] += out_t
                     bucket["cR_lc"] += cr_t
                     bucket["cW_lc"] += cw_t
                     bucket["cW1_lc"] += cw1_t
+            if msg_id:
+                self.usage_by_message_id[msg_id] = record
 
         if not is_main:
             return
@@ -718,7 +778,7 @@ def fmt_duration(seconds: float) -> str:
 
 def estimate_collapse_saving_fraction(
     per_round_usage: list[dict[str, int]],
-    collapsed_rounds: list[int],
+    collapsed_rounds: list[int] | list[list[int]],
     model: str,
 ) -> float:
     """Fraction of a session's cost Atelier would save by collapsing its grep/read
@@ -743,7 +803,9 @@ def estimate_collapse_saving_fraction(
     Args:
         per_round_usage: one dict per assistant round with token counts under
             ``in`` / ``out`` / ``cache_read`` / ``cache_write``.
-        collapsed_rounds: round indices that belong to collapsed loop tool calls.
+        collapsed_rounds: per-episode groups of round indices ([[...], [...]]);
+            one code_search stand-in round is kept per group. A flat list of
+            ints is accepted as a single group.
         model: model id for pricing (via :func:`estimate_cost_usd`).
 
     Returns a fraction in ``[0, 1]`` -- multiply by the session's cost to get the
@@ -764,8 +826,21 @@ def estimate_collapse_saving_fraction(
     baseline = sum(_price(_g(u, "in"), _g(u, "out"), _g(u, "cache_read"), _g(u, "cache_write")) for u in rounds)
     if baseline <= 0:
         return 0.0
-    loop = sorted({r for r in collapsed_rounds if 0 <= r < len(rounds)})
-    eliminated = set(loop[1:])  # keep the first loop round (the code_search stand-in)
+    groups: list[list[int]]
+    if collapsed_rounds and isinstance(collapsed_rounds[0], list):
+        groups = [[int(r) for r in g] for g in collapsed_rounds if isinstance(g, list)]
+    else:
+        groups = [[int(r) for r in collapsed_rounds if isinstance(r, int)]]
+    kept_standins: set[int] = set()
+    eliminated: set[int] = set()
+    for group in groups:
+        loop = sorted({r for r in group if 0 <= r < len(rounds)})
+        if not loop:
+            continue
+        # Keep the first round of EACH loop (that loop's code_search stand-in).
+        kept_standins.add(loop[0])
+        eliminated.update(loop[1:])
+    eliminated -= kept_standins
     if not eliminated:
         return 0.0
 
@@ -777,7 +852,9 @@ def estimate_collapse_saving_fraction(
         if i in eliminated:
             removed_cw += _g(u, "cache_write")
             continue
-        cr = max(_g(u, "in"), _g(u, "cache_read") - removed_cw)
+        # Bounded: a kept round never re-reads more than its REAL cache_read,
+        # and never a negative amount.
+        cr = min(_g(u, "cache_read"), max(0, _g(u, "cache_read") - removed_cw))
         atelier += _price(_g(u, "in"), _g(u, "out"), cr, _g(u, "cache_write"))
     saved = baseline - atelier
     return max(0.0, min(1.0, saved / baseline))
@@ -2915,7 +2992,7 @@ def savings_frames(
         combined += f"){C_RESET}"
         # "faster" — estimated wall-clock saved, the speed companion to $saved.
         if summary.time_saved_seconds >= 60:
-            combined += f" {C_BRAND}⚡ {fmt_duration(summary.time_saved_seconds)} faster{C_RESET}"
+            combined += f" {C_BRAND}⚡ ~{fmt_duration(summary.time_saved_seconds)} faster{C_RESET}"
     frames.append((True, combined))
 
     def _hist_frame(label: str, usd: float, calls: int, spend: float, carry: float, routing: float) -> str:

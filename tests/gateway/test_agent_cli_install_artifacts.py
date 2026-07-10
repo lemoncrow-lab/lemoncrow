@@ -884,17 +884,15 @@ def test_install_claude_uses_new_plugin_path() -> None:
 def test_install_claude_stages_statusline_assets() -> None:
     script = SCRIPTS / "install_claude.sh"
     content = script.read_text()
-    assert "cp -r '${SOURCE_PLUGIN_DIR}/scripts' '$STAGING_DIR/'" in content
-    assert "cp '${SOURCE_PLUGIN_DIR}/settings.json' '$STAGING_DIR/'" in content
-    assert (
-        'data["subagentStatusLine"] = {"type": "command", "command": "${STATUSLINE_SCRIPT}", "padding": 1}' in content
-    )
+    assert 'run cp -r "${SOURCE_PLUGIN_DIR}/scripts" "$STAGING_DIR/"' in content
+    assert 'run cp "${SOURCE_PLUGIN_DIR}/settings.json" "$STAGING_DIR/"' in content
+    assert '"subagentStatusLine": {"type": "command", "command": "${STATUSLINE_SCRIPT}", "padding": 1},' in content
 
 
 def test_install_claude_stages_workflow_assets() -> None:
     script = SCRIPTS / "install_claude.sh"
     content = script.read_text()
-    assert "cp -r '${SOURCE_PLUGIN_DIR}/workflows' '$STAGING_DIR/'" in content
+    assert 'run cp -r "${SOURCE_PLUGIN_DIR}/workflows" "$STAGING_DIR/"' in content
 
 
 # ---------------------------------------------------------------------------

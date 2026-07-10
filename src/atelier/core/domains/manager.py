@@ -105,22 +105,14 @@ class DomainManager:
         if bundle_manifest_path(user_path).exists():
             try:
                 return self.loader.load(user_path), user_path
-            except Exception:
-                logging.exception("Recovered from broad exception handler")
-                logger.warning(
-                    "Suppressed exception at manager.py:105",
-                    exc_info=True,
-                )
+            except Exception:  # noqa: BLE001 - fall through to builtin bundle on any load failure
+                logger.warning("Failed to load domain bundle %s from %s", bundle_id, user_path, exc_info=True)
 
         builtin_path = DomainLoader.BUILTIN_ROOT / bundle_id
         if bundle_manifest_path(builtin_path).exists():
             try:
                 return self.loader.load(builtin_path), builtin_path
-            except Exception:
-                logging.exception("Recovered from broad exception handler")
-                logger.warning(
-                    "Suppressed exception at manager.py:112",
-                    exc_info=True,
-                )
+            except Exception:  # noqa: BLE001 - unresolved bundle is reported as (None, None)
+                logger.warning("Failed to load domain bundle %s from %s", bundle_id, builtin_path, exc_info=True)
 
         return None, None

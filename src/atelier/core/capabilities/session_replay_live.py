@@ -239,12 +239,18 @@ def _simulate_bash(turn: dict[str, Any], recorded_output: str) -> dict[str, Any]
         rr = compact_host_bash_output(command, recorded_output, "", 0)
         compacted = str(getattr(rr, "stdout", "") or "")
         before, after = len(recorded_output), len(compacted)
+        from atelier.core.capabilities.prompt_compilation.tokens import approx_tokens
+
+        before_tok, after_tok = approx_tokens(recorded_output), approx_tokens(compacted)
         out.update(
             mode="simulated",
             output=compacted[:2500],
             before_chars=before,
             after_chars=after,
             chars_omitted=int(getattr(rr, "chars_omitted", 0) or max(0, before - after)),
+            before_tokens=before_tok,
+            after_tokens=after_tok,
+            tokens_omitted=max(0, before_tok - after_tok),
             lines_omitted=int(getattr(rr, "lines_omitted", 0) or 0),
             truncated=bool(getattr(rr, "truncated", False)),
             note="Atelier bash capping applied to the recorded output; the command is NOT re-run.",

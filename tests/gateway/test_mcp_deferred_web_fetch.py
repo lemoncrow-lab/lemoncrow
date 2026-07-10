@@ -65,6 +65,7 @@ def wf_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("ATELIER_MEMORY_BACKEND", "sqlite")
     monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
     monkeypatch.delenv("ATELIER_MCP_DEFER_WEB_FETCH", raising=False)
+    monkeypatch.setenv("ATELIER_WEB_FETCH_ALLOW_LOOPBACK", "1")
     mcp_server._current_ledger = None
     mcp_server._realtime_ctx = None
     web_fetch.clear_web_fetch_cache()

@@ -324,6 +324,15 @@ def _slim_schema(node: Any) -> Any:
     return node
 
 
+class _ToolArgumentError(ValueError):
+    """Malformed tool arguments (pre-dispatch or handler argument-shape checks).
+
+    Split marker for the dispatcher: a params-shape fault maps to a JSON-RPC
+    -32602 protocol error, while any other handler-raised execution failure is
+    returned as a successful response whose result carries ``isError: true``.
+    """
+
+
 def mcp_tool(
     name: str | None = None,
     description: str | None = None,
@@ -409,10 +418,12 @@ def mcp_tool(
                 # not error. A rejection here throws away the entire tool_use
                 # the model just emitted (often several KB of file content)
                 # and forces a full re-emission on the retry.
+                _recovery_failure: str | None = None
                 if recover_args is not None and isinstance(args, dict):
                     try:
                         args = recover_args(args, known_params)
-                    except Exception:
+                    except Exception as recover_exc:
+                        _recovery_failure = f"{type(recover_exc).__name__}: {recover_exc}"
                         logging.exception("Recovered from broad exception handler")
                 # Pydantic's default config silently drops unknown keys, so a
                 # typo'd argument (e.g. codemod `dryrun` for `dry_run`) would be
@@ -423,10 +434,13 @@ def mcp_tool(
                 if isinstance(args, dict):
                     unknown = [key for key in args if key not in known_params and key not in aliases]
                     if unknown:
-                        raise ValueError(
+                        msg = (
                             f"tool {tool_name!r} received unknown argument(s) {sorted(unknown)}; "
                             f"known: {sorted(visible_params)}"
                         )
+                        if _recovery_failure:
+                            msg += f" (argument recovery attempted and failed: {_recovery_failure})"
+                        raise _ToolArgumentError(msg)
                 try:
                     validated = ArgsModel.model_validate(_coerce_json_strings(args, param_annotations))
                 except ValidationError as exc:
@@ -436,7 +450,7 @@ def mcp_tool(
                         # batch (e.g. many `edits`) carrying non-ASCII characters that
                         # didn't serialise. Surface an actionable hint instead of a
                         # bare "field required".
-                        raise ValueError(
+                        raise _ToolArgumentError(
                             f"{tool_name}: received empty arguments. If this was a large batch "
                             "(e.g. many edits) with non-ASCII characters, the MCP client likely "
                             "dropped the arguments in transit -- retry with fewer items per call "
@@ -5750,12 +5764,41 @@ def _read_summary_response(resolved: Path) -> dict[str, Any]:
 
 # Freshness ledger for blind (no-old) range edits: abs path -> (mtime_ns, size)
 # stat signature captured whenever `read`/`code_search` serves that file's
-# content. One MCP server per host window, so in-process state is exactly
-# window-scoped: a matching signature proves THIS window's model saw the file
-# as it currently is on disk, i.e. its :Lx-Ly line numbers still index the
-# same bytes. Never refreshed on edit-writes -- an edit shifts lines, so the
-# next blind range edit must re-read (or pass old) by design.
-_RANGE_READ_SIGS: dict[str, tuple[int, int]] = {}
+# content. A matching signature proves the requesting model saw the file as it
+# currently is on disk, i.e. its :Lx-Ly line numbers still index the same
+# bytes. Scoped PER SESSION, mirroring _http_session_ledgers: on the
+# multi-client HTTP transport each session's reads prove freshness only for
+# that session's own blind range edits (client B can no longer pass the
+# staleness check on client A's read). The stdio transport has no request
+# ledger and keeps one process-wide "_global" bucket -- one MCP server per
+# host window, so that state stays exactly window-scoped. Never refreshed on
+# edit-writes -- an edit shifts lines, so the next blind range edit must
+# re-read (or pass old) by design.
+_RANGE_READ_SIGS: OrderedDict[str, dict[str, tuple[int, int]]] = OrderedDict()
+_range_read_sigs_lock = threading.Lock()
+_MAX_RANGE_READ_SIG_SESSIONS = _MAX_HTTP_SESSION_LEDGERS
+
+
+def _range_read_sigs() -> dict[str, tuple[int, int]]:
+    """The current request's freshness-signature bucket.
+
+    Keyed exactly like _http_session_ledgers: the per-request ledger installed
+    by _set_request_ledger names the HTTP session; without one (stdio) the
+    process-wide "_global" bucket is used. Bounded LRU, same cap as the
+    session-ledger cache.
+    """
+    led = getattr(_request_ledger, "value", None)
+    sid = led.session_id if isinstance(led, RunLedger) and led.session_id else "_global"
+    with _range_read_sigs_lock:
+        bucket = _RANGE_READ_SIGS.get(sid)
+        if bucket is None:
+            if len(_RANGE_READ_SIGS) >= _MAX_RANGE_READ_SIG_SESSIONS:
+                _RANGE_READ_SIGS.popitem(last=False)
+            bucket = {}
+            _RANGE_READ_SIGS[sid] = bucket
+        else:
+            _RANGE_READ_SIGS.move_to_end(sid)
+        return bucket
 
 
 def _record_read_sig(path: Path | str) -> None:
@@ -5763,7 +5806,7 @@ def _record_read_sig(path: Path | str) -> None:
     try:
         p = Path(path).resolve()
         st = p.stat()
-        _RANGE_READ_SIGS[str(p)] = (st.st_mtime_ns, st.st_size)
+        _range_read_sigs()[str(p)] = (st.st_mtime_ns, st.st_size)
     except OSError:
         pass
 
@@ -6668,10 +6711,10 @@ def _edit_descriptor_family(edit: dict[str, Any]) -> str:
 
 def _validate_edit_descriptor_families(edits: list[dict[str, Any]]) -> str:
     if not edits:
-        raise ValueError("edits must include at least one descriptor")
+        raise _ToolArgumentError("edits must include at least one descriptor")
     families = {_edit_descriptor_family(edit) for edit in edits}
     if len(families) > 1:
-        raise ValueError("cannot mix legacy op/path descriptors with rich edit descriptors in one call")
+        raise _ToolArgumentError("cannot mix legacy op/path descriptors with rich edit descriptors in one call")
     return families.pop()
 
 
@@ -7224,6 +7267,7 @@ def tool_smart_edit(
     if os.environ.get("ATELIER_RANGE_EDIT_GUARD", "1") != "0":
         from atelier.core.capabilities.tool_supervision.rich_edit import _parse_target
 
+        _session_sigs = _range_read_sigs()
         _stale: list[dict[str, Any]] = []
         for _i, _ed in enumerate(edits):
             if not isinstance(_ed, dict) or _ed.get("old_string") or _ed.get("replace") or _ed.get("overwrite"):
@@ -7244,7 +7288,7 @@ def tool_smart_edit(
                 _st = _rp.stat()
             except OSError:
                 continue  # missing file fails downstream with a clearer error
-            _sig = _RANGE_READ_SIGS.get(str(_rp))
+            _sig = _session_sigs.get(str(_rp))
             _cur = (_st.st_mtime_ns, _st.st_size)
             if _sig == _cur:
                 continue
@@ -7531,7 +7575,10 @@ SQL_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         },
         "connection": {
             "type": "string",
-            "description": "DSN (sqlite:///path, postgresql://...). Auto-discovered from DATABASE_URL/.env if omitted.",
+            "description": (
+                "DSN (sqlite:///path, postgresql://...). If omitted, auto-discovery "
+                "from DATABASE_URL/.env requires ATELIER_SQL_AUTODISCOVER=1."
+            ),
         },
         "write": {
             "type": "boolean",
@@ -7544,14 +7591,19 @@ SQL_TOOL_INPUT_SCHEMA: dict[str, Any] = {
 }
 
 
+def _sql_autodiscover_enabled() -> bool:
+    """Opt-in gate for discovering a sql connection from DATABASE_URL / .env."""
+    return os.environ.get("ATELIER_SQL_AUTODISCOVER", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 @mcp_tool(
     name="sql",
     input_schema=SQL_TOOL_INPUT_SCHEMA,
     description=(
         "SQL op-dispatch: schema introspection (connect/tables/schema/table/"
         "relationships/search), lint, bounded query execution (single `sql` or "
-        "`queries[]` batch). Connection auto-discovered from DATABASE_URL env or "
-        ".env; pass connection to override. Live introspection/queries = SQLite; "
+        "`queries[]` batch). Pass connection (DSN); auto-discovery from "
+        "DATABASE_URL/.env requires ATELIER_SQL_AUTODISCOVER=1. Live introspection/queries = SQLite; "
         "other dialects → driver-required note."
     ),
     param_aliases={"connection_string": "connection", "allow_writes": "write"},
@@ -7579,8 +7631,9 @@ def tool_sql(
       lint          — validate SQL syntax without executing (needs sql)
       query         — execute SQL (needs sql or queries[{name,sql},...])
 
-    Connection is auto-discovered from DATABASE_URL env or .env file.
-    Pass connection explicitly to override. Live introspection/queries run on SQLite;
+    Pass connection explicitly (DSN). Auto-discovery from the DATABASE_URL env
+    var or a .env file is opt-in: set ATELIER_SQL_AUTODISCOVER=1.
+    Live introspection/queries run on SQLite;
     other dialects report a driver-required note.
 
     Returns: introspection actions return {tables|table_count|schema|columns|foreign_keys|relationships|matches};
@@ -7604,6 +7657,16 @@ def tool_sql(
         }
     if action == "query" and not sql and not queries:
         return {"isError": True, "message": "action='query' requires sql or queries parameter"}
+    if not connection and not _sql_autodiscover_enabled():
+        return {
+            "isError": True,
+            "message": (
+                "no connection given and auto-discovery is disabled: pass an explicit "
+                "connection (e.g. connection='sqlite:///path/to.db') or set "
+                "ATELIER_SQL_AUTODISCOVER=1 to allow discovering the connection "
+                "from DATABASE_URL / .env"
+            ),
+        }
 
     result = sql_tool(
         action=action,
@@ -9427,6 +9490,7 @@ def _run_bash_tool(
             delay = min(delay * 2, 0.5)
     if not command.strip():
         raise ValueError("command is required for shell action=run")
+    timeout_explicit = timeout is not None
     if timeout is None:
         timeout = 120
 
@@ -9677,6 +9741,7 @@ def _run_bash_tool(
         command,
         cwd=effective_cwd,
         timeout=timeout,
+        timeout_explicit=timeout_explicit,
         max_lines=max_lines,
         max_chars=max_output_tokens * 4 if max_output_tokens is not None else None,
     )
@@ -10877,7 +10942,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "timeout": {
             "type": "integer",
             "default": 120,
-            "description": "Soft response budget (s) -- past it, returns a handle instead of blocking; hard kill after max(timeout, 1hr). action=cancel kills now; action=update + id + timeout kills at exact new timeout.",
+            "description": "Soft response budget (s) -- past it, returns a handle instead of blocking. Explicit timeout also installs a hard kill at max(timeout, 60s); omitted, hard kill after 1hr. action=cancel kills now; action=update + id + timeout kills at exact new timeout.",
         },
         "bg": {
             "type": "boolean",
@@ -11962,7 +12027,23 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
             locked = _feature_locked_response(rid, exc)
             if locked is not None:
                 return locked
-            return _err(rid, _tool_error_code(exc), str(exc))
+            # Protocol faults keep JSON-RPC error codes: malformed/unknown
+            # arguments (-32602 here; unknown tool/method are rejected before
+            # dispatch) and the memory sidecar's deliberate 409/503 mapping.
+            if isinstance(exc, (_ToolArgumentError, ValidationError)):
+                return _err(rid, -32602, str(exc))
+            if isinstance(exc, (MemoryConcurrencyError, MemorySidecarUnavailable)):
+                return _err(rid, _tool_error_code(exc), str(exc))
+            # Per the MCP spec, a tool-EXECUTION failure is a successful JSON-RPC
+            # response whose result carries isError=true and the message as a
+            # text content block, so the calling model can see it and self-correct.
+            return _ok(
+                rid,
+                {
+                    "content": [{"type": "text", "text": str(exc) or type(exc).__name__}],
+                    "isError": True,
+                },
+            )
 
         def _finalize_response(result: dict[str, Any] | Any) -> dict[str, Any]:
             # Post-handler finalization pipeline. Runs synchronously on the worker
