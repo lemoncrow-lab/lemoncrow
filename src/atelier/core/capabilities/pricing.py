@@ -216,7 +216,13 @@ _TIER_SUFFIX_RE = re.compile(r"_above_(\d+)k_tokens$")
 # real per-token API rate and massively overbill usage that GitHub Copilot's
 # flat subscription fee already covers. See copilot.py's ``copilot/<model>``
 # namespacing.
-_SUBSCRIPTION_VENDOR_PREFIXES = frozenset({"copilot"})
+# Vendors whose "<vendor>/<model>" ids identify subscription-covered usage the
+# vendor never bills per-token. Exempt from alias stripping so e.g.
+# "cursor/composer-2" can never resolve to a real per-token rate card
+# (cursor.py._normalize_model namespaces placeholder bubbles for exactly this
+# reason). OpenCode is deliberately NOT here: it's BYOK -- real keys, real
+# per-token billing -- so stripping to the underlying model is correct.
+_SUBSCRIPTION_VENDOR_PREFIXES = frozenset({"copilot", "cursor"})
 
 
 @dataclass(frozen=True)

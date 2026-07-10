@@ -148,7 +148,7 @@ def test_codex_plugin_prompt_uses_real_discovery_path() -> None:
 
 
 def test_codex_installers_stage_plugin_agent_surface() -> None:
-    for script in (SCRIPTS / "install_codex.sh", INTEGRATIONS / "codex" / "install.sh"):
+    for script in (SCRIPTS / "install_codex.sh",):
         content = script.read_text(encoding="utf-8")
         assert "integrations/codex/plugin/agents" in content
         assert "agents/openai.yaml" in content
@@ -172,7 +172,7 @@ def test_codex_installers_auto_approve_exposed_atelier_tools() -> None:
         "search",
         "usages",
     ]
-    for script in (SCRIPTS / "install_codex.sh", INTEGRATIONS / "codex" / "install.sh"):
+    for script in (SCRIPTS / "install_codex.sh",):
         content = script.read_text(encoding="utf-8")
         for tool in expected_tools:
             assert f'"{tool}"' in content
@@ -292,10 +292,16 @@ def test_host_install_doc_exists(doc: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "antigravity"])
+@pytest.mark.parametrize("host", ["claude", "codex", "opencode", "copilot", "antigravity"])
 def test_integrations_install_symlink(host: str) -> None:
     link = INTEGRATIONS / host / "install.sh"
     assert link.exists(), f"Missing integrations/{host}/install.sh"
+    # Must be a thin wrapper delegating to the canonical installer in scripts/;
+    # a full copy here drifts stale and cannot source scripts/lib/managed_context.sh.
+    content = link.read_text(encoding="utf-8")
+    assert (
+        f"scripts/install_{host}.sh" in content
+    ), f"integrations/{host}/install.sh must delegate to scripts/install_{host}.sh"
 
 
 # ---------------------------------------------------------------------------
@@ -451,7 +457,7 @@ def test_opencode_install_passes_config_path_via_env_not_source_interpolation() 
     unwritten. The path must be passed through the environment and read with
     os.environ inside the heredoc instead.
     """
-    content = (INTEGRATIONS / "opencode" / "install.sh").read_text()
+    content = (SCRIPTS / "install_opencode.sh").read_text()
     assert "Path('$OC_FILE')" not in content, "opencode install.sh must not interpolate $OC_FILE into Python source"
     # Path is exported to the subprocess and read safely inside every heredoc.
     assert content.count('ATELIER_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}"') == 4
@@ -468,7 +474,7 @@ def test_claude_install_passes_workspace_paths_via_env_not_source_interpolation(
     set -e. The paths must be exported to the subprocess and read with os.environ inside the
     heredoc, which must use a quoted delimiter to suppress shell interpolation.
     """
-    content = (INTEGRATIONS / "claude" / "install.sh").read_text()
+    content = (SCRIPTS / "install_claude.sh").read_text()
     assert (
         "Path('${CLAUDE_LOCAL_SETTINGS}')" not in content
     ), "claude install.sh must not interpolate ${CLAUDE_LOCAL_SETTINGS} into Python source"

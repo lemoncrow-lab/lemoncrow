@@ -48,8 +48,8 @@ def _session_savings_path(workspace: str) -> Path:
 
     1. If GITHUB_COPILOT_SESSION_ID is set ->
        session_dir(root, "copilot", sid) / "savings.jsonl".
-    2. Else workspaces/<sha256(resolve(ATELIER_WORKSPACE_ROOT or cwd))[:12]>/
-       session_savings.jsonl.
+    2. Else workspaces/<_workspace_key(ATELIER_WORKSPACE_ROOT or cwd)>/
+       session_savings.jsonl (human-readable key, matching paths.workspace_key).
     """
     sid = os.environ.get("GITHUB_COPILOT_SESSION_ID", "").strip()
     if sid:
@@ -64,6 +64,40 @@ def _session_savings_path(workspace: str) -> Path:
     return _atelier_root() / "workspaces" / h / "session_savings.jsonl"
 
 
+def _write_session_state_bridge(workspace: str, session_id: str) -> None:
+    """Refresh workspaces/<hash>/session_state.json with the live session id.
+
+    Copilot CLI does not set GITHUB_COPILOT_SESSION_ID for the MCP server
+    subprocess, so without this bridge every MCP tool call's savings row is
+    diverted to the unattributed quarantine ledger and the session recap
+    always shows $0 saved (mcp_server._resolved_host_session falls back to
+    _workspace_bridge_session_id, which reads this file). Mirrors the codex
+    hooks' _write_codex_session_state — same file, same workspace-hash scheme.
+    Local implementation (no atelier import): this hook has no PYTHONPATH
+    guarantee, and _workspace_key above already matches paths.workspace_key.
+    """
+    if not session_id:
+        return
+    state_path = _atelier_root() / "workspaces" / _workspace_key(workspace) / "session_state.json"
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
+        if not isinstance(state, dict):
+            state = {}
+    except (OSError, json.JSONDecodeError):
+        state = {}
+    if state.get("session_id") == session_id and state.get("host") == "copilot":
+        return
+    state["session_id"] = session_id
+    # Host stamp: the MCP bridge fallback only trusts this shared slot when the
+    # stamp matches the reading server's host.
+    state["host"] = "copilot"
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def main() -> None:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -76,6 +110,9 @@ def main() -> None:
         or os.environ.get("CLAUDE_PROJECT_DIR")
         or os.getcwd()
     )
+
+    session_id = str(payload.get("sessionId") or os.environ.get("GITHUB_COPILOT_SESSION_ID", "") or "").strip()
+    _write_session_state_bridge(workspace, session_id)
 
     path = _session_savings_path(workspace)
     try:

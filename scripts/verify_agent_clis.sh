@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 declare -A RESULTS
-HOSTS=(claude codex opencode copilot antigravity)
+HOSTS=(claude codex opencode copilot antigravity cursor hermes)
 
 for host in "${HOSTS[@]}"; do
     echo ""

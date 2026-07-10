@@ -428,7 +428,12 @@ class RunLedger:
         read these keys must use ``.get(..., default)``.
         """
         if self.cost_tracker is None:
-            self.cost_tracker = CostTracker(Path("."))
+            # No explicit root: persist cost history under the Atelier store
+            # root rather than polluting the process CWD (SDK middleware users
+            # construct RunLedger without a root).
+            from atelier.core.foundation.paths import default_store_root
+
+            self.cost_tracker = CostTracker(default_store_root())
         rec = self.cost_tracker.record_call(
             operation=operation,
             model=model,

@@ -213,27 +213,36 @@ def _confine_path(candidate: str | Path, base: Path) -> Path:
         raise ValueError("search_read rejected: path escapes the workspace") from exc
 
 
+# Directories excluded from the rg/grep invocations *and* pruned from the
+# cache-fingerprint walk (VCS internals, virtualenvs, build/dep trees, and
+# Atelier's own state dir). Keeping the two in sync is what makes the
+# fingerprint a valid cache key: rg runs with --hidden --no-ignore, so without
+# these globs it would search dirs the fingerprint never stats, serving stale
+# cached results after changes there. Pruning also avoids stat-walking the
+# thousands of loose objects under .git on every search call.
+_FINGERPRINT_PRUNE_DIRS = frozenset(
+    {".git", ".atelier", ".hg", ".svn", ".venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache"}
+)
+
+
 def _run_grep(pattern: str, search_path: str) -> str:
     """Run rg and return raw stdout (capped at 256 KB)."""
+    args = [
+        "rg",
+        "-H",
+        "-n",
+        "--no-heading",
+        "--color",
+        "never",
+        "--hidden",
+        "--no-ignore",
+    ]
+    for name in sorted(_FINGERPRINT_PRUNE_DIRS):
+        args += ["--glob", f"!{name}"]
+    args += ["--", pattern, search_path]
     try:
         proc = subprocess.run(
-            [
-                "rg",
-                "-H",
-                "-n",
-                "--no-heading",
-                "--color",
-                "never",
-                "--hidden",
-                "--no-ignore",
-                "--glob",
-                "!.git",
-                "--glob",
-                "!.atelier",
-                "--",
-                pattern,
-                search_path,
-            ],
+            args,
             capture_output=True,
             text=True,
             check=False,
@@ -247,20 +256,48 @@ def _run_grep(pattern: str, search_path: str) -> str:
         return f"(rg failed: {exc})"
 
 
+# rg uses Rust regex (ERE-like, plus perl classes). POSIX ERE (grep -E) covers
+# the quantifiers but has no \d/\w/\s, so translate those to POSIX classes to
+# keep the fallback's matches aligned with the primary rg path.
+_PERL_CLASS_TO_POSIX = {
+    "d": "[0-9]",
+    "D": "[^0-9]",
+    "w": "[[:alnum:]_]",
+    "W": "[^[:alnum:]_]",
+    "s": "[[:space:]]",
+    "S": "[^[:space:]]",
+}
+
+
+def _translate_perl_classes(pattern: str) -> str:
+    """Rewrite perl character classes (\\d, \\w, \\s, ...) as POSIX classes."""
+    out: list[str] = []
+    i = 0
+    while i < len(pattern):
+        ch = pattern[i]
+        if ch == "\\" and i + 1 < len(pattern):
+            nxt = pattern[i + 1]
+            out.append(_PERL_CLASS_TO_POSIX.get(nxt, ch + nxt))
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _run_grep_fallback(pattern: str, search_path: str) -> str:
-    """Fallback grep when ripgrep is unavailable."""
+    """Fallback grep when ripgrep is unavailable.
+
+    Runs in ERE mode (-E) with perl classes translated to POSIX so the same
+    query matches what it would have matched via rg.
+    """
+    args = ["grep", "-rnHE", "--color=never"]
+    for name in sorted(_FINGERPRINT_PRUNE_DIRS):
+        args.append(f"--exclude-dir={name}")
+    args += ["--", _translate_perl_classes(pattern), search_path]
     try:
         proc = subprocess.run(
-            [
-                "grep",
-                "-rnH",
-                "--color=never",
-                "--exclude-dir=.git",
-                "--exclude-dir=.atelier",
-                "--",
-                pattern,
-                search_path,
-            ],
+            args,
             capture_output=True,
             text=True,
             check=False,
@@ -307,15 +344,6 @@ def _save_cache(repo_root: Path, cache: dict[str, Any]) -> None:
     state_path = _cache_state_path(repo_root)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(state, ensure_ascii=True), encoding="utf-8")
-
-
-# Directories rg never searches (VCS internals, virtualenvs, build/dep trees)
-# and Atelier's own state dir. Pruning them keeps the cache fingerprint aligned
-# with the set of files rg actually greps, and avoids stat-walking the thousands
-# of loose objects under .git on every search call.
-_FINGERPRINT_PRUNE_DIRS = frozenset(
-    {".git", ".atelier", ".hg", ".svn", ".venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache"}
-)
 
 
 def _fingerprint_path(search_path: Path) -> str:

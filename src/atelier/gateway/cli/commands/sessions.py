@@ -2171,6 +2171,14 @@ def session_stats_cmd(
 
     all_rows = [r for r in all_rows if int(r["tool_calls"]) > 0 or int(r["input_tokens"]) > 0]
 
+    if limit:
+        # --limit is documented as the global most-recent N sessions; the
+        # scan above caps per host (bounding parse work, which guarantees
+        # the global top-N is among the scanned rows), so trim the merged
+        # rows to the newest N across all hosts.
+        all_rows.sort(key=lambda r: str(r["created_at"]), reverse=True)
+        all_rows = all_rows[:limit]
+
     if not all_rows:
         click.echo(f"No sessions found in the last {label}.")
         return

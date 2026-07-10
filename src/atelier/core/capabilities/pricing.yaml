@@ -140,6 +140,22 @@ overrides:
       cache_write_1h: 4.00
       thinking: 10.00
 
+  # Nous Research Hermes 4 (hermes-agent CLI is BYOK; OpenRouter market
+  # rates, Jul 2026). No published cache discount -- cache reads/writes
+  # bill at the plain input rate rather than inventing a multiplier.
+  nousresearch/hermes-4-405b:
+    input: 1.00
+    output: 3.00
+    cache_read: 1.00
+    cache_write: 1.00
+    thinking: 3.00
+  nousresearch/hermes-4-70b:
+    input: 0.13
+    output: 0.40
+    cache_read: 0.13
+    cache_write: 0.13
+    thinking: 0.40
+
   # OpenCode (Subscription-covered routing)
   # Uses GPT-4o-mini as a proxy.
   opencode/big-pickle:
