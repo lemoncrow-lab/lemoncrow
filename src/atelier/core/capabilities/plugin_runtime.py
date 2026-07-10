@@ -1253,11 +1253,65 @@ def build_codex_user_prompt_output(root: str | Path, payload: dict[str, Any]) ->
     return output or {"no_output": True}
 
 
+def _opencode_workspace_root(payload: dict[str, Any]) -> str:
+    cwd = str(payload.get("cwd") or "").strip()
+    if cwd:
+        return cwd
+    return os.environ.get("OPENCODE_WORKSPACE_ROOT") or os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
+
+
+def _opencode_session_state_path(root: str | Path, payload: dict[str, Any]) -> Path:
+    workspace = _opencode_workspace_root(payload)
+    from atelier.core.foundation.paths import workspace_key
+
+    digest = workspace_key(Path(workspace).resolve())
+    return Path(root) / "workspaces" / digest / "session_state.json"
+
+
+def _write_opencode_session_state(root: str | Path, payload: dict[str, Any]) -> None:
+    """Refresh the workspace-shared session_state bridge with the live session_id.
+
+    OpenCode never sets an ``OPENCODE_SESSION_ID`` launch env var for the MCP
+    server subprocess (unlike Claude, which the MCP server learns via a
+    window-anchored file -- see ``session_window.py``). Without this bridge
+    every MCP tool call's savings row is written "unattributed" (mcp_server
+    ``_resolved_host_session``), so live savings never surface for OpenCode
+    sessions even though cost display works fine off the imported Trace.
+    Mirrors ``_write_codex_session_state`` -- same file, same workspace-hash
+    scheme, so ``mcp_server._resolved_host_session`` and
+    ``savings_summary._resolve_workspace_session_id`` both find it.
+    """
+    session_id = str(payload.get("session_id") or "").strip()
+    if not session_id:
+        return
+    path = _opencode_session_state_path(root, payload)
+    try:
+        state = json.loads(path.read_text("utf-8")) if path.exists() else {}
+        if not isinstance(state, dict):
+            state = {}
+    except (OSError, json.JSONDecodeError, TypeError):
+        state = {}
+    if state.get("session_id") == session_id and state.get("host") == "opencode":
+        return
+    state["session_id"] = session_id
+    # Stamp the writing host: the MCP server only trusts this workspace-shared
+    # slot when the stamp matches its own host (mcp_server
+    # ``_workspace_bridge_session_id``), so a sid written here can never be
+    # adopted by a Codex/other-host server sharing the repo.
+    state["host"] = "opencode"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except (OSError, TypeError, ValueError):
+        pass
+
+
 def build_opencode_user_prompt_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
     """Return a display-only OpenCode compaction notice when needed."""
     normalized = dict(payload)
     normalized["hook_event_name"] = "UserPromptSubmit"
     session_id = str(normalized.get("session_id") or "default")
+    _write_opencode_session_state(root, payload)
     path = session_stats_path(root, session_id)
     try:
         stats = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
@@ -1482,6 +1536,7 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
         return {"no_output": True}
 
     with suppress(Exception):
+        from atelier.core.capabilities.savings_summary import estimate_time_saved_seconds
         from atelier.core.service.telemetry.public_rollup import publish_public_savings_rollup
 
         publish_public_savings_rollup(
@@ -1491,6 +1546,12 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
             calls_avoided=calls_avoided,
             turn_count=llm_turns,
             source="codex",
+            carry_usd=carry_usd,
+            carry_tokens=carry_tokens,
+            time_saved_seconds=estimate_time_saved_seconds(
+                calls_avoided=calls_avoided,
+                output_saved_tokens=output_saved_tokens,
+            ),
         )
 
     model = str(session.get("last_model") or session.get("model") or _codex_payload_model(payload) or "")
@@ -1540,6 +1601,11 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
         savings_line += f" · carry {_fmt_usd(carry_usd)}{carry_tok}"
     if routing_saved_usd > 0:
         savings_line += f" · routing {_fmt_usd(routing_saved_usd)}"
+    from atelier.core.capabilities.savings_summary import estimate_time_saved_seconds, fmt_duration
+
+    _faster_s = estimate_time_saved_seconds(calls_avoided=calls_avoided, output_saved_tokens=output_saved_tokens)
+    if _faster_s >= 60:
+        savings_line += f" · ~{fmt_duration(_faster_s)} faster"
     lines.append(savings_line)
     if compactions > 0:
         lines.append(f"compactions: {compactions}")
@@ -3499,7 +3565,10 @@ def build_savings_report(
     """
     root_path = Path(root)
     session = aggregate_session_stats(root_path, session_id=session_id)
-    from atelier.core.capabilities.savings_summary import aggregate_window_savings
+    from atelier.core.capabilities.savings_summary import (
+        aggregate_window_savings,
+        estimate_time_saved_seconds,
+    )
 
     if session_id:
         from atelier.core.capabilities.savings_summary import compute_savings_summary
@@ -3611,6 +3680,7 @@ def build_savings_report(
             "spend": round(w.spend_usd, 2),
             "carry": round(w.carry_usd, 2),
             "routing": round(w.routing_usd, 2),
+            "faster_seconds": round(w.time_saved_seconds, 1),
         }
 
     summary_breakdown = {
@@ -3623,6 +3693,13 @@ def build_savings_report(
         "calls_avoided": calls_avoided,
         "tokens_saved": tokens_saved,
         "saved_usd": saved_usd,
+        "time_saved_seconds": round(
+            estimate_time_saved_seconds(
+                calls_avoided=calls_avoided,
+                output_saved_tokens=output_saved_tokens,
+            ),
+            3,
+        ),
         "summary_breakdown": summary_breakdown,
         "live": live,
         "session": session,

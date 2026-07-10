@@ -217,6 +217,14 @@ def _format_summary(stats: dict[str, Any], savings: dict[str, Any]) -> str:
         savings_line += f" · carry {_fmt_usd(carry_usd)}{carry_tokens_str}"
     if routing_usd > 0:
         savings_line += f" · routing {_fmt_usd(routing_usd)}"
+    try:
+        from atelier.core.capabilities.savings_summary import estimate_time_saved_seconds, fmt_duration
+
+        _faster_s = estimate_time_saved_seconds(calls_avoided=calls_avoided, output_saved_tokens=output_tokens)
+        if _faster_s >= 60:
+            savings_line += f" · ~{fmt_duration(_faster_s)} faster"
+    except ImportError:
+        pass
     lines.append(savings_line)
 
     lines.append(f"top tools: {tools_str}")
