@@ -525,6 +525,8 @@ def _finish_fetch(
         content = f"{content}\n\n[downloaded PDF: {source_path}]"
 
     payload: dict[str, Any] = {"content": content, "format": rendered["format"]}
+    if raw.status < 200 or raw.status >= 300:
+        payload["status"] = raw.status
     tokens_saved = _estimate_tokens_saved(raw, content)
     if tokens_saved > 0:
         payload["tokens_saved"] = tokens_saved
@@ -664,8 +666,9 @@ async def _async_fetch_uncached(url: str, *, accept: str, timeout_s: float) -> _
                         raise ValueError(f"web_fetch unsupported content type: {media_type or 'unknown'}")
                     max_bytes = MAX_PDF_BODY_BYTES if media_type in _PDF_TYPES else MAX_BODY_BYTES
                     body, truncated_body = await _async_read_limited_body(response, max_bytes=max_bytes)
-                    if status < 200 or status >= 300:
-                        raise ValueError(f"web_fetch failed: HTTP {status}")
+                    # Non-2xx is the origin's answer, not a tool failure -- surface it as a
+                    # normal result (status + whatever body it sent) so the caller sees
+                    # "HTTP 403" in the payload instead of a generic MCP tool-call error.
                     return _RawFetchResult(
                         url=url,
                         final_url=current_url,
@@ -817,8 +820,9 @@ def _fetch_uncached(url: str, *, accept: str, timeout_s: float) -> _RawFetchResu
                 raise ValueError(f"web_fetch unsupported content type: {media_type or 'unknown'}")
             max_bytes = MAX_PDF_BODY_BYTES if media_type in _PDF_TYPES else MAX_BODY_BYTES
             body, truncated_body = _read_limited_body(response, max_bytes=max_bytes)
-            if status < 200 or status >= 300:
-                raise ValueError(f"web_fetch failed: HTTP {status}")
+            # Non-2xx is the origin's answer, not a tool failure -- surface it as a
+            # normal result (status + whatever body it sent) so the caller sees
+            # "HTTP 403" in the payload instead of a generic MCP tool-call error.
             return _RawFetchResult(
                 url=url,
                 final_url=current_url,
