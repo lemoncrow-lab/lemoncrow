@@ -58,6 +58,10 @@ def enrich_replay(replay: Replay, repo_root: Path, *, allow_network: bool = True
         if turn.get("kind") not in ("tool_call", "file_edit", "shell_command"):
             continue
         turn["atelier"] = _enrich_turn(turn, engine, repo_root, replay.tool_results, allow_network=allow_network)
+
+    # Recurse into subagent (sidechain) replays so they enrich too.
+    for sub in replay.subagent_replays:
+        enrich_replay(sub, repo_root, allow_network=allow_network)
     return replay
 
 

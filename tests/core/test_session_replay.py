@@ -304,3 +304,74 @@ def test_build_replay_counts_batches() -> None:
     r = build_replay(turns_json, host="opencode", session_id="oc1")
     assert r.summary is not None
     assert r.summary.batch_count == r.summary.batch_count  # smoke: field present
+
+
+# --------------------------------------------------------------------------- #
+# Subagent (sidechain) nesting + savings headline
+# --------------------------------------------------------------------------- #
+
+from atelier.core.capabilities.session_replay import estimate_savings  # noqa: E402
+
+
+def test_subagent_transcripts_nested(tmp_path: Path) -> None:
+    parent = [
+        {"type": "user", "sessionId": "p1", "message": {"content": "explore then fix"}},
+        {
+            "type": "assistant",
+            "message": {
+                "id": "m1",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Task",
+                        "input": {"subagent_type": "explore", "description": "find X", "prompt": "locate X"},
+                    }
+                ],
+                "usage": {},
+            },
+        },
+    ]
+    ppath = tmp_path / "p1.jsonl"
+    ppath.write_text("\n".join(json.dumps(e) for e in parent), encoding="utf-8")
+    subdir = tmp_path / "p1" / "subagents"
+    subdir.mkdir(parents=True)
+    sub = [
+        {"type": "user", "sessionId": "sub1", "message": {"content": "locate X"}},
+        {
+            "type": "assistant",
+            "message": {
+                "id": "s1",
+                "content": [{"type": "tool_use", "id": "st1", "name": "Grep", "input": {"pattern": "X"}}],
+                "usage": {},
+            },
+        },
+        {
+            "type": "assistant",
+            "message": {
+                "id": "s2",
+                "content": [{"type": "tool_use", "id": "st2", "name": "Read", "input": {"file_path": "x.py"}}],
+                "usage": {},
+            },
+        },
+    ]
+    (subdir / "sub1.jsonl").write_text("\n".join(json.dumps(e) for e in sub), encoding="utf-8")
+
+    replays = load_replays(host="claude", file=ppath)
+    assert len(replays) == 1
+    r = replays[0]
+    assert len(r.subagent_replays) == 1
+    assert r.subagent_replays[0].session_id == "sub1"
+    # the subagent's own grep+read loop is detected in its nested replay
+    assert r.subagent_replays[0].summary.episode_count == 1
+    # subagents surface in the JSON model
+    assert len(r.to_dict()["subagents"]) == 1
+
+
+def test_estimate_savings_headline_numbers() -> None:
+    r = build_replay(_claude_transcript(), host="claude", session_id="s1")
+    sav = estimate_savings(r)
+    for key in ("total_cost_usd", "cost_saved_usd", "time_saved_seconds", "input_tokens_saved", "output_tokens_saved"):
+        assert key in sav
+    assert sav["cost_saved_usd"] >= 0.0
+    assert sav["time_saved_seconds"] >= 0.0
