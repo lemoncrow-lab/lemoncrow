@@ -237,5 +237,7 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
         carry_usd=float(totals["carry_usd"]),
         est_cost_usd=float(totals["est_cost_usd"]),
         time_saved_seconds=estimate_time_saved_seconds(calls_avoided=int(totals["calls_avoided"])),
+        output_saved_tokens=int(totals.get("output_saved_tokens", 0) or 0),
+        output_saved_usd=float(totals.get("output_saved_usd", 0.0) or 0.0),
     )
     return {"flushed": ok, "through_day": last_day}, last_day
