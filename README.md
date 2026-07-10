@@ -6,9 +6,9 @@
 
 # Atelier Runtime
 
-### Honest and benchmark proven — a faster Claude Code: one-shot code search, **37.7% fewer turns**, **23.7% less wall-clock** (and 30% cheaper as a result), audited head-to-head
+### Honest and benchmark proven — a faster Agent: one-shot code search, **37.7% fewer turns**, **23.7% less wall-clock** (and average 30% cheaper)
 
-Atelier is a 30-second install that makes Claude Code **faster**. Its one-shot code search returns the exact symbol, its callers, and the ranked source in a single call — no grep-loop-then-read-whole-file — so the agent finds the right code on the first try and finishes the same task in **37.7% fewer turns** and **23.7% less wall-clock** (SWE-bench Verified, 250 runs a side). Fewer round-trips also means fewer tokens: tool calls and input down up to **90%**, output down up to 80%, code byte-identical. Speed is the win you feel at the keyboard; the ~30% lower cost falls out of the same tighter loop. Keep using Claude Code normally — Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, and reusable memory.
+Keep using Claude Code normally — Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, and reusable memory.
 
 [![License](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
@@ -27,7 +27,7 @@ Atelier is a 30-second install that makes Claude Code **faster**. Its one-shot c
 [![Cost saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dsavings&style=for-the-badge&color=04ba0d)](https://atelier.ws)
 [![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://atelier.ws)
 [![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://atelier.ws)
-[![Time saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtime_per_day&style=for-the-badge&color=9b75d9)](https://atelier.ws)
+[![Time saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtime&style=for-the-badge&color=9b75d9)](https://atelier.ws)
 
 [Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](#pricing)
 
@@ -79,11 +79,9 @@ Atelier does not ask you to learn a new coding app. It improves the work Claude 
 | Long grep-and-read loops burn turns and wall-clock time.     | Fewer round-trips: 37.7% fewer turns, 23.7% less wall-clock on SWE-bench Verified. |
 | Speed and savings are hard to see.                           | A local meter shows turns, tokens, and cost dropping in real time.             |
 
-The point is simple: the agent should spend its turns on useful work, not on wandering the codebase — so you finish faster and pay less.
-
 ### What actually gets replaced
 
-Atelier is not a different coding app and not a different model. `atelier init` gives Claude Code 5 tools and hides the built-ins behind them, so the model isn't choosing between two ways to do the same thing.
+`atelier init` gives Claude Code 5 tools and hides the built-ins behind them — one way to do each job, not two.
 
 **Find things in one shot** -- no wandering the codebase call after call.
 
@@ -99,14 +97,14 @@ What's unchanged: Claude Code itself, the model, your workflow. Full internals: 
 
 ### Why a runtime, not just tools
 
-A bare MCP server is a library: tools the model can call *if* it remembers to. A runtime decides what's callable at all, what's callable safely, and what happens when something goes wrong -- four separate jobs, each closed by a different layer:
+A bare MCP server is a library the model can call *if* it remembers to. A runtime decides what's callable at all — four jobs, four layers:
 
-| Layer                            | What still goes wrong without it                                                                                                             | What closes it                                                                                                                                                                       |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Agents** -- process isolation  | A general-purpose agent edits mid-"exploration," or calls`bash` with no verification gate -- the right tool is *available*, not *obligatory* | `explore` / `plan` / `research` / `review` hard-deny `edit`/`write` via `disallowedTools` at the host-config level -- a capability the model doesn't have, not a rule it might break |
-| **Skills** -- standard library   | A recurring multi-step task (perf gates, UX gates, swarm coordination) gets re-improvised each session -- different depth, missed steps      | Skills encode the procedure once; any agent invokes it the same way every time                                                                                                       |
-| **Hooks** -- interrupts          | Nothing stops a bad call*in the moment* -- re-reading a file just edited, or declaring "done" without ever running a check                   | `pre_tool_discipline.py` denies wasteful re-reads and ungrounded risky edits before they execute; `verify_before_done.py` blocks session close until verification actually ran       |
-| **MCP tools** -- syscall surface | Agents fall back to grep-and-read-whole-file under pressure -- "use grounded retrieval" is one instruction competing for attention           | `code_search`/`read`/`edit`/`bash`/`web_fetch` are the *only* tools the model can see for those jobs -- natives are hidden, not just discouraged                                     |
+| Layer                           | Without it                                        | With it                                                                                |
+| -------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Agents** — process isolation  | a "read-only" agent can still edit                | `explore`/`plan`/`research`/`review` hard-deny `edit`/`write` at the host-config level |
+| **Skills** — standard library   | multi-step procedures re-improvised every session | encoded once, invoked the same way every time                                          |
+| **Hooks** — interrupts          | wasteful re-reads; "done" without a check         | bad calls denied before they run; session close blocked until verification ran         |
+| **MCP tools** — syscall surface | agents fall back to grep-and-read under pressure  | natives hidden — Atelier tools are the only surface for those jobs                     |
 
 ### The engine underneath — not just for code
 
@@ -114,52 +112,44 @@ Under the coding runtime is a domain-neutral context engine with one contract: *
 
 ### Agents
 
-Packaged in [integrations/agents/](integrations/agents/) -- each is a distinct capability grant (subagent name `atelier:<mode>`), not a persona typed into a prompt:
+Packaged in [integrations/agents/](integrations/agents/) — each a distinct capability grant (subagent name `atelier:<mode>`), not a persona:
 
-| Agent      | Writes? | Use                                                                                                                        |
-| ------------ | :-------: | ---------------------------------------------------------------------------------------------------------------------------- |
-| `code`     |   Yes   | Default interactive mode -- edits, refactors, bug fixes, features; grounded in Atelier tools, validates before concluding  |
-| `auto`     |   Yes   | Fully autonomous, unattended -- no plan approval, no questions; CI/headless runs                                           |
-| `solve`    |   Yes   | Autonomous end-to-end solving for a well-defined task with a clear check -- faster than`code` when the goal is unambiguous |
-| `execute`  |   Yes   | Focused, isolated execution of an already-accepted plan -- one complete verified pass, then stops                          |
-| `general`  |   Yes   | Catch-all for work that fits no specialized role -- mixed research + implementation, ad hoc chores                         |
-| `bare`     |   Yes   | Minimal-toolset mode -- token-heavy tools stripped(Workflow, ScheduletTasks), same discipline                              |
-| `explore`  |   No   | Read-only codebase exploration -- locate and cite, hard write-lock                                                         |
-| `plan`     |   No   | Read-only planning -- smallest viable plan another agent can execute, then stops for a human checkpoint                    |
-| `review`   |   No   | Adversarial, read-only review -- finds what's wrong, never "fixes" what it's reviewing                                     |
-| `research` |   No   | External web/repo research -- cited memo, never edits files                                                                |
-
-Hosts can still spawn other agents as they see fit.
+| Agent      | Writes? | Use                                              |
+| ---------- | :-----: | ------------------------------------------------ |
+| `code`     |   Yes   | default interactive — edits, refactors, features |
+| `auto`     |   Yes   | fully autonomous — CI/headless runs              |
+| `solve`    |   Yes   | end-to-end solving of a well-defined task        |
+| `execute`  |   Yes   | one verified pass of an accepted plan            |
+| `general`  |   Yes   | catch-all for mixed work                         |
+| `bare`     |   Yes   | minimal toolset, same discipline                 |
+| `explore`  |   No    | read-only exploration — locate and cite          |
+| `plan`     |   No    | read-only planning, stops for human checkpoint   |
+| `review`   |   No    | adversarial read-only review                     |
+| `research` |   No    | external web research — cited memo               |
 
 ### Skills
 
 Packaged in [integrations/skills/](integrations/skills/):
 
-| Skill         | What it does                                                                                                                                                  |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `atelier`     | Manages Atelier itself -- install/remove/list/configure agents, skills, and settings via the CLI                                                              |
-| `benchmark`   | Measures what Atelier saves on*your* repo and prompts -- free offline session-history scan, or a real online A/B run vs vanilla Claude Code                   |
-| `orchestrate` | Runs a single structured multi-step task end-to-end, routed to the right execution surface -- subagent, detached background, or a durable, resumable workflow |
-| `swarm`       | Launches N parallel attempts at the same task in isolated worktrees -- best result wins                                                                       |
-| `perf-review` | Gates a code change against measured performance signals -- latency, hot paths, memory/leaks, I/O, scaling -- by running it, not reading it                   |
-| `ux-review`   | Gates shipped UI against objective checks -- a11y, design tokens, responsive/render, states, visual regression -- in a real browser                           |
-| `recall`      | Retrieves what Atelier learned from past sessions -- semantic recall, durable facts, lessons                                                                  |
+| Skill         | What it does                                                 |
+| ------------- | ------------------------------------------------------------ |
+| `atelier`     | manage Atelier itself via the CLI                            |
+| `benchmark`   | measure savings on *your* repo — offline scan or live A/B    |
+| `orchestrate` | one structured multi-step task, routed to the right surface  |
+| `swarm`       | N parallel attempts in isolated worktrees — best result wins |
+| `perf-review` | gate a change on measured performance, not read code         |
+| `ux-review`   | gate shipped UI on objective checks in a real browser        |
+| `recall`      | retrieve what past sessions learned                          |
 
 ## Check your own savings
 
-Do not take our 30% claim on faith. Before installing, you can scan your own local agent history:
+Do not take our 30% claim on faith — scan your own local agent history before installing:
 
 ```bash
 curl -fsSL https://savings.atelier.ws | bash
 ```
 
-What it does:
-
-- Reads local Claude/Codex agent session files.
-- Estimates where Atelier would have used fewer tokens or cheaper tool calls.
-- Prints savings from your own history.
-- Uses a temporary local store.
-- Needs no Atelier account and no provider API keys.
+It reads local Claude/Codex session files, estimates where Atelier would have used fewer tokens or cheaper tool calls, and prints savings from your own history. Temporary local store — no account, no API keys.
 
 Useful variants:
 
@@ -168,16 +158,24 @@ curl -fsSL https://savings.atelier.ws | bash -s -- --since 30d --top 10
 curl -fsSL https://savings.atelier.ws | bash -s -- --host codex --limit 20
 ```
 
+### Replay a past session
+
+`atelier session replay` plays back a recorded session and, for each native call, **runs the real Atelier tool that would have replaced it** — grep/read loops collapse into one `code_search`, whole-file reads become budgeted outlines, `bash` logs get capped. It then estimates — from that session alone — the **cost, savings opportunity, and time** Atelier would have saved. No model re-run, nothing written; opens a shareable HTML page.
+
+```bash
+atelier session replay --last 1
+```
+
+Works on Claude Code, Codex, and opencode sessions. The saving is an estimate; the live re-measured A/B is `atelier benchmark local`.
+
 ## Why trust the numbers?
 
-You are right to be skeptical. A live badge alone proves very little because anyone can fake a counter.
+A live badge alone proves little — anyone can fake a counter. Four checks instead:
 
-Atelier uses four checks instead:
-
-1. **Raw benchmark receipts:** headline numbers link to committed per-task runs, costs, turn counts, setup notes, and reproduction commands.
+1. **Raw benchmark receipts:** headline numbers link to committed per-task runs, costs, and reproduction commands.
 2. **Your own scan:** the savings command checks your machine, not our marketing page.
-3. **Labeled live badges:** live counters show aggregate usage adding up; they are not used as the source of the 30% benchmark claim.
-4. **Rows where Atelier does not win:** Terminal-Bench 2.1 is flat on accuracy (-0.2pp) and only cheaper on cost. It stays in the results table.
+3. **Labeled live badges:** aggregate usage counters — never the source of the 30% claim.
+4. **Rows where Atelier does not win:** Terminal-Bench 2.1 is flat on accuracy (-0.2pp); it stays in the table.
 
 The trust is the audit trail, not the animation.
 
@@ -194,13 +192,13 @@ Measured on the same model, same tasks, and same environment:
 | Telegraphic Q&A, 20 prompts x 5 reps                |                - |               - |             - |     $8.93 |**$5.34** |   **40.2% cheaper** |            |
 | Terminal-Bench 2.1, 89 tasks vs public leaderboard* |   78.9% expected |           78.7% |       -0.2 pp | $96.76 |**$69.52**† | **28.1% cheaper**† |            |
 
-<sub>* Atelier: 1 rep/task. Baseline: public tbench.ai leaderboard, 5-rep average per task. † Other 5 tasks in Atelier timeout and cannot capture cost; see .</sub>
+<sub>* Atelier 1 rep/task vs public leaderboard 5-rep average. † 5 timed-out tasks excluded from cost.</sub>
 
 <p align="center">
   <img src="benchmarks/cost_vs_savings_scatter.svg" alt="Atelier vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, Telegraphic Q&A, and Terminal-Bench" width="720">
 </p>
 
-SWE-bench Verified detail — where the speed comes from (250 baseline vs 250 Atelier runs). One-shot search collapses the grep-and-read loop, so turns, wall-clock, and tool calls all drop together:
+SWE-bench Verified detail (250 runs a side) — one-shot search collapses the grep-and-read loop, so turns, wall-clock, and tool calls drop together:
 
 | Metric               | Baseline | Atelier |            Delta |
 | ---------------------- | ---------: | --------: | -----------------: |
@@ -213,7 +211,7 @@ SWE-bench Verified detail — where the speed comes from (250 baseline vs 250 At
 | Edit + Write         |    1,628 |     759 |       **-53.4%** |
 | Search (code_search) |        - |     568 |     atelier-only |
 
-Exploration and explanation tasks detail (7 large repos x 5 reps, read-only codebase Q&A, no edits):
+Exploration detail (7 large repos × 5 reps, read-only Q&A, no edits):
 
 | Tool                          | Baseline calls | Atelier calls |        Delta |
 | ------------------------------- | ---------------: | --------------: | -------------: |
@@ -228,12 +226,11 @@ Exploration and explanation tasks detail (7 large repos x 5 reps, read-only code
 | output                        |        426,367 |        68,893 |   **-83.8%** |
 | input + cache write           |      3,097,547 |       439,348 |   **-85.8%** |
 
-Source: [`benchmarks/codebench/results/exploration_2026_06_29/`](benchmarks/codebench/results/exploration_2026_06_29/), 35 baseline + 35 Atelier runs,
-[`benchmarks/codebench/results/telegraphic_2026_07_08`](benchmarks/codebench/results/telegraphic_2026_07_08), 100 baseline + 100 atelier runs.
+Source: [`exploration_2026_06_29`](benchmarks/codebench/results/exploration_2026_06_29/) · [`telegraphic_2026_07_08`](benchmarks/codebench/results/telegraphic_2026_07_08).
 
 ## One-shot code search vs 10 named tools
 
-The search is the engine: it puts the right code in front of the agent on the first try, which is what kills the extra turns. Retrieval quality (MRR) and first-hit rate (rec@1) across ~7,200 query/gold pairs on 14 repos -- ripgrep, ast-grep, universal-ctags, Serena, CodeGraph, cocoindex-code, codebase-memory-mcp, fff-mcp, code-index-mcp, and jCodeMunch all scored on the identical corpus. Atelier's rec@1 of 0.650 means it returns the right code on the very first result two times in three, at 134ms p95 -- versus ripgrep's 0.320 and Serena's 3,834ms:
+The search is the engine: right code in front of the agent on the first try. MRR and first-hit rate (rec@1) across ~7,200 query/gold pairs on 14 repos — 10 tools scored on the identical corpus. Atelier's rec@1 of 0.650 means the right code on the very first result two times in three, at 134ms p95:
 
 | Provider                      |       MRR |     rec@1 |    p95 |
 | ------------------------------- | ----------: | ----------: | -------: |
@@ -244,22 +241,20 @@ The search is the engine: it puts the right code in front of the agent on the fi
 | ripgrep                       |     0.376 |     0.320 |   66ms |
 | universal-ctags (worst rival) |     0.237 |     0.226 |    1ms |
 
-No one had scored these 10 tools against each other on a shared query set before -- each publishes its own number, on its own terms, against its own baseline. Full 13-row table and per-tool "claim vs. scored" breakdown: [atelier.ws/vs](https://atelier.ws/vs) · [docs.atelier.ws/benchmarks/results](https://docs.atelier.ws/benchmarks/results).
-
-Also worth a look, two comparisons outside code search: [rtk](https://atelier.ws/vs/rtk), a 69.6k-star Rust CLI proxy -- self-estimated savings vs. Atelier's accuracy-checked Terminal-Bench number. ["Just tell Claude to be terse"](https://atelier.ws/vs/caveman), the free DIY alternative -- benchmarked head-to-head on the same 20 prompts, including the one where it backfires.
+No one had scored these 10 tools against each other on a shared query set before -- each publishes its own number, on its own terms, against its own baseline.
 
 ## Why it works
 
-Claude is strong, but the work around Claude is often slow and wasteful — grep, read a whole file, grep again. Atelier collapses that loop.
+Claude is strong; the loop around it is wasteful — grep, read a whole file, grep again. Atelier collapses that loop.
 
-- **One-shot search:** the agent gets the symbol, its callers, and exact ranges in a single call instead of a grep-and-read loop — the biggest single source of the turn and wall-clock savings.
-- **Better inputs:** relevant symbols and exact file ranges instead of whole files.
-- **Better outputs:** command output and replies stay compact without losing exact technical facts.
-- **Better memory:** useful context can be reused instead of rediscovered.
-- **Better guardrails:** tools and hooks reduce risky edits, oversized reads, and unverified "done" states.
-- **Better discipline:** think before coding, simplicity first, surgical changes, goal-driven execution — enforced in every Atelier persona, not typed into a prompt once. Checked against the raw runs in [Results](#results), not asserted.
+- **One-shot search:** symbol, callers, and exact ranges in a single call — the biggest source of the turn and wall-clock savings.
+- **Better inputs:** exact file ranges, not whole files.
+- **Better outputs:** compact command output and replies, exact technical facts intact.
+- **Better memory:** context reused, not rediscovered.
+- **Better guardrails:** hooks block risky edits, oversized reads, and unverified "done" states.
+- **Discipline enforced:** think before coding, surgical changes — in every persona, not typed into a prompt once.
 
-Atelier does not make Claude a different model. It makes the loop around Claude tighter and faster, which is why the same model solved more tasks in fewer turns and less wall-clock time.
+Same model, tighter loop: more tasks solved in fewer turns and less wall-clock time.
 
 ## What you get
 
@@ -294,4 +289,5 @@ Atelier does not make Claude a different model. It makes the loop around Claude 
 
 ## License
 
-Open-core. The engine (`src/atelier/core`, `bench`, `infra`, `gateway` minus `gateway/sdk`, plus `tests/`, `benchmarks/`) is licensed under the [Functional Source License, v1.1, ALv2 Future License](LICENSE) (FSL-1.1-ALv2) — free for internal use, non-commercial research, and professional services; converts to Apache-2.0 two years after each release. SDK bindings, host integrations, install scripts, and docs (`src/atelier/sdk/`, `src/atelier/gateway/sdk/`, `integrations/`, `scripts/`, `docs/`, `docs-site/`) are [Apache-2.0](LICENSE-APACHE).
+Open-core. The engine (`src/atelier/core`, `bench`, `infra`, `gateway` minus `gateway/sdk`, plus `tests/`, `benchmarks/`) is licensed under the [Functional Source License, v1.1, ALv2 Future License](LICENSE) (FSL-1.1-ALv2) — free for internal use, non-commercial research, and professional services
+Converts to Apache-2.0 two years after each release. SDK bindings, host integrations, install scripts, and docs (`src/atelier/sdk/`, `src/atelier/gateway/sdk/`, `integrations/`, `scripts/`, `docs/`, `docs-site/`) are [Apache-2.0](LICENSE-APACHE).
