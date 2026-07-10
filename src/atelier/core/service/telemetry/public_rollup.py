@@ -51,6 +51,8 @@ def publish_public_savings_rollup(
     carry_tokens: int = 0,
     est_cost_usd: float = 0.0,
     time_saved_seconds: float = 0.0,
+    output_saved_tokens: int = 0,
+    output_saved_usd: float = 0.0,
 ) -> bool:
     """Publish one sanitized savings rollup (a single session, or one daily aggregate).
 
@@ -75,6 +77,8 @@ def publish_public_savings_rollup(
             carry_tokens=carry_tokens,
             est_cost_usd=est_cost_usd,
             time_saved_seconds=time_saved_seconds,
+            output_saved_tokens=output_saved_tokens,
+            output_saved_usd=output_saved_usd,
         )
         if payload is None:
             return False
@@ -118,6 +122,8 @@ def _payload(
     carry_tokens: int = 0,
     est_cost_usd: float = 0.0,
     time_saved_seconds: float = 0.0,
+    output_saved_tokens: int = 0,
+    output_saved_usd: float = 0.0,
 ) -> dict[str, Any] | None:
     session = str(session_id or "").strip()
     if not session:
@@ -134,8 +140,10 @@ def _payload(
     carry_t = max(0, int(carry_tokens or 0))
     cost = max(0.0, float(est_cost_usd or 0.0))
     time_s = float(time_saved_seconds or 0.0)
+    out_tok = max(0, int(output_saved_tokens or 0))
+    out_usd = max(0.0, float(output_saved_usd or 0.0))
     # Skip only a wholly empty rollup; a negative-but-nonzero one is real signal.
-    if not (saved or tokens or calls or turns or carry_s or carry_t or cost or time_s):
+    if not (saved or tokens or calls or turns or carry_s or carry_t or cost or time_s or out_tok or out_usd):
         return None
     at = occurred_at or datetime.now(UTC)
     if at.tzinfo is None:
@@ -153,6 +161,8 @@ def _payload(
         "turn_count": turns,
         "est_cost_usd": round(cost, 6),
         "time_saved_seconds": round(time_s, 3),
+        "output_saved_tokens": out_tok,
+        "output_saved_usd": round(out_usd, 6),
         "occurred_at": at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
     }
 
