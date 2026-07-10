@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from atelier.core.capabilities.retrieval import Retriever
 from atelier.core.foundation.memory_models import MemoryBlock
 from atelier.core.foundation.models import (
     Playbook,
@@ -49,7 +51,12 @@ def _evaluate_eval_payload(item: dict[str, Any]) -> EvalRecord:
 
 
 class LocalClient(AtelierClient):
-    def __init__(self, *, root: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        root: str | Path | None = None,
+        retriever_factory: Callable[[str | Path], Retriever] | None = None,
+    ) -> None:
         if root is None:
             from atelier.core.foundation.paths import default_store_root
 
@@ -57,7 +64,7 @@ class LocalClient(AtelierClient):
         self.root = Path(root)
         from atelier.gateway.adapters.runtime import ContextRuntime
 
-        self.runtime = ContextRuntime(self.root)
+        self.runtime = ContextRuntime(self.root, retriever_factory=retriever_factory)
         self.store = self.runtime.store
         super().__init__()
 

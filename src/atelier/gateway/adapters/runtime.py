@@ -17,12 +17,13 @@ Usage:
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from atelier.core.capabilities.retrieval import Retriever
 from atelier.core.foundation.extractor import CandidateBlock
 from atelier.core.foundation.models import (
     CommandRecord,
@@ -344,8 +345,16 @@ class RuntimeSession:
 class ContextRuntime:
     """Top-level facade for product agents."""
 
-    def __init__(self, root: str | Path | None = None) -> None:
-        self.core_runtime = AtelierRuntimeCore(default_store_root() if root is None else root)
+    def __init__(
+        self,
+        root: str | Path | None = None,
+        *,
+        retriever_factory: Callable[[str | Path], Retriever] | None = None,
+    ) -> None:
+        self.core_runtime = AtelierRuntimeCore(
+            default_store_root() if root is None else root,
+            retriever_factory=retriever_factory,
+        )
         self.store = self.core_runtime.store
 
     @contextmanager

@@ -108,6 +108,10 @@ A bare MCP server is a library: tools the model can call *if* it remembers to. A
 | **Hooks** -- interrupts          | Nothing stops a bad call*in the moment* -- re-reading a file just edited, or declaring "done" without ever running a check                   | `pre_tool_discipline.py` denies wasteful re-reads and ungrounded risky edits before they execute; `verify_before_done.py` blocks session close until verification actually ran       |
 | **MCP tools** -- syscall surface | Agents fall back to grep-and-read-whole-file under pressure -- "use grounded retrieval" is one instruction competing for attention           | `code_search`/`read`/`edit`/`bash`/`web_fetch` are the *only* tools the model can see for those jobs -- natives are hidden, not just discouraged                                     |
 
+### The engine underneath — not just for code
+
+Under the coding runtime is a domain-neutral context engine with one contract: **one-shot retrieval** — a single call returns what the model needs, packed to a token budget; follow-up queries are allowed, retry loops are never required. Retrieval, compression, memory, and replay do not assume code — code is the first conforming retriever (`Retriever` protocol, `atelier.core.capabilities.retrieval`), chosen because the pain is mature and the results are measurable. The same engine is being opened to teams building any LLM agent: [atelier.ws/engine](https://atelier.ws/engine).
+
 ### Agents
 
 Packaged in [integrations/agents/](integrations/agents/) -- each is a distinct capability grant (subagent name `atelier:<mode>`), not a persona typed into a prompt:
@@ -259,7 +263,7 @@ Atelier does not make Claude a different model. It makes the loop around Claude 
 
 ## What you get
 
-- Works with Claude Code, Codex, Copilot, Cursor, opencode, Hermes Agent, LangChain, the OpenAI SDK, Gemini ADK, and any other MCP-compatible coding agent.
+- Works with Claude Code, Codex, Copilot, Cursor, opencode, Hermes Agent, LangChain, the OpenAI SDK, Gemini ADK, and any other MCP-compatible agent.
 - Runs locally by default.
 - Open-core runtime: FSL-1.1-ALv2 engine, Apache-2.0 SDKs/integrations/docs.
 - No account needed to start.
