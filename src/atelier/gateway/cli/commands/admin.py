@@ -35,6 +35,7 @@ from atelier.core.capabilities.workspace_host_overrides import (
 )
 from atelier.core.foundation.models import Playbook, Rubric
 from atelier.core.foundation.paths import detect_host
+from atelier.core.settings import CATEGORIES as SETTINGS_CATEGORIES
 from atelier.gateway.cli.commands._shared import (
     _core_runtime,
     _emit,
@@ -1314,18 +1315,20 @@ def share_cmd(ctx: click.Context, as_json: bool) -> None:
     click.echo(payload["text"])
 
 
-@click.group("settings")
+@click.group(
+    "settings",
+    help=(
+        "Manage local Atelier settings — every ATELIER_* env-var-backed knob plus the plugin toggles.\n"
+        "\n"
+        "Settings persist to ``<root>/plugin_settings.json`` and are applied to the "
+        "process environment (via ``setdefault``) the next time Atelier starts, so "
+        "an explicitly-exported env var always wins over a stored setting. Use "
+        "``show --category <name>`` to browse one area "
+        f"({', '.join(SETTINGS_CATEGORIES)})."
+    ),
+)
 def plugin_settings_group() -> None:
-    """Manage local Atelier settings — every ATELIER_* env-var-backed knob plus the plugin toggles.
-
-    Settings persist to ``<root>/plugin_settings.json`` and are applied to the
-    process environment (via ``setdefault``) the next time Atelier starts, so
-    an explicitly-exported env var always wins over a stored setting. Use
-    ``show --category <name>`` to browse one area (service, retrieval,
-    embeddings, code_context, tool_supervision, mcp, statusline, telemetry,
-    memory, swarm, zoekt, bench, routing, llm, licensing, lessons, cli, core,
-    plugin, internal).
-    """
+    pass
 
 
 def _format_setting_value(value: object) -> str:

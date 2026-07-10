@@ -24,6 +24,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import sys
 import tempfile
 from contextlib import suppress
@@ -229,6 +230,11 @@ def main() -> int:
         if session_id_raw:
             state_update: dict[str, Any] = {
                 "session_id": session_id_raw,
+                # Host stamp keeps the workspace-shared slot honest: the MCP
+                # bridge fallback (non-claude hosts only) rejects a sid whose
+                # stamp doesn't match, so a Claude sid written here is never
+                # adopted by an OpenCode/Codex server sharing the repo.
+                "host": "claude",
                 "atelier_root": str(_atelier_root()),
             }
             if model:
@@ -279,9 +285,10 @@ def main() -> int:
                 # but the statusline renders with the post-clear session_id, so
                 # the session-keyed marker above is never matched.
                 # The workspace key uses the same encoding Claude Code applies
-                # to project dirs: replace "/" with "-" in the cwd.
+                # to project dirs: replace every non-alphanumeric character
+                # with "-" in the cwd.
                 if cwd:
-                    ws_key = cwd.replace("/", "-")
+                    ws_key = re.sub(r"[^a-zA-Z0-9]", "-", cwd)
                     (reset_dir / f"ws_{ws_key}").write_text("", encoding="utf-8")
         if not _apply_session_bootstrap(payload):
             _initialize_session_stats(payload)

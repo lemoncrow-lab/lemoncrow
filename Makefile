@@ -12,11 +12,10 @@ TEST_PRINT_TIME ?= 0
 # ~2 points below the first nightly run's reported total.
 COV_FAIL_UNDER ?= 66
 FORCE_ARG := $(if $(f),--force,)
-EXTERNAL_PERIODS ?= today week month
-.PHONY: help install uninstall dev build release/build prod status start restart build-host-skills sync-agent-context mirror release \
+.PHONY: help uninstall dev build release/build prod status start restart build-host-skills sync-agent-context mirror release \
 	docs-check worktree-env runtime-evidence \
 	test test-fast test-cov test-full lint format-check format typecheck verify pre-commit \
-	proof-cost-quality demo import clean \
+	proof-cost-quality import clean \
 	_ensure_hooks
 
 # --------------------------------------------------------------------------- #
@@ -155,6 +154,8 @@ format: | _ensure_hooks ## Format all code: Python (ruff+black) and frontend (pr
 typecheck: | _ensure_hooks ## Run mypy strict type-checking
 	uv run mypy --explicit-package-bases $(MYPY_PATHS)
 
+pre-commit: | _ensure_hooks format lint typecheck docs-check test ## Full pre-commit gate: format + lint + typecheck + docs + test
+
 verify: | _ensure_hooks lint format-check typecheck docs-check test ## Verify code, docs, runtime smoke tests, and agent integrations
 	bash scripts/verify_atelier_service.sh
 	bash scripts/verify_atelier_postgres.sh
@@ -169,11 +170,8 @@ proof-cost-quality: ## Run cost-quality proof gate tests and write proof-report.
 # Utilities                                                                   #
 # --------------------------------------------------------------------------- #
 
-import: ## Import sessions and external tool snapshots: make import [f=1]
+import: ## Import sessions: make import [f=1]
 	LOCAL=1 $(ATELIER_CMD) --root "$(ATELIER_STORE)" import $(FORCE_ARG)
-	@for period in $(EXTERNAL_PERIODS); do \
-		LOCAL=1 $(ATELIER_CMD) --root "$(ATELIER_STORE)" external-report --tool all --period "$$period" --persist || true; \
-	done
 
 flow-dump: ## Extract chat from a .flow file or directory: make flow-dump path=/path/to/file_or_dir
 	@if [ -z "$(path)" ]; then \

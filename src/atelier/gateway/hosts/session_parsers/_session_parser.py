@@ -27,6 +27,7 @@ _NORMALIZED_SESSION_SOURCES = {
     "cursor-agent",
     "droid",
     "goose",
+    "hermes",
     "kiro",
     "kilo-code",
     "omp",

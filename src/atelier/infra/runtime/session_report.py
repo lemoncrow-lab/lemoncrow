@@ -437,6 +437,19 @@ def build_report(snapshot: dict[str, Any], root: Path, *, include_carry_credit: 
     last_ts = event_times[-1] if event_times else updated_at
     duration = max(0.0, (last_ts - first_ts).total_seconds())
 
+    # Writers may append events to run.json after status flips away from
+    # "running" without bumping updated_at (e.g. hook-driven ledger appends),
+    # leaving the recorded end (updated_at) before the first event — an
+    # impossible timeline (ended_at < started_at with a positive duration).
+    # Trust the ledger's own end stamp and clamp the window/duration down to
+    # it rather than lifting ended_at to the last event, which would make a
+    # stale session sort as if it had just been active (see the /v1/sessions
+    # last-activity sort and its regression test).
+    if ended_at is not None and ended_at < first_ts:
+        first_ts = min(first_ts, created_at, ended_at)
+        last_ts = ended_at
+        duration = max(0.0, (ended_at - first_ts).total_seconds())
+
     # --- active duration ---
     # Sum only the time chunks where the agent is working (from User -> Response)
     active_duration = 0.0

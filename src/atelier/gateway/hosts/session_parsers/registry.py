@@ -11,6 +11,7 @@ SUPPORTED_SESSION_IMPORT_HOSTS: tuple[str, ...] = (
     "codex",
     "copilot",
     "cursor",
+    "hermes",
     "opencode",
 )
 
@@ -20,6 +21,7 @@ HOST_IMPORTER_CLASSES: dict[str, tuple[str, str]] = {
     "codex": ("atelier.gateway.hosts.session_parsers.codex", "CodexImporter"),
     "copilot": ("atelier.gateway.hosts.session_parsers.copilot", "CopilotImporter"),
     "cursor": ("atelier.gateway.hosts.session_parsers.cursor", "CursorImporter"),
+    "hermes": ("atelier.gateway.hosts.session_parsers.hermes", "HermesImporter"),
     "opencode": ("atelier.gateway.hosts.session_parsers.opencode", "OpenCodeImporter"),
 }
 

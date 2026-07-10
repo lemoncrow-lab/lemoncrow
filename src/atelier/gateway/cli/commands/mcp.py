@@ -10,6 +10,7 @@ from typing import Any
 
 import click
 
+import atelier
 from atelier.gateway.cli.commands._shared import _emit
 
 # ─── path helpers ────────────────────────────────────────────────────────────────────────────
@@ -21,6 +22,22 @@ def _debug_log_path(root: Path) -> Path:
 
 def _savings_events_path(root: Path) -> Path:
     return root / "live_savings_events.jsonl"
+
+
+def _debug_log_paths(root: Path) -> list[Path]:
+    """All debug log files, in stable order: per-session files first, then the legacy global file.
+
+    Per-session logs live under the nested date/host session layout
+    (sessions/YYYY/MM/DD/<host>/<sid>/mcp_debug.jsonl), so glob recursively.
+    """
+    paths: list[Path] = []
+    sessions_dir = root / "sessions"
+    if sessions_dir.is_dir():
+        paths.extend(sorted(sessions_dir.glob("**/mcp_debug.jsonl")))
+    legacy = _debug_log_path(root)
+    if legacy.exists():
+        paths.append(legacy)
+    return paths
 
 
 # ─── data helpers ───────────────────────────────────────────────────────────────────────────
@@ -53,23 +70,14 @@ def _read_debug_entries(
 ) -> list[tuple[int, dict[str, Any]]]:
     """Read debug log entries as (1-indexed-line-number, entry) pairs.
 
-    Reads from per-session files (sessions/*/mcp_debug.jsonl) written by the
+    Reads from per-session files (sessions/**/mcp_debug.jsonl) written by the
     current server, with a fallback to the legacy global path for older installs.
     """
     cutoff = time.time() - since_seconds
     result: list[tuple[int, dict[str, Any]]] = []
 
-    # Collect paths: per-session files first, then the legacy global file.
-    sessions_dir = root / "sessions"
-    debug_paths: list[Path] = []
-    if sessions_dir.is_dir():
-        debug_paths.extend(sorted(sessions_dir.glob("*/mcp_debug.jsonl")))
-    legacy = _debug_log_path(root)
-    if legacy.exists():
-        debug_paths.append(legacy)
-
     global_idx = 0
-    for path in debug_paths:
+    for path in _debug_log_paths(root):
         try:
             with path.open(encoding="utf-8", errors="replace") as fh:
                 for line in fh:
@@ -130,7 +138,7 @@ def _fmt_age(ts: float) -> str:
     help="Atelier data root (default: ~/.atelier)",
 )
 @click.option("--host", envvar="ATELIER_AGENT", help="Agent host identifier (e.g. claude-code)")
-@click.version_option(version="0.3.3", prog_name="atelier mcp", message="%(prog_name)s %(version)s")
+@click.version_option(version=atelier.__version__, prog_name="atelier mcp", message="%(prog)s %(version)s")
 @click.pass_context
 def mcp_group(ctx: click.Context, root: Path | None, host: str | None) -> None:
     """Start the Atelier MCP server, or inspect MCP diagnostics.
@@ -175,7 +183,7 @@ def mcp_stats_group(
     \b
     Examples:
       atelier mcp stats                 # 24-hour summary across all tools
-      atelier mcp stats --tool shell    # filter to shell only
+      atelier mcp stats --tool bash     # filter to bash only
       atelier mcp stats --hours 1       # last-hour window
       atelier mcp stats show 42         # drill into debug entry #42
     """
@@ -187,7 +195,9 @@ def mcp_stats_group(
 
     events = _read_tool_call_events(root, since, filter_tool)
     debug_entries = _read_debug_entries(root, since, filter_tool)
-    debug_on = _debug_log_path(root).exists()
+    debug_env_on = os.environ.get("ATELIER_MCP_DEBUG", "0") not in ("0", "", "false", "no")
+    debug_marker_on = (root / ".dev_mode").exists()
+    debug_on = debug_env_on or debug_marker_on
 
     # Build per-tool stats from live_savings_events.jsonl
     from collections import defaultdict
@@ -262,10 +272,9 @@ def mcp_stats_group(
         return
 
     # ─── human-readable output (matches atelier savings style) ───
-    marker = root / ".dev_mode"
-    if os.environ.get("ATELIER_MCP_DEBUG", "0") not in ("0", "", "false", "no"):
+    if debug_env_on:
         debug_label = "on (env)"
-    elif marker.exists():
+    elif debug_marker_on:
         debug_label = "on (dev mode)"
     else:
         debug_label = "off — run: make dev  or  ATELIER_MCP_DEBUG=1"
@@ -322,22 +331,31 @@ def mcp_stats_show(ctx: click.Context, entry_id: int, as_json: bool) -> None:
     when debug logging is enabled (make dev, or ATELIER_MCP_DEBUG=1).
     """
     root: Path = ctx.obj["root"]
-    path = _debug_log_path(root)
-    if not path.exists():
+    debug_paths = _debug_log_paths(root)
+    if not debug_paths:
         raise click.ClickException(
             "Debug log not found. Enable with: make dev  or  ATELIER_MCP_DEBUG=1, then run a few MCP tool calls."
         )
 
+    # Resolve the ID over the same multi-file enumeration used by `atelier mcp stats`
+    # (global 1-indexed line number across all debug files, in stable order).
     entry: dict[str, Any] | None = None
-    with path.open(encoding="utf-8", errors="replace") as fh:
-        for idx, line in enumerate(fh, start=1):
-            if idx == entry_id:
-                line = line.strip()
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError as exc:
-                    raise click.ClickException(f"Entry #{entry_id} has malformed JSON: {exc}") from exc
-                break
+    global_idx = 0
+    for path in debug_paths:
+        try:
+            with path.open(encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    global_idx += 1
+                    if global_idx == entry_id:
+                        try:
+                            entry = json.loads(line.strip())
+                        except json.JSONDecodeError as exc:
+                            raise click.ClickException(f"Entry #{entry_id} has malformed JSON: {exc}") from exc
+                        break
+        except OSError:
+            pass
+        if entry is not None:
+            break
 
     if entry is None:
         raise click.ClickException(f"Entry #{entry_id} not found — the debug log may have fewer lines.")

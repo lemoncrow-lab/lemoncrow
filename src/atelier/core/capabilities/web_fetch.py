@@ -894,6 +894,11 @@ def _fetch_uncached_once(url: str, *, accept: str, timeout_s: float) -> _RawFetc
                 redirect=False,
             )
         except (urllib3.exceptions.HTTPError, ValueError) as exc:
+            # Surface an SSRF block / resolve failure (ValueError raised by the
+            # connection guard) as itself; wrap genuine transport errors.
+            cause = exc if isinstance(exc, ValueError) else (exc.__cause__ or exc.__context__)
+            if isinstance(cause, ValueError):
+                raise cause from None
             raise RuntimeError(f"web_fetch failed: {exc}") from exc
 
         try:

@@ -190,12 +190,13 @@ if [ -f "$OC_FILE" ]; then
     if $DRY_RUN; then
         echo "  [dry-run] merge atelier into $OC_FILE"
     else
-        "${PYTHON_CMD[@]}" - <<PYEOF
+        ATELIER_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
 import json
+import os
 import re
 from pathlib import Path
 
-path = Path('$OC_FILE')
+path = Path(os.environ['ATELIER_OC_FILE'])
 content = path.read_text(encoding='utf-8').strip()
 stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 existing = json.loads(stripped) if stripped.strip() else {}
@@ -206,7 +207,7 @@ existing['default_agent'] = new_entry['default_agent']
 existing.pop('model', None)
 existing.setdefault('permission', {}).update(new_entry['permission'])
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
-print("[atelier:opencode] merged atelier entry into $OC_FILE")
+print(f"[atelier:opencode] merged atelier entry into {path}")
 PYEOF
     fi
 else
@@ -303,12 +304,13 @@ vpass() { info "PASS: $*"; }
 vfail() { echo "[atelier:opencode] FAIL: $*" >&2; VFAIL=1; }
 
 if [ -f "$OC_FILE" ]; then
-    HAS=$("${PYTHON_CMD[@]}" - <<PYEOF
+    HAS=$(ATELIER_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
 import json
+import os
 import re
 from pathlib import Path
 
-content = Path('$OC_FILE').read_text(encoding='utf-8')
+content = Path(os.environ['ATELIER_OC_FILE']).read_text(encoding='utf-8')
 stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 try:
     d = json.loads(stripped)
@@ -325,12 +327,13 @@ PYEOF
         vfail "opencode config missing atelier entry"
     fi
 
-    DEFAULT_AGENT=$("${PYTHON_CMD[@]}" - <<PYEOF
+    DEFAULT_AGENT=$(ATELIER_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
 import json
+import os
 import re
 from pathlib import Path
 
-content = Path('$OC_FILE').read_text(encoding='utf-8')
+content = Path(os.environ['ATELIER_OC_FILE']).read_text(encoding='utf-8')
 stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 try:
     d = json.loads(stripped)
@@ -345,12 +348,13 @@ PYEOF
         vfail "opencode default_agent is '$DEFAULT_AGENT' (expected 'atelier' or 'atelier.code')"
     fi
 
-    HAS_PROVIDER=$("${PYTHON_CMD[@]}" - <<PYEOF
+    HAS_PROVIDER=$(ATELIER_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
 import json
+import os
 import re
 from pathlib import Path
 
-content = Path('$OC_FILE').read_text(encoding='utf-8')
+content = Path(os.environ['ATELIER_OC_FILE']).read_text(encoding='utf-8')
 stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 try:
     d = json.loads(stripped)

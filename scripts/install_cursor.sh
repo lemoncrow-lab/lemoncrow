@@ -102,7 +102,7 @@ if $PRINT_ONLY; then
         echo ""
         echo "Copy workspace rules into ${RULES_DIR}:"
         echo "  - ${CURSOR_RULES_SRC_DIR}/coding-guidelines.mdc"
-        echo "  - ${CURSOR_RULES_SRC_DIR}/tool-selection.mdc"
+        echo "  - ${CURSOR_RULES_SRC_DIR}/atelier*.mdc"
     fi
     exit 0
 fi
@@ -141,7 +141,7 @@ existing.setdefault('mcpServers', {}).update({
     'atelier': {
         'type': 'stdio',
         'command': 'atelier',
-        'args': ['--host', 'cursor'],
+        'args': ['mcp', '--host', 'cursor'],
         'alwaysAllow': ['code','compact','context','edit','grep','memory','read','rescue','route','search','shell','sql','trace','verify'],
     }
 })
@@ -155,6 +155,44 @@ else
     else
         echo "$MCP_ENTRY" > "$MCP_FILE"
         info "created $MCP_FILE"
+    fi
+fi
+
+# ---- install sessionStart hook (savings/session attribution bridge) ---------
+# Cursor sets no session env var for MCP subprocesses; the hook writes the
+# live session id to workspaces/<hash>/session_state.json, which the Atelier
+# MCP server reads as its attribution fallback (else savings show $0).
+HOOKS_STAGING="${HOME}/.atelier/cursor-hooks"
+HOOK_SRC="${ATELIER_REPO}/integrations/cursor/hooks/session_start.py"
+CURSOR_HOOKS_FILE="${HOME}/.cursor/hooks.json"
+if [ -f "$HOOK_SRC" ] && ! $WORKSPACE_SET; then
+    run "mkdir -p $(printf %q "$HOOKS_STAGING")"
+    run "cp $(printf %q "$HOOK_SRC") $(printf %q "$HOOKS_STAGING/session_start.py")"
+    if $DRY_RUN; then
+        echo "  [dry-run] merge sessionStart hook into $CURSOR_HOOKS_FILE"
+    else
+        ATELIER_CURSOR_HOOKS_FILE="$CURSOR_HOOKS_FILE" ATELIER_CURSOR_HOOK_CMD="python3 ${HOOKS_STAGING}/session_start.py" python3 - <<'PYEOF'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["ATELIER_CURSOR_HOOKS_FILE"])
+cmd = os.environ["ATELIER_CURSOR_HOOK_CMD"]
+try:
+    data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+except (OSError, json.JSONDecodeError):
+    data = {}
+if not isinstance(data, dict):
+    data = {}
+data.setdefault("version", 1)
+hooks = data.setdefault("hooks", {})
+entries = hooks.setdefault("sessionStart", [])
+if not any(isinstance(e, dict) and "atelier" in str(e.get("command", "")) for e in entries):
+    entries.append({"command": cmd})
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+print(f"[atelier:cursor] merged sessionStart hook into {path}")
+PYEOF
     fi
 fi
 

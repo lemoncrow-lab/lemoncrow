@@ -113,8 +113,8 @@ if [ -n "${SESSION_ID:-}" ]; then
   _ATELIER_COST_RESET="${ATELIER_STATUS_ROOT}/statusline_cost_reset/${SESSION_ID}"
   _ATELIER_COST_BASE="${ATELIER_STATUS_ROOT}/statusline_cost_baseline/${SESSION_ID}"
   # Derive workspace key from TRANSCRIPT_PATH. Claude Code names its project
-  # dirs by replacing every "/" in the cwd with "-"; the hook writes the
-  # marker with the same encoding so we can match it here.
+  # dirs by replacing every non-alphanumeric character in the cwd with "-";
+  # the hook writes the marker with the same encoding so we can match it here.
   _ATELIER_COST_RESET_WS=""
   if [ -n "${TRANSCRIPT_PATH:-}" ]; then
     _TR_DIR=$(dirname "${TRANSCRIPT_PATH}" 2>/dev/null || echo "")

@@ -44,15 +44,80 @@ def read_head_ref(repo_root: Path) -> str:
     return _git(repo_root, "rev-parse", "HEAD").stdout.strip()
 
 
+_C_QUOTE_ESCAPES = {
+    "a": 0x07,
+    "b": 0x08,
+    "f": 0x0C,
+    "n": 0x0A,
+    "r": 0x0D,
+    "t": 0x09,
+    "v": 0x0B,
+    '"': 0x22,
+    "\\": 0x5C,
+}
+
+
+def _unquote_git_path(raw: str) -> str:
+    """Decode a C-quoted path as emitted by ``git status --porcelain``.
+
+    Git wraps paths containing spaces, quotes, backslashes, control chars or
+    (with ``core.quotePath=true``, the default) non-ASCII bytes in double
+    quotes and backslash-escapes them (non-ASCII bytes as 3-digit octal).
+    """
+    if len(raw) < 2 or not (raw.startswith('"') and raw.endswith('"')):
+        return raw
+    inner = raw[1:-1]
+    out = bytearray()
+    i = 0
+    while i < len(inner):
+        ch = inner[i]
+        if ch != "\\" or i + 1 >= len(inner):
+            out.extend(ch.encode("utf-8"))
+            i += 1
+            continue
+        esc = inner[i + 1]
+        if esc in _C_QUOTE_ESCAPES:
+            out.append(_C_QUOTE_ESCAPES[esc])
+            i += 2
+        elif esc.isdigit():
+            out.append(int(inner[i + 1 : i + 4], 8))
+            i += 4
+        else:
+            out.extend(esc.encode("utf-8"))
+            i += 2
+    return out.decode("utf-8", errors="surrogateescape")
+
+
+def _split_rename(raw_path: str) -> tuple[str, str] | None:
+    """Split ``old -> new`` porcelain rename entries, respecting C-quoting."""
+    if raw_path.startswith('"'):
+        i = 1
+        while i < len(raw_path) and raw_path[i] != '"':
+            i += 2 if raw_path[i] == "\\" else 1
+        rest = raw_path[i + 1 :]
+        if rest.startswith(" -> "):
+            return raw_path[: i + 1], rest[4:]
+        return None
+    if " -> " in raw_path:
+        source_path, target_path = raw_path.split(" -> ", 1)
+        return source_path, target_path
+    return None
+
+
 def _parse_dirty_line(line: str) -> DirtyPath:
     status = line[:2]
     if "U" in status or status in {"AA", "DD"}:
         raise RuntimeError(f"cannot fan out swarm from conflicted worktree entry: {line}")
     raw_path = line[3:]
-    if " -> " in raw_path:
-        source_path, target_path = raw_path.split(" -> ", 1)
-        return DirtyPath(status=status, path=target_path, source_path=source_path)
-    return DirtyPath(status=status, path=raw_path)
+    rename = _split_rename(raw_path)
+    if rename is not None:
+        source_path, target_path = rename
+        return DirtyPath(
+            status=status,
+            path=_unquote_git_path(target_path),
+            source_path=_unquote_git_path(source_path),
+        )
+    return DirtyPath(status=status, path=_unquote_git_path(raw_path))
 
 
 def collect_dirty_paths(repo_root: Path) -> list[str]:
