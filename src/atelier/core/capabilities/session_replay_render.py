@@ -61,6 +61,19 @@ _ORANGE = "\x1b[33m"  # replaced marker
 _BOLD = "\x1b[1m"
 
 
+# Distinct terminal colors per message kind.
+_KIND_COLOR: dict[str, str] = {
+    "user_message": "\x1b[94m",  # bright blue
+    "agent_message": "",  # default text
+    "thinking": "\x1b[90m",  # grey
+    "tool_call": "\x1b[35m",  # magenta
+    "file_edit": "\x1b[33m",  # amber
+    "shell_command": "\x1b[36m",  # cyan
+    "subagent_event": "\x1b[94m",
+    "todo_write": "\x1b[90m",
+}
+
+
 def _dur(seconds: float) -> str:
     """Human duration via the canonical formatter (single source of truth)."""
     try:
@@ -123,7 +136,7 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
             elif idx in batched:
                 lines.append(c(_DIM, f"  ⊕ {body}"))
             else:
-                lines.append(body)
+                lines.append(c(_KIND_COLOR.get(str(turn.get("kind", "")), ""), body))
                 atelier = turn.get("atelier")
                 if isinstance(atelier, dict):
                     for line in _text_atelier(atelier):
@@ -246,7 +259,7 @@ def _esc(text: Any) -> str:
 
 def _html_turn(turn: dict[str, Any], mark: str | None, tool_results: dict[str, str]) -> str:
     kind = str(turn.get("kind", ""))
-    cls = f"turn {mark}" if mark in ("cut", "merged") else "turn"
+    cls = ("turn " + mark if mark in ("cut", "merged") else "turn") + f" k-{kind}"
     inner: list[str] = []
 
     if kind == "user_message":
@@ -619,6 +632,15 @@ h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
 .turn{padding:8px 0}
 .turn .body{border-left:2px solid var(--rail);padding:1px 0 4px 15px}
 .role{font-size:11px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--faint);margin-bottom:3px}
+/* per message-kind accents (border + role label) */
+.k-user_message .body{border-left-color:#3b82f6}.k-user_message .role{color:#3b82f6}
+.k-agent_message .body{border-left-color:#6366f1}.k-agent_message .role{color:#6366f1}
+.k-thinking .body{border-left-color:#8a8f98}.k-thinking .role{color:#8a8f98}
+.k-tool_call .body{border-left-color:#8b5cf6}.k-tool_call .role{color:#8b5cf6}
+.k-file_edit .body{border-left-color:#d69e2e}.k-file_edit .role{color:#d69e2e}
+.k-shell_command .body{border-left-color:#0d9488}.k-shell_command .role{color:#0d9488}
+.k-subagent_event .body{border-left-color:#3b82f6}.k-subagent_event .role{color:#3b82f6}
+.k-todo_write .body{border-left-color:#8a8f98}
 .say{font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
 .say.user{font-weight:550}
 .say.think{color:var(--muted);font-style:italic}
