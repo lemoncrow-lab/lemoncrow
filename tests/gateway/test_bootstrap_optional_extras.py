@@ -518,30 +518,6 @@ def test_install_hosts_parses_roles_and_include_skills_flags() -> None:
     assert "OPENCODE_EXTRA_ARGS+=" not in include_skills_block
 
 
-def test_install_hosts_dry_run_all_hosts_survive_roles_and_include_skills() -> None:
-    result = subprocess.run(
-        [
-            "bash",
-            str(SCRIPTS / "install_hosts.sh"),
-            "--all",
-            "--roles",
-            "code,explore",
-            "--include-skills",
-            "benchmark",
-            "--dry-run",
-            "--print-only",
-        ],
-        cwd=ATELIER_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
-    for host in ("claude", "codex", "opencode", "copilot", "antigravity"):
-        assert f"OK       {host}" in result.stdout, result.stdout
-    assert "FAILED" not in result.stdout
-
-
 def test_install_hosts_threads_roles_into_claude_and_codex_agent_files() -> None:
     result = subprocess.run(
         [

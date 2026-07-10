@@ -1894,6 +1894,58 @@ PYEOF
     return $ret
 }
 
+# Downloads the pinned ripgrep binary to $1 and symlinks it into ATELIER_BIN_DIR.
+# rg backs the grep fallback in search_read/native_search when Zoekt isn't built;
+# only called when no system rg is found (install_code_tools checks first), so
+# this never shadows a newer system install.
+_install_ripgrep_binary() {
+    local rg_dest="$1"
+    python3 - "${rg_dest}" <<'PYEOF'
+import hashlib, io, platform, stat, sys, tarfile, urllib.request
+from pathlib import Path
+dest = Path(sys.argv[1])
+ARCH = {'amd64': 'x86_64', 'x64': 'x86_64', 'arm64': 'aarch64'}.get(
+    platform.machine().lower(), platform.machine().lower())
+VER = '14.1.1'
+ASSETS = {
+    'x86_64': (
+        f'https://github.com/BurntSushi/ripgrep/releases/download/{VER}/ripgrep-{VER}-x86_64-unknown-linux-musl.tar.gz',
+        '4cf9f2741e6c465ffdb7c26f38056a59e2a2544b51f7cc128ef28337eeae4d8e'),
+    'aarch64': (
+        f'https://github.com/BurntSushi/ripgrep/releases/download/{VER}/ripgrep-{VER}-aarch64-unknown-linux-gnu.tar.gz',
+        'c827481c4ff4ea10c9dc7a4022c8de5db34a5737cb74484d62eb94a95841ab2f'),
+    'Darwin-x86_64': (
+        f'https://github.com/BurntSushi/ripgrep/releases/download/{VER}/ripgrep-{VER}-x86_64-apple-darwin.tar.gz',
+        'fc87e78f7cb3fea12d69072e7ef3b21509754717b746368fd40d88963630e2b3'),
+    'Darwin-aarch64': (
+        f'https://github.com/BurntSushi/ripgrep/releases/download/{VER}/ripgrep-{VER}-aarch64-apple-darwin.tar.gz',
+        '24ad76777745fbff131c8fbc466742b011f925bfa4fffa2ded6def23b5b937be'),
+}
+os_prefix = 'Darwin-' if platform.system() == 'Darwin' else ''
+key = os_prefix + ARCH
+if key not in ASSETS:
+    sys.exit(f'no pinned ripgrep asset for {key!r}')
+url, sha256 = ASSETS[key]
+dest.parent.mkdir(parents=True, exist_ok=True)
+with urllib.request.urlopen(url, timeout=120) as r:
+    data = r.read()
+if hashlib.sha256(data).hexdigest() != sha256:
+    sys.exit('sha256 mismatch')
+with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as tf:
+    member = next((m for m in tf.getmembers() if Path(m.name).name == 'rg'), None)
+    if member is None:
+        sys.exit('rg binary not found in tarball')
+    extracted = tf.extractfile(member)
+    if extracted is None:
+        sys.exit('rg member is not a regular file')
+    dest.write_bytes(extracted.read())
+dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+PYEOF
+    local ret=$?
+    [[ $ret -eq 0 ]] && ln -sf "${rg_dest}" "${ATELIER_BIN_DIR}/rg" 2>/dev/null
+    return $ret
+}
+
 install_code_tools() {
     # Install optional code-quality tools used by edit hooks and the rename backend.
     # All steps are best-effort: missing tools are warned about but do not abort the
@@ -1939,6 +1991,19 @@ install_code_tools() {
                 || warn "ast-grep bootstrap failed -- codemod tool will lazy-install on first use"
         else
             _SPINNER_MSG="ast-grep already installed"
+            _spinner_stop ok
+        fi
+    fi
+
+    # ripgrep (grep fallback for search_read/native_search when Zoekt isn't
+    # built). Skip entirely when a system rg is already on PATH.
+    if ! command -v rg >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+        local rg_dest="${ATELIER_INSTALL_DIR}/.atelier/rg"
+        if [[ ! -x "${rg_dest}" ]]; then
+            spin "Installing ripgrep" _install_ripgrep_binary "${rg_dest}" \
+                || warn "ripgrep bootstrap failed -- search falls back to slower python grep"
+        else
+            _SPINNER_MSG="ripgrep already installed"
             _spinner_stop ok
         fi
     fi

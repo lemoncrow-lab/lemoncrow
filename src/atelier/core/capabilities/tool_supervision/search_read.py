@@ -240,8 +240,35 @@ def _run_grep(pattern: str, search_path: str) -> str:
             timeout=30,
         )
         return proc.stdout[:262144]  # 256 KB cap
+    except FileNotFoundError:
+        # Fall back to grep when rg is not installed (local dev, minimal CI images).
+        return _run_grep_fallback(pattern, search_path)
     except (OSError, subprocess.SubprocessError) as exc:
         return f"(rg failed: {exc})"
+
+
+def _run_grep_fallback(pattern: str, search_path: str) -> str:
+    """Fallback grep when ripgrep is unavailable."""
+    try:
+        proc = subprocess.run(
+            [
+                "grep",
+                "-rnH",
+                "--color=never",
+                "--exclude-dir=.git",
+                "--exclude-dir=.atelier",
+                "--",
+                pattern,
+                search_path,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        return proc.stdout[:262144]
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"(grep failed: {exc})"
 
 
 def _cache_state_path(repo_root: Path) -> Path:
