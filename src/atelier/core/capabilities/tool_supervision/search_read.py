@@ -21,21 +21,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from atelier.core.capabilities.prompt_compilation.tokens import approx_tokens
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Token counting
 # ---------------------------------------------------------------------------
-
-
-def _count_tokens(text: str) -> int:
-    # Budget gating only -- never billed.  Exact tiktoken BPE encoding of every
-    # candidate snippet was the single largest cost in the explore/search hot
-    # path (cl100k encode dominated the profiler: up to ~2.7s per explore call).
-    # The byte/4 estimate (cl100k averages ~3.6-4 chars/token on source) is
-    # accurate enough to pack snippets to a budget and is ~1000x cheaper.
-    # Reserve real tiktoken for cost/pricing computation, not retrieval.
-    return len(text) // 4
+#
+# Budget gating only -- never billed.  Exact tiktoken BPE encoding of every
+# candidate snippet was the single largest cost in the explore/search hot path
+# (cl100k encode dominated the profiler: up to ~2.7s per explore call). The
+# canonical ``approx_tokens`` char/4 estimate is accurate enough to pack
+# snippets to a budget and is ~1000x cheaper. Reserve real tiktoken for
+# cost/pricing computation, not retrieval.
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +452,7 @@ def _naive_token_count(grep_output: str, file_contents: dict[str, str]) -> int:
     pass it, but the baseline intentionally does not add full matched files.
     """
     _ = file_contents
-    return _count_tokens(grep_output)
+    return approx_tokens(grep_output)
 
 
 def search_read(
@@ -566,9 +565,9 @@ def search_read(
                 )
             )
 
-        file_token_count = sum(_count_tokens(sn.text) for sn in trimmed_snippets)
+        file_token_count = sum(approx_tokens(sn.text) for sn in trimmed_snippets)
         if outline:
-            file_token_count += _count_tokens(str(outline))
+            file_token_count += approx_tokens(str(outline))
 
         total_tokens += file_token_count
         matches.append(

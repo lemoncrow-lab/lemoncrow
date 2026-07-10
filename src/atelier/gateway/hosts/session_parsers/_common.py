@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from atelier.core.capabilities.pricing import is_placeholder_model, usage_cost_usd
+from atelier.core.capabilities.prompt_compilation.tokens import approx_tokens
 from atelier.core.foundation.models import (
     CommandRecord,
     FileEditRecord,
@@ -109,11 +110,9 @@ def parse_datetime(value: Any, *, default: datetime | None = None) -> datetime:
     return default or utcnow()
 
 
-def char_tokens(text: str, *, chars_per_token: int = 4) -> int:
-    stripped = text.strip()
-    if not stripped:
-        return 0
-    return max(1, (len(stripped) + chars_per_token - 1) // chars_per_token)
+# Fast char-only token estimate for import gating; canonical home is
+# prompt_compilation.tokens.approx_tokens. Kept importable under this name.
+char_tokens = approx_tokens
 
 
 def unique_strings(values: Iterable[str]) -> list[str]:

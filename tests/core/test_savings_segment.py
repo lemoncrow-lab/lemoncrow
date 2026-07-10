@@ -210,6 +210,28 @@ def test_login_frame_only_for_unauthenticated(atelier_root: Path, monkeypatch: p
     assert not any("/atelier login" in f for f in frames)
 
 
+def test_dynamic_status_lines_excludes_frame0_and_strips_separators(
+    atelier_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plain-text dynamic messages for non-rotating hosts (Codex Stop hook):
+    frame 0 (live cost/savings) excluded, separators stripped, login nudge
+    present only for free/unauthenticated users."""
+    from atelier.core.capabilities.savings_summary import dynamic_status_lines
+
+    monkeypatch.delenv("ATELIER_AUTH_TOKEN", raising=False)
+
+    # Signed in (fixture wrote auth_token): no login nudge, no frame-0 leak.
+    lines = dynamic_status_lines("", atelier_root=atelier_root)
+    assert not any("/atelier login" in line for line in lines)
+    assert not any("$0.00(I:" in line for line in lines)
+
+    # Free: login nudge appears exactly once, as bare text (no "|", no ANSI).
+    (atelier_root / "auth_token").unlink()
+    lines = dynamic_status_lines("", atelier_root=atelier_root)
+    assert lines.count("not signed in -- /atelier login to unlock Pro") == 1
+    assert all("|" not in line and "\033" not in line for line in lines)
+
+
 def test_segment_pins_review_needs_fix(atelier_root: Path) -> None:
     """NEEDS_FIX verdict must appear on every frame."""
     sid = "pinned-session"
