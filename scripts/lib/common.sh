@@ -948,37 +948,11 @@ _zoekt_all_local_binaries_present() {
 }
 
 prompt_rtk_selection() {
-    # rtk (external command compactor) — soft integration, strictly opt-in.
-    # When on PATH, Atelier passes read-only git/gh/test/lint commands through
-    # it for token-compact output (runtime opt-out: ATELIER_BASH_EXTERNAL_COMPACTORS=0).
+    # rtk (external command compactor) — soft integration, same as ast-grep/jj:
+    # always attempted, never prompted. Opt out with ATELIER_INSTALL_RTK=0
+    # (runtime opt-out once installed: ATELIER_BASH_EXTERNAL_COMPACTORS=0).
     [[ "${ATELIER_INSTALL_RTK:-}" == "0" ]] && return 0
-    command -v rtk >/dev/null 2>&1 && { INSTALL_RTK=1; return 0; }
-    if [[ "${ATELIER_INSTALL_RTK:-}" == "1" ]]; then
-        INSTALL_RTK=1
-        return 0
-    fi
-    # Never installed silently: non-interactive runs skip it (opt-in only).
-    [[ "$ATELIER_NON_INTERACTIVE" == "1" ]] && return 0
-    has_interactive_input || return 0
-
-    if supports_interactive_selector; then
-        local rtk_yn=1
-        interactive_single_select \
-            "Install rtk (optional — compacts git/test/lint output for agents)?" \
-            rtk_yn \
-            1 \
-            "Yes – cargo install rtk" \
-            "No"
-        [[ "$rtk_yn" == "0" ]] && INSTALL_RTK=1
-    else
-        local ans=""
-        printf "  ◇  Install rtk (optional — compacts git/test/lint output for agents)? [y/N] "
-        IFS= read -r ans </dev/tty 2>/dev/null || ans=""
-        case "$ans" in
-            y | Y | yes | YES) INSTALL_RTK=1 ;;
-            *) ;;
-        esac
-    fi
+    INSTALL_RTK=1
 }
 
 atelier_install_attribution_hook() {
