@@ -17,6 +17,19 @@ set -u
 
 _PYTHON_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/atelier/hook_python"
 
+# Cheap fingerprint of "where would atelier resolve right now" -- a PATH
+# lookup, no python subprocess. A reinstall (make dev / make prod /
+# install.sh) can move atelier to a new venv without removing the old one
+# (e.g. ~/.local/...uv/tools vs ~/.atelier/uv-tools); the old interpreter
+# still happily satisfies "import atelier" (it's a real, just stale, install),
+# so that check alone never notices the switch. Pin the cache to this
+# fingerprint too so a changed resolution invalidates it immediately.
+_current_fingerprint() {
+    local config_file
+    config_file="$(dirname "$0")/../atelier-python"
+    printf '%s\n%s\n%s\n' "${ATELIER_PYTHON:-}" "$(command -v atelier 2>/dev/null || true)" "$(cat "${config_file}" 2>/dev/null || true)"
+}
+
 resolve_atelier_python() {
     if [[ -n "${ATELIER_PYTHON:-}" && -x "${ATELIER_PYTHON}" ]]; then
         if "${ATELIER_PYTHON}" -c "import atelier" 2>/dev/null; then
@@ -72,13 +85,15 @@ resolve_atelier_python() {
 }
 
 if [[ -f "${_PYTHON_CACHE}" ]]; then
-    cached_py="$(cat "${_PYTHON_CACHE}")"
-    if [[ -x "${cached_py}" ]] && "${cached_py}" -c "import atelier" 2>/dev/null; then
+    cached_py="$(sed -n '1p' "${_PYTHON_CACHE}")"
+    cached_fingerprint="$(tail -n +2 "${_PYTHON_CACHE}")"
+    if [[ -n "${cached_py}" && "${cached_fingerprint}" == "$(_current_fingerprint)" ]] \
+        && [[ -x "${cached_py}" ]] && "${cached_py}" -c "import atelier" 2>/dev/null; then
         exec "${cached_py}" "$@"
     fi
 fi
 
 PY="$(resolve_atelier_python)"
 mkdir -p "$(dirname "${_PYTHON_CACHE}")"
-echo "${PY}" > "${_PYTHON_CACHE}"
+{ echo "${PY}"; _current_fingerprint; } > "${_PYTHON_CACHE}"
 exec "${PY}" "$@"

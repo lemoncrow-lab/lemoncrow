@@ -27,7 +27,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
+from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd, read_session_end_carry
 
 if TYPE_CHECKING:
     from atelier.infra.runtime.run_ledger import RunLedger
@@ -265,6 +265,16 @@ def read_total_savings_from_events(session_id: str, root: Path) -> float:
          internal Atelier session id)
       2. ``sessions/<session_id>/savings.jsonl`` (host sidecar keyed by
          host UUID — the source the statusline reads)
+      3. Persisted context-carry credit, frozen at the session's last Stop
+         event (``read_session_end_carry``) -- the SAME value the statusline
+         and ``atelier session stats``/``report`` fold into their totals
+         (see that function's docstring). Without this, a session with a
+         large carry credit would show materially less savings here than
+         in the CLI/statusline for the identical session id. Sessions that
+         haven't Stopped yet have no persisted snapshot; carry for those is
+         simply omitted here rather than re-derived live, since a live
+         re-derive needs Claude-transcript-specific machinery this
+         host-agnostic reader intentionally doesn't depend on.
 
     The first source matches when the trace was recorded with an internal
     Atelier id; the second matches when the trace UUID is the host id that
@@ -276,6 +286,11 @@ def read_total_savings_from_events(session_id: str, root: Path) -> float:
     # 2. host sidecar savings (priced per-row by the helper)
     _, compression_saved, _ = _read_context_compression_savings(session_id, root)
     total += compression_saved
+
+    # 3. persisted carry credit, if this session has Stopped at least once
+    persisted_carry = read_session_end_carry(session_id, root)
+    if persisted_carry is not None:
+        total += persisted_carry[0]
 
     return round(total, 6)
 
