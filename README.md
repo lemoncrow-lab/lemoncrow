@@ -82,11 +82,13 @@ The point is simple: more of your Claude subscription should go into useful work
 
 ### What actually gets replaced
 
-Atelier is not a different coding app and not a different model. `atelier init` gives Claude Code 5 tools and hides the built-ins behind them, so the model isn't choosing between two ways to do the same thing:
+Atelier is not a different coding app and not a different model. `atelier init` gives Claude Code 5 tools and hides the built-ins behind them, so the model isn't choosing between two ways to do the same thing.
+
+**Find things in one shot** -- no wandering the codebase call after call.
 
 | Atelier tool  | Replaces (hidden from the model) | Why                                                                                                      |
 | --------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `code_search` | Grep, Glob                       | One call returns the symbol, its callers/callees, and ranked source -- no grep-loop-then-read-whole-file |
+| `code_search` | Grep, Glob                       | One call returns the symbol, its callers/callees, and ranked source -- no grep-loop-then-read-whole-file. Ranked by call-graph centrality over a tree-sitter symbol table |
 | `read`        | Read                             | Returns an outline or the exact`:L10-L40` range, budgeted, instead of the full file                      |
 | `edit`        | Edit, Write                      | Verified, cross-file edits in one call instead of per-file patch-or-create guessing                      |
 | `bash`        | Bash                             | Output is capped and structured so a noisy build log can't blow the context window                       |
