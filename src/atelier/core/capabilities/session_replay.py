@@ -502,6 +502,7 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         pass
 
+    model = replay.model or "claude-sonnet-4-5"
     tr = replay.tool_results
     collapsed_chars = sum(
         len(tr.get(str(replay.turns[i].get("tool_use_id") or ""), ""))
@@ -512,14 +513,57 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
         a = turn.get("atelier")
         if isinstance(a, dict) and a.get("tool") == "bash" and a.get("mode") == "simulated":
             collapsed_chars += int(a.get("chars_omitted", 0) or 0)
+    calls_saved = replay.summary.calls_saved if replay.summary else 0
+
+    # Savings opportunity ($): for a session that did NOT run with Atelier, a
+    # conservative estimate of what Atelier would have saved. Models the dominant
+    # "carry" effect (the eliminated tool output would otherwise be re-read on
+    # every later turn) and prices it with the canonical estimate_cost_usd at the
+    # cache-read rate. Conservative vs the measured A/B (which also cuts turns).
+    opportunity = 0.0
+    if not is_atelier and collapsed_chars > 0:
+        kinds = [t.get("kind") for t in replay.turns]
+        once_tokens = 0
+        carry_tokens = 0
+        for i in replay.collapsed_indices:
+            if not (0 <= i < len(replay.turns)):
+                continue
+            tok = len(tr.get(str(replay.turns[i].get("tool_use_id") or ""), "")) // 4
+            once_tokens += tok
+            later_turns = sum(1 for k in kinds[i + 1 :] if k == "agent_message")
+            carry_tokens += tok * max(1, later_turns)
+        try:
+            from atelier.core.capabilities.savings_summary import estimate_cost_usd
+
+            opportunity = estimate_cost_usd(
+                model_id=model,
+                input_tokens=once_tokens,
+                output_tokens=0,
+                cache_read_tokens=carry_tokens,
+                cache_write_tokens=0,
+            )
+        except Exception:  # noqa: BLE001
+            opportunity = 0.0
+
+    time_saved = measured_time
+    if not is_atelier:
+        try:
+            from atelier.core.capabilities.savings_summary import estimate_time_saved_seconds
+
+            time_saved = estimate_time_saved_seconds(calls_avoided=calls_saved)
+        except Exception:  # noqa: BLE001
+            time_saved = float(calls_saved) * 4.5
 
     return {
-        "model": replay.model or "claude-sonnet-4-5",
+        "model": model,
         "total_cost_usd": round(total_cost, 4),
         "measured_saved_usd": round(measured_saved, 4),
-        "measured_time_saved_seconds": round(measured_time, 1),
+        "opportunity_saved_usd": round(opportunity, 4),
+        "saved_usd": round(measured_saved if is_atelier else opportunity, 4),
+        "saved_is_measured": is_atelier,
+        "time_saved_seconds": round(time_saved, 1),
         "is_atelier_session": is_atelier,
-        "calls_saved": replay.summary.calls_saved if replay.summary else 0,
+        "calls_saved": calls_saved,
         "collapsed_output_tokens": collapsed_chars // 4,
     }
 
