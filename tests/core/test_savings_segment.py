@@ -15,6 +15,8 @@ def atelier_root(tmp_path: Path) -> Path:
     (root / "reviews").mkdir()
     # Suppress the "login" status tip so status_text is empty in tests.
     (root / "auth.json").write_text(json.dumps({"authenticated": True}))
+    # Signed-in: keeps the login-nudge frame out of the default frame set.
+    (root / "auth_token").write_text("test-token")
     # Suppress status tips so no extra frame is injected.
     (root / "plugin_settings.json").write_text(json.dumps({"atelier": {"statusLineTips": False}}))
     return root
@@ -181,6 +183,31 @@ def test_savings_frames_weighted_and_segment_consistent(atelier_root: Path) -> N
         _set_frame(atelier_root, i)
         seg = savings_segment("", atelier_root=atelier_root, no_color=True, **kw)  # type: ignore[arg-type]
         assert seg in frames, f"counter={i}: {seg!r} not in frames"
+
+
+def test_login_frame_only_for_unauthenticated(atelier_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Free/unauthenticated users get a rotating '/atelier login' frame; a
+    signed-in user (auth_token present) does not."""
+    from atelier.core.capabilities.savings_summary import savings_frames
+
+    monkeypatch.delenv("ATELIER_AUTH_TOKEN", raising=False)
+    kw = {"live_in_tok": 10_000, "live_cache_tok": 50_000}
+
+    # Signed in (fixture wrote auth_token): no login frame.
+    frames = savings_frames("", atelier_root=atelier_root, no_color=True, **kw)  # type: ignore[arg-type]
+    assert not any("/atelier login" in f for f in frames)
+
+    # Free: remove the token -> login frame appears exactly once.
+    (atelier_root / "auth_token").unlink()
+    frames = savings_frames("", atelier_root=atelier_root, no_color=True, **kw)  # type: ignore[arg-type]
+    login = [f for f in frames if "/atelier login" in f]
+    assert len(login) == 1, f"expected one login frame, got {login!r}"
+    assert "not signed in" in login[0]
+
+    # Env token also counts as signed in.
+    monkeypatch.setenv("ATELIER_AUTH_TOKEN", "env-token")
+    frames = savings_frames("", atelier_root=atelier_root, no_color=True, **kw)  # type: ignore[arg-type]
+    assert not any("/atelier login" in f for f in frames)
 
 
 def test_segment_pins_review_needs_fix(atelier_root: Path) -> None:

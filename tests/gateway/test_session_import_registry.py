@@ -13,6 +13,7 @@ def test_supported_session_import_hosts_match_codeburn_inventory() -> None:
         "codex",
         "copilot",
         "cursor",
+        "hermes",
         "opencode",
     )
 

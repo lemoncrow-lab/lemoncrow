@@ -48,7 +48,7 @@ PLUGIN_DIR="${CODEX_HOME}/plugins/atelier"
 PLUGIN_CACHE_DIR="${HOME}/.codex/plugins/cache/atelier"
 OPENAI_CURATED_PLUGIN_CACHE_DIR="${CODEX_HOME}/plugins/cache/openai-curated/atelier"
 AGENTS_DIR="${CODEX_HOME}/agents"
-AGENT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/integrations/codex/AGENTS.atelier.md"
+AGENT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/integrations/AGENTS.atelier.md"
 STAGING_DIRS=("${HOME}/.atelier/codex-plugin" "${HOME}/.atelier/codex-plugin-stable" "${HOME}/.atelier/codex-plugin-dev")
 
 info()  { echo "[atelier:uninstall:codex] $*"; }

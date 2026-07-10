@@ -38,6 +38,7 @@ def publish_public_savings_rollup(
     carry_usd: float = 0.0,
     carry_tokens: int = 0,
     est_cost_usd: float = 0.0,
+    time_saved_seconds: float = 0.0,
 ) -> bool:
     """Publish one sanitized savings rollup (a single session, or one daily aggregate).
 
@@ -61,6 +62,7 @@ def publish_public_savings_rollup(
             carry_usd=carry_usd,
             carry_tokens=carry_tokens,
             est_cost_usd=est_cost_usd,
+            time_saved_seconds=time_saved_seconds,
         )
         if payload is None:
             return False
@@ -103,6 +105,7 @@ def _payload(
     carry_usd: float = 0.0,
     carry_tokens: int = 0,
     est_cost_usd: float = 0.0,
+    time_saved_seconds: float = 0.0,
 ) -> dict[str, Any] | None:
     session = str(session_id or "").strip()
     if not session:
@@ -114,7 +117,17 @@ def _payload(
     carry_s = max(0.0, float(carry_usd or 0.0))
     carry_t = max(0, int(carry_tokens or 0))
     cost = max(0.0, float(est_cost_usd or 0.0))
-    if saved <= 0 and tokens <= 0 and calls <= 0 and turns <= 0 and carry_s <= 0 and carry_t <= 0 and cost <= 0:
+    time_s = max(0.0, float(time_saved_seconds or 0.0))
+    if (
+        saved <= 0
+        and tokens <= 0
+        and calls <= 0
+        and turns <= 0
+        and carry_s <= 0
+        and carry_t <= 0
+        and cost <= 0
+        and time_s <= 0
+    ):
         return None
     at = occurred_at or datetime.now(UTC)
     if at.tzinfo is None:
@@ -131,6 +144,7 @@ def _payload(
         "carry_tokens": carry_t,
         "turn_count": turns,
         "est_cost_usd": round(cost, 6),
+        "time_saved_seconds": round(time_s, 3),
         "occurred_at": at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
     }
 
@@ -186,7 +200,10 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
     if checkpoint_day is None:
         return {"flushed": False, "reason": "baseline"}, today
 
-    from atelier.core.capabilities.savings_summary import aggregate_savings_since_day
+    from atelier.core.capabilities.savings_summary import (
+        aggregate_savings_since_day,
+        estimate_time_saved_seconds,
+    )
 
     totals, last_day = aggregate_savings_since_day(root, since_day=checkpoint_day, today=today)
     if last_day is None:
@@ -201,5 +218,6 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
         source="claude",
         carry_usd=float(totals["carry_usd"]),
         est_cost_usd=float(totals["est_cost_usd"]),
+        time_saved_seconds=estimate_time_saved_seconds(calls_avoided=int(totals["calls_avoided"])),
     )
     return {"flushed": ok, "through_day": last_day}, last_day

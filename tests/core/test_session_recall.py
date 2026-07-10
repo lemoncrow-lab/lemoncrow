@@ -255,6 +255,98 @@ def test_opencode_prose_snippets_via_parser() -> None:
     assert not any("internal reasoning" in s for s in snippets)  # thinking excluded
 
 
+def test_copilot_candidates_and_snippets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import time
+
+    session_dir = tmp_path / "cop-sess-1"
+    session_dir.mkdir()
+    (session_dir / "events.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "user.message",
+                        "data": {"content": "How do I index copilot sessions for recall coverage"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant.message",
+                        "data": {"content": "Copilot sessions are discovered from session-state dirs"},
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    from atelier.gateway.hosts.session_parsers import copilot as copilot_parser
+
+    monkeypatch.setattr(copilot_parser, "find_copilot_sessions", lambda root=None: iter([session_dir]))
+
+    candidates = session_recall._copilot_candidates(cutoff=time.time() - 3600)
+    assert len(candidates) == 1
+    cand = candidates[0]
+    assert (cand.host, cand.session_id) == ("copilot", "cop-sess-1")
+    snippets = cand.load()
+    assert any("copilot sessions" in s.lower() for s in snippets)
+
+
+def test_cursor_candidates_and_snippets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import sqlite3
+    import time
+    from datetime import UTC, datetime
+
+    db_path = tmp_path / "state.vscdb"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)")
+    now_iso = datetime.now(UTC).isoformat()
+    conn.execute(
+        "INSERT INTO cursorDiskKV VALUES (?, ?)",
+        (
+            "bubbleId:comp-live:u1",
+            json.dumps(
+                {"type": 1, "text": "How is cursor recall coverage configured in atelier", "createdAt": now_iso}
+            ),
+        ),
+    )
+    conn.execute(
+        "INSERT INTO cursorDiskKV VALUES (?, ?)",
+        (
+            "bubbleId:comp-live:a1",
+            json.dumps(
+                {
+                    "type": 2,
+                    "text": "Cursor sessions are read from the state.vscdb bubbles",
+                    "createdAt": now_iso,
+                }
+            ),
+        ),
+    )
+    # Stale session outside the window must be skipped.
+    conn.execute(
+        "INSERT INTO cursorDiskKV VALUES (?, ?)",
+        (
+            "bubbleId:comp-old:u1",
+            json.dumps(
+                {"type": 1, "text": "old prose long enough to snippet", "createdAt": "2020-01-01T00:00:00+00:00"}
+            ),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    from atelier.gateway.hosts.session_parsers import cursor as cursor_parser
+
+    monkeypatch.setattr(cursor_parser, "find_cursor_db", lambda root=None: db_path)
+
+    candidates = session_recall._cursor_candidates(cutoff=time.time() - 3600)
+    assert [c.session_id for c in candidates] == ["comp-live"]
+    snippets = candidates[0].load()
+    assert any(s.startswith("[user] How is cursor recall") for s in snippets)
+    assert any(s.startswith("[assistant] Cursor sessions are read") for s in snippets)
+
+
 def test_index_sessions_multi_host_tags_and_dedup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".atelier"
     candidates = [

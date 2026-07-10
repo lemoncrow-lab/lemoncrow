@@ -27,8 +27,11 @@ while [[ $# -gt 0 ]]; do
         --print-only) PRINT_ONLY=true ;;
         --strict)     STRICT=true ;;
         --workspace)
-            echo "[atelier:hermes] ERROR: --workspace not supported. Hermes Agent is global-only." >&2
-            exit 1
+            # Hermes Agent is global-only; a workspace-scoped install/verify
+            # sweep (verify_agent_clis.sh --workspace DIR) must skip, not fail.
+            echo "[atelier:hermes] WARN: --workspace not supported (Hermes is global-only)" >&2
+            echo "=== SKIPPED (workspace mode unsupported) ==="
+            exit 0
             ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -41,6 +44,12 @@ CONFIG_FILE="${HERMES_HOME}/config.yaml"
 info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:hermes] $*" || true; }
 warn()  { echo "[atelier:hermes] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
+# PyYAML is not guaranteed in the system python; prefer the project env.
+if command -v uv >/dev/null 2>&1; then
+    PYTHON_CMD=(uv run python)
+else
+    PYTHON_CMD=(python3)
+fi
 backup_file() {
     local f="$1"
     if [ -f "$f" ]; then
@@ -62,6 +71,7 @@ if $PRINT_ONLY; then
     echo "    atelier:"
     echo "      command: atelier"
     echo "      args:"
+    echo "        - mcp"
     echo "        - --host"
     echo "        - hermes"
     echo "      timeout: 120"
@@ -92,6 +102,7 @@ mcp_servers:
   atelier:
     command: atelier
     args:
+      - mcp
       - --host
       - hermes
     timeout: 120
@@ -118,7 +129,7 @@ backup_file "$CONFIG_FILE"
 if $DRY_RUN; then
     echo "  [dry-run] merge atelier into $CONFIG_FILE"
 else
-    python3 - <<PYEOF
+    "${PYTHON_CMD[@]}" - <<PYEOF
 import yaml
 from pathlib import Path
 
@@ -130,7 +141,7 @@ config = yaml.safe_load(content) or {}
 config.setdefault('mcp_servers', {})
 config['mcp_servers']['atelier'] = {
     'command': 'atelier',
-    'args': ['--host', 'hermes'],
+    'args': ['mcp', '--host', 'hermes'],
     'timeout': 120,
     'connect_timeout': 60,
     'enabled': True,
@@ -158,10 +169,11 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
+vwarn() { echo "[atelier:hermes] WARN: $*" >&2; }
 vfail() { echo "[atelier:hermes] FAIL: $*" >&2; VFAIL=1; }
 
 if [ -f "$CONFIG_FILE" ]; then
-    HAS=$(python3 - <<PYEOF
+    HAS=$("${PYTHON_CMD[@]}" - <<PYEOF
 import yaml
 from pathlib import Path
 try:

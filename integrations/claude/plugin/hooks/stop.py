@@ -1202,7 +1202,40 @@ def _format_stats(
     # carry its own hand-rolled duplicate (with a 1-decimal-M/extra-B-tier
     # scheme that had drifted from the canonical 2-decimal-M formatter every
     # other Python savings surface uses); import it instead of redefining it.
-    from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
+    try:
+        from atelier.core.capabilities.savings_summary import (
+            _fmt_tok,
+            _fmt_usd,
+            estimate_time_saved_seconds,
+            fmt_duration,
+        )
+    except ImportError:
+        # This hook script is synced from the dev repo independently of the
+        # installed `atelier` package (uv tool / pip) -- an older installed
+        # package predating these private helpers must not crash Stop on
+        # every turn. Fall back to the same formatting inline.
+        def _fmt_usd(v: float) -> str:
+            return f"${float(v or 0.0):,.2f}"
+
+        def _fmt_tok(n: int) -> str:
+            n = int(n or 0)
+            if n >= 1_000_000:
+                return f"{n / 1_000_000:.2f}M"
+            if n >= 1000:
+                return f"{n / 1000:.1f}k"
+            return str(n)
+
+        def estimate_time_saved_seconds(*, calls_avoided: int, output_saved_tokens: int = 0) -> float:
+            return max(0, int(calls_avoided or 0)) * 4.5 + max(0, int(output_saved_tokens or 0)) / 50.0
+
+        def fmt_duration(seconds: float) -> str:
+            s = max(0.0, float(seconds or 0.0))
+            if s < 60:
+                return f"{int(s)}s"
+            if s < 3600:
+                return f"{round(s / 60)}m"
+            hours = s / 3600.0
+            return f"{hours:.1f}h" if hours < 10 else f"{round(hours)}h"
 
     inp = int(stats.get("input_tokens", 0) or 0)
     out = int(stats.get("output_tokens", 0) or 0)
@@ -1264,6 +1297,9 @@ def _format_stats(
         savings_line += f" · carry {_fmt_usd(carry_usd)}{carry_tokens_str}"
     if routing_usd > 0:
         savings_line += f" · routing {_fmt_usd(routing_usd)}"
+    faster_s = estimate_time_saved_seconds(calls_avoided=calls_avoided, output_saved_tokens=output_tokens)
+    if faster_s >= 60:
+        savings_line += f" · ~{fmt_duration(faster_s)} faster"
     lines.append(savings_line)
 
     lines.append(f"top tools: {tools_str}")

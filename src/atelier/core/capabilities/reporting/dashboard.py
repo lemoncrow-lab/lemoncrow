@@ -162,11 +162,27 @@ def render_overview(root: Path, *, days: int = 7, n_runs: int = 8) -> str:
         for tool, cost in list(window.cost_by_tool.items())[:4]:
             lines.append(f"    {tool:<20}{_fmt_usd(cost):>9}")
 
-    # Recent runs
-    rows_added = False
-    for run_file in list_run_files(root)[:n_runs]:
+    # Recent runs -- ordered by the snapshot's own updated_at/created_at, the
+    # same timestamp the age column displays. run.json mtime is not usable as
+    # the sort key: the file gets rewritten (imports, bridge refreshes) without
+    # refreshing updated_at, so mtime order made the age column non-monotonic.
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for run_file in list_run_files(root):
         try:
             snap: dict[str, Any] = json.loads(run_file.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - best-effort per-run row; skip unreadable files
+            continue
+        ts_raw = str(snap.get("updated_at") or snap.get("created_at") or "")
+        try:
+            ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            ts = run_file.stat().st_mtime
+        candidates.append((ts, snap))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+
+    rows_added = False
+    for _ts, snap in candidates[:n_runs]:
+        try:
             # Small, bounded n_runs (default 8) -- cheap to include the
             # transcript-based carry component here, unlike bulk aggregation
             # paths (see build_report's docstring).

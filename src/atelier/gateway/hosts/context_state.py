@@ -150,8 +150,123 @@ def _codex_probe(session_id: str, root: Path | None = None) -> tuple[int, str]:
     return (best, best_model) if best > 0 else (0, "")
 
 
+def _cursor_probe(session_id: str, db_path: Path | None = None) -> tuple[int, str]:
+    """Newest Cursor bubble's (context tokens, model) for one composer session.
+
+    Cursor stores every chat bubble in the shared ``state.vscdb`` sqlite under
+    ``bubbleId:<composerId>:<bubbleId>`` keys (see session_parsers/cursor.py).
+    ``tokenCount`` is omitted on effectively all bubbles (subscription
+    product); when absent this correctly returns ``(0, "")`` — unknown, never
+    estimated.
+    """
+    from atelier.gateway.hosts.session_parsers.cursor import _normalize_model, find_cursor_db
+
+    path = db_path or find_cursor_db()
+    if path is None or not Path(path).exists():
+        return 0, ""
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT "
+                "json_extract(value, '$.tokenCount.inputTokens'), "
+                "COALESCE("
+                "  json_extract(value, '$.tokenCount.cacheReadTokens'),"
+                "  json_extract(value, '$.tokenCount.cachedInputTokens'),"
+                "  json_extract(value, '$.tokenCount.cache_read_input_tokens'), 0), "
+                "COALESCE("
+                "  json_extract(value, '$.tokenCount.cacheWriteTokens'),"
+                "  json_extract(value, '$.tokenCount.cacheCreationInputTokens'),"
+                "  json_extract(value, '$.tokenCount.cache_creation_input_tokens'), 0), "
+                "json_extract(value, '$.modelInfo.modelName') "
+                "FROM cursorDiskKV WHERE key LIKE ? ORDER BY ROWID DESC LIMIT 50",
+                (f"bubbleId:{session_id}:%",),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return 0, ""
+    for input_tokens, cache_read, cache_write, model in rows:
+        ctx = int(input_tokens or 0) + int(cache_read or 0) + int(cache_write or 0)
+        if ctx > 0:
+            return ctx, _normalize_model(model)
+    return 0, ""
+
+
+def _copilot_probe(session_id: str, root: Path | None = None) -> tuple[int, str]:
+    """Latest context-bearing usage from a Copilot session's events.jsonl.
+
+    Copilot's ``assistant.message`` events carry only ``outputTokens``; the
+    full input/cache breakdown appears on ``session.compaction_complete``
+    (mid-session) and ``session.shutdown`` (end) events — see
+    session_parsers/copilot.py. The newest such event's
+    input + cacheRead + cacheWrite is the best measured context signal;
+    sessions that never compacted return ``(0, "")`` (unknown, not estimated).
+    """
+    from atelier.gateway.hosts.session_parsers.copilot import find_copilot_sessions
+
+    session_dir = next((p for p in find_copilot_sessions(root) if p.name == session_id), None)
+    if session_dir is None:
+        return 0, ""
+    try:
+        lines = _tail_lines(session_dir / "events.jsonl")
+    except OSError:
+        return 0, ""
+    best = 0
+    best_model = ""
+    current_model = ""
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            continue  # first tail line may be partial
+        data = entry.get("data") or {}
+        if not isinstance(data, dict):
+            continue
+        etype = str(entry.get("type") or "")
+        model = str(data.get("model") or "").strip()
+        if model:
+            current_model = model
+        usage: dict[str, Any] | None = None
+        if etype == "session.compaction_complete":
+            compaction = data.get("compactionTokensUsed")
+            if isinstance(compaction, dict):
+                usage = compaction
+        elif etype == "session.shutdown":
+            metrics = data.get("modelMetrics")
+            if isinstance(metrics, dict):
+                for mname, mdata in metrics.items():
+                    m_usage = (mdata or {}).get("usage") if isinstance(mdata, dict) else None
+                    if isinstance(m_usage, dict):
+                        ctx = (
+                            int(m_usage.get("inputTokens", 0) or 0)
+                            + int(m_usage.get("cacheReadTokens", 0) or 0)
+                            + int(m_usage.get("cacheWriteTokens", 0) or 0)
+                        )
+                        if ctx > 0:
+                            best = ctx
+                            best_model = str(mname)
+                continue
+        if usage is None:
+            continue
+        ctx = (
+            int(usage.get("inputTokens", 0) or 0)
+            + int(usage.get("cacheReadTokens", 0) or 0)
+            + int(usage.get("cacheWriteTokens", 0) or 0)
+        )
+        if ctx > 0:
+            best = ctx
+            best_model = str(usage.get("model") or "").strip() or current_model
+    return (best, best_model) if best > 0 else (0, "")
+
+
 _PROBES: dict[str, Callable[[str], tuple[int, str]]] = {
     "claude": _claude_probe,
     "codex": _codex_probe,
     "opencode": _opencode_probe,
+    "cursor": _cursor_probe,
+    "copilot": _copilot_probe,
 }

@@ -10,9 +10,43 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+_VERSION_RE = re.compile(r"\bversion\s+([0-9][^\s]*)")
+# Bin dirs to append to PATH when resolving the `atelier` executable, for
+# callers spawned by launchd/systemd with a minimal PATH (e.g. the servicectl
+# daemon) that would otherwise never find a user-installed `atelier`.
+_COMMON_ATELIER_BIN_DIRS = (
+    str(Path.home() / ".local" / "share" / "uv" / "tools" / "atelier" / "bin"),
+    str(Path.home() / ".atelier" / "uv-tools" / "atelier" / "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+)
+
+
+def installed_cli_version() -> str | None:
+    """Return the version reported by the installed ``atelier`` executable.
+
+    Queries the CLI itself (not the current process's in-memory package
+    metadata) so callers see the version actually on disk after a
+    reinstall/update, even when the calling process is stale. The PATH used
+    to resolve ``atelier`` is augmented with common install locations so
+    this also works for callers (e.g. the servicectl daemon under launchd)
+    whose inherited PATH is minimal. Returns ``None`` if the binary can't be
+    resolved or fails to report a version.
+    """
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join([env.get("PATH", ""), *_COMMON_ATELIER_BIN_DIRS])
+    try:
+        result = subprocess.run(["atelier", "--version"], capture_output=True, text=True, timeout=15, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = _VERSION_RE.search(result.stdout)
+    return match.group(1) if result.returncode == 0 and match else None
 
 
 def _root() -> Path:
@@ -65,6 +99,7 @@ def acknowledge_update_notification(root: Path | None = None) -> None:
 
 __all__ = [
     "acknowledge_update_notification",
+    "installed_cli_version",
     "read_update_state",
     "update_state_path",
     "write_update_state",

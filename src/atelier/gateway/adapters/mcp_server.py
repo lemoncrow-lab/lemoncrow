@@ -1039,6 +1039,13 @@ def _detect_default_branch(repo: Path) -> str | None:
 _log = logging.getLogger("atelier.mcp")
 
 
+def _installed_cli_version() -> str | None:
+    """Return the version reported by the installed ``atelier`` executable."""
+    from atelier.core.foundation.update_state import installed_cli_version
+
+    return installed_cli_version()
+
+
 def _check_auto_update() -> None:
     """Check git remote for a newer version and auto-update if found.
 
@@ -1072,6 +1079,11 @@ def _check_auto_update() -> None:
         if not (repo / ".git").exists():
             _log.debug("not a git checkout - skipping auto-update")
             return  # Not a git checkout, nothing to auto-update
+
+        # The MCP server can remain alive across source updates, leaving the
+        # imported ``atelier_version`` at the version it started with. Query
+        # the installed executable instead.
+        local_version = _installed_cli_version() or atelier_version
 
         # Fetch latest remote info
         _log.info("fetching latest remote refs from origin...")
@@ -1113,7 +1125,7 @@ def _check_auto_update() -> None:
             return
 
         remote_version = match.group(1)
-        if _version_key(remote_version) <= _version_key(atelier_version):
+        if _version_key(remote_version) <= _version_key(local_version):
             _log.info("remote version is not newer; skipping auto-update")
             return
 
@@ -1141,21 +1153,13 @@ def _check_auto_update() -> None:
             _log.info("auto-update complete")
 
             # Write update-state so SessionStart hooks can notify the user.
-            # Re-read the version from pyproject.toml since the install script
-            # may have updated it but the in-process version hasn't changed.
+            # The server's imported version may be stale after the install.
             try:
                 from atelier.core.foundation.update_state import write_update_state
 
-                new_pyproject = repo / "pyproject.toml"
-                if new_pyproject.exists():
-                    m2 = re.search(r'^version\s*=\s*"([^"]+)"', new_pyproject.read_text("utf-8"), re.MULTILINE)
-                    new_ver = m2.group(1) if m2 else atelier_version
-                else:
-                    new_ver = atelier_version
-
                 write_update_state(
-                    previous_version=atelier_version,
-                    current_version=new_ver,
+                    previous_version=local_version,
+                    current_version=_installed_cli_version() or remote_version,
                     method="git",
                 )
             except Exception:  # noqa: BLE001
@@ -2724,6 +2728,49 @@ _HOST_SESSION_ENVS: list[tuple[str, str]] = [
 ]
 
 
+def _workspace_bridge_session_id() -> str:
+    """Session id from the workspace-shared ``session_state.json`` bridge.
+
+    Codex/OpenCode never set a launch-time session env var for this (long-lived)
+    MCP server process (see ``_HOST_SESSION_ENVS`` -- that assumption doesn't
+    hold for either host in practice). Their hooks instead refresh
+    ``workspaces/<hash>/session_state.json`` with the live session_id on every
+    hook event (``plugin_runtime._write_codex_session_state`` /
+    ``_write_opencode_session_state``). This is the same file
+    ``savings_summary._resolve_workspace_session_id`` reads as a read-side
+    fallback; here it closes the write-side gap so savings rows land under the
+    real session instead of the unattributed quarantine ledger.
+
+    The slot is workspace-shared and last-writer-wins across every host's
+    hooks, so the sid is only trusted when the writer stamped a ``host`` label
+    that matches this process's host -- otherwise an OpenCode server could
+    adopt a Claude/Codex sid (or vice versa) and write savings under a phantom
+    session. Claude never uses this fallback at all: it has a window-anchored
+    resolver, and adopting a shared slot would cross-contaminate concurrent
+    windows in one repo (see :func:`_resolved_host_session_id`). Legacy bridge
+    files without a ``host`` stamp are rejected (fail closed -> quarantine).
+    """
+    try:
+        host = _detect_agent()
+        if not host or host == "claude":
+            # Claude resolves via the window-anchored resolver; a workspace-shared
+            # slot would cross-contaminate concurrent windows in one repo.
+            return ""
+        path = _atelier_root() / "workspaces" / _workspace_ws_hash() / "session_state.json"
+        if not path.is_file():
+            return ""
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return ""
+        if str(data.get("host") or "").strip() != host:
+            # Written by another host's hook (or a legacy hook with no stamp):
+            # fail closed -> callers divert to the quarantine ledger.
+            return ""
+        return str(data.get("session_id") or "").strip()
+    except Exception:  # noqa: BLE001 - best-effort bridge read, never break MCP dispatch
+        return ""
+
+
 def _resolved_host_session() -> tuple[str, str]:
     """Resolved ``(session_id, host)`` for the current host, or empty strings."""
     sid = _resolve_live_session_id()
@@ -2736,6 +2783,9 @@ def _resolved_host_session() -> tuple[str, str]:
         env_sid = os.environ.get(env_var, "").strip()
         if env_sid:
             return env_sid, host
+    bridge_sid = _workspace_bridge_session_id()
+    if bridge_sid:
+        return bridge_sid, _detect_agent()
     return "", ""
 
 
@@ -9948,6 +9998,7 @@ _GREP_MODE_CANON: dict[str, str] = {
     "files": "paths_only",
     "filenames": "paths_only",
     "file_paths_with_match_count": "count_only",
+    "file_paths_with_count": "count_only",
     "match_count": "count_only",
     "count": "count_only",
 }
@@ -12238,13 +12289,9 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                     led,
                 )
                 handler: Callable[[dict[str, Any]], Any] = spec["handler"]
-                # Hidden alias: file_paths_with_count → file_paths_with_match_count
-                if (
-                    name == "grep"
-                    and isinstance(args, dict)
-                    and args.get("output_mode") == "file_paths_with_match_count"
-                ):
-                    args["output_mode"] = "file_paths_with_match_count"
+                # (The hidden grep alias file_paths_with_count is handled in
+                # _GREP_MODE_CANON, not here -- a dispatcher-level remap of
+                # output_mode was a no-op because it tested the new spelling.)
                 # (The bench-mode edit-grounding gate that used to sit here was
                 # hard-removed 2026-07-03: it had no exemption for creating new
                 # files, so it fired on nearly every from-scratch task, burning
@@ -13040,6 +13087,12 @@ def serve() -> None:
                 req = json.loads(line)
             except json.JSONDecodeError as exc:
                 _write_jsonrpc(_err(None, -32700, f"parse error: {exc}"))
+                continue
+            # Valid JSON but not a request object (batch array, string, null):
+            # answer -32600 instead of letting .get() kill the reader thread
+            # (mirrors the mcp_http.py transport guard).
+            if not isinstance(req, dict):
+                _write_jsonrpc(_err(None, -32600, "invalid request: expected a JSON object"))
                 continue
             # Initialization establishes client capabilities and must complete
             # before later requests can observe them.

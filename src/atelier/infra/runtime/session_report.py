@@ -27,7 +27,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
+from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd, read_session_end_carry
 
 if TYPE_CHECKING:
     from atelier.infra.runtime.run_ledger import RunLedger
@@ -265,6 +265,16 @@ def read_total_savings_from_events(session_id: str, root: Path) -> float:
          internal Atelier session id)
       2. ``sessions/<session_id>/savings.jsonl`` (host sidecar keyed by
          host UUID — the source the statusline reads)
+      3. Persisted context-carry credit, frozen at the session's last Stop
+         event (``read_session_end_carry``) -- the SAME value the statusline
+         and ``atelier session stats``/``report`` fold into their totals
+         (see that function's docstring). Without this, a session with a
+         large carry credit would show materially less savings here than
+         in the CLI/statusline for the identical session id. Sessions that
+         haven't Stopped yet have no persisted snapshot; carry for those is
+         simply omitted here rather than re-derived live, since a live
+         re-derive needs Claude-transcript-specific machinery this
+         host-agnostic reader intentionally doesn't depend on.
 
     The first source matches when the trace was recorded with an internal
     Atelier id; the second matches when the trace UUID is the host id that
@@ -276,6 +286,11 @@ def read_total_savings_from_events(session_id: str, root: Path) -> float:
     # 2. host sidecar savings (priced per-row by the helper)
     _, compression_saved, _ = _read_context_compression_savings(session_id, root)
     total += compression_saved
+
+    # 3. persisted carry credit, if this session has Stopped at least once
+    persisted_carry = read_session_end_carry(session_id, root)
+    if persisted_carry is not None:
+        total += persisted_carry[0]
 
     return round(total, 6)
 
@@ -421,6 +436,19 @@ def build_report(snapshot: dict[str, Any], root: Path, *, include_carry_credit: 
     first_ts = event_times[0] if event_times else created_at
     last_ts = event_times[-1] if event_times else updated_at
     duration = max(0.0, (last_ts - first_ts).total_seconds())
+
+    # Writers may append events to run.json after status flips away from
+    # "running" without bumping updated_at (e.g. hook-driven ledger appends),
+    # leaving the recorded end (updated_at) before the first event — an
+    # impossible timeline (ended_at < started_at with a positive duration).
+    # Trust the ledger's own end stamp and clamp the window/duration down to
+    # it rather than lifting ended_at to the last event, which would make a
+    # stale session sort as if it had just been active (see the /v1/sessions
+    # last-activity sort and its regression test).
+    if ended_at is not None and ended_at < first_ts:
+        first_ts = min(first_ts, created_at, ended_at)
+        last_ts = ended_at
+        duration = max(0.0, (ended_at - first_ts).total_seconds())
 
     # --- active duration ---
     # Sum only the time chunks where the agent is working (from User -> Response)

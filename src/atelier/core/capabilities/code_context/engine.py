@@ -13903,8 +13903,10 @@ class CodeContextEngine:
         if not matches and not search_path.is_file():
             seen = {p.resolve() for p in paths}
             for path in _walk_non_source_files(search_path):
-                if path.resolve() in seen or len(matches) >= limit:
+                if len(matches) >= limit:
                     break
+                if path.resolve() in seen:
+                    continue
                 try:
                     rel = _safe_relpath(self.repo_root, path)
                     for line_no, line in enumerate(

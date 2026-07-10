@@ -266,17 +266,22 @@ class LangChainMiddleware:
     def raise_error(self) -> bool:
         return False
 
+    @property
     def ignore_agent(self) -> bool:
         return False
 
+    @property
     def ignore_chat_model(self) -> bool:
         return False
 
+    @property
     def ignore_llm(self) -> bool:
         return False
 
+    @property
     def ignore_retriever(self) -> bool:
         return True
 
+    @property
     def ignore_chain(self) -> bool:
         return False

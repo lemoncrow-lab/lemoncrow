@@ -20,8 +20,9 @@ uv run atelier mcp
 
 ### Remote service-backed mode
 
-Set `ATELIER_MCP_MODE=remote` plus `ATELIER_SERVICE_URL` and `ATELIER_API_KEY`
-to route the supported core calls through the HTTP service.
+Set `ATELIER_SERVICE_URL` (plus `ATELIER_API_KEY` if the service requires auth)
+to route the supported core calls through the HTTP service. Remote mode is
+enabled whenever `ATELIER_SERVICE_URL` is set; unset it to run fully local.
 
 ## Active vs. Passive Mode
 

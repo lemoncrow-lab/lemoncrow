@@ -844,6 +844,25 @@ def test_pricing_copilot_explicit_models() -> None:
     assert p2.model_id == "copilot/some-new-model"
 
 
+def test_pricing_cursor_placeholder_models_never_bill_real_rates() -> None:
+    from atelier.core.capabilities.pricing import get_model_pricing
+
+    # Cursor is likewise subscription-covered: cursor.py._normalize_model
+    # namespaces placeholder bubbles as "cursor/<placeholder>" precisely so
+    # they can never resolve to a real per-token rate card. Alias stripping
+    # must not undo that ("cursor/composer-2" -> LiteLLM "composer-2").
+    for mid in ("cursor/unknown", "cursor/auto", "cursor/composer-2"):
+        p = get_model_pricing(mid)
+        assert p.known is False, mid
+        assert p.input == 0.0, mid
+        assert p.output == 0.0, mid
+
+    # The explicit market-value proxy entry keeps working.
+    proxy = get_model_pricing("cursor-agent-auto")
+    assert proxy.known is True
+    assert proxy.input == 2.50
+
+
 def test_pricing_copilot_subscription_usage_is_zero_cost() -> None:
     """Regression: copilot.py namespaces the real underlying model as
     ``copilot/<model>`` (e.g. ``copilot/gpt-5``) so GitHub Copilot's flat

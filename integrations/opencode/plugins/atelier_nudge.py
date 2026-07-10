@@ -59,7 +59,7 @@ def main() -> int:
                 output = {"uiMessage": stale_message}
         if output and not output.get("no_output"):
             sys.stdout.write(json.dumps(output) + "\n")
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError, OSError):
+    except (ImportError, json.JSONDecodeError, KeyError, TypeError, ValueError, OSError):
         pass
     return 0
 
