@@ -164,6 +164,34 @@ curl -fsSL https://savings.atelier.ws | bash -s -- --since 30d --top 10
 curl -fsSL https://savings.atelier.ws | bash -s -- --host codex --limit 20
 ```
 
+### Replay a past session and see exactly what Atelier would skip
+
+`atelier replay` reconstructs one of your recorded sessions from its transcript
+and plays it back turn by turn — assistant messages, thinking, tool calls, and
+their outputs — then, for each native call, **actually invokes the Atelier tool
+that would have replaced it and shows the real output**:
+
+- grep/read loops collapse into a **real `code_search`** call whose ranked result
+  lands on the same file the loop eventually found (a ✓ marks the match);
+- whole-file reads show the **real `read`** outline/budgeted range;
+- consecutive reads/edits **batch** into one `read(files=[…])` / `edit(edits=[…])`;
+- `bash` output is run through Atelier's **real output-capper on the recorded
+  log** (e.g. 18k → 8k chars) — the command is **never re-executed**;
+- `edit` shows a terse diff preview and is **never written**.
+
+No model is re-run. It prints the timeline, writes a shareable HTML page, and
+opens it in your browser. Works on Claude Code, Codex, and opencode sessions.
+
+```bash
+atelier replay --last 1                               # most recent session (+ opens HTML)
+atelier replay --session-id <id> --host codex         # a specific Codex session
+atelier replay --file ./session.jsonl --repo .        # explicit transcript + repo
+atelier replay --last 1 --no-live --no-open           # structural view only, no browser
+```
+
+Real tool calls are read-only (`--repo` points at the indexed repo, default: the
+current directory); a live, re-measured cost A/B is `atelier benchmark local`.
+
 ## Why trust the numbers?
 
 You are right to be skeptical. A live badge alone proves very little because anyone can fake a counter.
