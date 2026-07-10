@@ -384,7 +384,8 @@ class Replay:
     tool_results: dict[str, str] = field(default_factory=dict)
     summary: ReplaySummary | None = None
     source_path: str | None = None
-    subagent_replays: list[Replay] = field(default_factory=list)
+    is_subagent: bool = False
+    subagent_replays: list["Replay"] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -519,17 +520,22 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
                 total_cost = float(st.est_cost_usd)
         except Exception:  # noqa: BLE001
             pass
-    try:
-        from atelier.core.capabilities.savings_summary import compute_savings_summary
+    # Subagents have no own savings sidecar, so compute_savings_summary would fall
+    # back to the PARENT session's total (double-counting -- the parent already
+    # includes its subagents). Only attribute MEASURED savings to a top-level
+    # session; a subagent falls through to the per-session estimate below.
+    if not replay.is_subagent:
+        try:
+            from atelier.core.capabilities.savings_summary import compute_savings_summary
 
-        summ = compute_savings_summary(replay.session_id)
-        measured_saved = float(summ.total_saved_usd)
-        measured_time = float(summ.time_saved_seconds)
-        is_atelier = measured_saved > 0 or summ.smart_calls > 0
-        if not total_cost:
-            total_cost = float(summ.est_cost_usd)
-    except Exception:  # noqa: BLE001
-        pass
+            summ = compute_savings_summary(replay.session_id)
+            measured_saved = float(summ.total_saved_usd)
+            measured_time = float(summ.time_saved_seconds)
+            is_atelier = measured_saved > 0 or summ.smart_calls > 0
+            if not total_cost:
+                total_cost = float(summ.est_cost_usd)
+        except Exception:  # noqa: BLE001
+            pass
 
     model = replay.model or "claude-sonnet-4-5"
     tr = replay.tool_results
@@ -726,6 +732,7 @@ def _load_subagents(path: Path, host: str) -> list[Replay]:
         try:
             sr = build_replay(sub.read_text(encoding="utf-8", errors="replace"), host=host, session_id=sub.stem)
             sr.source_path = str(sub)
+            sr.is_subagent = True
             out.append(sr)
         except OSError:
             continue
