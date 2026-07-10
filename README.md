@@ -20,6 +20,10 @@ Atelier is a 30-second install that helps Claude Code waste fewer tokens while y
 
 [Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](#pricing)
 
+[![Atelier running inside Claude Code -- statusline tracking cost, context, and savings live](docs/assets/terminal-demo.gif)](https://atelier.ws/#terminal)
+
+*Click for the full narrated walkthrough on [atelier.ws](https://atelier.ws/#terminal).*
+
 </div>
 
 ---
