@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -45,11 +46,46 @@ def _is_atelier_search(turn: dict[str, Any]) -> bool:
     return "code_search" in n or "explore" in n
 
 
+# Shell commands that are really a code search (agents grep via Bash, not the
+# Grep tool). A single Atelier code_search replaces these too.
+_SHELL_SEARCH_RE = re.compile(
+    r"(?:^|[|;&]|\bxargs\s+)\s*(?:sudo\s+)?(?:git\s+)?(grep|egrep|fgrep|rg|ag|ack)\b|\bfind\b[^|]*-(?:i?name|i?path|regex)\b"
+)
+
+
+def _shell_is_search(command: str) -> bool:
+    return bool(_SHELL_SEARCH_RE.search(command or ""))
+
+
+def _shell_search_query(command: str) -> str:
+    command = command or ""
+    raw = ""
+    m = re.search(r"""(['\"])(.+?)\1""", command)
+    if m and m.group(2).strip():
+        raw = m.group(2).strip()
+    else:
+        m2 = re.search(r"\b(?:grep|egrep|fgrep|rg|ag|ack)\b\s+((?:-\S+\s+)*)(\S+)", command)
+        if m2 and m2.group(2) and not m2.group(2).startswith("-"):
+            raw = m2.group(2).strip("'\"")
+    if not raw:
+        return ""
+    # Grep patterns are often regex alternations (a\|b\|c); take the first branch
+    # and strip regex noise so it reads as a code_search query.
+    first = re.split(r"\\\||\|", raw)[0].strip()
+    first = first.strip("^$.*+?()[]{}\\").strip()
+    return first or raw
+
+
 def _is_grep(turn: dict[str, Any]) -> bool:
-    if turn.get("kind") != "tool_call" or _is_atelier_search(turn):
+    if _is_atelier_search(turn):
         return False
-    n = _tool_name(turn).lower()
-    return "grep" in n or "glob" in n or n == "search"
+    kind = turn.get("kind")
+    if kind == "tool_call":
+        n = _tool_name(turn).lower()
+        return "grep" in n or "glob" in n or n == "search"
+    if kind == "shell_command":
+        return _shell_is_search(str(turn.get("content") or ""))
+    return False
 
 
 def _is_whole_file_read(turn: dict[str, Any]) -> bool:
@@ -69,6 +105,8 @@ def _is_collapsible(turn: dict[str, Any]) -> bool:
 
 
 def _grep_query(turn: dict[str, Any]) -> str:
+    if turn.get("kind") == "shell_command":
+        return _shell_search_query(str(turn.get("content") or ""))
     args = turn.get("arguments") or {}
     if isinstance(args, dict):
         for key in ("pattern", "query", "content_regex", "regex", "q"):
@@ -167,15 +205,12 @@ def detect_episodes(turns: list[dict[str, Any]]) -> list[Episode]:
         kind = turn.get("kind")
         if kind in ("thinking", "agent_message"):
             continue  # transparent narration
-        if kind == "tool_call":
-            if _is_atelier_search(turn):
-                flush()
-            elif _is_collapsible(turn):
-                run.append(idx)
-            else:
-                flush()  # some other targeted tool call ends the loop
-            continue
-        flush()  # file_edit, shell_command, user_message, subagent, etc.
+        if _is_atelier_search(turn):
+            flush()
+        elif _is_collapsible(turn):  # grep/glob tool, shell grep/find, or whole-file read
+            run.append(idx)
+        else:
+            flush()  # edit, non-search shell command, user message, subagent, etc.
     flush()
     return episodes
 
@@ -348,7 +383,7 @@ class Replay:
     tool_results: dict[str, str] = field(default_factory=dict)
     summary: ReplaySummary | None = None
     source_path: str | None = None
-    subagent_replays: list["Replay"] = field(default_factory=list)
+    subagent_replays: list[Replay] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -430,7 +465,7 @@ def build_replay(content: str, *, host: str, session_id: str) -> Replay:
 _TELEGRAPHIC_OUTPUT_REDUCTION = 0.5
 
 
-def _sum_usage(replay: "Replay") -> dict[str, int]:
+def _sum_usage(replay: Replay) -> dict[str, int]:
     totals = {"in": 0, "out": 0, "cache_read": 0, "cache_write": 0}
     for turn in replay.turns:
         tok = turn.get("tokens")
@@ -443,7 +478,7 @@ def _sum_usage(replay: "Replay") -> dict[str, int]:
     return totals
 
 
-def estimate_savings(replay: "Replay") -> dict[str, Any]:
+def estimate_savings(replay: Replay) -> dict[str, Any]:
     """Estimate this session's total cost and what Atelier saves (all estimates).
 
     Three headline numbers: ``total_cost_usd`` (baseline, priced from the
