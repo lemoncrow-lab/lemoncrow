@@ -1,5 +1,5 @@
 # Built-in pricing overrides for Atelier.
-# Updated June 2026.
+# Updated July 2026.
 #
 # DESIGN PHILOSOPHY:
 # 1. Models known to LiteLLM (like gpt-5.5) are automatically resolved via alias
@@ -13,8 +13,29 @@
 #       economic benefit (like Cursor Auto).
 
 overrides:
+  # OpenAI GPT-5.6 preview. Cache reads cost 10% of input; cache writes cost
+  # 125% of input. Reasoning tokens are billed at the output rate.
+  gpt-5.6-sol:
+    input: 5.00
+    output: 30.00
+    cache_read: 0.50
+    cache_write: 6.25
+    thinking: 30.00
+  gpt-5.6-terra:
+    input: 2.50
+    output: 15.00
+    cache_read: 0.25
+    cache_write: 3.125
+    thinking: 15.00
+  gpt-5.6-luna:
+    input: 1.00
+    output: 6.00
+    cache_read: 0.10
+    cache_write: 1.25
+    thinking: 6.00
   # Cursor Agent Auto Mode
   # Routes between GPT-4o, GPT-5, and Claude 3.5 Sonnet.
+  # We use GPT-4o as a conservative "market value" proxy.
   # We use GPT-4o as a conservative "market value" proxy.
   cursor-agent-auto:
     input: 2.50

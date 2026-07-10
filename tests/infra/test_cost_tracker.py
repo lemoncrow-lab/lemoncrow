@@ -25,6 +25,22 @@ def test_estimate_cost_known_model_pricing() -> None:
     assert cost == round(expected, 6)
 
 
+def test_estimate_cost_gpt_5_6_model_families() -> None:
+    for model, input_rate, output_rate, cache_read_rate, cache_write_rate in (
+        ("gpt-5.6-sol", 5.00, 30.00, 0.50, 6.25),
+        ("gpt-5.6-terra", 2.50, 15.00, 0.25, 3.125),
+        ("gpt-5.6-luna", 1.00, 6.00, 0.10, 1.25),
+    ):
+        cost = estimate_cost(
+            model,
+            1_000_000,
+            1_000_000,
+            cache_read_tokens=1_000_000,
+            cache_write_tokens=1_000_000,
+        )
+        assert cost == input_rate + output_rate + cache_read_rate + cache_write_rate
+
+
 def test_operation_key_is_stable_across_numerals_and_whitespace() -> None:
     a = operation_key("pdp", "audit  product 12 schema")
     b = operation_key("pdp", "audit product 9999 schema")

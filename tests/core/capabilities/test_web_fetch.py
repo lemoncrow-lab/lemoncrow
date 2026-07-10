@@ -475,14 +475,29 @@ def test_fetch_url_pdf_points_at_the_downloaded_original(monkeypatch: pytest.Mon
 # --------------------------------------------------------------------------- #
 
 
-def test_raises_on_http_error_response(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_returns_http_error_response_instead_of_raising(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-2xx is the origin's answer, not a tool failure -- it comes back as a
+    normal result (with the real status) so the MCP layer never wraps it in a
+    generic tool-call error."""
     fake_http = _FakeHTTP()
     fake_http.request = lambda *a, **kw: _FakeErrorResponse()
     monkeypatch.setattr(web_fetch, "_HTTP", fake_http)
     monkeypatch.setattr(web_fetch, "_resolve_host_safe", lambda host, timeout: "1.2.3.4")
 
-    with pytest.raises(ValueError, match="HTTP 404"):
-        web_fetch._fetch_uncached("https://example.com/missing", accept="*/*", timeout_s=5.0)
+    result = web_fetch._fetch_uncached("https://example.com/missing", accept="*/*", timeout_s=5.0)
+    assert result.status == 404
+    assert result.body == b"Not Found"
+
+
+def test_fetch_url_surfaces_http_error_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_http = _FakeHTTP()
+    fake_http.request = lambda *a, **kw: _FakeErrorResponse()
+    monkeypatch.setattr(web_fetch, "_HTTP", fake_http)
+    monkeypatch.setattr(web_fetch, "_resolve_host_safe", lambda host, timeout: "1.2.3.4")
+
+    payload = web_fetch.fetch_url("https://example.com/missing")
+    assert payload["status"] == 404
+    assert "Not Found" in payload["content"]
 
 
 # --------------------------------------------------------------------------- #
