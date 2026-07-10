@@ -414,6 +414,27 @@ def test_shell_search_query_cleans_regex() -> None:
     assert _shell_search_query("rg detect_episodes src/") == "detect_episodes"
 
 
+def test_collapse_saving_fraction_canonical() -> None:
+    from atelier.core.capabilities.savings_summary import estimate_collapse_saving_fraction
+
+    # baseline-like per-round usage: a grep/read loop (rounds 0-3) then answers.
+    rounds = [
+        {"in": 3080, "out": 111, "cache_read": 23314, "cache_write": 6535},
+        {"in": 2, "out": 188, "cache_read": 29849, "cache_write": 5355},
+        {"in": 2, "out": 214, "cache_read": 35204, "cache_write": 739},
+        {"in": 215, "out": 196, "cache_read": 35943, "cache_write": 23840},
+        {"in": 2, "out": 208, "cache_read": 59783, "cache_write": 2252},
+        {"in": 2, "out": 612, "cache_read": 62035, "cache_write": 2873},
+    ]
+    f = estimate_collapse_saving_fraction(rounds, [0, 1, 2, 3], "claude-sonnet-5")
+    # captures most of the loop saving (the real A/B on this session was ~0.76)
+    assert 0.4 < f < 0.85
+    # no collapsed loop -> nothing saved; empty usage -> 0; always a fraction
+    assert estimate_collapse_saving_fraction(rounds, [], "claude-sonnet-5") == 0.0
+    assert estimate_collapse_saving_fraction([], [0, 1], "claude-sonnet-5") == 0.0
+    assert 0.0 <= estimate_collapse_saving_fraction(rounds, [2], "claude-sonnet-5") <= 1.0
+
+
 def test_shell_grep_read_loop_collapses() -> None:
     turns = [
         {"kind": "shell_command", "tool_name": "Bash", "content": 'grep -rn "detect_episodes" .'},
