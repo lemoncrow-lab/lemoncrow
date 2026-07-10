@@ -413,6 +413,32 @@ def test_codex_stop_hook_reads_status_style_token_fields(tmp_path: Path) -> None
     assert "est. cost: ~$20.46" in message
 
 
+def test_codex_stop_hook_folds_dynamic_status_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codex statusline support is version-dependent, so the Stop summary
+    carries the same dynamic messages (tips/login nudge) the Claude
+    statusline rotates through."""
+    root = tmp_path / ".atelier"
+    root.mkdir()
+    monkeypatch.delenv("ATELIER_AUTH_TOKEN", raising=False)
+    # Suppress the status tip so the only dynamic line is the login nudge.
+    (root / "auth.json").write_text(json.dumps({"authenticated": True}))
+    (root / "plugin_settings.json").write_text(json.dumps({"atelier": {"statusLineTips": False}}))
+
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": "c-dynamic",
+        "model": "codex-test-model",
+        "tokens": {"input": "1000", "output": "10"},
+    }
+    message = plugin_runtime.build_codex_stop_output(root, payload)["systemMessage"]
+    assert "not signed in -- /atelier login to unlock Pro" in message
+
+    # Signed in: nudge disappears from the Stop summary.
+    (root / "auth_token").write_text("tok")
+    message = plugin_runtime.build_codex_stop_output(root, payload)["systemMessage"]
+    assert "/atelier login" not in message
+
+
 def test_codex_stop_hook_uses_native_statusline_snapshot_without_session_id(tmp_path: Path) -> None:
     from atelier.core.capabilities.pricing import override_pricing
 
