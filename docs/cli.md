@@ -214,7 +214,7 @@ These commands support performance validation and cost-accounting workflows.
 | `atelier benchmark ...`   | Run benchmark suites (`mini`, `harbor`, `codebench`, `swe`, `local`). |
 | `atelier benchmark local` | BYO-repo A/B: Atelier vs vanilla on your repo. |
 | `atelier savings`         | Aggregate cost and token savings.              |
-| `atelier replay`          | Replay a past session; mark what one-shot search would collapse. |
+| `atelier session replay`  | Replay a past session; mark what one-shot search would collapse. |
 | `atelier dashboard`       | Show the spend & savings dashboard.            |
 
 Examples:
@@ -222,10 +222,10 @@ Examples:
 ```bash
 atelier benchmark mini --dry-run --json
 atelier savings --json
-atelier replay --last 1
+atelier session replay --last 1
 ```
 
-`atelier replay` reconstructs a recorded session (Claude Code, Codex, or
+`atelier session replay` reconstructs a recorded session (Claude Code, Codex, or
 opencode) from its transcript and replays it turn by turn — assistant text,
 thinking, tool calls and outputs. For each native call it then invokes the
 **real** Atelier tool that would have replaced it and shows the actual output:
@@ -246,10 +246,10 @@ an HTML page, and opens it in the browser.
 | `--html <path>` / `--json` / `--no-color` | Output controls. |
 
 ```bash
-atelier replay --last 1                                # most recent session (+ opens HTML)
-atelier replay --session-id <id> --host codex          # a specific session
-atelier replay --file ./session.jsonl --repo .         # explicit transcript + repo
-atelier replay --last 1 --no-live --no-open            # structural only, no browser
+atelier session replay --last 1                          # most recent session (+ opens HTML)
+atelier session replay --session-id <id> --host codex    # a specific session
+atelier session replay --file ./session.jsonl --repo .   # explicit transcript + repo
+atelier session replay --last 1 --no-live --no-open      # structural only, no browser
 ```
 
 `atelier benchmark local` is the user-facing BYO benchmark, also surfaced as the

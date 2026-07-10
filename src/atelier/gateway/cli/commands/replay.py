@@ -1,4 +1,4 @@
-"""``atelier replay`` — counterfactual session replay (reconstruct, no re-run).
+"""``atelier session replay`` — counterfactual session replay (reconstruct, no re-run).
 
 Replays a recorded coding session (Claude / Codex / opencode) as a full
 transcript timeline and marks the grep→read loops a single Atelier
@@ -77,9 +77,9 @@ def replay_cmd(
 
     \b
     Examples:
-      atelier replay --last 1
-      atelier replay --session-id <id> --host codex
-      atelier replay --file ./session.jsonl --html replay.html
+      atelier session replay --last 1
+      atelier session replay --session-id <id> --host codex
+      atelier session replay --file ./session.jsonl --html replay.html
     """
     replays = load_replays(host=host, session_id=session_id, file=file_path, last=max(1, last))
 
