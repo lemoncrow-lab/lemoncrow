@@ -76,8 +76,12 @@ def gather_sources(
     return out
 
 
-def estimate_cost_usd(prompt: str, host: str, model: str) -> float:
-    """Rough pre-flight cost estimate. Local/subscription hosts are free."""
+def preflight_cost_usd(prompt: str, host: str, model: str) -> float:
+    """Rough pre-flight cost estimate for a prompt string. Local/subscription hosts are free.
+
+    Distinct from ``savings_summary.estimate_cost_usd`` (which prices known token
+    counts): this guesses tokens from the prompt length before the call is made.
+    """
     if host in _FREE_HOSTS:
         return 0.0
     from atelier.core.capabilities.pricing import get_model_pricing
@@ -252,7 +256,7 @@ def extract_rules(
     if not sources:
         return {**base, "reason": "no .atelier/lessons/blocks found"}
     prompt = _PROMPT_HEADER + "\n\n---\n\n".join(sources)
-    estimate = estimate_cost_usd(prompt, host, model)
+    estimate = preflight_cost_usd(prompt, host, model)
     base["estimated_cost_usd"] = estimate
     if estimate > max_spend_usd:
         return {
