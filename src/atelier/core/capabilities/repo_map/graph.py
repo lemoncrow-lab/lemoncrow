@@ -143,6 +143,7 @@ def _iter_glob_source_files(
     repo_root: Path, patterns: list[str], *, progress_callback: Callable[[int, int], None] | None = None
 ) -> list[Path]:
     files: list[Path] = []
+    seen_inode: set[int] = set()
     for pattern in patterns:
         for path in repo_root.glob(pattern):
             if progress_callback is not None:
@@ -153,6 +154,17 @@ def _iter_glob_source_files(
                 continue
             if detect_language(path) is None:
                 continue
+            # Deduplicate by inode to handle case-insensitive filesystems
+            # (e.g. macOS APFS) where Makefile/makefile etc. refer to the same
+            # file but pathlib treats them as distinct Path objects.
+            try:
+                ino = path.stat().st_ino
+            except OSError:
+                ino = 0
+            if ino and ino in seen_inode:
+                continue
+            if ino:
+                seen_inode.add(ino)
             files.append(path)
     return sorted(set(files))
 
