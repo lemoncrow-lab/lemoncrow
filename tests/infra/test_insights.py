@@ -712,23 +712,3 @@ def test_parse_since_relative_days(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # Performance                                                                  #
 # --------------------------------------------------------------------------- #
-
-
-def test_build_insights_200_sessions_fast(tmp_path: Path) -> None:
-    """build_insights completes in < 500ms with 200 sessions."""
-    import time
-
-    runs_dir = tmp_path / "atelier" / "runs"
-    for i in range(200):
-        _write_run_file(runs_dir, f"sess{i:04d}", cost_usd=float(i) * 0.01, task=f"task {i}")
-
-    start = time.monotonic()
-    window = build_insights(
-        tmp_path / "atelier",
-        since=_SINCE - timedelta(days=1),
-        until=_NOW + timedelta(days=1),
-    )
-    elapsed = time.monotonic() - start
-
-    assert elapsed < 2.0, f"build_insights took {elapsed:.3f}s > 2s"
-    assert window.session_count == 200

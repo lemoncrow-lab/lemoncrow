@@ -26,7 +26,6 @@ from pathlib import Path
 import pytest
 
 from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
-from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
 pytestmark = [pytest.mark.ab, pytest.mark.slow]
 
