@@ -30,11 +30,11 @@ Keep using Claude Code normally — Atelier sits underneath it and gives the age
 [![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://atelier.ws)
 [![Time saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtime&style=for-the-badge&color=9b75d9)](https://atelier.ws)
 
-[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](#pricing)
+[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](https://atelier.ws/pricing)
 
 [![Atelier running inside Claude Code -- statusline tracking cost, context, and savings live](docs/assets/terminal-demo.gif)](https://atelier.ws/#terminal)
 
-*Click for the full narrated walkthrough on [atelier.ws](https://atelier.ws/#terminal).*
+*Click for the full walkthrough on [atelier.ws](https://atelier.ws/#terminal).*
 
 </div>
 
