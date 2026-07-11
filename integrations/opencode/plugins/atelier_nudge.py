@@ -46,15 +46,28 @@ def _stale_nudge_message(root: Path) -> str | None:
 
 def main() -> int:
     try:
-        from atelier.core.capabilities.plugin_runtime import build_opencode_user_prompt_output
-
         payload = json.loads(sys.stdin.read() or "{}")
         root = _atelier_root()
-        output = build_opencode_user_prompt_output(root, payload)
-        if output.get("no_output") or not output.get("uiMessage"):
-            stale_message = _stale_nudge_message(root)
-            if stale_message:
-                output = {"uiMessage": stale_message}
+        event = str(payload.pop("event", None) or "prompt")
+        stale_message = _stale_nudge_message(root) if event == "prompt" else None
+        output: dict[str, object] = {"no_output": True}
+        try:
+            if event == "post_tool":
+                from atelier.core.capabilities.plugin_runtime import build_opencode_post_tool_use_output
+
+                output = build_opencode_post_tool_use_output(root, payload)
+            elif event == "idle":
+                from atelier.core.capabilities.plugin_runtime import build_opencode_stop_output
+
+                output = build_opencode_stop_output(root, payload)
+            else:
+                from atelier.core.capabilities.plugin_runtime import build_opencode_user_prompt_output
+
+                output = build_opencode_user_prompt_output(root, payload)
+        except (ImportError, KeyError, TypeError, ValueError, OSError):
+            pass
+        if stale_message and (output.get("no_output") or not output.get("uiMessage")):
+            output = {"uiMessage": stale_message}
         if output and not output.get("no_output"):
             sys.stdout.write(json.dumps(output) + "\n")
     except (ImportError, json.JSONDecodeError, KeyError, TypeError, ValueError, OSError):
