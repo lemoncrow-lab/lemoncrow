@@ -48,14 +48,46 @@ def test_opencode_hook_bridges_session_id_for_mcp_server(tmp_path: Path, monkeyp
     # Set the same way the real subprocess is launched: `atelier mcp --host
     # opencode` -> ATELIER_AGENT=opencode (see cli/commands/mcp.py mcp_group).
     monkeypatch.setenv("ATELIER_AGENT", "opencode")
-    payload = {"session_id": "ses_abc123", "prompt": "hi"}
+    payload = {"session_id": "ses_abc123", "prompt": "hi", "model": "gpt-5.6-terra"}
     plugin_runtime._write_opencode_session_state(tmp_path, payload)
 
     state_path = plugin_runtime._opencode_session_state_path(tmp_path, payload)
-    assert json.loads(state_path.read_text(encoding="utf-8"))["session_id"] == "ses_abc123"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["session_id"] == "ses_abc123"
+    assert state["model"] == "gpt-5.6-terra"
 
     sid, host = mcp_server._resolved_host_session()
     assert (sid, host) == ("ses_abc123", "opencode")
+    assert mcp_server._get_mcp_model() == "gpt-5.6-terra"
+
+
+def test_opencode_lifecycle_tracks_tools_and_renders_idle_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ATELIER_AGENT", "opencode")
+    root = tmp_path / ".atelier"
+    payload = {"session_id": "ses-status", "cwd": str(tmp_path), "model": "gpt-5.6-terra"}
+
+    plugin_runtime.build_opencode_user_prompt_output(root, {**payload, "prompt": "inspect the parser"})
+    assert (
+        plugin_runtime.build_opencode_post_tool_use_output(
+            root,
+            {
+                **payload,
+                "tool_name": "atelier_read",
+                "tool_input": {"files": ["a.py"]},
+                "tool_response": {"output": "ok"},
+            },
+        ).get("no_output")
+        is True
+    )
+
+    status = plugin_runtime.build_opencode_stop_output(root, payload)
+
+    assert "Atelier session idle." in status["uiMessage"]
+    assert "1 prompt turn · 1 tool call" in status["uiMessage"]
+    assert "tools: atelier_read×1" in status["uiMessage"]  # noqa: RUF001
+    assert plugin_runtime.build_opencode_stop_output(root, payload).get("no_output") is True
 
 
 def test_codex_hook_bridges_session_id_for_mcp_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -63,10 +95,15 @@ def test_codex_hook_bridges_session_id_for_mcp_server(tmp_path: Path, monkeypatc
     payload = {"session_id": "rollout-xyz", "cwd": str(tmp_path)}
     # The codex SessionStart hook (update_notification.py) is the session_id
     # writer and stamps host alongside it; mirror that pairing here.
-    plugin_runtime._write_codex_session_state(tmp_path, payload, {"session_id": "rollout-xyz", "host": "codex"})
+    plugin_runtime._write_codex_session_state(
+        tmp_path,
+        payload,
+        {"session_id": "rollout-xyz", "host": "codex", "model": "gpt-5.6-terra"},
+    )
 
     sid, host = mcp_server._resolved_host_session()
     assert (sid, host) == ("rollout-xyz", "codex")
+    assert mcp_server._get_mcp_model() == "gpt-5.6-terra"
 
 
 def test_no_bridge_file_resolves_empty(tmp_path: Path) -> None:

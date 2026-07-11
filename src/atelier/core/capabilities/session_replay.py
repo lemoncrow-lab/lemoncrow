@@ -776,6 +776,22 @@ def _session_id_from_path(path: Path) -> str:
     return path.stem
 
 
+def _codex_session_id_from_content(content: str) -> str:
+    for line in content.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "session_meta":
+            continue
+        payload = event.get("payload") or {}
+        for key in ("session_id", "id"):
+            session_id = str(payload.get(key) or "").strip()
+            if session_id:
+                return session_id
+    return ""
+
+
 # One replay input: (session id, transcript content, source path for display).
 _ReplayEntry = tuple[str, str, str]
 
@@ -888,11 +904,12 @@ def _path_entries(host: str, session_id: str | None, last: int) -> list[_ReplayE
         paths = recent_transcripts(host, last)
     entries: list[_ReplayEntry] = []
     for path in paths:
-        sid = session_id if session_id else _session_id_from_path(path)
         try:
-            entries.append((sid, path.read_text(encoding="utf-8", errors="replace"), str(path)))
+            content = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        sid = _codex_session_id_from_content(content) if host == "codex" else ""
+        entries.append((sid or session_id or _session_id_from_path(path), content, str(path)))
     return entries
 
 
@@ -940,7 +957,8 @@ def load_replays(
             content = file.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return []
-        entries = [(session_id or _session_id_from_path(file), content, str(file))]
+        parsed_session_id = _codex_session_id_from_content(content) if host == "codex" else ""
+        entries = [(parsed_session_id or session_id or _session_id_from_path(file), content, str(file))]
     elif host == "opencode":
         entries = _opencode_db_entries(session_id, last) or _path_entries(host, session_id, last)
     elif host == "hermes":

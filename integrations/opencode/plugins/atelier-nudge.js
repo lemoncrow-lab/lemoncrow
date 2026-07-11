@@ -41,6 +41,29 @@ const resolvePython = () => {
 
 let pythonBin
 
+const invokeHelper = (payload) => {
+  pythonBin ??= resolvePython()
+  const result = spawnSync(pythonBin, [helper], { input: JSON.stringify(payload), encoding: "utf8" })
+  if (result.status !== 0 || !result.stdout.trim()) return {}
+  try {
+    return JSON.parse(result.stdout)
+  } catch {
+    return {}
+  }
+}
+
+const showToast = async (client, message, title = "Atelier", duration = 8000) => {
+  if (!message?.trim()) return
+  try {
+    await client.tui.showToast({ body: { title, message, variant: "warning", duration } })
+  } catch {
+    // Fail open when the TUI is unavailable.
+  }
+}
+
+const eventSessionID = (event) =>
+  event?.sessionID ?? event?.sessionId ?? event?.properties?.sessionID ?? event?.properties?.sessionId ?? ""
+
 const failureKey = (input, output) => {
   const exitCode = output.metadata?.exitCode ?? output.metadata?.exit_code
   const failed =
@@ -68,38 +91,20 @@ export const AtelierNudge = async ({ client, directory }) => ({
         "\n\n<atelier-nudge>\nThis command failed twice with the same error. Call 'rescue' before any retry; do not repeat the same fix.\n</atelier-nudge>"
     }
 
-    pythonBin ??= resolvePython()
-    const result = spawnSync(pythonBin, [helper], {
-      input: JSON.stringify({
-        session_id: input.sessionID,
-        prompt,
-        cwd: directory,
-      }),
-      encoding: "utf8",
-    })
-    if (result.status !== 0) return
-
-    try {
-      const nudge = result.stdout.trim() ? JSON.parse(result.stdout) : {}
-      if (typeof nudge.uiMessage === "string" && nudge.uiMessage.trim()) {
-        await client.tui.showToast({
-          body: {
-            title: "Atelier",
-            message: nudge.uiMessage
-              .replace("Atelier context guard: high context", "Context high")
-              .replace("consider compacting", "run /compact"),
-            variant: "warning",
-            duration: 8000,
-          },
-          query: { directory },
-        })
-      }
-    } catch {
-      // Fail open: prompt submission must continue if the helper output is
-      // invalid or the toast fails (e.g. non-TUI serve mode).
-    }
+    const nudge = invokeHelper({ event: "prompt", session_id: input.sessionID, prompt, cwd: directory, model: input.model })
+    await showToast(client, nudge.uiMessage?.replace("Atelier context guard: high context", "Context high").replace("consider compacting", "run /compact"))
   },
   "tool.execute.after": async (input, output) => {
+    const nudge = invokeHelper({
+      event: "post_tool",
+      session_id: input.sessionID,
+      tool_name: input.tool,
+      tool_input: input.args,
+      tool_response: output,
+      cwd: directory,
+      model: input.model,
+    })
+    await showToast(client, nudge.uiMessage)
     const key = failureKey(input, output)
     if (!key) return
     const sessionFailures = failures.get(input.sessionID) ?? new Map()
@@ -107,5 +112,12 @@ export const AtelierNudge = async ({ client, directory }) => ({
     sessionFailures.set(key, count)
     failures.set(input.sessionID, sessionFailures)
     if (count >= 2) pendingRescue.add(input.sessionID)
+  },
+  event: async ({ event }) => {
+    if (event?.type !== "session.idle") return
+    const sessionID = eventSessionID(event)
+    if (!sessionID) return
+    const status = invokeHelper({ event: "idle", session_id: sessionID, cwd: directory, model: event?.model })
+    await showToast(client, status.uiMessage, "Atelier status", 12000)
   },
   })

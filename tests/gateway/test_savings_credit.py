@@ -13,6 +13,7 @@ from atelier.core.capabilities.pricing import get_model_pricing
 from atelier.core.capabilities.savings_summary import (
     _carry_credit,
     _read_claude_session_savings,
+    compute_savings_summary,
     read_transcript_stats,
 )
 
@@ -53,6 +54,34 @@ def test_legacy_saved_tokens_reprice_with_gpt_5_6_models(model: str, input_rate:
     tokens, usd, calls, calls_usd, unpriced = _price_savings_row({"tokens": 1_000_000, "model": model})
     assert (tokens, calls, calls_usd, unpriced) == (1_000_000, 0, 0.0, 0)
     assert usd == pytest.approx(input_rate)
+
+
+def test_codex_unknown_model_savings_use_transcript_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from atelier.core.foundation.paths import session_dir
+
+    session_id = "codex-session"
+    codex_home = tmp_path / ".codex"
+    transcript = codex_home / "sessions" / "2026" / "07" / "11" / "rollout-codex-session.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(
+        "\n".join(
+            json.dumps(line)
+            for line in (
+                {"type": "session_meta", "payload": {"session_id": session_id}},
+                {"type": "turn_context", "payload": {"model": "gpt-5.6-terra"}},
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    sidecar = session_dir(tmp_path, "codex", session_id) / "savings.jsonl"
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text(json.dumps({"tool": "read", "tokens": 1_000_000, "model": ""}) + "\n", encoding="utf-8")
+
+    summary = compute_savings_summary(session_id, atelier_root=tmp_path)
+
+    assert summary.ctx_saved == 1_000_000
+    assert summary.saved_usd == pytest.approx(2.5)
 
 
 def test_read_claude_session_savings_includes_calls_usd(tmp_path: Path) -> None:

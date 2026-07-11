@@ -20,7 +20,7 @@ from atelier.core.capabilities.session_replay_render import render_html, render_
 
 
 @click.command("replay")
-@click.option("--session-id", default=None, help="Session id to replay (looked up under the host's store).")
+@click.option("--session-id", default=None, help="Session id to replay. Searches all hosts unless --host is given.")
 @click.option(
     "--host",
     type=click.Choice(list(SUPPORTED_HOSTS)),
@@ -84,6 +84,7 @@ def replay_cmd(
     \b
     Examples:
       atelier session replay --last 1
+      atelier session replay --session-id <id>
       atelier session replay --session-id <id> --host codex
       atelier session replay --host opencode --last 3
       atelier session replay --file ./session.jsonl --html replay.html
@@ -102,9 +103,23 @@ def replay_cmd(
             click.echo(f"Detected a {detected} transcript — parsing as {detected}.", err=True)
             host = detected
 
-    replays = load_replays(
-        host=host, session_id=session_id, file=file_path, last=max(1, last), store_root=ctx.obj["root"]
-    )
+    # When --session-id is given without an explicit --host, search all hosts.
+    host_explicit = ctx.get_parameter_source("host") != ParameterSource.DEFAULT
+    if session_id is not None and not host_explicit and file_path is None:
+        for candidate_host in SUPPORTED_HOSTS:
+            replays = load_replays(
+                host=candidate_host, session_id=session_id, file=None, last=1, store_root=ctx.obj["root"]
+            )
+            if replays:
+                host = candidate_host
+                click.echo(f"Found session {session_id} under host {candidate_host}.", err=True)
+                break
+        else:
+            replays = []
+    else:
+        replays = load_replays(
+            host=host, session_id=session_id, file=file_path, last=max(1, last), store_root=ctx.obj["root"]
+        )
 
     if replays and not no_live:
         repo_root = (repo or Path.cwd()).resolve()
@@ -114,10 +129,8 @@ def replay_cmd(
 
     if not replays:
         where = f"session {session_id}" if session_id else f"recent {host} sessions"
-        click.echo(
-            f"No transcript found for {where}.\nPass an explicit file with --file <path.jsonl>, or check --host.",
-            err=True,
-        )
+        hint = "Pass an explicit file with --file <path.jsonl>, or try --host <name> to narrow the search."
+        click.echo(f"No transcript found for {where}.\n{hint}", err=True)
         ctx.exit(1)
 
     if as_json:
