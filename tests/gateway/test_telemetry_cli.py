@@ -43,10 +43,18 @@ def test_telemetry_toggles_and_reset_id(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setenv("ATELIER_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
     monkeypatch.setenv("ATELIER_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
     monkeypatch.setenv("ATELIER_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
+    monkeypatch.setenv("ATELIER_TELEMETRY_ALLOW_IN_TESTS", "1")
     monkeypatch.delenv("ATELIER_TELEMETRY", raising=False)
-
     root = tmp_path / "a"
     init_store_at(str(root))
+    remote_on = _invoke(root, "telemetry", "remote", "on")
+    assert remote_on.exit_code == 0, remote_on.output
+    remote_status = _invoke(root, "telemetry", "remote", "status")
+    assert remote_status.exit_code == 0, remote_status.output
+    assert remote_status.output.strip() == "anonymous remote telemetry: on"
+    remote_off = _invoke(root, "telemetry", "remote", "off")
+    assert remote_off.exit_code == 0, remote_off.output
+    assert "anonymous remote telemetry: off" in remote_off.output
     lexical = _invoke(root, "telemetry", "lexical", "off")
     assert lexical.exit_code == 0, lexical.output
     reset = _invoke(root, "telemetry", "reset-id")

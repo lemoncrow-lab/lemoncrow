@@ -59,9 +59,6 @@ def save_telemetry_config(
     remote_enabled: bool | None = None,
     lexical_frustration_enabled: bool | None = None,
 ) -> TelemetryConfig:
-    # Merge against the persisted file (not load_telemetry_config, whose
-    # pytest guard would silently rewrite remote_enabled to false in tests);
-    # omitted fields keep their saved value.
     current = _load_file_config()
     next_cfg = TelemetryConfig(
         remote_enabled=(current.remote_enabled if remote_enabled is None else remote_enabled),
