@@ -44,21 +44,15 @@ Keep using Claude Code normally — Atelier sits underneath it and gives the age
 
 Run this once:
 
-```bash
-curl -fsSL https://install.atelier.ws | bash
-```
+    curl -fsSL https://install.atelier.ws | bash
 
-Then turn it on inside the project where you use Claude Code:
+Then create or sign in to a free Atelier account and activate it inside the project where you use Claude Code:
 
-```bash
-cd your-project
-atelier init
-```
+    cd your-project
+    atelier login
+    atelier init
 
-Open Claude Code like you normally do. Atelier wires in better tools behind the scenes and starts tracking savings as sessions finish.
-
-Already installed?
-
+Atelier wires in better tools behind the scenes and starts tracking local savings as sessions finish. Remote telemetry is on by default; turn it off anytime with `atelier telemetry remote off`.
 ```bash
 atelier update
 ```
@@ -252,19 +246,14 @@ Claude is strong; the loop around it is wasteful — grep, read a whole file, gr
 - **Better inputs:** exact file ranges, not whole files.
 - **Better outputs:** compact command output and replies, exact technical facts intact.
 - **Better memory:** context reused, not rediscovered.
-- **Better guardrails:** hooks block risky edits, oversized reads, and unverified "done" states.
-- **Discipline enforced:** think before coding, surgical changes — in every persona, not typed into a prompt once.
-
-Same model, tighter loop: more tasks solved in fewer turns and less wall-clock time.
-
 ## What you get
 
 - Works with Claude Code, Codex, Copilot, Copilot CLI, and opencode today; Cursor, Hermes Agent, and Antigravity integrations are in progress. Any MCP-compatible agent (LangChain, the OpenAI SDK, Gemini ADK, ...) can connect to the same tools.
 - Runs locally by default.
-- Open-core runtime: FSL-1.1-ALv2 engine, Apache-2.0 SDKs/integrations/docs.
-- No account needed to start.
-- Live local stats for cost, tokens, and savings.
-- Optional paid features for heavy users and teams.
+- Source-available runtime: FSL-1.1-ALv2 engine, Apache-2.0 SDKs/integrations/docs.
+- Free account required to activate the official install.
+- Live local stats for cost, tokens, and savings; anonymous remote telemetry is on by default (opt out anytime).
+- Pro beta: existing gated features for $5/month or $49/year.
 
 ## Learn more
 
