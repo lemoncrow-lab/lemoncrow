@@ -1,6 +1,6 @@
-# Atelier — All Agent CLI Integrations
+# LemonCrow — All Agent CLI Integrations
 
-Install Atelier into every supported coding agent host in one command:
+Install LemonCrow into every supported coding agent host in one command:
 
 ```bash
 make install    # install into all CLIs found on PATH
@@ -33,8 +33,8 @@ bash scripts/install_hosts.sh --workspace /path/to/workspace
 ## Quickstart (install everything at once)
 
 ```bash
-# 1. Make sure you're in the atelier/ directory
-cd atelier
+# 1. Make sure you're in the lemoncrow/ directory
+cd lemoncrow
 
 # 2. Install dependencies
 uv sync --all-extras
@@ -55,7 +55,7 @@ Hosts whose CLIs are not on PATH are skipped gracefully — this is expected in 
 All install scripts:
 
 - Are **idempotent** — safe to run multiple times
-- **Back up existing files** before any write (`.atelier-backup.TIMESTAMP`)
+- **Back up existing files** before any write (`.lemoncrow-backup.TIMESTAMP`)
 - **Skip gracefully** if the host CLI is not on PATH (exit 0)
 - Support `--dry-run` (print actions, write nothing)
 - Support `--print-only` (print manual steps for offline/audited environments)
@@ -83,7 +83,7 @@ Capability-contract detail lives in [host-capability-matrix.md](host-capability-
 Detailed documentation and example configs for each host live in:
 
 ```text
-atelier/integrations/
+lemoncrow/integrations/
 ├── claude/          # Full plugin config
 ├── codex/           # Codex plugin template + marketplace docs
 ├── cursor/          # Cursor MCP config + rules
@@ -102,22 +102,22 @@ Host install entrypoints are under `scripts/install_<host>.sh`.
 
 ## MCP Transport
 
-All hosts ultimately invoke the same Atelier MCP server, but packaged hosts now carry their own host-specific wrapper surfaces:
+All hosts ultimately invoke the same LemonCrow MCP server, but packaged hosts now carry their own host-specific wrapper surfaces:
 
 ```text
-atelier mcp
+lemon mcp
 ```
 
 That repo wrapper remains the canonical MCP entrypoint for direct MCP-only installs. Codex packages that same runtime behavior behind a plugin-local wrapper, while Antigravity uses workspace or user MCP configuration plus a generated host surface.
 
 ## Common MCP Surfaces
 
-All hosts ultimately use the same Atelier stdio MCP server.
+All hosts ultimately use the same LemonCrow stdio MCP server.
 
 - `trace` is the consistently active observable recording surface.
-- With `ATELIER_DEV_MODE=1`, hosts can actively use `context`, `route`, `rescue`,
+- With `LEMONCROW_DEV_MODE=1`, hosts can actively use `context`, `route`, `rescue`,
   `verify`, `memory`, `read`, `edit`, `sql`, `search`, `compact`, `bash`, and
-  the `atelier_code_*` helpers.
+  the `lemoncrow_code_*` helpers.
 - Packaged hosts may add wrapper tasks, skills, or commands on top of that shared
   MCP surface.
 
@@ -125,6 +125,6 @@ All hosts ultimately use the same Atelier stdio MCP server.
 
 ## Uninstalling
 
-Use `atelier uninstall` to remove the main Atelier install and managed host
+Use `lemon uninstall` to remove the main LemonCrow install and managed host
 integrations. Host-specific uninstall scripts remain available when you only want
 to remove one host surface.

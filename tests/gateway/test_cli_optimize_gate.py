@@ -5,7 +5,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from atelier.gateway.cli import cli
+from lemoncrow.gateway.cli import cli
 
 
 def _record(*, mode: str, verdict: str) -> dict[str, object]:
@@ -30,7 +30,7 @@ def test_optimize_gate_outputs_json_verdict(tmp_path: Path) -> None:
         cli,
         [
             "--root",
-            str(tmp_path / ".atelier"),
+            str(tmp_path / ".lemoncrow"),
             "optimize",
             "gate",
             "--runs",

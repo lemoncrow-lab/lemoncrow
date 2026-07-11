@@ -7,12 +7,12 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities.cross_vendor_routing.configuration import (
+from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
     RouteConfig,
     save_route_config,
 )
-from atelier.core.capabilities.pricing import active_model
-from atelier.gateway.adapters.mcp_server import _handle
+from lemoncrow.core.capabilities.pricing import active_model
+from lemoncrow.gateway.adapters.mcp_server import _handle
 
 
 def _call(name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -36,9 +36,9 @@ def _result(resp: dict[str, Any]) -> dict[str, Any]:
 
 @pytest.fixture()
 def mcp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".atelier"
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
-    monkeypatch.setenv("ATELIER_MODEL", "claude-sonnet-4.6")
+    root = tmp_path / ".lemoncrow"
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_MODEL", "claude-sonnet-4.6")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
@@ -48,14 +48,14 @@ def mcp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     save_route_config(root, RouteConfig(enabled_vendors=["anthropic", "openai", "google"]))
 
-    import atelier.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.mcp_server as m
 
     m._current_ledger = None
     return root
 
 
 def _last_model_recommendation_payload() -> dict[str, Any]:
-    import atelier.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.mcp_server as m
 
     assert m._current_ledger is not None
     matches = [event.payload for event in m._current_ledger.events if event.kind == "model_recommendation"]
@@ -67,7 +67,7 @@ def test_local_tool_route_enforcement_is_advisory_by_default(
     mcp_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import atelier.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.mcp_server as m
 
     seen: dict[str, str] = {}
 
@@ -76,13 +76,13 @@ def test_local_tool_route_enforcement_is_advisory_by_default(
         return {"ok": True}
 
     monkeypatch.setitem(m.TOOLS["read"], "handler", fake_handler)
-    monkeypatch.delenv("ATELIER_ENFORCE_ROUTE_MODEL", raising=False)
+    monkeypatch.delenv("LEMONCROW_ENFORCE_ROUTE_MODEL", raising=False)
 
     response = _call("read", {"path": "/tmp/placeholder"})
     payload = _last_model_recommendation_payload()
 
     assert "result" in response
-    assert seen["active_model"] == os.environ["ATELIER_MODEL"]
+    assert seen["active_model"] == os.environ["LEMONCROW_MODEL"]
     assert payload["route_enforcement_active"] is False
     assert payload["wrapper_applied"] is False
     assert payload.get("wrapper_model") in (None, "")
@@ -92,7 +92,7 @@ def test_local_tool_route_enforcement_wraps_handler_with_recommended_model(
     mcp_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import atelier.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.mcp_server as m
 
     seen: dict[str, str] = {}
 
@@ -101,7 +101,7 @@ def test_local_tool_route_enforcement_wraps_handler_with_recommended_model(
         return {"ok": True}
 
     monkeypatch.setitem(m.TOOLS["read"], "handler", fake_handler)
-    monkeypatch.setenv("ATELIER_ENFORCE_ROUTE_MODEL", "1")
+    monkeypatch.setenv("LEMONCROW_ENFORCE_ROUTE_MODEL", "1")
 
     response = _call("read", {"path": "/tmp/placeholder"})
     payload = _last_model_recommendation_payload()
@@ -113,14 +113,14 @@ def test_local_tool_route_enforcement_wraps_handler_with_recommended_model(
     assert payload["executed_model_scope"] == "local_mcp_only"
     assert payload["recommendation_followed"] is True
     assert seen["active_model"] == payload["model"]
-    assert os.environ["ATELIER_MODEL"] == "claude-sonnet-4.6"
+    assert os.environ["LEMONCROW_MODEL"] == "claude-sonnet-4.6"
 
 
 def test_local_tool_route_enforcement_restores_model_after_error(
     mcp_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import atelier.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.mcp_server as m
 
     seen: dict[str, str] = {}
 
@@ -129,7 +129,7 @@ def test_local_tool_route_enforcement_restores_model_after_error(
         raise RuntimeError("boom")
 
     monkeypatch.setitem(m.TOOLS["read"], "handler", fake_handler)
-    monkeypatch.setenv("ATELIER_ENFORCE_ROUTE_MODEL", "1")
+    monkeypatch.setenv("LEMONCROW_ENFORCE_ROUTE_MODEL", "1")
 
     response = _call("read", {"path": "/tmp/placeholder"})
     payload = _last_model_recommendation_payload()
@@ -137,4 +137,4 @@ def test_local_tool_route_enforcement_restores_model_after_error(
     assert response["result"]["isError"] is True
     assert seen["active_model"] == payload["model"]
     assert payload["wrapper_applied"] is True
-    assert os.environ["ATELIER_MODEL"] == "claude-sonnet-4.6"
+    assert os.environ["LEMONCROW_MODEL"] == "claude-sonnet-4.6"

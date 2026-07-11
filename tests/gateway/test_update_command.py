@@ -1,7 +1,7 @@
-"""Tests for ``atelier update`` — install-method detection and the GitHub
+"""Tests for ``lemon update`` — install-method detection and the GitHub
 release update channel.
 
-Atelier ships only two ways (git checkout, GitHub-release install), so these
+LemonCrow ships only two ways (git checkout, GitHub-release install), so these
 tests pin the two update paths and guard the release channel against drifting
 away from ``scripts/install.sh``.
 """
@@ -13,14 +13,14 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
-from atelier.gateway.cli import cli
-from atelier.gateway.cli.commands import update as update_mod
+from lemoncrow.gateway.cli import cli
+from lemoncrow.gateway.cli.commands import update as update_mod
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _invoke(tmp_path: Path, *args: str) -> Result:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     root.mkdir(parents=True, exist_ok=True)
     runner = CliRunner()
     return runner.invoke(cli, ["--root", str(root), "update", *args])
@@ -123,7 +123,7 @@ def test_update_via_release_downloads_and_runs_installer(monkeypatch: pytest.Mon
 
     def _fake_run(cmd: list[str], env: dict[str, str], timeout: int) -> object:
         seen["cmd"] = cmd
-        seen["non_interactive"] = env.get("ATELIER_NON_INTERACTIVE")
+        seen["non_interactive"] = env.get("LEMONCROW_NON_INTERACTIVE")
 
         class _R:
             returncode = 0
@@ -156,9 +156,9 @@ def test_release_channel_matches_install_script() -> None:
 
 
 def test_update_has_no_pypi_or_legacy_binary_channel() -> None:
-    src = (_REPO_ROOT / "src" / "atelier" / "gateway" / "cli" / "commands" / "update.py").read_text("utf-8")
-    # Atelier is not on PyPI and ships no PyInstaller "atelier-binaries" asset.
+    src = (_REPO_ROOT / "src" / "lemoncrow" / "gateway" / "cli" / "commands" / "update.py").read_text("utf-8")
+    # LemonCrow is not on PyPI and ships no PyInstaller "lemoncrow-binaries" asset.
     # Guard against the *usage* drifting back, not the word in the docstring.
     assert "pypi.org" not in src.lower()
     assert "_pypi_latest_version" not in src
-    assert "atelier-binaries" not in src
+    assert "lemoncrow-binaries" not in src

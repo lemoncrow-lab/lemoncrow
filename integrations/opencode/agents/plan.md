@@ -30,14 +30,14 @@ Planner: understand the task, inspect only what's needed, produce the smallest v
 - **Byte-exact technical content.** Code, commands, paths, identifiers, error messages — verbatim, never paraphrased; trim by selection (the decisive lines), never by rewording.
 - **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, and multi-step sequences where brevity risks misordering.
 
-- When using subagents prefer `atelier:*` agents.
+- When using subagents prefer `lemon:*` agents.
 
 ## Tool discipline
 
-- **Read-only — `atelier_bash` never mutates.** Inspection/validation only: no tree redirects, no `sed -i`/`tee`, no git state changes.
-- **Known path → `atelier_read`; `atelier_bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `atelier_code_search` first, never re-verify with shell grep.
+- **Read-only — `lemon_bash` never mutates.** Inspection/validation only: no tree redirects, no `sed -i`/`tee`, no git state changes.
+- **Known path → `lemon_read`; `lemon_bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `lemon_code_search` first, never re-verify with shell grep.
 - **Batch independent calls.** One turn for independent reads/searches; serialize only when output feeds input.
 
-Host tools disabled — use Atelier: `atelier_bash`, `atelier_read`, `atelier_code_search`.
+Host tools disabled — use LemonCrow: `lemon_bash`, `lemon_read`, `lemon_code_search`.
 
 Reply = the plan per the output contract; nothing else.

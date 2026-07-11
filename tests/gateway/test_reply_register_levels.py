@@ -1,6 +1,6 @@
 """Reply-register level resolution + application across generated host surfaces.
 
-Guards the `atelier set telegraphic <ultra|lite|off>` pipeline: the ultra
+Guards the `lemon set telegraphic <ultra|lite|off>` pipeline: the ultra
 (default) register must be baked verbatim into every generated persona
 surface (so the level swap is a deterministic text replacement), and the
 swap itself must be clean for every level on every surface.
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.reply_register import (
+from lemoncrow.core.reply_register import (
     apply_reply_register_level,
     reply_register_body,
     reply_register_level,
@@ -29,7 +29,7 @@ _GENERATED_PATTERNS = (
     "integrations/claude/plugin/agents/*.md",
     "integrations/antigravity/plugin/agents/*.md",
     "integrations/copilot/agents/*.agent.md",
-    "integrations/cursor/rules/atelier.*.mdc",
+    "integrations/cursor/rules/lemoncrow.*.mdc",
     "integrations/opencode/agents/*.md",
     "integrations/codex/plugin/skills/*/SKILL.md",
 )
@@ -46,18 +46,18 @@ def _generated_files_with_register() -> list[Path]:
 
 def test_level_resolution_env_settings_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("ATELIER_TELEGRAPHIC", raising=False)
-    monkeypatch.delenv("ATELIER_ROOT", raising=False)
+    monkeypatch.delenv("LEMONCROW_TELEGRAPHIC", raising=False)
+    monkeypatch.delenv("LEMONCROW_ROOT", raising=False)
     assert reply_register_level() == "ultra"
 
-    settings_file = tmp_path / ".atelier" / "plugin_settings.json"
+    settings_file = tmp_path / ".lemoncrow" / "plugin_settings.json"
     settings_file.parent.mkdir(parents=True)
     settings_file.write_text(json.dumps({"cli.telegraphic": "lite"}), encoding="utf-8")
     assert reply_register_level() == "lite"
 
-    monkeypatch.setenv("ATELIER_TELEGRAPHIC", "off")  # env beats settings
+    monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "off")  # env beats settings
     assert reply_register_level() == "off"
-    monkeypatch.setenv("ATELIER_TELEGRAPHIC", "bogus")  # unknown -> ultra
+    monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "bogus")  # unknown -> ultra
     assert reply_register_level() == "ultra"
 
 
@@ -120,7 +120,7 @@ def test_telegraphic_bullet_stripped_at_lite_and_off() -> None:
 
 
 def test_core_discipline_body_carries_bullet() -> None:
-    from atelier.core.capabilities.workspace_host_overrides import core_discipline_body
+    from lemoncrow.core.capabilities.workspace_host_overrides import core_discipline_body
 
     body = core_discipline_body(_SHARED)
     assert _BULLET in body, "core_discipline_body must always render the strict/full text"
@@ -132,32 +132,32 @@ def test_core_discipline_body_carries_bullet() -> None:
 
 
 def test_codex_render_honors_level(monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.core.capabilities.workspace_host_overrides import _render_codex_mode_body
+    from lemoncrow.core.capabilities.workspace_host_overrides import _render_codex_mode_body
 
     body = "intro\n\n{{REPLY_REGISTER}}\n\ntail"
-    monkeypatch.setenv("ATELIER_TELEGRAPHIC", "off")
+    monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "off")
     off = _render_codex_mode_body(body, _REPO)
     assert "Reply register" not in off and "{{" not in off and "\n\n\n" not in off
 
     off_core = _render_codex_mode_body("intro\n\n{{CORE_DISCIPLINE}}\n\ntail", _REPO)
     assert "Telegraphic by default" not in off_core, "bullet must be stripped from {{CORE_DISCIPLINE}} at off"
 
-    monkeypatch.setenv("ATELIER_TELEGRAPHIC", "lite")
+    monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "lite")
     lite = _render_codex_mode_body(body, _REPO)
     assert _LITE.splitlines()[0] in lite
 
-    monkeypatch.setenv("ATELIER_TELEGRAPHIC", "ultra")
+    monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "ultra")
     ultra = _render_codex_mode_body(body, _REPO)
     assert "Reply register" in ultra
 
 
 def test_claude_agent_text_honors_level(monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.core.capabilities.workspace_host_overrides import workspace_claude_agent_text
+    from lemoncrow.core.capabilities.workspace_host_overrides import workspace_claude_agent_text
 
-    monkeypatch.setenv("ATELIER_TELEGRAPHIC", "off")
+    monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "off")
     text = workspace_claude_agent_text("code", _REPO, repo_root=_REPO)
     assert "Reply register" not in text
 
-    monkeypatch.setenv("ATELIER_TELEGRAPHIC", "ultra")
+    monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "ultra")
     text = workspace_claude_agent_text("code", _REPO, repo_root=_REPO)
     assert "Reply register" in text

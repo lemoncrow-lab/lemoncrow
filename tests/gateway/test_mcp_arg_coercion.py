@@ -13,7 +13,7 @@ from collections.abc import Iterator
 import pytest
 from pydantic import ValidationError
 
-from atelier.gateway.adapters.mcp_server import (
+from lemoncrow.gateway.adapters.mcp_server import (
     _COERCE_UNCHANGED,
     _coerce_str_to_annotation,
     mcp_tool,
@@ -25,7 +25,7 @@ def _restore_tools_registry() -> Iterator[None]:
     """Probe tools registered via ``@mcp_tool`` in these tests mutate the global
     ``TOOLS`` registry; undo that after each test so the ``tools/list`` exact-
     surface assertions in test_mcp_tool_handlers.py stay isolated."""
-    from atelier.gateway.adapters.mcp_server import TOOLS
+    from lemoncrow.gateway.adapters.mcp_server import TOOLS
 
     before = set(TOOLS)
     yield

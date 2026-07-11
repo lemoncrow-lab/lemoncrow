@@ -7,17 +7,17 @@ from pathlib import Path
 
 import pytest
 
-from atelier.infra.internal_llm import cache as llm_cache
+from lemoncrow.infra.internal_llm import cache as llm_cache
 
 
 @pytest.fixture(autouse=True)
 def _isolate_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     # Point the singleton store at a throwaway root and reset it so each test
     # gets a fresh on-disk DB; clear env knobs that could leak between tests.
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-    monkeypatch.delenv("ATELIER_STORE_ROOT", raising=False)
-    monkeypatch.delenv("ATELIER_INTERNAL_LLM_CACHE", raising=False)
-    monkeypatch.delenv("ATELIER_INTERNAL_LLM_CACHE_MAX_ENTRIES", raising=False)
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+    monkeypatch.delenv("LEMONCROW_STORE_ROOT", raising=False)
+    monkeypatch.delenv("LEMONCROW_INTERNAL_LLM_CACHE", raising=False)
+    monkeypatch.delenv("LEMONCROW_INTERNAL_LLM_CACHE_MAX_ENTRIES", raising=False)
     llm_cache._reset_store_for_tests()
     yield
     llm_cache._reset_store_for_tests()
@@ -55,22 +55,22 @@ def test_summary_key_distinguishes_openai_endpoints(monkeypatch: pytest.MonkeyPa
     # Same (text, model, max_tokens, backend) routed at two different OpenAI-
     # compatible endpoints must not collide on the same cache key, or one
     # provider's summary gets served for another (cross-endpoint poisoning).
-    monkeypatch.setenv("ATELIER_OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
-    monkeypatch.setenv("ATELIER_OPENAI_API_KEY", "key-one")
+    monkeypatch.setenv("LEMONCROW_OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("LEMONCROW_OPENAI_API_KEY", "key-one")
     first = llm_cache.summary_key("text", model="m", max_tokens=64, backend="openai")
 
-    monkeypatch.setenv("ATELIER_OPENAI_BASE_URL", "http://localhost:8000/v1")
+    monkeypatch.setenv("LEMONCROW_OPENAI_BASE_URL", "http://localhost:8000/v1")
     second = llm_cache.summary_key("text", model="m", max_tokens=64, backend="openai")
     assert first != second  # different base_url
 
-    monkeypatch.setenv("ATELIER_OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
-    monkeypatch.setenv("ATELIER_OPENAI_API_KEY", "key-two")
+    monkeypatch.setenv("LEMONCROW_OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("LEMONCROW_OPENAI_API_KEY", "key-two")
     third = llm_cache.summary_key("text", model="m", max_tokens=64, backend="openai")
     assert first != third  # same base_url, different api key
 
 
 def test_cached_summarize_disabled_recomputes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_INTERNAL_LLM_CACHE", "0")
+    monkeypatch.setenv("LEMONCROW_INTERNAL_LLM_CACHE", "0")
     calls = {"n": 0}
 
     def _compute() -> str:
@@ -145,15 +145,15 @@ def test_configured_max_entries_default() -> None:
 
 
 def test_configured_max_entries_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_INTERNAL_LLM_CACHE_MAX_ENTRIES", "5000")
+    monkeypatch.setenv("LEMONCROW_INTERNAL_LLM_CACHE_MAX_ENTRIES", "5000")
     assert llm_cache._configured_max_entries() == 5000
 
 
 def test_configured_max_entries_invalid_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_INTERNAL_LLM_CACHE_MAX_ENTRIES", "not-an-int")
+    monkeypatch.setenv("LEMONCROW_INTERNAL_LLM_CACHE_MAX_ENTRIES", "not-an-int")
     assert llm_cache._configured_max_entries() == llm_cache._DEFAULT_MAX_ENTRIES
 
 
-def test_default_db_path_respects_atelier_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+def test_default_db_path_respects_lemoncrow_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
     assert llm_cache._default_db_path() == tmp_path / "internal_llm_cache.sqlite"

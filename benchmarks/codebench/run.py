@@ -1,4 +1,4 @@
-"""Head-to-head runner: vanilla Claude Code (baseline) vs Atelier-enabled (candidate).
+"""Head-to-head runner: vanilla Claude Code (baseline) vs LemonCrow-enabled (candidate).
 
 For each task and arm we:
   1. prepare an isolated workspace (empty / git checkout / bundled copy),
@@ -8,31 +8,31 @@ For each task and arm we:
 
 Baseline uses an isolated CLAUDE_CONFIG_DIR with plugins/hooks/MCP stripped
 (but real subscription credentials copied in) so it is contamination-free.
-The Atelier arm adds the atelier stdio MCP server + a tool-discipline CLAUDE.md.
+The LemonCrow arm adds the lemoncrow stdio MCP server + a tool-discipline CLAUDE.md.
 
 Usage:
     uv run python -m benchmarks.codebench.run task1 --model sonnet
 
     # Cloud providers - reads credentials from .env or current env automatically:
-    uv run python -m benchmarks.codebench.run task1 -a atelier \
+    uv run python -m benchmarks.codebench.run task1 -a lemoncrow \
         --provider aws --model us.anthropic.claude-sonnet-4-5-20250929-v1:0
-    uv run python -m benchmarks.codebench.run task1 -a atelier \
+    uv run python -m benchmarks.codebench.run task1 -a lemoncrow \
         --provider gcp --model claude-sonnet-4-5@20250929
-    uv run python -m benchmarks.codebench.run task1 -a atelier \
+    uv run python -m benchmarks.codebench.run task1 -a lemoncrow \
         --provider azure --model claude-sonnet-4-5
-    uv run python -m benchmarks.codebench.run task1 -a baseline atelier \
+    uv run python -m benchmarks.codebench.run task1 -a baseline lemoncrow \
         --provider openrouter --model anthropic/claude-sonnet-4-5
 
     # Manual override (--agent-env takes precedence over --provider):
-    uv run python -m benchmarks.codebench.run task1 -a baseline atelier \
+    uv run python -m benchmarks.codebench.run task1 -a baseline lemoncrow \
         --model claude-opus-4-8 \
         --agent-env ANTHROPIC_BASE_URL=https://openrouter.ai/api \
         --agent-env-from-host ANTHROPIC_AUTH_TOKEN=OPENROUTER_API_KEY \
         --agent-env ANTHROPIC_API_KEY=
     uv run python -m benchmarks.codebench.run --report results/<run_dir>
 
-    # Owned-agent arm (Atelier runs the loop itself on YOUR API key; different
-    # price/savings profile than the host-plugin "atelier" arm). Requires a real
+    # Owned-agent arm (LemonCrow runs the loop itself on YOUR API key; different
+    # price/savings profile than the host-plugin "lemoncrow" arm). Requires a real
     # provider key, e.g. ANTHROPIC_API_KEY, and an explicit --model:
     uv run python -m benchmarks.codebench.run task1 \
     """
@@ -63,11 +63,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from atelier.core.capabilities.host_runners import (
+from lemoncrow.core.capabilities.host_runners import (
     CLAUDE_PROVIDER_PRESETS,
     build_driver_command,
 )
-from atelier.core.capabilities.pricing import usage_cost_breakdown_usd, usage_cost_usd
+from lemoncrow.core.capabilities.pricing import usage_cost_breakdown_usd, usage_cost_usd
 
 from benchmarks.codebench import local as local_mode
 from benchmarks.codebench.tasks import BY_ID, TASKS, Task
@@ -92,25 +92,25 @@ class ArmSpec:
     """
 
     persona_by_capability: Mapping[str, str | None]
-    plugin: bool = False  # inject --plugin-dir ATELIER_CLAUDE_PLUGIN_ROOT
+    plugin: bool = False  # inject --plugin-dir LEMONCROW_CLAUDE_PLUGIN_ROOT
     strip_mcp: bool = True  # inject --mcp-config EMPTY_MCP --strict-mcp-config
     heavy: bool = False  # counts toward the HEAVY_ARMS rate-limit warning
 
 
 # Persona is resolved by arm (every task is a ``code`` task): the baseline arm
-# runs the vanilla Claude default; the atelier/execute/solve arms run Atelier
+# runs the vanilla Claude default; the lemoncrow/execute/solve arms run LemonCrow
 # personas through the generated plugin.
 ARM_SPECS: dict[str, ArmSpec] = {
     "baseline": ArmSpec({"code": None}),
-    "atelier": ArmSpec(
-        {"code": "atelier:auto"},
+    "lemoncrow": ArmSpec(
+        {"code": "lemon:auto"},
         plugin=True,
         strip_mcp=False,
         heavy=True,
     ),
-    "execute": ArmSpec({"code": "atelier:execute"}, plugin=True, strip_mcp=False, heavy=True),
-    "solve": ArmSpec({"code": "atelier:solve"}, plugin=True, strip_mcp=False, heavy=True),
-    "auto": ArmSpec({"code": "atelier:auto"}, plugin=True, strip_mcp=False, heavy=True),
+    "execute": ArmSpec({"code": "lemon:execute"}, plugin=True, strip_mcp=False, heavy=True),
+    "solve": ArmSpec({"code": "lemon:solve"}, plugin=True, strip_mcp=False, heavy=True),
+    "auto": ArmSpec({"code": "lemon:auto"}, plugin=True, strip_mcp=False, heavy=True),
 }
 VALID_ARMS = tuple(ARM_SPECS)
 PERSISTENT_WORKSPACE_ROOT = Path(
@@ -124,7 +124,7 @@ PROVIDER_ALIASES: dict[str, str] = {
     "azure": "azure-claude",
     "openrouter": "openrouter-claude",
 }
-CLI_DRIVERS = ("claude", "atelier-run", "codex")
+CLI_DRIVERS = ("claude", "lemoncrow-run", "codex")
 # Arms that drive many model + tool round-trips and so dominate wall time.
 HEAVY_ARMS = tuple(name for name, spec in ARM_SPECS.items() if spec.heavy)
 # Heuristic floor: on a non-trivial task a tool-heavy arm routinely issues this
@@ -223,8 +223,8 @@ STOPWORDS = frozenset(
         "your",
     }
 )
-ATELIER_CLAUDE_PLUGIN_ROOT = Path(
-    os.environ.get("ATELIER_BENCH_PLUGIN_ROOT") or (REPO_ROOT / "integrations" / "claude" / "plugin")
+LEMONCROW_CLAUDE_PLUGIN_ROOT = Path(
+    os.environ.get("LEMONCROW_BENCH_PLUGIN_ROOT") or (REPO_ROOT / "integrations" / "claude" / "plugin")
 )
 
 _PLUGIN_STAGE_LOCK = threading.Lock()
@@ -252,7 +252,7 @@ def _lean_plugin_root(persona: str) -> Path:
     with _PLUGIN_STAGE_LOCK:
         if dest.exists():
             shutil.rmtree(dest)
-        shutil.copytree(ATELIER_CLAUDE_PLUGIN_ROOT, dest)
+        shutil.copytree(LEMONCROW_CLAUDE_PLUGIN_ROOT, dest)
         agents = dest / "agents"
         if agents.is_dir():
             keep = persona.split(":", 1)[-1]
@@ -617,7 +617,7 @@ def _fmt_hms(seconds: float) -> str:
 _EXPLORE_WARMUP_SCRIPT = """
 import sys
 from pathlib import Path
-from atelier.core.capabilities.code_context.engine import CodeContextEngine
+from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
 
 ws_path, query = sys.argv[1], sys.argv[2]
 engine = CodeContextEngine(Path(ws_path))
@@ -635,12 +635,12 @@ print("ok", flush=True)
 
 
 def _pre_index_workspace(task: Task, arm: str, rep: int, ws: Path) -> None:
-    """Build the Atelier code index and warm the explore cache for *ws* before
+    """Build the LemonCrow code index and warm the explore cache for *ws* before
     the timed run starts.
 
     Two phases, both excluded from the benchmark timer:
 
-    1. **FTS index** — ``atelier code index`` builds the SQLite FTS5 symbol
+    1. **FTS index** — ``lemon code index`` builds the SQLite FTS5 symbol
        store (~40s for VS Code).  No model calls, no API cost.
 
     2. **Explore warm-up** — a single ``engine.tool_explore(task_prompt)`` call
@@ -658,7 +658,7 @@ def _pre_index_workspace(task: Task, arm: str, rep: int, ws: Path) -> None:
     t0 = time.time()
     try:
         result = subprocess.run(
-            ["uv", "run", "atelier", "code", "index", "--repo-root", str(ws)],
+            ["uv", "run", "lemon", "code", "index", "--repo-root", str(ws)],
             cwd=str(REPO_ROOT),
             capture_output=True,
             text=True,
@@ -773,7 +773,7 @@ def _read_flow_usage(flow_path: Path) -> tuple[int, int, int, int, int, int] | N
     The ``claude -p`` JSON receipt reports only the main agent, so when the stock
     baseline delegates discovery to an Explore subagent its tokens, cost, and
     round-trips are invisible (undercounted 10-40x), while an inline agent like
-    Atelier is already complete. The .flow capture sees every round-trip through
+    LemonCrow is already complete. The .flow capture sees every round-trip through
     the proxy, so reconciling against it counts both arms the same way.
     """
     if not flow_path.exists():
@@ -823,7 +823,7 @@ def _parse_codex_result(stdout: str, flow_path: Path, task: str, arm: str, rep: 
             is_error = True
 
     # Estimate cost based on usage (since Codex doesn't provide total_cost_usd)
-    # Re-using usage_cost_usd which Atelier uses for other drivers.
+    # Re-using usage_cost_usd which LemonCrow uses for other drivers.
     model_id = next(iter(models), "claude-sonnet-4-6")  # Default fallback
     with contextlib.suppress(Exception):
         cost_usd = usage_cost_usd(
@@ -983,7 +983,7 @@ def _usage_int(value: object) -> int:
     return 0
 
 
-def _parse_atelier_run_result(
+def _parse_lemoncrow_run_result(
     stdout: str,
     flow_path: Path,
     task: str,
@@ -991,9 +991,9 @@ def _parse_atelier_run_result(
     rep: int,
     wall_duration_ms: int,
 ) -> ArmResult:
-    """Parse the `atelier run start` headless owned-agent receipt from stdout.
+    """Parse the `lemon run start` headless owned-agent receipt from stdout.
 
-    `atelier run report` rebuilds an empty receipt, so the only populated token/
+    `lemon run report` rebuilds an empty receipt, so the only populated token/
     cost figures live in the `format_receipt()` block printed by `run start`.
     """
     text = stdout or ""
@@ -1057,8 +1057,8 @@ def _parse_cli_result(
         if result.duration_api_ms == 0:
             result.duration_api_ms = wall_duration_ms
         return result
-    if cli_driver == "atelier-run":
-        return _parse_atelier_run_result(stdout, flow_path, task, arm, rep, wall_duration_ms)
+    if cli_driver == "lemoncrow-run":
+        return _parse_lemoncrow_run_result(stdout, flow_path, task, arm, rep, wall_duration_ms)
     if cli_driver == "codex":
         result = _parse_codex_result(stdout, flow_path, task, arm, rep)
         if result.duration_ms == 0:
@@ -1101,9 +1101,9 @@ def _validate_result_excerpt(task: Task, excerpt: str) -> tuple[bool, str, bool]
     ``hard`` marks failures certain enough to flip ``ok`` (empty / error /
     placeholder output). Soft failures — the keyword-overlap heuristics — are
     advisory only: they set ``valid=False`` for reporting but MUST NOT fail an
-    otherwise-successful run, because terse-by-design output (e.g. the atelier
+    otherwise-successful run, because terse-by-design output (e.g. the lemoncrow
     arm's "do not print a summary banner") legitimately has low prompt overlap
-    and was being scored as a failure, biasing the comparison against atelier.
+    and was being scored as a failure, biasing the comparison against lemoncrow.
     """
     text = excerpt.strip()
     lowered = text.lower()
@@ -1173,7 +1173,7 @@ def _apply_result_validity(task: Task, result: ArmResult) -> ArmResult:
     result.valid = valid
     result.validity_reason = reason
     # Only a hard failure flips ok; soft keyword-overlap heuristics stay advisory
-    # so terse correct runs (esp. the atelier arm) are not failed for low overlap.
+    # so terse correct runs (esp. the lemoncrow arm) are not failed for low overlap.
     if not valid and hard:
         result.ok = False
     return result
@@ -1367,7 +1367,7 @@ def run_arm(
         # "skip already-recorded tasks", not "continue the previous Claude session".
         # Resuming a timed-out session picks up its stuck conversation and fails again.
         should_resume_session = False
-    elif cli_driver == "atelier-run":
+    elif cli_driver == "lemoncrow-run":
         workspace_path = out_dir / "workspaces" / f"{task.id}_{arm}_rep{rep}"
         ws = prepare_workspace(task, workspace_path)
         persistent_workspace = True
@@ -1377,13 +1377,13 @@ def run_arm(
         ws = prepare_workspace(task)
     if cli_driver not in CLI_DRIVERS:
         raise ValueError(f"unsupported cli driver: {cli_driver}")
-    # For plugin-enabled arms (atelier) pre-build the code index so index time
+    # For plugin-enabled arms (lemoncrow) pre-build the code index so index time
     # is not charged to the benchmark timer.  Idempotent: a second rep that
     # reuses the same workspace finds the index already warm and returns quickly.
     if ARM_SPECS[arm].plugin:
         _pre_index_workspace(task, arm, rep, ws)
     flow_path = out_dir / f"{task.id}_{arm}_rep{rep}.flow"
-    proxy_supported = capture and cli_driver in {"claude", "atelier-run", "codex"}
+    proxy_supported = capture and cli_driver in {"claude", "lemoncrow-run", "codex"}
     port = _free_port() if proxy_supported else 0
     mitm = (
         subprocess.Popen(
@@ -1421,7 +1421,7 @@ def run_arm(
         # per call, scoped to THIS run next to its .flow capture, so tool wait
         # is attributable per task instead of lost in the global debug log.
         if ARM_SPECS[arm].plugin:
-            env["ATELIER_TOOL_PROFILE_PATH"] = str(out_dir / f"{task.id}_{arm}_rep{rep}.toolprofile.jsonl")
+            env["LEMONCROW_TOOL_PROFILE_PATH"] = str(out_dir / f"{task.id}_{arm}_rep{rep}.toolprofile.jsonl")
         # For Python workspaces: if a .venv was created by setup_cmds, activate
         # it so all python/pytest commands in the workspace use the right env.
         ws_venv = ws / ".venv"
@@ -1466,21 +1466,21 @@ def run_arm(
                 # Load a bench-lean copy of the plugin: only this arm's persona
                 # (no other agent personas) and zero skills -- see
                 # _lean_plugin_root. Its agents/MCP/hooks still resolve.
-                cmd += ["--plugin-dir", str(_lean_plugin_root(persona or "atelier:auto"))]
+                cmd += ["--plugin-dir", str(_lean_plugin_root(persona or "lemon:auto"))]
             if persona:
                 # Pin the arm to one agent persona: a built-in twin (e.g. "Explore"
-                # / "Plan") for baseline, or "atelier:<x>" for the candidate. None
+                # / "Plan") for baseline, or "lemon:<x>" for the candidate. None
                 # leaves Claude Code's default persona (the vanilla code baseline).
                 cmd += ["--agent", persona]
             if spec.strip_mcp:
                 # Built-in / bare arms get no MCP servers, so the comparison is the
                 # arm's native stack, not ambient host MCP.
                 cmd.extend(["--mcp-config", json.dumps(EMPTY_MCP), "--strict-mcp-config"])
-        elif cli_driver == "atelier-run":
-            # Direct owned-session arm: Atelier owns prompt assembly, model routing,
+        elif cli_driver == "lemoncrow-run":
+            # Direct owned-session arm: LemonCrow owns prompt assembly, model routing,
             # caching, and the executable tool loop on the caller's API credentials.
             # The retained workspace is validated like every other coding arm.
-            cmd = ["atelier", "run", "start", task.prompt(), "--yolo"]
+            cmd = ["lemon", "run", "start", task.prompt(), "--yolo"]
             if model:
                 cmd += ["--model", model]
             cmd += list(cli_extra_args)
@@ -1539,7 +1539,7 @@ def run_arm(
                 mitm.wait(timeout=5)
         if not persistent_workspace:
             with contextlib.suppress(Exception):
-                from atelier.core.foundation.paths import resolve_workspace_store_dir
+                from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
                 store_dir = resolve_workspace_store_dir(workspace_root=ws)
                 shutil.rmtree(store_dir, ignore_errors=True)
@@ -3127,7 +3127,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description="CodeBench head-to-head runner")
     p.add_argument("tasks", nargs="*", default=["all"], metavar="TASK", help="task ids or 'all' (default: all)")
     p.add_argument("--list", action="store_true", help="list available task ids and exit")
-    p.add_argument("-a", "--arms", nargs="*", default=["baseline", "atelier"])
+    p.add_argument("-a", "--arms", nargs="*", default=["baseline", "lemoncrow"])
     p.add_argument(
         "--capability",
         default=None,
@@ -3254,7 +3254,7 @@ def main() -> int:
             print(
                 f"WARNING: --rate-limit-rpm {args.rate_limit_rpm:g} allows only "
                 f"~{request_budget:.0f} model requests within --timeout {args.timeout}s. "
-                f"Tool-heavy arms (atelier) routinely exceed that and will time out. "
+                f"Tool-heavy arms (lemoncrow) routinely exceed that and will time out. "
                 f"Raise --timeout to >= {suggested_timeout}s or increase --rate-limit-rpm.",
                 flush=True,
             )

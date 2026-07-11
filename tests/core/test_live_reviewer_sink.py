@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.live_reviewer.sink import (
+from lemoncrow.core.capabilities.live_reviewer.sink import (
     append_verdict,
     latest_unconsumed,
     latest_verdict,

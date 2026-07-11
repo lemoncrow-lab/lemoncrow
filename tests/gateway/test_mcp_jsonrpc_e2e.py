@@ -12,13 +12,13 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities.cross_vendor_routing.configuration import (
+from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
     RouteConfig,
     save_route_config,
 )
-from atelier.core.environment import HIDDEN_LLM_TOOLS
-from atelier.gateway.adapters import mcp_server
-from atelier.gateway.adapters.mcp_server import TOOLS, _handle
+from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp_server import TOOLS, _handle
 from tests.helpers import init_store_at
 
 
@@ -154,12 +154,12 @@ class _FakeRemoteClient:
 
 @pytest.fixture()
 def mcp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     config_dir = tmp_path / ".claude"
     config_dir.mkdir()
     _seed_store(root)
 
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
 
@@ -187,9 +187,9 @@ def test_tools_list_matches_registered_surface(mcp_env: Path) -> None:
 
 
 def test_tools_list_hides_internal_workflow_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _seed_store(root)
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     mcp_server._current_ledger = None
     mcp_server._realtime_ctx = None
@@ -208,7 +208,7 @@ def test_non_remote_tool_calls_fallback_when_route_has_no_configured_vendor_keys
     target = mcp_env / "route-fallback.txt"
     target.write_text("hello route fallback\n", encoding="utf-8")
 
-    root = Path(str(mcp_env / ".atelier"))
+    root = Path(str(mcp_env / ".lemoncrow"))
     save_route_config(root, RouteConfig(enabled_vendors=["anthropic"]))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -221,7 +221,7 @@ def test_non_remote_tool_calls_fallback_when_route_has_no_configured_vendor_keys
     assert "hello route fallback" in payload
 
 
-@pytest.mark.slow  # Spawns a real atelier mcp subprocess for end-to-end stdio
+@pytest.mark.slow  # Spawns a real lemon mcp subprocess for end-to-end stdio
 def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) -> None:
     target = mcp_env / "stdio.txt"
     target.write_text("hello world\n", encoding="utf-8")
@@ -278,7 +278,7 @@ def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) ->
 
     env = {
         **dict(os.environ),
-        "ATELIER_ROOT": str(mcp_env / ".atelier"),
+        "LEMONCROW_ROOT": str(mcp_env / ".lemoncrow"),
         "CLAUDE_WORKSPACE_ROOT": str(mcp_env),
         "CLAUDE_CONFIG_DIR": str(mcp_env / ".claude"),
     }
@@ -286,9 +286,9 @@ def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) ->
         [
             sys.executable,
             "-m",
-            "atelier.gateway.adapters.mcp_server",
+            "lemoncrow.gateway.adapters.mcp_server",
             "--root",
-            str(mcp_env / ".atelier"),
+            str(mcp_env / ".lemoncrow"),
         ],
         input=requests,
         capture_output=True,
@@ -299,7 +299,7 @@ def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) ->
 
     assert result.returncode == 0, result.stderr
     responses = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
-    assert responses[0]["result"]["serverInfo"]["name"] == "atelier"
+    assert responses[0]["result"]["serverInfo"]["name"] == "lemoncrow"
 
     edit_text = responses[1]["result"]["content"][0]["text"]
     # Clean exact edit is success-silent over the wire: minimal "ok" token, and
@@ -344,7 +344,7 @@ def test_stdio_server_processes_requests_concurrently(monkeypatch: pytest.Monkey
     monkeypatch.setattr(mcp_server, "_handle", fake_handle)
     monkeypatch.setattr(mcp_server.sys, "stdin", io.StringIO(requests + "\n"))
     monkeypatch.setattr(mcp_server.sys, "stdout", stdout)
-    monkeypatch.setenv("ATELIER_MCP_MAX_WORKERS", "2")
+    monkeypatch.setenv("LEMONCROW_MCP_MAX_WORKERS", "2")
 
     server_thread = threading.Thread(target=mcp_server.serve)
     server_thread.start()
@@ -364,7 +364,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "memory",
             {
                 "op": "store_fact",
-                "agent_id": "atelier:code",
+                "agent_id": "lemon:code",
                 "subject": "mcp-e2e",
                 "fact": "Prefer JSON-RPC MCP tests with real side effects.",
                 "citations": "tests/gateway/test_mcp_jsonrpc_e2e.py",
@@ -380,7 +380,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "memory",
             {
                 "op": "recall",
-                "agent_id": "atelier:code",
+                "agent_id": "lemon:code",
                 "query": "JSON-RPC MCP tests",
                 "top_k": 3,
             },
@@ -393,7 +393,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "memory",
             {
                 "op": "store_fact",
-                "agent_id": "atelier:code",
+                "agent_id": "lemon:code",
                 "subject": "checkout-retry",
                 "fact": "Archived checkout retry guidance for MCP JSON-RPC task tests.",
                 "citations": "tests/gateway/test_mcp_jsonrpc_e2e.py",
@@ -409,7 +409,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "memory",
             {
                 "op": "recall",
-                "agent_id": "atelier:code",
+                "agent_id": "lemon:code",
                 "query": "checkout retry guidance",
                 "top_k": 3,
             },
@@ -426,7 +426,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "context",
             {
                 "task": "Use checkout retry guidance in MCP JSON-RPC task tests.",
-                "agent_id": "atelier:code",
+                "agent_id": "lemon:code",
             },
         )
     )
@@ -493,7 +493,7 @@ def test_read_search_edit_and_compact_e2e(mcp_env: Path) -> None:
                     {
                         "file_path": "sample.py:L2",
                         "old_string": "return 'needle'",
-                        "new_string": "return 'atelier'",
+                        "new_string": "return 'lemoncrow'",
                     }
                 ]
             },
@@ -501,7 +501,7 @@ def test_read_search_edit_and_compact_e2e(mcp_env: Path) -> None:
     )
     # Clean exact edit is success-silent: no body, change confirmed on disk.
     assert "failed" not in rich_edit
-    assert "atelier" in target.read_text(encoding="utf-8")
+    assert "lemoncrow" in target.read_text(encoding="utf-8")
 
     legacy_edit = _payload(
         _call(
@@ -512,14 +512,14 @@ def test_read_search_edit_and_compact_e2e(mcp_env: Path) -> None:
                         "path": str(target),
                         "op": "replace",
                         "old_string": "secondary needle",
-                        "new_string": "secondary atelier",
+                        "new_string": "secondary lemoncrow",
                     }
                 ]
             },
         )
     )
     assert "failed" not in legacy_edit
-    assert "secondary atelier" in target.read_text(encoding="utf-8")
+    assert "secondary lemoncrow" in target.read_text(encoding="utf-8")
 
     partial = mcp_env / "partial.txt"
     partial.write_text("YES\n", encoding="utf-8")

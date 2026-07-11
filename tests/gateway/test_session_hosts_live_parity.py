@@ -7,7 +7,7 @@ routine, generic hosts (antigravity, cursor) were imported directly by each
 presenter with different pre-filtering -- the JSON path applied --since only
 as a post-filter external to the scan function while the text path never
 applied --since to generic hosts at all, and neither respected --id
-consistently. `atelier session list` vs `atelier session list --json` could
+consistently. `lemon session list` vs `lemon session list --json` could
 therefore show different sessions for the identical query.
 """
 
@@ -19,10 +19,10 @@ from typing import Any, ClassVar
 
 import pytest
 
-from atelier.core.foundation.models import Trace
-from atelier.core.foundation.store import ContextStore
-from atelier.gateway.cli.commands import sessions as sessions_cmd
-from atelier.gateway.hosts.session_parsers import registry as registry_module
+from lemoncrow.core.foundation.models import Trace
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.gateway.cli.commands import sessions as sessions_cmd
+from lemoncrow.gateway.hosts.session_parsers import registry as registry_module
 
 _NOW = datetime.now(UTC)
 

@@ -1,39 +1,39 @@
 #!/usr/bin/env bash
-# install.sh — Standalone Atelier production bootstrap.
-# Downloads a pre-compiled Atelier binary for your platform from the
-# latest GitHub release, installs Atelier-managed files under ~/.atelier/,
-# and then installs Atelier into each detected agent host (Claude, Copilot,
+# install.sh — Standalone LemonCrow production bootstrap.
+# Downloads a pre-compiled LemonCrow binary for your platform from the
+# latest GitHub release, installs LemonCrow-managed files under ~/.lemoncrow/,
+# and then installs LemonCrow into each detected agent host (Claude, Copilot,
 # Cursor, Codex, etc.).
 #
 # Usage:
-#   curl -fsSL https://github.com/atelier-ws/atelier/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/lemoncrowhq/lemoncrow/releases/latest/download/install.sh | bash
 #
 # For a comprehensive developer install (with uv, git, node, etc.) use
 # scripts/local.sh from the repo checkout.
 #
-#   ATELIER_INSTALL_DIR     Target directory (default: ~/.atelier/install)
-#   ATELIER_BIN_DIR         Binary directory (default: ~/.atelier/bin)
-#   ATELIER_RELEASE_TAG     Release tag to install (default: latest)
-#   ATELIER_RELEASE_TAG     Release tag to install (default: latest)
-#   ATELIER_DRY_RUN         If set to 1, print planned actions and exit
-#   ATELIER_VERBOSE         If set to 1, show verbose output
-#   ATELIER_NON_INTERACTIVE If set to 1, skip all prompts (auto-install all hosts)
-#   ATELIER_NO_PATH         If set to 1, skip adding to PATH
-#   ATELIER_NO_HOSTS        If set to 1, skip ALL post-extract setup (bundle.sh): host
+#   LEMONCROW_INSTALL_DIR     Target directory (default: ~/.lemoncrow/install)
+#   LEMONCROW_BIN_DIR         Binary directory (default: ~/.lemoncrow/bin)
+#   LEMONCROW_RELEASE_TAG     Release tag to install (default: latest)
+#   LEMONCROW_RELEASE_TAG     Release tag to install (default: latest)
+#   LEMONCROW_DRY_RUN         If set to 1, print planned actions and exit
+#   LEMONCROW_VERBOSE         If set to 1, show verbose output
+#   LEMONCROW_NON_INTERACTIVE If set to 1, skip all prompts (auto-install all hosts)
+#   LEMONCROW_NO_PATH         If set to 1, skip adding to PATH
+#   LEMONCROW_NO_HOSTS        If set to 1, skip ALL post-extract setup (bundle.sh): host
 #                           integrations AND dependency installs (uv/node/jj/rtk) are
 #                           skipped — download & extract only
-#   ATELIER_INSTALL_RTK     1 = install rtk without prompting, 0 = never offer
+#   LEMONCROW_INSTALL_RTK     1 = install rtk without prompting, 0 = never offer
 #                           (default: prompt during interactive setup when cargo exists;
 #                           handled by bundle.sh / lib/common.sh, propagated via env)
-#   ATELIER_RTK_TAG         rtk release tag to install (default: pinned in
+#   LEMONCROW_RTK_TAG         rtk release tag to install (default: pinned in
 #                           lib/common.sh; empty = unpinned default-branch HEAD)
-#   ATELIER_KB_EXTRACT      If set to 1, run knowledge extraction during setup (opt-in)
-#   ATELIER_KB_HOST         Extraction backend: auto | claude | codex | ollama
-#   ATELIER_KB_MODEL        Model id for extraction (required for ollama)
-#   ATELIER_KB_MAX_SPEND    Hard USD cap per extraction run (auto/claude)
-#   ATELIER_RECALL_INDEX    SessionStart background recall indexer: on by default (set to 0 to disable)
-#   ATELIER_RECALL_EMBEDDER Recall embedder: local | openai (codex) | ollama (Claude has no embeddings API)
-#   ATELIER_RECALL_EMBED_MODEL  Embed model id (e.g. an ollama model name)
+#   LEMONCROW_KB_EXTRACT      If set to 1, run knowledge extraction during setup (opt-in)
+#   LEMONCROW_KB_HOST         Extraction backend: auto | claude | codex | ollama
+#   LEMONCROW_KB_MODEL        Model id for extraction (required for ollama)
+#   LEMONCROW_KB_MAX_SPEND    Hard USD cap per extraction run (auto/claude)
+#   LEMONCROW_RECALL_INDEX    SessionStart background recall indexer: on by default (set to 0 to disable)
+#   LEMONCROW_RECALL_EMBEDDER Recall embedder: local | openai (codex) | ollama (Claude has no embeddings API)
+#   LEMONCROW_RECALL_EMBED_MODEL  Embed model id (e.g. an ollama model name)
 
 set -euo pipefail
 
@@ -49,34 +49,34 @@ case "$ARCH" in
 esac
 BINARY_SUFFIX="${OS}-${ARCH}"
 
-ATELIER_INSTALL_DIR="${ATELIER_INSTALL_DIR:-${HOME}/.atelier/install}"
-ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.atelier/bin}"
-ATELIER_RELEASE_TAG="${ATELIER_RELEASE_TAG:-latest}"
-ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
-ATELIER_VERBOSE="${ATELIER_VERBOSE:-0}"
-ATELIER_NON_INTERACTIVE="${ATELIER_NON_INTERACTIVE:-0}"
-ATELIER_NO_PATH="${ATELIER_NO_PATH:-0}"
-ATELIER_NO_HOSTS="${ATELIER_NO_HOSTS:-0}"
-ATELIER_ALLOW_UNVERIFIED="${ATELIER_ALLOW_UNVERIFIED:-0}"
-ATELIER_LOCAL="${ATELIER_LOCAL:-0}"
+LEMONCROW_INSTALL_DIR="${LEMONCROW_INSTALL_DIR:-${HOME}/.lemoncrow/install}"
+LEMONCROW_BIN_DIR="${LEMONCROW_BIN_DIR:-${HOME}/.lemoncrow/bin}"
+LEMONCROW_RELEASE_TAG="${LEMONCROW_RELEASE_TAG:-latest}"
+LEMONCROW_DRY_RUN="${LEMONCROW_DRY_RUN:-0}"
+LEMONCROW_VERBOSE="${LEMONCROW_VERBOSE:-0}"
+LEMONCROW_NON_INTERACTIVE="${LEMONCROW_NON_INTERACTIVE:-0}"
+LEMONCROW_NO_PATH="${LEMONCROW_NO_PATH:-0}"
+LEMONCROW_NO_HOSTS="${LEMONCROW_NO_HOSTS:-0}"
+LEMONCROW_ALLOW_UNVERIFIED="${LEMONCROW_ALLOW_UNVERIFIED:-0}"
+LEMONCROW_LOCAL="${LEMONCROW_LOCAL:-0}"
 # Default source for --local: the bundle/ directory produced by 'make build',
 # which lives one level up from this script (i.e. <repo>/bundle/).
-ATELIER_LOCAL_SRC="${ATELIER_LOCAL_SRC:-${SCRIPT_DIR}/../bundle}"
+LEMONCROW_LOCAL_SRC="${LEMONCROW_LOCAL_SRC:-${SCRIPT_DIR}/../bundle}"
 
 # Handle arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --local) ATELIER_LOCAL=1; shift ;;
+        --local) LEMONCROW_LOCAL=1; shift ;;
         *) shift ;;
     esac
 done
 
-if [[ "$ATELIER_RELEASE_TAG" == "latest" ]]; then
-    RELEASE_BASE_URL="https://github.com/atelier-ws/atelier/releases/latest/download"
+if [[ "$LEMONCROW_RELEASE_TAG" == "latest" ]]; then
+    RELEASE_BASE_URL="https://github.com/lemoncrowhq/lemoncrow/releases/latest/download"
 else
-    RELEASE_BASE_URL="https://github.com/atelier-ws/atelier/releases/download/${ATELIER_RELEASE_TAG}"
+    RELEASE_BASE_URL="https://github.com/lemoncrowhq/lemoncrow/releases/download/${LEMONCROW_RELEASE_TAG}"
 fi
-ASSET_NAME="atelier-distribution-${BINARY_SUFFIX}.tar.gz"
+ASSET_NAME="lemoncrow-distribution-${BINARY_SUFFIX}.tar.gz"
 RELEASE_URL="${RELEASE_BASE_URL}/${ASSET_NAME}"
 
 # ---- colour + helpers -------------------------------------------------------
@@ -100,7 +100,7 @@ info()    { printf "  ${_CP}◇${_C0}  %s\n" "$*"; }
 warn()    { printf "  ${_CY}⚠${_C0}  %s\n" "$*" >&2; }
 error()   { printf "  ${_CR}✗${_C0}  %s\n" "$*" >&2; }
 fail()    { error "$*"; exit 1; }
-verbose() { [[ "$ATELIER_VERBOSE" == "1" ]] && info "$*" || true; }
+verbose() { [[ "$LEMONCROW_VERBOSE" == "1" ]] && info "$*" || true; }
 
 # _bar <current> <total> [width=40]
 _bar() {
@@ -192,8 +192,8 @@ need_cmd() {
 # verify_checksum <archive> <url>
 # Verifies <archive> against a published <url>.sha256 sidecar. Fails closed:
 # if the checksum cannot be fetched or does not match, the install aborts
-# unless ATELIER_ALLOW_UNVERIFIED=1 is set to explicitly opt out.
-# TODO: publish atelier-distribution-*.tar.gz.sha256 sidecars in
+# unless LEMONCROW_ALLOW_UNVERIFIED=1 is set to explicitly opt out.
+# TODO: publish lemoncrow-distribution-*.tar.gz.sha256 sidecars in
 # .github/workflows/release.yml so this verification is enforced by default.
 verify_checksum() {
     local archive="$1" url="$2"
@@ -204,8 +204,8 @@ verify_checksum() {
     # Accept both `<hash>  file` and `SHA256 (file) = <hash>` formats.
     expected="$(printf '%s' "$expected" | grep -oE '[0-9a-fA-F]{64}' | head -1 | tr 'A-F' 'a-f')"
     if [[ -z "$expected" ]]; then
-        if [[ "$ATELIER_ALLOW_UNVERIFIED" == "1" ]]; then
-            warn "No published checksum at ${url}.sha256 — proceeding unverified (ATELIER_ALLOW_UNVERIFIED=1)."
+        if [[ "$LEMONCROW_ALLOW_UNVERIFIED" == "1" ]]; then
+            warn "No published checksum at ${url}.sha256 — proceeding unverified (LEMONCROW_ALLOW_UNVERIFIED=1)."
             return 0
         fi
         warn "No published checksum at ${url}.sha256 — skipping verification and proceeding."
@@ -226,7 +226,7 @@ verify_checksum() {
 }
 
 run() {
-    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
         echo "  [dry-run] $*"
     else
         "$@"
@@ -236,7 +236,7 @@ run() {
 # ---- platform check ----------------------------------------------------------
 case "$OS" in
     linux|darwin) ;;
-    *) fail "Unsupported OS: $OS. Atelier supports Linux and macOS." ;;
+    *) fail "Unsupported OS: $OS. LemonCrow supports Linux and macOS." ;;
 esac
 
 case "$ARCH" in
@@ -249,7 +249,7 @@ need_cmd bash
 need_cmd tar
 
 if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
-    fail "Either curl or wget is required to download the Atelier binary."
+    fail "Either curl or wget is required to download the LemonCrow binary."
 fi
 # DOWNLOAD_CMD used only for checksum sidecar fetch (small, no progress needed)
 if command -v curl >/dev/null 2>&1; then
@@ -263,16 +263,16 @@ _clean_managed_install_tree() {
     # The distribution is extracted as a directory tree, not as a versioned
     # package directory. Remove managed top-level payloads first so files deleted
     # from a release cannot linger across installs.
-    mkdir -p "$ATELIER_INSTALL_DIR"
+    mkdir -p "$LEMONCROW_INSTALL_DIR"
     local path
     for path in \
-        "$ATELIER_INSTALL_DIR/bin" \
-        "$ATELIER_INSTALL_DIR/constraints.txt" \
-        "$ATELIER_INSTALL_DIR/constraints.resolved.txt" \
-        "$ATELIER_INSTALL_DIR/deploy" \
-        "$ATELIER_INSTALL_DIR/integrations" \
-        "$ATELIER_INSTALL_DIR/scripts" \
-        "$ATELIER_INSTALL_DIR/vendor"
+        "$LEMONCROW_INSTALL_DIR/bin" \
+        "$LEMONCROW_INSTALL_DIR/constraints.txt" \
+        "$LEMONCROW_INSTALL_DIR/constraints.resolved.txt" \
+        "$LEMONCROW_INSTALL_DIR/deploy" \
+        "$LEMONCROW_INSTALL_DIR/integrations" \
+        "$LEMONCROW_INSTALL_DIR/scripts" \
+        "$LEMONCROW_INSTALL_DIR/vendor"
     do
         if [[ -e "$path" || -L "$path" ]]; then
             rm -rf -- "$path"
@@ -281,29 +281,29 @@ _clean_managed_install_tree() {
 }
 
 # ---- download & extract ------------------------------------------------------
-if [[ "$ATELIER_LOCAL" == "1" ]]; then
-    LOCAL_SRC_ABS="$(cd "${ATELIER_LOCAL_SRC}" 2>/dev/null && pwd)" \
-        || fail "Local bundle not found at '${ATELIER_LOCAL_SRC}'. Run 'make build' first."
-    mkdir -p "${ATELIER_INSTALL_DIR}"
-    INSTALL_DIR_ABS="$(cd "${ATELIER_INSTALL_DIR}" && pwd)"
+if [[ "$LEMONCROW_LOCAL" == "1" ]]; then
+    LOCAL_SRC_ABS="$(cd "${LEMONCROW_LOCAL_SRC}" 2>/dev/null && pwd)" \
+        || fail "Local bundle not found at '${LEMONCROW_LOCAL_SRC}'. Run 'make build' first."
+    mkdir -p "${LEMONCROW_INSTALL_DIR}"
+    INSTALL_DIR_ABS="$(cd "${LEMONCROW_INSTALL_DIR}" && pwd)"
     if [[ "${LOCAL_SRC_ABS}" != "${INSTALL_DIR_ABS}" ]]; then
         _clean_managed_install_tree
         cp -r "${LOCAL_SRC_ABS}/." "${INSTALL_DIR_ABS}/"
     fi
-elif [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+elif [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
     echo "  [dry-run] ${DOWNLOAD_CMD[*]} $RELEASE_URL > /tmp/${ASSET_NAME}"
-    echo "  [dry-run] tar -xzf /tmp/${ASSET_NAME} -C $ATELIER_INSTALL_DIR"
-    echo "  [dry-run] Binaries would be installed to: $ATELIER_BIN_DIR"
+    echo "  [dry-run] tar -xzf /tmp/${ASSET_NAME} -C $LEMONCROW_INSTALL_DIR"
+    echo "  [dry-run] Binaries would be installed to: $LEMONCROW_BIN_DIR"
     echo ""
     exit 0
 else
-    mkdir -p "$ATELIER_BIN_DIR"
-    TMP_ARCHIVE="$(mktemp -t atelier-binaries.XXXXXX.tar.gz)"
+    mkdir -p "$LEMONCROW_BIN_DIR"
+    TMP_ARCHIVE="$(mktemp -t lemoncrow-binaries.XXXXXX.tar.gz)"
     trap 'rm -f "$TMP_ARCHIVE"' EXIT
 
     verbose "Downloading from: $RELEASE_URL"
-    printf "  ${_CP}◇${_C0}  ${_CB}Downloading${_C0} Atelier %s  ${_CD}(%s)${_C0}\n" \
-        "${ATELIER_RELEASE_TAG}" "${BINARY_SUFFIX}" >&2
+    printf "  ${_CP}◇${_C0}  ${_CB}Downloading${_C0} LemonCrow %s  ${_CD}(%s)${_C0}\n" \
+        "${LEMONCROW_RELEASE_TAG}" "${BINARY_SUFFIX}" >&2
     if ! _dl_progress "$RELEASE_URL" "$TMP_ARCHIVE"; then
         fail "Could not download ${ASSET_NAME}. The release may not include this platform asset yet: ${RELEASE_URL}"
     fi
@@ -316,42 +316,42 @@ else
     _clean_managed_install_tree
 
     printf "  ${_CP}◇${_C0}  ${_CB}Extracting${_C0}\n" >&2
-    _extract_progress "$TMP_ARCHIVE" "$ATELIER_INSTALL_DIR"
+    _extract_progress "$TMP_ARCHIVE" "$LEMONCROW_INSTALL_DIR"
 
-    info "Distribution extracted to: ${ATELIER_INSTALL_DIR}"
+    info "Distribution extracted to: ${LEMONCROW_INSTALL_DIR}"
 fi
 
 # ---- run full setup via bundle.sh (installs wheel + host integrations) ------
 # ---- run full setup via bundle.sh (installs wheel + host integrations) ------
 # ---- run full setup via bundle.sh (installs wheel + host integrations) ------
-# layer. With ATELIER_NO_HOSTS=1 they are skipped along with host setup.
-export PATH="${ATELIER_BIN_DIR}:${PATH}"
-BUNDLE_SH="${ATELIER_INSTALL_DIR}/scripts/bundle.sh"
-if [[ "$ATELIER_NO_HOSTS" != "1" && -f "$BUNDLE_SH" ]]; then
+# layer. With LEMONCROW_NO_HOSTS=1 they are skipped along with host setup.
+export PATH="${LEMONCROW_BIN_DIR}:${PATH}"
+BUNDLE_SH="${LEMONCROW_INSTALL_DIR}/scripts/bundle.sh"
+if [[ "$LEMONCROW_NO_HOSTS" != "1" && -f "$BUNDLE_SH" ]]; then
     SETUP_ARGS=()
-    [[ "$ATELIER_DRY_RUN" == "1" ]] && SETUP_ARGS+=(--dry-run)
-    [[ "$ATELIER_NON_INTERACTIVE" == "1" ]] && SETUP_ARGS+=(--non-interactive)
+    [[ "$LEMONCROW_DRY_RUN" == "1" ]] && SETUP_ARGS+=(--dry-run)
+    [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]] && SETUP_ARGS+=(--non-interactive)
     # When piped from curl, bash reads install.sh from stdin (a pipe), so
     # bundle.sh inherits that pipe as fd 0. `read -s` suppresses echo on fd 0
     # rather than /dev/tty, so it fails silently and arrow keys echo as ^[[A.
     # Redirect stdin from /dev/tty for bundle.sh so interactive menus get a
     # real TTY as fd 0 and `read -s` works correctly.
     if [[ ! -t 0 && -e /dev/tty ]]; then
-        ATELIER_INSTALL_DIR="$ATELIER_INSTALL_DIR" \
-        ATELIER_BIN_DIR="$ATELIER_BIN_DIR" \
+        LEMONCROW_INSTALL_DIR="$LEMONCROW_INSTALL_DIR" \
+        LEMONCROW_BIN_DIR="$LEMONCROW_BIN_DIR" \
         bash "$BUNDLE_SH" "${SETUP_ARGS[@]+${SETUP_ARGS[@]}}" </dev/tty || true
     else
-        ATELIER_INSTALL_DIR="$ATELIER_INSTALL_DIR" \
-        ATELIER_BIN_DIR="$ATELIER_BIN_DIR" \
+        LEMONCROW_INSTALL_DIR="$LEMONCROW_INSTALL_DIR" \
+        LEMONCROW_BIN_DIR="$LEMONCROW_BIN_DIR" \
         bash "$BUNDLE_SH" "${SETUP_ARGS[@]+${SETUP_ARGS[@]}}" || true
     fi
-elif [[ "$ATELIER_NO_HOSTS" == "1" ]]; then
-    verbose "Skipping setup (ATELIER_NO_HOSTS=1)"
+elif [[ "$LEMONCROW_NO_HOSTS" == "1" ]]; then
+    verbose "Skipping setup (LEMONCROW_NO_HOSTS=1)"
 else
     warn "bundle.sh not found at ${BUNDLE_SH} — skipping host integration setup."
 fi
 # ---- PATH persistence --------------------------------------------------------
-if [[ "$ATELIER_NO_PATH" != "1" ]]; then
+if [[ "$LEMONCROW_NO_PATH" != "1" ]]; then
     case "$(basename "${SHELL:-bash}")" in
         zsh)  PROFILE="${ZDOTDIR:-$HOME}/.zshrc" ;;
         bash) PROFILE="$HOME/.bashrc" ;;
@@ -359,17 +359,17 @@ if [[ "$ATELIER_NO_PATH" != "1" ]]; then
         *)    PROFILE="$HOME/.profile" ;;
     esac
 
-    if ! echo ":$PATH:" | grep -q ":${ATELIER_BIN_DIR}:"; then
-        export PATH="${ATELIER_BIN_DIR}:${PATH}"
-        info "Added ${ATELIER_BIN_DIR} to PATH for this session"
+    if ! echo ":$PATH:" | grep -q ":${LEMONCROW_BIN_DIR}:"; then
+        export PATH="${LEMONCROW_BIN_DIR}:${PATH}"
+        info "Added ${LEMONCROW_BIN_DIR} to PATH for this session"
     fi
 
-    if [[ -f "$PROFILE" ]] && ! grep -q "atelier.*PATH" "$PROFILE" 2>/dev/null; then
+    if [[ -f "$PROFILE" ]] && ! grep -q "lemoncrow.*PATH" "$PROFILE" 2>/dev/null; then
         {
             echo ""
-            echo "# >>> atelier >>>"
-            echo "export PATH=\"${ATELIER_BIN_DIR}:\$PATH\""
-            echo "# <<< atelier <<<"
+            echo "# >>> lemoncrow >>>"
+            echo "export PATH=\"${LEMONCROW_BIN_DIR}:\$PATH\""
+            echo "# <<< lemoncrow <<<"
         } >> "$PROFILE"
         info "Added to PATH in ${PROFILE/#$HOME/~}"
     fi
@@ -377,17 +377,17 @@ fi
 
 # ---- done --------------------------------------------------------------------
 echo ""
-if [[ -x "${ATELIER_BIN_DIR}/atelier" ]] || command -v atelier >/dev/null 2>&1 || ( command -v uv >/dev/null 2>&1 && uv tool list 2>/dev/null | grep -q "^atelier" ); then
-    info "Atelier $("${ATELIER_BIN_DIR}/atelier" --version 2>/dev/null || atelier --version 2>/dev/null || echo '') ready!"
+if [[ -x "${LEMONCROW_BIN_DIR}/lemoncrow" ]] || command -v lemon >/dev/null 2>&1 || ( command -v uv >/dev/null 2>&1 && uv tool list 2>/dev/null | grep -q "^lemoncrow" ); then
+    info "LemonCrow $("${LEMONCROW_BIN_DIR}/lemoncrow" --version 2>/dev/null || lemon --version 2>/dev/null || echo '') ready!"
     echo ""
-    echo "  Quick start:  atelier --help"
-    echo "  Init runtime: atelier init"
-    echo "  Docs:         https://github.com/atelier-ws/atelier"
+    echo "  Quick start:  lemon --help"
+    echo "  Init runtime: lemon init"
+    echo "  Docs:         https://github.com/lemoncrowhq/lemoncrow"
 else
-    info "Atelier installed to ${ATELIER_BIN_DIR}"
+    info "LemonCrow installed to ${LEMONCROW_BIN_DIR}"
     echo ""
     echo "  Restart your shell or run:"
-    echo "    export PATH=\"${ATELIER_BIN_DIR}:\$PATH\""
-    echo "    atelier --help"
+    echo "    export PATH=\"${LEMONCROW_BIN_DIR}:\$PATH\""
+    echo "    lemon --help"
 fi
 echo ""

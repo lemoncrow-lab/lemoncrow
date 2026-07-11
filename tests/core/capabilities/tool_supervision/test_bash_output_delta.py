@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision import bash_exec, output_delta
+from lemoncrow.core.capabilities.tool_supervision import bash_exec, output_delta
 
 _BIG = "\n".join(f"line {i}" for i in range(120))  # > _MIN_CHARS
 
@@ -17,7 +17,7 @@ _BIG = "\n".join(f"line {i}" for i in range(120))  # > _MIN_CHARS
 @pytest.fixture(autouse=True)
 def _clean_state(monkeypatch: pytest.MonkeyPatch) -> None:
     output_delta.reset()
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "0")
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "0")
     monkeypatch.delenv(output_delta._ENV_ENABLED, raising=False)
 
 

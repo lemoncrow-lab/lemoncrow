@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from atelier.gateway.cli import cli
+from lemoncrow.gateway.cli import cli
 
 
 def _run_uninstall_script(
@@ -17,8 +17,8 @@ def _run_uninstall_script(
     install_dir: Path,
     protected_roots: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    (home / ".atelier").mkdir(parents=True)
-    (home / ".atelier" / "install_dir").write_text(str(install_dir), encoding="utf-8")
+    (home / ".lemoncrow").mkdir(parents=True)
+    (home / ".lemoncrow" / "install_dir").write_text(str(install_dir), encoding="utf-8")
     install_dir.mkdir(parents=True)
     (install_dir / "sentinel.txt").write_text("keep", encoding="utf-8")
 
@@ -26,11 +26,11 @@ def _run_uninstall_script(
         "HOME": str(home),
         "PATH": "/usr/bin:/bin",
         "SHELL": "/bin/bash",
-        "ATELIER_BIN_DIR": str(home / ".local" / "bin"),
-        "ATELIER_TOOL_DIR": str(home / ".local" / "share" / "uv" / "tools"),
+        "LEMONCROW_BIN_DIR": str(home / ".local" / "bin"),
+        "LEMONCROW_TOOL_DIR": str(home / ".local" / "share" / "uv" / "tools"),
     }
     if protected_roots is not None:
-        env["ATELIER_PROTECTED_SOURCE_ROOTS"] = protected_roots
+        env["LEMONCROW_PROTECTED_SOURCE_ROOTS"] = protected_roots
 
     return subprocess.run(
         ["bash", str(repo_root / "scripts" / "uninstall.sh"), "--purge", "--no-hosts"],
@@ -45,7 +45,7 @@ def _run_uninstall_script(
 def test_uninstall_purge_preserves_install_dir_under_projects(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     home = tmp_path / "home"
-    install_dir = home / "Projects" / "atelier"
+    install_dir = home / "Projects" / "lemoncrow"
 
     result = _run_uninstall_script(repo_root, home=home, install_dir=install_dir)
 
@@ -58,7 +58,7 @@ def test_uninstall_purge_preserves_install_dir_under_projects(tmp_path: Path) ->
 def test_uninstall_purge_removes_default_managed_install_dir(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     home = tmp_path / "home"
-    install_dir = home / ".atelier" / "install"
+    install_dir = home / ".lemoncrow" / "install"
 
     result = _run_uninstall_script(repo_root, home=home, install_dir=install_dir)
 
@@ -70,7 +70,7 @@ def test_uninstall_purge_removes_default_managed_install_dir(tmp_path: Path) -> 
 def test_uninstall_command_calls_script(tmp_path: Path) -> None:
     runner = CliRunner()
     # Mock _project_root to point to a temp dir where we'll place a dummy script
-    with patch("atelier.gateway.cli.commands.admin._project_root") as mock_root:
+    with patch("lemoncrow.gateway.cli.commands.admin._project_root") as mock_root:
         mock_root.return_value = tmp_path
         script_dir = tmp_path / "scripts"
         script_dir.mkdir()
@@ -93,7 +93,7 @@ def test_uninstall_command_calls_script(tmp_path: Path) -> None:
 
 def test_uninstall_command_with_workspace(tmp_path: Path) -> None:
     runner = CliRunner()
-    with patch("atelier.gateway.cli.commands.admin._project_root") as mock_root:
+    with patch("lemoncrow.gateway.cli.commands.admin._project_root") as mock_root:
         mock_root.return_value = tmp_path
         script_dir = tmp_path / "scripts"
         script_dir.mkdir()
@@ -116,7 +116,7 @@ def test_uninstall_command_with_workspace(tmp_path: Path) -> None:
 
 def test_uninstall_command_with_purge(tmp_path: Path) -> None:
     runner = CliRunner()
-    with patch("atelier.gateway.cli.commands.admin._project_root") as mock_root:
+    with patch("lemoncrow.gateway.cli.commands.admin._project_root") as mock_root:
         mock_root.return_value = tmp_path
         script_dir = tmp_path / "scripts"
         script_dir.mkdir()
@@ -138,7 +138,7 @@ def test_uninstall_command_with_purge(tmp_path: Path) -> None:
 
 def test_uninstall_command_script_not_found(tmp_path: Path) -> None:
     runner = CliRunner()
-    with patch("atelier.gateway.cli.commands.admin._project_root") as mock_root:
+    with patch("lemoncrow.gateway.cli.commands.admin._project_root") as mock_root:
         mock_root.return_value = tmp_path
         # scripts/uninstall.sh does not exist
         result = runner.invoke(cli, ["uninstall"])
@@ -148,7 +148,7 @@ def test_uninstall_command_script_not_found(tmp_path: Path) -> None:
 
 def test_uninstall_command_failure(tmp_path: Path) -> None:
     runner = CliRunner()
-    with patch("atelier.gateway.cli.commands.admin._project_root") as mock_root:
+    with patch("lemoncrow.gateway.cli.commands.admin._project_root") as mock_root:
         mock_root.return_value = tmp_path
         script_dir = tmp_path / "scripts"
         script_dir.mkdir()
@@ -186,30 +186,30 @@ def test_uninstall_codex_cleans_workspace_marketplace_and_agents(tmp_path: Path)
     workspace = tmp_path / "workspace"
     marketplace = workspace / ".agents" / "plugins" / "marketplace.json"
     agents_dir = workspace / ".codex" / "agents"
-    plugin_dir = workspace / ".codex" / "plugins" / "atelier"
+    plugin_dir = workspace / ".codex" / "plugins" / "lemoncrow"
     tasks_dir = workspace / ".codex" / "tasks"
     marketplace.parent.mkdir(parents=True)
     agents_dir.mkdir(parents=True)
     plugin_dir.mkdir(parents=True)
     tasks_dir.mkdir(parents=True)
-    marketplace.write_text(json.dumps({"plugins": [{"name": "other"}, {"name": "atelier"}]}) + "\n", encoding="utf-8")
-    (agents_dir / "atelier.code.toml").write_text("name = 'atelier.code'\n", encoding="utf-8")
+    marketplace.write_text(json.dumps({"plugins": [{"name": "other"}, {"name": "lemoncrow"}]}) + "\n", encoding="utf-8")
+    (agents_dir / "lemoncrow.code.toml").write_text("name = 'lemoncrow.code'\n", encoding="utf-8")
     (agents_dir / "custom.toml").write_text("name = 'custom'\n", encoding="utf-8")
     (plugin_dir / "plugin.json").write_text("{}\n", encoding="utf-8")
     (tasks_dir / "preflight.md").write_text("task\n", encoding="utf-8")
     (workspace / "AGENTS.md").write_text(
-        "before\n<!-- ATELIER START -->\natelier:code\n<!-- ATELIER END -->\nafter\n", encoding="utf-8"
+        "before\n<!-- LEMONCROW START -->\nlemon:code\n<!-- LEMONCROW END -->\nafter\n", encoding="utf-8"
     )
 
     result = _run_host_uninstall(repo_root, "uninstall_codex.sh", home, workspace)
 
     assert result.returncode == 0, result.stderr
     assert json.loads(marketplace.read_text(encoding="utf-8"))["plugins"] == [{"name": "other"}]
-    assert not (agents_dir / "atelier.code.toml").exists()
+    assert not (agents_dir / "lemoncrow.code.toml").exists()
     assert (agents_dir / "custom.toml").exists()
     assert not plugin_dir.exists()
     assert not tasks_dir.exists()
-    assert "atelier:code" not in (workspace / "AGENTS.md").read_text(encoding="utf-8")
+    assert "lemon:code" not in (workspace / "AGENTS.md").read_text(encoding="utf-8")
 
 
 def test_uninstall_opencode_cleans_provider_permissions_plugins_and_agents(tmp_path: Path) -> None:
@@ -219,26 +219,26 @@ def test_uninstall_opencode_cleans_provider_permissions_plugins_and_agents(tmp_p
     config = workspace / "opencode.json"
     agents_dir = workspace / ".opencode" / "agents"
     plugins_dir = workspace / ".opencode" / "plugins"
-    staging_dir = home / ".atelier" / "opencode"
+    staging_dir = home / ".lemoncrow" / "opencode"
     agents_dir.mkdir(parents=True)
     plugins_dir.mkdir(parents=True)
     staging_dir.mkdir(parents=True)
     config.write_text(
         json.dumps(
             {
-                "default_agent": "atelier",
-                "mcp": {"atelier": {}, "other": {}},
-                "provider": {"atelier": {}, "other": {}},
-                "permission": {"atelier_*": "allow", "other_*": "ask"},
+                "default_agent": "lemoncrow.code",
+                "mcp": {"lemon": {}, "other": {}},
+                "provider": {"lemon": {}, "other": {}},
+                "permission": {"lemon_*": "allow", "other_*": "ask"},
             }
         )
         + "\n",
         encoding="utf-8",
     )
-    (agents_dir / "atelier.code.md").write_text("agent\n", encoding="utf-8")
+    (agents_dir / "lemoncrow.code.md").write_text("agent\n", encoding="utf-8")
     (agents_dir / "custom.md").write_text("agent\n", encoding="utf-8")
-    (plugins_dir / "atelier-nudge.js").write_text("plugin\n", encoding="utf-8")
-    (plugins_dir / "atelier_nudge.py").write_text("plugin\n", encoding="utf-8")
+    (plugins_dir / "lemoncrow-nudge.js").write_text("plugin\n", encoding="utf-8")
+    (plugins_dir / "lemoncrow_nudge.py").write_text("plugin\n", encoding="utf-8")
 
     result = _run_host_uninstall(repo_root, "uninstall_opencode.sh", home, workspace)
 
@@ -248,10 +248,10 @@ def test_uninstall_opencode_cleans_provider_permissions_plugins_and_agents(tmp_p
     assert data["mcp"] == {"other": {}}
     assert data["provider"] == {"other": {}}
     assert data["permission"] == {"other_*": "ask"}
-    assert not (agents_dir / "atelier.code.md").exists()
+    assert not (agents_dir / "lemoncrow.code.md").exists()
     assert (agents_dir / "custom.md").exists()
-    assert not (plugins_dir / "atelier-nudge.js").exists()
-    assert not (plugins_dir / "atelier_nudge.py").exists()
+    assert not (plugins_dir / "lemoncrow-nudge.js").exists()
+    assert not (plugins_dir / "lemoncrow_nudge.py").exists()
     assert not staging_dir.exists()
 
 
@@ -264,23 +264,23 @@ def test_uninstall_claude_cleans_workspace_settings_agents_and_skills(tmp_path: 
     skills_dir = claude_dir / "skills" / "example"
     agents_dir.mkdir(parents=True)
     skills_dir.mkdir(parents=True)
-    (agents_dir / "atelier.code.md").write_text("agent\n", encoding="utf-8")
+    (agents_dir / "lemoncrow.code.md").write_text("agent\n", encoding="utf-8")
     (agents_dir / "custom.md").write_text("agent\n", encoding="utf-8")
     (skills_dir / "SKILL.md").write_text("skill\n", encoding="utf-8")
     (claude_dir / "settings.local.json").write_text(
-        json.dumps({"env": {"CLAUDE_WORKSPACE_ROOT": str(workspace), "KEEP": "1"}, "agent": "atelier:code"}) + "\n",
+        json.dumps({"env": {"CLAUDE_WORKSPACE_ROOT": str(workspace), "KEEP": "1"}, "agent": "lemon:code"}) + "\n",
         encoding="utf-8",
     )
     (claude_dir / "settings.json").write_text(
         json.dumps(
             {
                 "permissions": {
-                    "allow": ["mcp__atelier__read", "Bash(git *)", "Other"],
+                    "allow": ["mcp__lemon__read", "Bash(git *)", "Other"],
                     "deny": ["Read", "OtherDeny"],
                 },
-                "statusLine": {"command": "atelier status"},
-                "subagentStatusLine": {"command": "atelier status"},
-                "agent": "atelier:code",
+                "statusLine": {"command": "lemon status"},
+                "subagentStatusLine": {"command": "lemon status"},
+                "agent": "lemon:code",
             }
         )
         + "\n",
@@ -294,6 +294,6 @@ def test_uninstall_claude_cleans_workspace_settings_agents_and_skills(tmp_path: 
     assert local_settings == {"env": {"KEEP": "1"}}
     settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
     assert settings == {"permissions": {"allow": ["Other"], "deny": ["OtherDeny"]}}
-    assert not (agents_dir / "atelier.code.md").exists()
+    assert not (agents_dir / "lemoncrow.code.md").exists()
     assert (agents_dir / "custom.md").exists()
     assert not (claude_dir / "skills").exists()

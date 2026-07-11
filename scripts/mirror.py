@@ -4,7 +4,7 @@
 Includes only paths listed in release/public-paths.txt (allowlist) from every
 commit tree via git plumbing -- no squash, no wipe, real history preserved.
 
-State (two refs, pushed to `origin`/atelier-dev so any checkout can pick them up):
+State (two refs, pushed to `origin`/lemoncrow-dev so any checkout can pick them up):
   refs/mirror/last      -- last mirrored source SHA (watermark)
   refs/mirror/last-pub  -- corresponding public SHA we created last run
 
@@ -38,13 +38,13 @@ PUBLIC_PATHS_FILE = REPO_ROOT / "release" / "public-paths.txt"
 DEFAULT_SOURCE_REF = "HEAD"
 MIRROR_DEV_TAG = "refs/mirror/last"  # watermark: last mirrored source SHA
 MIRROR_PUB_TAG = "refs/mirror/last-pub"  # public SHA created by last run
-DEFAULT_PUBLIC_REMOTE = "https://github.com/atelier-ws/atelier.git"
-DEV_REMOTE = "origin"  # atelier-dev -- where the watermark refs live
+DEFAULT_PUBLIC_REMOTE = "https://github.com/lemoncrowhq/lemoncrow.git"
+DEV_REMOTE = "origin"  # lemoncrow-dev -- where the watermark refs live
 
 # Files injected into the public repo that don't exist in the dev repo's public paths.
 # Each entry is (source_path_in_dev_repo, dest_path_in_public_tree).
 INJECTED_FILES: list[tuple[str, str]] = [
-    ("release/atelier-release.yml", ".github/workflows/release.yml"),
+    ("release/lemoncrow-release.yml", ".github/workflows/release.yml"),
 ]
 
 
@@ -453,7 +453,7 @@ def main() -> int:
     # update-index + write-tree per commit; no per-directory `mktree` fan-out).
     # Incremental runs seed the index from last run's already-filtered public
     # tree, so we never rescan the full source repo -- only the commit diffs.
-    index_path = Path(tempfile.mktemp(prefix="atelier-mirror-index-"))
+    index_path = Path(tempfile.mktemp(prefix="lemoncrow-mirror-index-"))
     try:
         dev_to_pub: dict[str, str] = {}
         current_pub_parent = initial_pub_parent  # None on fresh run

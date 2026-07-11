@@ -2,7 +2,7 @@
 
 The shipped ``bench_pairs_swebench_gold.json`` gold is the file the SWE-task PR edited
 (edit-localization). For retrieval/search eval that is mislabeled: measured on
-atelier, ~45%% of golds are test files and ~40%% point to a file that does NOT
+LemonCrow, ~45%% of golds are test files and ~40%% point to a file that does NOT
 define the symbols the query names, so a definition-retriever structurally cannot
 score them however good it is (overall lexical MRR 0.67, but 0.95 on the subset
 whose gold actually defines a named symbol).

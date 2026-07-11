@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 from click.testing import CliRunner
 
-from atelier.gateway.cli import cli
+from lemoncrow.gateway.cli import cli
 
 
 def test_cli_letta_commands_route_to_compose(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []
     monkeypatch.setattr(
-        "atelier.gateway.integrations.openmemory_lifecycle.run_compose",
+        "lemoncrow.gateway.integrations.openmemory_lifecycle.run_compose",
         lambda args: calls.append(args),
     )
     runner = CliRunner()

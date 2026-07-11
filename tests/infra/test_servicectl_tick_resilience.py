@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from atelier.infra.runtime import servicectl_lifecycle as svc
+from lemoncrow.infra.runtime import servicectl_lifecycle as svc
 
 
 def test_servicectl_import_sessions_survives_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

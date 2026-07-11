@@ -54,15 +54,15 @@ def test_arm_specs_resolve_persona_by_capability() -> None:
     specs = CODEBENCH.ARM_SPECS
     # baseline runs the vanilla Claude default for the only capability (code).
     assert specs["baseline"].persona_by_capability == {"code": None}
-    # atelier runs the generated plugin's autonomous (auto) persona.
-    assert specs["atelier"].plugin is True
-    assert specs["atelier"].strip_mcp is False
-    assert specs["atelier"].persona_by_capability["code"] == "atelier:auto"
+    # lemoncrow runs the generated plugin's autonomous (auto) persona.
+    assert specs["lemoncrow"].plugin is True
+    assert specs["lemoncrow"].strip_mcp is False
+    assert specs["lemoncrow"].persona_by_capability["code"] == "lemon:auto"
     # execute / solve are code-only coding personas (no built-in twin).
     assert set(specs["execute"].persona_by_capability) == {"code"}
     assert set(specs["solve"].persona_by_capability) == {"code"}
-    assert CODEBENCH.VALID_ARMS == ("baseline", "atelier", "execute", "solve", "auto")
-    assert CODEBENCH.HEAVY_ARMS == ("atelier", "execute", "solve", "auto")
+    assert CODEBENCH.VALID_ARMS == ("baseline", "lemoncrow", "execute", "solve", "auto")
+    assert CODEBENCH.HEAVY_ARMS == ("lemoncrow", "execute", "solve", "auto")
 
 
 def test_rate_limiter_does_not_block_proxy_event_loop(monkeypatch: MonkeyPatch) -> None:
@@ -126,7 +126,7 @@ def test_write_csv_artifacts_emits_detail_and_summary(tmp_path: Path) -> None:
         ),
         CODEBENCH.ArmResult(
             task="task-1",
-            arm="atelier",
+            arm="lemoncrow",
             rep=0,
             ok=True,
             cost_usd=0.75,
@@ -140,7 +140,7 @@ def test_write_csv_artifacts_emits_detail_and_summary(tmp_path: Path) -> None:
             models=["sonnet"],
             is_error=False,
             result_excerpt="ok",
-            flow_path="atelier.flow",
+            flow_path="lemoncrow.flow",
         ),
         CODEBENCH.ArmResult(
             task="task-1",
@@ -180,39 +180,39 @@ def test_write_csv_artifacts_emits_detail_and_summary(tmp_path: Path) -> None:
         model_rows = list(csv.DictReader(handle))
 
     assert len(detail_rows) == 3
-    assert {row["arm"] for row in summary_rows} == {"baseline", "atelier", "eval"}
-    atelier_row = next(row for row in summary_rows if row["arm"] == "atelier")
+    assert {row["arm"] for row in summary_rows} == {"baseline", "lemoncrow", "eval"}
+    lemoncrow_row = next(row for row in summary_rows if row["arm"] == "lemoncrow")
     eval_row = next(row for row in summary_rows if row["arm"] == "eval")
-    assert atelier_row["cost_usd"] == "0.75"
-    assert atelier_row["cost_savings_vs_baseline_pct"] == "40.0"
-    assert atelier_row["duration_savings_vs_baseline_pct"] == "30.0"
-    assert atelier_row["input_token_savings_vs_baseline_pct"] == "30.0"
-    assert atelier_row["output_token_savings_vs_baseline_pct"] == "20.0"
-    assert atelier_row["valid_runs"] == "1"
+    assert lemoncrow_row["cost_usd"] == "0.75"
+    assert lemoncrow_row["cost_savings_vs_baseline_pct"] == "40.0"
+    assert lemoncrow_row["duration_savings_vs_baseline_pct"] == "30.0"
+    assert lemoncrow_row["input_token_savings_vs_baseline_pct"] == "30.0"
+    assert lemoncrow_row["output_token_savings_vs_baseline_pct"] == "20.0"
+    assert lemoncrow_row["valid_runs"] == "1"
     assert eval_row["cost_savings_vs_baseline_pct"] == "20.0"
-    assert {row["candidate_arm"] for row in task_metric_rows} == {"atelier", "eval"}
-    atelier_task_row = next(row for row in task_metric_rows if row["candidate_arm"] == "atelier")
-    assert atelier_task_row["baseline_cost_usd_median"] == "1.25"
-    assert atelier_task_row["candidate_cost_usd_median"] == "0.75"
-    assert atelier_task_row["cost_savings_vs_baseline_pct"] == "40.0"
-    assert atelier_task_row["baseline_tokens_median"] == "135"
-    assert atelier_task_row["candidate_tokens_median"] == "115"
-    assert atelier_task_row["tokens_savings_vs_baseline_pct"] == "14.8"
-    assert atelier_task_row["tool_calls_savings_vs_baseline_pct"] == "33.3"
-    assert {row["candidate_arm"] for row in task_correctness_rows} == {"atelier", "eval"}
-    assert next(row for row in task_correctness_rows if row["candidate_arm"] == "atelier")["winner"] == "unjudged"
-    assert {row["candidate_arm"] for row in pairwise_rows} == {"atelier", "eval"}
-    assert next(row for row in pairwise_rows if row["candidate_arm"] == "atelier")["status"] == "unjudged"
-    assert {row["candidate_arm"] for row in adjusted_rows} == {"atelier", "eval"}
-    assert next(row for row in adjusted_rows if row["candidate_arm"] == "atelier")["raw_saved_usd"] == "0.5"
+    assert {row["candidate_arm"] for row in task_metric_rows} == {"lemoncrow", "eval"}
+    lemoncrow_task_row = next(row for row in task_metric_rows if row["candidate_arm"] == "lemoncrow")
+    assert lemoncrow_task_row["baseline_cost_usd_median"] == "1.25"
+    assert lemoncrow_task_row["candidate_cost_usd_median"] == "0.75"
+    assert lemoncrow_task_row["cost_savings_vs_baseline_pct"] == "40.0"
+    assert lemoncrow_task_row["baseline_tokens_median"] == "135"
+    assert lemoncrow_task_row["candidate_tokens_median"] == "115"
+    assert lemoncrow_task_row["tokens_savings_vs_baseline_pct"] == "14.8"
+    assert lemoncrow_task_row["tool_calls_savings_vs_baseline_pct"] == "33.3"
+    assert {row["candidate_arm"] for row in task_correctness_rows} == {"lemoncrow", "eval"}
+    assert next(row for row in task_correctness_rows if row["candidate_arm"] == "lemoncrow")["winner"] == "unjudged"
+    assert {row["candidate_arm"] for row in pairwise_rows} == {"lemoncrow", "eval"}
+    assert next(row for row in pairwise_rows if row["candidate_arm"] == "lemoncrow")["status"] == "unjudged"
+    assert {row["candidate_arm"] for row in adjusted_rows} == {"lemoncrow", "eval"}
+    assert next(row for row in adjusted_rows if row["candidate_arm"] == "lemoncrow")["raw_saved_usd"] == "0.5"
     assert {row["source"] for row in model_rows} == {"result_totals"}
 
     report = CODEBENCH.report(results)
     assert "=== Per-task medians (clean runs) ===" in report
-    assert "| task-1 | atelier | 40% cheaper | 14.8% fewer | 30% faster | 33.3% fewer | 1 |" in report
+    assert "| task-1 | lemoncrow | 40% cheaper | 14.8% fewer | 30% faster | 33.3% fewer | 1 |" in report
     assert "| task-1 | baseline | 1.2500 | 135 | 1.0 | 3 | 1 |" in report
     assert "=== Per-task correctness and cost ===" in report
-    assert "| task-1 | atelier | 0/0 | unjudged | unjudged | $0.7500 | 40% cheaper | unjudged |" in report
+    assert "| task-1 | lemoncrow | 0/0 | unjudged | unjudged | $0.7500 | 40% cheaper | unjudged |" in report
     assert "Quality     : unjudged" in report
     assert "task_correctness.csv" in report
     assert "model_audit.csv" in report
@@ -242,7 +242,7 @@ def test_task_correctness_rows_pick_winner_from_score_then_cost() -> None:
     )
     candidate = CODEBENCH.ArmResult(
         task="task-1",
-        arm="atelier",
+        arm="lemoncrow",
         rep=0,
         ok=True,
         cost_usd=0.75,
@@ -256,7 +256,7 @@ def test_task_correctness_rows_pick_winner_from_score_then_cost() -> None:
         models=["sonnet"],
         is_error=False,
         result_excerpt="ok",
-        flow_path="atelier.flow",
+        flow_path="lemoncrow.flow",
         correct=True,
         score=0.8,
         judge_model="verify",
@@ -268,7 +268,7 @@ def test_task_correctness_rows_pick_winner_from_score_then_cost() -> None:
         {
             "task": "task-1",
             "baseline_arm": "baseline",
-            "candidate_arm": "atelier",
+            "candidate_arm": "lemoncrow",
             "baseline_runs": 1,
             "candidate_runs": 1,
             "baseline_judged_runs": 1,
@@ -281,7 +281,7 @@ def test_task_correctness_rows_pick_winner_from_score_then_cost() -> None:
             "baseline_cost_usd": 1.25,
             "candidate_cost_usd": 0.75,
             "cost_savings_vs_baseline_pct": 40.0,
-            "winner": "atelier",
+            "winner": "lemoncrow",
             "baseline_judge_models": "verify",
             "candidate_judge_models": "verify",
         }
@@ -300,7 +300,7 @@ def test_pairwise_quality_judge_counts_only_non_regressed_savings(monkeypatch: M
         "pair_probe", "baseline", 0, True, 1.0, 10, 9, 1, 100, 0, 0, 10, ["sonnet"], False, "base", ""
     )
     candidate = CODEBENCH.ArmResult(
-        "pair_probe", "atelier", 0, True, 0.4, 8, 7, 1, 50, 0, 0, 8, ["sonnet"], False, "better", ""
+        "pair_probe", "lemoncrow", 0, True, 0.4, 8, 7, 1, 50, 0, 0, 8, ["sonnet"], False, "better", ""
     )
 
     rows = CODEBENCH.judge_pairwise_quality(
@@ -309,7 +309,7 @@ def test_pairwise_quality_judge_counts_only_non_regressed_savings(monkeypatch: M
     adjusted = CODEBENCH._quality_adjusted_summary_rows(rows)
 
     assert rows[0].judged is True
-    assert rows[0].winner == "atelier"
+    assert rows[0].winner == "lemoncrow"
     assert rows[0].candidate_at_least_baseline is True
     assert rows[0].quality_adjusted_saved_usd == 0.6
     assert adjusted[0]["quality_passed_pairs"] == 1
@@ -412,7 +412,7 @@ def test_main_resume_skips_existing_runs(tmp_path: Path, monkeypatch: MonkeyPatc
             "task-1",
             "--arms",
             "baseline",
-            "atelier",
+            "lemoncrow",
             "--reps",
             "1",
             "--out",
@@ -422,7 +422,7 @@ def test_main_resume_skips_existing_runs(tmp_path: Path, monkeypatch: MonkeyPatc
     )
 
     assert CODEBENCH.main() == 0
-    assert calls == [("task-1", "atelier", 0)]
+    assert calls == [("task-1", "lemoncrow", 0)]
 
 
 def test_validate_result_excerpt_rejects_placeholder_response() -> None:
@@ -614,7 +614,7 @@ def test_normalize_model_usage_reads_camelcase_keys() -> None:
     rows = [
         CODEBENCH.ArmResult(
             task="task-1",
-            arm="atelier",
+            arm="lemoncrow",
             rep=rep,
             ok=True,
             cost_usd=1.0,
@@ -628,7 +628,7 @@ def test_normalize_model_usage_reads_camelcase_keys() -> None:
             models=["m"],
             is_error=False,
             result_excerpt="ok",
-            flow_path=f"atelier-{rep}.flow",
+            flow_path=f"lemoncrow-{rep}.flow",
             model_usage={
                 "m": {
                     "inputTokens": 100,
@@ -649,7 +649,7 @@ def test_normalize_model_usage_reads_camelcase_keys() -> None:
         "thinking": 0,
     }
     # Aggregating both rows sums the per-component tokens rather than zeroing them.
-    agg = CODEBENCH._agg(rows, "atelier")
+    agg = CODEBENCH._agg(rows, "lemoncrow")
     assert agg["model_usage"]["m"] == {
         "input": 200,
         "output": 80,
@@ -662,7 +662,7 @@ def test_normalize_model_usage_reads_camelcase_keys() -> None:
 def test_is_content_invalid_excludes_timeouts_but_flags_off_topic() -> None:
     timed_out = CODEBENCH.ArmResult(
         task="task-1",
-        arm="atelier",
+        arm="lemoncrow",
         rep=0,
         ok=False,
         cost_usd=0.0,
@@ -676,14 +676,14 @@ def test_is_content_invalid_excludes_timeouts_but_flags_off_topic() -> None:
         models=[],
         is_error=True,
         result_excerpt="timed out after 1800s",
-        flow_path="atelier.flow",
+        flow_path="lemoncrow.flow",
         valid=False,
         validity_reason=CODEBENCH.EXECUTION_FAILED_REASON,
         timed_out=True,
     )
     off_topic = CODEBENCH.ArmResult(
         task="task-1",
-        arm="atelier",
+        arm="lemoncrow",
         rep=0,
         ok=True,
         cost_usd=0.5,
@@ -697,7 +697,7 @@ def test_is_content_invalid_excludes_timeouts_but_flags_off_topic() -> None:
         models=["sonnet"],
         is_error=False,
         result_excerpt="here is a list of things I can do",
-        flow_path="atelier.flow",
+        flow_path="lemoncrow.flow",
         valid=False,
         validity_reason="off-task capability/list response",
         timed_out=False,

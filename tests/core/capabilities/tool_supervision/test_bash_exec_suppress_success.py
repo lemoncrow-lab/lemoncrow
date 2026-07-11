@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision import bash_exec
+from lemoncrow.core.capabilities.tool_supervision import bash_exec
 
 _NOISE = "\n".join(f"progress line {i}" for i in range(60))
 _INSTALL_OUT = _NOISE + "\nInstalled 12 packages in 1.02s"
@@ -22,7 +22,7 @@ _PUSH_STDERR = (
 
 @pytest.fixture(autouse=True)
 def _no_spill(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "0")
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "0")
 
 
 def _compact(command: str, stdout: str = "", stderr: str = "", exit_code: int = 0) -> bash_exec.RunResult:

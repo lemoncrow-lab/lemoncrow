@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.tool_supervision.anomaly import ToolAnomalyDetector
+from lemoncrow.core.capabilities.tool_supervision.anomaly import ToolAnomalyDetector
 
 
 def test_z_score_fires_on_sudden_spike() -> None:

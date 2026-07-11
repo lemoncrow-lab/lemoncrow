@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.infra.runtime.realtime_context import RealtimeContextManager
+from lemoncrow.infra.runtime.realtime_context import RealtimeContextManager
 
 
 def test_realtime_context_records_and_compacts(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     mgr = RealtimeContextManager(root)
 
     mgr.record_tool_input("lint", {"task": "fix", "plan": ["a", "b"]})
@@ -35,7 +35,7 @@ def test_realtime_context_records_and_compacts(tmp_path: Path) -> None:
 
 
 def test_realtime_context_persists_to_disk(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     mgr = RealtimeContextManager(root)
     mgr.record_tool_input("reasoning", {"task": "ship"})
     mgr.persist()

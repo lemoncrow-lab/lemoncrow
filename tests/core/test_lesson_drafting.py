@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.lesson_promotion.draft import draft_lesson_candidate
-from atelier.core.foundation.models import Playbook, Trace, ValidationResult
+from lemoncrow.core.capabilities.lesson_promotion.draft import draft_lesson_candidate
+from lemoncrow.core.foundation.models import Playbook, Trace, ValidationResult
 
 
 def _trace(

@@ -13,12 +13,12 @@ HOOK = ROOT / "integrations" / "claude" / "plugin" / "hooks" / "user_prompt.py"
 def test_user_prompt_hook_persists_last_user_prompt(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    atelier_root = tmp_path / ".atelier"
+    lemoncrow_root = tmp_path / ".lemoncrow"
     env = os.environ.copy()
     env.update(
         {
-            "ATELIER_ROOT": str(atelier_root),
-            "ATELIER_STORE_ROOT": str(atelier_root),
+            "LEMONCROW_ROOT": str(lemoncrow_root),
+            "LEMONCROW_STORE_ROOT": str(lemoncrow_root),
             "CLAUDE_WORKSPACE_ROOT": str(workspace),
         }
     )
@@ -37,9 +37,9 @@ def test_user_prompt_hook_persists_last_user_prompt(tmp_path: Path) -> None:
         env=env,
     )
 
-    from atelier.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import workspace_key
 
-    session_state = atelier_root / "workspaces" / workspace_key(workspace) / "session_state.json"
+    session_state = lemoncrow_root / "workspaces" / workspace_key(workspace) / "session_state.json"
     data = json.loads(session_state.read_text(encoding="utf-8"))
     assert data["last_user_prompt"] == "fix the auth flow"
 
@@ -51,19 +51,19 @@ def test_user_prompt_hook_bumps_session_turns_for_real_prompts(tmp_path: Path) -
     SubagentStop already use) once per real user-submitted prompt."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    atelier_root = tmp_path / ".atelier"
+    lemoncrow_root = tmp_path / ".lemoncrow"
     session_id = "sess-turns"
     env = os.environ.copy()
     env.update(
         {
-            "ATELIER_ROOT": str(atelier_root),
-            "ATELIER_STORE_ROOT": str(atelier_root),
+            "LEMONCROW_ROOT": str(lemoncrow_root),
+            "LEMONCROW_STORE_ROOT": str(lemoncrow_root),
             "CLAUDE_WORKSPACE_ROOT": str(workspace),
         }
     )
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
-    stats_path = session_dir(atelier_root, "claude", session_id) / "stats.json"
+    stats_path = session_dir(lemoncrow_root, "claude", session_id) / "stats.json"
 
     for i, prompt in enumerate(["first message", "second message"], start=1):
         payload = {
@@ -91,13 +91,13 @@ def test_user_prompt_hook_ignores_noop_continuation_for_turns(tmp_path: Path) ->
     harness's own retry instead of actually editing."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    atelier_root = tmp_path / ".atelier"
+    lemoncrow_root = tmp_path / ".lemoncrow"
     session_id = "sess-turns-noop"
     env = os.environ.copy()
     env.update(
         {
-            "ATELIER_ROOT": str(atelier_root),
-            "ATELIER_STORE_ROOT": str(atelier_root),
+            "LEMONCROW_ROOT": str(lemoncrow_root),
+            "LEMONCROW_STORE_ROOT": str(lemoncrow_root),
             "CLAUDE_WORKSPACE_ROOT": str(workspace),
         }
     )
@@ -115,7 +115,7 @@ def test_user_prompt_hook_ignores_noop_continuation_for_turns(tmp_path: Path) ->
         check=True,
         env=env,
     )
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
-    stats_path = session_dir(atelier_root, "claude", session_id) / "stats.json"
+    stats_path = session_dir(lemoncrow_root, "claude", session_id) / "stats.json"
     assert not stats_path.exists()

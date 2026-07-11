@@ -19,7 +19,7 @@ What it reports only as a proxy
 
 Usage:
     uv run pytest tests/benchmarks/context_quality/M2_routing.py -v -m slow
-    ATELIER_ROUTE_TRACE_FILE=/path/to/live_savings_events.jsonl uv run pytest ... -v -m slow
+    LEMONCROW_ROUTE_TRACE_FILE=/path/to/live_savings_events.jsonl uv run pytest ... -v -m slow
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities.pricing import get_model_pricing
-from atelier.core.foundation.paths import default_store_root
+from lemoncrow.core.capabilities.pricing import get_model_pricing
+from lemoncrow.core.foundation.paths import default_store_root
 
 _TIER_MODELS: dict[str, str] = {
     "cheap": "claude-haiku-4-5",
@@ -88,11 +88,11 @@ class SessionReplay:
 def _trace_path(explicit: Path | None = None) -> Path:
     if explicit is not None:
         return explicit
-    env_path = os.environ.get("ATELIER_ROUTE_TRACE_FILE")
+    env_path = os.environ.get("LEMONCROW_ROUTE_TRACE_FILE")
     if env_path:
         return Path(env_path).expanduser()
     primary = default_store_root() / "live_savings_events.jsonl"
-    home_fallback = Path.home() / ".atelier" / "live_savings_events.jsonl"
+    home_fallback = Path.home() / ".lemoncrow" / "live_savings_events.jsonl"
     if primary.exists():
         return primary
     return home_fallback
@@ -165,7 +165,7 @@ def run_benchmark(
     path = _trace_path(trace_path)
     rows = _load_rows(path)
     if not rows and trace_path is None:
-        fallback = Path.home() / ".atelier" / "live_savings_events.jsonl"
+        fallback = Path.home() / ".lemoncrow" / "live_savings_events.jsonl"
         if fallback != path:
             path = fallback
             rows = _load_rows(path)

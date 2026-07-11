@@ -1,7 +1,7 @@
-"""Integration tests for the Atelier OpenAI-compatible gateway.
+"""Integration tests for the LemonCrow OpenAI-compatible gateway.
 
 These tests verify the HTTP surface (schemas, routing, streaming format) using
-FastAPI's TestClient. They do NOT start a real Atelier runtime — the runtime is
+FastAPI's TestClient. They do NOT start a real LemonCrow runtime — the runtime is
 mocked so tests run offline and quickly.
 """
 
@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
-# Minimal AtelierEvent stubs — avoids importing the full runtime
+# Minimal LemonCrowEvent stubs — avoids importing the full runtime
 # ---------------------------------------------------------------------------
 
 
@@ -67,16 +67,16 @@ _TEST_TOKEN = "test-gateway-token"
 def client(mock_runtime, monkeypatch):
     """Return a TestClient wired to a mock runtime.
 
-    The gateway gates /v1/* behind ATELIER_GATEWAY_TOKEN (the runtime auto-runs
+    The gateway gates /v1/* behind LEMONCROW_GATEWAY_TOKEN (the runtime auto-runs
     shell/edit tools), and TestClient is not a loopback client, so the token is
     set here and the client sends it by default.
     """
-    monkeypatch.setenv("ATELIER_GATEWAY_TOKEN", _TEST_TOKEN)
+    monkeypatch.setenv("LEMONCROW_GATEWAY_TOKEN", _TEST_TOKEN)
     with patch(
-        "atelier.gateway.openai_gateway.app.InteractiveRuntime",
+        "lemoncrow.gateway.openai_gateway.app.InteractiveRuntime",
         return_value=mock_runtime,
     ):
-        from atelier.gateway.openai_gateway.app import create_app
+        from lemoncrow.gateway.openai_gateway.app import create_app
 
         app = create_app(project_root=None, yolo=True)
         with TestClient(app, raise_server_exceptions=True) as c:
@@ -114,7 +114,7 @@ def test_chat_nonstreaming(client):
     resp = c.post(
         "/v1/chat/completions",
         json={
-            "model": "atelier-default",
+            "model": "lemoncrow-default",
             "messages": [{"role": "user", "content": "hi"}],
             "stream": False,
         },
@@ -134,7 +134,7 @@ def test_chat_streaming(client):
     resp = c.post(
         "/v1/chat/completions",
         json={
-            "model": "atelier-default",
+            "model": "lemoncrow-default",
             "messages": [{"role": "user", "content": "stream test"}],
             "stream": True,
         },
@@ -158,7 +158,7 @@ def test_empty_messages(client):
     c, _ = client
     resp = c.post(
         "/v1/chat/completions",
-        json={"model": "atelier-default", "messages": []},
+        json={"model": "lemoncrow-default", "messages": []},
     )
     assert resp.status_code == 422
 
@@ -168,7 +168,7 @@ def test_no_user_message(client):
     resp = c.post(
         "/v1/chat/completions",
         json={
-            "model": "atelier-default",
+            "model": "lemoncrow-default",
             "messages": [{"role": "system", "content": "You are helpful."}],
         },
     )
@@ -182,7 +182,7 @@ def test_error_event_in_stream(client):
     resp = c.post(
         "/v1/chat/completions",
         json={
-            "model": "atelier-default",
+            "model": "lemoncrow-default",
             "messages": [{"role": "user", "content": "trigger error"}],
             "stream": True,
         },
@@ -221,12 +221,12 @@ def test_models_refresh_is_post(client):
 def test_v1_blocks_non_loopback_without_token(mock_runtime, monkeypatch):
     # When no token is set, only loopback clients may reach /v1/*. TestClient is
     # not loopback (host == "testclient"), so it must be rejected with 403.
-    monkeypatch.delenv("ATELIER_GATEWAY_TOKEN", raising=False)
+    monkeypatch.delenv("LEMONCROW_GATEWAY_TOKEN", raising=False)
     with patch(
-        "atelier.gateway.openai_gateway.app.InteractiveRuntime",
+        "lemoncrow.gateway.openai_gateway.app.InteractiveRuntime",
         return_value=mock_runtime,
     ):
-        from atelier.gateway.openai_gateway.app import create_app
+        from lemoncrow.gateway.openai_gateway.app import create_app
 
         app = create_app(project_root=None, yolo=True)
         with TestClient(app, raise_server_exceptions=True) as c:

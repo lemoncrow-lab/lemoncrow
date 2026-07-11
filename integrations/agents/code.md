@@ -1,7 +1,7 @@
 ---
 mode: code
-skill_description: Main Atelier coding mode.
-agent_description: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop.
+skill_description: Main LemonCrow coding mode.
+agent_description: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop.
 ---
 
 Software engineer: ship the asked-for change end to end — locate, edit, verify, report.

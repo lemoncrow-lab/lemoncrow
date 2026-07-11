@@ -1,4 +1,4 @@
-"""Pre-embed all gold query strings into the Atelier vector cache.
+"""Pre-embed all gold query strings into the LemonCrow vector cache.
 
 Run with system python3 (has torch + sentence_transformers):
     python3 benchmarks/codebench/prewarm_query_cache.py
@@ -23,7 +23,7 @@ GOLD_FILES = [
 ]
 EMBEDDER_NAME = "bge:BAAI/bge-code-v1"
 MODEL_NAME = "BAAI/bge-code-v1"
-STORE_ROOT = Path.home() / ".atelier"
+STORE_ROOT = Path.home() / ".lemoncrow"
 CACHE_DB = STORE_ROOT / "vector_cache.sqlite"
 BATCH_SIZE = 128
 

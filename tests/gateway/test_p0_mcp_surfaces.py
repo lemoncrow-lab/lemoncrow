@@ -8,10 +8,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from atelier.core.capabilities.repo_map.budget import count_tokens
-from atelier.core.environment import HIDDEN_LLM_TOOLS
-from atelier.gateway.adapters import mcp_server
-from atelier.gateway.adapters.mcp_server import (
+from lemoncrow.core.capabilities.repo_map.budget import count_tokens
+from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp_server import (
     TOOLS,
     tool_grep,
     tool_smart_edit,
@@ -19,7 +19,7 @@ from atelier.gateway.adapters.mcp_server import (
     tool_smart_search,
     tool_sql,
 )
-from atelier.gateway.sdk.mcp import _LoopbackTransport
+from lemoncrow.gateway.sdk.mcp import _LoopbackTransport
 
 
 def _op_result(render_name: str, op_fn: Any, **kwargs: Any) -> Any:
@@ -120,12 +120,12 @@ def test_mcp_grep_native_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_mcp_search_adds_backend_metadata_for_large_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.core.capabilities.tool_supervision import smart_search as smart_search_mod
-    from atelier.core.capabilities.tool_supervision.search_read import FileMatch, SearchReadResult
-    from atelier.infra.code_intel.zoekt.adapter import ZoektBackendHealth
+    from lemoncrow.core.capabilities.tool_supervision import smart_search as smart_search_mod
+    from lemoncrow.core.capabilities.tool_supervision.search_read import FileMatch, SearchReadResult
+    from lemoncrow.infra.code_intel.zoekt.adapter import ZoektBackendHealth
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("ATELIER_ZOEKT_LOC_THRESHOLD", "20")
+    monkeypatch.setenv("LEMONCROW_ZOEKT_LOC_THRESHOLD", "20")
     src = tmp_path / "src"
     src.mkdir()
     for index in range(24):
@@ -215,7 +215,7 @@ def test_search_tool_uses_cached_code_index_before_fallback(tmp_path: Path, monk
         "total_tokens": 20,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda _repo_root=".": fake_engine,
     )
 
@@ -368,7 +368,7 @@ def test_tool_code_search_name_first_contract_stays_unchanged(tmp_path: Path, mo
         "mode": "auto",
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -413,7 +413,7 @@ def test_tool_code_search_can_attach_compact_rendered_block(tmp_path: Path, monk
         "total_tokens": 100,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -600,7 +600,7 @@ def test_tool_code_call_graph_dispatches_to_engine(tmp_path: Path, monkeypatch: 
         "total_tokens": 100,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -652,7 +652,7 @@ def test_tool_code_pattern_dispatches_to_engine(tmp_path: Path, monkeypatch: pyt
         "total_tokens": 100,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -696,7 +696,7 @@ def test_tool_code_explore_dispatches_to_engine(tmp_path: Path, monkeypatch: pyt
         "total_tokens": 100,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -749,7 +749,7 @@ def test_tool_code_callers_rendered_shape_excludes_source(tmp_path: Path, monkey
         "total_tokens": 80,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -788,7 +788,7 @@ def test_tool_code_symbol_rendered_shape_includes_numbered_body(
         "total_tokens": 95,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -825,7 +825,7 @@ def test_tool_code_index_rendered_shape_is_compact(tmp_path: Path, monkeypatch: 
         "total_tokens": 60,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -854,7 +854,7 @@ def test_tool_code_cache_status_rendered_shape_is_compact(tmp_path: Path, monkey
         "total_tokens": 60,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -885,7 +885,7 @@ def test_tool_code_usages_dispatches_to_engine(tmp_path: Path, monkeypatch: pyte
         "total_tokens": 80,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -930,7 +930,7 @@ def test_tool_code_cache_diagnostics_dispatch_to_engine(tmp_path: Path, monkeypa
         "total_tokens": 40,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -979,7 +979,7 @@ def test_tool_code_deleted_search_stays_on_additive_code_surface(
         "mode": "auto",
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -1040,7 +1040,7 @@ def test_tool_code_blame_is_an_additive_extension_to_code_surface(
         "mode": "auto",
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 

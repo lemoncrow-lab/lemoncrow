@@ -75,8 +75,8 @@ def test_edit_with_pytest_allows(tmp_path: Path) -> None:
 def test_edit_with_django_runtests_allows(tmp_path: Path) -> None:
     t = _transcript(
         tmp_path,
-        _assistant(("mcp__atelier__edit", {"edits": [{"file_path": "django/db/x.py", "new_string": "..."}]})),
-        _assistant(("mcp__atelier__bash", {"command": "cd tests && python runtests.py dbshell"})),
+        _assistant(("mcp__lemon__edit", {"edits": [{"file_path": "django/db/x.py", "new_string": "..."}]})),
+        _assistant(("mcp__lemon__bash", {"command": "cd tests && python runtests.py dbshell"})),
     )
     assert not _blocked(_run(t))
 
@@ -97,8 +97,8 @@ def test_python_c_snippet_does_not_count_as_verification(tmp_path: Path) -> None
     # missed a broken neighbor. Must block to push the model onto the real suite.
     t = _transcript(
         tmp_path,
-        _assistant(("mcp__atelier__edit", {"edits": [{"file_path": "requests/models.py", "new_string": "..."}]})),
-        _assistant(("mcp__atelier__bash", {"command": 'python -c "import requests; print(requests.get)"'})),
+        _assistant(("mcp__lemon__edit", {"edits": [{"file_path": "requests/models.py", "new_string": "..."}]})),
+        _assistant(("mcp__lemon__bash", {"command": 'python -c "import requests; print(requests.get)"'})),
     )
     assert _blocked(_run(t))
 
@@ -180,4 +180,4 @@ def test_stop_hook_active_does_not_block(tmp_path: Path) -> None:
 
 def test_disabled_env_does_not_block(tmp_path: Path) -> None:
     t = _transcript(tmp_path, _assistant(("Edit", {"file_path": "app/core.py"})))
-    assert not _blocked(_run(t, env_extra={"ATELIER_VERIFY_BEFORE_DONE": "0"}))
+    assert not _blocked(_run(t, env_extra={"LEMONCROW_VERIFY_BEFORE_DONE": "0"}))

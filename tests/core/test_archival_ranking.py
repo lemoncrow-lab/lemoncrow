@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from atelier.core.capabilities.archival_recall.ranking import rank_archival_passages
-from atelier.core.foundation.memory_models import ArchivalPassage
+from lemoncrow.core.capabilities.archival_recall.ranking import rank_archival_passages
+from lemoncrow.core.foundation.memory_models import ArchivalPassage
 
 
 def _passage(
@@ -16,7 +16,7 @@ def _passage(
 ) -> ArchivalPassage:
     return ArchivalPassage(
         id=pid,
-        agent_id="atelier:code",
+        agent_id="lemon:code",
         text=text,
         embedding=embedding,
         embedding_provenance="unit_test" if embedding is not None else "none",

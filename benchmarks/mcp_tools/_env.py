@@ -19,15 +19,15 @@ def configure_benchmark_runtime(root: Path, *, workspace_root: Path | None = Non
     resolved_root.mkdir(parents=True, exist_ok=True)
     resolved_workspace = (workspace_root or resolved_root).expanduser().resolve()
 
-    os.environ["ATELIER_ROOT"] = str(resolved_root / ".atelier")
-    os.environ["ATELIER_LESSONS_ROOT"] = str(resolved_root / ".atelier/lessons")
-    os.environ["ATELIER_WORKSPACE_ROOT"] = str(resolved_workspace)
+    os.environ["LEMONCROW_ROOT"] = str(resolved_root / ".lemoncrow")
+    os.environ["LEMONCROW_LESSONS_ROOT"] = str(resolved_root / ".lemoncrow/lessons")
+    os.environ["LEMONCROW_WORKSPACE_ROOT"] = str(resolved_workspace)
     os.environ["CLAUDE_WORKSPACE_ROOT"] = str(resolved_workspace)
-    os.environ["ATELIER_DEV_MODE"] = "1"
-    os.environ["ATELIER_LINEAGE_DISABLED"] = "1"  # commit-lineage bootstrap is unrelated to search benchmarks
+    os.environ["LEMONCROW_DEV_MODE"] = "1"
+    os.environ["LEMONCROW_LINEAGE_DISABLED"] = "1"  # commit-lineage bootstrap is unrelated to search benchmarks
     os.environ.pop("CURSOR_WORKSPACE_ROOT", None)
     os.environ.pop("VSCODE_CWD", None)
-    os.environ.pop("ATELIER_MEM_ROOT", None)
+    os.environ.pop("LEMONCROW_MEM_ROOT", None)
     return resolved_root
 
 
@@ -37,7 +37,7 @@ def call_code_op(request: dict[str, Any]) -> dict[str, Any]:
     Replaces the retired ``tool_code`` multiplexer: the MCP surface no longer routes
     code ops through a single handler, so benchmarks call the ``_op_*`` wrappers here.
     """
-    from atelier.gateway.adapters import mcp_server
+    from lemoncrow.gateway.adapters import mcp_server
 
     ops: dict[str, Callable[..., Any]] = {
         "search": mcp_server._op_search,

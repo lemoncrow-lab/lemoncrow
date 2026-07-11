@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# status.sh - Show Atelier installation status across agent CLIs
+# status.sh - Show LemonCrow installation status across agent CLIs
 #
 # Options:
 #   --workspace DIR  Workspace root to inspect (default: cwd)
 #   --json           Output in JSON format
-#   --write          Persist detection results to .atelier/hosts/status.json
+#   --write          Persist detection results to .lemoncrow/hosts/status.json
 #                    for the local service/UI surfaces to consume
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+LEMONCROW_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 WORKSPACE="${PWD}"
 JSON=false
@@ -39,12 +39,12 @@ OPENCODE_CONFIG_HOME="${OPENCODE_CONFIG_HOME:-${XDG_CONFIG_HOME:-${HOME}/.config
 VSCODE_USER_DIR="${VSCODE_USER_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/Code/User}"
 
 has_cmd() { command -v "$1" &> /dev/null; }
-has_atelier() { grep -q "atelier" "$1" 2>/dev/null; }
+has_lemoncrow() { grep -q "lemoncrow" "$1" 2>/dev/null; }
 
 check_runtime() {
-    if [ -f "${HOME}/.atelier/ledger.json" ] || [ -f "${HOME}/.atelier/atelier.db" ]; then
+    if [ -f "${HOME}/.lemoncrow/ledger.json" ] || [ -f "${HOME}/.lemoncrow/lemoncrow.db" ]; then
         echo "initialized"
-    elif [ -d "${HOME}/.atelier" ]; then
+    elif [ -d "${HOME}/.lemoncrow" ]; then
         echo "exists but not initialized"
     else
         echo "not initialized"
@@ -52,7 +52,7 @@ check_runtime() {
 }
 
 check_cli() {
-    if command -v atelier >/dev/null 2>&1; then
+    if command -v lemon >/dev/null 2>&1; then
         echo "installed"
     else
         echo "not installed"
@@ -67,10 +67,10 @@ check_claude() {
 
     local plugin="no"
     local mcp="no"
-    if claude plugin list 2>&1 | grep -q "atelier"; then
+    if claude plugin list 2>&1 | grep -q "lemoncrow"; then
         plugin="yes"
     fi
-    if has_atelier "${WORKSPACE}/.mcp.json" || claude mcp list 2>&1 | grep -q "atelier"; then
+    if has_lemoncrow "${WORKSPACE}/.mcp.json" || claude mcp list 2>&1 | grep -q "lemoncrow"; then
         mcp="yes"
     fi
 
@@ -97,11 +97,11 @@ check_codex() {
     fi
 
     if [ -f "${effective_codex_home}/config.toml" ] && \
-       grep -q '\[mcp_servers\.atelier\]' "${effective_codex_home}/config.toml" 2>/dev/null && \
-       grep -Eq '\[plugins\."atelier@(atelier|openai-curated)"\]' "${effective_codex_home}/config.toml" 2>/dev/null; then
+       grep -q '\[mcp_servers\.lemoncrow\]' "${effective_codex_home}/config.toml" 2>/dev/null && \
+       grep -Eq '\[plugins\."lemoncrow@(lemoncrow|openai-curated)"\]' "${effective_codex_home}/config.toml" 2>/dev/null; then
         echo "installed"
     elif [ -f "${effective_codex_home}/config.toml" ] && \
-         grep -q '\[mcp_servers\.atelier\]' "${effective_codex_home}/config.toml" 2>/dev/null; then
+         grep -q '\[mcp_servers\.lemoncrow\]' "${effective_codex_home}/config.toml" 2>/dev/null; then
         echo "MCP configured, plugin not installed"
     else
         echo "CLI found but MCP not configured"
@@ -114,10 +114,10 @@ check_opencode() {
         return
     fi
 
-    if has_atelier "${WORKSPACE}/opencode.json" || \
-       has_atelier "${WORKSPACE}/opencode.jsonc" || \
-       has_atelier "${OPENCODE_CONFIG_HOME}/opencode.json" || \
-       has_atelier "${OPENCODE_CONFIG_HOME}/opencode.jsonc"; then
+    if has_lemoncrow "${WORKSPACE}/opencode.json" || \
+       has_lemoncrow "${WORKSPACE}/opencode.jsonc" || \
+       has_lemoncrow "${OPENCODE_CONFIG_HOME}/opencode.json" || \
+       has_lemoncrow "${OPENCODE_CONFIG_HOME}/opencode.jsonc"; then
         echo "installed"
     else
         echo "CLI found but MCP not configured"
@@ -130,7 +130,7 @@ check_copilot() {
         return
     fi
 
-    if has_atelier "${WORKSPACE}/.vscode/mcp.json" || has_atelier "${VSCODE_USER_DIR}/mcp.json"; then
+    if has_lemoncrow "${WORKSPACE}/.vscode/mcp.json" || has_lemoncrow "${VSCODE_USER_DIR}/mcp.json"; then
         echo "installed"
     else
         echo "CLI found but MCP not configured"
@@ -143,7 +143,7 @@ check_antigravity() {
         return
     fi
 
-    if has_atelier "${WORKSPACE}/.vscode/mcp.json" || has_atelier "${VSCODE_USER_DIR}/mcp.json" || has_atelier "${XDG_CONFIG_HOME:-${HOME}/.config}/Antigravity/User/mcp.json"; then
+    if has_lemoncrow "${WORKSPACE}/.vscode/mcp.json" || has_lemoncrow "${VSCODE_USER_DIR}/mcp.json" || has_lemoncrow "${XDG_CONFIG_HOME:-${HOME}/.config}/Antigravity/User/mcp.json"; then
         echo "installed"
     else
         echo "CLI found but MCP not configured"
@@ -167,8 +167,8 @@ check_tokscale() {
 }
 
 get_latest_run() {
-    if [ -d "${HOME}/.atelier/runs" ]; then
-        atelier status --line --root "${HOME}/.atelier" 2>/dev/null || echo "(no runs yet)"
+    if [ -d "${HOME}/.lemoncrow/runs" ]; then
+        lemon status --line --root "${HOME}/.lemoncrow" 2>/dev/null || echo "(no runs yet)"
     else
         echo "(no runs yet)"
     fi
@@ -213,13 +213,13 @@ print(json.dumps({
 }))
 PYEOF
 else
-    echo "=== Atelier Status ==="
+    echo "=== LemonCrow Status ==="
     echo ""
     echo "Workspace:"
     echo "  $WORKSPACE"
     echo ""
     echo "Runtime Store:"
-    echo "  ${HOME}/.atelier/       $RUNTIME_STATUS"
+    echo "  ${HOME}/.lemoncrow/       $RUNTIME_STATUS"
     echo ""
     echo "CLI:"
     echo "  $CLI_STATUS"
@@ -241,7 +241,7 @@ fi
 
 # Persist detection results for the local service/UI surfaces (--write flag)
 if [ "$WRITE" = true ]; then
-    HOSTS_DIR="${HOME}/.atelier/hosts"
+    HOSTS_DIR="${HOME}/.lemoncrow/hosts"
     mkdir -p "$HOSTS_DIR"
     HOSTS_DIR="$HOSTS_DIR" \
     CLAUDE_STATUS="$CLAUDE_STATUS" \

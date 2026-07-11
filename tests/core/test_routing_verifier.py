@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.quality_router.verifier import verify_route
-from atelier.core.foundation.models import ValidationResult
+from lemoncrow.core.capabilities.quality_router.verifier import verify_route
+from lemoncrow.core.foundation.models import ValidationResult
 
 
 def test_routing_verifier_pass_outcome() -> None:
@@ -54,7 +54,7 @@ def test_routing_verifier_escalate_for_protected_failure_and_repeated_signatures
     envelope = verify_route(
         route_decision_id="rd-4",
         session_id="run-4",
-        changed_files=["src/atelier/core/foundation/models.py"],
+        changed_files=["src/lemoncrow/core/foundation/models.py"],
         validation_results=[ValidationResult(name="pytest", passed=False, detail="failure")],
         rubric_status="pass",
         required_verifiers=["tests", "rubric"],

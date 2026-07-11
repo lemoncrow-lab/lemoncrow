@@ -2,7 +2,7 @@
 
 The hook is a standalone script that reads a JSON payload on stdin and prints
 an optional JSON decision on stdout, so it is exercised as a subprocess with
-crafted payloads -- isolating both Atelier state and the spill directory under
+crafted payloads -- isolating both LemonCrow state and the spill directory under
 per-test tmp_path locations (matching tests/integrations/test_loop_discipline_hooks.py).
 """
 
@@ -24,8 +24,8 @@ def _run(
 ) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
-        "ATELIER_ROOT": str(tmp_path / ".atelier"),
-        "ATELIER_MCP_SPILL_DIR": str(tmp_path / "spill"),
+        "LEMONCROW_ROOT": str(tmp_path / ".lemoncrow"),
+        "LEMONCROW_MCP_SPILL_DIR": str(tmp_path / "spill"),
         **(env_extra or {}),
     }
     stdin = stdin_text if stdin_text is not None else json.dumps(payload)
@@ -66,7 +66,7 @@ def test_large_string_tool_response_is_shrunk_and_spilled(tmp_path: Path) -> Non
     out = json.loads(proc.stdout)
     updated = out["hookSpecificOutput"]["updatedToolOutput"]
     assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
-    assert "[atelier: shrunk" in updated
+    assert "[lemon: shrunk" in updated
     assert len(updated) < len(big)
 
     spill_path = _spill_path_from_notice(updated)
@@ -102,15 +102,15 @@ def test_content_blocks_list_shape_tool_response_is_handled(tmp_path: Path) -> N
     assert spill_path.read_text(encoding="utf-8") == big
 
 
-def test_atelier_bare_tool_name_is_skipped(tmp_path: Path) -> None:
-    payload = {"tool_name": "mcp__atelier__bash", "tool_response": "X" * 300_000}
+def test_lemoncrow_bare_tool_name_is_skipped(tmp_path: Path) -> None:
+    payload = {"tool_name": "mcp__lemon__bash", "tool_response": "X" * 300_000}
     proc = _run(payload, tmp_path)
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == ""
 
 
-def test_atelier_plugin_namespaced_tool_name_is_skipped(tmp_path: Path) -> None:
-    payload = {"tool_name": "mcp__plugin_atelier_atelier__read", "tool_response": "X" * 300_000}
+def test_lemoncrow_plugin_namespaced_tool_name_is_skipped(tmp_path: Path) -> None:
+    payload = {"tool_name": "mcp__plugin_lemoncrow_lemon__read", "tool_response": "X" * 300_000}
     proc = _run(payload, tmp_path)
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == ""
@@ -124,25 +124,25 @@ def test_non_mcp_tool_name_is_skipped(tmp_path: Path) -> None:
     assert proc.stdout == ""
 
 
-def test_kill_switch_env_skips_even_large_non_atelier_output(tmp_path: Path) -> None:
+def test_kill_switch_env_skips_even_large_non_lemoncrow_output(tmp_path: Path) -> None:
     payload = {"tool_name": "mcp__someserver__bigtool", "tool_response": "X" * 300_000}
-    proc = _run(payload, tmp_path, env_extra={"ATELIER_SHADOW_SHRINK": "0"})
+    proc = _run(payload, tmp_path, env_extra={"LEMONCROW_SHADOW_SHRINK": "0"})
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == ""
 
 
 def test_threshold_env_override_shrinks_below_default_threshold(tmp_path: Path) -> None:
     payload = {"tool_name": "mcp__someserver__smallish", "tool_response": "X" * 5000}
-    proc = _run(payload, tmp_path, env_extra={"ATELIER_SHADOW_SHRINK_CHARS": "1000"})
+    proc = _run(payload, tmp_path, env_extra={"LEMONCROW_SHADOW_SHRINK_CHARS": "1000"})
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip()
     out = json.loads(proc.stdout)
-    assert "[atelier: shrunk" in out["hookSpecificOutput"]["updatedToolOutput"]
+    assert "[lemon: shrunk" in out["hookSpecificOutput"]["updatedToolOutput"]
 
 
 def test_threshold_env_zero_disables_shrinking(tmp_path: Path) -> None:
     payload = {"tool_name": "mcp__someserver__bigtool", "tool_response": "X" * 300_000}
-    proc = _run(payload, tmp_path, env_extra={"ATELIER_SHADOW_SHRINK_CHARS": "0"})
+    proc = _run(payload, tmp_path, env_extra={"LEMONCROW_SHADOW_SHRINK_CHARS": "0"})
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == ""
 

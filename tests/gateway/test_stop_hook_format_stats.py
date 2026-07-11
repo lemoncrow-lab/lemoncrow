@@ -1,9 +1,9 @@
 """Stop hook `_format_stats`: normal formatting + resilience to a stale
-installed `atelier` package.
+installed `lemon` package.
 
-This file is copied verbatim to ``~/.atelier/claude-plugin/hooks/stop.py`` by
+This file is copied verbatim to ``~/.lemoncrow/claude-plugin/hooks/stop.py`` by
 ``scripts/install_claude.sh`` and is kept in sync with the dev repo
-independently of the *installed* ``atelier`` package (``uv tool install``).
+independently of the *installed* ``lemon`` package (``uv tool install``).
 A prebuilt/older install can lag behind and miss recently-added private
 helpers (e.g. ``_fmt_tok``/``_fmt_usd`` in ``savings_summary.py``) -- that
 mismatch must degrade to an equivalent inline formatter, never crash the hook.
@@ -17,13 +17,13 @@ from types import ModuleType
 
 import pytest
 
-from atelier.core.capabilities import savings_summary
+from lemoncrow.core.capabilities import savings_summary
 
 _STOP = Path("integrations/claude/plugin/hooks/stop.py")
 
 
 def _load_stop() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("atelier_stop_hook_format_stats", _STOP)
+    spec = importlib.util.spec_from_file_location("lemoncrow_stop_hook_format_stats", _STOP)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -71,7 +71,7 @@ def test_format_stats_normal_path_uses_canonical_formatters() -> None:
 def test_format_stats_falls_back_when_installed_package_lacks_helpers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Simulates the reported bug: an installed `atelier` predating
+    """Simulates the reported bug: an installed `lemon` predating
     `_fmt_tok`/`_fmt_usd` must not crash `_format_stats` with an ImportError --
     it should fall back to an equivalent inline formatter and render the same
     output.

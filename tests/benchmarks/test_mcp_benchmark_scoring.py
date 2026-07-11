@@ -71,7 +71,7 @@ def test_effective_tokens_use_quality_floor() -> None:
     result = CaseResult(
         case=case,
         response={},
-        atelier_tokens=100,
+        lemoncrow_tokens=100,
         baseline_tokens=200,
         quality_score=case.quality_score,
         input_file_tokens=0,
@@ -90,7 +90,7 @@ def test_tool_report_accumulates_effective_tokens() -> None:
     result = CaseResult(
         case=case,
         response={},
-        atelier_tokens=80,
+        lemoncrow_tokens=80,
         baseline_tokens=200,
         quality_score=case.quality_score,
         input_file_tokens=0,
@@ -111,7 +111,7 @@ def test_render_summary_includes_effective_tokens() -> None:
     result = CaseResult(
         case=case,
         response={},
-        atelier_tokens=42,
+        lemoncrow_tokens=42,
         baseline_tokens=100,
         quality_score=case.quality_score,
         input_file_tokens=0,

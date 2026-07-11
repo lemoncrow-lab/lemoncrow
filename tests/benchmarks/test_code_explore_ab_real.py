@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.code_context.engine import CodeContextEngine
+from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
 
 pytestmark = [pytest.mark.ab, pytest.mark.slow]
 
@@ -21,16 +21,16 @@ class ABRow:
     mode: str
     native_tool: str
     native_tokens: int
-    atelier_tokens: int
+    lemoncrow_tokens: int
     tokens_saved_measured: int
     token_ratio: float | None
     native_ms: float
-    atelier_ms: float
+    lemoncrow_ms: float
     ts: float
 
 
 def _calibration_path() -> Path:
-    path = Path.home() / ".atelier" / "savings_calibration.jsonl"
+    path = Path.home() / ".lemoncrow" / "savings_calibration.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -122,21 +122,21 @@ def test_code_explore_ab_real(tmp_path: Path) -> None:
 
     t1 = time.perf_counter()
     payload = engine.tool_explore(query, include_source=False, budget_tokens=12000)
-    atelier_ms = (time.perf_counter() - t1) * 1000.0
-    atelier_text = json.dumps(payload, sort_keys=True, default=str)
+    lemoncrow_ms = (time.perf_counter() - t1) * 1000.0
+    lemoncrow_text = json.dumps(payload, sort_keys=True, default=str)
 
     native_tokens = _count_tiktoken(native_text)
-    atelier_tokens = _count_tiktoken(atelier_text)
+    lemoncrow_tokens = _count_tiktoken(lemoncrow_text)
     row = ABRow(
         tool="code.explore",
         mode="no_source",
         native_tool="manual_search_read_callgraph",
         native_tokens=native_tokens,
-        atelier_tokens=atelier_tokens,
-        tokens_saved_measured=max(0, native_tokens - atelier_tokens),
-        token_ratio=(atelier_tokens / native_tokens) if native_tokens else None,
+        lemoncrow_tokens=lemoncrow_tokens,
+        tokens_saved_measured=max(0, native_tokens - lemoncrow_tokens),
+        token_ratio=(lemoncrow_tokens / native_tokens) if native_tokens else None,
         native_ms=round(native_ms, 3),
-        atelier_ms=round(atelier_ms, 3),
+        lemoncrow_ms=round(lemoncrow_ms, 3),
         ts=time.time(),
     )
     _append_row(row)
@@ -144,4 +144,4 @@ def test_code_explore_ab_real(tmp_path: Path) -> None:
     entry_symbols = {item.get("name") or item.get("symbol_name") for item in payload.get("entry_points", [])}
     assert payload["query"] == query
     assert {"login", "create_session"} & entry_symbols
-    assert atelier_tokens < native_tokens
+    assert lemoncrow_tokens < native_tokens

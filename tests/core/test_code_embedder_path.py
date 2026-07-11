@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.code_context.embedding import SemanticSearchRanker
-from atelier.core.capabilities.code_context.engine import (
+from lemoncrow.core.capabilities.code_context.embedding import SemanticSearchRanker
+from lemoncrow.core.capabilities.code_context.engine import (
     _LINEAGE_INDEX_VERSION,
     CodeContextEngine,
 )
-from atelier.core.capabilities.code_context.models import SymbolRecord
+from lemoncrow.core.capabilities.code_context.models import SymbolRecord
 
 
 class _TaskAwareDummyEmbedder:
@@ -122,7 +122,7 @@ def test_semantic_search_ranker_uses_task_aware_code_embedder(tmp_path: Path) ->
 def test_lineage_ready_preserves_old_chunks_until_full_rebuild_starts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ATELIER_LINEAGE_ENABLED", "1")
+    monkeypatch.setenv("LEMONCROW_LINEAGE_ENABLED", "1")
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "orders.py").write_text("def total() -> int:\n    return 1\n", encoding="utf-8")
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
@@ -149,11 +149,11 @@ def test_lineage_ready_preserves_old_chunks_until_full_rebuild_starts(
 
     monkeypatch.setattr(engine, "_safe_current_head_sha", lambda: "new-head")
     monkeypatch.setattr(
-        "atelier.infra.code_intel.git_history.embedder.embedder_name",
+        "lemoncrow.infra.code_intel.git_history.embedder.embedder_name",
         lambda: "ollama:nomic-embed-text",
     )
     monkeypatch.setattr(
-        "atelier.infra.code_intel.git_history.embedder.embedding_dim",
+        "lemoncrow.infra.code_intel.git_history.embedder.embedding_dim",
         lambda: 768,
     )
 
@@ -167,7 +167,7 @@ def test_lineage_ready_preserves_old_chunks_until_full_rebuild_starts(
             started.append(True)
 
     monkeypatch.setattr(
-        "atelier.core.capabilities.code_context.engine.threading.Thread",
+        "lemoncrow.core.capabilities.code_context.engine.threading.Thread",
         _FakeThread,
     )
 

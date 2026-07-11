@@ -1,29 +1,29 @@
-# Atelier Python SDK
+# LemonCrow Python SDK
 
-The Python SDK in `atelier.sdk` is the embeddable contract for custom hosts,
-tests, and service-side integrations that want Atelier without shelling out.
+The Python SDK in `lemoncrow.sdk` is the embeddable contract for custom hosts,
+tests, and service-side integrations that want LemonCrow without shelling out.
 
 ## Install
 
 From a source checkout:
 
 ```bash
-cd atelier
+cd lemoncrow
 uv sync --all-extras
 ```
 
 ## Client Types
 
-- `AtelierClient.local(root=".atelier")` uses the in-process runtime and local store.
-- `AtelierClient.remote(base_url=..., api_key=...)` targets the HTTP service.
-- `AtelierClient.mcp(root=".atelier")` mirrors the MCP contract with a local loopback transport by default.
+- `LemonCrowClient.local(root=".lemoncrow")` uses the in-process runtime and local store.
+- `LemonCrowClient.remote(base_url=..., api_key=...)` targets the HTTP service.
+- `LemonCrowClient.mcp(root=".lemoncrow")` mirrors the MCP contract with a local loopback transport by default.
 
 ## Core Workflow
 
 ```python
-from atelier.sdk import AtelierClient
+from lemoncrow.sdk import LemonCrowClient
 
-client = AtelierClient.local(root=".atelier")
+client = LemonCrowClient.local(root=".lemoncrow")
 
 context = client.get_context(
     task="Fix generated output that drifts back after refresh",
@@ -71,15 +71,15 @@ trace = client.traces.record(
 The SDK follows the same runtime policy as the CLI and MCP surfaces.
 
 - Context retrieval, rescue, verification, memory, and MCP-backed helper flows
-  follow the same `ATELIER_DEV_MODE=1` gating rules as the runtime.
+  follow the same `LEMONCROW_DEV_MODE=1` gating rules as the runtime.
 - Trace recording and remote-service access remain available outside developer mode.
 
 ## MCP-Aligned Operations
 
-When using `AtelierClient.mcp()`, the client mirrors the current MCP tool
+When using `LemonCrowClient.mcp()`, the client mirrors the current MCP tool
 surface documented in [mcp.md](mcp.md), including `context`, `route`, `rescue`,
 `record`, `verify`, `memory`, `read`, `edit`, `search`, and `compact`.
 
-Use the CLI for operational workflows such as `atelier report`, `atelier
-benchmark ...`, `atelier service ...`, `atelier background ...`, and `atelier
+Use the CLI for operational workflows such as `lemon report`, `lemon
+benchmark ...`, `lemon service ...`, `lemon background ...`, and `lemon
 domain ...`.

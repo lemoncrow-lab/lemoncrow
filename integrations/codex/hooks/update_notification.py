@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Codex SessionStart update notifier backed by Atelier runtime state."""
+"""Codex SessionStart update notifier backed by LemonCrow runtime state."""
 
 from __future__ import annotations
 
@@ -9,21 +9,21 @@ import sys
 from pathlib import Path
 
 
-def _atelier_root() -> Path:
-    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
+def _lemoncrow_root() -> Path:
+    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
     if root:
         return Path(root)
-    return Path.home() / ".atelier"
+    return Path.home() / ".lemoncrow"
 
 
 def _session_state_path(cwd: str | None = None) -> Path:
-    # Canonical hashing lives in atelier.core.foundation.paths.workspace_key --
+    # Canonical hashing lives in lemoncrow.core.foundation.paths.workspace_key --
     # import it rather than keeping a local copy in sync by hand.
-    from atelier.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import workspace_key
 
     workspace = cwd or os.environ.get("CODEX_WORKSPACE_ROOT") or os.getcwd()
     h = workspace_key(workspace)
-    return _atelier_root() / "workspaces" / h / "session_state.json"
+    return _lemoncrow_root() / "workspaces" / h / "session_state.json"
 
 
 def _write_session_state(session_id: str, cwd: str | None = None, model: str = "") -> None:
@@ -57,7 +57,7 @@ def main() -> int:
             _write_session_state(session_id, cwd or None, str(payload.get("model") or ""))
 
         # Check for update notification from daemon/MCP auto-update
-        state_path = _atelier_root() / "update_state.json"
+        state_path = _lemoncrow_root() / "update_state.json"
         if state_path.exists():
             update_data = json.loads(state_path.read_text("utf-8"))
             if (
@@ -71,8 +71,8 @@ def main() -> int:
                 cur_ver = update_data["current_version"]
                 method = update_data.get("method", "auto")
                 msg = (
-                    f"Atelier updated from {prev_ver} → {cur_ver} (via {method}). "
-                    "Release notes: https://github.com/atelier-ws/atelier/releases"
+                    f"LemonCrow updated from {prev_ver} → {cur_ver} (via {method}). "
+                    "Release notes: https://github.com/lemoncrowhq/lemoncrow/releases"
                 )
                 sys.stdout.write(json.dumps({"systemMessage": msg}) + "\n")
                 sys.stdout.flush()

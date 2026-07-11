@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from atelier.infra.code_intel.astgrep.adapter import AstGrepAdapter
-from atelier.infra.code_intel.astgrep.binaries import discover_astgrep_binary
+from lemoncrow.infra.code_intel.astgrep.adapter import AstGrepAdapter
+from lemoncrow.infra.code_intel.astgrep.binaries import discover_astgrep_binary
 
 _RESOLUTION = discover_astgrep_binary(Path.cwd(), allow_bootstrap=True)
 _HAS_ASTGREP = _RESOLUTION.available

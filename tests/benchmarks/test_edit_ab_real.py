@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.gateway.adapters.mcp_server import _reset_runtime_cache_for_testing, tool_smart_edit
+from lemoncrow.gateway.adapters.mcp_server import _reset_runtime_cache_for_testing, tool_smart_edit
 
 pytestmark = [pytest.mark.ab, pytest.mark.slow]
 
@@ -22,16 +22,16 @@ class ABRow:
     mode: str
     native_tool: str
     native_tokens: int
-    atelier_tokens: int
+    lemoncrow_tokens: int
     tokens_saved_measured: int
     token_ratio: float | None
     native_ms: float
-    atelier_ms: float
+    lemoncrow_ms: float
     ts: float
 
 
 def _calibration_path() -> Path:
-    path = Path.home() / ".atelier" / "savings_calibration.jsonl"
+    path = Path.home() / ".lemoncrow" / "savings_calibration.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -55,7 +55,7 @@ def _count_tiktoken(text: str) -> int:
 
 @pytest.fixture(autouse=True)
 def _isolate_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / ".atelier-ws"))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
     _reset_runtime_cache_for_testing()
     yield
     _reset_runtime_cache_for_testing()
@@ -115,25 +115,25 @@ def test_edit_ab_real(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
             "post_edit_hooks": False,
         }
     )
-    atelier_ms = (time.perf_counter() - t1) * 1000.0
-    atelier_text = json.dumps(payload, sort_keys=True, default=str)
+    lemoncrow_ms = (time.perf_counter() - t1) * 1000.0
+    lemoncrow_text = json.dumps(payload, sort_keys=True, default=str)
 
     native_tokens = _count_tiktoken(native_text)
-    atelier_tokens = _count_tiktoken(atelier_text)
+    lemoncrow_tokens = _count_tiktoken(lemoncrow_text)
     row = ABRow(
         tool="edit",
         mode="replace",
         native_tool="manual_patch_plus_diff",
         native_tokens=native_tokens,
-        atelier_tokens=atelier_tokens,
-        tokens_saved_measured=max(0, native_tokens - atelier_tokens),
-        token_ratio=(atelier_tokens / native_tokens) if native_tokens else None,
+        lemoncrow_tokens=lemoncrow_tokens,
+        tokens_saved_measured=max(0, native_tokens - lemoncrow_tokens),
+        token_ratio=(lemoncrow_tokens / native_tokens) if native_tokens else None,
         native_ms=round(native_ms, 3),
-        atelier_ms=round(atelier_ms, 3),
+        lemoncrow_ms=round(lemoncrow_ms, 3),
         ts=time.time(),
     )
     _append_row(row)
 
     assert payload.get("failed") in ([], None)
     assert target.read_text(encoding="utf-8").startswith("VALUE = 2")
-    assert atelier_tokens < native_tokens
+    assert lemoncrow_tokens < native_tokens

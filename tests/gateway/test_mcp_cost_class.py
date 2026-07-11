@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from atelier.gateway.adapters.mcp_server import (
+from lemoncrow.gateway.adapters.mcp_server import (
     _COST_CPU,
     _COST_DETACHED,
     _COST_IO,

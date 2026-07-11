@@ -17,9 +17,9 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from atelier.core.foundation.models import RawArtifact, Trace
-from atelier.core.foundation.store import ContextStore
-from atelier.core.service import api as service_api
+from lemoncrow.core.foundation.models import RawArtifact, Trace
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.core.service import api as service_api
 
 # ---------------------------------------------------------------------------
 # Helpers to build fake on-disk data
@@ -125,7 +125,7 @@ def _write_imported_trace(
     trace = Trace(
         id=f"{host}-{session_id}",
         session_id=session_id,
-        agent="atelier:code",
+        agent="lemon:code",
         host=host,
         domain="coding",
         task=f"{host} imported session",
@@ -442,11 +442,11 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     _write_reports_index(reports_dir)
 
     # Patch env vars so cfg properties read from tmp_path
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
     monkeypatch.chdir(tmp_path)  # chdir so relative Path("reports") resolves correctly
 
-    from atelier.core.service.api import create_app
+    from lemoncrow.core.service.api import create_app
 
     app = create_app(store_root=str(tmp_path))
     return TestClient(app, raise_server_exceptions=True)
@@ -458,10 +458,10 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 
 def test_reasoning_context_accepts_runtime_bootstrap_payload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
 
-    from atelier.core.service.api import create_app
+    from lemoncrow.core.service.api import create_app
 
     class FakeRuntime:
         def __init__(self, root: Path) -> None:
@@ -474,7 +474,7 @@ def test_reasoning_context_accepts_runtime_bootstrap_payload(tmp_path: Path, mon
                 "bootstrap": {"status": "cold", "repo_hash": "abc123", "blocks": []},
             }
 
-    monkeypatch.setattr("atelier.gateway.adapters.runtime.ContextRuntime", FakeRuntime)
+    monkeypatch.setattr("lemoncrow.gateway.adapters.runtime.ContextRuntime", FakeRuntime)
     client = TestClient(create_app(store_root=str(tmp_path)), raise_server_exceptions=True)
 
     resp = client.post("/v1/reasoning/context", json={"task": "review edit"})
@@ -489,9 +489,9 @@ class TestListHosts:
     """GET /hosts — per-host last_import_at + imported_session_count (task 1)."""
 
     def test_host_with_no_data_has_null_import_fields(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
-        from atelier.core.service.api import create_app
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
         resp = client.get("/hosts")
@@ -567,9 +567,9 @@ class TestListHosts:
             trace.created_at = session_started_at
             store.record_trace(trace, write_json=False)
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
-        from atelier.core.service.api import create_app
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
         resp = client.get("/hosts")
@@ -609,9 +609,9 @@ class TestListTracesWorkspaceFilter:
             workspace_path="/home/user/project-b",
         )
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
-        from atelier.core.service.api import create_app
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
 
@@ -643,9 +643,9 @@ class TestListTracesWorkspaceFilter:
             workspace_path="/home/user/project-b",
         )
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
-        from atelier.core.service.api import create_app
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
 
@@ -694,9 +694,9 @@ class TestListTracesWorkspaceFilter:
             workspace_path="/home/user/shared",
         )
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
-        from atelier.core.service.api import create_app
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
 
@@ -728,10 +728,10 @@ class TestListSessions:
         assert "cost_status" in item
 
     def test_returns_200_with_no_sessions(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)
-        from atelier.core.service.api import create_app
+        from lemoncrow.core.service.api import create_app
 
         app = create_app(store_root=str(tmp_path))
         c = TestClient(app)
@@ -768,11 +768,11 @@ class TestListSessions:
             raw_artifact_ids=[artifact_id],
         )
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)
 
-        from atelier.core.service.api import create_app
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
         listing = client.get("/v1/sessions")
@@ -821,11 +821,11 @@ class TestListSessions:
             (now - timedelta(minutes=30)).timestamp(),
         )
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)
 
-        from atelier.core.service.api import create_app
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
         listing = client.get("/v1/sessions")
@@ -870,11 +870,11 @@ class TestListSessions:
             mtime=(now - timedelta(seconds=5)).timestamp(),
         )
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)
 
-        from atelier.core.service.api import create_app
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
         listing = client.get("/v1/sessions")
@@ -936,11 +936,11 @@ class TestListSessions:
             mtime=now.timestamp(),
         )
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)
 
-        from atelier.core.service.api import create_app
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
         listing = client.get("/v1/sessions")
@@ -975,11 +975,11 @@ class TestListSessions:
         ]
         (runs_dir / "run.json").write_text(json.dumps(snap))
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)
 
-        from atelier.core.service.api import create_app
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
         listing = client.get("/v1/sessions")
@@ -1023,11 +1023,11 @@ class TestListSessions:
             raw_artifact_ids=[artifact_id],
         )
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)
 
-        from atelier.core.service.api import create_app
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
         listing = client.get("/v1/sessions")
@@ -1070,11 +1070,11 @@ class TestListSessions:
             raw_artifact_ids=[artifact_id],
         )
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)
 
-        from atelier.core.service.api import create_app
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
 
@@ -1116,12 +1116,12 @@ class TestListSessions:
                 raise RuntimeError("boom")
             return 0.0
 
-        monkeypatch.setattr("atelier.infra.runtime.session_report.read_total_savings_from_events", fake_savings)
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.setattr("lemoncrow.infra.runtime.session_report.read_total_savings_from_events", fake_savings)
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)
 
-        from atelier.core.service.api import create_app
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
         resp = client.get("/v1/sessions")
@@ -1163,11 +1163,11 @@ class TestGetSession:
         _write_run(tmp_path, "sess-est", cost=0.0)
         _write_trace(tmp_path, "sess-est", model="claude-sonnet-4-5")
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)
 
-        from atelier.core.service.api import create_app
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
         data = client.get("/v1/sessions/sess-est").json()
@@ -1226,11 +1226,11 @@ class TestGetSession:
         trace.raw_artifact_ids = [artifact_id]
         store.record_trace(trace, write_json=False)
 
-        monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-        monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "0")
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
         monkeypatch.chdir(tmp_path)
 
-        from atelier.core.service.api import create_app
+        from lemoncrow.core.service.api import create_app
 
         client = TestClient(create_app(store_root=str(tmp_path)))
         data = client.get(f"/v1/sessions/{session_id}").json()

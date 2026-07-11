@@ -13,8 +13,8 @@ from typing import Any
 _GUIDANCE = "This command failed twice with the same error. Call 'rescue' before any retry; do not repeat the same fix."
 
 
-def _atelier_root() -> Path:
-    return Path(os.environ.get("ATELIER_ROOT", "") or Path.home() / ".atelier")
+def _lemoncrow_root() -> Path:
+    return Path(os.environ.get("LEMONCROW_ROOT", "") or Path.home() / ".lemoncrow")
 
 
 def _state_path(payload: dict[str, Any]) -> Path:
@@ -30,11 +30,11 @@ def _state_path(payload: dict[str, Any]) -> Path:
     """
     session_id = str(payload.get("sessionId") or payload.get("session_id") or "default")
     try:
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
     except ImportError:
         digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16]
-        return _atelier_root() / "copilot-cli" / "failure-state" / f"{digest}.json"
-    return session_dir(_atelier_root(), "copilot", session_id) / "failure_state.json"
+        return _lemoncrow_root() / "copilot-cli" / "failure-state" / f"{digest}.json"
+    return session_dir(_lemoncrow_root(), "copilot", session_id) / "failure_state.json"
 
 
 def _signature(payload: dict[str, Any]) -> str:

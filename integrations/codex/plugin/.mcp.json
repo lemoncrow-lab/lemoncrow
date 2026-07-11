@@ -1,6 +1,6 @@
 {
-  "atelier": {
-    "command": "atelier",
+  "lemon": {
+    "command": "lemon",
     "args": ["mcp", "--host", "codex"],
     "env": {}
   }

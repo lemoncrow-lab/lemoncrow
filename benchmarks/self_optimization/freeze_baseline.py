@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Freeze a vanilla-Claude baseline from an existing graded benchmark run.
 
-The baseline arm (vanilla Claude Code, SAME model as atelier) is invariant to
-Atelier source edits, so we measure it ONCE from a prior run's results.jsonl and
+The baseline arm (vanilla Claude Code, SAME model as lemoncrow) is invariant to
+LemonCrow source edits, so we measure it ONCE from a prior run's results.jsonl and
 reuse it as the frozen reference. The self-optimization loop then only runs the
-atelier arm. Savings must come from token efficiency at the same model -- never
+lemoncrow arm. Savings must come from token efficiency at the same model -- never
 from routing to a cheaper model.
 
     uv run python benchmarks/self_optimization/freeze_baseline.py detect
@@ -100,7 +100,7 @@ def freeze(run_dir: str, out: str) -> int:
     out_path = Path(out) if Path(out).is_absolute() else REPO_ROOT / out
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "_note": "FROZEN baseline = vanilla Claude Code, SAME model as atelier. Off-limits to the loop. Re-freeze only if the model changes.",
+        "_note": "FROZEN baseline = vanilla Claude Code, SAME model as lemoncrow. Off-limits to the loop. Re-freeze only if the model changes.",
         "source_run": str(Path(run_dir)),
         "model": models[0] if models else None,
         "tasks": tasks_out,

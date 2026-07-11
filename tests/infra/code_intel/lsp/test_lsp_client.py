@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from atelier.infra.code_intel.lsp import (
+from lemoncrow.infra.code_intel.lsp import (
     SERVER_COMMANDS,
     Location,
     LspClient,

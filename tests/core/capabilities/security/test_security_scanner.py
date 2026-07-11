@@ -10,13 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.security import (
+from lemoncrow.core.capabilities.security import (
     BUNDLED_RULES,
     SecurityScanner,
     analyze_python_source,
     scan_repository,
 )
-from atelier.infra.code_intel.astgrep.binaries import discover_astgrep_binary
+from lemoncrow.infra.code_intel.astgrep.binaries import discover_astgrep_binary
 
 _HAS_ASTGREP = discover_astgrep_binary(Path.cwd(), allow_bootstrap=True).available
 _SKIP_REASON = "ast-grep binary unavailable in this environment"

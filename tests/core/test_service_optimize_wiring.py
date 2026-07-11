@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.optimization.policy import AutomationConfig
-from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS, JOB_OPTIMIZE
-from atelier.core.service.telemetry.schema import validate_event_props
-from atelier.core.service.worker import Worker
-from atelier.infra.runtime.servicectl_lifecycle import _servicectl_tick
+from lemoncrow.core.capabilities.optimization.policy import AutomationConfig
+from lemoncrow.core.service.jobs import JOB_CONSOLIDATE_BLOCKS, JOB_OPTIMIZE
+from lemoncrow.core.service.telemetry.schema import validate_event_props
+from lemoncrow.core.service.worker import Worker
+from lemoncrow.infra.runtime.servicectl_lifecycle import _servicectl_tick
 
 
 def test_worker_optimize_handler_uses_shared_runner(monkeypatch, tmp_path: Path) -> None:
@@ -16,8 +16,8 @@ def test_worker_optimize_handler_uses_shared_runner(monkeypatch, tmp_path: Path)
         captured.update(kwargs)
         return {"ok": True}
 
-    monkeypatch.setattr("atelier.core.capabilities.optimization.run_optimization_cycle", _fake_cycle)
-    worker = Worker(store=type("Store", (), {"root": tmp_path / ".atelier"})())
+    monkeypatch.setattr("lemoncrow.core.capabilities.optimization.run_optimization_cycle", _fake_cycle)
+    worker = Worker(store=type("Store", (), {"root": tmp_path / ".lemoncrow"})())
 
     result = worker._dispatch[JOB_OPTIMIZE]({"days": 3, "host": "claude", "source": "servicectl"})
 
@@ -49,7 +49,7 @@ def test_servicectl_tick_enqueues_optimize_only_once_per_interval(monkeypatch, t
             self.jobs.append({"id": job_id, "job_type": job_type, "status": "pending", "payload": payload})
             return job_id
 
-    store = _Store(tmp_path / ".atelier")
+    store = _Store(tmp_path / ".lemoncrow")
 
     class _Worker:
         def __init__(self, store) -> None:
@@ -58,22 +58,22 @@ def test_servicectl_tick_enqueues_optimize_only_once_per_interval(monkeypatch, t
         def run_once(self):
             return None
 
-    monkeypatch.setattr("atelier.infra.storage.factory.create_store", lambda root: store)
-    monkeypatch.setattr("atelier.core.service.worker.Worker", _Worker)
+    monkeypatch.setattr("lemoncrow.infra.storage.factory.create_store", lambda root: store)
+    monkeypatch.setattr("lemoncrow.core.service.worker.Worker", _Worker)
     monkeypatch.setattr(
-        "atelier.core.capabilities.optimization.load_automation_config",
+        "lemoncrow.core.capabilities.optimization.load_automation_config",
         lambda root: AutomationConfig(enabled=True),
     )
-    monkeypatch.setattr("atelier.infra.runtime.servicectl_lifecycle._servicectl_refresh_host_status", lambda root: {})
-    monkeypatch.setattr("atelier.infra.runtime.servicectl_lifecycle._servicectl_import_sessions", lambda root: {})
+    monkeypatch.setattr("lemoncrow.infra.runtime.servicectl_lifecycle._servicectl_refresh_host_status", lambda root: {})
+    monkeypatch.setattr("lemoncrow.infra.runtime.servicectl_lifecycle._servicectl_import_sessions", lambda root: {})
 
     first = _servicectl_tick(
-        tmp_path / ".atelier",
+        tmp_path / ".lemoncrow",
         maintenance_interval_seconds=60,
         session_import_interval_seconds=-1,
     )
     second = _servicectl_tick(
-        tmp_path / ".atelier",
+        tmp_path / ".lemoncrow",
         maintenance_interval_seconds=60,
         session_import_interval_seconds=-1,
     )

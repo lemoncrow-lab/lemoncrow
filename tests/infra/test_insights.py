@@ -1,4 +1,4 @@
-"""Unit tests for insights.py (Spec 04 — atelier insights).
+"""Unit tests for insights.py (Spec 04 — lemoncrow insights).
 
 Tests cover:
 - build_insights with synthetic session data
@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from atelier.infra.runtime.insights import (
+from lemoncrow.infra.runtime.insights import (
     InsightsWindow,
     Opportunity,
     OutcomesSummary,
@@ -34,7 +34,7 @@ from atelier.infra.runtime.insights import (
     render_json,
     render_text,
 )
-from atelier.infra.runtime.session_report import SessionReport
+from lemoncrow.infra.runtime.session_report import SessionReport
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                      #
@@ -83,7 +83,7 @@ def _make_report(
         routing_savings_usd=routing_savings,
         compact_events=compact_events,
         compact_savings_estimate_usd=0.0,
-        total_atelier_savings_usd=routing_savings,
+        total_lemoncrow_savings_usd=routing_savings,
         raw_artifact_ids=[],
         top_tools_by_cost=top_tools,
     )
@@ -114,7 +114,7 @@ def _make_window(
         session_count=len(reps),
         total_duration_seconds=sum(r.duration_seconds for r in reps),
         total_cost_usd=sum(r.total_cost_usd for r in reps),
-        total_atelier_savings_usd=sum(r.total_atelier_savings_usd for r in reps),
+        total_lemoncrow_savings_usd=sum(r.total_lemoncrow_savings_usd for r in reps),
         cost_by_vendor={"Anthropic": sum(r.total_cost_usd for r in reps)},
         cost_by_tool={"Edit": 5.0, "Bash": 3.0},
         cost_by_model={"claude-haiku-4-5": sum(r.total_cost_usd for r in reps)},
@@ -400,7 +400,7 @@ def _write_run_file(
 
 def test_build_insights_empty_window(tmp_path: Path) -> None:
     """Empty runs dir produces an InsightsWindow with zero sessions."""
-    root = tmp_path / "atelier"
+    root = tmp_path / "lemoncrow"
     root.mkdir()
     since = datetime(2025, 1, 1, tzinfo=UTC)
     until = datetime(2025, 12, 31, tzinfo=UTC)
@@ -412,7 +412,7 @@ def test_build_insights_empty_window(tmp_path: Path) -> None:
 
 def test_build_insights_single_session(tmp_path: Path) -> None:
     """Single session is correctly aggregated."""
-    root = tmp_path / "atelier"
+    root = tmp_path / "lemoncrow"
     _write_run_file(root / "runs", "sess1", cost_usd=5.00, task="refactor cost_tracker")
     since = _SINCE - timedelta(days=1)
     until = _NOW + timedelta(days=1)
@@ -425,7 +425,7 @@ def test_build_insights_single_session(tmp_path: Path) -> None:
 
 def test_build_insights_multiple_sessions(tmp_path: Path) -> None:
     """Multiple sessions are aggregated correctly."""
-    runs_dir = tmp_path / "atelier" / "runs"
+    runs_dir = tmp_path / "lemoncrow" / "runs"
     for i in range(3):
         _write_run_file(
             runs_dir,
@@ -434,7 +434,7 @@ def test_build_insights_multiple_sessions(tmp_path: Path) -> None:
             task=f"task {i}",
         )
     window = build_insights(
-        tmp_path / "atelier",
+        tmp_path / "lemoncrow",
         since=_SINCE - timedelta(days=1),
         until=_NOW + timedelta(days=1),
     )
@@ -444,12 +444,12 @@ def test_build_insights_multiple_sessions(tmp_path: Path) -> None:
 
 def test_build_insights_top_sessions_sorted_by_cost(tmp_path: Path) -> None:
     """Top sessions are sorted by cost descending."""
-    runs_dir = tmp_path / "atelier" / "runs"
+    runs_dir = tmp_path / "lemoncrow" / "runs"
     costs = [1.0, 5.0, 3.0, 2.0, 4.0]
     for i, c in enumerate(costs):
         _write_run_file(runs_dir, f"s{i}", cost_usd=c, task=f"task{i}")
     window = build_insights(
-        tmp_path / "atelier",
+        tmp_path / "lemoncrow",
         since=_SINCE - timedelta(days=1),
         until=_NOW + timedelta(days=1),
     )
@@ -460,13 +460,13 @@ def test_build_insights_top_sessions_sorted_by_cost(tmp_path: Path) -> None:
 
 def test_build_insights_since_filter(tmp_path: Path) -> None:
     """Sessions before the since cutoff are excluded."""
-    runs_dir = tmp_path / "atelier" / "runs"
+    runs_dir = tmp_path / "lemoncrow" / "runs"
     old_time = datetime(2024, 1, 1, tzinfo=UTC)
     _write_run_file(runs_dir, "old", cost_usd=99.0, started_at=old_time)
     _write_run_file(runs_dir, "new", cost_usd=1.0, started_at=_SINCE)
     since = datetime(2025, 1, 1, tzinfo=UTC)
     until = _NOW + timedelta(days=1)
-    window = build_insights(tmp_path / "atelier", since=since, until=until)
+    window = build_insights(tmp_path / "lemoncrow", since=since, until=until)
     assert window.session_count == 1
     ids = [s.session_id for s in window.top_sessions]
     assert "new" in ids
@@ -475,14 +475,14 @@ def test_build_insights_since_filter(tmp_path: Path) -> None:
 
 def test_build_insights_vendor_cost_from_calls(tmp_path: Path) -> None:
     """Vendor cost is derived from cost.calls model field."""
-    runs_dir = tmp_path / "atelier" / "runs"
+    runs_dir = tmp_path / "lemoncrow" / "runs"
     calls = [
         {"model": "claude-haiku-4-5", "cost_usd": 3.0, "input_tokens": 5000, "output_tokens": 1000},
         {"model": "gpt-4o", "cost_usd": 2.0, "input_tokens": 3000, "output_tokens": 500},
     ]
     _write_run_file(runs_dir, "s1", cost_usd=5.0, calls=calls)
     window = build_insights(
-        tmp_path / "atelier",
+        tmp_path / "lemoncrow",
         since=_SINCE - timedelta(days=1),
         until=_NOW + timedelta(days=1),
     )
@@ -494,7 +494,7 @@ def test_build_insights_vendor_cost_from_calls(tmp_path: Path) -> None:
 
 def test_build_insights_vendor_fallback_no_calls(tmp_path: Path) -> None:
     """When calls list is empty, total cost is attributed to session vendor."""
-    runs_dir = tmp_path / "atelier" / "runs"
+    runs_dir = tmp_path / "lemoncrow" / "runs"
     events = [
         {
             "kind": "model_recommendation",
@@ -511,7 +511,7 @@ def test_build_insights_vendor_fallback_no_calls(tmp_path: Path) -> None:
     ]
     _write_run_file(runs_dir, "s1", cost_usd=2.0, calls=[], events=events)
     window = build_insights(
-        tmp_path / "atelier",
+        tmp_path / "lemoncrow",
         since=_SINCE - timedelta(days=1),
         until=_NOW + timedelta(days=1),
     )
@@ -521,7 +521,7 @@ def test_build_insights_vendor_fallback_no_calls(tmp_path: Path) -> None:
 
 def test_build_insights_outcomes_summary(tmp_path: Path) -> None:
     """Outcomes files are read and aggregated correctly."""
-    runs_dir = tmp_path / "atelier" / "runs"
+    runs_dir = tmp_path / "lemoncrow" / "runs"
     _write_run_file(runs_dir, "s1", cost_usd=1.0)
     # Write an outcomes file.
     outcomes_data = {
@@ -533,13 +533,13 @@ def test_build_insights_outcomes_summary(tmp_path: Path) -> None:
             {"outcome_window": {"outcome_score": 0.7, "extra_read_rate": 0.1}},
         ],
     }
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     outcomes_dir = session_dir(runs_dir.parent, "claude", "s1")
     outcomes_dir.mkdir(parents=True, exist_ok=True)
     (outcomes_dir / "outcomes.json").write_text(json.dumps(outcomes_data))
     window = build_insights(
-        tmp_path / "atelier",
+        tmp_path / "lemoncrow",
         since=_SINCE - timedelta(days=1),
         until=_NOW + timedelta(days=1),
     )
@@ -550,19 +550,19 @@ def test_build_insights_outcomes_summary(tmp_path: Path) -> None:
 
 def test_build_insights_high_extra_reads_flagged(tmp_path: Path) -> None:
     """Sessions with compact extra_read_rate > 0.20 are flagged."""
-    runs_dir = tmp_path / "atelier" / "runs"
+    runs_dir = tmp_path / "lemoncrow" / "runs"
     _write_run_file(runs_dir, "s1", cost_usd=1.0)
     outcomes_data = {
         "route_outcomes": [],
         "compact_outcomes": [{"outcome_window": {"outcome_score": 0.5, "extra_read_rate": 0.35}}],
     }
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     outcomes_dir = session_dir(runs_dir.parent, "claude", "s1")
     outcomes_dir.mkdir(parents=True, exist_ok=True)
     (outcomes_dir / "outcomes.json").write_text(json.dumps(outcomes_data))
     window = build_insights(
-        tmp_path / "atelier",
+        tmp_path / "lemoncrow",
         since=_SINCE - timedelta(days=1),
         until=_NOW + timedelta(days=1),
     )
@@ -697,14 +697,14 @@ def test_render_json_since_until_as_isoformat() -> None:
 
 def test_parse_since_relative_days(tmp_path: Path) -> None:
     """build_insights with synthetic data; just validates the since window."""
-    runs_dir = tmp_path / "atelier" / "runs"
+    runs_dir = tmp_path / "lemoncrow" / "runs"
     now = datetime.now(UTC)
     _write_run_file(runs_dir, "s1", started_at=now - timedelta(days=3))
     _write_run_file(runs_dir, "old", started_at=now - timedelta(days=30))
     # Test with a 7-day window.
     since = now - timedelta(days=7)
     until = now + timedelta(seconds=1)
-    window = build_insights(tmp_path / "atelier", since=since, until=until)
+    window = build_insights(tmp_path / "lemoncrow", since=since, until=until)
     ids = [s.session_id for s in window.top_sessions]
     assert "s1" in ids
 

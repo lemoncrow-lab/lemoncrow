@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
 
 def _build(repo: Path, cache: Path) -> SemanticFileMemoryCapability:

@@ -1,12 +1,12 @@
-"""Unit tests for the Atelier `agent` MCP tool (owned sub-agent spawn)."""
+"""Unit tests for the LemonCrow `agent` MCP tool (owned sub-agent spawn)."""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
-from atelier.core.capabilities.owned_execution_routing import NoFeasibleRouteError
-from atelier.core.environment import HIDDEN_LLM_TOOLS
-from atelier.gateway.adapters import mcp_server
+from lemoncrow.core.capabilities.owned_execution_routing import NoFeasibleRouteError
+from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.gateway.adapters import mcp_server
 
 
 def test_agent_tool_registered_but_hidden() -> None:

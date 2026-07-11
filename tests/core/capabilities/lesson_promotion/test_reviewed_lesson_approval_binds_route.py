@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.lesson_promotion.capability import LessonPromoterCapability
-from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
-from atelier.core.foundation.lesson_models import LessonCandidate
-from atelier.core.foundation.store import ContextStore
+from lemoncrow.core.capabilities.lesson_promotion.capability import LessonPromoterCapability
+from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
+from lemoncrow.core.foundation.lesson_models import LessonCandidate
+from lemoncrow.core.foundation.store import ContextStore
 
 
 def test_reviewed_lesson_approval_binds_route(tmp_path) -> None:

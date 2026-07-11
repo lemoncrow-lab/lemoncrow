@@ -6,10 +6,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from atelier.gateway.adapters.cursor_adapter import CursorAdapter, CursorConfig
-from atelier.gateway.adapters.hermes_adapter import HermesAdapter, HermesConfig
-from atelier.gateway.sdk import AtelierClient
-from atelier.gateway.sdk.client import ContextResult
+from lemoncrow.gateway.adapters.cursor_adapter import CursorAdapter, CursorConfig
+from lemoncrow.gateway.adapters.hermes_adapter import HermesAdapter, HermesConfig
+from lemoncrow.gateway.sdk import LemonCrowClient
+from lemoncrow.gateway.sdk.client import ContextResult
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #
@@ -18,7 +18,7 @@ from atelier.gateway.sdk.client import ContextResult
 
 @pytest.fixture
 def mock_client() -> MagicMock:
-    client = MagicMock(spec=AtelierClient)
+    client = MagicMock(spec=LemonCrowClient)
     # Make get_context return a ContextResult
     client.get_context.return_value = ContextResult(
         context="test reasoning context",
@@ -46,7 +46,7 @@ def hermes_adapter(mock_client: MagicMock) -> HermesAdapter:
 class TestCursorAdapter:
     def test_from_config_defaults(self) -> None:
         """Default CursorConfig produces an adapter in shadow mode."""
-        client = MagicMock(spec=AtelierClient)
+        client = MagicMock(spec=LemonCrowClient)
         adapter = CursorAdapter.from_config(CursorConfig(), client=client)
         assert adapter.host == "cursor"
         assert adapter.mode == "shadow"
@@ -55,7 +55,7 @@ class TestCursorAdapter:
 
     def test_from_config_custom(self) -> None:
         """Custom CursorConfig fields propagate to the adapter."""
-        client = MagicMock(spec=AtelierClient)
+        client = MagicMock(spec=LemonCrowClient)
         config = CursorConfig(
             mode="enforce",
             default_domain="Agent.cursor",
@@ -122,7 +122,7 @@ class TestCursorAdapter:
         instructions = CursorAdapter.install()
         assert isinstance(instructions, str)
         assert "Cursor" in instructions
-        assert "atelier" in instructions
+        assert "lemon" in instructions
         assert ".cursor/mcp.json" in instructions
 
     def test_host_label(self, cursor_adapter: CursorAdapter) -> None:
@@ -138,7 +138,7 @@ class TestCursorAdapter:
 class TestHermesAdapter:
     def test_from_config_defaults(self) -> None:
         """Default HermesConfig produces an adapter in shadow mode."""
-        client = MagicMock(spec=AtelierClient)
+        client = MagicMock(spec=LemonCrowClient)
         adapter = HermesAdapter.from_config(HermesConfig(), client=client)
         assert adapter.host == "hermes"
         assert adapter.mode == "shadow"
@@ -147,7 +147,7 @@ class TestHermesAdapter:
 
     def test_from_config_custom(self) -> None:
         """Custom HermesConfig fields propagate to the adapter."""
-        client = MagicMock(spec=AtelierClient)
+        client = MagicMock(spec=LemonCrowClient)
         config = HermesConfig(
             mode="suggest",
             default_domain="Agent.hermes",
@@ -209,7 +209,7 @@ class TestHermesAdapter:
         instructions = HermesAdapter.install()
         assert isinstance(instructions, str)
         assert "Hermes" in instructions
-        assert "atelier" in instructions
+        assert "lemon" in instructions
         assert "config.yaml" in instructions or "HERMES_HOME" in instructions
 
     def test_host_label(self, hermes_adapter: HermesAdapter) -> None:

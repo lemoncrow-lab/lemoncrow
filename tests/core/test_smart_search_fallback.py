@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision import smart_search as smart_search_mod
+from lemoncrow.core.capabilities.tool_supervision import smart_search as smart_search_mod
 
 
 def _configure(monkeypatch: pytest.MonkeyPatch, repo_root: Path) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(repo_root))
-    monkeypatch.setenv("ATELIER_CACHE_DISABLED", "1")
+    monkeypatch.setenv("LEMONCROW_CACHE_DISABLED", "1")
 
 
 def test_smart_search_rejects_path_outside_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

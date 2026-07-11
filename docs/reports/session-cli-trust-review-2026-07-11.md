@@ -1,4 +1,4 @@
-# `atelier session` trust review — 2026-07-11
+# `lemon session` trust review — 2026-07-11
 
 Full investigation of the `session` group (list / report / stats / replay / recall): correctness of every displayed number, plumbing across hosts, terminal + HTML UX. Two adversarial audit agents + empirical ground-truthing; three fix agents. All fixes verified.
 
@@ -10,7 +10,7 @@ Full investigation of the `session` group (list / report / stats / replay / reca
 | D1 | `read_transcript_stats` kept the FIRST streamed usage row per message id — output tokens undercounted ~6x (110.5k vs 635k ground truth on 28b72bcf), replay cost $82 vs real ~$102. Affected replay, statusline, stop-hook, badges. | keep-last usage per msg id, retract+recount across incremental folds (`savings_summary.py`) |
 | D2 | Multi-loop savings overstated: only the globally-first grep-loop round kept as the code_search stand-in; episode ≥2 priced at $0. Live repro: two 1-round loops → fraction 0.13, must be 0. | one stand-in per episode; per-episode round groups threaded through `_round_usage` |
 | D3 | Vanilla estimate multiplied main-thread-only fraction by cost incl. subagents → overstated + double-counted savings. | fraction applied to main-transcript cost only |
-| D4 | `mcp__atelier__read` classified as wasteful whole-file read → inflated collapse stats on sessions that already ran with Atelier. | atelier tools + `files`/`symbol` args = targeted |
+| D4 | `mcp__lemon__read` classified as wasteful whole-file read → inflated collapse stats on sessions that already ran with LemonCrow. | lemon tools + `files`/`symbol` args = targeted |
 | D5 | codex/opencode replays always showed Cost $0.0000 (Claude-only cost sources). | fallback prices parsed per-turn tokens; codex file now shows real $18.71 |
 | D6 | Heuristic time-saved labeled "measured". | labeled "est" (terminal + HTML) |
 | D7 | Top-level sessions could show "savings counted on the parent session" (no parent exists). | copy conditioned on `is_subagent` |
@@ -29,7 +29,7 @@ Full investigation of the `session` group (list / report / stats / replay / reca
 ## Plumbing — all FIXED
 - **opencode replay was completely broken** (globbed `*.jsonl`; opencode moved to `opencode.db`). Now reads the DB via `serialize_opencode_session`; legacy layout fallback kept.
 - **`--file` silently mis-parsed foreign transcripts** (codex file as claude → empty replay). Now auto-detects the format, exits 1 with clear error if nothing parses.
-- **Replay now supports all 7 import hosts** (was 3): claude/codex/copilot (JSONL), opencode (db), hermes (state.db), cursor/antigravity (normalized artifacts from the Atelier store).
+- **Replay now supports all 7 import hosts** (was 3): claude/codex/copilot (JSONL), opencode (db), hermes (state.db), cursor/antigravity (normalized artifacts from the LemonCrow store).
 - `session report <prefix>` prefix-matches (ambiguous → candidate list); `--path` to a missing dir warns on stderr.
 
 ## UX

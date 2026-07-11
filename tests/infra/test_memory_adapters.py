@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from atelier.core.foundation.memory_models import ArchivalPassage, MemoryBlock
-from atelier.infra.memory_bridges.letta_adapter import LettaAdapter
-from atelier.infra.memory_bridges.openmemory import OpenMemoryAdapter, OpenMemoryMemoryStore
-from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock
+from lemoncrow.infra.memory_bridges.letta_adapter import LettaAdapter
+from lemoncrow.infra.memory_bridges.openmemory import OpenMemoryAdapter, OpenMemoryMemoryStore
+from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 
 class _FakeOpenMemoryClient:
@@ -54,14 +54,14 @@ def test_openmemory_adapter_always_delegates_to_bridge() -> None:
 
 
 def test_openmemory_memory_store_uses_openmemory_as_primary(tmp_path: Path) -> None:
-    store = OpenMemoryMemoryStore(tmp_path / "atelier", client=_FakeOpenMemoryClient())
+    store = OpenMemoryMemoryStore(tmp_path / "lemoncrow", client=_FakeOpenMemoryClient())
 
-    block = store.upsert_block(MemoryBlock(agent_id="atelier:code", label="style", value="compact"), actor="tests")
-    assert store.get_block("atelier:code", "style") == block
+    block = store.upsert_block(MemoryBlock(agent_id="lemon:code", label="style", value="compact"), actor="tests")
+    assert store.get_block("lemon:code", "style") == block
 
     passage = store.insert_passage(
         ArchivalPassage(
-            agent_id="atelier:code",
+            agent_id="lemon:code",
             text="checkout retry guidance",
             tags=["checkout"],
             source="trace",
@@ -69,12 +69,12 @@ def test_openmemory_memory_store_uses_openmemory_as_primary(tmp_path: Path) -> N
             dedup_hash="hash-1",
         )
     )
-    results = store.search_passages("atelier:code", "checkout", top_k=1)
+    results = store.search_passages("lemon:code", "checkout", top_k=1)
     assert [item.id for item in results] == [passage.id]
 
-    sqlite = SqliteMemoryStore(tmp_path / "atelier")
-    assert sqlite.get_block("atelier:code", "style") is None
-    assert sqlite.list_passages("atelier:code") == []
+    sqlite = SqliteMemoryStore(tmp_path / "lemoncrow")
+    assert sqlite.get_block("lemon:code", "style") is None
+    assert sqlite.list_passages("lemon:code") == []
 
 
 def test_openmemory_adapter_rest_fallback_when_mcp_returns_empty(monkeypatch: Any) -> None:
@@ -123,12 +123,12 @@ def test_openmemory_row_to_passage_accepts_metadata_fallback_shape() -> None:
         "created_at": 1779450000,
         "categories": ["run", "fact-001"],
         "metadata_": {
-            "atelier_kind": "atelier_passage",
-            "atelier_agent_id": "agent-1",
-            "atelier_passage_id": "pas-1",
-            "atelier_dedup_hash": "hash-1",
-            "atelier_source": "user",
-            "atelier_source_ref": "run",
+            "lemoncrow_kind": "lemoncrow_passage",
+            "lemoncrow_agent_id": "agent-1",
+            "lemoncrow_passage_id": "pas-1",
+            "lemoncrow_dedup_hash": "hash-1",
+            "lemoncrow_source": "user",
+            "lemoncrow_source_ref": "run",
         },
     }
     passage = OpenMemoryMemoryStore._row_to_passage(row, agent_id="agent-1")

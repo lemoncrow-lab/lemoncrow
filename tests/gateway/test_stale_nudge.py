@@ -3,9 +3,9 @@
 Covers the usage-log write path (`plugin_runtime.record_optional_use` /
 `last_optional_use_ms`), the `update_session_stats` hook integration that
 records optional-agent/skill use while never recording the default `code`
-role or `atelier` skill, the `stale_optional_items` staleness classifier
+role or `lemon` skill, the `stale_optional_items` staleness classifier
 (installed+optional+stale vs. recently-used vs. not-installed vs. default),
-and the `atelier stale-nudge` CLI surface.
+and the `lemon stale-nudge` CLI surface.
 """
 
 from __future__ import annotations
@@ -15,13 +15,13 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from atelier.core.capabilities.plugin_runtime import (
+from lemoncrow.core.capabilities.plugin_runtime import (
     last_optional_use_ms,
     record_optional_use,
     update_session_stats,
 )
-from atelier.gateway.cli.app import cli
-from atelier.gateway.cli.commands import agents_skills as m
+from lemoncrow.gateway.cli.app import cli
+from lemoncrow.gateway.cli.commands import agents_skills as m
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _DAY_MS = 86_400_000
@@ -84,14 +84,14 @@ def test_update_session_stats_records_optional_skill_invocation(tmp_path: Path) 
     assert last_optional_use_ms(tmp_path, "skill", "recall") == 5_555
 
 
-def test_update_session_stats_never_records_the_default_atelier_skill(tmp_path: Path) -> None:
+def test_update_session_stats_never_records_the_default_lemoncrow_skill(tmp_path: Path) -> None:
     update_session_stats(
         tmp_path,
         {
             "hook_event_name": "PostToolUse",
             "session_id": "s1",
             "tool_name": "Skill",
-            "tool_input": {"skill": "atelier"},
+            "tool_input": {"skill": "lemoncrow"},
             "now_ms": 5_555,
         },
     )
@@ -164,14 +164,14 @@ def test_stale_optional_items_excludes_uninstalled_agent(tmp_path: Path) -> None
     assert not any(i["kind"] == "agent" and i["name"] == "explore" for i in items)
 
 
-def test_stale_optional_items_never_flags_default_code_or_atelier_skill(tmp_path: Path) -> None:
+def test_stale_optional_items_never_flags_default_code_or_lemoncrow_skill(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     _install_agent(ws, "explore")  # also brings the default `code` role along
-    _install_skill(ws, "recall")  # also ships the default `atelier` skill
+    _install_skill(ws, "recall")  # also ships the default `lemon` skill
     items = m.stale_optional_items("claude", ws, root=tmp_path, repo_root=REPO_ROOT, now_ms=10 * _DAY_MS)
     names = {(i["kind"], i["name"]) for i in items}
     assert ("agent", "code") not in names
-    assert ("skill", "atelier") not in names
+    assert ("skill", "lemoncrow") not in names
 
 
 def test_stale_optional_items_covers_installed_skills_too(tmp_path: Path) -> None:
@@ -191,9 +191,9 @@ def test_stale_optional_items_skips_skills_for_opencode(tmp_path: Path) -> None:
 
 
 def test_stale_nudge_days_env_var_overrides_default(monkeypatch) -> None:
-    monkeypatch.setenv("ATELIER_STALE_NUDGE_DAYS", "1")
+    monkeypatch.setenv("LEMONCROW_STALE_NUDGE_DAYS", "1")
     assert m._stale_nudge_days() == 1.0
-    monkeypatch.delenv("ATELIER_STALE_NUDGE_DAYS")
+    monkeypatch.delenv("LEMONCROW_STALE_NUDGE_DAYS")
     assert m._stale_nudge_days() == m.DEFAULT_STALE_NUDGE_DAYS
 
 
@@ -204,23 +204,23 @@ def test_stale_nudge_days_env_var_overrides_default(monkeypatch) -> None:
 
 def test_format_stale_nudge_never_used_wording() -> None:
     line = m.format_stale_nudge({"kind": "agent", "name": "explore", "days_unused": None, "token_cost": 42})
-    assert line == "explore installed, never used — remove: /atelier remove explore (saves ~42 tok/turn)"
+    assert line == "explore installed, never used — remove: /lemoncrow remove explore (saves ~42 tok/turn)"
 
 
 def test_format_stale_nudge_days_unused_wording() -> None:
     line = m.format_stale_nudge({"kind": "skill", "name": "recall", "days_unused": 9, "token_cost": 7})
-    assert line == "recall installed, unused 9d — remove: /atelier remove recall (saves ~7 tok/turn)"
+    assert line == "recall installed, unused 9d — remove: /lemoncrow remove recall (saves ~7 tok/turn)"
 
 
 # --------------------------------------------------------------------------- #
-# CLI: atelier stale-nudge
+# CLI: lemon stale-nudge
 # --------------------------------------------------------------------------- #
 
 
 def test_stale_nudge_cli_prints_pipe_delimited_line_for_stale_item(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     _install_agent(ws, "explore")
-    with patch.object(m, "_default_atelier_root", return_value=tmp_path):
+    with patch.object(m, "_default_lemoncrow_root", return_value=tmp_path):
         with patch.object(m, "_repo_root", return_value=REPO_ROOT):
             result = CliRunner().invoke(
                 cli, ["stale-nudge", "--host", "claude", "--workspace", str(ws)], catch_exceptions=False
@@ -235,7 +235,7 @@ def test_stale_nudge_cli_prints_pipe_delimited_line_for_stale_item(tmp_path: Pat
 def test_stale_nudge_cli_silent_when_nothing_stale(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     (ws / ".claude").mkdir(parents=True)
-    with patch.object(m, "_default_atelier_root", return_value=tmp_path):
+    with patch.object(m, "_default_lemoncrow_root", return_value=tmp_path):
         with patch.object(m, "_repo_root", return_value=REPO_ROOT):
             result = CliRunner().invoke(
                 cli, ["stale-nudge", "--host", "claude", "--workspace", str(ws)], catch_exceptions=False

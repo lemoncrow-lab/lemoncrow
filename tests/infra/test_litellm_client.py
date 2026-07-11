@@ -4,10 +4,10 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("litellm", reason="atelier[litellm] not installed")
+pytest.importorskip("litellm", reason="lemoncrow[litellm] not installed")
 
-from atelier.infra.internal_llm import litellm_client
-from atelier.infra.internal_llm.exceptions import LiteLLMUnavailable
+from lemoncrow.infra.internal_llm import litellm_client
+from lemoncrow.infra.internal_llm.exceptions import LiteLLMUnavailable
 
 
 class _Message:
@@ -85,7 +85,7 @@ def test_chat_plain_text_without_schema(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_resolve_model_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_LITELLM_MODEL", "bedrock/anthropic.claude-3-5-sonnet")
+    monkeypatch.setenv("LEMONCROW_LITELLM_MODEL", "bedrock/anthropic.claude-3-5-sonnet")
     assert litellm_client._resolve_model(None) == "bedrock/anthropic.claude-3-5-sonnet"
     assert litellm_client._resolve_model("vertex_ai/gemini-1.5-pro") == "vertex_ai/gemini-1.5-pro"
 
@@ -104,9 +104,9 @@ def test_invalid_json_raises_litellm_unavailable(monkeypatch: pytest.MonkeyPatch
 def test_backend_dispatch_routes_to_litellm(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = _FakeLiteLLM('{"routed": true}')
     monkeypatch.setattr(litellm_client, "_litellm_module", lambda: fake)
-    monkeypatch.setenv("ATELIER_LLM_BACKEND", "litellm")
+    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "litellm")
 
-    from atelier.infra import internal_llm
+    from lemoncrow.infra import internal_llm
 
     payload = internal_llm.chat(
         [{"role": "user", "content": "hi"}],

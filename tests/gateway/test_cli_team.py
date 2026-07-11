@@ -7,11 +7,11 @@ from pathlib import Path
 import yaml
 from click.testing import CliRunner, Result
 
-from atelier.core.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
-from atelier.core.capabilities.cross_vendor_memory.models import AuditEvent
-from atelier.core.foundation.memory_models import MemoryBlock
-from atelier.gateway.cli import cli
-from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from lemoncrow.core.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
+from lemoncrow.core.capabilities.cross_vendor_memory.models import AuditEvent
+from lemoncrow.core.foundation.memory_models import MemoryBlock
+from lemoncrow.gateway.cli import cli
+from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 
 def _invoke(root: Path, *args: str) -> Result:
@@ -39,16 +39,16 @@ def _write_done_session(root: Path, user_id: str, *, cost: float) -> None:
 
 
 def test_team_usage_and_memory_share_commands(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init = _invoke(root, "team", "init", "--name", "Acme", "--admin-email", "admin@example.com", "--json")
     assert init.exit_code == 0, init.output
     _write_done_session(root, "admin@example.com", cost=1.25)
     SqliteMemoryStore(root).upsert_block(
-        MemoryBlock(agent_id="atelier:code", label="fact", value="remember this"),
+        MemoryBlock(agent_id="lemon:code", label="fact", value="remember this"),
         actor="test",
     )
 
-    shared = _invoke(root, "memory", "share", "--agent-id", "atelier:code", "--label", "fact", "--json")
+    shared = _invoke(root, "memory", "share", "--agent-id", "lemon:code", "--label", "fact", "--json")
     usage = _invoke(root, "team", "usage", "--since", "30d", "--json")
 
     assert shared.exit_code == 0, shared.output
@@ -58,7 +58,7 @@ def test_team_usage_and_memory_share_commands(tmp_path: Path) -> None:
 
 
 def test_governance_apply_and_audit_export_verify_commands(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init = _invoke(root, "team", "init", "--name", "Acme", "--admin-email", "admin@example.com")
     assert init.exit_code == 0, init.output
     policy_path = tmp_path / "governance.yaml"

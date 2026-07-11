@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.quality_router.evals import (
+from lemoncrow.core.capabilities.quality_router.evals import (
     RoutingEvalCase,
     summarize_routing_evals,
 )

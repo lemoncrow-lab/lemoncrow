@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.core.capabilities.owned_execution_lanes import (
+from lemoncrow.core.capabilities.owned_execution_lanes import (
     OwnedExecutionError,
     execute_owned_prompt,
 )
-from atelier.core.capabilities.owned_execution_routing import OwnedRouteDecision
-from atelier.infra.internal_llm.exceptions import OpenAIClientUnavailable
-from atelier.infra.internal_llm.result import InternalLLMChatResult
+from lemoncrow.core.capabilities.owned_execution_routing import OwnedRouteDecision
+from lemoncrow.infra.internal_llm.exceptions import OpenAIClientUnavailable
+from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
 
 
 def _decision(
@@ -39,7 +39,7 @@ def _decision(
 
 def test_execute_owned_prompt_returns_structured_receipt(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "atelier.core.capabilities.owned_execution_lanes.openai_chat_with_result",
+        "lemoncrow.core.capabilities.owned_execution_lanes.openai_chat_with_result",
         lambda messages, model=None: InternalLLMChatResult(
             content="done",
             model=model or "gpt-4o",
@@ -70,7 +70,7 @@ def test_execute_owned_prompt_returns_structured_receipt(monkeypatch, tmp_path) 
 
 def test_execute_owned_prompt_fresh_policy_disables_cache_affinity(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "atelier.core.capabilities.owned_execution_lanes.openai_chat_with_result",
+        "lemoncrow.core.capabilities.owned_execution_lanes.openai_chat_with_result",
         lambda messages, model=None: InternalLLMChatResult(
             content="fresh done",
             model=model or "gpt-4o",
@@ -113,11 +113,11 @@ def test_execute_owned_prompt_fresh_policy_disables_cache_affinity(monkeypatch, 
 
 def test_execute_owned_prompt_auto_reroutes_after_provider_failure(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "atelier.core.capabilities.owned_execution_lanes.openai_chat_with_result",
+        "lemoncrow.core.capabilities.owned_execution_lanes.openai_chat_with_result",
         lambda messages, model=None: (_ for _ in ()).throw(OpenAIClientUnavailable("openai down")),
     )
     monkeypatch.setattr(
-        "atelier.core.capabilities.owned_execution_lanes.litellm_chat_with_result",
+        "lemoncrow.core.capabilities.owned_execution_lanes.litellm_chat_with_result",
         lambda messages, model=None: InternalLLMChatResult(
             content="fallback",
             model=model or "claude-opus-4.1",
@@ -127,7 +127,7 @@ def test_execute_owned_prompt_auto_reroutes_after_provider_failure(monkeypatch, 
         ),
     )
     monkeypatch.setattr(
-        "atelier.core.capabilities.owned_execution_lanes.select_owned_route",
+        "lemoncrow.core.capabilities.owned_execution_lanes.select_owned_route",
         lambda root, request: _decision(
             mode=request.mode,
             provider="anthropic",
@@ -153,7 +153,7 @@ def test_execute_owned_prompt_auto_reroutes_after_provider_failure(monkeypatch, 
 
 def test_execute_owned_prompt_explicit_route_fails_without_fallback(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "atelier.core.capabilities.owned_execution_lanes.openai_chat_with_result",
+        "lemoncrow.core.capabilities.owned_execution_lanes.openai_chat_with_result",
         lambda messages, model=None: (_ for _ in ()).throw(OpenAIClientUnavailable("openai down")),
     )
 
@@ -183,7 +183,7 @@ def test_execute_owned_prompt_records_spawn_scope_and_cache_capability(monkeypat
             request_metadata=dict(cache_metadata or {}),
         )
 
-    monkeypatch.setattr("atelier.core.capabilities.owned_execution_lanes.openai_chat_with_result", fake_openai)
+    monkeypatch.setattr("lemoncrow.core.capabilities.owned_execution_lanes.openai_chat_with_result", fake_openai)
 
     result = execute_owned_prompt(
         "Keep the prompt prefix stable.\n\nCurrent phase prompt:\nImplement the fix.",

@@ -17,8 +17,8 @@ from typing import Any, cast
 
 import pytest
 
-from atelier.core.foundation import session_window as sw
 from integrations.claude.plugin.hooks import session_start, user_prompt
+from lemoncrow.core.foundation import session_window as sw
 
 SESSION_START = cast(Any, session_start)
 USER_PROMPT = cast(Any, user_prompt)
@@ -28,10 +28,10 @@ _WINDOW = (43210, 987654)  # (pid, btime) — fixed fake window identity
 
 def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str]:
     """Point both hooks and session_window at an isolated root/workspace."""
-    root = tmp_path / "atelier"
+    root = tmp_path / "lemoncrow"
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
     monkeypatch.delenv("CLAUDE_PLUGIN_ROOT", raising=False)
     monkeypatch.setattr(sw, "host_window_id", lambda: _WINDOW)

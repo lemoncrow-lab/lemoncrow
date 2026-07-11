@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.tool_supervision.batch_edit import apply_batch_edit
+from lemoncrow.core.capabilities.tool_supervision.batch_edit import apply_batch_edit
 
 
 def _write(path: Path, content: str) -> None:

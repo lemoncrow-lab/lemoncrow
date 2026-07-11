@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from atelier.core.foundation.models import Rubric
-from atelier.core.foundation.rubric_gate import run_rubric
+from lemoncrow.core.foundation.models import Rubric
+from lemoncrow.core.foundation.rubric_gate import run_rubric
 
 
 def _r(**kw: object) -> Rubric:

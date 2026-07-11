@@ -10,24 +10,24 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.core.capabilities.budget_optimizer.optimizer import (
+from lemoncrow.core.capabilities.budget_optimizer.optimizer import (
     ContextBlock,
     PromptBudgetOptimizer,
 )
-from atelier.core.capabilities.code_context.ppl_rank import (
+from lemoncrow.core.capabilities.code_context.ppl_rank import (
     rank_code_chunks,
     split_code_chunks,
 )
-from atelier.core.capabilities.context_compression.perplexity_pruning import (
+from lemoncrow.core.capabilities.context_compression.perplexity_pruning import (
     prune_block,
 )
-from atelier.infra.internal_llm import chunk_entropy, logprobs
+from lemoncrow.infra.internal_llm import chunk_entropy, logprobs
 
 
 @pytest.fixture(autouse=True)
 def _backend_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """Force the disabled backend so the entropy fallback path is exercised."""
-    monkeypatch.setenv("ATELIER_LLM_BACKEND", "none")
+    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "none")
 
 
 # A dense, logic-heavy function: many distinct identifiers, operators, branches.
@@ -112,7 +112,7 @@ def test_knapsack_honors_external_ppl_utilities_under_budget(
         ContextBlock("b", "y", token_cost=50, utility=0.1, source="s"),
     ]
     opt = PromptBudgetOptimizer(diversity_bonus=0.0)
-    monkeypatch.setenv("ATELIER_PERPLEXITY_COMPRESSION", "1")
+    monkeypatch.setenv("LEMONCROW_PERPLEXITY_COMPRESSION", "1")
     plan = opt.solve(blocks, token_budget=50, utility_source={"a": 0.1, "b": 0.95})
     assert [b.id for b in plan.selected] == ["b"]
 
@@ -126,7 +126,7 @@ def test_knapsack_flag_off_preserves_static_behavior(
         ContextBlock("b", "y", token_cost=50, utility=0.1, source="s"),
     ]
     opt = PromptBudgetOptimizer(diversity_bonus=0.0)
-    monkeypatch.delenv("ATELIER_PERPLEXITY_COMPRESSION", raising=False)
+    monkeypatch.delenv("LEMONCROW_PERPLEXITY_COMPRESSION", raising=False)
     plan = opt.solve(blocks, token_budget=50, utility_source={"a": 0.1, "b": 0.95})
     assert [b.id for b in plan.selected] == ["a"]
 
@@ -159,7 +159,7 @@ def test_pruning_noop_when_already_under_budget() -> None:
 
 def result_target(block: str) -> int:
     """Half the block's token budget — forces a real prune."""
-    from atelier.core.capabilities.context_compression.perplexity_pruning import (
+    from lemoncrow.core.capabilities.context_compression.perplexity_pruning import (
         _token_count,
     )
 
@@ -172,15 +172,15 @@ def test_backend_none_never_touches_network(monkeypatch: pytest.MonkeyPatch) -> 
     We poison both provider client factories: if logprobs tried to build a
     client under backend=none it would raise. It must return None instead.
     """
-    import atelier.infra.internal_llm.litellm_client as lc
-    import atelier.infra.internal_llm.openai_client as oc
+    import lemoncrow.infra.internal_llm.litellm_client as lc
+    import lemoncrow.infra.internal_llm.openai_client as oc
 
     def _boom(*_a: object, **_k: object) -> object:
         raise AssertionError("network/client accessed under backend=none")
 
     monkeypatch.setattr(oc, "_resolve_client", _boom)
     monkeypatch.setattr(lc, "_litellm_module", _boom)
-    monkeypatch.setenv("ATELIER_LLM_BACKEND", "none")
+    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "none")
 
     assert logprobs(DENSE_FUNCTION) is None
     # The full T10/T11 pipeline must also stay model-free under backend=none.

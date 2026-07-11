@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.foundation.models import Trace
-from atelier.core.runtime import AtelierRuntimeCore
-from atelier.infra.runtime.run_ledger import RunLedger
+from lemoncrow.core.foundation.models import Trace
+from lemoncrow.core.runtime import LemonCrowRuntimeCore
+from lemoncrow.infra.runtime.run_ledger import RunLedger
 from tests.helpers import init_store_at
 
 
 def test_context_reuse_returns_ranked_procedures(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    rt = AtelierRuntimeCore(root)
+    rt = LemonCrowRuntimeCore(root)
 
     context = rt.get_context(
         task="Apply a live state change safely",
@@ -25,9 +25,9 @@ def test_context_reuse_returns_ranked_procedures(tmp_path: Path) -> None:
 
 
 def test_semantic_memory_read_and_search(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    rt = AtelierRuntimeCore(root)
+    rt = LemonCrowRuntimeCore(root)
 
     target = tmp_path / "sample.py"
     target.write_text(
@@ -52,9 +52,9 @@ def test_semantic_memory_read_and_search(tmp_path: Path) -> None:
 
 
 def test_summarize_memory_after_repeated_failures(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    rt = AtelierRuntimeCore(root)
+    rt = LemonCrowRuntimeCore(root)
 
     ledger = RunLedger(root=root, agent="test", task="t", domain="d")
     ledger.record_command("pytest", ok=False, error_signature="same")
@@ -68,9 +68,9 @@ def test_summarize_memory_after_repeated_failures(tmp_path: Path) -> None:
 
 
 def test_failure_analysis_clusters_and_matches(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    rt = AtelierRuntimeCore(root)
+    rt = LemonCrowRuntimeCore(root)
 
     rt.store.record_trace(
         Trace(
@@ -106,9 +106,9 @@ def test_failure_analysis_clusters_and_matches(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_and_smart_edit(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    rt = AtelierRuntimeCore(root)
+    rt = LemonCrowRuntimeCore(root)
 
     rt.smart_search("shopify", limit=3)
     rt.smart_search("shopify", limit=3)
@@ -121,17 +121,17 @@ def test_tool_supervision_and_smart_edit(tmp_path: Path) -> None:
     file_path.write_text("hello world", encoding="utf-8")
     result = rt.smart_edit(
         [
-            {"path": str(file_path), "find": "world", "replace": "atelier"},
+            {"path": str(file_path), "find": "world", "replace": "lemoncrow"},
         ]
     )
     assert result["applied"] == 1
-    assert file_path.read_text(encoding="utf-8") == "hello atelier"
+    assert file_path.read_text(encoding="utf-8") == "hello lemoncrow"
 
 
 def test_smart_edit_fuzzy_and_bash_intercept(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    rt = AtelierRuntimeCore(root)
+    rt = LemonCrowRuntimeCore(root)
 
     file_path = tmp_path / "fuzzy.txt"
     file_path.write_text("publish_product_by_gid\n", encoding="utf-8")
@@ -155,9 +155,9 @@ def test_smart_edit_fuzzy_and_bash_intercept(tmp_path: Path) -> None:
 
 
 def test_sql_inspect_and_runtime_benchmark_metrics(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    rt = AtelierRuntimeCore(root)
+    rt = LemonCrowRuntimeCore(root)
 
     sql = "SELECT * FROM catalog.products JOIN sales.orders ON products.id = orders.product_id"
     inspected = rt.sql_inspect(sql=sql)

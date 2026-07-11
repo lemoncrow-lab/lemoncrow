@@ -15,14 +15,14 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.default_definitions import build_default_registry
-from atelier.core.environment import skill_visible
+from lemoncrow.core.capabilities.default_definitions import build_default_registry
+from lemoncrow.core.environment import skill_visible
 
-ATELIER_ROOT = Path(__file__).parent.parent.parent
-SCRIPTS = ATELIER_ROOT / "scripts"
-INTEGRATIONS = ATELIER_ROOT / "integrations"
-DOCS_HOSTS = ATELIER_ROOT / "docs" / "hosts"
-MAKEFILE = ATELIER_ROOT / "Makefile"
+LEMONCROW_ROOT = Path(__file__).parent.parent.parent
+SCRIPTS = LEMONCROW_ROOT / "scripts"
+INTEGRATIONS = LEMONCROW_ROOT / "integrations"
+DOCS_HOSTS = LEMONCROW_ROOT / "docs" / "hosts"
+MAKEFILE = LEMONCROW_ROOT / "Makefile"
 
 
 def is_executable(path: Path) -> bool:
@@ -47,7 +47,7 @@ def test_install_script_exists(host: str) -> None:
     assert is_executable(script), f"Not executable: scripts/install_{host}.sh"
 
 
-# atelier-status was folded into `atelier status` — its test moved to the CLI test suite.
+# lemoncrow-status was folded into `lemon status` — its test moved to the CLI test suite.
 
 # ---------------------------------------------------------------------------
 # 3. Unified scripts
@@ -69,18 +69,18 @@ def test_build_host_skills_script_exists() -> None:
 def test_build_host_skills_generates_stable_bundle_by_default(tmp_path: Path) -> None:
     # No --include-skills: none of the 6 optional public skills ship by
     # default, only the role-name skills codex uses for mode switching plus
-    # the always-on `atelier` on-demand install/remove/list discovery skill.
+    # the always-on `lemoncrow` on-demand install/remove/list discovery skill.
     dest = tmp_path / "skills"
     subprocess.run(
         ["bash", str(SCRIPTS / "build_host_skills.sh"), "--host", "codex", "--dest", str(dest)],
-        cwd=ATELIER_ROOT,
+        cwd=LEMONCROW_ROOT,
         check=True,
     )
     generated = {path.name for path in dest.iterdir() if path.is_dir()}
-    registry = build_default_registry(ATELIER_ROOT)
-    expected = set(registry.surfaced_role_ids("shared_skill")) | {"atelier"}
+    registry = build_default_registry(LEMONCROW_ROOT)
+    expected = set(registry.surfaced_role_ids("shared_skill")) | {"lemoncrow"}
     assert generated == expected
-    assert not ((expected_visible_skill_names() - {"atelier"}) & generated)
+    assert not ((expected_visible_skill_names() - {"lemoncrow"}) & generated)
 
 
 def test_build_host_skills_include_skills_flag_opts_in_public_skills(tmp_path: Path) -> None:
@@ -95,23 +95,23 @@ def test_build_host_skills_include_skills_flag_opts_in_public_skills(tmp_path: P
             str(dest),
             "--include-skills=benchmark,swarm",
         ],
-        cwd=ATELIER_ROOT,
+        cwd=LEMONCROW_ROOT,
         check=True,
     )
     generated = {path.name for path in dest.iterdir() if path.is_dir()}
-    registry = build_default_registry(ATELIER_ROOT)
-    expected = set(registry.surfaced_role_ids("shared_skill")) | {"benchmark", "swarm", "atelier"}
+    registry = build_default_registry(LEMONCROW_ROOT)
+    expected = set(registry.surfaced_role_ids("shared_skill")) | {"benchmark", "swarm", "lemoncrow"}
     assert generated == expected
 
 
-def test_atelier_meta_skill_ships_by_default_while_public_skills_stay_optional(tmp_path: Path) -> None:
-    # The `atelier` discovery skill (install/remove/list surface) is the one
+def test_lemoncrow_meta_skill_ships_by_default_while_public_skills_stay_optional(tmp_path: Path) -> None:
+    # The `lemoncrow` discovery skill (install/remove/list surface) is the one
     # skill that ships by default -- it's how a user finds the rest of the
     # opt-in surface in the first place. The 6 optional public skills never do.
-    from atelier.core.environment import skill_installed_by_default
-    from atelier.gateway.cli.commands.agents_skills import PUBLIC_SKILL_NAMES
+    from lemoncrow.core.environment import skill_installed_by_default
+    from lemoncrow.gateway.cli.commands.agents_skills import PUBLIC_SKILL_NAMES
 
-    assert skill_installed_by_default("atelier") is True
+    assert skill_installed_by_default("lemoncrow") is True
     for name in PUBLIC_SKILL_NAMES:
         assert skill_installed_by_default(name) is False, f"{name} must stay opt-in"
 
@@ -119,10 +119,10 @@ def test_atelier_meta_skill_ships_by_default_while_public_skills_stay_optional(t
         dest = tmp_path / host
         subprocess.run(
             ["bash", str(SCRIPTS / "build_host_skills.sh"), "--host", host, "--dest", str(dest)],
-            cwd=ATELIER_ROOT,
+            cwd=LEMONCROW_ROOT,
             check=True,
         )
-        assert (dest / "atelier" / "SKILL.md").exists(), f"{host}: atelier skill must ship by default"
+        assert (dest / "lemoncrow" / "SKILL.md").exists(), f"{host}: lemoncrow skill must ship by default"
         for name in PUBLIC_SKILL_NAMES:
             assert not (dest / name).exists(), f"{host}: {name} must not ship by default"
 
@@ -131,9 +131,9 @@ def test_codex_plugin_agent_surface_exists() -> None:
     surface = INTEGRATIONS / "codex" / "plugin" / "agents" / "openai.yaml"
     assert surface.exists()
     content = surface.read_text(encoding="utf-8")
-    assert 'display_name: "Atelier Agents"' in content
-    assert "atelier_code" in content
-    assert "atelier_review" in content
+    assert 'display_name: "LemonCrow Agents"' in content
+    assert "lemoncrow_code" in content
+    assert "lemoncrow_review" in content
 
 
 def test_codex_plugin_prompt_uses_real_discovery_path() -> None:
@@ -141,9 +141,9 @@ def test_codex_plugin_prompt_uses_real_discovery_path() -> None:
     manifest_text = manifest.read_text(encoding="utf-8")
     data = json.loads(manifest_text)
     prompt = "\n".join(data["interface"]["defaultPrompt"])
-    assert "atelier_code" in prompt
+    assert "lemoncrow_code" in prompt
     assert all(len(item) <= 128 for item in data["interface"]["defaultPrompt"])
-    assert "mcp__atelier__context" not in manifest_text
+    assert "mcp__lemon__context" not in manifest_text
     assert "context first" not in manifest_text
 
 
@@ -154,10 +154,10 @@ def test_codex_installers_stage_plugin_agent_surface() -> None:
         assert "agents/openai.yaml" in content
         assert "write_codex_agent_config" in content
         assert "write_workspace_codex_agent_config" in content
-        assert "agents\\.atelier_code" in content
+        assert "agents\\.lemoncrow_code" in content
 
 
-def test_codex_installers_auto_approve_exposed_atelier_tools() -> None:
+def test_codex_installers_auto_approve_exposed_lemoncrow_tools() -> None:
     expected_tools = [
         "bash",
         "read",
@@ -181,7 +181,7 @@ def test_codex_installers_auto_approve_exposed_atelier_tools() -> None:
 
 def test_build_host_skills_ignores_removed_dev_bundle_flag(tmp_path: Path) -> None:
     # antigravity has no role-name skills (it uses agents for mode switching),
-    # and no --include-skills is passed, so only the always-on `atelier`
+    # and no --include-skills is passed, so only the always-on `lemoncrow`
     # discovery skill is generated by default.
     host = "antigravity"
     dest = tmp_path / "skills"
@@ -194,12 +194,12 @@ def test_build_host_skills_ignores_removed_dev_bundle_flag(tmp_path: Path) -> No
             "--dest",
             str(dest),
         ],
-        cwd=ATELIER_ROOT,
+        cwd=LEMONCROW_ROOT,
         check=True,
     )
     generated = {path.name for path in dest.iterdir() if path.is_dir()}
-    build_default_registry(ATELIER_ROOT)
-    assert generated == {"atelier"}
+    build_default_registry(LEMONCROW_ROOT)
+    assert generated == {"lemoncrow"}
 
 
 def test_verify_agent_clis_script_exists() -> None:
@@ -221,7 +221,7 @@ def test_host_installers_stream_output_instead_of_buffering() -> None:
     common_content = (SCRIPTS / "lib" / "common.sh").read_text()
     host_content = (SCRIPTS / "install_hosts.sh").read_text()
 
-    assert 'host_output="$(bash "$ATELIER_INSTALL_DIR/scripts/install_hosts.sh"' not in common_content
+    assert 'host_output="$(bash "$LEMONCROW_INSTALL_DIR/scripts/install_hosts.sh"' not in common_content
     assert '| tee "$host_output_file"' in common_content
     assert 'output=$(bash "$script"' not in host_content
     assert '| stream_colored_output "$output_file"' in host_content
@@ -236,7 +236,7 @@ def test_host_installer_default_selection_uses_detection() -> None:
 
 def test_host_installer_has_timeout_guard() -> None:
     content = (SCRIPTS / "install_hosts.sh").read_text()
-    assert 'ATELIER_HOST_INSTALL_TIMEOUT_SECONDS="${ATELIER_HOST_INSTALL_TIMEOUT_SECONDS:-180}"' in content
+    assert 'LEMONCROW_HOST_INSTALL_TIMEOUT_SECONDS="${LEMONCROW_HOST_INSTALL_TIMEOUT_SECONDS:-180}"' in content
     assert "run_host_installer()" in content
     assert "host installer timed out after" in content
 
@@ -310,12 +310,12 @@ def test_integrations_install_symlink(host: str) -> None:
 
 
 def test_opencode_example_has_mcp_key() -> None:
-    example = INTEGRATIONS / "opencode" / "opencode.atelier.template.json"
+    example = INTEGRATIONS / "opencode" / "opencode.lemoncrow.template.json"
     if not example.exists():
         pytest.skip("opencode example config not found")
     data = json.loads(example.read_text())
     assert "mcp" in data, "opencode example must have 'mcp' key"
-    assert "atelier" in data["mcp"], "opencode example must have 'mcp.atelier' key"
+    assert "lemon" in data["mcp"], "opencode example must have 'mcp.lemoncrow' key"
 
 
 ANTIGRAVITY_INTEGRATION = INTEGRATIONS / "antigravity"
@@ -326,21 +326,21 @@ def test_antigravity_integration_dir_exists() -> None:
 
 
 def test_antigravity_mcp_template_exists() -> None:
-    template = ANTIGRAVITY_INTEGRATION / "mcp.atelier.template.json"
-    assert template.exists(), "integrations/antigravity/mcp.atelier.template.json must exist"
+    template = ANTIGRAVITY_INTEGRATION / "mcp.lemoncrow.template.json"
+    assert template.exists(), "integrations/antigravity/mcp.lemoncrow.template.json must exist"
     data = json.loads(template.read_text())
-    assert "atelier" in data.get("servers", {}), "Antigravity template must have 'servers.atelier'"
-    assert data["servers"]["atelier"]["command"] == "atelier"
-    assert data["servers"]["atelier"]["args"] == ["mcp", "--host", "antigravity"]
+    assert "lemon" in data.get("servers", {}), "Antigravity template must have 'servers.lemoncrow'"
+    assert data["servers"]["lemon"]["command"] == "lemon"
+    assert data["servers"]["lemon"]["args"] == ["mcp", "--host", "antigravity"]
 
 
 def test_copilot_example_has_servers_key() -> None:
-    example = INTEGRATIONS / "copilot" / "mcp.atelier.template.json"
+    example = INTEGRATIONS / "copilot" / "mcp.lemoncrow.template.json"
     if not example.exists():
         pytest.skip("copilot mcp example config not found")
     data = json.loads(example.read_text())
     assert "servers" in data, "copilot example must have 'servers' key"
-    assert "atelier" in data["servers"], "copilot example must have 'servers.atelier'"
+    assert "lemon" in data["servers"], "copilot example must have 'servers.lemoncrow'"
 
 
 CODEX_PLUGIN = INTEGRATIONS / "codex" / "plugin"
@@ -350,11 +350,11 @@ def test_codex_plugin_dir_exists() -> None:
     assert CODEX_PLUGIN.is_dir(), "integrations/codex/plugin/ directory must exist"
 
 
-def test_codex_plugin_manifest_exists_and_names_atelier() -> None:
+def test_codex_plugin_manifest_exists_and_names_lemoncrow() -> None:
     plugin_json = CODEX_PLUGIN / ".codex-plugin" / "plugin.json"
     assert plugin_json.exists(), "integrations/codex/plugin/.codex-plugin/plugin.json must exist"
     data = json.loads(plugin_json.read_text())
-    assert data.get("name") == "atelier", f"codex plugin name should be 'atelier', got: {data.get('name')}"
+    assert data.get("name") == "lemoncrow", f"codex plugin name should be 'lemoncrow', got: {data.get('name')}"
     assert data.get("skills") == "./skills/", "codex plugin must bundle ./skills/"
     assert data.get("mcpServers") == "./.mcp.json", "codex plugin must bundle ./.mcp.json"
 
@@ -363,8 +363,8 @@ def test_codex_plugin_mcp_template_exists() -> None:
     mcp_json = CODEX_PLUGIN / ".mcp.json"
     assert mcp_json.exists(), "integrations/codex/plugin/.mcp.json must exist"
     data = json.loads(mcp_json.read_text())
-    atelier = data.get("atelier", {})
-    assert atelier.get("command") == "atelier", "Codex plugin template must call atelier directly"
+    lemoncrow = data.get("lemon", {})
+    assert lemoncrow.get("command") == "lemon", "Codex plugin template must call lemon directly"
 
 
 def test_codex_hooks_bundle_exists() -> None:
@@ -375,14 +375,14 @@ def test_codex_hooks_bundle_exists() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 9. Codex AGENTS.atelier.md
+# 9. Codex AGENTS.lemoncrow.md
 # ---------------------------------------------------------------------------
 
 
-def test_codex_agents_atelier_md_mentions_mcp() -> None:
-    agents_md = INTEGRATIONS / "AGENTS.atelier.md"
+def test_codex_agents_lemoncrow_md_mentions_mcp() -> None:
+    agents_md = INTEGRATIONS / "AGENTS.lemoncrow.md"
     content = agents_md.read_text()
-    assert "mcp" in content.lower() or "MCP" in content, "AGENTS.atelier.md should mention MCP"
+    assert "mcp" in content.lower() or "MCP" in content, "AGENTS.lemoncrow.md should mention MCP"
 
 
 # ---------------------------------------------------------------------------
@@ -414,18 +414,18 @@ def test_install_scripts_document_global_and_workspace_paths() -> None:
     codex = (SCRIPTS / "install_codex.sh").read_text()
     assert 'AGENTS_FILE="${CODEX_HOME}/AGENTS.md"' in codex
     assert 'AGENTS_FILE="${WORKSPACE}/AGENTS.md"' in codex
-    assert 'PLUGIN_DIR="${CODEX_HOME}/plugins/atelier"' in codex
-    assert 'PLUGIN_DIR="${WORKSPACE}/.codex/plugins/atelier"' in codex
+    assert 'PLUGIN_DIR="${CODEX_HOME}/plugins/lemoncrow"' in codex
+    assert 'PLUGIN_DIR="${WORKSPACE}/.codex/plugins/lemoncrow"' in codex
     assert ".agents/plugins/marketplace.json" in codex
-    assert "atelier@atelier-local" in codex
-    assert "plugin add atelier@openai-curated" not in codex
+    assert "lemoncrow@lemoncrow-local" in codex
+    assert "plugin add lemoncrow@openai-curated" not in codex
     assert "patch_plugin_hooks" in codex
-    assert "__ATELIER_PYTHON__" in codex
-    assert "__ATELIER_REPO_SRC__" in codex
+    assert "__LEMONCROW_PYTHON__" in codex
+    assert "__LEMONCROW_REPO_SRC__" in codex
 
     copilot = (SCRIPTS / "install_copilot.sh").read_text()
     assert "Code/User" in copilot
-    assert ".copilot/instructions/atelier.instructions.md" in copilot
+    assert ".copilot/instructions/lemoncrow.instructions.md" in copilot
     assert "${HOME}/.vscode" not in copilot
     assert "${HOME}/.github" not in copilot
 
@@ -434,19 +434,19 @@ def test_install_scripts_document_global_and_workspace_paths() -> None:
     assert 'OC_FILE="${WORKSPACE}/opencode.json"' in opencode
     assert 'PLUGIN_DEST_DIR="${WORKSPACE}/.opencode/plugins"' in opencode
     assert 'PLUGIN_DEST_DIR="${OPENCODE_CONFIG_HOME}/plugins"' in opencode
-    assert "atelier-nudge.js" in opencode
+    assert "lemoncrow-nudge.js" in opencode
     assert "${HOME}/opencode.jsonc" not in opencode
     assert "${HOME}/.opencode" not in opencode
 
     claude = (SCRIPTS / "install_claude.sh").read_text()
-    assert "claude mcp add --scope user atelier" in claude
+    assert "claude mcp add --scope user lemon" in claude
     assert '.mcp.json"' in claude
-    assert '"atelier mcp"' in claude or '"atelier"' in claude
+    assert '"lemon mcp"' in claude or "lemon" in claude
 
     antigravity = (SCRIPTS / "install_antigravity.sh").read_text()
     assert "antigravity --add-mcp" in antigravity
     assert "mcp.json" in antigravity
-    assert "atelier" in antigravity
+    assert "lemon" in antigravity
 
 
 def test_opencode_install_passes_config_path_via_env_not_source_interpolation() -> None:
@@ -460,9 +460,9 @@ def test_opencode_install_passes_config_path_via_env_not_source_interpolation() 
     content = (SCRIPTS / "install_opencode.sh").read_text()
     assert "Path('$OC_FILE')" not in content, "opencode install.sh must not interpolate $OC_FILE into Python source"
     # Path is exported to the subprocess and read safely inside every heredoc.
-    assert content.count('ATELIER_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}"') == 4
-    assert content.count("os.environ['ATELIER_OC_FILE']") == 4
-    assert content.count("os.environ['ATELIER_OC_FILE']") == 4
+    assert content.count('LEMONCROW_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}"') == 4
+    assert content.count("os.environ['LEMONCROW_OC_FILE']") == 4
+    assert content.count("os.environ['LEMONCROW_OC_FILE']") == 4
 
 
 def test_claude_install_passes_workspace_paths_via_env_not_source_interpolation() -> None:
@@ -483,11 +483,11 @@ def test_claude_install_passes_workspace_paths_via_env_not_source_interpolation(
     ), "claude install.sh must not interpolate ${WORKSPACE} into Python source"
     # Paths are exported to the subprocess and read safely inside a quoted heredoc.
     assert (
-        'ATELIER_CLAUDE_LOCAL_SETTINGS="${CLAUDE_LOCAL_SETTINGS}" ATELIER_WORKSPACE="${WORKSPACE}" python3 - <<\'PYEOF\''
+        'LEMONCROW_CLAUDE_LOCAL_SETTINGS="${CLAUDE_LOCAL_SETTINGS}" LEMONCROW_WORKSPACE="${WORKSPACE}" python3 - <<\'PYEOF\''
         in content
     )
-    assert "os.environ['ATELIER_CLAUDE_LOCAL_SETTINGS']" in content
-    assert "os.environ['ATELIER_WORKSPACE']" in content
+    assert "os.environ['LEMONCROW_CLAUDE_LOCAL_SETTINGS']" in content
+    assert "os.environ['LEMONCROW_WORKSPACE']" in content
 
 
 def test_install_codex_merges_existing_agents_file() -> None:
@@ -495,23 +495,23 @@ def test_install_codex_merges_existing_agents_file() -> None:
     assert "merge_agents_file()" in content
     assert 'source "${SCRIPT_DIR}/lib/managed_context.sh"' in content
     assert 'backup_file "$dest_file"' in content
-    assert "merged Atelier Codex instructions into $dest_file" in content
-    assert 'atelier_upsert_managed_block "$source_file" "$dest_file" "$DRY_RUN"' in content
+    assert "merged LemonCrow Codex instructions into $dest_file" in content
+    assert 'lemoncrow_upsert_managed_block "$source_file" "$dest_file" "$DRY_RUN"' in content
     assert "integrations/codex/hooks" in content
 
 
 def test_uninstall_codex_removes_managed_agents_block() -> None:
     content = (SCRIPTS / "uninstall_codex.sh").read_text()
     assert 'source "${SCRIPT_DIR}/lib/managed_context.sh"' in content
-    assert "Removed managed Atelier Codex instructions from $AGENTS_FILE" in content
+    assert "Removed managed LemonCrow Codex instructions from $AGENTS_FILE" in content
 
 
 def test_managed_context_helper_shared_across_host_installs() -> None:
     helper = (SCRIPTS / "lib" / "managed_context.sh").read_text()
-    assert 'ATELIER_CODE_BLOCK_START="<!-- ATELIER START -->"' in helper
-    assert 'ATELIER_CODE_BLOCK_END="<!-- ATELIER END -->"' in helper
-    assert "atelier_write_managed_copy()" in helper
-    assert "atelier_upsert_managed_block()" in helper
+    assert 'LEMONCROW_CODE_BLOCK_START="<!-- LEMONCROW START -->"' in helper
+    assert 'LEMONCROW_CODE_BLOCK_END="<!-- LEMONCROW END -->"' in helper
+    assert "lemoncrow_write_managed_copy()" in helper
+    assert "lemoncrow_upsert_managed_block()" in helper
     for script_name in [
         "install_codex.sh",
         "install_claude.sh",
@@ -525,19 +525,19 @@ def test_managed_context_helper_shared_across_host_installs() -> None:
         ), f"{script_name} must use the shared managed context helper"
 
 
-def test_local_sh_bootstraps_atelier_before_host_installers() -> None:
-    # The source installer (local.sh) installs the Atelier console scripts, then
+def test_local_sh_bootstraps_lemoncrow_before_host_installers() -> None:
+    # The source installer (local.sh) installs the LemonCrow console scripts, then
     # delegates to run_setup() in lib/common.sh, which installs host integrations.
     local_content = (SCRIPTS / "local.sh").read_text()
     common_content = (SCRIPTS / "lib" / "common.sh").read_text()
 
-    assert 'step_start "Installing Atelier"' in local_content
+    assert 'step_start "Installing LemonCrow"' in local_content
     assert 'step_start "Installing host integrations"' in common_content
-    # local.sh installs Atelier and only then calls run_setup (which installs hosts).
-    install_pos = local_content.index('step_start "Installing Atelier"')
+    # local.sh installs LemonCrow and only then calls run_setup (which installs hosts).
+    install_pos = local_content.index('step_start "Installing LemonCrow"')
     # rindex: the actual run_setup call in main(), not the comment near the top.
     run_setup_pos = local_content.rindex("run_setup")
-    assert install_pos < run_setup_pos, "Atelier console installation must precede run_setup (host integrations)"
+    assert install_pos < run_setup_pos, "LemonCrow console installation must precede run_setup (host integrations)"
 
 
 def test_local_sh_installs_tool_scripts_not_uv_runtime_wrappers() -> None:
@@ -552,11 +552,11 @@ def test_local_sh_installs_tool_scripts_not_uv_runtime_wrappers() -> None:
 def test_source_installer_is_always_local_mode() -> None:
     # The legacy dev.sh switched between source and binary modes via --local/--remote
     # and a prepare_repo clone step. That mode-switching was removed: local.sh is
-    # always the source installer (ATELIER_LOCAL=1), bundle.sh is the binary one.
+    # always the source installer (LEMONCROW_LOCAL=1), bundle.sh is the binary one.
     content = (SCRIPTS / "local.sh").read_text()
-    assert "ATELIER_USE_CURRENT_REPO" not in content
+    assert "LEMONCROW_USE_CURRENT_REPO" not in content
     assert "prepare_repo" not in content
-    assert "ATELIER_LOCAL=1" in content
+    assert "LEMONCROW_LOCAL=1" in content
     # --local/--remote/--no-local remain accepted as no-ops for CLI compatibility.
     assert "--local|--remote|--no-local) : ;;" in content
 
@@ -564,17 +564,17 @@ def test_source_installer_is_always_local_mode() -> None:
 def test_copilot_tasks_include_preflight_wrapper() -> None:
     tasks = json.loads((INTEGRATIONS / "copilot" / "tasks.json").read_text(encoding="utf-8"))
     labels = {task.get("label") for task in tasks.get("tasks", [])}
-    assert "Atelier: Copilot Preflight" in labels
-    assert "Atelier: Session Summary" in labels
-    assert "Atelier: Copilot Preflight" in (SCRIPTS / "install_copilot.sh").read_text()
+    assert "LemonCrow: Copilot Preflight" in labels
+    assert "LemonCrow: Session Summary" in labels
+    assert "LemonCrow: Copilot Preflight" in (SCRIPTS / "install_copilot.sh").read_text()
 
-    preflight_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "Atelier: Copilot Preflight")
+    preflight_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "LemonCrow: Copilot Preflight")
     assert preflight_task.get("command") == "bash"
     args = preflight_task.get("args", [])
-    assert any("atelier tools call context" in arg for arg in args)
+    assert any("lemon tools call context" in arg for arg in args)
 
-    summary_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "Atelier: Session Summary")
-    assert summary_task.get("command") == "atelier"
+    summary_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "LemonCrow: Session Summary")
+    assert summary_task.get("command") == "lemon"
     assert summary_task.get("args") == ["session", "report", "--no-color"]
 
 
@@ -627,7 +627,7 @@ def test_new_claude_plugin_json_name() -> None:
     plugin_json = CLAUDE_PLUGIN_NEW / ".claude-plugin" / "plugin.json"
     assert plugin_json.exists(), "integrations/claude/plugin/.claude-plugin/plugin.json must exist"
     data = json.loads(plugin_json.read_text())
-    assert data.get("name") == "atelier", f"plugin.json name should be 'atelier', got: {data.get('name')}"
+    assert data.get("name") == "lemoncrow", f"plugin.json name should be 'lemoncrow', got: {data.get('name')}"
 
 
 def test_new_claude_plugin_json_has_no_commands_key() -> None:
@@ -637,7 +637,7 @@ def test_new_claude_plugin_json_has_no_commands_key() -> None:
     data = json.loads(plugin_json.read_text())
     assert (
         "commands" not in data
-    ), "plugin.json must not have 'commands' key — use 'skills' for /atelier:name namespacing"
+    ), "plugin.json must not have 'commands' key — use 'skills' for /lemon:name namespacing"
 
 
 def test_new_claude_plugin_json_author_is_object() -> None:
@@ -720,8 +720,8 @@ def test_new_claude_plugin_mcp_is_valid() -> None:
     assert mcp_json.exists(), "integrations/claude/plugin/.mcp.json must exist"
     data = json.loads(mcp_json.read_text())
     assert "mcpServers" in data
-    assert "atelier" in data["mcpServers"]
-    assert data["mcpServers"]["atelier"]["command"] == "atelier"
+    assert "lemon" in data["mcpServers"]
+    assert data["mcpServers"]["lemon"]["command"] == "lemon"
 
 
 def test_new_claude_plugin_hooks_enabled() -> None:
@@ -746,7 +746,7 @@ def test_new_claude_plugin_hook_scripts_exist(script: str) -> None:
     hook_file = CLAUDE_PLUGIN_NEW / "hooks" / script
     assert hook_file.exists(), (
         f"integrations/claude/plugin/hooks/{script} must exist — "
-        "it is referenced by hooks.json and required for Atelier hook functionality."
+        "it is referenced by hooks.json and required for LemonCrow hook functionality."
     )
 
 
@@ -759,8 +759,8 @@ def test_new_claude_plugin_settings_uses_supported_keys() -> None:
     extra = set(data.keys()) - allowed
     assert not extra, f"settings.json contains unsupported keys: {extra}. Only {allowed} are honored by Claude Code."
     assert (
-        data.get("agent") == "atelier:code"
-    ), "settings.json must set `agent` to 'atelier:code' so it appears as the default agent for the atelier plugin."
+        data.get("agent") == "lemon:code"
+    ), "settings.json must set `agent` to 'lemon:code' so it appears as the default agent for the lemoncrow plugin."
 
 
 def test_new_claude_plugin_subagent_statusline_wired() -> None:
@@ -813,7 +813,7 @@ def test_root_marketplace_json_name() -> None:
     if not mktplace.exists():
         pytest.skip(".claude-plugin/marketplace.json not found")
     data = json.loads(mktplace.read_text())
-    assert data.get("name") == "atelier", f"root marketplace.json name should be 'atelier', got: {data.get('name')}"
+    assert data.get("name") == "lemoncrow", f"root marketplace.json name should be 'lemoncrow', got: {data.get('name')}"
 
 
 def test_root_marketplace_json_source_points_to_new_plugin() -> None:
@@ -896,24 +896,24 @@ def test_install_claude_stages_workflow_assets() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 19. Docs use correct /atelier:skill namespacing (not /atelier-skill)
+# 19. Docs use correct /lemon:skill namespacing (not /lemoncrow-skill)
 # ---------------------------------------------------------------------------
 
 
-def test_docs_use_atelier_colon_not_dash_for_skills() -> None:
+def test_docs_use_lemoncrow_colon_not_dash_for_skills() -> None:
     doc = DOCS_HOSTS / "claude-code-install.md"
     if not doc.exists():
         pytest.skip("claude-code-install.md not found")
     content = doc.read_text()
-    assert "/atelier:code" in content, "claude-code-install.md must document /atelier:code (colon, not dash)"
+    assert "/lemon:code" in content, "claude-code-install.md must document /lemon:code (colon, not dash)"
     # Ensure the wrong form is not present (unless it's mentioned as a legacy note)
     # We allow it if explicitly labelled as deprecated/old
     bad_uses = [
         line
         for line in content.splitlines()
-        if "/atelier-code" in line and "deprecated" not in line.lower() and "old" not in line.lower()
+        if "/lemoncrow-code" in line and "deprecated" not in line.lower() and "old" not in line.lower()
     ]
-    assert not bad_uses, f"claude-code-install.md uses /atelier-code (dash) without deprecated label: {bad_uses}"
+    assert not bad_uses, f"claude-code-install.md uses /lemoncrow-code (dash) without deprecated label: {bad_uses}"
 
 
 def test_docs_mention_three_install_modes() -> None:
@@ -940,37 +940,37 @@ def test_claude_install_docs_mention_workflows_and_version_gate() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Universal status helper + per-host atelier identity artifacts
+# Universal status helper + per-host lemoncrow identity artifacts
 # ---------------------------------------------------------------------------
 
 
-def test_agents_atelier_md_has_persona() -> None:
-    f = INTEGRATIONS / "AGENTS.atelier.md"
-    assert f.exists(), "Missing: integrations/AGENTS.atelier.md"
+def test_agents_lemoncrow_md_has_persona() -> None:
+    f = INTEGRATIONS / "AGENTS.lemoncrow.md"
+    assert f.exists(), "Missing: integrations/AGENTS.lemoncrow.md"
     content = f.read_text()
-    assert "atelier:code" in content, "AGENTS.atelier.md must declare atelier:code persona"
+    assert "lemon:code" in content, "AGENTS.lemoncrow.md must declare lemon:code persona"
 
 
-def test_opencode_atelier_agent_exists() -> None:
+def test_opencode_lemoncrow_agent_exists() -> None:
     f = INTEGRATIONS / "opencode" / "agents" / "code.md"
     assert f.exists(), "Missing: integrations/opencode/agents/code.md"
     text = f.read_text()
-    assert "atelier:code" in text
+    assert "lemon:code" in text
     assert "---" in text, "opencode agent must have frontmatter"
 
 
-def test_copilot_atelier_agents_exist() -> None:
-    code_agent = INTEGRATIONS / "copilot" / "agents" / "atelier.code.agent.md"
-    execute_agent = INTEGRATIONS / "copilot" / "agents" / "atelier.execute.agent.md"
-    assert code_agent.exists(), "Missing: integrations/copilot/agents/atelier.code.agent.md"
-    assert execute_agent.exists(), "Missing: integrations/copilot/agents/atelier.execute.agent.md"
+def test_copilot_lemoncrow_agents_exist() -> None:
+    code_agent = INTEGRATIONS / "copilot" / "agents" / "lemoncrow.code.agent.md"
+    execute_agent = INTEGRATIONS / "copilot" / "agents" / "lemoncrow.execute.agent.md"
+    assert code_agent.exists(), "Missing: integrations/copilot/agents/lemoncrow.code.agent.md"
+    assert execute_agent.exists(), "Missing: integrations/copilot/agents/lemoncrow.execute.agent.md"
     text = code_agent.read_text()
-    assert "atelier:code" in text
+    assert "lemon:code" in text
     assert "description:" in text, "agent must have description: frontmatter"
     assert "model: gpt-5.4" in text, "Copilot agent must pin the model in frontmatter"
 
 
-def test_makefile_has_atelier_status_target() -> None:
+def test_makefile_has_lemoncrow_status_target() -> None:
     content = MAKEFILE.read_text()
     assert "status:" in content
     assert "scripts/status.sh" in content

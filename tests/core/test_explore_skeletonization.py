@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.code_context import CodeContextEngine
-from atelier.core.capabilities.code_context.models import SymbolRecord
+from lemoncrow.core.capabilities.code_context import CodeContextEngine
+from lemoncrow.core.capabilities.code_context.models import SymbolRecord
 
 _EMBEDDER_NAMES = [
     "AlphaEmbedder",
@@ -169,7 +169,7 @@ def test_tool_explore_skeletonize_false_is_inert(tmp_path: Path, monkeypatch: py
 
 
 def test_tool_explore_env_flag_disables_skeletonization(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_EXPLORE_SKELETON", "0")
+    monkeypatch.setenv("LEMONCROW_EXPLORE_SKELETON", "0")
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
     records = _build_sibling_repo(tmp_path, engine)
     engine.index_repo()

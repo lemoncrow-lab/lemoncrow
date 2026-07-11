@@ -15,8 +15,8 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities import savings_summary as ss
-from atelier.core.capabilities.savings_summary import (
+from lemoncrow.core.capabilities import savings_summary as ss
+from lemoncrow.core.capabilities.savings_summary import (
     _read_historical_savings_many,
     _window_from_aggregate,
     recompute_savings_aggregate,
@@ -72,7 +72,7 @@ def _reset_process_state(root: Path) -> None:
 
 
 def test_incremental_equals_full_recompute_multi_day(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     # s1: rows on both sides of the 30d boundary (40d ago ages out, 20d ago in).
     _append(root, "aggtest-s1", [_row(NOW - 40 * DAY, 4000, 4.0), _row(NOW - 20 * DAY, 2000, 2.0)])
     # s2: rows straddling the 7d boundary + a finished-session cost snapshot
@@ -117,7 +117,7 @@ def test_incremental_equals_full_recompute_multi_day(tmp_path: Path) -> None:
 
 
 def test_rows_age_out_of_windows(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _append(root, "aggtest-age", [_row(NOW - 40 * DAY, 40, 40.0)])  # out of every window
     _append(root, "aggtest-age", [_row(NOW - 10 * DAY, 10, 10.0)])  # 30d only
     _append(root, "aggtest-age", [_row(NOW - 3 * DAY, 3, 3.0)])  # 7d + 30d
@@ -136,7 +136,7 @@ def test_rows_age_out_of_windows(tmp_path: Path) -> None:
 def test_blocking_read_path_matches_oracle(tmp_path: Path) -> None:
     """A fresh process reading the persisted aggregate + folding newer ledgers
     must answer exactly what a full recompute answers."""
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _append(root, "aggtest-r1", [_row(NOW - 2 * DAY, 200, 0.2), _end_row(NOW - 2 * DAY + 30, 3.0, carry=0.3)])
     reconcile_savings_aggregate(root)
 
@@ -154,7 +154,7 @@ def test_carry_attributed_per_day(tmp_path: Path) -> None:
     """Session carry is attributed to the day each saved token was generated
     (proportional to that day's token share), not dumped on the end day — so
     windowed carry scales with the reporting window (index 5 = carry)."""
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _append(
         root,
         "aggtest-carry",
@@ -175,7 +175,7 @@ def test_carry_attributed_per_day(tmp_path: Path) -> None:
 
 
 def test_first_savings_ts_folds_min(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     p1 = _append(root, "aggtest-t1", [_row(NOW - 3600, 10, 0.1)])
     agg = reconcile_savings_aggregate(root)
     assert agg["first_ts"] == pytest.approx(p1.stat().st_mtime)

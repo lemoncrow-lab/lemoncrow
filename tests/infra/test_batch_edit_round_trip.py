@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.tool_supervision.batch_edit import apply_batch_edit
+from lemoncrow.core.capabilities.tool_supervision.batch_edit import apply_batch_edit
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
@@ -104,11 +104,11 @@ def test_backup_cleaned_up_on_success(tmp_path: Path) -> None:
     apply_batch_edit(
         [{"path": str(f), "op": "replace", "old_string": "data", "new_string": "new data"}],
         atomic=True,
-        backup_base=tmp_path / ".atelier" / "run" / "test-run" / "batch_edit_backup",
+        backup_base=tmp_path / ".lemoncrow" / "run" / "test-run" / "batch_edit_backup",
         repo_root=tmp_path,
     )
 
-    backup_dir = tmp_path / ".atelier" / "run" / "test-run" / "batch_edit_backup"
+    backup_dir = tmp_path / ".lemoncrow" / "run" / "test-run" / "batch_edit_backup"
     assert not backup_dir.exists(), "backup dir should be removed after success"
 
 
@@ -119,7 +119,7 @@ def test_backup_cleaned_up_on_success(tmp_path: Path) -> None:
 
 def test_batch_edit_module_docstring_mentions_host_native() -> None:
     """The module docstring must state that host-native edit tools remain the default."""
-    from atelier.core.capabilities.tool_supervision import batch_edit
+    from lemoncrow.core.capabilities.tool_supervision import batch_edit
 
     doc = batch_edit.__doc__ or ""
     assert (

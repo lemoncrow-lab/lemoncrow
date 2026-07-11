@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pre-push hook — Atelier CI-equivalent validation
+# Pre-push hook — LemonCrow CI-equivalent validation
 #
 # Runs all checks that GitHub Actions would run on push/PR:
 #   - make lint        (ruff check)
@@ -40,7 +40,7 @@ for protected in "${PROTECTED_BRANCHES[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-# 1. Unauthorized .md file check (atelier-specific)
+# 1. Unauthorized .md file check (lemoncrow-specific)
 # ---------------------------------------------------------------------------
 echo "📄 Checking for unauthorized .md files..."
 md_files=$(git ls-files "*.md" \
@@ -49,7 +49,7 @@ md_files=$(git ls-files "*.md" \
     | grep -v "^docs-archive/" \
     | grep -v "^reports/" \
     | grep -v "^.planning/" \
-    | grep -v "^.atelier/lessons/" \
+    | grep -v "^.lemoncrow/lessons/" \
     | grep -v "^templates/" \
     | grep -v "^.ruler/" \
     | grep -v "^.agent/" \
@@ -76,7 +76,7 @@ if [ -n "$md_files" ]; then
     echo -e "\033[1;31m❌ Unauthorized .md files found:\033[0m"
     echo "$md_files"
     echo ""
-    echo "Allowed: docs/, docs-archive/, reports/, .planning/, .atelier/lessons/, templates/,"
+    echo "Allowed: docs/, docs-archive/, reports/, .planning/, .lemoncrow/lessons/, templates/,"
     echo "  .ruler/, .agent/, skills/, integrations/, .github/,"
     echo "  .knowledge/, internal/, tests/fixtures/memory/,"
     echo "  AGENTS*, README.md, SECURITY.md, SKILL.md,"
@@ -128,7 +128,7 @@ fi
 # 7. Tests (pytest) — same as CI test job
 # ---------------------------------------------------------------------------
 echo "🧪 make test ..."
-if ! env -u ATELIER_WORKSPACE_ROOT -u CLAUDE_WORKSPACE_ROOT -u CURSOR_WORKSPACE_ROOT -u VSCODE_CWD -u ATELIER_LESSONS_ROOT -u ATELIER_ROOT make test 2>&1; then
+if ! env -u LEMONCROW_WORKSPACE_ROOT -u CLAUDE_WORKSPACE_ROOT -u CURSOR_WORKSPACE_ROOT -u VSCODE_CWD -u LEMONCROW_LESSONS_ROOT -u LEMONCROW_ROOT make test 2>&1; then
     echo -e "\033[1;31m❌ Tests failed. Run 'make test' locally to diagnose.\033[0m"
     echo "   Or use 'git push --no-verify' to bypass."
     exit 1
@@ -145,11 +145,11 @@ if ! uv audit --frozen 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# 9. Mirror to public repo (bench -> atelier-ws/atelier main)
+# 9. Mirror to public repo (bench -> lemoncrowhq/lemoncrow main)
 # ---------------------------------------------------------------------------
-if [ "$CURRENT_BRANCH" = "bench" ] && [ -z "${ATELIER_MIRROR_RUNNING:-}" ]; then
+if [ "$CURRENT_BRANCH" = "bench" ] && [ -z "${LEMONCROW_MIRROR_RUNNING:-}" ]; then
     echo "🪞 Mirroring to public repo..."
-    if ! ATELIER_MIRROR_RUNNING=1 uv run python scripts/mirror.py 2>&1; then
+    if ! LEMONCROW_MIRROR_RUNNING=1 uv run python scripts/mirror.py 2>&1; then
         echo -e "\033[1;33m⚠️  Mirror failed — push continues (run mirror.py manually to retry).\033[0m"
     fi
 fi

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# install_claude.sh - Install Atelier into Claude Code
+# install_claude.sh - Install LemonCrow into Claude Code
 #
 # What it does:
 #   1. Validates the Claude plugin package at integrations/claude/plugin/.
-#   2. Installs/updates atelier@atelier.
+#   2. Installs/updates lemoncrow@lemoncrow.
 #   3. Global mode: registers MCP with Claude's user scope.
 #   4. Workspace mode (--workspace DIR): writes project-local .mcp.json and settings.
 #   5. Project enforcement (--project DIR): writes permissions.deny + allow into DIR/.claude/settings.json
-#      so Claude Code hard-blocks native Read/Grep in favour of atelier MCP equivalents.
+#      so Claude Code hard-blocks native Read/Grep in favour of lemon MCP equivalents.
 #      In global mode without --project, asks interactively when running in a git repo.
 # Options:
 #   --dry-run        Print what would happen, touch nothing
@@ -19,15 +19,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+LEMONCROW_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "${SCRIPT_DIR}/lib/managed_context.sh"
-PLUGIN_DIR="${ATELIER_REPO}/integrations/claude/plugin"
+PLUGIN_DIR="${LEMONCROW_REPO}/integrations/claude/plugin"
 SOURCE_PLUGIN_DIR="${PLUGIN_DIR}"
 INSTALL_SOURCE_DIR="${PLUGIN_DIR}"
 SKILL_BUILDER="${SCRIPT_DIR}/build_host_skills.sh"
 MODE_RENDERER="${SCRIPT_DIR}/sync_agent_context.py"
 
-PLUGIN_REF="atelier@atelier"
+PLUGIN_REF="lemoncrow@lemoncrow"
 DRY_RUN=false
 PRINT_ONLY=false
 STRICT=false
@@ -99,8 +99,8 @@ fi
 CLAUDE_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.json"
 CLAUDE_LOCAL_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.local.json"
 
-info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:claude] $*" || true; }
-warn()  { echo "[atelier:claude] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemon:claude] $*" || true; }
+warn()  { echo "[lemon:claude] WARN: $*" >&2; }
 run()   { if $DRY_RUN; then echo "  [dry-run] $*"; else "$@"; fi; }
 
 # --print-only must not mutate anything (no staging rm/copy, no config writes),
@@ -108,11 +108,11 @@ run()   { if $DRY_RUN; then echo "  [dry-run] $*"; else "$@"; fi; }
 # plugin package, which is a valid install source for a manual setup.
 if $PRINT_ONLY; then
     echo ""
-    echo "=== Atelier Claude Code - Install Steps ==="
+    echo "=== LemonCrow Claude Code - Install Steps ==="
     echo ""
     echo "Scope: ${INSTALL_SCOPE}"
     echo ""
-    echo "Step 1 - Register the local Atelier plugin source:"
+    echo "Step 1 - Register the local LemonCrow plugin source:"
     echo "  claude plugin marketplace add '${INSTALL_SOURCE_DIR}'"
     echo ""
     echo "Step 2 - Install the plugin:"
@@ -125,10 +125,10 @@ if $PRINT_ONLY; then
         echo "Step 4 - Project local Claude agents are projected into ${WORKSPACE}/.claude/agents"
     else
         echo "Step 3 - Register MCP in Claude user scope:"
-        echo "  claude mcp add --scope user atelier -- atelier mcp --host claude"
+        echo "  claude mcp add --scope user lemon -- lemon mcp --host claude"
     fi
     echo ""
-    echo "After install, in Claude Code: /atelier:explore"
+    echo "After install, in Claude Code: /lemon:explore"
     # With --dry-run, fall through to the traced (no-op) staging so callers
     # like install_hosts.sh can preview exactly what would be staged.
     if ! $DRY_RUN; then
@@ -137,28 +137,28 @@ if $PRINT_ONLY; then
 fi
 
 # --------------------------------------------------------------------------- #
-# Atelier enforcement lists
+# LemonCrow enforcement lists
 #
 # DENY_TOOLS: optional native-tool hard deny list. Keep this empty by default
 # so Claude can ask the user for permission when the model reaches for native
-# tools. Set ATELIER_ENFORCE_NATIVE_DENY=1 to hide/block native tools at the
+# tools. Set LEMONCROW_ENFORCE_NATIVE_DENY=1 to hide/block native tools at the
 # harness layer for locked-down installs.
 # --------------------------------------------------------------------------- #
-if [[ "${ATELIER_ENFORCE_NATIVE_DENY:-0}" == "1" ]]; then
-    ATELIER_DENY_TOOLS_JSON='["Read", "Grep", "Glob", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]'
+if [[ "${LEMONCROW_ENFORCE_NATIVE_DENY:-0}" == "1" ]]; then
+    LEMONCROW_DENY_TOOLS_JSON='["Read", "Grep", "Glob", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]'
 else
-    ATELIER_DENY_TOOLS_JSON='[]'
+    LEMONCROW_DENY_TOOLS_JSON='[]'
 fi
 # Only tools actually registered by the MCP server (@mcp_tool in
 # gateway/adapters/mcp_server.py) -- unregistered names in the allowlist are
 # dead entries that mask typos.
-ATELIER_MCP_TOOLS_JSON='["mcp__atelier__codemod", "mcp__atelier__code_search", "mcp__atelier__compact", "mcp__atelier__context", "mcp__atelier__edit", "mcp__atelier__grep", "mcp__atelier__memory", "mcp__atelier__read", "mcp__atelier__rescue", "mcp__atelier__search", "mcp__atelier__bash", "mcp__atelier__sql", "mcp__atelier__trace", "mcp__atelier__verify"]'
+LEMONCROW_MCP_TOOLS_JSON='["mcp__lemon__codemod", "mcp__lemon__code_search", "mcp__lemon__compact", "mcp__lemon__context", "mcp__lemon__edit", "mcp__lemon__grep", "mcp__lemon__memory", "mcp__lemon__read", "mcp__lemon__rescue", "mcp__lemon__search", "mcp__lemon__bash", "mcp__lemon__sql", "mcp__lemon__trace", "mcp__lemon__verify"]'
 # git: read/commit subset only -- push/reset/rebase still prompt.
-ATELIER_BASH_ALLOWS_JSON='["Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git add *)", "Bash(git commit *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)", "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run atelier *)", "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)", "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)", "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)"]'
+LEMONCROW_BASH_ALLOWS_JSON='["Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git add *)", "Bash(git commit *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)", "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run lemon *)", "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)", "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)", "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)"]'
 
 # --------------------------------------------------------------------------- #
 # apply_enforcement_to_settings <path>
-#   Merges Atelier deny+allow lists into the given Claude settings.json,
+#   Merges LemonCrow deny+allow lists into the given Claude settings.json,
 #   preserving any existing entries. Idempotent.
 # --------------------------------------------------------------------------- #
 apply_enforcement_to_settings() {
@@ -174,9 +174,9 @@ apply_enforcement_to_settings() {
     mkdir -p "${settings_dir}"
     [[ -f "${settings_path}" ]] || echo "{}" > "${settings_path}"
 
-    DENY_JSON="${ATELIER_DENY_TOOLS_JSON}" \
-    MCP_JSON="${ATELIER_MCP_TOOLS_JSON}" \
-    BASH_JSON="${ATELIER_BASH_ALLOWS_JSON}" \
+    DENY_JSON="${LEMONCROW_DENY_TOOLS_JSON}" \
+    MCP_JSON="${LEMONCROW_MCP_TOOLS_JSON}" \
+    BASH_JSON="${LEMONCROW_BASH_ALLOWS_JSON}" \
     SETTINGS_PATH="${settings_path}" \
     python3 - <<'PYEOF'
 import json
@@ -184,7 +184,7 @@ import os
 from pathlib import Path
 
 DENY_TOOLS = json.loads(os.environ["DENY_JSON"])
-ATELIER_MCP_TOOLS = json.loads(os.environ["MCP_JSON"])
+LEMONCROW_MCP_TOOLS = json.loads(os.environ["MCP_JSON"])
 BASH_ALLOWS = json.loads(os.environ["BASH_JSON"])
 
 path = Path(os.environ["SETTINGS_PATH"])
@@ -200,14 +200,14 @@ for t in DENY_TOOLS:
 
 allow = perms.setdefault("allow", [])
 added_allow = []
-for t in ATELIER_MCP_TOOLS + BASH_ALLOWS:
+for t in LEMONCROW_MCP_TOOLS + BASH_ALLOWS:
     if t not in allow:
         allow.append(t)
         added_allow.append(t)
 
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 print(
-    f"[atelier:claude] enforcement merged → {path} "
+    f"[lemon:claude] enforcement merged → {path} "
     f"(deny +{len(added_deny)}, allow +{len(added_allow)})"
 )
 PYEOF
@@ -222,7 +222,7 @@ configure_project_enforcement() {
 
 
 uv run python "$MODE_RENDERER" >/dev/null 2>&1 || python3 "$MODE_RENDERER" >/dev/null 2>&1 || true
-STAGING_DIR="${HOME}/.atelier/claude-plugin"
+STAGING_DIR="${HOME}/.lemoncrow/claude-plugin"
 # Start fresh — stale symlinks from prior installs (hooks → source dir)
 # will cause `cp -r` to error with "same file".
 run rm -rf "$STAGING_DIR"
@@ -230,24 +230,24 @@ run mkdir -p "$STAGING_DIR/.claude-plugin"
 run cp "${SOURCE_PLUGIN_DIR}/.claude-plugin/plugin.json" "$STAGING_DIR/.claude-plugin/"
 run cp "${SOURCE_PLUGIN_DIR}/.claude-plugin/marketplace.json" "$STAGING_DIR/.claude-plugin/"
 if ! $DRY_RUN; then
-    ATELIER_VERSION="$(atelier_resolve_version "$ATELIER_REPO")"
-    PLUGIN_MANIFEST="${STAGING_DIR}/.claude-plugin/plugin.json" ATELIER_VERSION="$ATELIER_VERSION" python3 - <<'PYEOF'
+    LEMONCROW_VERSION="$(lemoncrow_resolve_version "$LEMONCROW_REPO")"
+    PLUGIN_MANIFEST="${STAGING_DIR}/.claude-plugin/plugin.json" LEMONCROW_VERSION="$LEMONCROW_VERSION" python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
 
 manifest = Path(os.environ["PLUGIN_MANIFEST"])
 data = json.loads(manifest.read_text(encoding="utf-8"))
-data["version"] = os.environ["ATELIER_VERSION"]
+data["version"] = os.environ["LEMONCROW_VERSION"]
 manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PYEOF
 else
-    echo "  [dry-run] stamp ${STAGING_DIR}/.claude-plugin/plugin.json with Atelier version"
+    echo "  [dry-run] stamp ${STAGING_DIR}/.claude-plugin/plugin.json with LemonCrow version"
 fi
 run mkdir -p "$STAGING_DIR/agents"
 info "Staging Claude plugin"
 for agent in "${ROLES_ARR[@]}"; do
-    atelier_write_managed_copy "${SOURCE_PLUGIN_DIR}/agents/${agent}.md" "$STAGING_DIR/agents/${agent}.md" "$DRY_RUN"
+    lemoncrow_write_managed_copy "${SOURCE_PLUGIN_DIR}/agents/${agent}.md" "$STAGING_DIR/agents/${agent}.md" "$DRY_RUN"
 done
 run cp -r "${SOURCE_PLUGIN_DIR}/hooks" "$STAGING_DIR/"
 run cp -r "${SOURCE_PLUGIN_DIR}/scripts" "$STAGING_DIR/"
@@ -259,7 +259,7 @@ fi
 run bash "$SKILL_BUILDER" "${SKILL_BUILDER_ARGS[@]}"
 run cp "${SOURCE_PLUGIN_DIR}/settings.json" "$STAGING_DIR/"
 run cp "${SOURCE_PLUGIN_DIR}/.mcp.json" "$STAGING_DIR/"
-atelier_apply_reply_register_level "$STAGING_DIR" "$DRY_RUN"
+lemoncrow_apply_reply_register_level "$STAGING_DIR" "$DRY_RUN"
 # Ensure runnable bits on hook + script entrypoints, even if source perms got
 # stripped (e.g. via `git stash`, fresh clone on some FS, or restore from tar).
 # Claude Code invokes statusline.sh via the `command` type and exec()s the
@@ -269,45 +269,45 @@ run chmod +x "$STAGING_DIR/hooks/"*.sh "$STAGING_DIR/hooks/"*.py 2>/dev/null || 
 PLUGIN_DIR="$STAGING_DIR"
 INSTALL_SOURCE_DIR="$STAGING_DIR"
 
-# Write the Python interpreter path so _run_hook.sh can find atelier in all
+# Write the Python interpreter path so _run_hook.sh can find lemon in all
 # install modes (binary, dev-venv, uv-tool, pip).  Probe in preference order:
 #   1. uv run from the repo (dev / local checkout)
-#   2. uv tool venv python (uv tool install atelier)
-#   3. system python3/python (pip install atelier)
+#   2. uv tool venv python (uv tool install lemoncrow)
+#   3. system python3/python (pip install lemoncrow)
 # Binary-mode installs have no importable Python; the file is left absent and
 # hooks degrade gracefully via their try/except guards.
 if ! $DRY_RUN; then
-    _ATELIER_PY=""
+    _LEMONCROW_PY=""
     # 1. dev / local checkout
-    if [[ -z "${_ATELIER_PY}" ]] && command -v uv >/dev/null 2>&1; then
-        _ATELIER_PY="$(cd "${ATELIER_REPO}" && uv run python -c "import sys; print(sys.executable)" 2>/dev/null || true)"
-        [[ -n "${_ATELIER_PY}" ]] && "${_ATELIER_PY}" -c "import atelier" 2>/dev/null || _ATELIER_PY=""
+    if [[ -z "${_LEMONCROW_PY}" ]] && command -v uv >/dev/null 2>&1; then
+        _LEMONCROW_PY="$(cd "${LEMONCROW_REPO}" && uv run python -c "import sys; print(sys.executable)" 2>/dev/null || true)"
+        [[ -n "${_LEMONCROW_PY}" ]] && "${_LEMONCROW_PY}" -c "import lemoncrow" 2>/dev/null || _LEMONCROW_PY=""
     fi
     # 2. uv tool venv
-    if [[ -z "${_ATELIER_PY}" ]]; then
-        for _py in "${HOME}/.local/share/uv/tools/atelier/bin/python" "${HOME}/.local/share/uv/tools/atelier/bin/python3"; do
-            if [[ -x "${_py}" ]] && "${_py}" -c "import atelier" 2>/dev/null; then
-                _ATELIER_PY="${_py}"; break
+    if [[ -z "${_LEMONCROW_PY}" ]]; then
+        for _py in "${HOME}/.local/share/uv/tools/lemoncrow/bin/python" "${HOME}/.local/share/uv/tools/lemoncrow/bin/python3"; do
+            if [[ -x "${_py}" ]] && "${_py}" -c "import lemoncrow" 2>/dev/null; then
+                _LEMONCROW_PY="${_py}"; break
             fi
         done
     fi
     # 3. system python (pip install)
-    if [[ -z "${_ATELIER_PY}" ]]; then
+    if [[ -z "${_LEMONCROW_PY}" ]]; then
         for _py in python3 python; do
-            if command -v "${_py}" >/dev/null 2>&1 && "$(command -v "${_py}")" -c "import atelier" 2>/dev/null; then
-                _ATELIER_PY="$(command -v "${_py}")"; break
+            if command -v "${_py}" >/dev/null 2>&1 && "$(command -v "${_py}")" -c "import lemoncrow" 2>/dev/null; then
+                _LEMONCROW_PY="$(command -v "${_py}")"; break
             fi
         done
     fi
-    if [[ -n "${_ATELIER_PY}" && -x "${_ATELIER_PY}" ]]; then
-        echo "${_ATELIER_PY}" > "${STAGING_DIR}/atelier-python"
-        info "Stored atelier python: ${_ATELIER_PY}"
+    if [[ -n "${_LEMONCROW_PY}" && -x "${_LEMONCROW_PY}" ]]; then
+        echo "${_LEMONCROW_PY}" > "${STAGING_DIR}/lemoncrow-python"
+        info "Stored lemoncrow python: ${_LEMONCROW_PY}"
     fi
 fi
 
 if ! command -v claude &>/dev/null; then
     if $STRICT; then
-        echo "[atelier:claude] ERROR: 'claude' CLI not found on PATH. Install from https://claude.ai/download" >&2
+        echo "[lemon:claude] ERROR: 'claude' CLI not found on PATH. Install from https://claude.ai/download" >&2
         exit 1
     fi
     warn "'claude' CLI not found on PATH - SKIPPING Claude install."
@@ -325,7 +325,7 @@ info "Running structural validation on plugin package at ${SOURCE_PLUGIN_DIR}"
 
 STRUCT_FAIL=0
 struct_pass() { info "PASS: $*"; }
-struct_fail() { echo "[atelier:claude] FAIL: $*" >&2; STRUCT_FAIL=1; }
+struct_fail() { echo "[lemon:claude] FAIL: $*" >&2; STRUCT_FAIL=1; }
 
 if [ -d "${SOURCE_PLUGIN_DIR}" ]; then
     struct_pass "plugin directory exists: integrations/claude/plugin/"
@@ -336,8 +336,8 @@ if [ -d "${SOURCE_PLUGIN_DIR}" ]; then
     PLUGIN_JSON="${SOURCE_PLUGIN_DIR}/.claude-plugin/plugin.json"
 if [ -f "${PLUGIN_JSON}" ]; then
     NAME=$(python3 -c "import json; d=json.load(open('${PLUGIN_JSON}')); print(d.get('name',''))" 2>/dev/null || echo "")
-    if [ "$NAME" = "atelier" ]; then
-        struct_pass "plugin.json valid (name=atelier)"
+    if [ "$NAME" = "lemoncrow" ]; then
+        struct_pass "plugin.json valid (name=lemoncrow)"
     else
         struct_fail "plugin.json name unexpected: '${NAME}'"
     fi
@@ -388,7 +388,7 @@ else
 fi
 
 if [ "$STRUCT_FAIL" -ne 0 ]; then
-    echo "[atelier:claude] ERROR: Structural validation failed. Fix the above issues before installing." >&2
+    echo "[lemon:claude] ERROR: Structural validation failed. Fix the above issues before installing." >&2
     exit 1
 fi
 info "Structural validation passed"
@@ -401,7 +401,7 @@ if $DRY_RUN; then
 else
     info "Validating plugin package with Claude CLI at ${PLUGIN_DIR}"
     if ! claude plugin validate "${PLUGIN_DIR}" 2>&1 | grep -q "Validation passed"; then
-        echo "[atelier:claude] ERROR: Plugin validation failed. Run: claude plugin validate ${PLUGIN_DIR}" >&2
+        echo "[lemon:claude] ERROR: Plugin validation failed. Run: claude plugin validate ${PLUGIN_DIR}" >&2
         exit 1
     fi
     info "Plugin package valid (Claude CLI)"
@@ -409,11 +409,11 @@ else
     info "Registering local Claude plugin source at ${INSTALL_SOURCE_DIR}"
     INSTALL_SOURCE_OUT="$(claude plugin marketplace add "${INSTALL_SOURCE_DIR}" 2>&1 || true)"
     if echo "$INSTALL_SOURCE_OUT" | grep -q "already on disk"; then
-        info "Claude plugin source 'atelier' already registered"
+        info "Claude plugin source 'lemoncrow' already registered"
     elif echo "$INSTALL_SOURCE_OUT" | grep -q "Successfully added"; then
-        info "Claude plugin source 'atelier' registered"
+        info "Claude plugin source 'lemoncrow' registered"
     else
-        echo "[atelier:claude] ERROR: plugin source add failed: $INSTALL_SOURCE_OUT" >&2
+        echo "[lemon:claude] ERROR: plugin source add failed: $INSTALL_SOURCE_OUT" >&2
         exit 1
     fi
 
@@ -423,7 +423,7 @@ else
     if echo "$INSTALL_OUT" | grep -qiE "Successfully installed|Installed"; then
         info "Plugin ${PLUGIN_REF} installed"
     else
-        echo "[atelier:claude] ERROR: plugin install failed: $INSTALL_OUT" >&2
+        echo "[lemon:claude] ERROR: plugin install failed: $INSTALL_OUT" >&2
         exit 1
     fi
 fi
@@ -435,11 +435,11 @@ if $WORKSPACE_SET; then
     info "Project-level .mcp.json is not needed with the Claude plugin — skipping"
 else
     if $DRY_RUN; then
-        echo "  [dry-run] claude mcp add --scope user atelier -- atelier mcp --host claude"
+        echo "  [dry-run] claude mcp add --scope user lemon -- lemon mcp --host claude"
     else
-        info "Registering atelier MCP server in Claude user scope"
-        claude mcp remove --scope user atelier 2>/dev/null || true
-        claude mcp add --scope user atelier -- atelier mcp --host claude
+        info "Registering lemon MCP server in Claude user scope"
+        claude mcp remove --scope user lemon 2>/dev/null || true
+        claude mcp add --scope user lemon -- lemon mcp --host claude
     fi
 fi
 
@@ -453,50 +453,50 @@ if $WORKSPACE_SET; then
             info "Creating ${CLAUDE_LOCAL_SETTINGS} with env.CLAUDE_WORKSPACE_ROOT"
             echo "{}" > "${CLAUDE_LOCAL_SETTINGS}"
         fi
-        ATELIER_CLAUDE_LOCAL_SETTINGS="${CLAUDE_LOCAL_SETTINGS}" ATELIER_WORKSPACE="${WORKSPACE}" python3 - <<'PYEOF'
+        LEMONCROW_CLAUDE_LOCAL_SETTINGS="${CLAUDE_LOCAL_SETTINGS}" LEMONCROW_WORKSPACE="${WORKSPACE}" python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
 
-path = Path(os.environ['ATELIER_CLAUDE_LOCAL_SETTINGS'])
+path = Path(os.environ['LEMONCROW_CLAUDE_LOCAL_SETTINGS'])
 data = json.loads(path.read_text(encoding='utf-8') or '{}')
-data.setdefault('env', {})['CLAUDE_WORKSPACE_ROOT'] = os.environ['ATELIER_WORKSPACE']
+data.setdefault('env', {})['CLAUDE_WORKSPACE_ROOT'] = os.environ['LEMONCROW_WORKSPACE']
 path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
-print(f"[atelier:claude] CLAUDE_WORKSPACE_ROOT written to {path}")
+print(f"[lemon:claude] CLAUDE_WORKSPACE_ROOT written to {path}")
 PYEOF
     fi
 
     if $DRY_RUN; then
         echo "  [dry-run] project workspace-local Claude agents into ${WORKSPACE}/.claude/agents"
     else
-        # Use an interpreter that can import atelier (pydantic et al). The bare
-        # system python3 usually can't; _ATELIER_PY was resolved above to the
+        # Use an interpreter that can import lemoncrow (pydantic et al). The bare
+        # system python3 usually can't; _LEMONCROW_PY was resolved above to the
         # dev-venv / uv-tool / pip interpreter. Projection is best-effort — a
         # failure must NOT abort the remaining workspace setup (hooks,
         # statusLine, enforcement), so swallow non-zero exits with a warning.
-        PYTHONPATH="${ATELIER_REPO}/src${PYTHONPATH:+:${PYTHONPATH}}" "${_ATELIER_PY:-python3}" - <<PYEOF || warn "workspace-local Claude agent projection failed (non-fatal); skipping"
+        PYTHONPATH="${LEMONCROW_REPO}/src${PYTHONPATH:+:${PYTHONPATH}}" "${_LEMONCROW_PY:-python3}" - <<PYEOF || warn "workspace-local Claude agent projection failed (non-fatal); skipping"
 from pathlib import Path
-from atelier.core.capabilities.workspace_host_overrides import write_workspace_claude_overrides
+from lemoncrow.core.capabilities.workspace_host_overrides import write_workspace_claude_overrides
 
-written = write_workspace_claude_overrides(Path("${WORKSPACE}"), repo_root=Path("${ATELIER_REPO}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
-print(f"[atelier:claude] projected {len(written)} workspace-local Claude files into ${WORKSPACE}/.claude")
+written = write_workspace_claude_overrides(Path("${WORKSPACE}"), repo_root=Path("${LEMONCROW_REPO}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
+print(f"[lemon:claude] projected {len(written)} workspace-local Claude files into ${WORKSPACE}/.claude")
 PYEOF
     fi
 fi
 
 
-# ---- permissions: allow Atelier MCP (and optionally deny native tools) ------
+# ---- permissions: allow LemonCrow MCP (and optionally deny native tools) ------
 # By default this preserves Claude's normal permission prompt for native tools.
-# Set ATELIER_ENFORCE_NATIVE_DENY=1 for locked-down installs.
+# Set LEMONCROW_ENFORCE_NATIVE_DENY=1 for locked-down installs.
 apply_enforcement_to_settings "${CLAUDE_SETTINGS}"
 
 # ---- statusLine setting in ~/.claude/settings.json -------------------------
-# ATELIER_STATUSLINE_COMPACT=1 installs the compact layout (model · ctx % ·
+# LEMONCROW_STATUSLINE_COMPACT=1 installs the compact layout (model · ctx % ·
 # cost · savings · background tasks) instead of the full token breakdown.
 STATUSLINE_SCRIPT="${INSTALL_SOURCE_DIR}/scripts/statusline.sh"
 STATUSLINE_CMD="${STATUSLINE_SCRIPT}"
-if [[ -n "${ATELIER_STATUSLINE_COMPACT:-}" ]]; then
-    STATUSLINE_CMD="ATELIER_STATUS_COMPACT=1 ${STATUSLINE_SCRIPT}"
+if [[ -n "${LEMONCROW_STATUSLINE_COMPACT:-}" ]]; then
+    STATUSLINE_CMD="LEMONCROW_STATUS_COMPACT=1 ${STATUSLINE_SCRIPT}"
 fi
 if $DRY_RUN; then
     echo "  [dry-run] set statusLine in ${CLAUDE_SETTINGS} → ${STATUSLINE_SCRIPT}"
@@ -512,36 +512,36 @@ if not path.exists():
     path.write_text("{}\n")
 data = json.loads(path.read_text(encoding="utf-8") or "{}")
 
-def atelier_owned(value):
-    """True when the setting is unset or was written by an Atelier install."""
+def lemoncrow_owned(value):
+    """True when the setting is unset or was written by an LemonCrow install."""
     if value is None:
         return True
     if isinstance(value, str):
-        return value.startswith("atelier:")
+        return value.startswith("lemon:")
     if isinstance(value, dict):
-        return "atelier" in str(value.get("command", ""))
+        return "lemon" in str(value.get("command", ""))
     return False
 
 desired = {
     "statusLine": {"type": "command", "command": "${STATUSLINE_CMD}", "padding": 1},
     "subagentStatusLine": {"type": "command", "command": "${STATUSLINE_SCRIPT}", "padding": 1},
-    "agent": "atelier:code",
+    "agent": "lemon:code",
 }
-skipped = [k for k in desired if not atelier_owned(data.get(k))]
+skipped = [k for k in desired if not lemoncrow_owned(data.get(k))]
 changed = {k: v for k, v in desired.items() if k not in skipped and data.get(k) != v}
 if changed:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     backup = path.with_name(path.name + ".bak." + stamp)
     shutil.copy2(path, backup)
-    print(f"[atelier:claude] backed up settings → {backup}")
+    print(f"[lemon:claude] backed up settings → {backup}")
     data.update(changed)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 for key in desired:
     if key not in skipped:
-        print(f"[atelier:claude] {key} set → " + (desired[key] if isinstance(desired[key], str) else desired[key]["command"]))
+        print(f"[lemon:claude] {key} set → " + (desired[key] if isinstance(desired[key], str) else desired[key]["command"]))
 if skipped:
-    print("[atelier:claude] NOTICE: kept your existing settings for: " + ", ".join(skipped))
-    print("[atelier:claude] To switch them to Atelier, merge this into ${CLAUDE_SETTINGS}:")
+    print("[lemon:claude] NOTICE: kept your existing settings for: " + ", ".join(skipped))
+    print("[lemon:claude] To switch them to LemonCrow, merge this into ${CLAUDE_SETTINGS}:")
     print(json.dumps({k: desired[k] for k in skipped}, indent=2))
 PYEOF2
 else
@@ -561,11 +561,11 @@ if [[ -n "${PROJECT_ENFORCE:-}" ]]; then
     fi
     info "Configuring enforcement for project: ${PROJECT_ENFORCE}"
     configure_project_enforcement "${PROJECT_ENFORCE}"
-    atelier_install_attribution_hook "$PROJECT_ENFORCE" "$DRY_RUN"
+    lemoncrow_install_attribution_hook "$PROJECT_ENFORCE" "$DRY_RUN"
 elif $WORKSPACE_SET; then
-    atelier_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
+    lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
 fi
 
-info "Done. Start Claude Code in your workspace. The atelier:code agent is available."
-info "  Agent: atelier:code (other roles are installable on demand)"
+info "Done. Start Claude Code in your workspace. The lemon:code agent is available."
+info "  Agent: lemon:code (other roles are installable on demand)"
 info "  Project enforcement: bash scripts/install_claude.sh --project [DIR]"

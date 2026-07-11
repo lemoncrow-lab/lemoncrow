@@ -1,4 +1,4 @@
-"""Tests for the Atelier mini eval suite (schema, loader, runner, aggregation).
+"""Tests for the LemonCrow mini eval suite (schema, loader, runner, aggregation).
 
 Verifies:
 - MiniEvalCase loads and validates from YAML

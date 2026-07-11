@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.default_definitions import (
+from lemoncrow.core.capabilities.default_definitions import (
     DEFAULT_OWNED_MODEL,
     READONLY_OWNED_MODEL,
 )
-from atelier.core.capabilities.live_reviewer.settings import (
+from lemoncrow.core.capabilities.live_reviewer.settings import (
     DEFAULT_DEEP_INTERVAL,
     MAX_DEEP_INTERVAL,
     MIN_DEEP_INTERVAL,
@@ -60,8 +60,8 @@ def test_interval_garbage_falls_back(tmp_path: Path) -> None:
     assert load_reviewer_settings(tmp_path).deep_edit_count_interval == DEFAULT_DEEP_INTERVAL
 
 
-def test_nested_atelier_block(tmp_path: Path) -> None:
-    _write_settings(tmp_path, {"atelier": {"liveReviewer": True}})
+def test_nested_lemoncrow_block(tmp_path: Path) -> None:
+    _write_settings(tmp_path, {"lemoncrow": {"liveReviewer": True}})
     assert load_reviewer_settings(tmp_path).live_reviewer is True
 
 

@@ -8,11 +8,11 @@ from typing import ClassVar
 
 import pytest
 
-from atelier.core.capabilities.context_compression.capability import (
+from lemoncrow.core.capabilities.context_compression.capability import (
     ContextCompressionCapability,
 )
-from atelier.core.capabilities.context_compression.sleeptime import SleeptimeChunk
-from atelier.core.capabilities.licensing import entitlements
+from lemoncrow.core.capabilities.context_compression.sleeptime import SleeptimeChunk
+from lemoncrow.core.capabilities.licensing import entitlements
 from tests.helpers import grant_oauth_pro
 
 
@@ -23,7 +23,7 @@ class _FakeLedger:
     token_count = 0
     files_touched: ClassVar[list[str]] = []
     active_playbooks: ClassVar[list[str]] = []
-    agent = "atelier"
+    agent = "lemoncrow"
 
     def __init__(self, n_events: int = 200) -> None:
         self.events = [
@@ -54,11 +54,11 @@ def test_compress_with_sleeptime_writes_run_frame(
     cap = ContextCompressionCapability()
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        os.environ["ATELIER_ROOT"] = tmpdir
+        os.environ["LEMONCROW_ROOT"] = tmpdir
         try:
             result = cap.compress_with_sleeptime(ledger, token_budget=2000)
         finally:
-            os.environ.pop("ATELIER_ROOT", None)
+            os.environ.pop("LEMONCROW_ROOT", None)
 
     assert result is not None
     assert result.token_savings >= 0
@@ -69,13 +69,13 @@ def test_compress_with_sleeptime_archives_passages(
     tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """ArchivalPassage rows must be written for evicted events."""
-    from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
+    from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
     grant_oauth_pro(monkeypatch)
     ledger = _FakeLedger(n_events=100)
     cap = ContextCompressionCapability()
     monkeypatch.setattr(
-        "atelier.core.capabilities.context_compression.capability.summarize_ledger",
+        "lemoncrow.core.capabilities.context_compression.capability.summarize_ledger",
         lambda dropped: [
             SleeptimeChunk(
                 start_event_index=0,
@@ -86,14 +86,14 @@ def test_compress_with_sleeptime_archives_passages(
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        os.environ["ATELIER_ROOT"] = tmpdir
+        os.environ["LEMONCROW_ROOT"] = tmpdir
         try:
-            cap.compress_with_sleeptime(ledger, token_budget=1000, agent_id="atelier")
+            cap.compress_with_sleeptime(ledger, token_budget=1000, agent_id="lemoncrow")
         finally:
-            os.environ.pop("ATELIER_ROOT", None)
+            os.environ.pop("LEMONCROW_ROOT", None)
 
         store = SqliteMemoryStore(tmpdir)
-        passages = store.list_passages("atelier", limit=500)
+        passages = store.list_passages("lemoncrow", limit=500)
 
     assert len(passages) >= 1, "at least one archival passage must be written"
     entitlements.reload()

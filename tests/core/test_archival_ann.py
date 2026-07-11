@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.archival_recall import ann as ann_mod
-from atelier.core.capabilities.archival_recall import ranking as ranking_mod
-from atelier.core.capabilities.archival_recall.ann import ArchivalAnnIndex, ann_retrieval_enabled
-from atelier.core.capabilities.archival_recall.ranking import rank_archival_passages
-from atelier.core.foundation.memory_models import ArchivalPassage
+from lemoncrow.core.capabilities.archival_recall import ann as ann_mod
+from lemoncrow.core.capabilities.archival_recall import ranking as ranking_mod
+from lemoncrow.core.capabilities.archival_recall.ann import ArchivalAnnIndex, ann_retrieval_enabled
+from lemoncrow.core.capabilities.archival_recall.ranking import rank_archival_passages
+from lemoncrow.core.foundation.memory_models import ArchivalPassage
 
 _DIM = 8
 
@@ -40,7 +40,7 @@ def _passage(
 ) -> ArchivalPassage:
     return ArchivalPassage(
         id=f"p{i}",
-        agent_id="atelier:code",
+        agent_id="lemon:code",
         text=text if text is not None else f"archival document number {i}",
         embedding=embedding if embedding is not None else _vec(i),
         embedding_model=model,
@@ -188,7 +188,7 @@ def test_ann_on_matches_brute_force_ranking(monkeypatch: pytest.MonkeyPatch) -> 
     """ANN-on top-k ranking equals the brute-force (default) ranking (parity)."""
     passages, query_embedding = _ranking_fixture()
 
-    monkeypatch.delenv("ATELIER_ANN_RETRIEVAL", raising=False)
+    monkeypatch.delenv("LEMONCROW_ANN_RETRIEVAL", raising=False)
     brute = rank_archival_passages(
         query="semantic recall",
         passages=passages,
@@ -198,7 +198,7 @@ def test_ann_on_matches_brute_force_ranking(monkeypatch: pytest.MonkeyPatch) -> 
     )
 
     ranking_mod._ARCHIVAL_ANN_INDEX.invalidate()
-    monkeypatch.setenv("ATELIER_ANN_RETRIEVAL", "1")
+    monkeypatch.setenv("LEMONCROW_ANN_RETRIEVAL", "1")
     ann = rank_archival_passages(
         query="semantic recall",
         passages=passages,
@@ -222,7 +222,7 @@ def test_ann_on_preserves_just_stored_recent_passage(monkeypatch: pytest.MonkeyP
     query_embedding = fresh.embedding
     assert query_embedding is not None
 
-    monkeypatch.setenv("ATELIER_ANN_RETRIEVAL", "1")
+    monkeypatch.setenv("LEMONCROW_ANN_RETRIEVAL", "1")
     ranking_mod._ARCHIVAL_ANN_INDEX.invalidate()
     ranked = rank_archival_passages(
         query="fresh memory",
@@ -238,7 +238,7 @@ def test_ann_on_preserves_just_stored_recent_passage(monkeypatch: pytest.MonkeyP
 def test_default_off_reproduces_brute_force(monkeypatch: pytest.MonkeyPatch) -> None:
     """Flag off: ranking is identical whether or not embedding_model is passed."""
     passages, query_embedding = _ranking_fixture()
-    monkeypatch.delenv("ATELIER_ANN_RETRIEVAL", raising=False)
+    monkeypatch.delenv("LEMONCROW_ANN_RETRIEVAL", raising=False)
     with_model = rank_archival_passages(
         query="semantic recall",
         passages=passages,
@@ -261,7 +261,7 @@ def test_n5_model_drift_keeps_ranking_correct(monkeypatch: pytest.MonkeyPatch) -
     """ANN-on with a model-id that doesn't match stored passages still ranks
     correctly (brute-force fallback) -- never serves stale/cross-space hits."""
     passages, query_embedding = _ranking_fixture()
-    monkeypatch.setenv("ATELIER_ANN_RETRIEVAL", "1")
+    monkeypatch.setenv("LEMONCROW_ANN_RETRIEVAL", "1")
     ranking_mod._ARCHIVAL_ANN_INDEX.invalidate()
     # Live embedder reports a model-id the persisted passages were NOT embedded
     # with -> ANN ineligible -> exact brute-force over all passages.
@@ -277,7 +277,7 @@ def test_n5_model_drift_keeps_ranking_correct(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_ann_retrieval_flag_gating(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_ANN_RETRIEVAL", raising=False)
+    monkeypatch.delenv("LEMONCROW_ANN_RETRIEVAL", raising=False)
     assert ann_retrieval_enabled() is False
-    monkeypatch.setenv("ATELIER_ANN_RETRIEVAL", "true")
+    monkeypatch.setenv("LEMONCROW_ANN_RETRIEVAL", "true")
     assert ann_retrieval_enabled() is True

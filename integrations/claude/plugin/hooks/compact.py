@@ -60,15 +60,15 @@ def _workspace_key(path: str) -> str:
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
     return root / "workspaces" / h / "session_state.json"
 
 
 def _claude_stats_path(session_id: str) -> Path:
     """Path to the session-scoped stats.json for a Claude Code session."""
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
-    root = _atelier_root()
+    root = _lemoncrow_root()
     return session_dir(root, "claude", session_id) / "stats.json"
 
 
@@ -169,14 +169,14 @@ def _context_occupancy(transcript_path: str) -> tuple[int, str | None]:
         return 0, None
 
 
-def _atelier_root() -> Path:
-    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
+def _lemoncrow_root() -> Path:
+    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
     if root:
         return Path(root)
     state = _read_session_state()
-    if state.get("atelier_root"):
-        return Path(state["atelier_root"])
-    return Path.home() / ".atelier"
+    if state.get("lemoncrow_root"):
+        return Path(state["lemoncrow_root"])
+    return Path.home() / ".lemoncrow"
 
 
 def _active_session_id() -> str | None:
@@ -191,13 +191,13 @@ def _active_session_id() -> str | None:
 
 def _ensure_compact_manifest(session_id: str) -> Path:
     """Ensure manifest file exists. Return the path."""
-    atelier_root = _atelier_root()
+    lemoncrow_root = _lemoncrow_root()
     try:
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
 
-        run_dir = session_dir(atelier_root, "claude", session_id)
+        run_dir = session_dir(lemoncrow_root, "claude", session_id)
     except ImportError:
-        return atelier_root / "sessions" / session_id / "compact_manifest.json"
+        return lemoncrow_root / "sessions" / session_id / "compact_manifest.json"
     run_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = run_dir / "compact_manifest.json"
 
@@ -232,10 +232,10 @@ def _ensure_compact_manifest(session_id: str) -> Path:
 def _read_compact_manifest(session_id: str) -> dict[str, Any] | None:
     """Read compact_manifest.json from the run directory."""
     try:
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
 
-        atelier_root = _atelier_root()
-        manifest_path = session_dir(atelier_root, "claude", session_id) / "compact_manifest.json"
+        lemoncrow_root = _lemoncrow_root()
+        manifest_path = session_dir(lemoncrow_root, "claude", session_id) / "compact_manifest.json"
         if manifest_path.exists():
             data = json.loads(manifest_path.read_text("utf-8"))
             if isinstance(data, dict):
@@ -254,10 +254,10 @@ def _append_compact_event(
     session_id: str, hook_event: str, trigger: str, payload: dict[str, Any] | None = None
 ) -> None:
     try:
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
     except ImportError:
         return
-    run_file = session_dir(_atelier_root(), "claude", session_id) / "run.json"
+    run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
     if not run_file.exists():
         return
 
@@ -319,7 +319,7 @@ def _checkpoint_pre_compact_usage(session_id: str, transcript_path: str) -> None
     Fail-open: any error is silently swallowed.
     """
     try:
-        from atelier.core.capabilities.savings_summary import read_transcript_stats
+        from lemoncrow.core.capabilities.savings_summary import read_transcript_stats
 
         stats = read_transcript_stats(transcript_path)
         if stats is None:
@@ -328,10 +328,10 @@ def _checkpoint_pre_compact_usage(session_id: str, transcript_path: str) -> None
         if not (stats.input_tokens or stats.output_tokens or stats.cache_read_tokens or stats.cache_write_tokens):
             return
 
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
 
-        atelier_root = _atelier_root()
-        stats_path = session_dir(atelier_root, "claude", session_id) / "stats.json"
+        lemoncrow_root = _lemoncrow_root()
+        stats_path = session_dir(lemoncrow_root, "claude", session_id) / "stats.json"
         try:
             existing: dict[str, Any] = json.loads(stats_path.read_text("utf-8")) if stats_path.exists() else {}
         except (OSError, json.JSONDecodeError):

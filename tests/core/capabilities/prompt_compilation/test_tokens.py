@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.core.capabilities.prompt_compilation.tokens import estimate_tokens
+from lemoncrow.core.capabilities.prompt_compilation.tokens import estimate_tokens
 
 
 class TestTiktokenUsedWhenAvailable:

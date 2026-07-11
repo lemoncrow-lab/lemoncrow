@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.tool_supervision.bash_exec import classify_command
+from lemoncrow.core.capabilities.tool_supervision.bash_exec import classify_command
 
 
 def test_classify_plain_rg_prefers_search_first_grounding() -> None:

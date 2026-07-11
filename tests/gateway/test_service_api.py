@@ -1,4 +1,4 @@
-"""Tests for the Atelier production service API (P4).
+"""Tests for the LemonCrow production service API (P4).
 
 Uses FastAPI TestClient with an in-memory SQLite store so no server starts.
 """
@@ -12,17 +12,17 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from atelier.core.capabilities.swarm.models import (
+from lemoncrow.core.capabilities.swarm.models import (
     SwarmAcceptedCommit,
     SwarmArtifactRef,
     SwarmChildState,
     SwarmRunState,
     SwarmWaveState,
 )
-from atelier.core.environment import HIDDEN_LLM_TOOLS
-from atelier.core.foundation.paths import resolve_session_state_path
-from atelier.core.service.api import create_app
-from atelier.infra.storage.sqlite_store import SQLiteStore
+from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.core.foundation.paths import resolve_session_state_path
+from lemoncrow.core.service.api import create_app
+from lemoncrow.infra.storage.sqlite_store import SQLiteStore
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
@@ -39,7 +39,7 @@ FastAPITestClient = pytest.importorskip(
 
 @pytest.fixture()
 def store(tmp_path: Path) -> SQLiteStore:
-    st = SQLiteStore(tmp_path / ".atelier")
+    st = SQLiteStore(tmp_path / ".lemoncrow")
     st.init()
     return st
 
@@ -47,15 +47,15 @@ def store(tmp_path: Path) -> SQLiteStore:
 @pytest.fixture()
 def app_no_auth(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """App with auth disabled."""
-    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
     return cast("TestClient", FastAPITestClient(create_app(store_root=store.root)))
 
 
 @pytest.fixture()
 def app_with_auth(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """App with auth enabled and known key."""
-    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "true")
-    monkeypatch.setenv("ATELIER_API_KEY", "test-secret-key-123")
+    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "true")
+    monkeypatch.setenv("LEMONCROW_API_KEY", "test-secret-key-123")
     return cast("TestClient", FastAPITestClient(create_app(store_root=store.root)))
 
 
@@ -78,14 +78,14 @@ def test_config_returns_runtime_settings(app_no_auth: TestClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["require_auth"] is False
-    assert data["atelier_root"]
+    assert data["lemoncrow_root"]
 
 
 def test_claude_code_router_endpoint_evaluates_request(
     app_no_auth: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "atelier.core.service.api.evaluate_host_router_request",
+        "lemoncrow.core.service.api.evaluate_host_router_request",
         lambda **kwargs: {"bridge_mode": "shadow", "requested_path": kwargs["path"]},
     )
 
@@ -114,7 +114,7 @@ def test_overview_accessible_no_auth(app_no_auth: TestClient) -> None:
 
 
 def test_mcp_status_matches_non_dev_tool_visibility(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
     app = create_app(store_root=store.root)
     route = next(route for route in app.routes if getattr(route, "path", "") == "/mcp/status")
 
@@ -132,11 +132,11 @@ def test_mcp_status_matches_non_dev_tool_visibility(store: SQLiteStore, monkeypa
 
 
 def test_workflow_current_and_snapshot_actions(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("ATELIER_ROOT", str(store.root))
+    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("LEMONCROW_ROOT", str(store.root))
     workspace = store.root / "workspace"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.setenv("LEMONCROW_WORKSPACE_ROOT", str(workspace))
     state_path = resolve_session_state_path(workspace)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
@@ -240,7 +240,7 @@ def test_workflow_current_and_snapshot_actions(store: SQLiteStore, monkeypatch: 
 
 
 def test_hosts_endpoint_lists_supported_integrations(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
     app = create_app(store_root=store.root)
     route = next(route for route in app.routes if getattr(route, "path", "") == "/hosts")
 
@@ -446,8 +446,8 @@ def test_analytics_day_windows_use_calendar_days(
     app_no_auth: TestClient,
     store: SQLiteStore,
 ) -> None:
-    from atelier.core.capabilities.pricing import usage_cost_usd
-    from atelier.core.foundation.models import Trace
+    from lemoncrow.core.capabilities.pricing import usage_cost_usd
+    from lemoncrow.core.foundation.models import Trace
 
     local_now = datetime.now().astimezone()
     today_start_local = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -457,7 +457,7 @@ def test_analytics_day_windows_use_calendar_days(
     store.record_trace(
         Trace(
             id="trace-yesterday-recent",
-            agent="atelier:code",
+            agent="lemon:code",
             host="copilot",
             domain="coding",
             task="yesterday but within 24h",
@@ -472,7 +472,7 @@ def test_analytics_day_windows_use_calendar_days(
     store.record_trace(
         Trace(
             id="trace-today-current",
-            agent="atelier:code",
+            agent="lemon:code",
             host="copilot",
             domain="coding",
             task="today only",
@@ -516,12 +516,12 @@ def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
     app_no_auth: TestClient,
     store: SQLiteStore,
 ) -> None:
-    from atelier.core.foundation.models import ToolCall, Trace
+    from lemoncrow.core.foundation.models import ToolCall, Trace
 
     store.record_trace(
         Trace(
             id="trace-codex-stub",
-            agent="atelier:code",
+            agent="lemon:code",
             host="codex",
             domain="coding",
             task="prompt only",
@@ -533,7 +533,7 @@ def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
     store.record_trace(
         Trace(
             id="trace-codex-usage",
-            agent="atelier:code",
+            agent="lemon:code",
             host="codex",
             domain="coding",
             task="real codex usage",
@@ -550,7 +550,7 @@ def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
     store.record_trace(
         Trace(
             id="trace-claude-usage",
-            agent="atelier:code",
+            agent="lemon:code",
             host="claude",
             domain="coding",
             task="real claude usage",
@@ -589,8 +589,8 @@ def test_dashboard_collapses_duplicate_trace_rows_into_one_session(
     app_no_auth: TestClient,
     store: SQLiteStore,
 ) -> None:
-    from atelier.core.capabilities.pricing import usage_cost_usd
-    from atelier.core.foundation.models import Trace
+    from lemoncrow.core.capabilities.pricing import usage_cost_usd
+    from lemoncrow.core.foundation.models import Trace
 
     created_at = datetime.now(UTC)
     expected_cost = usage_cost_usd("gpt-5.4", input_tokens=120, output_tokens=20)
@@ -599,7 +599,7 @@ def test_dashboard_collapses_duplicate_trace_rows_into_one_session(
         Trace(
             id="trace-copilot-session-primary",
             session_id="copilot-session-1",
-            agent="atelier:code",
+            agent="lemon:code",
             host="copilot",
             domain="coding",
             task="priced copilot session",
@@ -615,7 +615,7 @@ def test_dashboard_collapses_duplicate_trace_rows_into_one_session(
         Trace(
             id="trace-copilot-session-transcript",
             session_id="copilot-session-1",
-            agent="atelier:code",
+            agent="lemon:code",
             host="copilot",
             domain="coding",
             task="prompt-only transcript stub",
@@ -643,14 +643,14 @@ def test_dashboard_rolls_cursor_agent_into_cursor_host_family(
     app_no_auth: TestClient,
     store: SQLiteStore,
 ) -> None:
-    from atelier.core.foundation.models import ModelUsage, Trace
+    from lemoncrow.core.foundation.models import ModelUsage, Trace
 
     created_at = datetime.now(UTC)
 
     store.record_trace(
         Trace(
             id="trace-cursor-family",
-            agent="atelier:code",
+            agent="lemon:code",
             host="cursor",
             domain="coding",
             task="cursor family usage",
@@ -672,7 +672,7 @@ def test_dashboard_rolls_cursor_agent_into_cursor_host_family(
     store.record_trace(
         Trace(
             id="trace-cursor-agent-family",
-            agent="atelier:code",
+            agent="lemon:code",
             host="cursor-agent",
             domain="coding",
             task="cursor agent family usage",
@@ -708,13 +708,13 @@ def test_dashboard_returns_hourly_usage_buckets(
     app_no_auth: TestClient,
     store: SQLiteStore,
 ) -> None:
-    from atelier.core.foundation.models import Trace
+    from lemoncrow.core.foundation.models import Trace
 
     created_at = datetime.now(UTC).replace(minute=15, second=0, microsecond=0)
     store.record_trace(
         Trace(
             id="trace-hourly-usage",
-            agent="atelier:code",
+            agent="lemon:code",
             host="codex",
             domain="coding",
             task="hourly dashboard usage",
@@ -735,13 +735,13 @@ def test_dashboard_returns_hourly_usage_buckets(
 
 
 def test_analytics_summary_uses_backend_pricing(app_no_auth: TestClient, store: SQLiteStore) -> None:
-    from atelier.core.capabilities.pricing import usage_cost_usd
-    from atelier.core.foundation.models import ToolCall, Trace
+    from lemoncrow.core.capabilities.pricing import usage_cost_usd
+    from lemoncrow.core.foundation.models import ToolCall, Trace
 
     store.record_trace(
         Trace(
             id="trace-summary-priced",
-            agent="atelier:code",
+            agent="lemon:code",
             host="claude",
             domain="coding",
             task="summary pricing",
@@ -768,12 +768,12 @@ def test_dashboard_splits_multi_model_usage_into_by_model_breakdown(
     app_no_auth: TestClient,
     store: SQLiteStore,
 ) -> None:
-    from atelier.core.foundation.models import ModelUsage, Trace
+    from lemoncrow.core.foundation.models import ModelUsage, Trace
 
     store.record_trace(
         Trace(
             id="trace-mixed-model-dashboard",
-            agent="atelier:code",
+            agent="lemon:code",
             host="gemini",
             domain="coding",
             task="mixed model session",
@@ -826,7 +826,7 @@ def test_list_blocks_empty(app_no_auth: TestClient) -> None:
 
 
 def test_get_block_from_compat_endpoints(app_no_auth: TestClient, store: SQLiteStore) -> None:
-    from atelier.core.foundation.models import Playbook
+    from lemoncrow.core.foundation.models import Playbook
 
     block = Playbook(
         id="rb-api-test",
@@ -862,7 +862,7 @@ def test_run_rubric_not_found(app_no_auth: TestClient) -> None:
 
 
 def test_run_rubric_pass(app_no_auth: TestClient, store: SQLiteStore) -> None:
-    from atelier.core.foundation.models import Rubric
+    from lemoncrow.core.foundation.models import Rubric
 
     rubric = Rubric(
         id="rubric-test-api",
@@ -892,7 +892,7 @@ def test_get_trace_not_found(app_no_auth: TestClient) -> None:
 
 
 def test_get_trace_by_id(app_no_auth: TestClient, store: SQLiteStore) -> None:
-    from atelier.core.foundation.models import Trace
+    from lemoncrow.core.foundation.models import Trace
 
     trace = Trace(
         id="trace-extract-test",
@@ -919,7 +919,7 @@ def test_compat_ledger_merges_main_and_subagent_artifacts(
     app_no_auth: TestClient,
     store: SQLiteStore,
 ) -> None:
-    from atelier.core.foundation.models import RawArtifact, Trace
+    from lemoncrow.core.foundation.models import RawArtifact, Trace
 
     created_at = datetime.now(UTC)
     main_artifact = RawArtifact(
@@ -1084,7 +1084,7 @@ def test_compat_ledger_keeps_copilot_tool_result_content(
     app_no_auth: TestClient,
     store: SQLiteStore,
 ) -> None:
-    from atelier.core.foundation.models import RawArtifact, Trace
+    from lemoncrow.core.foundation.models import RawArtifact, Trace
 
     created_at = datetime.now(UTC)
     artifact = RawArtifact(
@@ -1169,9 +1169,9 @@ def test_cli_service_config_command(monkeypatch: pytest.MonkeyPatch) -> None:
     """service config command prints JSON."""
     from click.testing import CliRunner
 
-    from atelier.gateway.cli import cli
+    from lemoncrow.gateway.cli import cli
 
-    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
     runner = CliRunner()
     result = runner.invoke(cli, ["service", "config"], obj={"root": Path(".")})
     assert result.exit_code == 0
@@ -1197,7 +1197,7 @@ def test_swarm_runs_endpoint_lists_live_activity(
         wave_index=1,
         status="running",
         worktree_path=str(tmp_path / "worktree"),
-        atelier_root=str(tmp_path / "atelier-root"),
+        lemoncrow_root=str(tmp_path / "lemoncrow-root"),
         run_dir=str(tmp_path / "run"),
         spec_path=str(program),
         result_path=str(tmp_path / "result.json"),
@@ -1246,7 +1246,7 @@ def test_swarm_runs_endpoint_lists_live_activity(
         ],
         children=[running_child],
     )
-    monkeypatch.setattr("atelier.core.service.api.list_swarm_runs", lambda _root: [state])
+    monkeypatch.setattr("lemoncrow.core.service.api.list_swarm_runs", lambda _root: [state])
 
     response = app_no_auth.get("/v1/swarm/runs")
 
@@ -1270,8 +1270,8 @@ def test_swarm_launch_options_endpoint_returns_projects_and_editor_state(
 ) -> None:
     program = tmp_path / "PROGRAM.md"
     program.write_text("Prompt title\n\nDo the thing.\n", encoding="utf-8")
-    monkeypatch.setattr("atelier.core.service.api.discover_repo_root", lambda _cwd: tmp_path)
-    monkeypatch.setattr("atelier.core.service.api.list_swarm_runs", lambda _root: [])
+    monkeypatch.setattr("lemoncrow.core.service.api.discover_repo_root", lambda _cwd: tmp_path)
+    monkeypatch.setattr("lemoncrow.core.service.api.list_swarm_runs", lambda _root: [])
 
     response = app_no_auth.get("/v1/swarm/launch/options")
 
@@ -1311,20 +1311,20 @@ def test_swarm_run_create_endpoint_uses_default_program_md(
         runs=3,
         max_runs=3,
     )
-    monkeypatch.setattr("atelier.core.service.api.discover_repo_root", lambda _cwd: tmp_path)
-    monkeypatch.setattr("atelier.core.service.api.list_swarm_runs", lambda _root: [])
+    monkeypatch.setattr("lemoncrow.core.service.api.discover_repo_root", lambda _cwd: tmp_path)
+    monkeypatch.setattr("lemoncrow.core.service.api.list_swarm_runs", lambda _root: [])
     monkeypatch.setattr(
-        "atelier.core.service.api.initialize_swarm_run",
+        "lemoncrow.core.service.api.initialize_swarm_run",
         lambda **kwargs: (captured.update(kwargs) or state, tmp_path / "state.json"),
     )
     monkeypatch.setattr(
-        "atelier.core.service.api.spawn_swarm_coordinator",
+        "lemoncrow.core.service.api.spawn_swarm_coordinator",
         lambda _root, _repo_root, _state_path, env_overrides=None: (
             4321,
             tmp_path / "coordinator.log",
         ),
     )
-    monkeypatch.setattr("atelier.core.service.api.save_swarm_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("lemoncrow.core.service.api.save_swarm_state", lambda *_args, **_kwargs: None)
 
     response = app_no_auth.post(
         "/v1/swarm/runs",
@@ -1375,20 +1375,20 @@ def test_swarm_run_create_endpoint_supports_provider_worker_and_inline_spec(
         runs=2,
         max_runs=2,
     )
-    monkeypatch.setattr("atelier.core.service.api.discover_repo_root", lambda _cwd: tmp_path)
-    monkeypatch.setattr("atelier.core.service.api.list_swarm_runs", lambda _root: [])
+    monkeypatch.setattr("lemoncrow.core.service.api.discover_repo_root", lambda _cwd: tmp_path)
+    monkeypatch.setattr("lemoncrow.core.service.api.list_swarm_runs", lambda _root: [])
     monkeypatch.setattr(
-        "atelier.core.service.api.initialize_swarm_run",
+        "lemoncrow.core.service.api.initialize_swarm_run",
         lambda **kwargs: (captured.update(kwargs) or state, tmp_path / "state.json"),
     )
     monkeypatch.setattr(
-        "atelier.core.service.api.spawn_swarm_coordinator",
+        "lemoncrow.core.service.api.spawn_swarm_coordinator",
         lambda _root, _repo_root, _state_path, env_overrides=None: (
             captured_spawn.update({"env_overrides": env_overrides}) or 9876,
             tmp_path / "coordinator.log",
         ),
     )
-    monkeypatch.setattr("atelier.core.service.api.save_swarm_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("lemoncrow.core.service.api.save_swarm_state", lambda *_args, **_kwargs: None)
 
     response = app_no_auth.post(
         "/v1/swarm/runs",
@@ -1425,8 +1425,8 @@ def test_swarm_run_create_endpoint_supports_provider_worker_and_inline_spec(
     assert "_provider-worker" in captured["child_command"]
     assert "gpt-4o-mini" not in " ".join(captured["child_command"])
     assert captured_spawn["env_overrides"] == {
-        "ATELIER_OPENAI_API_KEY": "sk-test-key",
-        "ATELIER_OPENAI_BASE_URL": "https://openrouter.example/v1",
+        "LEMONCROW_OPENAI_API_KEY": "sk-test-key",
+        "LEMONCROW_OPENAI_BASE_URL": "https://openrouter.example/v1",
     }
 
 
@@ -1474,8 +1474,8 @@ def test_swarm_run_detail_returns_export_and_apply_payloads(
         export_artifacts=[artifact],
         transplant_commands=["git cherry-pick abc1234"],
     )
-    monkeypatch.setattr("atelier.core.service.api.resolve_state_path", lambda _root, _run_id: state_path)
-    monkeypatch.setattr("atelier.core.service.api.load_swarm_state", lambda _path: state)
+    monkeypatch.setattr("lemoncrow.core.service.api.resolve_state_path", lambda _root, _run_id: state_path)
+    monkeypatch.setattr("lemoncrow.core.service.api.load_swarm_state", lambda _path: state)
 
     response = app_no_auth.get("/v1/swarm/runs/swarm-123")
 
@@ -1511,9 +1511,9 @@ def test_swarm_logs_and_stop_endpoints(
         max_runs=1,
         stop_reason="Stopped by user.",
     )
-    monkeypatch.setattr("atelier.core.service.api.resolve_state_path", lambda _root, _run_id: state_path)
-    monkeypatch.setattr("atelier.core.service.api.read_swarm_log", lambda *_args, **_kwargs: "child heartbeat")
-    monkeypatch.setattr("atelier.core.service.api.stop_swarm_run", lambda **_kwargs: state)
+    monkeypatch.setattr("lemoncrow.core.service.api.resolve_state_path", lambda _root, _run_id: state_path)
+    monkeypatch.setattr("lemoncrow.core.service.api.read_swarm_log", lambda *_args, **_kwargs: "child heartbeat")
+    monkeypatch.setattr("lemoncrow.core.service.api.stop_swarm_run", lambda **_kwargs: state)
 
     logs_response = app_no_auth.get("/v1/swarm/runs/swarm-123/logs", params={"child_id": "wave-01-run-01"})
     stop_response = app_no_auth.post("/v1/swarm/runs/swarm-123/stop")

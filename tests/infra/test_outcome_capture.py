@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from atelier.infra.runtime.outcome_capture import (
+from lemoncrow.infra.runtime.outcome_capture import (
     FileStateWriter,
     _compact_score,
     _pending_compact,

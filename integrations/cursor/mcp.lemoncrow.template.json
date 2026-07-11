@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "lemon": {
+      "type": "stdio",
+      "command": "lemon",
+      "args": ["mcp", "--host", "cursor"],
+      "alwaysAllow": [
+        "code",
+        "compact",
+        "context",
+        "edit",
+        "grep",
+        "memory",
+        "read",
+        "rescue",
+        "route",
+        "search",
+        "bash",
+        "sql",
+        "trace",
+        "verify"
+      ]
+    }
+  }
+}

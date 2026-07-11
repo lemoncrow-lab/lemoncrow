@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.team import (
+from lemoncrow.core.capabilities.team import (
     TeamPermissionError,
     TeamWorkspaceError,
     TeamWorkspaceManager,
@@ -13,7 +13,7 @@ from atelier.core.capabilities.team import (
 
 
 def test_join_rejects_user_id_not_matching_invite_email(tmp_path: Path) -> None:
-    manager = TeamWorkspaceManager(tmp_path / ".atelier")
+    manager = TeamWorkspaceManager(tmp_path / ".lemoncrow")
     manager.init_workspace(name="Acme", admin_email="admin@example.com")
     invite = manager.invite_members(["member@example.com"], role="member")[0]
 
@@ -33,7 +33,7 @@ def test_join_rejects_user_id_not_matching_invite_email(tmp_path: Path) -> None:
 
 
 def test_join_rejects_overwriting_existing_member(tmp_path: Path) -> None:
-    manager = TeamWorkspaceManager(tmp_path / ".atelier")
+    manager = TeamWorkspaceManager(tmp_path / ".lemoncrow")
     manager.init_workspace(name="Acme", admin_email="admin@example.com")
     invite = manager.invite_members(["member@example.com"], role="member")[0]
     manager.join_workspace(invite.code)
@@ -51,7 +51,7 @@ def test_concurrent_invites_do_not_lose_updates(tmp_path: Path) -> None:
     # Regression: invite_members() used a lock-free load->append->save, so two
     # invites racing on the shared team_workspace.json clobbered each other
     # (last-writer-wins), dropping an invite while its code was already returned.
-    manager = TeamWorkspaceManager(tmp_path / ".atelier")
+    manager = TeamWorkspaceManager(tmp_path / ".lemoncrow")
     manager.init_workspace(name="Acme", admin_email="admin@example.com")
 
     emails = [f"member{i}@example.com" for i in range(16)]
@@ -80,7 +80,7 @@ def test_concurrent_invites_do_not_lose_updates(tmp_path: Path) -> None:
 
 
 def test_workspace_init_invite_join_and_role_change(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     manager = TeamWorkspaceManager(root)
 
     workspace = manager.init_workspace(name="Acme", admin_email="admin@example.com")

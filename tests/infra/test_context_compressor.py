@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.infra.runtime.context_compressor import ContextCompressor, HandoverPacket
-from atelier.infra.runtime.run_ledger import RunLedger
+from lemoncrow.infra.runtime.context_compressor import ContextCompressor, HandoverPacket
+from lemoncrow.infra.runtime.run_ledger import RunLedger
 
 
 def test_compressor_preserves_latest_error_and_alerts() -> None:
@@ -43,7 +43,7 @@ def test_compressor_prompt_block_renders() -> None:
     led.record_command("pytest", ok=False, error_signature="x")
     state = ContextCompressor().compress(led)
     text = state.to_prompt_block()
-    assert "Atelier compact state" in text
+    assert "LemonCrow compact state" in text
 
 
 def test_compressor_preserves_recent_turns_playbooks_and_claude_hash(tmp_path: Path) -> None:

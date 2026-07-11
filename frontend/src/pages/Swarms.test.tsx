@@ -94,9 +94,9 @@ function installSwarmFetchMock(launchBodies: unknown[]) {
           jsonResponse({
             run_id: "swarm-123",
             status: "running",
-            state_path: "/workspace/.atelier/swarm/state.json",
+            state_path: "/workspace/.lemoncrow/swarm/state.json",
             coordinator_pid: 4321,
-            log_path: "/workspace/.atelier/swarm/coordinator.log",
+            log_path: "/workspace/.lemoncrow/swarm/coordinator.log",
           })
         );
       }
@@ -163,7 +163,7 @@ function installSwarmFetchMock(launchBodies: unknown[]) {
             spec: {
               source_path: "PROGRAM.md",
               copied_path:
-                "/workspace/.atelier/swarm/runs/swarm-123/PROGRAM.md",
+                "/workspace/.lemoncrow/swarm/runs/swarm-123/PROGRAM.md",
               resolution: "default",
               used_program_md: true,
               title: "Prompt title",
@@ -180,7 +180,7 @@ function installSwarmFetchMock(launchBodies: unknown[]) {
               base_ref: "HEAD",
               base_snapshot_ref: "base-snapshot",
               integration_base_ref: "accepted-head",
-              artifact_root: "/workspace/.atelier/swarm/artifacts",
+              artifact_root: "/workspace/.lemoncrow/swarm/artifacts",
               base_snapshot_artifact: null,
               accepted_child_ids: [],
               accepted_commits: [],

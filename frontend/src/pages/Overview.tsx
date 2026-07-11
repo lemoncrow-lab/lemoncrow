@@ -76,11 +76,11 @@ export default function Overview() {
   }, [range]);
 
   const wouldHaveCost = insights
-    ? insights.total_cost_usd + insights.total_atelier_savings_usd
+    ? insights.total_cost_usd + insights.total_lemoncrow_savings_usd
     : 0;
   const reductionPct =
     insights && wouldHaveCost > 0
-      ? (insights.total_atelier_savings_usd / wouldHaveCost) * 100
+      ? (insights.total_lemoncrow_savings_usd / wouldHaveCost) * 100
       : 0;
 
   const snapshotChips: SnapshotChipData[] = [
@@ -98,8 +98,8 @@ export default function Overview() {
     },
     {
       label: "Saved",
-      value: insights ? fmtUsd(insights.total_atelier_savings_usd) : "…",
-      detail: "Atelier-attributed",
+      value: insights ? fmtUsd(insights.total_lemoncrow_savings_usd) : "…",
+      detail: "LemonCrow-attributed",
       tone: "emerald",
     },
     {
@@ -246,7 +246,7 @@ export default function Overview() {
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <p className="text-sm text-neutral-400">No activity data yet.</p>
           <p className="mt-2 text-xs text-neutral-400">
-            Start using Atelier with your AI agent to see sessions, costs, and
+            Start using LemonCrow with your AI agent to see sessions, costs, and
             savings here.
           </p>
         </div>

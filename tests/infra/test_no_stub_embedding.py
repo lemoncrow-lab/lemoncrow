@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def test_runtime_source_does_not_export_stub_embedding() -> None:
-    source_root = Path("src/atelier")
+    source_root = Path("src/lemoncrow")
     offenders = []
     for path in source_root.rglob("*.py"):
         text = path.read_text(encoding="utf-8")

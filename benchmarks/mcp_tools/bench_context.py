@@ -41,8 +41,8 @@ def _disable_autosync_watcher() -> None:
     mcp_server._code_context_engine() reuses this instance instead of
     constructing a fresh autosync-enabled one.
     """
-    import atelier.gateway.adapters.mcp_server as mcp_server
-    from atelier.core.capabilities.code_context import CodeContextEngine
+    import lemoncrow.gateway.adapters.mcp_server as mcp_server
+    from lemoncrow.core.capabilities.code_context import CodeContextEngine
 
     resolved = mcp_server._workspace_root().resolve()
     mcp_server._code_engine_cache[str(resolved)] = CodeContextEngine(resolved, autosync_enabled=False)
@@ -60,14 +60,14 @@ def _disable_background_worker_spawn() -> None:
     once this short-lived benchmark process starts exiting. Neutralized the
     same way tests/gateway/test_mcp_tool_handlers.py does for this exact hazard.
     """
-    import atelier.gateway.adapters.mcp_server as mcp_server
+    import lemoncrow.gateway.adapters.mcp_server as mcp_server
 
     mcp_server._run_worker_tick_safe = lambda root: None
 
 
 @pytest.fixture(scope="session")
 def context_tool_fn(bench_workspace: Path) -> Any:
-    from atelier.gateway.adapters.mcp_server import tool_get_context
+    from lemoncrow.gateway.adapters.mcp_server import tool_get_context
 
     _disable_background_worker_spawn()
     _disable_autosync_watcher()
@@ -75,13 +75,13 @@ def context_tool_fn(bench_workspace: Path) -> Any:
 
 
 def _preseed_bootstrap(context_tool_fn: Any) -> None:
-    import atelier.gateway.adapters.mcp_server as mcp_server
-    from atelier.core.service.bootstrap_context import persist_bootstrap_plan
-    from atelier.infra.storage.factory import make_memory_store
+    import lemoncrow.gateway.adapters.mcp_server as mcp_server
+    from lemoncrow.core.service.bootstrap_context import persist_bootstrap_plan
+    from lemoncrow.infra.storage.factory import make_memory_store
 
-    atelier_root = Path(os.environ["ATELIER_ROOT"])
-    workspace_root = Path(os.environ["ATELIER_WORKSPACE_ROOT"])
-    persist_bootstrap_plan(workspace_root, make_memory_store(atelier_root))
+    lemoncrow_root = Path(os.environ["LEMONCROW_ROOT"])
+    workspace_root = Path(os.environ["LEMONCROW_WORKSPACE_ROOT"])
+    persist_bootstrap_plan(workspace_root, make_memory_store(lemoncrow_root))
     mcp_server._reset_runtime_cache_for_testing()
     payload = context_tool_fn({"task": "Use the warmed bootstrap state", "recall": False})
     assert (
@@ -131,5 +131,5 @@ def test_context_op_saves_tokens(case: BenchCase, context_bench_results: list[Ca
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
     assert (
-        result.atelier_tokens < case.baseline_tokens
-    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"
+        result.lemoncrow_tokens < case.baseline_tokens
+    ), f"[{case.label}] no savings: lemoncrow={result.lemoncrow_tokens} >= baseline={case.baseline_tokens}"

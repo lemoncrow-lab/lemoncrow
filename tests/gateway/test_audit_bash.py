@@ -1,4 +1,4 @@
-"""Per-command bash spend ledger + `atelier audit bash` CLI (rtk-discover equivalent)."""
+"""Per-command bash spend ledger + `lemon audit bash` CLI (rtk-discover equivalent)."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from atelier.gateway.adapters import mcp_server
-from atelier.gateway.cli.commands.audit import audit_bash_cmd
+from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.cli.commands.audit import audit_bash_cmd
 
 
 @pytest.fixture(autouse=True)
 def _tmp_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
     return tmp_path
 
 

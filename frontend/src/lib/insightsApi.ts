@@ -1,5 +1,5 @@
 const BASE = "/api";
-const TELEMETRY_ACK_STORAGE_KEY = "atelier.telemetry.acknowledged";
+const TELEMETRY_ACK_STORAGE_KEY = "lemoncrow.telemetry.acknowledged";
 
 export interface TelemetryConfig {
   remote_enabled: boolean;

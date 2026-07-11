@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
 
 def test_rust_outline_keeps_container_bodies_out(tmp_path: Path) -> None:

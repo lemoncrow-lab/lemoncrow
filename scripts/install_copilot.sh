@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install_copilot.sh — Install Atelier into Copilot Chat
+# install_copilot.sh — Install LemonCrow into Copilot Chat
 #
 # What it does:
 #   Global mode: installs VS Code MCP/user instructions in the user profile.
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+LEMONCROW_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "${SCRIPT_DIR}/lib/managed_context.sh"
 
 DRY_RUN=false
@@ -56,20 +56,20 @@ if $WORKSPACE_SET; then
     MCP_JSON="${VSCODE_DIR}/mcp.json"
     INSTRUCTIONS="${WORKSPACE}/.github/copilot-instructions.md"
     AGENTS_DEST_DIR="${WORKSPACE}/.github/agents"
-    AGENT_VERIFY="${AGENTS_DEST_DIR}/atelier.code.agent.md"
+    AGENT_VERIFY="${AGENTS_DEST_DIR}/lemoncrow.code.agent.md"
     TASKS_DEST="${WORKSPACE}/.vscode/tasks.json"
 else
     INSTALL_SCOPE="global"
     VSCODE_DIR="${VSCODE_USER_DIR}"
     MCP_JSON="${VSCODE_DIR}/mcp.json"
-    INSTRUCTIONS="${HOME}/.copilot/instructions/atelier.instructions.md"
+    INSTRUCTIONS="${HOME}/.copilot/instructions/lemoncrow.instructions.md"
     AGENTS_DEST_DIR=""
     AGENT_VERIFY=""
     TASKS_DEST="${VSCODE_USER_DIR}/tasks.json"
 fi
 
-info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:copilot] $*" || true; }
-warn()  { echo "[atelier:copilot] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemon:copilot] $*" || true; }
+warn()  { echo "[lemon:copilot] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 backup_file() {
     local f="$1"
@@ -77,7 +77,7 @@ backup_file() {
         return
     fi
     if [ -f "$f" ]; then
-        local bk="${f}.atelier-backup.$(date +%Y%m%dT%H%M%S)"
+        local bk="${f}.lemoncrow-backup.$(date +%Y%m%dT%H%M%S)"
         run "cp $(printf %q "$f") $(printf %q "$bk")"
         info "backed up $f → $bk"
     fi
@@ -86,7 +86,7 @@ backup_file() {
 # ---- check VS Code ----------------------------------------------------------
 if ! command -v code &>/dev/null; then
     if $STRICT; then
-        echo "[atelier:copilot] ERROR: 'code' (VS Code) not found on PATH." >&2
+        echo "[lemon:copilot] ERROR: 'code' (VS Code) not found on PATH." >&2
         exit 1
     fi
     warn "'code' (VS Code) not found — SKIPPING."
@@ -101,12 +101,12 @@ if $WORKSPACE_SET; then
     NEW_ENTRY=$(cat <<JSON
 {
   "servers": {
-      "atelier": {
+      "lemoncrow": {
         "type": "stdio",
-        "command": "atelier",
+        "command": "lemon",
         "args": ["mcp", "--host", "copilot"],
         "env": {
-          "ATELIER_WORKSPACE_ROOT": "${WORKSPACE}"
+          "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}"
         }
       }
   }
@@ -117,9 +117,9 @@ else
     NEW_ENTRY=$(cat <<JSON
 {
   "servers": {
-    "atelier": {
+    "lemoncrow": {
       "type": "stdio",
-      "command": "atelier",
+      "command": "lemon",
       "args": ["mcp", "--host", "copilot"]
     }
   }
@@ -131,19 +131,19 @@ fi
 # ---- print-only mode --------------------------------------------------------
 if $PRINT_ONLY; then
     echo ""
-    echo "=== Atelier Copilot - Manual Install Steps ==="
+    echo "=== LemonCrow Copilot - Manual Install Steps ==="
     echo ""
     echo "Scope: ${INSTALL_SCOPE}"
     echo ""
     echo "1. Create/merge ${MCP_JSON}:"
     echo "$NEW_ENTRY"
     echo ""
-    echo "2. Append Atelier instructions to ${INSTRUCTIONS}:"
-    echo "   (contents of ${ATELIER_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.atelier.md)"
+    echo "2. Append LemonCrow instructions to ${INSTRUCTIONS}:"
+    echo "   (contents of ${LEMONCROW_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md)"
     if $WORKSPACE_SET; then
         echo ""
         echo "3. Project Copilot role agents into ${AGENTS_DEST_DIR}:"
-        echo "   (atelier.code.agent.md, atelier.execute.agent.md, ... from workspace settings)"
+        echo "   (lemoncrow.code.agent.md, lemoncrow.execute.agent.md, ... from workspace settings)"
     fi
     echo ""
     echo "Tasks target: ${TASKS_DEST}"
@@ -157,7 +157,7 @@ run "mkdir -p $(printf %q "$VSCODE_DIR")"
 if [ -f "$MCP_JSON" ]; then
     backup_file "$MCP_JSON"
     if $DRY_RUN; then
-        echo "  [dry-run] merge atelier into $MCP_JSON"
+        echo "  [dry-run] merge LemonCrow into $MCP_JSON"
     else
         python3 - <<PYEOF
 import json
@@ -169,7 +169,7 @@ new_entry = json.loads('''$NEW_ENTRY''')
 server_key = 'servers' if 'servers' in existing or 'mcpServers' not in existing else 'mcpServers'
 existing.setdefault(server_key, {}).update(new_entry['servers'])
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
-print("[atelier:copilot] merged atelier into $MCP_JSON")
+print("[lemon:copilot] merged LemonCrow into $MCP_JSON")
 PYEOF
     fi
 else
@@ -182,26 +182,26 @@ else
 fi
 
 # ---- install Copilot instructions ------------------------------------------
-ATELIER_INSTRUCTIONS="${ATELIER_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.atelier.md"
+LEMONCROW_INSTRUCTIONS="${LEMONCROW_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md"
 
-STAGING_DIR="${HOME}/.atelier/copilot"
+STAGING_DIR="${HOME}/.lemoncrow/copilot"
 run "mkdir -p $(printf %q "$STAGING_DIR")"
-COPILOT_SRC="${ATELIER_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.atelier.md"
+COPILOT_SRC="${LEMONCROW_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md"
 info "Staging Copilot instructions"
-atelier_write_managed_copy "${COPILOT_SRC}" "$STAGING_DIR/instructions.md" "$DRY_RUN"
-ATELIER_INSTRUCTIONS="$STAGING_DIR/instructions.md"
+lemoncrow_write_managed_copy "${COPILOT_SRC}" "$STAGING_DIR/instructions.md" "$DRY_RUN"
+LEMONCROW_INSTRUCTIONS="$STAGING_DIR/instructions.md"
 
-if [ -f "$ATELIER_INSTRUCTIONS" ]; then
+if [ -f "$LEMONCROW_INSTRUCTIONS" ]; then
     run "mkdir -p $(printf %q "$(dirname "$INSTRUCTIONS")")"
     if [ -f "$INSTRUCTIONS" ]; then
         backup_file "$INSTRUCTIONS"
-        atelier_upsert_managed_block "$ATELIER_INSTRUCTIONS" "$INSTRUCTIONS" "$DRY_RUN"
-        info "merged Atelier instructions into $INSTRUCTIONS"
+        lemoncrow_upsert_managed_block "$LEMONCROW_INSTRUCTIONS" "$INSTRUCTIONS" "$DRY_RUN"
+        info "merged LemonCrow instructions into $INSTRUCTIONS"
     elif $WORKSPACE_SET; then
         if $DRY_RUN; then
-            atelier_write_managed_copy "$ATELIER_INSTRUCTIONS" "$INSTRUCTIONS" "true"
+            lemoncrow_write_managed_copy "$LEMONCROW_INSTRUCTIONS" "$INSTRUCTIONS" "true"
         else
-            run "cp $(printf %q "$ATELIER_INSTRUCTIONS") $(printf %q "$INSTRUCTIONS")"
+            run "cp $(printf %q "$LEMONCROW_INSTRUCTIONS") $(printf %q "$INSTRUCTIONS")"
         fi
         info "created $INSTRUCTIONS"
     else
@@ -213,12 +213,12 @@ if [ -f "$ATELIER_INSTRUCTIONS" ]; then
                 echo 'applyTo: "**"'
                 echo "---"
             } > "$INSTRUCTIONS"
-            atelier_upsert_managed_block "$ATELIER_INSTRUCTIONS" "$INSTRUCTIONS" "false"
+            lemoncrow_upsert_managed_block "$LEMONCROW_INSTRUCTIONS" "$INSTRUCTIONS" "false"
             info "created $INSTRUCTIONS"
         fi
     fi
 else
-    warn "instructions source missing: $ATELIER_INSTRUCTIONS"
+    warn "instructions source missing: $LEMONCROW_INSTRUCTIONS"
 fi
 
 # ---- install workspace Copilot agents --------------------------------------
@@ -226,12 +226,12 @@ if $WORKSPACE_SET; then
     if $DRY_RUN; then
         echo "  [dry-run] project Copilot role agents into ${AGENTS_DEST_DIR}"
     else
-        PYTHONPATH="${ATELIER_REPO}/src${PYTHONPATH:+:${PYTHONPATH}}" python3 - <<PYEOF
+        PYTHONPATH="${LEMONCROW_REPO}/src${PYTHONPATH:+:${PYTHONPATH}}" python3 - <<PYEOF
 from pathlib import Path
-from atelier.core.capabilities.workspace_host_overrides import write_workspace_copilot_agents
+from lemoncrow.core.capabilities.workspace_host_overrides import write_workspace_copilot_agents
 
-written = write_workspace_copilot_agents(Path("${WORKSPACE}"), repo_root=Path("${ATELIER_REPO}"))
-print(f"[atelier:copilot] projected {len(written)} Copilot role agents into ${AGENTS_DEST_DIR}")
+written = write_workspace_copilot_agents(Path("${WORKSPACE}"), repo_root=Path("${LEMONCROW_REPO}"))
+print(f"[lemon:copilot] projected {len(written)} Copilot role agents into ${AGENTS_DEST_DIR}")
 PYEOF
     fi
 else
@@ -239,13 +239,13 @@ else
 fi
 
 # ---- merge VS Code task presets --------------------------------------------
-TASKS_SRC="${ATELIER_REPO}/integrations/copilot/tasks.json"
+TASKS_SRC="${LEMONCROW_REPO}/integrations/copilot/tasks.json"
 
 if [ -f "$TASKS_SRC" ]; then
     if [ -f "$TASKS_DEST" ]; then
         backup_file "$TASKS_DEST"
         if $DRY_RUN; then
-            echo "  [dry-run] merge Atelier task presets into $TASKS_DEST"
+            echo "  [dry-run] merge LemonCrow task presets into $TASKS_DEST"
         else
             python3 - <<PYEOF
 import json
@@ -271,7 +271,7 @@ for item in incoming.get('inputs', []):
         existing_inputs.append(item)
 
 dest.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
-print('[atelier:copilot] merged Atelier task presets into ' + str(dest))
+print('[lemon:copilot] merged LemonCrow task presets into ' + str(dest))
 PYEOF
         fi
     else
@@ -285,7 +285,7 @@ fi
 
 
 if $WORKSPACE_SET; then
-    atelier_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
+    lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
 fi
 
 if $DRY_RUN; then
@@ -297,34 +297,34 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[atelier:copilot] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lemon:copilot] FAIL: $*" >&2; VFAIL=1; }
 
 if [ -f "$MCP_JSON" ]; then
     HAS=$(python3 -c "
 import json
 d = json.load(open('$MCP_JSON'))
 servers = d.get('servers', d.get('mcpServers', {}))
-print('yes' if 'atelier' in servers else 'no')
+print('yes' if 'lemoncrow' in servers else 'no')
 " 2>/dev/null || echo "error")
     if [ "$HAS" = "yes" ]; then
-        vpass "$MCP_JSON contains atelier server entry"
+        vpass "$MCP_JSON contains LemonCrow server entry"
     else
-        vfail "$MCP_JSON missing atelier entry"
+        vfail "$MCP_JSON missing LemonCrow entry"
     fi
 else
     vfail "$MCP_JSON missing"
 fi
 
-if [ -f "$INSTRUCTIONS" ] && grep -q -i "atelier" "$INSTRUCTIONS" 2>/dev/null; then
-    vpass "$INSTRUCTIONS references Atelier"
+if [ -f "$INSTRUCTIONS" ] && grep -q -i "lemoncrow" "$INSTRUCTIONS" 2>/dev/null; then
+    vpass "$INSTRUCTIONS references LemonCrow"
 else
-    vfail "$INSTRUCTIONS missing or no Atelier reference"
+    vfail "$INSTRUCTIONS missing or no LemonCrow reference"
 fi
 
-if command -v atelier &>/dev/null; then
-    vpass "atelier is available on PATH"
+if command -v lemon &>/dev/null; then
+    vpass "lemon is available on PATH"
 else
-    vfail "atelier NOT found on PATH"
+    vfail "lemon NOT found on PATH"
 fi
 
 if $WORKSPACE_SET; then
@@ -337,23 +337,23 @@ else
     vpass "global install does not write project agent"
 fi
 
-if [ -f "$TASKS_DEST" ] && grep -q "Atelier: Copilot Preflight" "$TASKS_DEST" 2>/dev/null; then
-    vpass "Atelier VS Code task presets installed in $TASKS_DEST"
+if [ -f "$TASKS_DEST" ] && grep -q "LemonCrow: Copilot Preflight" "$TASKS_DEST" 2>/dev/null; then
+    vpass "LemonCrow VS Code task presets installed in $TASKS_DEST"
 else
-    vfail "$TASKS_DEST missing Atelier task presets"
+    vfail "$TASKS_DEST missing LemonCrow task presets"
 fi
 
-if command -v atelier >/dev/null 2>&1 && atelier status --help >/dev/null 2>&1; then
-    vpass "atelier status command is available"
+if command -v lemon >/dev/null 2>&1 && lemon status --help >/dev/null 2>&1; then
+    vpass "lemon status command is available"
 else
-    vfail "atelier status command unavailable"
+    vfail "lemon status command unavailable"
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[atelier:copilot] ERROR: post-install verification failed." >&2
+    echo "[lemon:copilot] ERROR: post-install verification failed." >&2
     exit 1
 fi
 info "All post-install checks passed"
 
-info "Done. Reload VS Code window - Atelier MCP and tasks are available."
-info "Tip: run 'atelier status' in any shell to see the runs dashboard."
+info "Done. Reload VS Code window - LemonCrow MCP and tasks are available."
+info "Tip: run 'lemon status' in any shell to see the runs dashboard."

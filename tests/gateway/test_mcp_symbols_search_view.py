@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from atelier.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters import mcp_server
 
 
 def test_code_search_target_view_is_pointer_first() -> None:

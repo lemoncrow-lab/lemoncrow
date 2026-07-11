@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 
-# >>> atelier attribution >>>
-# Managed by Atelier (atelier init). Appends the co-author trailer unless already present.
+# >>> lemoncrow attribution >>>
+# Managed by LemonCrow (lemon init). Appends the co-author trailer unless already present.
 # Skips merge/squash commit messages.
-ATELIER_TRAILER="Co-Authored-By: atelier <293447754+atelier@users.noreply.github.com>"
+LEMONCROW_TRAILER="Co-Authored-By: LemonCrow <293447754+lemoncrow@users.noreply.github.com>"
 case "$2" in
   merge|squash) ;;
   *)
-    if ! grep -qF "$ATELIER_TRAILER" "$1" 2>/dev/null; then
-      printf '\n%s\n' "$ATELIER_TRAILER" >> "$1"
+    if ! grep -qF "$LEMONCROW_TRAILER" "$1" 2>/dev/null; then
+      printf '\n%s\n' "$LEMONCROW_TRAILER" >> "$1"
     fi
     ;;
 esac
-# <<< atelier attribution <<<
+# <<< lemoncrow attribution <<<

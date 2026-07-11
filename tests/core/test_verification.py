@@ -7,10 +7,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from atelier.core.capabilities.prompt_compilation import BlockKind, Stability
-from atelier.core.capabilities.verification import Counterexample, RetryBudget, VerifierCapability
-from atelier.core.capabilities.verification.checks.semantic_review import run_semantic_review
-from atelier.infra.internal_llm import InternalLLMError
+from lemoncrow.core.capabilities.prompt_compilation import BlockKind, Stability
+from lemoncrow.core.capabilities.verification import Counterexample, RetryBudget, VerifierCapability
+from lemoncrow.core.capabilities.verification.checks.semantic_review import run_semantic_review
+from lemoncrow.infra.internal_llm import InternalLLMError
 
 
 def _proc(stdout: str = "", stderr: str = "", returncode: int = 1) -> Any:
@@ -141,7 +141,7 @@ def test_run_semantic_review_parses_counterexample(tmp_path: Path, monkeypatch: 
         }
 
     monkeypatch.setattr(
-        "atelier.core.capabilities.verification.checks.semantic_review.chat",
+        "lemoncrow.core.capabilities.verification.checks.semantic_review.chat",
         fake_chat,
     )
 
@@ -176,7 +176,7 @@ def test_run_semantic_review_is_fail_open_without_backend(tmp_path: Path, monkey
     def boom(messages: list[dict[str, str]], json_schema: dict[str, Any] | None = None) -> Any:
         raise InternalLLMError("offline")
 
-    monkeypatch.setattr("atelier.core.capabilities.verification.checks.semantic_review.chat", boom)
+    monkeypatch.setattr("lemoncrow.core.capabilities.verification.checks.semantic_review.chat", boom)
 
     assert run_semantic_review(["src/auth.py"], "fix login bug", cwd=tmp_path) == []
 

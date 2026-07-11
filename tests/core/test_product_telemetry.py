@@ -9,25 +9,25 @@ from typing import Any
 
 import pytest
 
-from atelier.core.foundation.identity import get_anon_id
-from atelier.core.service.telemetry import emit_product
-from atelier.core.service.telemetry.banner import maybe_show_banner
-from atelier.core.service.telemetry.config import load_telemetry_config, save_telemetry_config
-from atelier.core.service.telemetry.frustration import match_frustration
-from atelier.core.service.telemetry.local_store import LocalTelemetryStore
-from atelier.core.service.telemetry.public_rollup import _payload, publish_public_savings_rollup
-from atelier.core.service.telemetry.schema import EVENTS
-from atelier.core.service.telemetry.scrubber import scrub_string
+from lemoncrow.core.foundation.identity import get_anon_id
+from lemoncrow.core.service.telemetry import emit_product
+from lemoncrow.core.service.telemetry.banner import maybe_show_banner
+from lemoncrow.core.service.telemetry.config import load_telemetry_config, save_telemetry_config
+from lemoncrow.core.service.telemetry.frustration import match_frustration
+from lemoncrow.core.service.telemetry.local_store import LocalTelemetryStore
+from lemoncrow.core.service.telemetry.public_rollup import _payload, publish_public_savings_rollup
+from lemoncrow.core.service.telemetry.schema import EVENTS
+from lemoncrow.core.service.telemetry.scrubber import scrub_string
 
 
 @pytest.fixture()
 def telemetry_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     db_path = tmp_path / "telemetry.db"
-    monkeypatch.setenv("ATELIER_TELEMETRY_DB", str(db_path))
-    monkeypatch.setenv("ATELIER_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
-    monkeypatch.setenv("ATELIER_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
-    monkeypatch.setenv("ATELIER_TELEMETRY_ACK", str(tmp_path / "telemetry_ack"))
-    monkeypatch.setenv("ATELIER_TELEMETRY", "0")
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_DB", str(db_path))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(tmp_path / "telemetry_ack"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY", "0")
     return db_path
 
 
@@ -72,7 +72,7 @@ def test_public_rollup_payload_is_minimal_and_session_scoped(telemetry_env: Path
     anon_id = get_anon_id()
     assert payload["install_key"] == hashlib.sha256(anon_id.encode()).hexdigest()
     assert payload["session_key"] == hashlib.sha256(f"{anon_id}:session-1".encode()).hexdigest()
-    assert payload["atelier_version"]
+    assert payload["lemoncrow_version"]
     assert payload["source"] == "codex"
     assert payload["saved_usd"] == 0.123457
     assert payload["tokens_saved"] == 9240
@@ -108,9 +108,9 @@ def test_public_rollup_always_fires_regardless_of_product_telemetry_setting(
         calls.append(payload)
         return True
 
-    monkeypatch.setattr("atelier.core.service.telemetry.public_rollup._post_json", fake_post)
-    monkeypatch.setenv("ATELIER_TELEMETRY", "0")  # product telemetry off — must not affect public rollup
-    monkeypatch.setenv("ATELIER_PUBLIC_TELEMETRY_ENDPOINT", "https://example.test/rollup")
+    monkeypatch.setattr("lemoncrow.core.service.telemetry.public_rollup._post_json", fake_post)
+    monkeypatch.setenv("LEMONCROW_TELEMETRY", "0")  # product telemetry off — must not affect public rollup
+    monkeypatch.setenv("LEMONCROW_PUBLIC_TELEMETRY_ENDPOINT", "https://example.test/rollup")
 
     result = publish_public_savings_rollup(
         session_id="session-always",
@@ -137,9 +137,9 @@ def test_public_rollup_posts_correct_payload(
         calls.append((endpoint, payload, timeout_s))
         return True
 
-    monkeypatch.setattr("atelier.core.service.telemetry.public_rollup._post_json", fake_post)
-    monkeypatch.setenv("ATELIER_PUBLIC_TELEMETRY_ENDPOINT", "https://example.test/rollup")
-    monkeypatch.setenv("ATELIER_PUBLIC_TELEMETRY_TIMEOUT_MS", "250")
+    monkeypatch.setattr("lemoncrow.core.service.telemetry.public_rollup._post_json", fake_post)
+    monkeypatch.setenv("LEMONCROW_PUBLIC_TELEMETRY_ENDPOINT", "https://example.test/rollup")
+    monkeypatch.setenv("LEMONCROW_PUBLIC_TELEMETRY_TIMEOUT_MS", "250")
 
     assert publish_public_savings_rollup(
         session_id="session-1",
@@ -193,7 +193,7 @@ def test_remote_export_suppressed_in_tests_but_local_store_records(
         return True
 
     monkeypatch.setattr(
-        "atelier.core.service.telemetry.exporters.otel.emit_product_log",
+        "lemoncrow.core.service.telemetry.exporters.otel.emit_product_log",
         fake_export,
     )
     emit_product("session_end", session_id="s", duration_s_bucket="<10", exit_reason="success")
@@ -207,7 +207,7 @@ def test_config_round_trip_and_lexical_matcher_never_emits_input_text(
     telemetry_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("ATELIER_TELEMETRY", raising=False)
+    monkeypatch.delenv("LEMONCROW_TELEMETRY", raising=False)
     # Remote telemetry is mandatory (always on); only the lexical-frustration
     # flag round-trips through the config now.
     save_telemetry_config(lexical_frustration_enabled=True)
@@ -218,7 +218,7 @@ def test_config_round_trip_and_lexical_matcher_never_emits_input_text(
     def fake_emit(event: str, **props: Any) -> None:
         captured.append((event, props))
 
-    monkeypatch.setattr("atelier.core.service.telemetry.emit.emit_product", fake_emit)
+    monkeypatch.setattr("lemoncrow.core.service.telemetry.emit.emit_product", fake_emit)
     category = match_frustration(
         "No, I said this is broken in /home/me/private/file.py",
         surface="cli_input",
@@ -237,7 +237,7 @@ def test_config_round_trip_and_lexical_matcher_never_emits_input_text(
 
 
 def test_first_run_banner_shows_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_TELEMETRY_ACK", str(tmp_path / "ack"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(tmp_path / "ack"))
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 
     class Stream:
@@ -256,7 +256,7 @@ def test_first_run_banner_shows_once(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     stream = Stream()
     assert maybe_show_banner(stream) is True
-    assert "Atelier collects anonymous usage telemetry" in stream.value
+    assert "LemonCrow collects anonymous usage telemetry" in stream.value
     stream.value = ""
     assert maybe_show_banner(stream) is False
     assert stream.value == ""
@@ -267,10 +267,10 @@ def test_banner_auto_acknowledges_in_non_tty_context(tmp_path: Path, monkeypatch
     the banner should not be shown, but the ack should still be written silently
     so the frontend/CLI don't keep showing it."""
     ack_file = tmp_path / "ack"
-    monkeypatch.setenv("ATELIER_TELEMETRY_ACK", str(ack_file))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(ack_file))
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-    # Ensure ATELIER_TELEMETRY is not set (telemetry is enabled by default)
-    monkeypatch.delenv("ATELIER_TELEMETRY", raising=False)
+    # Ensure LEMONCROW_TELEMETRY is not set (telemetry is enabled by default)
+    monkeypatch.delenv("LEMONCROW_TELEMETRY", raising=False)
 
     class NonTtyStream:
         def __init__(self) -> None:
@@ -300,9 +300,9 @@ def test_banner_auto_acknowledges_in_non_tty_context(tmp_path: Path, monkeypatch
 
 def test_emit_product_call_sites_use_allowlisted_props() -> None:
     roots = [
-        Path("src/atelier/gateway/adapters"),
-        Path("src/atelier/core/runtime"),
-        Path("src/atelier/core/service/api.py"),
+        Path("src/lemoncrow/gateway/adapters"),
+        Path("src/lemoncrow/core/runtime"),
+        Path("src/lemoncrow/core/service/api.py"),
     ]
     files: list[Path] = []
     for root in roots:
@@ -368,11 +368,11 @@ def test_async_emit_stays_off_hot_path_and_persists_after_flush(
 ) -> None:
     """Async (default, non-pytest) mode: emit enqueues without touching SQLite on
     the caller; the background worker drains it and flush() makes it observable."""
-    from atelier.core.service.telemetry.emit import flush_product_telemetry
+    from lemoncrow.core.service.telemetry.emit import flush_product_telemetry
 
     # Force the async path (pytest normally forces synchronous emission).
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-    monkeypatch.setenv("ATELIER_TELEMETRY_SYNC", "0")
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_SYNC", "0")
 
     emit_product(
         "cli_command_invoked",

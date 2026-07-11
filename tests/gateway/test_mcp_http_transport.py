@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from atelier.gateway.adapters.mcp_http import (
+from lemoncrow.gateway.adapters.mcp_http import (
     MCP_DISCOVERY_PATH,
     MCP_HTTP_PATH,
     create_mcp_http_app,
@@ -110,8 +110,8 @@ def _authed_client() -> TestClient:
     as production wires it via register_mcp_http(app, auth_dependency=...)."""
     from fastapi import FastAPI
 
-    from atelier.gateway.adapters.mcp_http import register_mcp_http
-    from atelier.gateway.openai_gateway.app import _require_auth
+    from lemoncrow.gateway.adapters.mcp_http import register_mcp_http
+    from lemoncrow.gateway.openai_gateway.app import _require_auth
 
     app = FastAPI()
     register_mcp_http(app, auth_dependency=_require_auth)
@@ -119,7 +119,7 @@ def _authed_client() -> TestClient:
 
 
 def test_mcp_post_without_token_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_GATEWAY_TOKEN", "s3cret")
+    monkeypatch.setenv("LEMONCROW_GATEWAY_TOKEN", "s3cret")
     resp = _authed_client().post(
         MCP_HTTP_PATH,
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
@@ -128,13 +128,13 @@ def test_mcp_post_without_token_is_rejected(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_mcp_get_without_token_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_GATEWAY_TOKEN", "s3cret")
+    monkeypatch.setenv("LEMONCROW_GATEWAY_TOKEN", "s3cret")
     resp = _authed_client().get(MCP_HTTP_PATH, headers={"accept": "text/event-stream"})
     assert resp.status_code in (401, 403)
 
 
 def test_mcp_post_with_valid_token_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_GATEWAY_TOKEN", "s3cret")
+    monkeypatch.setenv("LEMONCROW_GATEWAY_TOKEN", "s3cret")
     resp = _authed_client().post(
         MCP_HTTP_PATH,
         headers={"Authorization": "Bearer s3cret"},
@@ -145,7 +145,7 @@ def test_mcp_post_with_valid_token_still_works(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_mcp_discovery_stays_public_even_when_gated(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_GATEWAY_TOKEN", "s3cret")
+    monkeypatch.setenv("LEMONCROW_GATEWAY_TOKEN", "s3cret")
     resp = _authed_client().get(MCP_DISCOVERY_PATH)  # no token at all
     assert resp.status_code == 200
     assert resp.json()["transport"]["type"] == "streamable-http"
@@ -157,7 +157,7 @@ def test_mcp_discovery_stays_public_even_when_gated(monkeypatch: pytest.MonkeyPa
 
 
 def test_oversized_body_returns_413(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_MCP_HTTP_MAX_BODY_BYTES", "65536")  # 64 KiB floor
+    monkeypatch.setenv("LEMONCROW_MCP_HTTP_MAX_BODY_BYTES", "65536")  # 64 KiB floor
     big = "x" * 200_000
     payload = ('{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"pad": "' + big + '"}}').encode("utf-8")
     resp = _client().post(
@@ -170,7 +170,7 @@ def test_oversized_body_returns_413(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_normal_body_still_dispatches_under_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_MCP_HTTP_MAX_BODY_BYTES", "65536")
+    monkeypatch.setenv("LEMONCROW_MCP_HTTP_MAX_BODY_BYTES", "65536")
     resp = _client().post(
         MCP_HTTP_PATH,
         json={"jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": {}},
@@ -185,9 +185,9 @@ def test_normal_body_still_dispatches_under_cap(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_internal_error_does_not_leak_exception_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.gateway.adapters import mcp_server
+    from lemoncrow.gateway.adapters import mcp_server
 
-    secret = "SECRET-PATH-/etc/atelier/should-not-leak"
+    secret = "SECRET-PATH-/etc/lemoncrow/should-not-leak"
 
     def _boom(_request: object) -> dict[str, object]:
         raise RuntimeError(secret)

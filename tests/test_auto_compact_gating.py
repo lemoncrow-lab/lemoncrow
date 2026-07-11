@@ -1,10 +1,10 @@
 """T5: threshold-triggered history compaction gating.
 
 Covers the pure decision helper ``should_compact`` and the
-``ATELIER_AUTO_COMPACT`` gating wired into
-``AtelierRuntimeCore.summarize_memory``.
+``LEMONCROW_AUTO_COMPACT`` gating wired into
+``LemonCrowRuntimeCore.summarize_memory``.
 
-DEFAULT-OFF flag ``ATELIER_AUTO_COMPACT`` (see
+DEFAULT-OFF flag ``LEMONCROW_AUTO_COMPACT`` (see
 ``docs-internal/rollout/feature-flag-rollout.md``): off == current behavior
 (unconditional compress); on == compress only once live fill reaches the
 policy trigger fraction. Headless and fail-open.
@@ -16,14 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.optimization.audit import context_window_for_model
-from atelier.core.capabilities.optimization.policy import (
+from lemoncrow.core.capabilities.optimization.audit import context_window_for_model
+from lemoncrow.core.capabilities.optimization.policy import (
     CompactionPolicy,
     preset_policy,
     should_compact,
 )
-from atelier.core.runtime import AtelierRuntimeCore
-from atelier.infra.runtime.run_ledger import RunLedger
+from lemoncrow.core.runtime import LemonCrowRuntimeCore
+from lemoncrow.infra.runtime.run_ledger import RunLedger
 from tests.helpers import init_store_at
 
 # Default "balanced" preset trigger fraction (policy._base_compaction default 0.72).
@@ -35,7 +35,7 @@ FRACTION = BALANCED.trigger_at_context_fraction
 def _entitle_savings_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     # This module exercises the Pro savings engine (compaction policy); treat the
     # install as licensed so load_current_policy returns the real policy.
-    monkeypatch.setattr("atelier.core.capabilities.licensing.has_feature", lambda *a, **k: True)
+    monkeypatch.setattr("lemoncrow.core.capabilities.licensing.has_feature", lambda *a, **k: True)
 
 
 # --------------------------------------------------------------------------- #
@@ -74,10 +74,10 @@ def test_should_compact_respects_custom_fraction() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _runtime_and_session(tmp_path: Path) -> tuple[AtelierRuntimeCore, str]:
-    root = tmp_path / ".atelier"
+def _runtime_and_session(tmp_path: Path) -> tuple[LemonCrowRuntimeCore, str]:
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    rt = AtelierRuntimeCore(root)
+    rt = LemonCrowRuntimeCore(root)
     ledger = RunLedger(root=root, agent="test", task="t", domain="d")
     ledger.record_command("pytest", ok=False, error_signature="same")
     ledger.persist(root)
@@ -95,7 +95,7 @@ class _SpyCompressor:
         return {"compacted": True}
 
 
-def _wire(rt: AtelierRuntimeCore, *, fill: float) -> _SpyCompressor:
+def _wire(rt: LemonCrowRuntimeCore, *, fill: float) -> _SpyCompressor:
     spy = _SpyCompressor()
     rt.context_compression = spy  # type: ignore[assignment]
     rt._live_context_fill = lambda ledger: fill  # type: ignore[assignment,method-assign]
@@ -108,7 +108,7 @@ def _wire(rt: AtelierRuntimeCore, *, fill: float) -> _SpyCompressor:
 
 
 def test_flag_on_compress_fires_at_or_above_fraction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_AUTO_COMPACT", "1")
+    monkeypatch.setenv("LEMONCROW_AUTO_COMPACT", "1")
     rt, session_id = _runtime_and_session(tmp_path)
     spy = _wire(rt, fill=FRACTION)
 
@@ -121,7 +121,7 @@ def test_flag_on_compress_fires_at_or_above_fraction(tmp_path: Path, monkeypatch
 
 
 def test_flag_on_compress_skipped_below_fraction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_AUTO_COMPACT", "1")
+    monkeypatch.setenv("LEMONCROW_AUTO_COMPACT", "1")
     rt, session_id = _runtime_and_session(tmp_path)
     spy = _wire(rt, fill=FRACTION - 0.1)
 
@@ -140,7 +140,7 @@ def test_flag_on_compress_skipped_below_fraction(tmp_path: Path, monkeypatch: py
 
 
 def test_flag_off_preserves_current_behavior_low_fill(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_AUTO_COMPACT", raising=False)
+    monkeypatch.delenv("LEMONCROW_AUTO_COMPACT", raising=False)
     rt, session_id = _runtime_and_session(tmp_path)
     # Fill far below the trigger; off == unconditional compress today.
     spy = _wire(rt, fill=0.0)
@@ -156,7 +156,7 @@ def test_flag_off_preserves_current_behavior_low_fill(tmp_path: Path, monkeypatc
 def test_flag_off_explicit_false_value_preserves_current_behavior(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ATELIER_AUTO_COMPACT", "0")
+    monkeypatch.setenv("LEMONCROW_AUTO_COMPACT", "0")
     rt, session_id = _runtime_and_session(tmp_path)
     spy = _wire(rt, fill=0.0)
 
@@ -172,7 +172,7 @@ def test_flag_off_explicit_false_value_preserves_current_behavior(
 
 
 def test_flag_on_fail_open_when_fill_computation_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_AUTO_COMPACT", "1")
+    monkeypatch.setenv("LEMONCROW_AUTO_COMPACT", "1")
     rt, session_id = _runtime_and_session(tmp_path)
     spy = _SpyCompressor()
     rt.context_compression = spy  # type: ignore[assignment]
@@ -207,9 +207,9 @@ def _llm_call(ledger: RunLedger, *, model: str, input_tokens: int) -> None:
 
 
 def test_live_context_fill_uses_recent_occupancy_not_cumulative_sum(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    rt = AtelierRuntimeCore(root)
+    rt = LemonCrowRuntimeCore(root)
 
     model = "claude-sonnet"
     window = context_window_for_model(model)
@@ -231,8 +231,8 @@ def test_live_context_fill_uses_recent_occupancy_not_cumulative_sum(tmp_path: Pa
 
 
 def test_live_context_fill_empty_ledger_is_zero(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    rt = AtelierRuntimeCore(root)
+    rt = LemonCrowRuntimeCore(root)
     ledger = RunLedger(root=root, agent="test", task="t", domain="d")
     assert rt._live_context_fill(ledger) == 0.0

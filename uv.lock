@@ -2,29 +2,29 @@ version = 1
 revision = 3
 requires-python = ">=3.12, <3.14"
 resolution-markers = [
-    "python_full_version >= '3.13' and sys_platform == 'win32' and extra != 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server'",
-    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server'",
-    "python_full_version >= '3.13' and sys_platform == 'emscripten' and extra != 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server'",
-    "python_full_version >= '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server'",
-    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server'",
-    "sys_platform == 'win32' and extra == 'extra-7-atelier-langfuse' and extra != 'extra-7-atelier-memory-server'",
-    "sys_platform == 'emscripten' and extra == 'extra-7-atelier-langfuse' and extra != 'extra-7-atelier-memory-server'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-7-atelier-langfuse' and extra != 'extra-7-atelier-memory-server'",
-    "sys_platform == 'win32' and extra != 'extra-7-atelier-langfuse' and extra != 'extra-7-atelier-memory-server'",
-    "sys_platform == 'emscripten' and extra != 'extra-7-atelier-langfuse' and extra != 'extra-7-atelier-memory-server'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-7-atelier-langfuse' and extra != 'extra-7-atelier-memory-server'",
+    "python_full_version >= '3.13' and sys_platform == 'win32' and extra != 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server'",
+    "python_full_version < '3.13' and sys_platform == 'win32' and extra != 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server'",
+    "python_full_version >= '3.13' and sys_platform == 'emscripten' and extra != 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server'",
+    "python_full_version < '3.13' and sys_platform == 'emscripten' and extra != 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server'",
+    "python_full_version >= '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server'",
+    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server'",
+    "sys_platform == 'win32' and extra == 'extra-9-lemoncrow-langfuse' and extra != 'extra-9-lemoncrow-memory-server'",
+    "sys_platform == 'emscripten' and extra == 'extra-9-lemoncrow-langfuse' and extra != 'extra-9-lemoncrow-memory-server'",
+    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-9-lemoncrow-langfuse' and extra != 'extra-9-lemoncrow-memory-server'",
+    "sys_platform == 'win32' and extra != 'extra-9-lemoncrow-langfuse' and extra != 'extra-9-lemoncrow-memory-server'",
+    "sys_platform == 'emscripten' and extra != 'extra-9-lemoncrow-langfuse' and extra != 'extra-9-lemoncrow-memory-server'",
+    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-9-lemoncrow-langfuse' and extra != 'extra-9-lemoncrow-memory-server'",
 ]
 conflicts = [[
-    { package = "atelier", extra = "langfuse" },
-    { package = "atelier", extra = "memory-server" },
+    { package = "lemoncrow", extra = "langfuse" },
+    { package = "lemoncrow", extra = "memory-server" },
 ]]
 
 [manifest]
 members = [
-    "atelier",
-    "atelier-benchmarks",
-    "atelier-integrations",
+    "lemoncrow",
+    "lemoncrow-benchmarks",
+    "lemoncrow-integrations",
 ]
 
 [[package]]
@@ -83,7 +83,7 @@ dependencies = [
     { name = "frozenlist" },
     { name = "multidict" },
     { name = "propcache" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "yarl" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/82/78/8ea7308cac6934de8c74a14f3d5f65d1c89287426688be79538d0e5c013d/aiohttp-3.14.1.tar.gz", hash = "sha256:307f2cff90a764d329e77040603fa032db89c5c24fdad50c4c15334cba744035", size = 7955794, upload-time = "2026-06-07T21:09:35.529Z" }
@@ -168,7 +168,7 @@ version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "frozenlist" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz", hash = "sha256:f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7", size = 25007, upload-time = "2025-07-03T22:54:43.528Z" }
 wheels = [
@@ -275,7 +275,7 @@ version = "4.14.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "idna" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3b/72/5562aabb8dd7181e8e860622a38bea08d17842b99ecd4c91f84ac95251b0/anyio-4.14.1.tar.gz", hash = "sha256:8d648a3544c1a700e3ff78615cd679e4c5c3f149904287e73687b2596963629e", size = 254831, upload-time = "2026-06-24T20:56:06.017Z" }
 wheels = [
@@ -396,268 +396,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/e8/1f/989ecfef8e64109a4
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e5/e2/c2e3abf398f80732e58b03be77bde9022550d221dd8781bf586bd4d97cc1/async_lru-2.3.0-py3-none-any.whl", hash = "sha256:eea27b01841909316f2cc739807acea1c623df2be8c5cfad7583286397bb8315", size = 8403, upload-time = "2026-03-19T01:04:30.883Z" },
 ]
-
-[[package]]
-name = "atelier"
-version = "0.3.9"
-source = { editable = "." }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "babel" },
-    { name = "beautifulsoup4" },
-    { name = "blake3" },
-    { name = "click" },
-    { name = "cryptography" },
-    { name = "diff-match-patch" },
-    { name = "fastapi" },
-    { name = "gitpython" },
-    { name = "markdown-it-py" },
-    { name = "markdownify" },
-    { name = "opentelemetry-api", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-api", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-exporter-otlp-proto-http", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-exporter-otlp-proto-http", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-sdk", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-sdk", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "pdfplumber" },
-    { name = "prometheus-client" },
-    { name = "prompt-toolkit" },
-    { name = "pybreaker" },
-    { name = "pydantic" },
-    { name = "pygit2" },
-    { name = "pypdf" },
-    { name = "pyyaml" },
-    { name = "rapidfuzz" },
-    { name = "regex" },
-    { name = "rich" },
-    { name = "sqliteai-vector" },
-    { name = "tenacity" },
-    { name = "tiktoken" },
-    { name = "trafilatura" },
-    { name = "tree-sitter" },
-    { name = "tree-sitter-language-pack" },
-    { name = "urllib3" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "yarl" },
-    { name = "zipp" },
-]
-
-[package.optional-dependencies]
-cloud = [
-    { name = "openai" },
-]
-dev = [
-    { name = "black" },
-    { name = "mypy" },
-    { name = "pyinstaller" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-    { name = "types-pyyaml" },
-]
-langfuse = [
-    { name = "langfuse" },
-]
-litellm = [
-    { name = "litellm" },
-]
-mcp = [
-    { name = "mcp" },
-]
-memory = [
-    { name = "letta-client" },
-]
-memory-server = [
-    { name = "letta" },
-]
-ortools = [
-    { name = "ortools" },
-]
-parsers = [
-    { name = "tree-sitter-languages", marker = "python_full_version < '3.13' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
-]
-postgres = [
-    { name = "psycopg", extra = ["binary"] },
-]
-rename = [
-    { name = "rope" },
-]
-semantic = [
-    { name = "accelerate" },
-    { name = "datasets" },
-    { name = "numpy" },
-    { name = "sentence-transformers" },
-    { name = "torch" },
-]
-smart = [
-    { name = "ollama" },
-]
-vector = [
-    { name = "numpy" },
-    { name = "pgvector" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "black" },
-    { name = "harbor" },
-    { name = "httpx" },
-    { name = "litellm" },
-    { name = "mypy" },
-    { name = "pyinstaller" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "pytest-forked" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-    { name = "types-pyyaml" },
-    { name = "vulture" },
-    { name = "xgboost" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "accelerate", marker = "extra == 'semantic'", specifier = ">=1.1" },
-    { name = "aiohttp", specifier = ">=3.14.1" },
-    { name = "babel", path = "vendor/babel-99.0.0-py3-none-any.whl" },
-    { name = "beautifulsoup4", specifier = ">=4.12" },
-    { name = "black", marker = "extra == 'dev'", specifier = ">=24.4" },
-    { name = "blake3", specifier = ">=0.4.1" },
-    { name = "click", specifier = ">=8.1" },
-    { name = "cryptography", specifier = ">=42" },
-    { name = "datasets", marker = "extra == 'semantic'", specifier = ">=2.0" },
-    { name = "diff-match-patch", specifier = ">=2.1" },
-    { name = "fastapi", specifier = ">=0.136.1" },
-    { name = "gitpython", specifier = ">=3.1.50" },
-    { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=3" },
-    { name = "letta", marker = "extra == 'memory-server'", specifier = ">=0.16.7" },
-    { name = "letta-client", marker = "extra == 'memory'", specifier = ">=1.7.12" },
-    { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.83.14" },
-    { name = "markdown-it-py", specifier = ">=3.0" },
-    { name = "markdownify", specifier = ">=1.2.2" },
-    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "numpy", marker = "extra == 'semantic'", specifier = ">=1.26" },
-    { name = "numpy", marker = "extra == 'vector'", specifier = ">=1.26" },
-    { name = "ollama", marker = "extra == 'smart'", specifier = ">=0.4.0" },
-    { name = "openai", marker = "extra == 'cloud'", specifier = ">=1.0" },
-    { name = "opentelemetry-api", specifier = ">=1.27" },
-    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.27" },
-    { name = "opentelemetry-sdk", specifier = ">=1.27" },
-    { name = "ortools", marker = "extra == 'ortools'", specifier = ">=9.10" },
-    { name = "pdfplumber", specifier = ">=0.11" },
-    { name = "pgvector", marker = "extra == 'vector'", specifier = ">=0.2" },
-    { name = "prometheus-client", specifier = ">=0.21" },
-    { name = "prompt-toolkit", specifier = ">=3.0" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.1" },
-    { name = "pybreaker", specifier = ">=1.2" },
-    { name = "pydantic", specifier = ">=2.6" },
-    { name = "pygit2", specifier = "==1.19.2" },
-    { name = "pyinstaller", marker = "extra == 'dev'", specifier = ">=6.10.0" },
-    { name = "pypdf", specifier = ">=5.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rapidfuzz", specifier = ">=3.14.5" },
-    { name = "regex", specifier = ">=2026.5.9" },
-    { name = "rich", specifier = ">=13.7" },
-    { name = "rope", marker = "extra == 'rename'", specifier = ">=0.23" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
-    { name = "sentence-transformers", marker = "extra == 'semantic'", specifier = ">=3,<5" },
-    { name = "sqliteai-vector", specifier = ">=1.0.0" },
-    { name = "tenacity", specifier = ">=9.0" },
-    { name = "tiktoken", specifier = ">=0.9" },
-    { name = "torch", marker = "extra == 'semantic'", specifier = ">=2.2" },
-    { name = "trafilatura", specifier = ">=2.0.0" },
-    { name = "tree-sitter", specifier = ">=0.23" },
-    { name = "tree-sitter-language-pack", specifier = ">=1.8.1" },
-    { name = "tree-sitter-languages", marker = "python_full_version < '3.13' and extra == 'parsers'", specifier = ">=1.10" },
-    { name = "types-pyyaml", marker = "extra == 'dev'" },
-    { name = "urllib3", specifier = ">=2.7.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.46.0" },
-    { name = "yarl", specifier = "==1.24.2" },
-    { name = "zipp", specifier = "==4.1.0" },
-]
-provides-extras = ["mcp", "memory", "memory-server", "smart", "cloud", "postgres", "vector", "semantic", "parsers", "rename", "ortools", "litellm", "langfuse", "dev"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "black", specifier = ">=24.4" },
-    { name = "harbor", specifier = ">=0.13.1" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "litellm", specifier = ">=1.88.1" },
-    { name = "mypy", specifier = ">=1.20.2" },
-    { name = "pyinstaller", specifier = ">=6.10.0" },
-    { name = "pytest", specifier = ">=9.0.3" },
-    { name = "pytest-cov", specifier = ">=5.0" },
-    { name = "pytest-forked", specifier = ">=1.6.0" },
-    { name = "pytest-timeout", specifier = ">=2.4.0" },
-    { name = "pytest-xdist", specifier = ">=3.8.0" },
-    { name = "ruff", specifier = ">=0.5" },
-    { name = "types-pyyaml" },
-    { name = "vulture", specifier = ">=2.16" },
-    { name = "xgboost", specifier = ">=3.3.0" },
-]
-
-[[package]]
-name = "atelier-benchmarks"
-version = "0.1.0"
-source = { editable = "benchmarks" }
-dependencies = [
-    { name = "atelier" },
-    { name = "click" },
-    { name = "datasets" },
-    { name = "jinja2" },
-    { name = "matplotlib" },
-    { name = "mitmproxy" },
-    { name = "multi-swe-bench" },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-    { name = "rich" },
-    { name = "swebench" },
-    { name = "terminal-bench" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-harbor = [
-    { name = "harbor" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "atelier", editable = "." },
-    { name = "click", specifier = ">=8.1" },
-    { name = "datasets", specifier = ">=2.14" },
-    { name = "harbor", marker = "extra == 'harbor'", specifier = ">=0.13" },
-    { name = "jinja2", specifier = ">=3.1" },
-    { name = "matplotlib", specifier = ">=3.9" },
-    { name = "mitmproxy", specifier = ">=12.2.3" },
-    { name = "multi-swe-bench" },
-    { name = "pydantic", specifier = ">=2.6" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rich", specifier = ">=13.7" },
-    { name = "swebench", specifier = ">=3.0" },
-    { name = "terminal-bench", specifier = "==0.2.18" },
-]
-provides-extras = ["dev", "harbor"]
-
-[[package]]
-name = "atelier-integrations"
-version = "0.1.0"
-source = { editable = "integrations" }
-dependencies = [
-    { name = "atelier" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "atelier", editable = "." }]
 
 [[package]]
 name = "attrs"
@@ -991,7 +729,7 @@ name = "cffi"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser", marker = "implementation_name != 'PyPy' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "pycparser", marker = "implementation_name != 'PyPy' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/57/5f/ff100cae70ebe9d8df1c01a00e510e45d9adb5c1fdda84791b199141de97/cffi-2.1.0.tar.gz", hash = "sha256:efc1cdd798b1aaf39b4610bba7aad28c9bea9b910f25c784ccf9ec1fa719d1f9", size = 531036, upload-time = "2026-07-06T21:34:30.382Z" }
 wheels = [
@@ -1093,7 +831,7 @@ name = "click"
 version = "8.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/76/d4/81420972a676e8ffea40450d8c8c92943e7218a78fe9b64359836cc9876b/click-8.4.2.tar.gz", hash = "sha256:9a6cea6e60b17ebe0a44c5cc636d94f09bd66142c1cd7d8b4cd731c4917a15f6", size = 338000, upload-time = "2026-06-24T17:45:15.148Z" }
 wheels = [
@@ -1265,7 +1003,7 @@ name = "cryptography"
 version = "48.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/12/45/870e7f4bef50e5f53b9f51d4428aee5290eedf58ba443f16b1ebb7ab8e66/cryptography-48.0.1.tar.gz", hash = "sha256:266f4ee051abb2f725b74ef8072b521ce1feacf685a3364fa6a6b45548db791a", size = 832989, upload-time = "2026-06-09T22:32:31.8Z" }
 wheels = [
@@ -1313,7 +1051,7 @@ name = "cuda-bindings"
 version = "13.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-pathfinder", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server') or (sys_platform == 'win32' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "cuda-pathfinder" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ce/67/5e7dba1ba576dd73da5dee894ca076ca5e959450dfff66d6d510a255d1f7/cuda_bindings-13.3.1-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c7855c4868aabc0cfae28abbe83d56734bdfbd08f08fc234ac1912a12858bf49", size = 6025351, upload-time = "2026-05-29T23:11:49.685Z" },
@@ -1342,34 +1080,34 @@ wheels = [
 
 [package.optional-dependencies]
 cudart = [
-    { name = "nvidia-cuda-runtime", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-cuda-runtime", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 cufft = [
-    { name = "nvidia-cufft", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-cufft", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 cufile = [
-    { name = "nvidia-cufile", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-cufile", marker = "sys_platform == 'linux' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 cupti = [
-    { name = "nvidia-cuda-cupti", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-cuda-cupti", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 curand = [
-    { name = "nvidia-curand", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-curand", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 cusolver = [
-    { name = "nvidia-cusolver", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-cusolver", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 cusparse = [
-    { name = "nvidia-cusparse", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-cusparse", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 nvjitlink = [
-    { name = "nvidia-nvjitlink", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-nvjitlink", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 nvrtc = [
-    { name = "nvidia-cuda-nvrtc", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-cuda-nvrtc", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 nvtx = [
-    { name = "nvidia-nvtx", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-nvtx", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 
 [[package]]
@@ -1546,7 +1284,7 @@ name = "deprecated"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "wrapt", marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "wrapt", marker = "extra == 'extra-9-lemoncrow-memory-server'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/49/85/12f0a49a7c4ffb70572b6c2ef13c90c88fd190debda93b23f026b25f9634/deprecated-1.3.1.tar.gz", hash = "sha256:b1b50e0ff0c1fddaa5708a2c6b0a6588bb09b892825ab2b214ac9ea9d92a5223", size = 2932523, upload-time = "2025-10-30T08:19:02.757Z" }
 wheels = [
@@ -1636,7 +1374,7 @@ name = "docker"
 version = "7.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "requests" },
     { name = "urllib3" },
 ]
@@ -1795,7 +1533,7 @@ dependencies = [
     { name = "mcp" },
     { name = "openapi-core" },
     { name = "openapi-pydantic" },
-    { name = "pydantic", extra = ["email"], marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "pydantic", extra = ["email"], marker = "extra == 'extra-9-lemoncrow-memory-server'" },
     { name = "pyperclip" },
     { name = "python-dotenv" },
     { name = "rich" },
@@ -2058,7 +1796,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "distro" },
-    { name = "google-auth", extra = ["requests"], marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "google-auth", extra = ["requests"], marker = "extra == 'extra-9-lemoncrow-memory-server'" },
     { name = "httpx" },
     { name = "pydantic" },
     { name = "requests" },
@@ -2407,7 +2145,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filelock" },
     { name = "fsspec" },
-    { name = "hf-xet", marker = "platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "hf-xet", marker = "platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "packaging" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -2614,7 +2352,7 @@ name = "jinxed"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ansicon", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "ansicon", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/39/d7/6e6d474ec5eaeca6a61acc17766bb19563b3a372b4b9d92910078f5fe49f/jinxed-2.1.0.tar.gz", hash = "sha256:7e755b831faa2443d44fb4ce7c0202eb9c3ed39bd5bf1193365888f4f6092b54", size = 61287, upload-time = "2026-07-03T15:46:48.153Z" }
 wheels = [
@@ -2867,6 +2605,268 @@ wheels = [
 ]
 
 [[package]]
+name = "lemoncrow"
+version = "0.3.9"
+source = { editable = "." }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "babel" },
+    { name = "beautifulsoup4" },
+    { name = "blake3" },
+    { name = "click" },
+    { name = "cryptography" },
+    { name = "diff-match-patch" },
+    { name = "fastapi" },
+    { name = "gitpython" },
+    { name = "markdown-it-py" },
+    { name = "markdownify" },
+    { name = "opentelemetry-api", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "opentelemetry-api", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-langfuse' or extra != 'extra-9-lemoncrow-memory-server'" },
+    { name = "opentelemetry-exporter-otlp-proto-http", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "opentelemetry-exporter-otlp-proto-http", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-langfuse' or extra != 'extra-9-lemoncrow-memory-server'" },
+    { name = "opentelemetry-sdk", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "opentelemetry-sdk", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-langfuse' or extra != 'extra-9-lemoncrow-memory-server'" },
+    { name = "pdfplumber" },
+    { name = "prometheus-client" },
+    { name = "prompt-toolkit" },
+    { name = "pybreaker" },
+    { name = "pydantic" },
+    { name = "pygit2" },
+    { name = "pypdf" },
+    { name = "pyyaml" },
+    { name = "rapidfuzz" },
+    { name = "regex" },
+    { name = "rich" },
+    { name = "sqliteai-vector" },
+    { name = "tenacity" },
+    { name = "tiktoken" },
+    { name = "trafilatura" },
+    { name = "tree-sitter" },
+    { name = "tree-sitter-language-pack" },
+    { name = "urllib3" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "yarl" },
+    { name = "zipp" },
+]
+
+[package.optional-dependencies]
+cloud = [
+    { name = "openai" },
+]
+dev = [
+    { name = "black" },
+    { name = "mypy" },
+    { name = "pyinstaller" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "types-pyyaml" },
+]
+langfuse = [
+    { name = "langfuse" },
+]
+litellm = [
+    { name = "litellm" },
+]
+mcp = [
+    { name = "mcp" },
+]
+memory = [
+    { name = "letta-client" },
+]
+memory-server = [
+    { name = "letta" },
+]
+ortools = [
+    { name = "ortools" },
+]
+parsers = [
+    { name = "tree-sitter-languages", marker = "python_full_version < '3.13' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
+]
+postgres = [
+    { name = "psycopg", extra = ["binary"] },
+]
+rename = [
+    { name = "rope" },
+]
+semantic = [
+    { name = "accelerate" },
+    { name = "datasets" },
+    { name = "numpy" },
+    { name = "sentence-transformers" },
+    { name = "torch" },
+]
+smart = [
+    { name = "ollama" },
+]
+vector = [
+    { name = "numpy" },
+    { name = "pgvector" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "black" },
+    { name = "harbor" },
+    { name = "httpx" },
+    { name = "litellm" },
+    { name = "mypy" },
+    { name = "pyinstaller" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-forked" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+    { name = "types-pyyaml" },
+    { name = "vulture" },
+    { name = "xgboost" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerate", marker = "extra == 'semantic'", specifier = ">=1.1" },
+    { name = "aiohttp", specifier = ">=3.14.1" },
+    { name = "babel", path = "vendor/babel-99.0.0-py3-none-any.whl" },
+    { name = "beautifulsoup4", specifier = ">=4.12" },
+    { name = "black", marker = "extra == 'dev'", specifier = ">=24.4" },
+    { name = "blake3", specifier = ">=0.4.1" },
+    { name = "click", specifier = ">=8.1" },
+    { name = "cryptography", specifier = ">=42" },
+    { name = "datasets", marker = "extra == 'semantic'", specifier = ">=2.0" },
+    { name = "diff-match-patch", specifier = ">=2.1" },
+    { name = "fastapi", specifier = ">=0.136.1" },
+    { name = "gitpython", specifier = ">=3.1.50" },
+    { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=3" },
+    { name = "letta", marker = "extra == 'memory-server'", specifier = ">=0.16.7" },
+    { name = "letta-client", marker = "extra == 'memory'", specifier = ">=1.7.12" },
+    { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.83.14" },
+    { name = "markdown-it-py", specifier = ">=3.0" },
+    { name = "markdownify", specifier = ">=1.2.2" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
+    { name = "numpy", marker = "extra == 'semantic'", specifier = ">=1.26" },
+    { name = "numpy", marker = "extra == 'vector'", specifier = ">=1.26" },
+    { name = "ollama", marker = "extra == 'smart'", specifier = ">=0.4.0" },
+    { name = "openai", marker = "extra == 'cloud'", specifier = ">=1.0" },
+    { name = "opentelemetry-api", specifier = ">=1.27" },
+    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.27" },
+    { name = "opentelemetry-sdk", specifier = ">=1.27" },
+    { name = "ortools", marker = "extra == 'ortools'", specifier = ">=9.10" },
+    { name = "pdfplumber", specifier = ">=0.11" },
+    { name = "pgvector", marker = "extra == 'vector'", specifier = ">=0.2" },
+    { name = "prometheus-client", specifier = ">=0.21" },
+    { name = "prompt-toolkit", specifier = ">=3.0" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.1" },
+    { name = "pybreaker", specifier = ">=1.2" },
+    { name = "pydantic", specifier = ">=2.6" },
+    { name = "pygit2", specifier = "==1.19.2" },
+    { name = "pyinstaller", marker = "extra == 'dev'", specifier = ">=6.10.0" },
+    { name = "pypdf", specifier = ">=5.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "rapidfuzz", specifier = ">=3.14.5" },
+    { name = "regex", specifier = ">=2026.5.9" },
+    { name = "rich", specifier = ">=13.7" },
+    { name = "rope", marker = "extra == 'rename'", specifier = ">=0.23" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
+    { name = "sentence-transformers", marker = "extra == 'semantic'", specifier = ">=3,<5" },
+    { name = "sqliteai-vector", specifier = ">=1.0.0" },
+    { name = "tenacity", specifier = ">=9.0" },
+    { name = "tiktoken", specifier = ">=0.9" },
+    { name = "torch", marker = "extra == 'semantic'", specifier = ">=2.2" },
+    { name = "trafilatura", specifier = ">=2.0.0" },
+    { name = "tree-sitter", specifier = ">=0.23" },
+    { name = "tree-sitter-language-pack", specifier = ">=1.8.1" },
+    { name = "tree-sitter-languages", marker = "python_full_version < '3.13' and extra == 'parsers'", specifier = ">=1.10" },
+    { name = "types-pyyaml", marker = "extra == 'dev'" },
+    { name = "urllib3", specifier = ">=2.7.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.46.0" },
+    { name = "yarl", specifier = "==1.24.2" },
+    { name = "zipp", specifier = "==4.1.0" },
+]
+provides-extras = ["mcp", "memory", "memory-server", "smart", "cloud", "postgres", "vector", "semantic", "parsers", "rename", "ortools", "litellm", "langfuse", "dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "black", specifier = ">=24.4" },
+    { name = "harbor", specifier = ">=0.13.1" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "litellm", specifier = ">=1.88.1" },
+    { name = "mypy", specifier = ">=1.20.2" },
+    { name = "pyinstaller", specifier = ">=6.10.0" },
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "pytest-cov", specifier = ">=5.0" },
+    { name = "pytest-forked", specifier = ">=1.6.0" },
+    { name = "pytest-timeout", specifier = ">=2.4.0" },
+    { name = "pytest-xdist", specifier = ">=3.8.0" },
+    { name = "ruff", specifier = ">=0.5" },
+    { name = "types-pyyaml" },
+    { name = "vulture", specifier = ">=2.16" },
+    { name = "xgboost", specifier = ">=3.3.0" },
+]
+
+[[package]]
+name = "lemoncrow-benchmarks"
+version = "0.1.0"
+source = { editable = "benchmarks" }
+dependencies = [
+    { name = "click" },
+    { name = "datasets" },
+    { name = "jinja2" },
+    { name = "lemoncrow" },
+    { name = "matplotlib" },
+    { name = "mitmproxy" },
+    { name = "multi-swe-bench" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "swebench" },
+    { name = "terminal-bench" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+harbor = [
+    { name = "harbor" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.1" },
+    { name = "datasets", specifier = ">=2.14" },
+    { name = "harbor", marker = "extra == 'harbor'", specifier = ">=0.13" },
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "lemoncrow", editable = "." },
+    { name = "matplotlib", specifier = ">=3.9" },
+    { name = "mitmproxy", specifier = ">=12.2.3" },
+    { name = "multi-swe-bench" },
+    { name = "pydantic", specifier = ">=2.6" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "rich", specifier = ">=13.7" },
+    { name = "swebench", specifier = ">=3.0" },
+    { name = "terminal-bench", specifier = "==0.2.18" },
+]
+provides-extras = ["dev", "harbor"]
+
+[[package]]
+name = "lemoncrow-integrations"
+version = "0.1.0"
+source = { editable = "integrations" }
+dependencies = [
+    { name = "lemoncrow" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "lemoncrow", editable = "." }]
+
+[[package]]
 name = "letta"
 version = "0.16.8"
 source = { registry = "https://pypi.org/simple" }
@@ -2877,13 +2877,13 @@ dependencies = [
     { name = "anthropic" },
     { name = "apscheduler" },
     { name = "async-lru" },
-    { name = "black", extra = ["jupyter"], marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "black", extra = ["jupyter"], marker = "extra == 'extra-9-lemoncrow-memory-server'" },
     { name = "brotli" },
     { name = "certifi" },
     { name = "clickhouse-connect" },
     { name = "colorama" },
     { name = "datadog" },
-    { name = "datamodel-code-generator", extra = ["http"], marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "datamodel-code-generator", extra = ["http"], marker = "extra == 'extra-9-lemoncrow-memory-server'" },
     { name = "ddtrace" },
     { name = "demjson3" },
     { name = "docstring-parser" },
@@ -2899,14 +2899,14 @@ dependencies = [
     { name = "letta-client" },
     { name = "llama-index" },
     { name = "llama-index-embeddings-openai" },
-    { name = "markitdown", extra = ["docx", "pdf", "pptx"], marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "markitdown", extra = ["docx", "pdf", "pptx"], marker = "extra == 'extra-9-lemoncrow-memory-server'" },
     { name = "marshmallow-sqlalchemy" },
     { name = "matplotlib" },
-    { name = "mcp", extra = ["cli"], marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "mcp", extra = ["cli"], marker = "extra == 'extra-9-lemoncrow-memory-server'" },
     { name = "mistralai" },
     { name = "nltk" },
     { name = "numpy" },
-    { name = "openai", extra = ["realtime"], marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "openai", extra = ["realtime"], marker = "extra == 'extra-9-lemoncrow-memory-server'" },
     { name = "opentelemetry-api", version = "1.30.0", source = { registry = "https://pypi.org/simple" } },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-instrumentation-requests" },
@@ -2927,9 +2927,9 @@ dependencies = [
     { name = "readability-lxml" },
     { name = "rich" },
     { name = "ruff" },
-    { name = "sentry-sdk", extra = ["fastapi"], marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "sentry-sdk", extra = ["fastapi"], marker = "extra == 'extra-9-lemoncrow-memory-server'" },
     { name = "setuptools" },
-    { name = "sqlalchemy", extra = ["asyncio"], marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "sqlalchemy", extra = ["asyncio"], marker = "extra == 'extra-9-lemoncrow-memory-server'" },
     { name = "sqlalchemy-json" },
     { name = "sqlalchemy-utils" },
     { name = "sqlmodel" },
@@ -3061,7 +3061,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "setuptools" },
-    { name = "sqlalchemy", extra = ["asyncio"], marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "sqlalchemy", extra = ["asyncio"], marker = "extra == 'extra-9-lemoncrow-memory-server'" },
     { name = "tenacity" },
     { name = "tiktoken" },
     { name = "tinytag" },
@@ -3226,7 +3226,7 @@ name = "macholib"
 version = "1.16.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "altgraph", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server') or (sys_platform == 'win32' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "altgraph" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/10/2f/97589876ea967487978071c9042518d28b958d87b17dceb7cdc1d881f963/macholib-1.16.4.tar.gz", hash = "sha256:f408c93ab2e995cd2c46e34fe328b130404be143469e41bc366c807448979362", size = 59427, upload-time = "2025-11-22T08:28:38.373Z" }
 wheels = [
@@ -3460,10 +3460,10 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
-    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "sse-starlette" },
     { name = "starlette" },
-    { name = "uvicorn", marker = "sys_platform != 'emscripten' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "uvicorn", marker = "sys_platform != 'emscripten' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3d/a1/b1f328da3b153683d2ec34f849b4b6eac2790fb240e3aef06ff2fab3df9d/mcp-1.16.0.tar.gz", hash = "sha256:39b8ca25460c578ee2cdad33feeea122694cfdf73eef58bee76c42f6ef0589df", size = 472918, upload-time = "2025-10-02T16:58:20.631Z" }
 wheels = [
@@ -3524,14 +3524,14 @@ dependencies = [
     { name = "mitmproxy-rs" },
     { name = "msgpack" },
     { name = "publicsuffix2" },
-    { name = "pydivert", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "pydivert", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "pyopenssl" },
     { name = "pyparsing" },
     { name = "pyperclip" },
     { name = "ruamel-yaml" },
     { name = "sortedcontainers" },
     { name = "tornado" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "urwid" },
     { name = "wsproto" },
     { name = "zstandard" },
@@ -3563,9 +3563,9 @@ name = "mitmproxy-rs"
 version = "0.12.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "mitmproxy-linux", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
-    { name = "mitmproxy-macos", marker = "sys_platform == 'darwin' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
-    { name = "mitmproxy-windows", marker = "os_name == 'nt' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "mitmproxy-linux", marker = "sys_platform == 'linux' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
+    { name = "mitmproxy-macos", marker = "sys_platform == 'darwin' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
+    { name = "mitmproxy-windows", marker = "os_name == 'nt' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/5d/5c/16a61303da76cd34aa6ddbd7ef6ac66d9ef8514c4d3a5b71831169d63236/mitmproxy_rs-0.12.9.tar.gz", hash = "sha256:c6ffc35c002c675cac534442d92d1cdebd66fafd63754ad33b92ae968ea6e449", size = 1334424, upload-time = "2026-01-30T14:54:15.043Z" }
 wheels = [
@@ -3756,7 +3756,7 @@ version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ast-serialize" },
-    { name = "librt", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "librt", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "mypy-extensions" },
     { name = "pathspec" },
     { name = "typing-extensions" },
@@ -3888,7 +3888,7 @@ name = "nvidia-cublas"
 version = "13.1.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cuda-nvrtc", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server') or (sys_platform == 'win32' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-cuda-nvrtc" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/a1/0bd24ee8c8d03adac032fd2909426a00c88f8c57961b1277ded97f91119f/nvidia_cublas-13.1.1.3-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:b7a210458267ac818974c53038fbec2e969d5c99f305ab15c72522fa9f001dd5", size = 542848918, upload-time = "2026-04-08T18:46:22.985Z" },
@@ -3931,7 +3931,7 @@ name = "nvidia-cudnn-cu13"
 version = "9.20.0.48"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server') or (sys_platform == 'win32' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-cublas" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/56/c5/83384d846b2fd17c44bd499b36c75a45ed4f095fbbb2252294e89cea5c5c/nvidia_cudnn_cu13-9.20.0.48-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:e31454ae00094b0c55319d9d15b6fa2fc50a9e1c0f5c8c80fb75258234e731e1", size = 444574296, upload-time = "2026-03-09T19:28:27.751Z" },
@@ -3944,7 +3944,7 @@ name = "nvidia-cufft"
 version = "12.0.0.61"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server') or (sys_platform == 'win32' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-nvjitlink" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8b/ae/f417a75c0259e85c1d2f83ca4e960289a5f814ed0cea74d18c353d3e989d/nvidia_cufft-12.0.0.61-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:2708c852ef8cd89d1d2068bdbece0aa188813a0c934db3779b9b1faa8442e5f5", size = 214053554, upload-time = "2025-09-04T08:31:38.196Z" },
@@ -3976,9 +3976,9 @@ name = "nvidia-cusolver"
 version = "12.0.4.66"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server') or (sys_platform == 'win32' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
-    { name = "nvidia-cusparse", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server') or (sys_platform == 'win32' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
-    { name = "nvidia-nvjitlink", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server') or (sys_platform == 'win32' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-cublas" },
+    { name = "nvidia-cusparse" },
+    { name = "nvidia-nvjitlink" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/c3/b30c9e935fc01e3da443ec0116ed1b2a009bb867f5324d3f2d7e533e776b/nvidia_cusolver-12.0.4.66-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:02c2457eaa9e39de20f880f4bd8820e6a1cfb9f9a34f820eb12a155aa5bc92d2", size = 223467760, upload-time = "2025-09-04T08:33:04.222Z" },
@@ -3991,7 +3991,7 @@ name = "nvidia-cusparse"
 version = "12.6.3.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server') or (sys_platform == 'win32' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-nvjitlink" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f8/94/5c26f33738ae35276672f12615a64bd008ed5be6d1ebcb23579285d960a9/nvidia_cusparse-12.6.3.3-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:80bcc4662f23f1054ee334a15c72b8940402975e0eab63178fc7e670aa59472c", size = 162155568, upload-time = "2025-09-04T08:33:42.864Z" },
@@ -4197,8 +4197,8 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "deprecated", marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "importlib-metadata", marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "deprecated", marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "importlib-metadata", marker = "extra == 'extra-9-lemoncrow-memory-server'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/2b/6d/bbbf879826b7f3c89a45252010b5796fb1f1a0d45d9dc4709db0ef9a06c8/opentelemetry_api-1.30.0.tar.gz", hash = "sha256:375893400c1435bf623f7dfb3bcd44825fe6b56c34d0667c542ea8257b1a1240", size = 63703, upload-time = "2025-02-04T18:17:13.789Z" }
 wheels = [
@@ -4215,7 +4215,7 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "typing-extensions", marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ae/cc/e4c9584181f86494df0f6bdec1a4f3280c50db44704dc2a407e994fc87bb/opentelemetry_api-1.43.0.tar.gz", hash = "sha256:107d0d03857ea8fc7c5fcbbbd83f800c281f0d560553d61c1d675fccfd1761c1", size = 73476, upload-time = "2026-06-24T15:19:55.323Z" }
 wheels = [
@@ -4248,7 +4248,7 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "opentelemetry-proto", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "opentelemetry-proto", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a2/d7/44098bf1ef89fc5810cdbda05faa2ae9322a0dbda4921cdc965dc68a9856/opentelemetry_exporter_otlp_proto_common-1.30.0.tar.gz", hash = "sha256:ddbfbf797e518411857d0ca062c957080279320d6235a279f7b64ced73c13897", size = 19640, upload-time = "2025-02-04T18:17:16.234Z" }
 wheels = [
@@ -4265,7 +4265,7 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "opentelemetry-proto", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
+    { name = "opentelemetry-proto", version = "1.43.0", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/55/c1/e8098490ab15abf116dcaf9fa89ededcb35547c7d08d4b5a62f573dc1e63/opentelemetry_exporter_otlp_proto_common-1.43.0.tar.gz", hash = "sha256:c4e32ba6d6b13bdb2b8f6764c4fd28d00192826561aa04f6d14eedfce7ac076f", size = 20197, upload-time = "2026-06-24T15:20:00.247Z" }
 wheels = [
@@ -4303,13 +4303,13 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "deprecated", marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "googleapis-common-protos", marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-api", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-exporter-otlp-proto-common", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-proto", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-sdk", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "requests", marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "deprecated", marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "googleapis-common-protos", marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "opentelemetry-api", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "opentelemetry-exporter-otlp-proto-common", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "opentelemetry-proto", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "opentelemetry-sdk", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "requests", marker = "extra == 'extra-9-lemoncrow-memory-server'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/04/f9/abb9191d536e6a2e2b7903f8053bf859a76bf784e3ca19a5749550ef19e4/opentelemetry_exporter_otlp_proto_http-1.30.0.tar.gz", hash = "sha256:c3ae75d4181b1e34a60662a6814d0b94dd33b628bee5588a878bed92cee6abdc", size = 15073, upload-time = "2025-02-04T18:17:18.446Z" }
 wheels = [
@@ -4326,13 +4326,13 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "googleapis-common-protos", marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-api", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-exporter-otlp-proto-common", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-proto", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-sdk", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "requests", marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "typing-extensions", marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
+    { name = "googleapis-common-protos" },
+    { name = "opentelemetry-api", version = "1.43.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "opentelemetry-exporter-otlp-proto-common", version = "1.43.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "opentelemetry-proto", version = "1.43.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "opentelemetry-sdk", version = "1.43.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "requests" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fc/92/0b9f56412483a8891d4843890294796c9df8ab42417bd9bad8035d840cb3/opentelemetry_exporter_otlp_proto_http-1.43.0.tar.gz", hash = "sha256:fa8a42bb7d00ee5391f4c0b04d8e6a46c03caa437903296ab73a81dc11ba118f", size = 25406, upload-time = "2026-06-24T15:20:01.515Z" }
 wheels = [
@@ -4398,7 +4398,7 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "protobuf", marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "protobuf", marker = "extra == 'extra-9-lemoncrow-memory-server'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/31/6e/c1ff2e3b0cd3a189a6be03fd4d63441d73d7addd9117ab5454e667b9b6c7/opentelemetry_proto-1.30.0.tar.gz", hash = "sha256:afe5c9c15e8b68d7c469596e5b32e8fc085eb9febdd6fb4e20924a93a0389179", size = 34362, upload-time = "2025-02-04T18:17:28.099Z" }
 wheels = [
@@ -4415,7 +4415,7 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "protobuf", marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
+    { name = "protobuf" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e0/b9/d357faefb40bda1d4799913e6af611171ff22a2dedcb93576bc92242d056/opentelemetry_proto-1.43.0.tar.gz", hash = "sha256:224778df17e1f3fafeaaa21d874236ca5f6ffc2f86e0899298ec7351aac27924", size = 46481, upload-time = "2026-06-24T15:20:07.625Z" }
 wheels = [
@@ -4435,9 +4435,9 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "opentelemetry-api", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-semantic-conventions", version = "0.51b0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "typing-extensions", marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "opentelemetry-api", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "opentelemetry-semantic-conventions", version = "0.51b0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "typing-extensions", marker = "extra == 'extra-9-lemoncrow-memory-server'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/93/ee/d710062e8a862433d1be0b85920d0c653abe318878fef2d14dfe2c62ff7b/opentelemetry_sdk-1.30.0.tar.gz", hash = "sha256:c9287a9e4a7614b9946e933a67168450b9ab35f08797eb9bc77d998fa480fa18", size = 158633, upload-time = "2025-02-04T18:17:28.908Z" }
 wheels = [
@@ -4454,9 +4454,9 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "opentelemetry-api", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-semantic-conventions", version = "0.64b0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "typing-extensions", marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
+    { name = "opentelemetry-api", version = "1.43.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "opentelemetry-semantic-conventions", version = "0.64b0", source = { registry = "https://pypi.org/simple" } },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3e/eb/5041074274ac0956b03637cc039d434569112468e875eddfcc9a0674ce06/opentelemetry_sdk-1.43.0.tar.gz", hash = "sha256:d8187c81c162df9913e4003dd6485f7390d9a24fc17026ec7387b8b8218b08e9", size = 254744, upload-time = "2026-06-24T15:20:08.467Z" }
 wheels = [
@@ -4476,8 +4476,8 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "deprecated", marker = "extra == 'extra-7-atelier-memory-server'" },
-    { name = "opentelemetry-api", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "deprecated", marker = "extra == 'extra-9-lemoncrow-memory-server'" },
+    { name = "opentelemetry-api", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1e/c0/0f9ef4605fea7f2b83d55dd0b0d7aebe8feead247cd6facd232b30907b4f/opentelemetry_semantic_conventions-0.51b0.tar.gz", hash = "sha256:3fabf47f35d1fd9aebcdca7e6802d86bd5ebc3bc3408b7e3248dde6e87a18c47", size = 107191, upload-time = "2025-02-04T18:17:29.903Z" }
 wheels = [
@@ -4494,8 +4494,8 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "opentelemetry-api", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
-    { name = "typing-extensions", marker = "extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
+    { name = "opentelemetry-api", version = "1.43.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/5a/30/5f26df29509eccd86b99b481ac9ffa39da49ba9577cc69071c552ae30447/opentelemetry_semantic_conventions-0.64b0.tar.gz", hash = "sha256:72f76fb2d1582d9d033dd1fcd84532e961e6ff3d90d24ba6fabc72975a83864c", size = 148340, upload-time = "2026-06-24T15:20:09.267Z" }
 wheels = [
@@ -4593,7 +4593,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "python-dateutil" },
-    { name = "tzdata", marker = "sys_platform == 'emscripten' or sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "tzdata", marker = "sys_platform == 'emscripten' or sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f8/87/4341c6252d1c47b08768c3d25ac487362bf403f0313ddae4a2a26c9b1b4c/pandas-3.0.3.tar.gz", hash = "sha256:696a4a00a2a2a35d4e5deb3fc946641b96c944f02230e4f76137fe35d806c4fc", size = 4651414, upload-time = "2026-05-11T18:54:29.21Z" }
 wheels = [
@@ -4927,8 +4927,8 @@ name = "psycopg"
 version = "3.3.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
-    { name = "tzdata", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
+    { name = "tzdata", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/db/2f/cb91e5502ec9de1de6f1b76cfbf69531932725361168bb06963620c77e2e/psycopg-3.3.4.tar.gz", hash = "sha256:e21207764952cff81b6b8bdacad9a3939f2793367fdac2987b3aac36a651b5bc", size = 165799, upload-time = "2026-05-01T23:31:55.179Z" }
 wheels = [
@@ -4937,7 +4937,7 @@ wheels = [
 
 [package.optional-dependencies]
 binary = [
-    { name = "psycopg-binary", marker = "implementation_name != 'pypy' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "psycopg-binary", marker = "implementation_name != 'pypy' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 
 [[package]]
@@ -5272,11 +5272,11 @@ version = "6.21.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "altgraph" },
-    { name = "macholib", marker = "sys_platform == 'darwin' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "macholib", marker = "sys_platform == 'darwin' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "packaging" },
-    { name = "pefile", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "pefile", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "pyinstaller-hooks-contrib" },
-    { name = "pywin32-ctypes", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "pywin32-ctypes", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "setuptools" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d5/4d/ec706c3fcf39e26888c35b39615ff4d5865d184069666c47492cff1fbe50/pyinstaller-6.21.0.tar.gz", hash = "sha256:bb9fab705983e393a2d1cac77d6972513057ad800215fd861dc15ff5272e98fd", size = 4061519, upload-time = "2026-06-13T14:15:06.25Z" }
@@ -5344,7 +5344,7 @@ name = "pynacl"
 version = "1.6.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d9/9a/4019b524b03a13438637b11538c82781a5eda427394380381af8f04f467a/pynacl-1.6.2.tar.gz", hash = "sha256:018494d6d696ae03c7e656e5e74cdfd8ea1326962cc401bcf018f1ed8436811c", size = 3511692, upload-time = "2026-01-01T17:48:10.851Z" }
 wheels = [
@@ -5368,7 +5368,7 @@ version = "26.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1a/51/27a5ad5f939d08f690a326ef9582cda7140555180db71695f6fb747d6a36/pyopenssl-26.2.0.tar.gz", hash = "sha256:8c6fcecd1183a7fc897548dfe388b0cdb7f37e018200d8409cf33959dbe35387", size = 182195, upload-time = "2026-05-04T23:06:09.72Z" }
 wheels = [
@@ -5445,7 +5445,7 @@ name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },
@@ -5736,7 +5736,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "chardet" },
     { name = "cssselect" },
-    { name = "lxml", extra = ["html-clean"], marker = "extra == 'extra-7-atelier-memory-server'" },
+    { name = "lxml", extra = ["html-clean"], marker = "extra == 'extra-9-lemoncrow-memory-server'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/55/3e/dc87d97532ddad58af786ec89c7036182e352574c1cba37bf2bf783d2b15/readability_lxml-0.8.4.1.tar.gz", hash = "sha256:9d2924f5942dd7f37fb4da353263b22a3e877ccf922d0e45e348e4177b035a53", size = 22874, upload-time = "2025-05-03T21:11:45.493Z" }
 wheels = [
@@ -5773,7 +5773,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
     { name = "rpds-py" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/22/f5/df4e9027acead3ecc63e50fe1e36aca1523e1719559c499951bb4b53188f/referencing-0.37.0.tar.gz", hash = "sha256:44aefc3142c5b842538163acb373e24cce6632bd54bdb01b21ad5863489f50d8", size = 78036, upload-time = "2025-10-13T15:30:48.871Z" }
 wheels = [
@@ -6219,7 +6219,7 @@ name = "sqlalchemy"
 version = "2.0.51"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "greenlet", marker = "platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "greenlet", marker = "platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/02/f1/a7a892f18d4d224e6b26f706531eafccc41e37594d37d304786969ee13cb/sqlalchemy-2.0.51.tar.gz", hash = "sha256:804dccd8a4a6242c4e30ad961e540e18a588f6527202f2d6791b01845d59fdc9", size = 9912201, upload-time = "2026-06-15T15:41:20.012Z" }
@@ -6329,7 +6329,7 @@ version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/eb/e3/7c1dc7381d9f8ab7d854328ebfa884e62cb3f3d8549ddfd37c7814f42afa/starlette-1.3.1.tar.gz", hash = "sha256:05d0213193f2fbaae60e2ecb593b4add4262ad4e46536b54abe36f11a71724e0", size = 2703240, upload-time = "2026-06-12T09:23:11.602Z" }
 wheels = [
@@ -6378,7 +6378,7 @@ dependencies = [
     { name = "toml" },
     { name = "typing-extensions" },
     { name = "uvicorn" },
-    { name = "watchdog", marker = "sys_platform != 'darwin' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "watchdog", marker = "sys_platform != 'darwin' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "websockets" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/90/b8/e13c137c299b47f683fe6d4e198075f37a2c7666c9b96010070d58c2037c/streamlit-1.59.0.tar.gz", hash = "sha256:aaa9616f75421cd7cb8c9de8940b2b7edfe266a9d81e78195252d88fd2b00a75", size = 9760463, upload-time = "2026-07-06T15:28:10.943Z" }
@@ -6709,20 +6709,20 @@ name = "torch"
 version = "2.12.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-bindings", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
-    { name = "cuda-toolkit", extra = ["cudart", "cufft", "cufile", "cupti", "curand", "cusolver", "cusparse", "nvjitlink", "nvrtc", "nvtx"], marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "cuda-bindings", marker = "sys_platform == 'linux' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
+    { name = "cuda-toolkit", extra = ["cudart", "cufft", "cufile", "cupti", "curand", "cusolver", "cusparse", "nvjitlink", "nvrtc", "nvtx"], marker = "sys_platform == 'linux' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "filelock" },
     { name = "fsspec" },
     { name = "jinja2" },
     { name = "networkx" },
-    { name = "nvidia-cublas", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
-    { name = "nvidia-cudnn-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
-    { name = "nvidia-cusparselt-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
-    { name = "nvidia-nccl-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
-    { name = "nvidia-nvshmem-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-cublas", marker = "sys_platform == 'linux' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
+    { name = "nvidia-cudnn-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
+    { name = "nvidia-cusparselt-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
+    { name = "nvidia-nccl-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
+    { name = "nvidia-nvshmem-cu13", marker = "sys_platform == 'linux' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "setuptools" },
     { name = "sympy" },
-    { name = "triton", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "triton", marker = "sys_platform == 'linux' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "typing-extensions" },
 ]
 wheels = [
@@ -6758,7 +6758,7 @@ name = "tqdm"
 version = "4.68.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ae/5f/57ff8b434839e70dab45601284ea413e947a63799891b7553e5960a793a8/tqdm-4.68.4.tar.gz", hash = "sha256:19829c9673638f2a0b8617da4cdcb927e831cd88bcfcb6e78d42a4d1af131520", size = 792418, upload-time = "2026-07-07T09:58:18.369Z" }
 wheels = [
@@ -6859,7 +6859,7 @@ name = "tree-sitter-languages"
 version = "1.10.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "tree-sitter", marker = "python_full_version < '3.13' or extra == 'extra-7-atelier-langfuse' or extra != 'extra-7-atelier-memory-server'" },
+    { name = "tree-sitter" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8d/bf/a9bd2d6ecbd053de0a5a50c150105b69c90eb49089f9e1d4fc4937e86adc/tree_sitter_languages-1.10.2-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:c0f4c8b2734c45859edc7fcaaeaab97a074114111b5ba51ab4ec7ed52104763c", size = 8884771, upload-time = "2024-02-04T10:28:39.655Z" },
@@ -6928,7 +6928,7 @@ version = "0.26.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "rich" },
     { name = "shellingham" },
 ]
@@ -7021,7 +7021,7 @@ name = "tzlocal"
 version = "5.4.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "tzdata", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "tzdata", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/81/5b/879b2f932adfa7a053c360d50bc896c977fa6426109185f7c12ebdd0cb9d/tzlocal-5.4.4.tar.gz", hash = "sha256:8dbb8660838688a7b6ba4fed31d18dedf842afb4d47ca050d6d891c2c15f3be4", size = 31170, upload-time = "2026-06-29T08:03:40.026Z" }
 wheels = [
@@ -7073,11 +7073,11 @@ wheels = [
 
 [package.optional-dependencies]
 standard = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "httptools" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "uvloop", marker = "(platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32') or (platform_python_implementation == 'PyPy' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server') or (sys_platform == 'cygwin' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server') or (sys_platform == 'win32' and extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "uvloop", marker = "(platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32') or (platform_python_implementation == 'PyPy' and extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server') or (sys_platform == 'cygwin' and extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server') or (sys_platform == 'win32' and extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "watchfiles" },
     { name = "websockets" },
 ]
@@ -7299,7 +7299,7 @@ version = "3.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
-    { name = "nvidia-nccl-cu12", marker = "sys_platform == 'linux' or (extra == 'extra-7-atelier-langfuse' and extra == 'extra-7-atelier-memory-server')" },
+    { name = "nvidia-nccl-cu12", marker = "sys_platform == 'linux' or (extra == 'extra-9-lemoncrow-langfuse' and extra == 'extra-9-lemoncrow-memory-server')" },
     { name = "scipy" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fd/41/846d4de2b8fc694073fd3ac5052caf68caa1ea11cb7fa32d7ad9c049b232/xgboost-3.3.0.tar.gz", hash = "sha256:58bcb8a4cace648cdab7b94fa4f16d2c9ff26d90dd4d26907168106fa06d8746", size = 1224702, upload-time = "2026-06-17T21:26:50.846Z" }

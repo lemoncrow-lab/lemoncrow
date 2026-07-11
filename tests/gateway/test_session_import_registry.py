@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atelier.gateway.hosts.session_parsers.registry import (
+from lemoncrow.gateway.hosts.session_parsers.registry import (
     SUPPORTED_SESSION_IMPORT_HOSTS,
     iter_importer_classes,
 )

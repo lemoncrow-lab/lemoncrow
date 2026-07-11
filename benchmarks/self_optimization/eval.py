@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Fixed evaluation harness for the Atelier auto-improvement loop.
+"""Fixed evaluation harness for the LemonCrow auto-improvement loop.
 
 This is the *immutable* objective function. The improvement agent edits
-``src/atelier/**`` (and tests), then runs this script to score the result.
+``src/lemoncrow/**`` (and tests), then runs this script to score the result.
 Do NOT change the metric definitions casually -- comparability across
 experiments depends on them staying fixed (this mirrors prepare.py / bench.py
 in karpathy/autoresearch and jyotilakra92/auto-improving-kernel).
@@ -14,7 +14,7 @@ health (default, free)
     to zero: ``score = -(mypy_errors + ruff_issues)`` (0 is best, higher is
     better). No API spend.
 mini (paid)
-    Runs ``atelier benchmark mini --json`` and optimizes cost-per-accepted
+    Runs ``lemon benchmark mini --json`` and optimizes cost-per-accepted
     -patch. Spends API budget -- only run with explicit approval.
 
 Usage
@@ -91,7 +91,7 @@ def objective_health(args: argparse.Namespace) -> dict[str, Any]:
 
     # --- mypy ---
     m = _run(
-        ["uv", "run", "mypy", "--explicit-package-bases", "src/atelier"],
+        ["uv", "run", "mypy", "--explicit-package-bases", "src/lemoncrow"],
         timeout=args.timeout,
     )
     mout = m.stdout + m.stderr
@@ -133,8 +133,8 @@ def objective_health(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def objective_mini(args: argparse.Namespace) -> dict[str, Any]:
-    """Paid objective: cost/quality from ``atelier benchmark mini``."""
-    cmd = ["uv", "run", "atelier", "benchmark", "mini", "--json"]
+    """Paid objective: cost/quality from ``lemon benchmark mini``."""
+    cmd = ["uv", "run", "lemon", "benchmark", "mini", "--json"]
     if args.limit:
         cmd += ["--limit", str(args.limit)]
     p = _run(cmd, timeout=args.timeout)
@@ -265,10 +265,10 @@ def _solve_rate(runs: list[dict[str, Any]]) -> float:
 
 
 def objective_swe(args: argparse.Namespace) -> dict[str, Any]:
-    """Paid objective: $ saved on the atelier arm vs a FROZEN baseline.
+    """Paid objective: $ saved on the lemoncrow arm vs a FROZEN baseline.
 
-    Baseline = vanilla Claude Code, which is invariant to Atelier source edits,
-    so we run ONLY the atelier arm and compare against the frozen reference.
+    Baseline = vanilla Claude Code, which is invariant to LemonCrow source edits,
+    so we run ONLY the lemoncrow arm and compare against the frozen reference.
     """
     tasks = _read_task_ids(args.tasks)
     baseline = _load_baseline(args.baseline)
@@ -286,7 +286,7 @@ def objective_swe(args: argparse.Namespace) -> dict[str, Any]:
         "--instances",
         *tasks,
         "-a",
-        "atelier",
+        "lemoncrow",
         "--reps",
         str(args.reps),
         "--model",
@@ -324,7 +324,7 @@ def objective_swe(args: argparse.Namespace) -> dict[str, Any]:
     wrapper_timeout = args.run_timeout * max(1, len(tasks)) * max(1, args.reps) + 900
     with _inject_knobs(knobs):
         _run(cmd, timeout=wrapper_timeout)
-    atel = [r for r in _read_results_jsonl(out_dir / "results.jsonl") if r.get("arm") == "atelier"]
+    atel = [r for r in _read_results_jsonl(out_dir / "results.jsonl") if r.get("arm") == "lemoncrow"]
 
     per: dict[str, dict[str, Any]] = {}
     for tid in tasks:
@@ -437,7 +437,7 @@ def _append_row(path: Path, metrics: dict[str, Any], status: str, desc: str) -> 
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Fixed objective harness for the Atelier auto-improvement loop.")
+    ap = argparse.ArgumentParser(description="Fixed objective harness for the LemonCrow auto-improvement loop.")
     ap.add_argument("--objective", choices=sorted(OBJECTIVES), default="health")
     ap.add_argument("--pytest-args", default="", help="override pytest args (health objective)")
     ap.add_argument("--limit", type=int, default=None, help="case limit (mini objective)")
@@ -454,15 +454,15 @@ def main() -> int:
     ap.add_argument(
         "--model",
         default="claude-opus-4-8",
-        help="model for the atelier arm (swe). MUST match the frozen baseline model; "
+        help="model for the lemoncrow arm (swe). MUST match the frozen baseline model; "
         "never downgrade to a cheaper model -- savings must come from token efficiency.",
     )
     ap.add_argument("--jobs", type=int, default=1, help="parallel container runs (swe)")
     ap.add_argument("--out", default=None, help="benchmark run output dir (swe)")
     ap.add_argument("--no-grade", dest="no_grade", action="store_true", help="skip Docker grading; cost-only (swe)")
-    ap.add_argument("--resume", action="store_true", help="reuse existing atelier patches (swe)")
+    ap.add_argument("--resume", action="store_true", help="reuse existing lemoncrow patches (swe)")
     ap.add_argument(
-        "--knobs", default="benchmarks/self_optimization/knobs.env", help="env-knob overrides for the atelier arm (swe)"
+        "--knobs", default="benchmarks/self_optimization/knobs.env", help="env-knob overrides for the lemoncrow arm (swe)"
     )
     ap.add_argument("--run-timeout", type=int, default=1800, help="per-agent-run timeout passed to multiswe_run (swe)")
     ap.add_argument(

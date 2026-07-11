@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-ATELIER_CODE_BLOCK_START="<!-- ATELIER START -->"
-ATELIER_CODE_BLOCK_END="<!-- ATELIER END -->"
+LEMONCROW_CODE_BLOCK_START="<!-- LEMONCROW START -->"
+LEMONCROW_CODE_BLOCK_END="<!-- LEMONCROW END -->"
 
-atelier_resolve_install_profile() {
-    local host_tag="${1:-atelier}"
-    local repo_root="${2:-${ATELIER_REPO:-}}"
+lemoncrow_resolve_install_profile() {
+    local host_tag="${1:-lemoncrow}"
+    local repo_root="${2:-${LEMONCROW_REPO:-}}"
     local output
     local -a profile_lines=()
 
@@ -17,7 +17,7 @@ atelier_resolve_install_profile() {
         PYTHONPATH="${repo_root}/src:${PYTHONPATH:-}" python3 - "$host_tag" <<'PY'
 import sys
 
-from atelier.core.environment import install_profile_warning, resolve_install_profile
+from lemoncrow.core.environment import install_profile_warning, resolve_install_profile
 
 host_tag = sys.argv[1]
 
@@ -40,7 +40,7 @@ PY
         profile_lines+=("$line")
     done <<<"$output"
     INSTALL_PROFILE="${profile_lines[0]:-}"
-    ATELIER_INSTALL_PROFILE_WARNING="${profile_lines[1]:-}"
+    LEMONCROW_INSTALL_PROFILE_WARNING="${profile_lines[1]:-}"
 
     if [[ -z "$INSTALL_PROFILE" ]]; then
         echo "[${host_tag}] ERROR: failed to resolve install profile" >&2
@@ -48,13 +48,13 @@ PY
     fi
 }
 
-atelier_write_managed_copy() {
+lemoncrow_write_managed_copy() {
     local source_file="$1"
     local dest_file="$2"
     local dry_run="${3:-false}"
 
     if [[ "$dry_run" == "true" ]]; then
-        echo "  [dry-run] write managed Atelier context to $dest_file"
+        echo "  [dry-run] write managed LemonCrow context to $dest_file"
         return
     fi
 
@@ -65,7 +65,7 @@ import re
 
 source = Path("$source_file").read_text(encoding="utf-8").strip()
 pattern = re.compile(
-    rf"^{re.escape('$ATELIER_CODE_BLOCK_START')}\n(.*)\n{re.escape('$ATELIER_CODE_BLOCK_END')}$",
+    rf"^{re.escape('$LEMONCROW_CODE_BLOCK_START')}\n(.*)\n{re.escape('$LEMONCROW_CODE_BLOCK_END')}$",
     re.DOTALL,
 )
 match = pattern.fullmatch(source)
@@ -76,18 +76,18 @@ if source.startswith("---"):
     # Frontmatter must be at the very top for Claude to parse colors/tools
     Path("$dest_file").write_text(source + "\n", encoding="utf-8")
 else:
-    managed = "$ATELIER_CODE_BLOCK_START\n" + source + "\n$ATELIER_CODE_BLOCK_END\n"
+    managed = "$LEMONCROW_CODE_BLOCK_START\n" + source + "\n$LEMONCROW_CODE_BLOCK_END\n"
     Path("$dest_file").write_text(managed, encoding="utf-8")
 PYEOF
 }
 
-atelier_upsert_managed_block() {
+lemoncrow_upsert_managed_block() {
     local source_file="$1"
     local dest_file="$2"
     local dry_run="${3:-false}"
 
     if [[ "$dry_run" == "true" ]]; then
-        echo "  [dry-run] replace or append managed Atelier context in $dest_file"
+        echo "  [dry-run] replace or append managed LemonCrow context in $dest_file"
         return
     fi
 
@@ -98,17 +98,17 @@ import re
 
 source = Path("$source_file").read_text(encoding="utf-8").strip()
 source_pattern = re.compile(
-    rf"^{re.escape('$ATELIER_CODE_BLOCK_START')}\n(.*)\n{re.escape('$ATELIER_CODE_BLOCK_END')}$",
+    rf"^{re.escape('$LEMONCROW_CODE_BLOCK_START')}\n(.*)\n{re.escape('$LEMONCROW_CODE_BLOCK_END')}$",
     re.DOTALL,
 )
 source_match = source_pattern.fullmatch(source)
 if source_match:
     source = source_match.group(1).strip()
-managed = "$ATELIER_CODE_BLOCK_START\n" + source + "\n$ATELIER_CODE_BLOCK_END"
+managed = "$LEMONCROW_CODE_BLOCK_START\n" + source + "\n$LEMONCROW_CODE_BLOCK_END"
 dest_path = Path("$dest_file")
 existing = dest_path.read_text(encoding="utf-8").rstrip() if dest_path.exists() else ""
 pattern = re.compile(
-    rf"{re.escape('$ATELIER_CODE_BLOCK_START')}.*?{re.escape('$ATELIER_CODE_BLOCK_END')}\n?",
+    rf"{re.escape('$LEMONCROW_CODE_BLOCK_START')}.*?{re.escape('$LEMONCROW_CODE_BLOCK_END')}\n?",
     re.DOTALL,
 )
 
@@ -125,7 +125,7 @@ dest_path.write_text(updated + "\n", encoding="utf-8")
 PYEOF
 }
 
-atelier_remove_managed_block() {
+lemoncrow_remove_managed_block() {
     local dest_file="$1"
     local dry_run="${2:-false}"
 
@@ -135,7 +135,7 @@ atelier_remove_managed_block() {
     fi
 
     if [[ "$dry_run" == "true" ]]; then
-        if grep -q "$ATELIER_CODE_BLOCK_START" "$dest_file" 2>/dev/null; then
+        if grep -q "$LEMONCROW_CODE_BLOCK_START" "$dest_file" 2>/dev/null; then
             echo "dry-run-remove"
         else
             echo "unchanged"
@@ -150,7 +150,7 @@ import re
 path = Path("$dest_file")
 text = path.read_text(encoding="utf-8")
 pattern = re.compile(
-    rf"\n*{re.escape('$ATELIER_CODE_BLOCK_START')}\n.*?{re.escape('$ATELIER_CODE_BLOCK_END')}\n*",
+    rf"\n*{re.escape('$LEMONCROW_CODE_BLOCK_START')}\n.*?{re.escape('$LEMONCROW_CODE_BLOCK_END')}\n*",
     re.DOTALL,
 )
 

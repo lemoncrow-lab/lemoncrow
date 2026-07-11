@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Regenerate baseline cost normalization at Atelier's REAL cost model.
+"""Regenerate baseline cost normalization at LemonCrow's REAL cost model.
 
-tbench.ai displays costs with cache tokens billed at $0, while Atelier's own
+tbench.ai displays costs with cache tokens billed at $0, while LemonCrow's own
 Harbor runs pay the real bill: 1h ephemeral cache writes at 2x the input rate
 plus cache reads. Comparing a real bill against a cache-free number always
-reads against Atelier, so the baseline is re-priced here.
+reads against LemonCrow, so the baseline is re-priced here.
 
 tbench exposes only a single combined cache figure (read+write) per trial, so
 the cache term uses a blended $/M rate: the cache-WRITE share is measured
-(token-weighted) from every Atelier Harbor trial's claude-run.json usage
+(token-weighted) from every LemonCrow Harbor trial's claude-run.json usage
 report and priced at the 1h write rate; the remainder is priced as reads.
 
 Outputs (written into results/baseline/):
   normalized_cost.csv              per-task baseline re-priced
-  atelier_vs_baseline_per_task.csv baseline columns re-blended; the atelier
+  lemoncrow_vs_baseline_per_task.csv baseline columns re-blended; the lemoncrow
                                    columns (resolved/cost) are preserved from
                                    the existing file (they are real bills)
 
@@ -29,12 +29,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 BASELINE_DIR = HERE / "results" / "baseline"
-ATELIER_RESULTS = HERE / "results" / "atelier"
+# TODO(lemoncrow): historical results dir name -- kept as-is
+LEMONCROW_RESULTS = HERE / "results" / "atelier"
 PER_TRIAL_CSV = BASELINE_DIR / "tbench_opus48_claudecode_2.1.152_tasks.csv"
-COMPARISON_CSV = BASELINE_DIR / "atelier_vs_baseline_per_task.csv"
+COMPARISON_CSV = BASELINE_DIR / "lemoncrow_vs_baseline_per_task.csv"
 NORMALIZED_CSV = BASELINE_DIR / "normalized_cost.csv"
 
-# $/M-token -- Atelier's real cost model (Opus 4.8, 1h ephemeral cache).
+# $/M-token -- LemonCrow's real cost model (Opus 4.8, 1h ephemeral cache).
 INPUT_RATE = 5.0
 OUTPUT_RATE = 25.0
 CACHE_READ_RATE = 0.5
@@ -42,9 +43,9 @@ CACHE_WRITE_1H_RATE = 10.0  # 1h ephemeral writes bill at 2x input
 
 
 def measure_write_share() -> tuple[float, int]:
-    """Token-weighted cache-write share across every Atelier Harbor trial."""
+    """Token-weighted cache-write share across every LemonCrow Harbor trial."""
     write = read = trials = 0
-    for path in sorted(ATELIER_RESULTS.glob("*/*/agent/claude-run.json")):
+    for path in sorted(LEMONCROW_RESULTS.glob("*/*/agent/claude-run.json")):
         usage = None
         try:
             with open(path, encoding="utf-8") as fh:
@@ -66,7 +67,7 @@ def measure_write_share() -> tuple[float, int]:
         read += r
         trials += 1
     if write + read == 0:
-        raise SystemExit(f"no Atelier trial usage found under {ATELIER_RESULTS}")
+        raise SystemExit(f"no LemonCrow trial usage found under {LEMONCROW_RESULTS}")
     return write / (write + read), trials
 
 
@@ -93,7 +94,7 @@ def load_trials() -> dict[str, list[dict[str, float | None]]]:
 
 
 def corrected_cost(input_tokens: float, output_tokens: float, cache_tokens: float, blend: float) -> float:
-    """Re-price one trial at Atelier's cost model (cache via the blended rate)."""
+    """Re-price one trial at LemonCrow's cost model (cache via the blended rate)."""
     fresh = max(0.0, input_tokens - cache_tokens)
     return (fresh * INPUT_RATE + output_tokens * OUTPUT_RATE + cache_tokens * blend) / 1e6
 
@@ -128,7 +129,7 @@ def write_normalized(by_task: dict[str, list[dict[str, float | None]]], blend: f
 
 
 def rewrite_comparison(by_task: dict[str, list[dict[str, float | None]]], blend: float) -> list[dict[str, str]]:
-    """Re-blend the baseline columns; keep the atelier columns (real bills)."""
+    """Re-blend the baseline columns; keep the lemoncrow columns (real bills)."""
     out: list[dict[str, str]] = []
     with open(COMPARISON_CSV, encoding="utf-8", newline="") as fh:
         existing = list(csv.DictReader(fh))
@@ -145,8 +146,8 @@ def rewrite_comparison(by_task: dict[str, list[dict[str, float | None]]], blend:
         row["baseline_avg_cost_corrected"] = f"{baseline_avg:.4f}"
         row["baseline_rep_costs_corrected"] = "[" + ", ".join(f"{c:.2f}" for c in rep_costs) + "]"
         try:
-            atelier_cost = float(row["atelier_cost"])
-            row["save_pct"] = f"{(1 - atelier_cost / baseline_avg) * 100:.1f}"
+            lemoncrow_cost = float(row["lemoncrow_cost"])
+            row["save_pct"] = f"{(1 - lemoncrow_cost / baseline_avg) * 100:.1f}"
         except (ValueError, ZeroDivisionError):
             pass
         out.append(row)
@@ -160,7 +161,7 @@ def rewrite_comparison(by_task: dict[str, list[dict[str, float | None]]], blend:
 def main() -> None:
     write_share, trials = measure_write_share()
     blend = write_share * CACHE_WRITE_1H_RATE + (1 - write_share) * CACHE_READ_RATE
-    print(f"write share: {write_share:.4f} (token-weighted over {trials} Atelier trials)")
+    print(f"write share: {write_share:.4f} (token-weighted over {trials} LemonCrow trials)")
     print(f"blended cache rate: ${blend:.4f}/M  (1h write ${CACHE_WRITE_1H_RATE}/M, read ${CACHE_READ_RATE}/M)")
 
     by_task = load_trials()
@@ -170,12 +171,12 @@ def main() -> None:
     rows = rewrite_comparison(by_task, blend)
     print(f"wrote {COMPARISON_CSV}")
 
-    matched = [r for r in rows if r.get("atelier_cost") and r.get("baseline_avg_cost_corrected")]
-    atelier_total = sum(float(r["atelier_cost"]) for r in matched)
+    matched = [r for r in rows if r.get("lemoncrow_cost") and r.get("baseline_avg_cost_corrected")]
+    lemoncrow_total = sum(float(r["lemoncrow_cost"]) for r in matched)
     baseline_total = sum(float(r["baseline_avg_cost_corrected"]) for r in matched)
     print(
-        f"matched {len(matched)} tasks: atelier ${atelier_total:.2f} vs baseline corrected "
-        f"${baseline_total:.2f} ({atelier_total / baseline_total:.2f}x)"
+        f"matched {len(matched)} tasks: lemoncrow ${lemoncrow_total:.2f} vs baseline corrected "
+        f"${baseline_total:.2f} ({lemoncrow_total / baseline_total:.2f}x)"
     )
     buckets = [("< $0.50", 0.0, 0.5), ("$0.50-$1.50", 0.5, 1.5), (">= $1.50", 1.5, float("inf"))]
     for label, lo, hi in buckets:
@@ -183,12 +184,12 @@ def main() -> None:
         if not rows_b:
             continue
         b = sum(float(r["baseline_avg_cost_corrected"]) for r in rows_b) / len(rows_b)
-        a = sum(float(r["atelier_cost"]) for r in rows_b) / len(rows_b)
+        a = sum(float(r["lemoncrow_cost"]) for r in rows_b) / len(rows_b)
         print(
-            f"  {label}: n={len(rows_b)} avg baseline ${b:.2f} avg atelier ${a:.2f} delta {a - b:+.2f} ({a / b:.1f}x)"
+            f"  {label}: n={len(rows_b)} avg baseline ${b:.2f} avg lemoncrow ${a:.2f} delta {a - b:+.2f} ({a / b:.1f}x)"
         )
-    more = sum(1 for r in matched if float(r["atelier_cost"]) > float(r["baseline_avg_cost_corrected"]))
-    print(f"  {more}/{len(matched)} tasks cost more on atelier, {len(matched) - more} cost less")
+    more = sum(1 for r in matched if float(r["lemoncrow_cost"]) > float(r["baseline_avg_cost_corrected"]))
+    print(f"  {more}/{len(matched)} tasks cost more on lemoncrow, {len(matched) - more} cost less")
 
 
 if __name__ == "__main__":

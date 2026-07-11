@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from atelier.core.capabilities.code_context.edge_resolution import (
+from lemoncrow.core.capabilities.code_context.edge_resolution import (
     CallSite,
     resolve_call_sites,
 )
-from atelier.core.capabilities.code_context.lsp_resolver import build_lsp_resolver
-from atelier.infra.code_intel.lsp import LspClient
-from atelier.infra.tree_sitter.tags import Tag
+from lemoncrow.core.capabilities.code_context.lsp_resolver import build_lsp_resolver
+from lemoncrow.infra.code_intel.lsp import LspClient
+from lemoncrow.infra.tree_sitter.tags import Tag
 
 
 class _MockTransport:

@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
-from atelier.core.capabilities.semantic_file_memory.capability import _outline_saves_enough
-from atelier.core.capabilities.semantic_file_memory.treesitter_ast import (
+from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.core.capabilities.semantic_file_memory.capability import _outline_saves_enough
+from lemoncrow.core.capabilities.semantic_file_memory.treesitter_ast import (
     SUPPORTED_LANGUAGES,
     outline_text,
 )
-from atelier.infra.code_intel.languages import LANGUAGES, language_for_path
-from atelier.infra.tree_sitter.tags import Tag, extract_tags_from_text
+from lemoncrow.infra.code_intel.languages import LANGUAGES, language_for_path
+from lemoncrow.infra.tree_sitter.tags import Tag, extract_tags_from_text
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "languages"
 AST_OUTLINE_LANGUAGES = {"python", "typescript", "javascript"}
@@ -48,7 +48,7 @@ FIXTURES: tuple[LanguageFixture, ...] = (
     LanguageFixture("sql", "sample.sql", frozenset({"users", "idx_users_email", "active_users"})),
     LanguageFixture("markdown", "sample.md"),
     LanguageFixture("yaml", "config.yaml", frozenset({"name", "services", "metadata"})),
-    LanguageFixture("toml", "config.toml", frozenset({"package", "name", "tool.atelier", "tool.atelier.metadata"})),
+    LanguageFixture("toml", "config.toml", frozenset({"package", "name", "tool.lemoncrow", "tool.lemoncrow.metadata"})),
     LanguageFixture("json", "config.json", frozenset({"name", "version", "settings", "metadata"})),
     LanguageFixture("html", "sample.html"),
     LanguageFixture("css", "sample.css", frozenset({"button", "header"})),

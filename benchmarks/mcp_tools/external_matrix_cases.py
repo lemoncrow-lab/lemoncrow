@@ -181,7 +181,7 @@ class _SymbolCollector(ast.NodeVisitor):
 
 
 def _repo_python_files(repo_root: Path) -> list[Path]:
-    src_root = repo_root / "src" / "atelier"
+    src_root = repo_root / "src" / "lemoncrow"
     roots = [src_root] if src_root.exists() else [repo_root]
     files: list[Path] = []
     for root in roots:
@@ -436,7 +436,7 @@ def _decorator_name(node: ast.expr) -> str | None:
 def _collect_structural_facts(repo_root: Path) -> list[tuple[str, tuple[str, ...]]]:
     """(pattern, files matching it) for structural-search cases.
 
-    Covers two pattern families, both valid in Atelier's native pattern engine
+    Covers two pattern families, both valid in LemonCrow's native pattern engine
     and in ast-grep:
 
     1. Decorator patterns — ``@foo`` (bare) or ``@foo($$$)`` (called with args).
@@ -481,7 +481,7 @@ def _collect_structural_facts(repo_root: Path) -> list[tuple[str, tuple[str, ...
             facts.append((pattern, tuple(sorted(files))))
 
     # --- function-definition patterns ---
-    # ``def func_name($$$):`` works in both Atelier (mode='def') and ast-grep.
+    # ``def func_name($$$):`` works in both LemonCrow (mode='def') and ast-grep.
     # Only public names (no leading underscore) of length >= 6 that appear in
     # exactly 1-6 files are included, sorted by (file_count, name) for
     # stability and diversity.
@@ -508,7 +508,7 @@ def _collect_structural_facts(repo_root: Path) -> list[tuple[str, tuple[str, ...
 
 
 def _make_nohit_query(index: int) -> str:
-    return f"atelier_missing_symbol_{index:04d}_never_exists"
+    return f"lemoncrow_missing_symbol_{index:04d}_never_exists"
 
 
 def generate_case_manifest(

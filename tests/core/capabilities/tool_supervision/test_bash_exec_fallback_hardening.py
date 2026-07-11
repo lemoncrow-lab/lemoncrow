@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision import output_delta
-from atelier.core.capabilities.tool_supervision.bash_exec import (
+from lemoncrow.core.capabilities.tool_supervision import output_delta
+from lemoncrow.core.capabilities.tool_supervision.bash_exec import (
     _TEST_CMD_RE,
     _dedupe_repeated_lines,
     _extract_test_output,
@@ -25,9 +25,9 @@ from atelier.core.capabilities.tool_supervision.bash_exec import (
 @pytest.fixture(autouse=True)
 def _reset(monkeypatch: pytest.MonkeyPatch) -> None:
     output_delta.reset()
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "0")
-    monkeypatch.delenv("ATELIER_BASH_UNCHANGED_DELTA", raising=False)
-    monkeypatch.delenv("ATELIER_BASH_FLAG_INJECTION", raising=False)
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "0")
+    monkeypatch.delenv("LEMONCROW_BASH_UNCHANGED_DELTA", raising=False)
+    monkeypatch.delenv("LEMONCROW_BASH_FLAG_INJECTION", raising=False)
 
 
 # ── dedup-with-count ─────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ def test_inject_stable_flags_leaves_alone(command: str) -> None:
 
 
 def test_inject_stable_flags_kill_switch(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_BASH_FLAG_INJECTION", "0")
+    monkeypatch.setenv("LEMONCROW_BASH_FLAG_INJECTION", "0")
     assert _inject_stable_flags("git status") == ("git status", "")
 
 

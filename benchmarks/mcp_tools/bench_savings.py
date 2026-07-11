@@ -32,41 +32,41 @@ from benchmarks.mcp_tools.reporter import render_summary
 
 @pytest.fixture(scope="session")
 def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Isolated runtime state for read/grep tools. Code-intel uses real ~/.atelier."""
+    """Isolated runtime state for read/grep tools. Code-intel uses real ~/.lemoncrow."""
     root = tmp_path_factory.mktemp("bench_savings")
     return configure_benchmark_runtime(root, workspace_root=Path.cwd())
 
 
 @pytest.fixture(scope="session")
 def scip_workspace() -> Path:
-    """Point code-intel tool at real ~/.atelier so the cached index is reused.
+    """Point code-intel tool at real ~/.lemoncrow so the cached index is reused.
 
     Building the index from a temp dir takes 2-3 minutes on every run.
-    Using ~/.atelier means the first build is paid once and then cached.
+    Using ~/.lemoncrow means the first build is paid once and then cached.
     """
-    real_root = Path(os.environ.get("ATELIER_ROOT") or Path.home() / ".atelier")
-    os.environ["ATELIER_ROOT"] = str(real_root)
+    real_root = Path(os.environ.get("LEMONCROW_ROOT") or Path.home() / ".lemoncrow")
+    os.environ["LEMONCROW_ROOT"] = str(real_root)
     os.environ["CLAUDE_WORKSPACE_ROOT"] = str(Path.cwd())
     return real_root
 
 
 @pytest.fixture(scope="session")
 def read_tool_fn(bench_workspace: Path) -> Any:
-    from atelier.gateway.adapters.mcp_server import tool_smart_read
+    from lemoncrow.gateway.adapters.mcp_server import tool_smart_read
 
     return tool_smart_read
 
 
 @pytest.fixture(scope="session")
 def grep_tool_fn(bench_workspace: Path) -> Any:
-    from atelier.gateway.adapters.mcp_server import tool_grep
+    from lemoncrow.gateway.adapters.mcp_server import tool_grep
 
     return tool_grep
 
 
 @pytest.fixture(scope="session")
 def code_tool_fn(scip_workspace: Path) -> Any:
-    from atelier.gateway.adapters.mcp_server import _tool_code_alias_handler
+    from lemoncrow.gateway.adapters.mcp_server import _tool_code_alias_handler
 
     return _tool_code_alias_handler
 
@@ -153,10 +153,10 @@ def print_scip_report(scip_results: list[CaseResult]) -> None:
     _print_table(scip_results)
 
 
-def _pct_str(baseline: int, atelier: int) -> str:
+def _pct_str(baseline: int, lemon: int) -> str:
     if baseline <= 0:
         return "—"
-    pct = (baseline - atelier) / baseline * 100
+    pct = (baseline - lemon) / baseline * 100
     return f"{pct:+.0f}%" if pct < 0 else f"{pct:.0f}%"
 
 
@@ -177,8 +177,8 @@ def _print_table(results: list[CaseResult]) -> None:
         parts = r.case.label.split("/")
         if len(parts) == 3:
             tool_key, lang = f"{parts[0]}/{parts[1]}", parts[2]
-        elif len(parts) >= 2 and parts[0] == "atelier":
-            tool_key, lang = "/".join(parts[:2]), "atelier-repo"
+        elif len(parts) >= 2 and parts[0] == "lemoncrow":
+            tool_key, lang = "/".join(parts[:2]), "lemoncrow-repo"
         else:
             continue
         by_lang[lang][tool_key] = r
@@ -204,7 +204,7 @@ def _print_table(results: list[CaseResult]) -> None:
             elif not r.passed:
                 cell = "ERR"
             else:
-                cell = _pct_str(r.baseline_tokens, r.atelier_tokens)
+                cell = _pct_str(r.baseline_tokens, r.lemoncrow_tokens)
             row += f"{cell:>{col_w}}"
         print(row)
 
@@ -212,7 +212,7 @@ def _print_table(results: list[CaseResult]) -> None:
     avg_row = f"{'AVG':<{lang_w}}"
     for tool_key in tool_order:
         vals = [
-            (by_lang[lg][tool_key].baseline_tokens, by_lang[lg][tool_key].atelier_tokens)
+            (by_lang[lg][tool_key].baseline_tokens, by_lang[lg][tool_key].lemoncrow_tokens)
             for lg in langs
             if tool_key in by_lang[lg] and by_lang[lg][tool_key].passed and by_lang[lg][tool_key].baseline_tokens > 0
         ]
@@ -253,7 +253,7 @@ _MIN_SAVINGS_PCT: dict[str, float] = {
     # Per-file fixtures: JS/Python ~99%, Go/Rust/TS/Java/Ruby/C 30-80%+.
     # Negative values are a benchmark design signal, not a product bug.
     "read/outline": 30.0,  # outline should always beat 2000 raw lines of the same file
-    # range 2100-2200: well past native Read 2000-line cap, so atelier always wins
+    # range 2100-2200: well past native Read 2000-line cap, so lemoncrow always wins
     "read/range": 80.0,  # ~100 lines vs ~15-22k native Read tokens = >90% usually
     "grep/ranked": 0.0,
 }
@@ -281,7 +281,7 @@ def test_savings_threshold(
         return
     assert result.savings_pct >= min_pct, (
         f"[{case.label}] savings {result.savings_pct:.1f}% < required {min_pct:.0f}%\n"
-        f"  atelier={result.atelier_tokens:,}  baseline={result.baseline_tokens:,}"
+        f"  lemoncrow={result.lemoncrow_tokens:,}  baseline={result.baseline_tokens:,}"
     )
 
 
@@ -314,6 +314,6 @@ def test_scip_saves_tokens(case: BenchCase, scip_results: list[CaseResult]) -> N
     # callers/symbols/search: benefit is precision over grep, not always token count
     if any(x in case.label for x in ("callers", "symbols", "search")):
         pytest.skip("callers/search savings are quality-based, not size-based")
-    assert result.atelier_tokens < result.baseline_tokens, (
-        f"[{case.label}] no savings: atelier={result.atelier_tokens:,} >= baseline={result.baseline_tokens:,}"
+    assert result.lemoncrow_tokens < result.baseline_tokens, (
+        f"[{case.label}] no savings: lemoncrow={result.lemoncrow_tokens:,} >= baseline={result.baseline_tokens:,}"
     )

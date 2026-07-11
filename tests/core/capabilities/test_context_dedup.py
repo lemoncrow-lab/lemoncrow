@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from atelier.core.capabilities.context_dedup import ContextDedup, current_epoch
+from lemoncrow.core.capabilities.context_dedup import ContextDedup, current_epoch
 
 _BIG = "x" * 5000  # above _MIN_DEDUP_CHARS
 _BIG2 = "y" * 5000
@@ -82,10 +82,10 @@ def test_missing_session_id_is_noop() -> None:
 
 
 def test_current_epoch_reads_session_state(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     assert current_epoch() == 0
-    from atelier.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import workspace_key
 
     state_path = tmp_path / "workspaces" / workspace_key(tmp_path) / "session_state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)

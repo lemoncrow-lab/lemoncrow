@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.source_projection import build_compact_projection
-from atelier.gateway.adapters.mcp_server import (
+from lemoncrow.core.capabilities.source_projection import build_compact_projection
+from lemoncrow.gateway.adapters.mcp_server import (
     _read_dedup_resource,
     tool_smart_edit,
     tool_smart_read,
@@ -18,7 +18,7 @@ def test_default_reader_read_uses_minified_projection_for_safe_language(
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     # Pin the outline threshold above this file's LOC — this test exercises
     # minified (tree-sitter) projection of full bodies, not outline-by-default.
-    monkeypatch.setenv("ATELIER_OUTLINE_THRESHOLD", "200")
+    monkeypatch.setenv("LEMONCROW_OUTLINE_THRESHOLD", "200")
     target = tmp_path / "sample.go"
     source = (
         "package   main\n\n"
@@ -67,7 +67,7 @@ def test_expand_large_file_returns_line_aligned_prefix_with_continuation(
     # otherwise dump to a temp file and force the agent to re-read in blind ranges).
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     # Budget above the 8KB floor; file comfortably larger than the budget.
-    monkeypatch.setenv("ATELIER_READ_INLINE_BUDGET_BYTES", "10240")
+    monkeypatch.setenv("LEMONCROW_READ_INLINE_BUDGET_BYTES", "10240")
     target = tmp_path / "big.py"
     source = "".join(f"line_{i:04d} = {i}\n" for i in range(1000))
     target.write_text(source, encoding="utf-8")
@@ -89,9 +89,9 @@ def test_expand_large_file_returns_line_aligned_prefix_with_continuation(
 
 
 def test_expand_inline_budget_disabled_returns_full_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # ATELIER_READ_INLINE_BUDGET_BYTES=0 opts out: full exact body, no truncation.
+    # LEMONCROW_READ_INLINE_BUDGET_BYTES=0 opts out: full exact body, no truncation.
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("ATELIER_READ_INLINE_BUDGET_BYTES", "0")
+    monkeypatch.setenv("LEMONCROW_READ_INLINE_BUDGET_BYTES", "0")
     target = tmp_path / "big.py"
     source = "".join(f"line_{i:04d} = {i}\n" for i in range(1000))
     target.write_text(source, encoding="utf-8")
@@ -461,7 +461,7 @@ def test_large_range_read_returns_prefix_with_continuation(tmp_path: Path, monke
     # the expand path: a line-aligned prefix + an EXACT continuation range that
     # resumes at the next unread line of the requested slice (not line 1).
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("ATELIER_READ_INLINE_BUDGET_BYTES", "10240")
+    monkeypatch.setenv("LEMONCROW_READ_INLINE_BUDGET_BYTES", "10240")
     target = tmp_path / "big.py"
     target.write_text("".join(f"line_{i:04d} = {i}\n" for i in range(1000)), encoding="utf-8")
 
@@ -483,7 +483,7 @@ def test_large_range_read_returns_prefix_with_continuation(tmp_path: Path, monke
 def test_small_range_read_not_truncated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # The range cap must never bite a normal (sub-budget) range read.
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("ATELIER_READ_INLINE_BUDGET_BYTES", "10240")
+    monkeypatch.setenv("LEMONCROW_READ_INLINE_BUDGET_BYTES", "10240")
     target = tmp_path / "small.py"
     target.write_text("".join(f"line_{i:04d} = {i}\n" for i in range(1000)), encoding="utf-8")
 

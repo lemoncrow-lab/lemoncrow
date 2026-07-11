@@ -1,4 +1,4 @@
-"""Atelier mini eval suite — a cheap, deterministic cost-quality benchmark.
+"""LemonCrow mini eval suite — a cheap, deterministic cost-quality benchmark.
 
 Public API
 ----------

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
 
 def test_json_large_nested_reaches_treesitter(tmp_path: Path) -> None:

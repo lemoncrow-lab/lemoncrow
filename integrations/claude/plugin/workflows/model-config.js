@@ -5,7 +5,7 @@ const HOST_ROLE_IDS = ["code", "execute", "solve", "explore", "plan", "research"
 
 function readSettings() {
   const workspaceRoot = process.env.CLAUDE_WORKSPACE_ROOT || process.cwd()
-  const settingsPath = path.join(workspaceRoot, ".atelier", "settings.json")
+  const settingsPath = path.join(workspaceRoot, ".lemoncrow", "settings.json")
   try {
     const raw = fs.readFileSync(settingsPath, "utf-8")
     const parsed = JSON.parse(raw)

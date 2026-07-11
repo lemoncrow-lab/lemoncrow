@@ -302,7 +302,7 @@ export function getFileEditInfo(turn: any): FileEditInfo | null {
     };
   }
 
-  // 2. Payload-level keys (atelier ledger events)
+  // 2. Payload-level keys (LemonCrow ledger events)
   const payload = turn.raw?.payload || {};
   const payloadPath: string =
     payload.path || payload.file_path || payload.filename || payload.file || "";

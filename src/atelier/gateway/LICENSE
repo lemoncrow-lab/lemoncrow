@@ -1,9 +1,0 @@
-This directory (`src/atelier/gateway/`, excluding `gateway/sdk/`) is licensed
-under the Functional Source License, Version 1.1, ALv2 Future License
-(FSL-1.1-ALv2).
-
-See `/LICENSE` at the repository root for the full text. `gateway/sdk/` (the
-local/remote/MCP client connector) is licensed separately under Apache-2.0 —
-see `gateway/sdk/LICENSE`.
-
-Copyright 2026 Pankaj Kumar (d/b/a Atelier)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.live_reviewer.edit_counter import count_file_edits
+from lemoncrow.core.capabilities.live_reviewer.edit_counter import count_file_edits
 
 
 def _write_run(path: Path, events: list[dict]) -> None:

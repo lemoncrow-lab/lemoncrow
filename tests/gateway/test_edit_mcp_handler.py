@@ -14,8 +14,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from atelier.gateway.adapters import mcp_server
-from atelier.gateway.adapters.mcp_server import tool_smart_edit
+from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp_server import tool_smart_edit
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -82,9 +82,9 @@ def _assert_silent_success(payload: dict[str, Any]) -> None:
 
 @pytest.fixture()
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "test-gnd-session")
     monkeypatch.chdir(tmp_path)
@@ -555,7 +555,7 @@ def test_hook_exception_does_not_fail_successful_edit(workspace: Path, monkeypat
         raise RuntimeError("hook toolchain not found")
 
     monkeypatch.setattr(
-        "atelier.core.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
+        "lemoncrow.core.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
         exploding_hooks,
     )
 
@@ -580,7 +580,7 @@ def test_hook_exception_diff_still_recorded(workspace: Path, monkeypatch: pytest
     f.write_text("original\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "atelier.core.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
+        "lemoncrow.core.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
         lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
@@ -686,7 +686,7 @@ def test_diff_recorded_per_file_multi_edit(workspace: Path) -> None:
 
 def test_schema_top_level_params_have_descriptions() -> None:
     """atomic, hooks must each have a description."""
-    from atelier.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA, TOOLS
+    from lemoncrow.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA, TOOLS
 
     props = EDIT_TOOL_INPUT_SCHEMA["properties"]
     # atomic/hooks are hidden policy knobs: absent from the advertised schema,
@@ -699,7 +699,7 @@ def test_schema_top_level_params_have_descriptions() -> None:
 
 def test_schema_registered_as_edit_tool() -> None:
     """The edit tool must be registered in TOOLS with a non-trivial description."""
-    from atelier.gateway.adapters.mcp_server import TOOLS
+    from lemoncrow.gateway.adapters.mcp_server import TOOLS
 
     assert "edit" in TOOLS
     desc = TOOLS["edit"]["description"]
@@ -709,7 +709,7 @@ def test_schema_registered_as_edit_tool() -> None:
 
 def test_schema_edits_array_requires_min_one_item() -> None:
     """The JSON schema specifies minItems: 1 on the edits array."""
-    from atelier.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA
+    from lemoncrow.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA
 
     assert EDIT_TOOL_INPUT_SCHEMA["properties"]["edits"].get("minItems") == 1
 
@@ -720,7 +720,7 @@ def test_schema_documents_flat_item_shape() -> None:
     The schema is intentionally lean — notebook/symbol/projection edits are
     accepted by the handler but not enumerated in the schema.
     """
-    from atelier.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA
+    from lemoncrow.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA
 
     items = EDIT_TOOL_INPUT_SCHEMA["properties"]["edits"]["items"]
     assert "anyOf" not in items
@@ -733,7 +733,7 @@ def test_description_advertises_edits_wrapper() -> None:
     """The short description must show the edits=[...] wrapper, not just the
     item shape -- a cold model that reads only the description otherwise calls
     edit(path=..., new=...) flat (observed in Harbor runs)."""
-    from atelier.gateway.adapters.mcp_server import TOOLS
+    from lemoncrow.gateway.adapters.mcp_server import TOOLS
 
     assert "edits=[" in TOOLS["edit"]["description"]
 
@@ -1045,7 +1045,7 @@ def test_blind_range_edit_allowed_after_fresh_read_and_old_anchor_exempt(workspa
 
 
 def test_blind_range_guard_disabled_by_env(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_RANGE_EDIT_GUARD", "0")
+    monkeypatch.setenv("LEMONCROW_RANGE_EDIT_GUARD", "0")
     f = workspace / "off.txt"
     f.write_text("a1\na2\n", encoding="utf-8")
 

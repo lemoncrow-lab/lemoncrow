@@ -3,7 +3,7 @@
 
 Fires after Edit, Write, or MultiEdit. Computes the diff and appends a
 ``file_edit`` event to the session's ``run.json`` (see
-``atelier.core.foundation.paths.session_dir``) so it shows up in the Atelier
+``lemoncrow.core.foundation.paths.session_dir``) so it shows up in the LemonCrow
 traces dashboard.
 
 Fail-open: any error exits silently (code 0) — never blocks the agent.
@@ -48,7 +48,7 @@ def _workspace_key(path: str) -> str:
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
     return root / "workspaces" / h / "session_state.json"
 
 
@@ -62,14 +62,14 @@ def _read_session_state() -> dict:  # type: ignore[type-arg]
         return {}
 
 
-def _atelier_root() -> Path:
-    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
+def _lemoncrow_root() -> Path:
+    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
     if root:
         return Path(root)
     state = _read_session_state()
-    if state.get("atelier_root"):
-        return Path(state["atelier_root"])
-    return Path.home() / ".atelier"
+    if state.get("lemoncrow_root"):
+        return Path(state["lemoncrow_root"])
+    return Path.home() / ".lemoncrow"
 
 
 # ---------------------------------------------------------------------------
@@ -155,10 +155,10 @@ _MAX_DIFF_CHARS = 4000
 def _append_file_edit_event(session_id: str, file_path: str, diff: str) -> None:
     """Append a file_edit event to the session's run.json atomically."""
     try:
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
     except ImportError:
         return
-    run_file = session_dir(_atelier_root(), "claude", session_id) / "run.json"
+    run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
     if not run_file.exists():
         return
 

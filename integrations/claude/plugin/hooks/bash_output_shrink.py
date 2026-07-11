@@ -1,6 +1,6 @@
-"""PostToolUse hook — Atelier's bash compaction for HOST Bash tool results.
+"""PostToolUse hook — LemonCrow's bash compaction for HOST Bash tool results.
 
-The host's builtin Bash tool bypasses Atelier's MCP bash lane entirely, so its
+The host's builtin Bash tool bypasses LemonCrow's MCP bash lane entirely, so its
 output reaches the model raw (vanilla ~30k-char truncation only). This hook
 closes that gap: it applies the same post-hoc compaction pipeline the MCP lane
 runs after every command -- ANSI stripping, dedup-with-count, test-failure
@@ -29,8 +29,8 @@ which auto-approves the rewritten command past the user's permission prompt
 Post-hoc output compaction needs no permission changes.
 
 Env:
-    ATELIER_HOST_BASH_SHRINK=0   Kill switch -- disables this hook entirely.
-    ATELIER_TOOL_OUTPUT_SPILL=0  Disables the spill store (recovery hint is
+    LEMONCROW_HOST_BASH_SHRINK=0   Kill switch -- disables this hook entirely.
+    LEMONCROW_TOOL_OUTPUT_SPILL=0  Disables the spill store (recovery hint is
                                  then omitted; the compaction still applies).
 """
 
@@ -42,7 +42,7 @@ import sys
 from typing import Any
 
 # Below the smallest MCP-lane budget there is nothing to gain, and skipping
-# early avoids importing atelier (the expensive part) for every small command.
+# early avoids importing lemoncrow (the expensive part) for every small command.
 _MIN_SHRINK_CHARS = 2000
 # Never churn the transcript for a trivial trim.
 _MIN_SAVED_CHARS = 500
@@ -75,7 +75,7 @@ def _run(payload: dict[str, Any]) -> int:
     if not command or original_chars < _MIN_SHRINK_CHARS:
         return 0
 
-    from atelier.core.capabilities.tool_supervision.bash_exec import compact_host_bash_output
+    from lemoncrow.core.capabilities.tool_supervision.bash_exec import compact_host_bash_output
 
     result = compact_host_bash_output(command, stdout, stderr, _exit_code(tool_response))
     compact_chars = len(result.stdout) + len(result.stderr)
@@ -88,7 +88,7 @@ def _run(payload: dict[str, Any]) -> int:
         # accounting.
         footer = result.spill_hint
     else:
-        from atelier.core.capabilities.tool_supervision import tool_output_spill
+        from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
 
         footer = tool_output_spill.spill_notice(
             verb="shrunk", original_chars=original_chars, kept_chars=compact_chars, path=None
@@ -110,7 +110,7 @@ def _run(payload: dict[str, Any]) -> int:
 
 
 def main() -> int:
-    if os.environ.get("ATELIER_HOST_BASH_SHRINK", "1").strip() == "0":
+    if os.environ.get("LEMONCROW_HOST_BASH_SHRINK", "1").strip() == "0":
         return 0
     try:
         payload = json.loads(sys.stdin.read() or "{}")

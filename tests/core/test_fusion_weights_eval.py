@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import math
 
-from atelier.core.capabilities.code_context.embedding import (
+from lemoncrow.core.capabilities.code_context.embedding import (
     FusionWeights,
     SemanticSearchRanker,
 )
-from atelier.core.capabilities.code_context.eval_harness import (
+from lemoncrow.core.capabilities.code_context.eval_harness import (
     EvalCase,
     evaluate_cases,
     score_ranking,
 )
-from atelier.core.capabilities.code_context.models import SymbolRecord
+from lemoncrow.core.capabilities.code_context.models import SymbolRecord
 
 
 def _symbol(sym_id: str, *, file_path: str = "src/m.py", start_line: int = 1) -> SymbolRecord:
@@ -153,8 +153,8 @@ def test_from_env_defaults_reproduce_baseline() -> None:
 def test_from_env_overrides_apply() -> None:
     weights = FusionWeights.from_env(
         env={
-            "ATELIER_FUSION_WEIGHT_LEXICAL": "2.0",
-            "ATELIER_FUSION_WEIGHT_GRAPH": "0.5",
+            "LEMONCROW_FUSION_WEIGHT_LEXICAL": "2.0",
+            "LEMONCROW_FUSION_WEIGHT_GRAPH": "0.5",
         }
     )
     assert weights.lexical == 2.0
@@ -163,7 +163,7 @@ def test_from_env_overrides_apply() -> None:
 
 
 def test_from_env_garbage_falls_back_to_baseline() -> None:
-    weights = FusionWeights.from_env(env={"ATELIER_FUSION_WEIGHT_SEMANTIC": "not-a-float"})
+    weights = FusionWeights.from_env(env={"LEMONCROW_FUSION_WEIGHT_SEMANTIC": "not-a-float"})
     assert weights.semantic == 1.0
 
 

@@ -25,7 +25,7 @@ def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def trace_tool_fn(bench_workspace: Path) -> Any:
-    from atelier.gateway.adapters.mcp_server import tool_record_trace
+    from lemoncrow.gateway.adapters.mcp_server import tool_record_trace
 
     return tool_record_trace
 
@@ -67,5 +67,5 @@ def test_trace_op_saves_tokens(case: BenchCase, trace_bench_results: list[CaseRe
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
     assert (
-        result.atelier_tokens < case.baseline_tokens
-    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"
+        result.lemoncrow_tokens < case.baseline_tokens
+    ), f"[{case.label}] no savings: lemoncrow={result.lemoncrow_tokens} >= baseline={case.baseline_tokens}"
