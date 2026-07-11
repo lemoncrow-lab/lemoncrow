@@ -38,7 +38,7 @@ from pathlib import Path
 
 def _workspace_key(repo_root: Path) -> str:
     """Derive the workspace dir name from a repo root path."""
-    from atelier.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import workspace_key
 
     return workspace_key(repo_root.resolve())
 
@@ -50,7 +50,7 @@ def _db_path_for(ws_path: Path) -> Path:
 
 def _user_db_path_for(ws_path: Path) -> Path:
     """Return the user's actual (non-temp) DB path."""
-    from atelier.core.foundation.paths import default_store_root
+    from lemoncrow.core.foundation.paths import default_store_root
 
     key = _workspace_key(ws_path.resolve())
     return default_store_root() / "workspaces" / key / "code_context.sqlite"
@@ -171,7 +171,7 @@ def mine_semantic_pairs(
         db_path = _user_db_path_for(repo_dir)
         if not db_path.exists():
             print(
-                f"[semantic] No DB found at {db_path} — run 'atelier code index --reindex' first.",
+                f"[semantic] No DB found at {db_path} — run 'lemon code index --reindex' first.",
                 file=sys.stderr,
             )
             return [], {}

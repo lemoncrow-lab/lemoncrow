@@ -1,4 +1,4 @@
-# Installing Atelier into Claude Code
+# Installing LemonCrow into Claude Code
 
 **Support level**: Full plugin (skills, agents, hooks, MCP server)
 
@@ -20,8 +20,8 @@
 make install
 ```
 
-This registers the local Claude plugin source (`atelier`), installs
-`atelier@atelier`, and registers the MCP server in Claude's user scope.
+This registers the local Claude plugin source (`lemon`), installs
+`lemoncrow@lemoncrow`, and registers the MCP server in Claude's user scope.
 Pass `--workspace /path/to/workspace` to write a project-local `.mcp.json`
 instead.
 
@@ -30,10 +30,10 @@ The script is idempotent — safe to run again after updates.
 To configure project-specific role models after the global install, run:
 
 ```bash
-uv run atelier init --configure-models
+uv run lemon init --configure-models
 ```
 
-The init wizard writes `<workspace>/.atelier/settings.json` and materializes
+The init wizard writes `<workspace>/.lemoncrow/settings.json` and materializes
 workspace-local Claude overrides under `.claude/`, so the shared global plugin
 can stay neutral while the current project carries explicit per-role models.
 
@@ -45,10 +45,10 @@ make verify
 
 All checks should show `PASS`:
 
-- `claude plugin list` shows `atelier@atelier ✔ enabled`
-- Plugin source `atelier` is registered
-- Global install: `claude mcp list` shows `atelier`
-- Workspace install: `.mcp.json` contains atelier server entry
+- `claude plugin list` shows `lemoncrow@lemoncrow ✔ enabled`
+- Plugin source `lemon` is registered
+- Global install: `claude mcp list` shows `lemon`
+- Workspace install: `.mcp.json` contains lemon server entry
 
 ### Manual steps (print-only mode)
 
@@ -78,9 +78,9 @@ files are picked up on restart.
 
 Install profile selection:
 
-- `ATELIER_PROFILE=stable` is the default install profile.
-- `ATELIER_PROFILE=dev` stages the dev-oriented plugin artifacts.
-- `ATELIER_DEV_MODE=1` is still required for runtime-gated dev tools.
+- `LEMONCROW_PROFILE=stable` is the default install profile.
+- `LEMONCROW_PROFILE=dev` stages the dev-oriented plugin artifacts.
+- `LEMONCROW_DEV_MODE=1` is still required for runtime-gated dev tools.
 
 ---
 
@@ -91,7 +91,7 @@ bash scripts/install_claude.sh --print-only
 ```
 
 > **WARNING**: This is NOT the full plugin. It installs the MCP server entry in
-> `.mcp.json` only if you apply the printed manual steps. Agents and `/atelier:*` skills are NOT available.
+> `.mcp.json` only if you apply the printed manual steps. Agents and `/lemon:*` skills are NOT available.
 > Use this only when `claude plugin install` is unavailable.
 
 ---
@@ -114,8 +114,8 @@ bash scripts/install_claude.sh --print-only
 The intended flow is:
 
 1. Install the shared Claude plugin globally.
-2. Run `uv run atelier init --configure-models` inside a repository.
-3. Let the wizard write `.atelier/settings.json`, `.claude/settings.local.json`,
+2. Run `uv run lemon init --configure-models` inside a repository.
+3. Let the wizard write `.lemoncrow/settings.json`, `.claude/settings.local.json`,
    `.claude/agents/`, and `.claude/skills/`.
 
 `"auto"` means omit an explicit model pin for the workspace Claude surface.
@@ -127,24 +127,24 @@ the shared global plugin remains unpinned.
 Start Claude Code in your workspace and type:
 
 ```text
-/atelier:explore
+/lemon:explore
 ```
 
-You should switch into the read-only Atelier explore mode and get a focused repo-mapping workflow.
+You should switch into the read-only LemonCrow explore mode and get a focused repo-mapping workflow.
 
 ## Slash Commands (Skills)
 
-All commands use the `/atelier:name` format (colon, not dash):
+All commands use the `/lemon:name` format (colon, not dash):
 
 | Command             | Description                                    |
 | ------------------- | ---------------------------------------------- |
-| `/atelier:code`     | Switch to main coding mode                     |
-| `/atelier:explore`  | Switch to read-only exploration mode           |
-| `/atelier:plan`     | Switch to implementation planning mode         |
-| `/atelier:execute` | Switch to focused execution mode               |
-| `/atelier:review`   | Switch to adversarial review mode              |
-| `/atelier:research` | Switch to external research mode with citations |
-| `/atelier:solve`   | Switch to autonomous solve mode                |
+| `/lemon:code`     | Switch to main coding mode                     |
+| `/lemon:explore`  | Switch to read-only exploration mode           |
+| `/lemon:plan`     | Switch to implementation planning mode         |
+| `/lemon:execute` | Switch to focused execution mode               |
+| `/lemon:review`   | Switch to adversarial review mode              |
+| `/lemon:research` | Switch to external research mode with citations |
+| `/lemon:solve`   | Switch to autonomous solve mode                |
 
 ## Agents
 
@@ -152,20 +152,20 @@ Select from the `/agents` list in Claude Code:
 
 | Agent             | Role                                         |
 | ----------------- | -------------------------------------------- |
-| `atelier:code`    | Main coding agent — full task loop           |
-| `atelier:explore` | Read-only repo exploration                   |
-| `atelier:plan`    | Planner — grounded implementation plan       |
-| `atelier:execute` | Executor — focused edits + self-check       |
-| `atelier:review`  | Verifier — plan checks + rubric gate         |
-| `atelier:research`| External research with citations             |
-| `atelier:solve`  | Autonomous solver — artifact/check loop      |
+| `lemon:code`    | Main coding agent — full task loop           |
+| `lemon:explore` | Read-only repo exploration                   |
+| `lemon:plan`    | Planner — grounded implementation plan       |
+| `lemon:execute` | Executor — focused edits + self-check       |
+| `lemon:review`  | Verifier — plan checks + rubric gate         |
+| `lemon:research`| External research with citations             |
+| `lemon:solve`  | Autonomous solver — artifact/check loop      |
 
 ## Dynamic Workflows
 
 Dynamic workflows require **Claude Code v2.1.154 or later** and are still in
 research preview.
 
-The Atelier Claude plugin now bundles workflow scripts under
+The LemonCrow Claude plugin now bundles workflow scripts under
 `integrations/claude/plugin/workflows/`. The first packaged workflow is
 `code-audit.js`, a reusable multi-lens audit that fans out security,
 performance, and test-review passes before consolidating the findings into one
@@ -186,7 +186,7 @@ surface.
 
 ## V2 Tools — Memory and Context Savings
 
-With `ATELIER_DEV_MODE=1`, the active Atelier MCP surface for Claude Code includes
+With `LEMONCROW_DEV_MODE=1`, the active LemonCrow MCP surface for Claude Code includes
 `context`, `route`, `rescue`, `record`, `verify`, `memory`, `read`, `edit`,
 `sql`, `search`, `compact`, `bash`, and the `code` helpers.
 
@@ -194,7 +194,7 @@ Without developer mode, `record` remains the most reliable active surface and
 some other tools may still appear as passive compatibility stubs.
 
 Host-native file reads, search, shell, slash commands, and agents remain the raw
-control surface when you do not need Atelier-specific context, routing, or trace
+control surface when you do not need LemonCrow-specific context, routing, or trace
 behavior.
 
 ## Troubleshooting
@@ -202,7 +202,7 @@ behavior.
 | Problem                       | Fix                                                                     |
 | ----------------------------- | ----------------------------------------------------------------------- |
 | Not in `claude plugin list`   | Run `make install`                                                      |
-| Plugin listed but not enabled | Run `claude plugin enable atelier@atelier`                              |
+| Plugin listed but not enabled | Run `claude plugin enable lemoncrow@lemoncrow`                              |
 | Validation fails              | Run `claude plugin validate integrations/claude/plugin/`                |
 | MCP tools missing             | Global: run `claude mcp list`; workspace: check `.mcp.json`             |
 | Hooks firing unexpectedly     | Set `"enabled": false` in `integrations/claude/plugin/hooks/hooks.json` |

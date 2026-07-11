@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 SCRIPT = Path("integrations/claude/plugin/scripts/install_attribution_hook.sh").resolve()
-TRAILER = "Co-Authored-By: atelier <293447754+atelier@users.noreply.github.com>"
+TRAILER = "Co-Authored-By: LemonCrow <293447754+lemoncrow@users.noreply.github.com>"
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -33,7 +33,7 @@ def test_installer_adds_trailer_idempotently(tmp_path: Path) -> None:
         result = subprocess.run(["bash", str(SCRIPT), str(repo)], capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
     hook_text = (repo / ".git" / "hooks" / "prepare-commit-msg").read_text(encoding="utf-8")
-    assert hook_text.count("# >>> atelier attribution >>>") == 1
+    assert hook_text.count("# >>> lemoncrow attribution >>>") == 1
 
     msg = _commit(repo, "a.txt")
     assert msg.count(TRAILER) == 1

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# local.sh — Install Atelier from a local repository checkout.
+# local.sh — Install LemonCrow from a local repository checkout.
 #
 # Usage (from repo root):
 #   bash scripts/local.sh
@@ -18,24 +18,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${SCRIPT_DIR}/lib/common.sh"
 
-# Caller-specific mode flags. ATELIER_BINARY_MODE is retained for
-# compatibility but unused in source mode; ATELIER_LOCAL marks this as a
+# Caller-specific mode flags. LEMONCROW_BINARY_MODE is retained for
+# compatibility but unused in source mode; LEMONCROW_LOCAL marks this as a
 # source-checkout install so run_setup wires host configs into the repo.
-ATELIER_BINARY_MODE="${ATELIER_BINARY_MODE:-0}"
-ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
-ATELIER_LOCAL=1
+LEMONCROW_BINARY_MODE="${LEMONCROW_BINARY_MODE:-0}"
+LEMONCROW_DRY_RUN="${LEMONCROW_DRY_RUN:-0}"
+LEMONCROW_LOCAL=1
 
 # ---- source-only: Python package install ------------------------------------
 # (install_uv_if_needed lives in lib/common.sh, shared with bundle.sh.)
 install_console_scripts() {
     local extras="mcp,memory,smart,cloud,postgres,vector,parsers,rename"
-    local package_spec="${ATELIER_INSTALL_DIR}[${extras}]"
+    local package_spec="${LEMONCROW_INSTALL_DIR}[${extras}]"
 
-    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-        stop_existing_atelier_processes
+    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+        stop_existing_lemoncrow_processes
         printf '[dry-run] uv sync --frozen (prime cache from uv.lock)\n'
-        printf '[dry-run] uv tool uninstall atelier (if present)\n'
-        printf '[dry-run] UV_TOOL_BIN_DIR=%q UV_TOOL_DIR=%q uv tool install --force --editable' "$ATELIER_BIN_DIR" "$ATELIER_TOOL_DIR"
+        printf '[dry-run] uv tool uninstall lemoncrow (if present)\n'
+        printf '[dry-run] UV_TOOL_BIN_DIR=%q UV_TOOL_DIR=%q uv tool install --force --editable' "$LEMONCROW_BIN_DIR" "$LEMONCROW_TOOL_DIR"
         printf ' %q' "$package_spec"
         printf '\n'
         return
@@ -50,45 +50,45 @@ install_console_scripts() {
     # subsequent `uv tool install` resolves entirely from cache.
     # NOTE: never pass --no-cache/--refresh/--upgrade here — those would defeat
     # the cache reuse this step exists to guarantee.
-    if [[ -f "${ATELIER_INSTALL_DIR}/uv.lock" ]]; then
+    if [[ -f "${LEMONCROW_INSTALL_DIR}/uv.lock" ]]; then
         verbose "Priming uv cache from uv.lock (uv sync --frozen)"
-        ( cd "$ATELIER_INSTALL_DIR" && uv sync --frozen ) || \
+        ( cd "$LEMONCROW_INSTALL_DIR" && uv sync --frozen ) || \
             verbose "uv sync --frozen failed; falling back to fresh resolve"
     fi
 
-    mkdir -p "$ATELIER_BIN_DIR" "$ATELIER_TOOL_DIR"
-    stop_existing_atelier_processes
+    mkdir -p "$LEMONCROW_BIN_DIR" "$LEMONCROW_TOOL_DIR"
+    stop_existing_lemoncrow_processes
 
     # Forcefully remove any existing manual wrappers to prevent uv collision
-    rm -f "${ATELIER_BIN_DIR}/atelier"
+    rm -f "${LEMONCROW_BIN_DIR}/lemoncrow"
 
     # Gracefully remove old installation first
-    UV_TOOL_BIN_DIR="$ATELIER_BIN_DIR" \
-        UV_TOOL_DIR="$ATELIER_TOOL_DIR" \
-        uv tool uninstall atelier >/dev/null 2>&1 || true
+    UV_TOOL_BIN_DIR="$LEMONCROW_BIN_DIR" \
+        UV_TOOL_DIR="$LEMONCROW_TOOL_DIR" \
+        uv tool uninstall lemoncrow >/dev/null 2>&1 || true
     
-    # Editable tool install: the on-PATH `atelier` (the MCP server Claude Code
+    # Editable tool install: the on-PATH `lemon` (the MCP server Claude Code
     # launches) imports straight from this checkout, so a source edit goes live
     # on the next server/session restart -- no `make dev` re-run needed. Prod
     # (bundle.sh) installs a built wheel instead; only dev is editable.
-    UV_TOOL_BIN_DIR="$ATELIER_BIN_DIR" \
-        UV_TOOL_DIR="$ATELIER_TOOL_DIR" \
-        ATELIER_SKIP_MYPYC=1 uv tool install --force --editable "$package_spec"
+    UV_TOOL_BIN_DIR="$LEMONCROW_BIN_DIR" \
+        UV_TOOL_DIR="$LEMONCROW_TOOL_DIR" \
+        LEMONCROW_SKIP_MYPYC=1 uv tool install --force --editable "$package_spec"
 
 }
 
 persist_install_record() {
     local record_dir
-    record_dir="$(dirname "$ATELIER_INSTALL_RECORD")"
+    record_dir="$(dirname "$LEMONCROW_INSTALL_RECORD")"
 
-    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
         echo "[dry-run] mkdir -p $record_dir"
-        echo "[dry-run] printf '%s\\n' '$ATELIER_INSTALL_DIR' > '$ATELIER_INSTALL_RECORD'"
+        echo "[dry-run] printf '%s\\n' '$LEMONCROW_INSTALL_DIR' > '$LEMONCROW_INSTALL_RECORD'"
         return
     fi
 
     mkdir -p "$record_dir"
-    printf '%s\n' "$ATELIER_INSTALL_DIR" > "$ATELIER_INSTALL_RECORD"
+    printf '%s\n' "$LEMONCROW_INSTALL_DIR" > "$LEMONCROW_INSTALL_RECORD"
 }
 
 # ---- arg parsing (source-specific flags) ------------------------------------
@@ -96,18 +96,18 @@ persist_install_record() {
 # everything else is forwarded to common vars already declared in common.sh).
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --dry-run) ATELIER_DRY_RUN=1 ;;
-        --no-hosts) ATELIER_NO_HOSTS=1 ;;
-        --no-servicectl) ATELIER_NO_SERVICECTL=1 ;;
-        --no-stack) ATELIER_NO_STACK=1 ;;
-        --verbose|-v) ATELIER_VERBOSE=1 ;;
-        --non-interactive) ATELIER_NON_INTERACTIVE=1 ;;
-        --advanced) ATELIER_ADVANCED=1 ;;
-        --memory) ATELIER_MEMORY_BACKEND="${2:-}"; shift ;;
-        --memory=*) ATELIER_MEMORY_BACKEND="${1#--memory=}" ;;
-        --telegraphic) ATELIER_TELEGRAPHIC="${2:-}"; shift ;;
-        --telegraphic=*) ATELIER_TELEGRAPHIC="${1#--telegraphic=}" ;;
-        --zoekt) ATELIER_ZOEKT=1 ;;
+        --dry-run) LEMONCROW_DRY_RUN=1 ;;
+        --no-hosts) LEMONCROW_NO_HOSTS=1 ;;
+        --no-servicectl) LEMONCROW_NO_SERVICECTL=1 ;;
+        --no-stack) LEMONCROW_NO_STACK=1 ;;
+        --verbose|-v) LEMONCROW_VERBOSE=1 ;;
+        --non-interactive) LEMONCROW_NON_INTERACTIVE=1 ;;
+        --advanced) LEMONCROW_ADVANCED=1 ;;
+        --memory) LEMONCROW_MEMORY_BACKEND="${2:-}"; shift ;;
+        --memory=*) LEMONCROW_MEMORY_BACKEND="${1#--memory=}" ;;
+        --telegraphic) LEMONCROW_TELEGRAPHIC="${2:-}"; shift ;;
+        --telegraphic=*) LEMONCROW_TELEGRAPHIC="${1#--telegraphic=}" ;;
+        --zoekt) LEMONCROW_ZOEKT=1 ;;
         --workspace) HOST_SCOPE_ARGS+=(--workspace "${2:-}"); shift ;;
         --workspace=*) HOST_SCOPE_ARGS+=(--workspace "${1#--workspace=}") ;;
         --all) HOST_FLAGS+=(--all) ;;
@@ -133,21 +133,21 @@ main() {
         print_installer_footer
     fi
 
-    case "$ATELIER_MEMORY_BACKEND" in
+    case "$LEMONCROW_MEMORY_BACKEND" in
         letta|openmemory|"") ;;
-        *) fail "--memory must be 'letta' or 'openmemory', got: '$ATELIER_MEMORY_BACKEND'" ;;
+        *) fail "--memory must be 'letta' or 'openmemory', got: '$LEMONCROW_MEMORY_BACKEND'" ;;
     esac
-    [[ -n "$ATELIER_MEMORY_BACKEND" ]] && ATELIER_ADVANCED=1
+    [[ -n "$LEMONCROW_MEMORY_BACKEND" ]] && LEMONCROW_ADVANCED=1
 
     install_uv_if_needed
     install_node_if_needed
 
-    ATELIER_INSTALL_DIR="$(pwd)"
-    export ATELIER_INSTALL_DIR
+    LEMONCROW_INSTALL_DIR="$(pwd)"
+    export LEMONCROW_INSTALL_DIR
     _capture_install_previous_version
 
-    step_start "Installing Atelier"
-    if [[ "${ATELIER_DRY_RUN:-0}" == "1" ]]; then
+    step_start "Installing LemonCrow"
+    if [[ "${LEMONCROW_DRY_RUN:-0}" == "1" ]]; then
         install_console_scripts
     else
         spin_tail "Installing packages" install_console_scripts
@@ -155,8 +155,8 @@ main() {
     persist_install_record
     # Mark as a dev install so the MCP server enables debug logging automatically.
     # Production installs (bundle.sh / install.sh) never create this file.
-    if [[ "${ATELIER_DRY_RUN:-0}" != "1" ]]; then
-        mkdir -p "${HOME}/.atelier" && touch "${HOME}/.atelier/.dev_mode" 2>/dev/null || true
+    if [[ "${LEMONCROW_DRY_RUN:-0}" != "1" ]]; then
+        mkdir -p "${HOME}/.lemoncrow" && touch "${HOME}/.lemoncrow/.dev_mode" 2>/dev/null || true
     fi
     step_done
 

@@ -1,4 +1,4 @@
-# Representative iterate set for cheap cost-efficiency iteration (atelier arm, reps=1).
+# Representative iterate set for cheap cost-efficiency iteration (lemoncrow arm, reps=1).
 # Spans big winners (protect), worst regressors (fix), and correctness cases.
 # Full swe30 lives in benchmarks/codebench/data/verified.txt (use for the final gate).
 scikit-learn__scikit-learn-25102

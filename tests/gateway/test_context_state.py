@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from atelier.gateway.hosts import context_state as cs
+from lemoncrow.gateway.hosts import context_state as cs
 
 
 def test_unknown_host_returns_zero() -> None:
@@ -21,7 +21,7 @@ def test_empty_session_id_returns_zero() -> None:
 
 
 def test_claude_dispatches_to_core_probe(monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.core.capabilities import savings_summary as ss
+    from lemoncrow.core.capabilities import savings_summary as ss
 
     monkeypatch.setattr(ss, "transcript_context_state", lambda sid: (123_000, "claude-sonnet-4-5"))
     assert cs.host_context_state("claude", "s1") == (123_000, "claude-sonnet-4-5")

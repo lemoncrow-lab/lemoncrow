@@ -9,8 +9,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
-SKILLS_SRC="${ATELIER_REPO}/integrations/skills"
+LEMONCROW_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+SKILLS_SRC="${LEMONCROW_REPO}/integrations/skills"
 RENDER_SCRIPT="${SCRIPT_DIR}/sync_agent_context.py"
 
 HOST=""
@@ -79,9 +79,9 @@ HIDDEN_SKILLS=(
 
 # Skills that ship by default regardless of --include-skills -- currently just
 # the on-demand install/remove/list discovery skill. Mirrors DEFAULT_SKILLS in
-# src/atelier/core/environment.py; keep both in sync.
+# src/lemoncrow/core/environment.py; keep both in sync.
 DEFAULT_SKILLS=(
-    atelier
+    lemoncrow
 )
 
 is_default_skill() {
@@ -98,7 +98,7 @@ is_default_skill() {
 ROLE_SKILLS=()
 while IFS= read -r mode_path; do
     [[ -n "$mode_path" ]] && ROLE_SKILLS+=("$(basename "$mode_path" .md)")
-done < <(find "${ATELIER_REPO}/integrations/agents" -mindepth 1 -maxdepth 1 -type f -name '*.md' | sort)
+done < <(find "${LEMONCROW_REPO}/integrations/agents" -mindepth 1 -maxdepth 1 -type f -name '*.md' | sort)
 
 is_hidden_skill() {
     local name="$1"
@@ -130,9 +130,9 @@ is_included_skill() {
 
 default_dest_for_host() {
     case "$1" in
-        claude) printf "%s" "${ATELIER_REPO}/integrations/claude/plugin/skills" ;;
-        codex) printf "%s" "${ATELIER_REPO}/integrations/codex/plugin/skills" ;;
-        antigravity) printf "%s" "${ATELIER_REPO}/integrations/antigravity/skills" ;;
+        claude) printf "%s" "${LEMONCROW_REPO}/integrations/claude/plugin/skills" ;;
+        codex) printf "%s" "${LEMONCROW_REPO}/integrations/codex/plugin/skills" ;;
+        antigravity) printf "%s" "${LEMONCROW_REPO}/integrations/antigravity/skills" ;;
         *)
             echo "Unknown host: $1" >&2
             exit 1
@@ -178,7 +178,7 @@ render_host_bundle() {
         cp "$skill_dir/SKILL.md" "$dest_dir/$skill_name/SKILL.md"
     done < <(find "$SKILLS_SRC" -mindepth 1 -maxdepth 1 -type d | sort)
 
-    echo "[atelier:skills] generated ${host} bundle -> ${dest_dir}"
+    echo "[lemon:skills] generated ${host} bundle -> ${dest_dir}"
 }
 
 if [[ "$HOST" == "all" ]]; then

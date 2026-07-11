@@ -10,7 +10,7 @@ Usage:
     uv run python benchmarks/harbor/compare_run.py [RUN] [--vs OTHER] [--all]
 
 RUN / OTHER accept an absolute path to a run dir, a bare timestamp under
-benchmarks/harbor/results/atelier/, or 'latest' (RUN defaults to 'latest').
+benchmarks/harbor/results/lemoncrow/, or 'latest' (RUN defaults to 'latest').
 The cost-delta column compares RUN to OTHER when --vs is given, else to baseline.
 
 Examples:
@@ -18,7 +18,7 @@ Examples:
     uv run python benchmarks/harbor/compare_run.py
     # a worktree run vs the R10 run
     uv run python benchmarks/harbor/compare_run.py \
-        /home/.../atelier-r6-repro/benchmarks/harbor/results/atelier/2026-07-04__09-28-38 \
+        /home/.../lemoncrow-r6-repro/benchmarks/harbor/results/lemoncrow/2026-07-04__09-28-38 \
         --vs 2026-07-04__03-33-24
 """
 
@@ -33,6 +33,7 @@ from collections import defaultdict
 from pathlib import Path
 
 HARBOR = Path(__file__).resolve().parent
+# TODO(lemoncrow): historical results dir name -- kept as-is
 RESULTS = HARBOR / "results" / "atelier"
 BASELINE = HARBOR / "results" / "baseline" / "normalized_cost.csv"
 
@@ -97,7 +98,7 @@ def main() -> None:
     ap.add_argument(
         "--vs",
         default="auto",
-        help="second run to compare against: 'auto' = latest other run in results/atelier (default, "
+        help="second run to compare against: 'auto' = latest other run in results/lemoncrow (default, "
         "typically the current-commit run), a path/timestamp, or 'none' for baseline-only",
     )
     ap.add_argument("--all", action="store_true", help="show every baseline task, not just those RUN finished")

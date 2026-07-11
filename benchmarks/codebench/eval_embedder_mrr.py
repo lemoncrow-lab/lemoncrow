@@ -6,19 +6,19 @@ definition and content gold sets.  Apples-to-apples across embedders.
 
 Usage:
     # single embedder
-    ATELIER_CODE_EMBEDDER=nomic  uv run python benchmarks/codebench/eval_embedder_mrr.py
-    ATELIER_CODE_EMBEDDER=bge    uv run python benchmarks/codebench/eval_embedder_mrr.py
+    LEMONCROW_CODE_EMBEDDER=nomic  uv run python benchmarks/codebench/eval_embedder_mrr.py
+    LEMONCROW_CODE_EMBEDDER=bge    uv run python benchmarks/codebench/eval_embedder_mrr.py
 
     # any HF SentenceTransformer model (no prefix)
-    ATELIER_CODE_EMBEDDER=hf ATELIER_CODE_EMBED_MODEL=Salesforce/SFR-Embedding-Code-400M_R \
+    LEMONCROW_CODE_EMBEDDER=hf LEMONCROW_CODE_EMBED_MODEL=Salesforce/SFR-Embedding-Code-400M_R \
         uv run python benchmarks/codebench/eval_embedder_mrr.py
 
     # Matryoshka truncation (match CMM's 768d)
-    ATELIER_CODE_EMBEDDER=nomic ATELIER_NOMIC_DIM=768 \
+    LEMONCROW_CODE_EMBEDDER=nomic LEMONCROW_NOMIC_DIM=768 \
         uv run python benchmarks/codebench/eval_embedder_mrr.py
 
     # cap queries for a quick signal
-    FITNESS_SAMPLE=30 ATELIER_CODE_EMBEDDER=bge \
+    FITNESS_SAMPLE=30 LEMONCROW_CODE_EMBEDDER=bge \
         uv run python benchmarks/codebench/eval_embedder_mrr.py
 
 Results are appended to reports/benchmark/embedder_mrr_history.jsonl so
@@ -45,15 +45,15 @@ import numpy as np
 
 sys.path.insert(0, "src")
 
-from atelier.core.foundation.paths import workspace_key
-from atelier.infra.embeddings.factory import make_code_embedder
+from lemoncrow.core.foundation.paths import workspace_key
+from lemoncrow.infra.embeddings.factory import make_code_embedder
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 SAMPLE = int(os.environ.get("FITNESS_SAMPLE", "0"))
 REPO_FILTER = os.environ.get("FITNESS_REPO", "")
-EMBEDDER_PIN = os.environ.get("ATELIER_CODE_EMBEDDER", "bge")
+EMBEDDER_PIN = os.environ.get("LEMONCROW_CODE_EMBEDDER", "bge")
 
 _DEFAULT_GOLD = ",".join(
     filter(
@@ -174,7 +174,7 @@ for prefix, queries in sorted(uq.items()):
     # pure object overhead). Fix: pre-allocate the destination float32 matrix
     # up front and fill it slice-by-slice per chunk -- no Python list of
     # floats ever exists at any size. Same default chunk size as production's
-    # ATELIER_EMBED_COMMIT_CHUNK; overridable via EVAL_EMBEDDER_CHUNK.
+    # LEMONCROW_EMBED_COMMIT_CHUNK; overridable via EVAL_EMBEDDER_CHUNK.
     t1 = time.time()
     _embed_chunk = int(os.environ.get("EVAL_EMBEDDER_CHUNK", "20000"))
     doc_mat = np.empty((len(doc_texts), embedder.dim), dtype=np.float32)

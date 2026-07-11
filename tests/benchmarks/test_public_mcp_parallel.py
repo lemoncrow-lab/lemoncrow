@@ -172,7 +172,7 @@ def test_flatten_reports_adds_case_input_and_stable_args(monkeypatch: pytest.Mon
     result = harness.CaseResult(
         case=case,
         response={"ok": True},
-        atelier_tokens=25,
+        lemoncrow_tokens=25,
         baseline_tokens=100,
         quality_score=1.0,
         input_file_tokens=0,

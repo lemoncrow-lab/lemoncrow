@@ -3,19 +3,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.optimization.automation import (
+from lemoncrow.core.capabilities.optimization.automation import (
     PROPOSAL_ARTIFACT_PATH,
     _evaluate_proposal,
 )
-from atelier.core.capabilities.optimization.policy import AutomationConfig, BenchmarkEvidence
+from lemoncrow.core.capabilities.optimization.policy import AutomationConfig, BenchmarkEvidence
 
 
 def test_evaluate_proposal_fails_closed_without_evidence(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("atelier.core.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
+    monkeypatch.setattr("lemoncrow.core.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
 
     result = _evaluate_proposal(
         repo_root=tmp_path,
-        store_root=tmp_path / ".atelier",
+        store_root=tmp_path / ".lemoncrow",
         source="cli",
         open_pr=True,
         dry_run=False,
@@ -37,18 +37,18 @@ def test_evaluate_proposal_writes_repo_root_artifact(monkeypatch, tmp_path: Path
         def to_dict(self) -> dict[str, object]:
             return {"passed": True, "delta_lower_bound": 0.02}
 
-    monkeypatch.setattr("atelier.core.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
+    monkeypatch.setattr("lemoncrow.core.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
     monkeypatch.setattr(
-        "atelier.core.capabilities.optimization.automation.load_terminalbench_records",
+        "lemoncrow.core.capabilities.optimization.automation.load_terminalbench_records",
         lambda path: [],
     )
     monkeypatch.setattr(
-        "atelier.core.capabilities.optimization.automation.evaluate_non_inferiority",
+        "lemoncrow.core.capabilities.optimization.automation.evaluate_non_inferiority",
         lambda *a, **k: _Verdict(),
     )
 
     repo_root = tmp_path / "repo"
-    store_root = repo_root / ".atelier"
+    store_root = repo_root / ".lemoncrow"
     store_root.mkdir(parents=True)
 
     result = _evaluate_proposal(
@@ -88,18 +88,18 @@ def test_evaluate_proposal_uses_nested_advisor_recommendation(monkeypatch, tmp_p
         def to_dict(self) -> dict[str, object]:
             return {"passed": True, "delta_lower_bound": 0.03}
 
-    monkeypatch.setattr("atelier.core.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
+    monkeypatch.setattr("lemoncrow.core.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
     monkeypatch.setattr(
-        "atelier.core.capabilities.optimization.automation.load_terminalbench_records",
+        "lemoncrow.core.capabilities.optimization.automation.load_terminalbench_records",
         lambda path: [],
     )
     monkeypatch.setattr(
-        "atelier.core.capabilities.optimization.automation.evaluate_non_inferiority",
+        "lemoncrow.core.capabilities.optimization.automation.evaluate_non_inferiority",
         lambda *a, **k: _Verdict(),
     )
 
     repo_root = tmp_path / "repo"
-    store_root = repo_root / ".atelier"
+    store_root = repo_root / ".lemoncrow"
     store_root.mkdir(parents=True)
 
     result = _evaluate_proposal(
@@ -118,7 +118,7 @@ def test_evaluate_proposal_uses_nested_advisor_recommendation(monkeypatch, tmp_p
                 "routing": {"policy": "complexity_escalate"},
             },
             "weekly_savings_usd": 4.2,
-            "estimation": {"source": "stored_atelier_traces", "savings_are_estimates": True},
+            "estimation": {"source": "stored_lemoncrow_traces", "savings_are_estimates": True},
         },
         legacy_report={"estimated_tokens_saved": 5000},
         automation=AutomationConfig(enabled=True, minimum_projected_tokens_saved=1000),

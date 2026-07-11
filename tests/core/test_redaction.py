@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atelier.core.foundation.redaction import redact, redact_list
+from lemoncrow.core.foundation.redaction import redact, redact_list
 
 
 def test_redacts_openai_key() -> None:

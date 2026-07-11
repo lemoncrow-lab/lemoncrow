@@ -14,21 +14,21 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
-from atelier.core.capabilities.code_context import CodeContextEngine
-from atelier.core.capabilities.licensing import entitlements
-from atelier.core.environment import HIDDEN_LLM_TOOLS
-from atelier.core.service.bootstrap_context import build_bootstrap_plan, persist_bootstrap_plan
-from atelier.core.service.jobs import JOB_BOOTSTRAP_CONTEXT
-from atelier.gateway.adapters import mcp_server
-from atelier.gateway.adapters.mcp_server import TOOLS, _handle, tool_smart_edit
-from atelier.gateway.cli import cli
-from atelier.infra.code_intel.astgrep import (
+from lemoncrow.core.capabilities.code_context import CodeContextEngine
+from lemoncrow.core.capabilities.licensing import entitlements
+from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.core.service.bootstrap_context import build_bootstrap_plan, persist_bootstrap_plan
+from lemoncrow.core.service.jobs import JOB_BOOTSTRAP_CONTEXT
+from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp_server import TOOLS, _handle, tool_smart_edit
+from lemoncrow.gateway.cli import cli
+from lemoncrow.infra.code_intel.astgrep import (
     AstGrepToolUnavailable,
     PatternMatch,
     PatternRewriteResult,
     PatternSearchResult,
 )
-from atelier.infra.storage.factory import create_store, make_memory_store
+from lemoncrow.infra.storage.factory import create_store, make_memory_store
 from tests.helpers import grant_oauth_pro, init_store_at
 
 # Single-primary retrieval surface: `explore` (ranked source + call-graph
@@ -83,14 +83,14 @@ def _op_result(render_name: str, op_fn: Any, **kwargs: Any) -> Any:
 def _preindex(repo_root: str | Path) -> None:
     """Explicitly index a repo for deterministic code-context tests.
 
-    Also indexes workspace siblings if ``.atelier/workspace.toml`` exists.
+    Also indexes workspace siblings if ``.lemoncrow/workspace.toml`` exists.
     The gateway conftest disables the background autosync worker so tests that
     need a populated index build it explicitly via ``_op_index``.
     """
     import tomllib
 
     mcp_server._op_index(repo_root=str(repo_root), force=True)
-    workspace_config = Path(repo_root) / ".atelier" / "workspace.toml"
+    workspace_config = Path(repo_root) / ".lemoncrow" / "workspace.toml"
     if workspace_config.exists():
         config = tomllib.loads(workspace_config.read_text())
         for entry in config.get("workspace", {}).get("repos", []):
@@ -134,15 +134,15 @@ def _write_workspace_fixture_repo(root: Path, *, module_name: str, class_name: s
 
 
 def _write_workspace_fixture_config(workspace_root: Path, sibling_root: Path) -> None:
-    (workspace_root / ".atelier").mkdir(parents=True, exist_ok=True)
-    (workspace_root / ".atelier" / "workspace.toml").write_text(
+    (workspace_root / ".lemoncrow").mkdir(parents=True, exist_ok=True)
+    (workspace_root / ".lemoncrow" / "workspace.toml").write_text(
         "\n".join(
             [
                 "[workspace]",
                 'id = "fixture-workspace"',
                 "",
                 "[[workspace.repos]]",
-                'name = "atelier"',
+                'name = "lemoncrow"',
                 'path = "."',
                 "",
                 "[[workspace.repos]]",
@@ -157,14 +157,14 @@ def _write_workspace_fixture_config(workspace_root: Path, sibling_root: Path) ->
 
 @pytest.fixture()
 def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("ATELIER_MEMORY_BACKEND", "sqlite")
+    monkeypatch.setenv("LEMONCROW_MEMORY_BACKEND", "sqlite")
     # Trace persistence tests exercise the local ledger path; an ambient
-    # ATELIER_SERVICE_URL would force remote dispatch and skip _current_ledger.
-    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    # LEMONCROW_SERVICE_URL would force remote dispatch and skip _current_ledger.
+    monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
     mcp_server._current_ledger = None
     mcp_server._realtime_ctx = None
     mcp_server._remote_client = _mock_client(
@@ -191,11 +191,11 @@ def test_initialize_returns_server_info() -> None:
         }
     )
     assert resp is not None
-    assert resp["result"]["serverInfo"]["name"] == "atelier"
+    assert resp["result"]["serverInfo"]["name"] == "lemon"
     assert resp["result"]["protocolVersion"] == "2024-11-05"
     # Server-level steering: injected into the host system prompt by every MCP
     # client automatically — the surface that reaches hosts and subagents that
-    # never see Atelier's persona files.
+    # never see LemonCrow's persona files.
     instructions = resp["result"]["instructions"]
     assert "code_search" in instructions
     assert "grep" in instructions and "read" in instructions
@@ -231,13 +231,13 @@ def test_tools_list_hides_internal_tools(
 
 def test_memory_tool_call_works_without_dev_mode(store_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _ = store_root
-    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
     mcp_server._remote_client = None
     resp = _call(
         "memory",
         {
             "op": "store_fact",
-            "agent_id": "atelier:non-dev",
+            "agent_id": "lemon:non-dev",
             "subject": "test",
             "fact": "Memory should be active in non-dev mode.",
             "citations": 'Test: "direct"',
@@ -265,11 +265,11 @@ def test_cli_tools_list_hides_internal_tools_even_with_legacy_flag(
 ) -> None:
     runner = CliRunner()
 
-    stable = runner.invoke(cli, ["--root", str(tmp_path / ".atelier"), "tools", "list"])
+    stable = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "tools", "list"])
     assert stable.exit_code == 0, stable.output
     assert set(stable.output.splitlines()) == EXPECTED_TOOLS
 
-    dev = runner.invoke(cli, ["--root", str(tmp_path / ".atelier"), "tools", "list", "--dev"])
+    dev = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "tools", "list", "--dev"])
     assert dev.exit_code == 0, dev.output
     assert set(dev.output.splitlines()) == EXPECTED_TOOLS
 
@@ -281,7 +281,7 @@ def test_cli_tools_call_invokes_stable_tool(tmp_path: Path, monkeypatch: pytest.
         cli,
         [
             "--root",
-            str(tmp_path / ".atelier"),
+            str(tmp_path / ".lemoncrow"),
             "tools",
             "call",
             "compact",
@@ -480,9 +480,9 @@ def test_context_enqueues_single_bootstrap_job_for_cold_repo(
 def test_context_worker_tick_persists_bootstrap_blocks_without_blocking_initial_response(
     store_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ATELIER_DEV_MODE", "1")
+    monkeypatch.setenv("LEMONCROW_DEV_MODE", "1")
     workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
-    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
     mcp_server._remote_client = None
     _write_bootstrap_fixture_repo(workspace_root)
     mcp_server._reset_runtime_cache_for_testing()
@@ -512,7 +512,7 @@ def test_context_reuses_bootstrap_blocks_instead_of_enqueuing_duplicate_work(
     store_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
-    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
     mcp_server._remote_client = None
     _write_bootstrap_fixture_repo(workspace_root)
     mcp_server._reset_runtime_cache_for_testing()
@@ -536,7 +536,7 @@ def test_context_injects_preseeded_bootstrap_blocks_without_recomputing(
     store_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
-    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
     mcp_server._remote_client = None
     _write_bootstrap_fixture_repo(workspace_root)
     memory_store = make_memory_store(store_root)
@@ -558,7 +558,7 @@ def test_context_pull_threads_keywords_and_excluded_paths(monkeypatch: pytest.Mo
 
     def fake_pull(self: Any, subtask: Any) -> Any:
         seen["subtask"] = subtask
-        from atelier.core.capabilities.scoped_context import ScopedContext
+        from lemoncrow.core.capabilities.scoped_context import ScopedContext
 
         return ScopedContext(
             chunks=[],
@@ -571,7 +571,7 @@ def test_context_pull_threads_keywords_and_excluded_paths(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(mcp_server, "_code_context_engine", lambda root: object())
     monkeypatch.setattr(
-        "atelier.core.capabilities.scoped_context.ScopedContextCapability.pull",
+        "lemoncrow.core.capabilities.scoped_context.ScopedContextCapability.pull",
         fake_pull,
     )
 
@@ -858,7 +858,7 @@ def test_compact_handover_writes_markdown(store_root: Path) -> None:
     assert payload["should_handover"] is True
     assert payload["handover_file"]
     handover_path = Path(payload["handover_file"])
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     assert handover_path == session_dir(root, "claude", "handover-session") / "HANDOVER.md"
     assert "Session Handover" in handover_path.read_text(encoding="utf-8")
@@ -881,14 +881,14 @@ def test_model_recommendation_emitted_before_tool_dispatch(store_root: Path) -> 
 def test_model_recommendation_fallback_records_route_decision(
     monkeypatch: pytest.MonkeyPatch, store_root: Path
 ) -> None:
-    from atelier.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
-    from atelier.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
+    from lemoncrow.infra.runtime.run_ledger import RunLedger
 
     def fail_recommend(*_: object, **__: object) -> dict[str, object]:
         raise RouteConfigError("disabled")
 
     monkeypatch.setattr(
-        "atelier.core.capabilities.cross_vendor_routing.router.CrossVendorRouter.recommend",
+        "lemoncrow.core.capabilities.cross_vendor_routing.router.CrossVendorRouter.recommend",
         fail_recommend,
     )
     ledger = RunLedger(session_id="route-fallback", root=store_root)
@@ -945,9 +945,9 @@ def test_compact_advise_emits_session_compaction_savings_when_auto_compacting(
 
 def test_detect_agent_supports_all_five_cli_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
     for host in ("claude", "codex", "copilot", "opencode", "antigravity"):
-        monkeypatch.setenv("ATELIER_AGENT", host)
+        monkeypatch.setenv("LEMONCROW_AGENT", host)
         assert mcp_server._detect_agent() == host
-        monkeypatch.delenv("ATELIER_AGENT", raising=False)
+        monkeypatch.delenv("LEMONCROW_AGENT", raising=False)
 
 
 def test_smart_read_and_search_surfaces(store_root: Path, tmp_path: Path) -> None:
@@ -1097,14 +1097,14 @@ def test_smart_edit_surface_applies_patch(store_root: Path, tmp_path: Path, monk
                         "path": str(target),
                         "op": "replace",
                         "old_string": "world",
-                        "new_string": "atelier",
+                        "new_string": "lemoncrow",
                     }
                 ]
             },
         )
     )
     assert payload == {"applied": ["edit.txt:1"]}
-    assert target.read_text(encoding="utf-8") == "hello atelier"
+    assert target.read_text(encoding="utf-8") == "hello lemoncrow"
 
 
 def test_smart_edit_compacts_hunks_by_path(store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1278,7 +1278,7 @@ def test_compact_applied_entries_groups_by_path() -> None:
     silenced), so it is verified directly on the helper rather than via a clean
     edit's dispatched body.
     """
-    from atelier.gateway.adapters.mcp_server import _compact_applied_entries
+    from lemoncrow.gateway.adapters.mcp_server import _compact_applied_entries
 
     entries = [
         {"path": "first.txt", "hunks": [{"line_start": 1, "line_end": 1}]},
@@ -1516,7 +1516,7 @@ def test_smart_edit_rejects_mixed_descriptor_families(store_root: Path, tmp_path
 
 def test_smart_edit_legacy_rejects_protected_paths(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
-    protected = tmp_path / ".atelier" / "state.txt"
+    protected = tmp_path / ".lemoncrow" / "state.txt"
     protected.write_text("hello world", encoding="utf-8")
 
     payload = _result(
@@ -1528,7 +1528,7 @@ def test_smart_edit_legacy_rejects_protected_paths(store_root: Path, tmp_path: P
                         "path": str(protected),
                         "op": "replace",
                         "old_string": "world",
-                        "new_string": "atelier",
+                        "new_string": "lemoncrow",
                     }
                 ]
             },
@@ -1566,7 +1566,7 @@ def test_smart_edit_records_workspace_relative_diff_after_hooks(
         return HookResult()
 
     monkeypatch.setattr(
-        "atelier.core.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
+        "lemoncrow.core.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
         fake_hooks,
     )
 
@@ -1579,7 +1579,7 @@ def test_smart_edit_records_workspace_relative_diff_after_hooks(
                     {
                         "file_path": "edit.txt",
                         "old_string": "world",
-                        "new_string": "atelier",
+                        "new_string": "lemoncrow",
                     }
                 ],
             },
@@ -1592,7 +1592,7 @@ def test_smart_edit_records_workspace_relative_diff_after_hooks(
     file_events = [event for event in mcp_server._get_ledger().events if event.kind == "file_edit"]
     assert file_events[-1].payload["path"] == "edit.txt"
     assert "hello hooks" in file_events[-1].payload["diff"]
-    assert "hello atelier" not in file_events[-1].payload["diff"]
+    assert "hello lemoncrow" not in file_events[-1].payload["diff"]
 
 
 def test_code_context_workspace_search_returns_repo_tagged_hits_and_repo_filter(
@@ -1601,7 +1601,7 @@ def test_code_context_workspace_search_returns_repo_tagged_hits_and_repo_filter(
 ) -> None:
     _ = store_root
     billing_root = tmp_path.parent / "billing"
-    _write_workspace_fixture_repo(tmp_path, module_name="atelier")
+    _write_workspace_fixture_repo(tmp_path, module_name="lemoncrow")
     _write_workspace_fixture_repo(billing_root, module_name="billing")
     _write_workspace_fixture_config(tmp_path, billing_root)
     _preindex(tmp_path)
@@ -1615,7 +1615,7 @@ def test_code_context_workspace_search_returns_repo_tagged_hits_and_repo_filter(
     )
 
     assert [(item["repo_name"], item["path"]) for item in payload["items"]] == [
-        ("atelier", "src/config.py"),
+        ("lemoncrow", "src/config.py"),
         ("billing", "src/config.py"),
     ]
     assert [item["repo_name"] for item in billing_only["items"]] == ["billing"]
@@ -1908,10 +1908,10 @@ def test_tool_code_search_response_includes_saved_section_retrieval(
         ],
     }
     appended: list[tuple[str, int, int]] = []
-    monkeypatch.setattr("atelier.gateway.adapters.mcp_server._workspace_root", lambda: tmp_path)
-    monkeypatch.setattr("atelier.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
+    monkeypatch.setattr("lemoncrow.gateway.adapters.mcp_server._workspace_root", lambda: tmp_path)
+    monkeypatch.setattr("lemoncrow.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._append_workspace_savings",
+        "lemoncrow.gateway.adapters.mcp_server._append_workspace_savings",
         lambda tool, tokens, calls, rid="": appended.append((tool, tokens, calls)),
     )
 
@@ -1937,7 +1937,7 @@ def test_tool_code_search_dispatches_mode_without_gateway_ranking_logic(
         "mode": "semantic",
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -1978,7 +1978,7 @@ def test_tool_code_search_dispatches_grounded_seed_files_without_gateway_ranking
         "mode": "lexical",
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -2026,7 +2026,7 @@ def test_tool_code_search_dispatches_deleted_scope_filters_without_gateway_histo
         "mode": "auto",
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -2076,7 +2076,7 @@ def test_tool_code_blame_dispatches_additively_without_gateway_aggregation(
         "total_tokens": 150,
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -2113,7 +2113,7 @@ def test_tool_code_include_churn_remains_additive_for_non_blame_ops(
         "mode": "auto",
     }
     monkeypatch.setattr(
-        "atelier.gateway.adapters.mcp_server._code_context_engine",
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
         lambda repo_root=".": fake_engine,
     )
 
@@ -2175,7 +2175,7 @@ def test_code_context_pattern_search_surface_is_cached(
     (tmp_path / "src" / "app.py").write_text("requests.get(url)\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "atelier.core.capabilities.code_context.engine.AstGrepAdapter.search",
+        "lemoncrow.core.capabilities.code_context.engine.AstGrepAdapter.search",
         lambda self, *, pattern, language=None, file_glob=None, limit=20: PatternSearchResult(
             matches=[
                 PatternMatch(
@@ -2283,7 +2283,7 @@ def test_code_context_pattern_rewrite_reindexes_changed_files(
 
     reindexed: list[list[str]] = []
 
-    monkeypatch.setattr("atelier.core.capabilities.code_context.engine.AstGrepAdapter.rewrite", fake_rewrite)
+    monkeypatch.setattr("lemoncrow.core.capabilities.code_context.engine.AstGrepAdapter.rewrite", fake_rewrite)
     monkeypatch.setattr(
         CodeContextEngine,
         "_reindex_files",
@@ -2330,7 +2330,7 @@ def test_code_context_pattern_returns_structured_tool_unavailable(
         "hint": "install ast-grep",
     }
     monkeypatch.setattr(
-        "atelier.core.capabilities.code_context.engine.AstGrepAdapter.search",
+        "lemoncrow.core.capabilities.code_context.engine.AstGrepAdapter.search",
         lambda self, *, pattern, language=None, file_glob=None, limit=20: (_ for _ in ()).throw(
             AstGrepToolUnavailable(payload)
         ),
@@ -2352,16 +2352,16 @@ def test_code_context_pattern_returns_structured_tool_unavailable(
 
 def test_path_safety_module_is_importable_and_has_protected_parts() -> None:
     """Centralised PROTECTED_PARTS frozenset must exist and cover the canonical dirs."""
-    from atelier.core.capabilities.tool_supervision.path_safety import PROTECTED_PARTS
+    from lemoncrow.core.capabilities.tool_supervision.path_safety import PROTECTED_PARTS
 
-    required = {".git", ".atelier", "node_modules", ".venv"}
+    required = {".git", ".lemoncrow", "node_modules", ".venv"}
     assert required <= set(PROTECTED_PARTS), f"Missing entries: {required - set(PROTECTED_PARTS)}"
 
 
 def test_batch_edit_and_rich_edit_share_path_safety_constant() -> None:
     """Both edit modules must reference the same PROTECTED_PARTS set (no local forks)."""
-    from atelier.core.capabilities.tool_supervision import batch_edit, rich_edit
-    from atelier.core.capabilities.tool_supervision.path_safety import PROTECTED_PARTS
+    from lemoncrow.core.capabilities.tool_supervision import batch_edit, rich_edit
+    from lemoncrow.core.capabilities.tool_supervision.path_safety import PROTECTED_PARTS
 
     # Neither module should define its own _PROTECTED_PARTS
     assert not hasattr(batch_edit, "_PROTECTED_PARTS"), "batch_edit still has local _PROTECTED_PARTS"
@@ -2379,7 +2379,7 @@ def test_trace_compact_receipt_always_present(store_root: Path) -> None:
         _call(
             "trace",
             {
-                "agent": "atelier:code",
+                "agent": "lemon:code",
                 "domain": "mcp-server",
                 "task": "Verify compact receipt",
                 "status": "success",
@@ -2394,7 +2394,7 @@ def test_trace_compact_receipt_always_present(store_root: Path) -> None:
 
 def test_shell_failure_preserves_tail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """For failing commands, the tail of stdout must be preserved even when output is long."""
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2417,7 +2417,7 @@ def test_shell_falls_back_when_workspace_root_missing(tmp_path: Path, monkeypatc
     every cwd-less command raise FileNotFoundError from Popen -> MCP -32000.
     The handler now falls back to the process cwd so the command still runs.
     """
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     missing = tmp_path / "does" / "not" / "exist"
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(missing))
@@ -2435,7 +2435,7 @@ def test_shell_short_timeout_does_not_kill_the_command(tmp_path: Path, monkeypat
     and complete normally instead of being killed out from under the caller.
     This is the fix for tasks that background a long-running service with a
     modest timeout and expect it to survive."""
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2449,7 +2449,7 @@ def test_shell_short_timeout_does_not_kill_the_command(tmp_path: Path, monkeypat
 
 
 def test_shell_run_blocks_until_completion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2466,7 +2466,7 @@ def test_shell_run_blocks_until_completion(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_shell_large_timeout_does_not_detach_fast_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2480,7 +2480,7 @@ def test_shell_large_timeout_does_not_detach_fast_command(tmp_path: Path, monkey
 
 
 def test_shell_poll_blocks_until_completion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2500,7 +2500,7 @@ def test_shell_poll_blocks_until_completion(tmp_path: Path, monkeypatch: pytest.
 
 
 def test_shell_background_return_reports_timeout_remaining(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2523,7 +2523,7 @@ def test_render_shell_text_running_ships_only_the_handle() -> None:
     # pid/elapsed/timeout/log paths are dead weight the model never acts on;
     # poll/status/cancel need only the session_id (action=status ships a live
     # output tail on demand). The structured payload keeps the fields.
-    from atelier.gateway.adapters.mcp_server import _render_bash_text
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
 
     text = _render_bash_text(
         {
@@ -2547,7 +2547,7 @@ def test_render_shell_text_overrunning_once_past_its_soft_budget() -> None:
     # once the command has burned through its requested timeout -- lets the
     # model tell "still well inside its window" apart from "already over", plus
     # a nudge to actually decide (cancel/justify) instead of reflex-polling.
-    from atelier.gateway.adapters.mcp_server import _render_bash_text
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
 
     text = _render_bash_text(
         {
@@ -2563,7 +2563,7 @@ def test_render_shell_text_overrunning_once_past_its_soft_budget() -> None:
 def test_render_shell_text_running_before_budget_has_no_nudge() -> None:
     # A plain mid-flight peek that's still well inside its window gets no
     # act-now nudge -- that's reserved for the actually-overrunning case.
-    from atelier.gateway.adapters.mcp_server import _render_bash_text
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
 
     text = _render_bash_text(
         {
@@ -2578,7 +2578,7 @@ def test_render_shell_text_running_before_budget_has_no_nudge() -> None:
 
 
 def test_render_bash_text_includes_spill_hint_in_truncation_notice() -> None:
-    from atelier.gateway.adapters.mcp_server import _render_bash_text
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
 
     text = _render_bash_text(
         {
@@ -2587,17 +2587,17 @@ def test_render_bash_text_includes_spill_hint_in_truncation_notice() -> None:
             "exit_code": 0,
             "truncated": True,
             "lines_omitted": 50,
-            "spill_hint": "[atelier: shrunk 5000→123; full: read /tmp/x.txt]",
+            "spill_hint": "[lemon: shrunk 5000→123; full: read /tmp/x.txt]",
         }
     )
     # The spill notice subsumes the bare truncation marker -- exactly one
     # truncation footer ships, never both.
-    assert "[atelier: shrunk 5000→123; full: read /tmp/x.txt]" in text
+    assert "[lemon: shrunk 5000→123; full: read /tmp/x.txt]" in text
     assert "[output truncated: 50 lines omitted]" not in text
 
 
 def test_render_bash_text_omits_spill_hint_when_absent() -> None:
-    from atelier.gateway.adapters.mcp_server import _render_bash_text
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
 
     text = _render_bash_text(
         {
@@ -2612,7 +2612,7 @@ def test_render_bash_text_omits_spill_hint_when_absent() -> None:
 
 
 def test_shell_background_session_can_be_cancelled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2635,7 +2635,7 @@ def test_shell_background_session_survives_past_timeout(tmp_path: Path, monkeypa
     result. Explicit cancellation is still available via action="cancel" (see
     test_shell_background_session_can_be_cancelled) for callers that do want
     to give up on it."""
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2658,7 +2658,7 @@ def test_shell_action_update_installs_an_enforced_kill_deadline(
     """Before any action="update" call, `timeout` is only ever a soft
     response budget (see test_shell_background_session_survives_past_timeout)
     -- update is the only thing that installs a real, enforced kill."""
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2678,7 +2678,7 @@ def test_shell_action_update_installs_an_enforced_kill_deadline(
 
 
 def test_shell_action_update_extends_its_own_deadline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2698,7 +2698,7 @@ def test_shell_action_update_extends_its_own_deadline(tmp_path: Path, monkeypatc
 
 
 def test_shell_action_update_requires_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2711,7 +2711,7 @@ def test_shell_action_update_requires_timeout(tmp_path: Path, monkeypatch: pytes
 
 
 def test_render_shell_text_reports_update_confirmation() -> None:
-    from atelier.gateway.adapters.mcp_server import _render_bash_text
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
 
     text = _render_bash_text(
         {
@@ -2727,7 +2727,7 @@ def test_render_shell_text_reports_update_confirmation() -> None:
 
 
 def test_render_shell_text_reports_update_failure_when_already_finished() -> None:
-    from atelier.gateway.adapters.mcp_server import _render_bash_text
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
 
     text = _render_bash_text({"status": "completed", "session_id": "abc123", "updated": False})
     assert "abc123" in text
@@ -2735,7 +2735,7 @@ def test_render_shell_text_reports_update_failure_when_already_finished() -> Non
 
 
 def test_shell_status_action_is_nonblocking_and_reports_tail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2768,7 +2768,7 @@ def test_shell_status_action_is_nonblocking_and_reports_tail(tmp_path: Path, mon
 def test_shell_status_action_reports_finished_session_without_reaping(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from atelier.gateway.adapters.mcp_server import _run_bash_tool
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
 
@@ -2791,7 +2791,7 @@ def test_shell_status_action_reports_finished_session_without_reaping(
 
 
 def test_render_shell_text_status_action_notes_tail_window() -> None:
-    from atelier.gateway.adapters.mcp_server import _render_bash_text
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
 
     text = _render_bash_text(
         {
@@ -2810,7 +2810,7 @@ def test_render_shell_text_status_action_notes_tail_window() -> None:
 
 
 def test_render_bash_text_tail_braces_shared_log_prefix() -> None:
-    from atelier.gateway.adapters.mcp_server import _render_bash_text
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
 
     text = _render_bash_text(
         {
@@ -2818,11 +2818,11 @@ def test_render_bash_text_tail_braces_shared_log_prefix() -> None:
             "stderr": "",
             "exit_code": 0,
             "tail_lines": 5,
-            "log_file": "/tmp/atelier-bash/abc.stdout.txt",
-            "log_file_stderr": "/tmp/atelier-bash/abc.stderr.txt",
+            "log_file": "/tmp/lemoncrow-bash/abc.stdout.txt",
+            "log_file_stderr": "/tmp/lemoncrow-bash/abc.stderr.txt",
         }
     )
-    assert "[tail: last 5 lines; full: read /tmp/atelier-bash/abc.{stdout.txt, stderr.txt}]" in text
+    assert "[tail: last 5 lines; full: read /tmp/lemoncrow-bash/abc.{stdout.txt, stderr.txt}]" in text
 
 
 def test_shell_mcp_call_returns_managed_session_for_background_command(
@@ -2856,7 +2856,7 @@ def test_truncate_result_text_caps_oversized_with_notice() -> None:
     out = mcp_server._truncate_result_text("x" * 5000, 1024)
     assert len(out.encode("utf-8")) <= 1024
     assert "truncated" in out
-    assert "5000" in out  # canonical footer: "[atelier: truncated 5000→1024; narrow the query for full]"
+    assert "5000" in out  # canonical footer: "[lemon: truncated 5000→1024; narrow the query for full]"
 
 
 def test_truncate_result_text_keeps_valid_utf8_on_multibyte_boundary() -> None:
@@ -2872,14 +2872,14 @@ def test_truncate_result_text_spills_full_text_when_tool_name_given(
     used to discard everything past the cut. With T7 spill enabled (default)
     and a tool_name given, the full text is persisted first.
     """
-    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path / "spill"))
-    monkeypatch.delenv("ATELIER_TOOL_OUTPUT_SPILL", raising=False)  # default on
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path / "spill"))
+    monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)  # default on
     middle_marker = "UNIQUE-MIDDLE-MARKER"
     text = "HEAD" + ("x" * 5000) + middle_marker + ("x" * 5000) + "TAIL"
     out = mcp_server._truncate_result_text(text, 1024, "bash")
 
     assert len(out.encode("utf-8")) <= 1024
-    assert "[atelier: truncated" in out
+    assert "[lemon: truncated" in out
     match = re.search(r"read (\S+\.txt)\]", out)
     assert match is not None
     recovered = Path(match.group(1)).read_text(encoding="utf-8")
@@ -2890,7 +2890,7 @@ def test_truncate_result_text_spills_full_text_when_tool_name_given(
 def test_truncate_result_text_without_tool_name_keeps_bare_notice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("ATELIER_TOOL_OUTPUT_SPILL", raising=False)
+    monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)
     out = mcp_server._truncate_result_text("x" * 5000, 1024)
     assert "spilled to" not in out
     assert "narrow the query" in out
@@ -2922,7 +2922,7 @@ def test_read_oversized_result_is_capped_not_dropped(
     # JSON-RPC frame, tripping the host stdout guard and disconnecting the
     # server. The result must be truncated in place, never dropped.
     _ = store_root
-    monkeypatch.setenv("ATELIER_MCP_MAX_RESULT_BYTES", "70000")
+    monkeypatch.setenv("LEMONCROW_MCP_MAX_RESULT_BYTES", "70000")
     big = tmp_path / "big.txt"
     big.write_text("A" * 200_000, encoding="utf-8")
     text = _result(_call("read", {"path": str(big), "full": True}))
@@ -2935,7 +2935,7 @@ def test_smart_read_single_caps_oversized_expand_at_source(tmp_path: Path, monke
     # The source-side guard bounds an exact (expand) read of a huge file before
     # it is ever fully loaded, returning a truncated payload with the byte count.
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("ATELIER_MCP_MAX_RESULT_BYTES", "70000")
+    monkeypatch.setenv("LEMONCROW_MCP_MAX_RESULT_BYTES", "70000")
     big = tmp_path / "big.log"
     big.write_text("L" * 500_000, encoding="utf-8")
     payload = mcp_server._smart_read_single(str(big), expand=True)
@@ -2948,7 +2948,7 @@ def test_render_memory_md_compact_recall() -> None:
     out = mcp_server._render_memory_md(
         {
             "passages": [
-                {"id": "pas-1", "text": "Prefer atelier memory.", "source_ref": "sess#1", "tags": ["pref"]},
+                {"id": "pas-1", "text": "Prefer LemonCrow memory.", "source_ref": "sess#1", "tags": ["pref"]},
                 {"id": "pas-2", "text": "Use uv run.", "source_ref": "sess#2", "tags": []},
             ]
         }
@@ -2956,7 +2956,7 @@ def test_render_memory_md_compact_recall() -> None:
     assert out is not None
     assert out.startswith("### memory")
     assert "- sess#1 [pref]" in out
-    assert "Prefer atelier memory." in out
+    assert "Prefer LemonCrow memory." in out
     # repeated JSON field keys are dropped
     assert "source_ref" not in out
 
@@ -2979,10 +2979,10 @@ def test_render_search_map_md_is_compact() -> None:
 
 
 def test_check_auto_update_respects_explicit_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_AUTO_UPDATE", "0")
+    monkeypatch.setenv("LEMONCROW_AUTO_UPDATE", "0")
 
     def _boom(*args: Any, **kwargs: Any) -> Any:  # pragma: no cover - must not run
-        raise AssertionError("auto-update ran a subprocess while ATELIER_AUTO_UPDATE=0")
+        raise AssertionError("auto-update ran a subprocess while LEMONCROW_AUTO_UPDATE=0")
 
     import subprocess as _subprocess
 

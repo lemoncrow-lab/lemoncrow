@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.owned_agent_session.phase_runner import _phase_user_message
-from atelier.core.capabilities.owned_agent_session.stem_prompt import (
+from lemoncrow.core.capabilities.owned_agent_session.phase_runner import _phase_user_message
+from lemoncrow.core.capabilities.owned_agent_session.stem_prompt import (
     STEM_SYSTEM_PROMPT,
     stem_prompt_for_mode,
 )

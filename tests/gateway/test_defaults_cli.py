@@ -5,14 +5,14 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from atelier.gateway.cli import cli
+from lemoncrow.gateway.cli import cli
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_defaults_bootstrap_cli_writes_manifest_and_reports_statuses(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     target = tmp_path / "workspace"
 
     monkeypatch.chdir(REPO_ROOT)

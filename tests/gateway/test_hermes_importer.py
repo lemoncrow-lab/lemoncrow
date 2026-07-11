@@ -6,9 +6,9 @@ import json
 import sqlite3
 from pathlib import Path
 
-from atelier.core.foundation.store import ContextStore
-from atelier.gateway.hosts.session_parsers._session_parser import parse_session_turns
-from atelier.gateway.hosts.session_parsers.hermes import (
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
+from lemoncrow.gateway.hosts.session_parsers.hermes import (
     HermesImporter,
     find_hermes_sessions,
     serialize_hermes_session,

@@ -620,7 +620,7 @@ export function ConversationTurn({
             ((turn.saved.tokens ?? 0) > 0 || (turn.saved.calls ?? 0) > 0) && (
               <span
                 className="text-[10px] font-black tracking-tight text-emerald-300"
-                title={`Atelier saved ${turn.saved.tokens.toLocaleString()} tokens${turn.saved.calls > 0 ? ` and ${turn.saved.calls} call${turn.saved.calls === 1 ? "" : "s"}` : ""}${turn.saved.usd > 0 ? ` (≈ $${turn.saved.usd.toFixed(4)} at the model's input rate)` : ""}`}
+                title={`LemonCrow saved ${turn.saved.tokens.toLocaleString()} tokens${turn.saved.calls > 0 ? ` and ${turn.saved.calls} call${turn.saved.calls === 1 ? "" : "s"}` : ""}${turn.saved.usd > 0 ? ` (≈ $${turn.saved.usd.toFixed(4)} at the model's input rate)` : ""}`}
               >
                 ↓{" "}
                 {turn.saved.usd > 0

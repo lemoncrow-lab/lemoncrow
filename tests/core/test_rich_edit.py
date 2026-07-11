@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.source_projection import build_compact_projection
-from atelier.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
+from lemoncrow.core.capabilities.source_projection import build_compact_projection
+from lemoncrow.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
 
 def test_rich_edit_sequential_same_file_and_line_range(tmp_path: Path) -> None:
@@ -65,13 +65,13 @@ def test_rich_edit_typography_placeholder_fuzzy_and_indent(tmp_path: Path) -> No
 def test_rich_edit_atomic_rollback_and_protected_paths(tmp_path: Path) -> None:
     path = tmp_path / "file.txt"
     path.write_text("original\n", encoding="utf-8")
-    (tmp_path / ".atelier").mkdir()
-    (tmp_path / ".atelier" / "state.txt").write_text("do not touch\n", encoding="utf-8")
+    (tmp_path / ".lemoncrow").mkdir()
+    (tmp_path / ".lemoncrow" / "state.txt").write_text("do not touch\n", encoding="utf-8")
 
     result = apply_rich_edits(
         [
             {"file_path": "file.txt", "old_string": "original", "new_string": "changed"},
-            {"file_path": ".atelier/state.txt", "old_string": "do", "new_string": "DO"},
+            {"file_path": ".lemoncrow/state.txt", "old_string": "do", "new_string": "DO"},
         ],
         repo_root=tmp_path,
         atomic=True,

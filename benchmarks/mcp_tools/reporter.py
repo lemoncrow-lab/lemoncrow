@@ -40,7 +40,7 @@ def render_tool_report(report: ToolReport) -> str:
     # Column headers
     col_w = 36
     lines.append(
-        f"  {'op':<{col_w}} {'status':<8} {'atelier':>8} {'baseline':>9} "
+        f"  {'op':<{col_w}} {'status':<8} {'lemoncrow':>8} {'baseline':>9} "
         f"{'input':>9} {'saved':>7} {'saving%':>8} {'effective':>10}  {'ms':>5}"
     )
     lines.append(f"  {'-' * col_w} {'-' * 7} {'-' * 8} {'-' * 9} {'-' * 9} {'-' * 7} {'-' * 8} {'-' * 10}  {'-' * 5}")
@@ -54,7 +54,7 @@ def render_tool_report(report: ToolReport) -> str:
         effective_str = f"{r.effective_tokens:,.0f}"
         label = r.case.label[:col_w]
         lines.append(
-            f"  {label:<{col_w}} {status}{'  ':<6} {r.atelier_tokens:>8,} {baseline_str:>9} {input_str:>9} "
+            f"  {label:<{col_w}} {status}{'  ':<6} {r.lemoncrow_tokens:>8,} {baseline_str:>9} {input_str:>9} "
             f"{saved_str:>7} {pct_str:>8} {effective_str:>10}  {r.elapsed_ms:>5.0f}"
         )
         if not r.passed:
@@ -74,7 +74,7 @@ def render_summary(reports: list[ToolReport]) -> str:
     total_saved = sum(r.total_saved_tokens for r in reports)
     total_effective = sum(r.total_effective_tokens for r in reports)
 
-    lines.append(f"\n{_BOLD}━━ Atelier MCP Benchmark ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{_RESET}")
+    lines.append(f"\n{_BOLD}━━ LemonCrow MCP Benchmark ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{_RESET}")
     for report in reports:
         lines.append(render_tool_report(report))
 

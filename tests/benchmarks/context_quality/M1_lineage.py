@@ -4,14 +4,14 @@ Tests whether commit chunk search correctly surfaces historical bug-fix commits
 when queried with natural-language descriptions of the problems they solved.
 
 Requirements:
-- Atelier bootstrap must be complete for the target repo (commit_chunks table populated).
-- Run with ATELIER_LLM_BACKEND=openai for Haiku 3.5 summarisation.
+- LemonCrow bootstrap must be complete for the target repo (commit_chunks table populated).
+- Run with LEMONCROW_LLM_BACKEND=openai for Haiku 3.5 summarisation.
 - Expected target: >=7/10 queries graded CORRECT.
 
 Usage:
     uv run pytest tests/benchmarks/context_quality/M1_lineage.py -v -m slow
     # or with explicit repo:
-    ATELIER_REPO_ROOT=/path/to/repo uv run pytest M1_lineage.py -v -m slow
+    LEMONCROW_REPO_ROOT=/path/to/repo uv run pytest M1_lineage.py -v -m slow
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ class LineageQuery:
     description: str
 
 
-# Ground truth: 10 real fix commits from the Atelier repo.
+# Ground truth: 10 real fix commits from the LemonCrow repo.
 # Add more by running: git log --oneline --no-merges | grep "^fix"
 # then pick commits with clear, searchable summaries.
 QUERIES: list[LineageQuery] = [
@@ -119,11 +119,11 @@ def _grade_result(results: list[Any], expected_sha: str, keywords: list[str]) ->
 
 def _get_engine(repo_root: pathlib.Path) -> Any:
     """Instantiate a CodeContextEngine for the target repo."""
-    from atelier.core.capabilities.code_context.engine import CodeContextEngine
+    from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
 
     repo_id = hashlib.sha256(str(repo_root.resolve()).encode()).hexdigest()[:16]
-    atelier_root = pathlib.Path(os.environ.get("ATELIER_ROOT") or pathlib.Path.home() / ".atelier")
-    db_path = atelier_root / "repos" / repo_id / "code.db"
+    lemoncrow_root = pathlib.Path(os.environ.get("LEMONCROW_ROOT") or pathlib.Path.home() / ".lemoncrow")
+    db_path = lemoncrow_root / "repos" / repo_id / "code.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         return CodeContextEngine(repo_root=repo_root, db_path=db_path, autosync_enabled=False)
@@ -143,7 +143,7 @@ def run_benchmark(repo_root: pathlib.Path | None = None) -> dict[str, Any]:
         }
     """
     if repo_root is None:
-        env_root = os.environ.get("ATELIER_REPO_ROOT")
+        env_root = os.environ.get("LEMONCROW_REPO_ROOT")
         repo_root = pathlib.Path(env_root) if env_root else pathlib.Path.cwd()
 
     engine = _get_engine(repo_root)
@@ -201,15 +201,15 @@ def run_benchmark(repo_root: pathlib.Path | None = None) -> dict[str, Any]:
 @pytest.mark.slow
 def test_m1_lineage_pass_rate() -> None:
     """CQEVAL-02: >=7/10 commit history queries answered with correct citation."""
-    repo_root_env = os.environ.get("ATELIER_REPO_ROOT")
+    repo_root_env = os.environ.get("LEMONCROW_REPO_ROOT")
     repo_root = pathlib.Path(repo_root_env) if repo_root_env else pathlib.Path.cwd()
 
     import subprocess
 
     try:
         remotes = subprocess.check_output(["git", "remote", "-v"], cwd=repo_root, text=True, timeout=5)
-        if "atelier" not in remotes.lower() and "leanchain" not in remotes.lower():
-            pytest.skip("Not running in the atelier repo — skip M1 benchmark")
+        if "lemoncrow" not in remotes.lower() and "leanchain" not in remotes.lower():
+            pytest.skip("Not running in the lemoncrow repo — skip M1 benchmark")
     except (subprocess.CalledProcessError, OSError):
         pytest.skip("git remote check failed — skip M1 benchmark")
 
@@ -230,14 +230,14 @@ def test_m1_lineage_pass_rate() -> None:
     assert pass_count >= 7, (
         f"M1 benchmark FAIL: {pass_count}/10 correct (target >=7/10). "
         f"Pass rate: {pass_rate:.0%}. "
-        f"Ensure bootstrap has completed and ATELIER_LLM_BACKEND=openai is set."
+        f"Ensure bootstrap has completed and LEMONCROW_LLM_BACKEND=openai is set."
     )
 
 
 @pytest.mark.slow
 def test_m1_commit_chunks_populated() -> None:
     """Prerequisite: commit_chunks table must have >=100 rows for meaningful eval."""
-    repo_root_env = os.environ.get("ATELIER_REPO_ROOT")
+    repo_root_env = os.environ.get("LEMONCROW_REPO_ROOT")
     repo_root = pathlib.Path(repo_root_env) if repo_root_env else pathlib.Path.cwd()
     engine = _get_engine(repo_root)
     with closing(engine.connection()) as conn:
@@ -247,14 +247,14 @@ def test_m1_commit_chunks_populated() -> None:
         pytest.skip("commit_chunks empty — run bootstrap: code op=search on this repo first")
     assert (
         chunk_count >= 100
-    ), f"Only {chunk_count} commit chunks found. Bootstrap may be incomplete (target: ~425 for the atelier repo)."
+    ), f"Only {chunk_count} commit chunks found. Bootstrap may be incomplete (target: ~425 for the lemoncrow repo)."
     print(f"commit_chunks populated: {chunk_count} rows")
 
 
 if __name__ == "__main__":
     import json
 
-    repo_root_env = os.environ.get("ATELIER_REPO_ROOT")
+    repo_root_env = os.environ.get("LEMONCROW_REPO_ROOT")
     repo_root = pathlib.Path(repo_root_env) if repo_root_env else pathlib.Path.cwd()
     result = run_benchmark(repo_root)
     print(json.dumps(result, indent=2))

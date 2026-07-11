@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from atelier.core.foundation.store import ContextStore
-from atelier.infra.runtime.outcome_capture import emit_typed_lesson_candidate
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.runtime.outcome_capture import emit_typed_lesson_candidate
 
 
 def test_outcome_capture_emits_candidate_for_recurring_pattern(tmp_path) -> None:

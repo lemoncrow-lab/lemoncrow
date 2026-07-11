@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.code_context.engine import CodeContextEngine
+from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
 
 pytestmark = [pytest.mark.ab, pytest.mark.slow]
 
@@ -20,16 +20,16 @@ class ABRow:
     mode: str
     native_tool: str
     native_tokens: int
-    atelier_tokens: int
+    lemoncrow_tokens: int
     tokens_saved_measured: int
     token_ratio: float | None
     native_ms: float
-    atelier_ms: float
+    lemoncrow_ms: float
     ts: float
 
 
 def _calibration_path() -> Path:
-    path = Path.home() / ".atelier" / "savings_calibration.jsonl"
+    path = Path.home() / ".lemoncrow" / "savings_calibration.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -52,30 +52,30 @@ def _count_tiktoken(text: str) -> int:
 
 
 def _write_fixture_repo(root: Path) -> None:
-    (root / "src" / "atelier").mkdir(parents=True, exist_ok=True)
+    (root / "src" / "lemoncrow").mkdir(parents=True, exist_ok=True)
     (root / "tests").mkdir(parents=True, exist_ok=True)
     (root / "docs").mkdir(parents=True, exist_ok=True)
 
-    (root / "src" / "atelier" / "auth.py").write_text(
+    (root / "src" / "lemoncrow" / "auth.py").write_text(
         "class AuthService:\n    def login(self, email: str) -> bool:\n        return bool(email)\n",
         encoding="utf-8",
     )
-    (root / "src" / "atelier" / "routes.py").write_text(
+    (root / "src" / "lemoncrow" / "routes.py").write_text(
         "def route_login() -> str:\n    return '/login'\n",
         encoding="utf-8",
     )
     (root / "tests" / "test_auth.py").write_text(
-        "from src.atelier.auth import AuthService\n\ndef test_login() -> None:\n    assert AuthService().login('x')\n",
+        "from src.lemoncrow.auth import AuthService\n\ndef test_login() -> None:\n    assert AuthService().login('x')\n",
         encoding="utf-8",
     )
     (root / "docs" / "readme.md").write_text("# Fixture\n", encoding="utf-8")
     for idx in range(1, 10):
-        (root / "src" / "atelier" / f"module_{idx}.py").write_text(
+        (root / "src" / "lemoncrow" / f"module_{idx}.py").write_text(
             f"def run() -> str:\n    return 'module_{idx}'\n",
             encoding="utf-8",
         )
         (root / "tests" / f"test_module_{idx}.py").write_text(
-            f"from src.atelier.module_{idx} import run\n\n"
+            f"from src.lemoncrow.module_{idx} import run\n\n"
             "def test_run() -> None:\n"
             f"    assert run() == 'module_{idx}'\n",
             encoding="utf-8",
@@ -112,21 +112,21 @@ def test_code_files_ab_real(tmp_path: Path) -> None:
 
     t1 = time.perf_counter()
     payload = engine.tool_files(format="tree", budget_tokens=4000)
-    atelier_ms = (time.perf_counter() - t1) * 1000.0
-    atelier_text = json.dumps(payload, sort_keys=True, default=str)
+    lemoncrow_ms = (time.perf_counter() - t1) * 1000.0
+    lemoncrow_text = json.dumps(payload, sort_keys=True, default=str)
 
     native_tokens = _count_tiktoken(native_text)
-    atelier_tokens = _count_tiktoken(atelier_text)
+    lemoncrow_tokens = _count_tiktoken(lemoncrow_text)
     row = ABRow(
         tool="code.files",
         mode="tree",
         native_tool="python_rglob_file_inventory",
         native_tokens=native_tokens,
-        atelier_tokens=atelier_tokens,
-        tokens_saved_measured=max(0, native_tokens - atelier_tokens),
-        token_ratio=(atelier_tokens / native_tokens) if native_tokens else None,
+        lemoncrow_tokens=lemoncrow_tokens,
+        tokens_saved_measured=max(0, native_tokens - lemoncrow_tokens),
+        token_ratio=(lemoncrow_tokens / native_tokens) if native_tokens else None,
         native_ms=round(native_ms, 3),
-        atelier_ms=round(atelier_ms, 3),
+        lemoncrow_ms=round(lemoncrow_ms, 3),
         ts=time.time(),
     )
     _append_row(row)
@@ -134,4 +134,4 @@ def test_code_files_ab_real(tmp_path: Path) -> None:
     assert payload["format"] == "tree"
     assert payload["file_count"] >= 21
     assert "files" in payload
-    assert atelier_tokens < native_tokens
+    assert lemoncrow_tokens < native_tokens

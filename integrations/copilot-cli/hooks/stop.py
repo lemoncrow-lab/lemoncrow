@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """agentStop hook for GitHub Copilot CLI.
 
-Reads events.jsonl for token/tool stats and delegates to the shared Atelier
+Reads events.jsonl for token/tool stats and delegates to the shared LemonCrow
 savings computation (the same one Claude Code's stop hook uses) for the
 per-session savings breakdown.
 
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from atelier.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
+    from lemoncrow.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
 except ImportError:
     # This hook has no PYTHONPATH guarantee the way the Claude/Codex plugin
     # hooks do (their installers wire it up; copilot-cli's does not) -- fall
@@ -41,8 +41,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 
-def _atelier_root() -> Path:
-    return Path(os.environ.get("ATELIER_ROOT", "") or Path.home() / ".atelier")
+def _lemoncrow_root() -> Path:
+    return Path(os.environ.get("LEMONCROW_ROOT", "") or Path.home() / ".lemoncrow")
 
 
 def _session_id(payload: dict[str, Any]) -> str:
@@ -152,10 +152,10 @@ def _read_workspace_savings(session_id: str, workspace: str) -> dict[str, Any]:
     if not session_id:
         return dict(_ZERO_SAVINGS)
     try:
-        from atelier.core.capabilities.savings_summary import compute_savings_summary
+        from lemoncrow.core.capabilities.savings_summary import compute_savings_summary
     except ImportError:
         return dict(_ZERO_SAVINGS)
-    summary = compute_savings_summary(session_id, atelier_root=_atelier_root(), workspace=workspace)
+    summary = compute_savings_summary(session_id, lemoncrow_root=_lemoncrow_root(), workspace=workspace)
     return {
         "saved_usd": float(summary.saved_usd),
         "tokens_saved": int(summary.ctx_saved),
@@ -218,7 +218,7 @@ def _format_summary(stats: dict[str, Any], savings: dict[str, Any]) -> str:
     if routing_usd > 0:
         savings_line += f" · routing {_fmt_usd(routing_usd)}"
     try:
-        from atelier.core.capabilities.savings_summary import estimate_time_saved_seconds, fmt_duration
+        from lemoncrow.core.capabilities.savings_summary import estimate_time_saved_seconds, fmt_duration
 
         _faster_s = estimate_time_saved_seconds(calls_avoided=calls_avoided, output_saved_tokens=output_tokens)
         if _faster_s >= 60:
@@ -258,7 +258,7 @@ def main() -> int:
         return 0
 
     summary = _format_summary(stats, savings)
-    sys.stdout.write(json.dumps({"systemMessage": f"Atelier: session complete.\n{summary}"}) + "\n")
+    sys.stdout.write(json.dumps({"systemMessage": f"LemonCrow: session complete.\n{summary}"}) + "\n")
     return 0
 
 

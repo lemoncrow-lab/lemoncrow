@@ -12,25 +12,25 @@ from pathlib import Path
 import pytest
 
 # Importing LocalClient cold trips a pre-existing circular import
-# (gateway.sdk -> local -> adapters -> atelier.sdk -> gateway.sdk). Importing the
-# atelier.sdk package first resolves it. Unrelated to finding #2.
-import atelier.sdk  # noqa: F401
-from atelier.gateway.sdk.local import LocalClient
+# (gateway.sdk -> local -> adapters -> lemoncrow.sdk -> gateway.sdk). Importing the
+# lemoncrow.sdk package first resolves it. Unrelated to finding #2.
+import lemoncrow.sdk  # noqa: F401
+from lemoncrow.gateway.sdk.local import LocalClient
 
 
 def test_failed_traces_populate_lesson_inbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Threshold 0 makes any recurring failure cluster, decoupling the assertion
     # from the offline embedder's similarity scores.
-    monkeypatch.setenv("ATELIER_LESSON_CLUSTER_THRESHOLD", "0.0")
+    monkeypatch.setenv("LEMONCROW_LESSON_CLUSTER_THRESHOLD", "0.0")
     monkeypatch.setattr(
-        "atelier.core.capabilities.lesson_promotion.capability.draft_lesson_body",
+        "lemoncrow.core.capabilities.lesson_promotion.capability.draft_lesson_body",
         lambda traces: "clustered failure lesson",
     )
-    client = LocalClient(root=tmp_path / ".atelier")
+    client = LocalClient(root=tmp_path / ".lemoncrow")
 
     for i in range(3):
         client.record_trace(
-            agent="atelier:code",
+            agent="lemon:code",
             domain="coding",
             task=f"write fails on locked path {i}",
             status="failed",
@@ -45,15 +45,15 @@ def test_failed_traces_populate_lesson_inbox(tmp_path: Path, monkeypatch: pytest
 def test_recurring_failures_dedup_to_single_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Regression for the review's Blocker: recurring failures must refresh one
     # cluster candidate, not insert a near-duplicate per recurrence.
-    monkeypatch.setenv("ATELIER_LESSON_CLUSTER_THRESHOLD", "0.0")
+    monkeypatch.setenv("LEMONCROW_LESSON_CLUSTER_THRESHOLD", "0.0")
     monkeypatch.setattr(
-        "atelier.core.capabilities.lesson_promotion.capability.draft_lesson_body",
+        "lemoncrow.core.capabilities.lesson_promotion.capability.draft_lesson_body",
         lambda traces: "clustered failure lesson",
     )
-    client = LocalClient(root=tmp_path / ".atelier")
+    client = LocalClient(root=tmp_path / ".lemoncrow")
     for i in range(5):
         client.record_trace(
-            agent="atelier:code",
+            agent="lemon:code",
             domain="coding",
             task=f"write fails on locked path {i}",
             status="failed",
@@ -65,11 +65,11 @@ def test_recurring_failures_dedup_to_single_candidate(tmp_path: Path, monkeypatc
 
 
 def test_failed_traces_without_errors_do_not_populate_inbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_LESSON_CLUSTER_THRESHOLD", "0.0")
-    client = LocalClient(root=tmp_path / ".atelier")
+    monkeypatch.setenv("LEMONCROW_LESSON_CLUSTER_THRESHOLD", "0.0")
+    client = LocalClient(root=tmp_path / ".lemoncrow")
     for i in range(3):
         client.record_trace(
-            agent="atelier:code",
+            agent="lemon:code",
             domain="coding",
             task=f"task {i}",
             status="failed",

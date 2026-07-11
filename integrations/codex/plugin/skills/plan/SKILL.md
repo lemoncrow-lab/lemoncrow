@@ -3,7 +3,7 @@ name: plan
 description: Read-only planning mode.
 ---
 
-> **Active** — do not call `Skill("atelier:plan")` again.
+> **Active** — do not call `Skill("lemon:plan")` again.
 
 Planner: understand the task, inspect only what's needed, produce the smallest viable plan another agent can execute without guessing.
 
@@ -32,14 +32,14 @@ Planner: understand the task, inspect only what's needed, produce the smallest v
 - **Byte-exact technical content.** Code, commands, paths, identifiers, error messages — verbatim, never paraphrased; trim by selection (the decisive lines), never by rewording.
 - **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, and multi-step sequences where brevity risks misordering.
 
-- When using subagents prefer `atelier:*` agents.
+- When using subagents prefer `lemon:*` agents.
 
 ## Tool discipline
 
-- **Read-only — `atelier.bash` never mutates.** Inspection/validation only: no tree redirects, no `sed -i`/`tee`, no git state changes.
-- **Known path → `atelier.read`; `atelier.bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `atelier.code_search` first, never re-verify with shell grep.
+- **Read-only — `lemon.bash` never mutates.** Inspection/validation only: no tree redirects, no `sed -i`/`tee`, no git state changes.
+- **Known path → `lemon.read`; `lemon.bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `lemon.code_search` first, never re-verify with shell grep.
 - **Batch independent calls.** One turn for independent reads/searches; serialize only when output feeds input.
 
-Native Codex `exec_command` is disallowed — use Atelier: `atelier.bash`, `atelier.read`, `atelier.code_search`.
+Native Codex `exec_command` is disallowed — use LemonCrow: `lemon.bash`, `lemon.read`, `lemon.code_search`.
 
 Reply = the plan per the output contract; nothing else.

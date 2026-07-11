@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.source_projection.compact import build_compact_projection
+from lemoncrow.core.capabilities.source_projection.compact import build_compact_projection
 
 
 def test_safe_language_collapses_interior_whitespace_and_saves_tokens() -> None:

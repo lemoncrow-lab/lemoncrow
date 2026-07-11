@@ -4,8 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
-from atelier.core.capabilities import model_settings
-from atelier.core.capabilities.model_settings import (
+from lemoncrow.core.capabilities import model_settings
+from lemoncrow.core.capabilities.model_settings import (
     global_model_settings_path,
     load_model_settings,
     resolve_explicit_host_model,
@@ -19,7 +19,7 @@ def test_workspace_settings_override_global(tmp_path: Path, monkeypatch) -> None
     global_root = tmp_path / "global-root"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_ROOT", str(global_root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(global_root))
     global_path = global_model_settings_path()
     global_path.parent.mkdir(parents=True, exist_ok=True)
     global_path.write_text(
@@ -115,7 +115,7 @@ def test_legacy_all_auto_host_stub_inherits_runtime_model(tmp_path: Path) -> Non
 def test_shipped_host_default_pins_explore_and_research_cheap(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / "global-root"))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "global-root"))
 
     assert resolve_explicit_host_model("claude", "explore", workspace_root=workspace) == "haiku"
     assert resolve_explicit_host_model("claude", "research", workspace_root=workspace) == "haiku"
@@ -128,7 +128,7 @@ def test_shipped_host_default_pins_explore_and_research_cheap(tmp_path: Path, mo
 def test_codex_shipped_default_prefers_live_discovery(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / "global-root"))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "global-root"))
     monkeypatch.setattr(model_settings, "_discover_codex_mini_model", lambda: "gpt-6.1-mini")
 
     assert resolve_explicit_host_model("codex", "explore", workspace_root=workspace) == "gpt-6.1-mini"
@@ -137,7 +137,7 @@ def test_codex_shipped_default_prefers_live_discovery(tmp_path: Path, monkeypatc
 def test_codex_shipped_default_falls_back_when_discovery_unavailable(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / "global-root"))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "global-root"))
     monkeypatch.setattr(model_settings, "_discover_codex_mini_model", lambda: None)
 
     assert resolve_explicit_host_model("codex", "explore", workspace_root=workspace) == "gpt-5.4-mini"
@@ -146,7 +146,7 @@ def test_codex_shipped_default_falls_back_when_discovery_unavailable(tmp_path: P
 def test_codex_live_discovery_does_not_override_explicit_user_setting(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / "global-root"))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "global-root"))
     monkeypatch.setattr(model_settings, "_discover_codex_mini_model", lambda: "gpt-6.1-mini")
     local_path = workspace_model_settings_path(workspace)
     local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -211,7 +211,7 @@ def test_discover_codex_mini_model_returns_none_on_bad_json(monkeypatch) -> None
 def test_explicit_auto_overrides_shipped_host_default(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / "global-root"))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "global-root"))
     local_path = workspace_model_settings_path(workspace)
     local_path.parent.mkdir(parents=True, exist_ok=True)
     local_path.write_text(

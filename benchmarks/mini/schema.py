@@ -1,8 +1,8 @@
-"""Pydantic models for the Atelier mini eval suite.
+"""Pydantic models for the LemonCrow mini eval suite.
 
 Defines the case definition (:class:`MiniEvalCase`), the per-case result
 (:class:`MiniEvalCaseResult`), and the aggregate report (:class:`MiniEvalReport`)
-used by the deterministic, cheap mini benchmark that backs ``atelier benchmark mini``.
+used by the deterministic, cheap mini benchmark that backs ``lemon benchmark mini``.
 """
 
 from __future__ import annotations

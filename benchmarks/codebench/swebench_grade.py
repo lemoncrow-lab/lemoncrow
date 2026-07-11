@@ -19,7 +19,7 @@ from benchmarks.codebench.run import REPO_ROOT
 from benchmarks.codebench.swebench_data import DEFAULT_DATASET, DEFAULT_SPLIT
 
 # Fixed prediction author label -> deterministic report filename.
-MODEL_NAME = "atelier-codebench"
+MODEL_NAME = "lemoncrow-codebench"
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from atelier.infra.embeddings.base import Embedder
-from atelier.infra.embeddings.null_embedder import NullEmbedder
+from lemoncrow.infra.embeddings.base import Embedder
+from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
 
 
 def test_null_embedder_returns_empty_vectors() -> None:

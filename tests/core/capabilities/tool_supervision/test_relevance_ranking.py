@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.tool_supervision import relevance_ranking as rr
+from lemoncrow.core.capabilities.tool_supervision import relevance_ranking as rr
 
 
 def test_score_lexical_rewards_term_coverage_over_repetition() -> None:
@@ -20,8 +20,8 @@ def test_score_lexical_empty_query_is_all_zero() -> None:
 
 
 def test_try_score_semantic_returns_none_without_a_configured_embedder(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.delenv("ATELIER_CODE_EMBEDDER", raising=False)
-    monkeypatch.delenv("ATELIER_EMBEDDER", raising=False)
+    monkeypatch.delenv("LEMONCROW_CODE_EMBEDDER", raising=False)
+    monkeypatch.delenv("LEMONCROW_EMBEDDER", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert rr.try_score_semantic("query", ["a", "b"]) is None
 

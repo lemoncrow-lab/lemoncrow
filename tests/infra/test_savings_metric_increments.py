@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.core.capabilities.telemetry.context_budget import ContextBudgetRecorder
-from atelier.core.foundation.store import ContextStore
+from lemoncrow.core.capabilities.telemetry.context_budget import ContextBudgetRecorder
+from lemoncrow.core.foundation.store import ContextStore
 
 
 def test_context_budget_dispatch_loop(store: ContextStore) -> None:

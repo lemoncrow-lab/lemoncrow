@@ -1,8 +1,8 @@
-# Atelier Documentation
+# LemonCrow Documentation
 
-Welcome to [Atelier](https://atelier.ws) — the open-core runtime engineering platform for AI agents.
+Welcome to [LemonCrow](https://lemoncrow.com) — the open-core runtime engineering platform for AI agents.
 
-Atelier is an MCP server + SDK middleware that gives every agent shared procedures, code intelligence, cost tracking, and cross-vendor routing — across Claude Code, Codex, Copilot, LangChain, and any MCP host.
+LemonCrow is an MCP server + SDK middleware that gives every agent shared procedures, code intelligence, cost tracking, and cross-vendor routing — across Claude Code, Codex, Copilot, LangChain, and any MCP host.
 
 ## Quick Links
 
@@ -45,4 +45,4 @@ Atelier is an MCP server + SDK middleware that gives every agent shared procedur
 
 ---
 
-**Links:** [Website](https://atelier.ws) · [GitHub](https://github.com/atelier-ws/atelier) · [Contact](mailto:contact@atelier.ws)
+**Links:** [Website](https://lemoncrow.com) · [GitHub](https://github.com/lemoncrowhq/lemoncrow) · [Contact](mailto:contact@lemoncrow.com)

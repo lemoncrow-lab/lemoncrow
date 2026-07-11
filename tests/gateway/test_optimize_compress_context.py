@@ -1,4 +1,4 @@
-"""CLI plumbing tests for `atelier optimize compress-context` (LLM monkeypatched)."""
+"""CLI plumbing tests for `lemon optimize compress-context` (LLM monkeypatched)."""
 
 from __future__ import annotations
 
@@ -7,16 +7,16 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
-import atelier.infra.internal_llm as internal_llm
-from atelier.gateway.cli import cli
-from atelier.infra.internal_llm import InternalLLMError
+import lemoncrow.infra.internal_llm as internal_llm
+from lemoncrow.gateway.cli import cli
+from lemoncrow.infra.internal_llm import InternalLLMError
 
 ORIGINAL = "# Rules\n\n" + ("Please always make sure that you run the full test suite before you commit.\n" * 20)
 COMPRESSED = "# Rules\n\n- Run the full test suite before committing."
 
 
 def _invoke(tmp_path: Path, target: Path, *extra: str) -> Result:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     return CliRunner().invoke(cli, ["--root", str(root), "optimize", "compress-context", str(target), *extra])
 
 

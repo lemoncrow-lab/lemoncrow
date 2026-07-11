@@ -4,22 +4,22 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.code_context.workspace_config import load_workspace_config
-from atelier.core.capabilities.code_context.workspace_router import WorkspaceCodeRouter
+from lemoncrow.core.capabilities.code_context.workspace_config import load_workspace_config
+from lemoncrow.core.capabilities.code_context.workspace_router import WorkspaceCodeRouter
 
 
 def _write_workspace_config(workspace_root: Path) -> Path:
     sibling_repo = workspace_root / "billing"
     sibling_repo.mkdir(parents=True)
-    (workspace_root / ".atelier").mkdir(parents=True)
-    (workspace_root / ".atelier" / "workspace.toml").write_text(
+    (workspace_root / ".lemoncrow").mkdir(parents=True)
+    (workspace_root / ".lemoncrow" / "workspace.toml").write_text(
         "\n".join(
             [
                 "[workspace]",
                 'id = "leanchain-main"',
                 "",
                 "[[workspace.repos]]",
-                'name = "atelier"',
+                'name = "lemoncrow"',
                 'path = "."',
                 "",
                 "[[workspace.repos]]",
@@ -40,7 +40,7 @@ def test_load_workspace_config_parses_workspace_id_and_repo_roots(tmp_path: Path
 
     assert config is not None
     assert config.workspace_id == "leanchain-main"
-    assert [repo.name for repo in config.repos] == ["atelier", "billing"]
+    assert [repo.name for repo in config.repos] == ["lemoncrow", "billing"]
     assert config.repos[0].repo_root == tmp_path.resolve()
     assert config.repos[1].repo_root == billing_root.resolve()
 
@@ -90,10 +90,10 @@ def test_workspace_router_unions_search_results_and_allows_repo_filter(tmp_path:
     # Multi-repo search runs engine calls concurrently via ThreadPoolExecutor,
     # so call ordering is non-deterministic.  Verify the set of operations
     # instead of exact sequence.
-    atelier_root = tmp_path.resolve()
+    lemoncrow_root = tmp_path.resolve()
     billing_root = (tmp_path / "billing").resolve()
     assert len(calls) == 3
-    assert (atelier_root, "SharedConfig") in calls
+    assert (lemoncrow_root, "SharedConfig") in calls
     assert calls.count((billing_root, "SharedConfig")) == 2
 
 
@@ -154,7 +154,7 @@ def test_workspace_router_adds_repo_name_and_preserves_origin_on_merged_search_r
     merged = router.route("search", query="SharedConfig", limit=5)
 
     assert [(item["repo_name"], item["origin"]) for item in merged["items"]] == [
-        ("atelier", "internal"),
+        ("lemoncrow", "internal"),
         ("billing", "external"),
     ]
 
@@ -177,7 +177,7 @@ def test_workspace_router_symbol_defaults_to_first_repo_and_respects_repo_filter
                 }
             return {
                 "symbol_name": "SharedConfig",
-                "qualified_name": "atelier.SharedConfig",
+                "qualified_name": "lemoncrow.SharedConfig",
                 "file_path": "src/config.py",
                 "repo_id": "repo-1",
             }
@@ -190,7 +190,7 @@ def test_workspace_router_symbol_defaults_to_first_repo_and_respects_repo_filter
     default_symbol = router.route("symbol", symbol_name="SharedConfig")
     billing_symbol = router.route("symbol", symbol_name="SharedConfig", repo="billing")
 
-    assert default_symbol["repo_name"] == "atelier"
-    assert default_symbol["qualified_name"] == "atelier.SharedConfig"
+    assert default_symbol["repo_name"] == "lemoncrow"
+    assert default_symbol["qualified_name"] == "lemoncrow.SharedConfig"
     assert billing_symbol["repo_name"] == "billing"
     assert billing_symbol["qualified_name"] == "billing.SharedConfig"

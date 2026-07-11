@@ -1,21 +1,21 @@
-# atelier/frontend — Reasoning Dashboard
+# lemoncrow/frontend — Reasoning Dashboard
 
-Vite + React + TypeScript + Tailwind dashboard for the Atelier reasoning
-runtime. Reads from `atelier-api` (FastAPI HTTP wrapper) on port 8787.
+Vite + React + TypeScript + Tailwind dashboard for the LemonCrow reasoning
+runtime. Reads from `lemoncrow-api` (FastAPI HTTP wrapper) on port 8787.
 
 ## Run (native, recommended)
 
 The dashboard is part of the native stack. From the repo root:
 
 ```bash
-make start          # brings up atelier-api + atelier-frontend
+make start          # brings up lemoncrow-api + lemoncrow-frontend
 open http://localhost:3125
 ```
 
 ## Run (manual)
 
 ```bash
-cd atelier/frontend
+cd lemoncrow/frontend
 npm install         # or bun install
 VITE_API_URL=http://localhost:8787 npm run dev
 ```
@@ -31,4 +31,4 @@ VITE_API_URL=http://localhost:8787 npm run dev
 
 All numbers under "tokens" and "cost" are **estimates** computed from
 observable trace content (4 chars ≈ 1 token, $/1K rate via
-`ATELIER_USD_PER_1K_TOKENS`). They are not provider billing data.
+`LEMONCROW_USD_PER_1K_TOKENS`). They are not provider billing data.

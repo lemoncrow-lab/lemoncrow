@@ -1,5 +1,5 @@
 # ============================================
-# Atelier - Git Ignore
+# LemonCrow - Git Ignore
 # ============================================
 
 # -----------------------
@@ -72,7 +72,7 @@ coverage.xml
 .gemini/
 
 # Github copilot workspace backups
-.github/copilot-instructions.md.atelier-backup.*
+.github/copilot-instructions.md.lemoncrow-backup.*
 
 # Github Copilot instructions (locally managed)
 copilot-instructions.md
@@ -94,7 +94,7 @@ Thumbs.db
 # -----------------------
 # Runtime & Temp
 # -----------------------
-# Atelier generated file-index cache (written next to the indexer root)
+# LemonCrow generated file-index cache (written next to the indexer root)
 semantic_file_index.json
 
 # Logs

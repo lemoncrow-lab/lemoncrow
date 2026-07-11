@@ -6,8 +6,8 @@ from typing import Any, cast
 
 import pytest
 
-import atelier.gateway.integrations.openmemory as openmemory
-from atelier.gateway.integrations.openmemory import (
+import lemoncrow.gateway.integrations.openmemory as openmemory
+from lemoncrow.gateway.integrations.openmemory import (
     OpenMemoryMCPError,
     list_available_memory_tools,
     maybe_fetch_memory_context_for_task,
@@ -31,8 +31,8 @@ class _FakeClient:
             return [
                 {
                     "id": "mem-1",
-                    "memory": '{"atelier_kind":"trace_context_link","trace_id":"trace-123","context_id":"ctx-456"}',
-                    "metadata": {"atelier_kind": "trace_context_link"},
+                    "memory": '{"lemoncrow_kind":"trace_context_link","trace_id":"trace-123","context_id":"ctx-456"}',
+                    "metadata": {"lemoncrow_kind": "trace_context_link"},
                     "score": 0.9,
                 }
             ]
@@ -87,7 +87,7 @@ def test_link_trace_persists_via_add_memories(monkeypatch: pytest.MonkeyPatch) -
     name, arguments = client.calls[0]
     assert name == "add_memories"
     assert arguments["infer"] is False
-    assert arguments["metadata"]["atelier_kind"] == "trace_context_link"
+    assert arguments["metadata"]["lemoncrow_kind"] == "trace_context_link"
     content = arguments["messages"][0]["content"]
     assert content == json.dumps(json.loads(content), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 

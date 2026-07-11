@@ -4,17 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.foundation.models import Playbook
-from atelier.core.foundation.renderer import render_block_for_agent
-from atelier.core.foundation.retriever import TaskContext, count_tokens, retrieve
-from atelier.core.foundation.store import ContextStore
+from lemoncrow.core.foundation.models import Playbook
+from lemoncrow.core.foundation.renderer import render_block_for_agent
+from lemoncrow.core.foundation.retriever import TaskContext, count_tokens, retrieve
+from lemoncrow.core.foundation.store import ContextStore
 
 TASK = "live state change resolved from url slug verification drift"
 
 
 @pytest.fixture()
 def seeded_store(tmp_path: Path) -> ContextStore:
-    store = ContextStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "lemoncrow")
     store.init()
     source = Playbook(
         id="canonical-identifier-over-display-name",

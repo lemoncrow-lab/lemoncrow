@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# uninstall_claude.sh - Remove Atelier from Claude Code
+# uninstall_claude.sh - Remove LemonCrow from Claude Code
 #
 # Options:
 #   --workspace DIR  Remove project-local artifacts from DIR instead of global user config
@@ -39,27 +39,27 @@ fi
 
 CLAUDE_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.json"
 CLAUDE_LOCAL_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.local.json"
-CLAUDE_STAGING_DIR="${HOME}/.atelier/claude-plugin"
+CLAUDE_STAGING_DIR="${HOME}/.lemoncrow/claude-plugin"
 
-info()  { echo "[atelier:uninstall:claude] $*"; }
-warn()  { echo "[atelier:uninstall:claude] WARN: $*" >&2; }
+info()  { echo "[lemon:uninstall:claude] $*"; }
+warn()  { echo "[lemon:uninstall:claude] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 # ---- workspace MCP entry ----------------------------------------------------
 if $WORKSPACE_SET; then
-    if [ -f "$MCP_JSON" ] && grep -q "atelier" "$MCP_JSON" 2>/dev/null; then
+    if [ -f "$MCP_JSON" ] && grep -qE "lemon" "$MCP_JSON" 2>/dev/null; then
         run "python3 -c '
 import json, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 data = json.loads(path.read_text(encoding=\"utf-8\") or \"{}\")
-data.get(\"mcpServers\", {}).pop(\"atelier\", None)
+data.get(\"mcpServers\", {}).pop(\"lemon\", None)
 path.write_text(json.dumps(data, indent=2) + \"\\n\", encoding=\"utf-8\")
 ' $(printf %q "$MCP_JSON")"
-        info "Removed atelier MCP entry from $MCP_JSON"
+        info "Removed LemonCrow MCP entry from $MCP_JSON"
     fi
 
-    if [ -f "$CLAUDE_LOCAL_SETTINGS" ] && grep -q "CLAUDE_WORKSPACE_ROOT\|atelier:code" "$CLAUDE_LOCAL_SETTINGS" 2>/dev/null; then
+    if [ -f "$CLAUDE_LOCAL_SETTINGS" ] && grep -q "CLAUDE_WORKSPACE_ROOT\|lemon:code" "$CLAUDE_LOCAL_SETTINGS" 2>/dev/null; then
         run "python3 -c '
 import json, sys
 from pathlib import Path
@@ -70,26 +70,26 @@ if isinstance(env, dict):
     env.pop(\"CLAUDE_WORKSPACE_ROOT\", None)
     if not env:
         data.pop(\"env\", None)
-if data.get(\"agent\") == \"atelier:code\":
+if data.get(\"agent\") == \"lemon:code\":
     data.pop(\"agent\", None)
 if data:
     path.write_text(json.dumps(data, indent=2) + \"\\n\", encoding=\"utf-8\")
 else:
     path.unlink()
 ' $(printf %q "$CLAUDE_LOCAL_SETTINGS")"
-        info "Removed Atelier workspace settings from $CLAUDE_LOCAL_SETTINGS"
+        info "Removed LemonCrow workspace settings from $CLAUDE_LOCAL_SETTINGS"
     fi
 elif command -v claude &>/dev/null; then
-    run "claude mcp remove --scope user atelier 2>/dev/null || true"
-    info "Removed atelier MCP server from Claude user scope"
+    run "claude mcp remove --scope user lemon 2>/dev/null || true"
+    info "Removed LemonCrow MCP server from Claude user scope"
 else
     warn "claude CLI not found, skipping user-scope MCP removal"
 fi
 
 # ---- PreToolUse hook in settings.json ---------------------------------------
-if [ -f "$CLAUDE_SETTINGS" ] && grep -q "Atelier loop required" "$CLAUDE_SETTINGS" 2>/dev/null; then
+if [ -f "$CLAUDE_SETTINGS" ] && grep -q "LemonCrow loop required" "$CLAUDE_SETTINGS" 2>/dev/null; then
     if $DRY_RUN; then
-        echo "  [dry-run] remove Atelier PreToolUse hook from $CLAUDE_SETTINGS"
+        echo "  [dry-run] remove LemonCrow PreToolUse hook from $CLAUDE_SETTINGS"
     else
         python3 - <<PYEOF
 import json
@@ -104,7 +104,7 @@ pre = [
     if not (
         entry.get("matcher") == "Edit|Write"
         and any(
-            "Atelier loop required" in h.get("command", "")
+            "LemonCrow loop required" in h.get("command", "")
             for h in entry.get("hooks", [])
         )
     )
@@ -116,15 +116,15 @@ else:
 if not hooks:
     data.pop("hooks", None)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print("[atelier:uninstall:claude] Removed Atelier PreToolUse hook from $CLAUDE_SETTINGS")
+print("[lemon:uninstall:claude] Removed LemonCrow PreToolUse hook from $CLAUDE_SETTINGS")
 PYEOF
     fi
 fi
 
-# ---- permissions: remove Atelier-installed permission entries ---------------
+# ---- permissions: remove LemonCrow-installed permission entries ---------------
 if [ -f "$CLAUDE_SETTINGS" ]; then
     if $DRY_RUN; then
-        echo "  [dry-run] remove Atelier permission entries from $CLAUDE_SETTINGS"
+        echo "  [dry-run] remove LemonCrow permission entries from $CLAUDE_SETTINGS"
     else
         python3 - <<PYEOF
 import json
@@ -135,16 +135,16 @@ data = json.loads(path.read_text(encoding="utf-8") or "{}")
 perms = data.get("permissions", {})
 allow = perms.get("allow", [])
 deny = perms.get("deny", [])
-atelier_bash_allows = {
+lemon_bash_allows = {
     "Bash(git *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)",
-    "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run atelier *)",
+    "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run lemon *)",
     "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)",
     "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)",
     "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)",
 }
-atelier_denies = {"Read", "Grep", "Glob", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"}
-filtered_allow = [r for r in allow if not (isinstance(r, str) and (r.startswith("mcp__atelier__") or r in atelier_bash_allows))]
-filtered_deny = [r for r in deny if r not in atelier_denies]
+lemoncrow_denies = {"Read", "Grep", "Glob", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"}
+filtered_allow = [r for r in allow if not (isinstance(r, str) and (r.startswith("mcp__lemon__") or r in lemon_bash_allows))]
+filtered_deny = [r for r in deny if r not in lemoncrow_denies]
 removed = (len(allow) - len(filtered_allow)) + (len(deny) - len(filtered_deny))
 if removed:
     if filtered_allow:
@@ -158,7 +158,7 @@ if removed:
     if not perms:
         data.pop("permissions", None)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    print(f"[atelier:uninstall:claude] Removed {removed} Atelier permission entries")
+    print(f"[lemon:uninstall:claude] Removed {removed} LemonCrow permission entries")
 PYEOF
     fi
 fi
@@ -172,7 +172,7 @@ else
 fi
 for agents_dir in "${AGENT_DIRS[@]}"; do
     if [ -d "$agents_dir" ]; then
-        for f in "$agents_dir"/atelier-*.md "$agents_dir"/atelier_*.md "$agents_dir"/atelier.*.md; do
+        for f in "$agents_dir"/lemoncrow-*.md "$agents_dir"/lemoncrow_*.md "$agents_dir"/lemoncrow.*.md; do
             [ -f "$f" ] || continue
             run "rm -f $(printf %q "$f")"
             info "Removed agent file: $f"
@@ -186,9 +186,9 @@ if $WORKSPACE_SET && [ -d "${WORKSPACE}/.claude/skills" ]; then
 fi
 
 # ---- statusline settings in ~/.claude/settings.json -------------------------
-if [ -f "${CLAUDE_SETTINGS}" ] && grep -q "atelier" "${CLAUDE_SETTINGS}" 2>/dev/null; then
+if [ -f "${CLAUDE_SETTINGS}" ] && grep -qE "lemoncrow|lemon" "${CLAUDE_SETTINGS}" 2>/dev/null; then
     if $DRY_RUN; then
-        echo "  [dry-run] remove atelier status line settings from ${CLAUDE_SETTINGS}"
+        echo "  [dry-run] remove LemonCrow status line settings from ${CLAUDE_SETTINGS}"
     else
         python3 - <<PYEOF2
 import json
@@ -197,12 +197,14 @@ path = Path("${CLAUDE_SETTINGS}")
 data = json.loads(path.read_text(encoding="utf-8") or "{}")
 for key in ("statusLine", "subagentStatusLine"):
     sl = data.get(key, {})
-    if isinstance(sl, dict) and "atelier" in sl.get("command", ""):
+    cmd = sl.get("command", "") if isinstance(sl, dict) else ""
+    first = cmd.split()[0] if cmd else ""
+    if isinstance(sl, dict) and (first in ("lemon", "lemoncrow") or "lemoncrow" in cmd):
         data.pop(key, None)
-        print(f"[atelier:uninstall:claude] Removed atelier {key} from ${CLAUDE_SETTINGS}")
-if data.get("agent") == "atelier:code":
+        print(f"[lemon:uninstall:claude] Removed LemonCrow {key} from ${CLAUDE_SETTINGS}")
+if data.get("agent") == "lemon:code":
     data.pop("agent", None)
-    print("[atelier:uninstall:claude] Removed atelier-code default agent from ${CLAUDE_SETTINGS}")
+    print("[lemon:uninstall:claude] Removed lemoncrow-code default agent from ${CLAUDE_SETTINGS}")
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PYEOF2
     fi
@@ -212,25 +214,25 @@ fi
 CLAUDE_PLUGINS="${HOME}/.claude/plugins"
 if ! $WORKSPACE_SET; then
     if $DRY_RUN; then
-        echo "  [dry-run] claude plugin uninstall atelier@atelier"
-        echo "  [dry-run] claude plugin marketplace remove atelier"
-        echo "  [dry-run] rm -rf ${CLAUDE_PLUGINS}/atelier* ${CLAUDE_PLUGINS}/cache/atelier ${CLAUDE_PLUGINS}/data/atelier-atelier ${CLAUDE_STAGING_DIR}"
+        echo "  [dry-run] claude plugin uninstall lemoncrow@lemoncrow"
+        echo "  [dry-run] claude plugin marketplace remove lemoncrow"
+        echo "  [dry-run] rm -rf ${CLAUDE_PLUGINS}/lemoncrow* ${CLAUDE_PLUGINS}/cache/lemoncrow ${CLAUDE_PLUGINS}/data/lemoncrow-lemoncrow ${CLAUDE_STAGING_DIR}"
     else
         if command -v claude &>/dev/null; then
             # Remove via CLI (cleans registry entries)
-            claude plugin uninstall atelier@atelier 2>/dev/null \
-                || claude plugin uninstall atelier 2>/dev/null \
+            claude plugin uninstall lemoncrow@lemoncrow 2>/dev/null \
+                || claude plugin uninstall lemoncrow 2>/dev/null \
                 || true
-            claude plugin marketplace remove atelier 2>/dev/null || true
+            claude plugin marketplace remove lemoncrow 2>/dev/null || true
         else
             warn "claude CLI not found, removing on-disk plugin files only"
         fi
         # CLI removes registry entries but leaves files on disk — remove directly
-        rm -rf "${CLAUDE_PLUGINS}/atelier"
-        rm -rf "${CLAUDE_PLUGINS}/cache/atelier"
-        rm -rf "${CLAUDE_PLUGINS}/data/atelier-atelier"
-        # Clean up any timestamped backups the CLI left (e.g. atelier.atelier-backup.*)
-        rm -rf "${CLAUDE_PLUGINS}"/atelier.atelier-backup.*
+        rm -rf "${CLAUDE_PLUGINS}/lemoncrow"
+        rm -rf "${CLAUDE_PLUGINS}/cache/lemoncrow"
+        rm -rf "${CLAUDE_PLUGINS}/data/lemoncrow-lemoncrow"
+        # Clean up any timestamped backups the CLI left (e.g. lemoncrow.lemoncrow-backup.*)
+        rm -rf "${CLAUDE_PLUGINS}"/lemoncrow.lemoncrow-backup.*
         rm -rf "${CLAUDE_STAGING_DIR}"
         info "Removed Claude plugin files, cache, and staging directory"
     fi

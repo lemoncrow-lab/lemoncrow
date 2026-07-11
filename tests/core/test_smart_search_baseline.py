@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.grounded_loop.search_first import _discovery_calls_saved
-from atelier.core.capabilities.native_read_baseline import CLAUDE_NATIVE_READ_LINE_LIMIT
-from atelier.core.capabilities.tool_supervision.smart_search import (
+from lemoncrow.core.capabilities.grounded_loop.search_first import _discovery_calls_saved
+from lemoncrow.core.capabilities.native_read_baseline import CLAUDE_NATIVE_READ_LINE_LIMIT
+from lemoncrow.core.capabilities.tool_supervision.smart_search import (
     _iter_text_files,
     _naive_bytes_for_matches,
 )

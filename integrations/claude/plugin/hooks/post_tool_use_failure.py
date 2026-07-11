@@ -45,7 +45,7 @@ def _workspace_key(path: str) -> str:
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
     return root / "workspaces" / h / "session_state.json"
 
 
@@ -85,23 +85,23 @@ def _save_state(state: dict) -> None:  # type: ignore[type-arg]
 # ---------------------------------------------------------------------------
 
 
-def _atelier_root() -> Path:
-    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
+def _lemoncrow_root() -> Path:
+    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
     if root:
         return Path(root)
     state = _read_session_state()
-    if state.get("atelier_root"):
-        return Path(state["atelier_root"])
-    return Path.home() / ".atelier"
+    if state.get("lemoncrow_root"):
+        return Path(state["lemoncrow_root"])
+    return Path.home() / ".lemoncrow"
 
 
 def _append_failure_event(session_id: str, command: str, error: str, repeat: int) -> None:
     """Append a note event for the command failure to the session's run.json."""
     try:
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
     except ImportError:
         return
-    run_file = session_dir(_atelier_root(), "claude", session_id) / "run.json"
+    run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
     if not run_file.exists():
         return
     try:

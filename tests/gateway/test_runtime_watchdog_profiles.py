@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.foundation.watchdog_profiles import save_watchdog_profile_config
-from atelier.gateway.adapters.runtime import ContextRuntime
+from lemoncrow.core.foundation.watchdog_profiles import save_watchdog_profile_config
+from lemoncrow.gateway.adapters.runtime import ContextRuntime
 
 
 def test_runtime_session_uses_persisted_watchdog_profile(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     runtime = ContextRuntime(root=root)
     save_watchdog_profile_config(
         root,

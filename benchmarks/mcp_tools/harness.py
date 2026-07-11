@@ -30,9 +30,9 @@ class BenchCase:
     assert_keys: list[str] = field(default_factory=list)
     # Exact key=value pairs to assert in response
     assert_values: dict[str, Any] = field(default_factory=dict)
-    # Human-readable description of what agent would do without Atelier
+    # Human-readable description of what agent would do without LemonCrow
     baseline_description: str = ""
-    # Fixed baseline token cost without Atelier (what agent would read/write).
+    # Fixed baseline token cost without LemonCrow (what agent would read/write).
     # Use baseline_builder for measured dynamic baselines.
     baseline_tokens: int = 0
     # Optional callable to construct a measured baseline payload.
@@ -57,7 +57,7 @@ class BenchCase:
 class CaseResult:
     case: BenchCase
     response: Any
-    atelier_tokens: int
+    lemoncrow_tokens: int
     baseline_tokens: int
     quality_score: float
     input_file_tokens: int
@@ -70,7 +70,7 @@ class CaseResult:
 
     @property
     def tokens_saved(self) -> int:
-        return max(0, self.baseline_tokens - self.atelier_tokens)
+        return max(0, self.baseline_tokens - self.lemoncrow_tokens)
 
     @property
     def savings_pct(self) -> float:
@@ -80,7 +80,7 @@ class CaseResult:
 
     @property
     def effective_tokens(self) -> float:
-        return self.atelier_tokens / max(self.quality_score, 0.1)
+        return self.lemoncrow_tokens / max(self.quality_score, 0.1)
 
 
 @dataclass
@@ -156,7 +156,7 @@ def run_case(
         return CaseResult(
             case=case,
             response={},
-            atelier_tokens=failed_baseline_tokens,
+            lemoncrow_tokens=failed_baseline_tokens,
             baseline_tokens=failed_baseline_tokens,
             quality_score=case.quality_score,
             input_file_tokens=0,
@@ -168,7 +168,7 @@ def run_case(
             failure=f"exception: {exc}",
         )
     elapsed_ms = (time.perf_counter() - t0) * 1000
-    atelier_tokens = _tokens(response) if response is not None else 4  # "null" is 4 chars
+    lemoncrow_tokens = _tokens(response) if response is not None else 4  # "null" is 4 chars
     baseline_tokens = case.baseline_tokens
     input_file_tokens = 0
     baseline_commands: list[str] = []
@@ -185,7 +185,7 @@ def run_case(
 
     if isinstance(response, dict):
         probe_failure, spill_probe_tokens, spill_probe_hits = _probe_spilled_artifact(response, case)
-        atelier_tokens += spill_probe_tokens
+        lemoncrow_tokens += spill_probe_tokens
     else:
         probe_failure = ""
 
@@ -200,7 +200,7 @@ def run_case(
     return CaseResult(
         case=case,
         response=response if response is not None else {},
-        atelier_tokens=atelier_tokens,
+        lemoncrow_tokens=lemoncrow_tokens,
         baseline_tokens=baseline_tokens,
         quality_score=case.quality_score,
         input_file_tokens=input_file_tokens,

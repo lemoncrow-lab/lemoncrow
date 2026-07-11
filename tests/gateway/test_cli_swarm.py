@@ -5,7 +5,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from atelier.core.capabilities.swarm.capability import (
+from lemoncrow.core.capabilities.swarm.capability import (
     _expand_command_tokens,
     build_child_env,
     launch_swarm_children,
@@ -14,14 +14,14 @@ from atelier.core.capabilities.swarm.capability import (
     resolve_swarm_provider_command,
     save_swarm_state,
 )
-from atelier.core.capabilities.swarm.models import (
+from lemoncrow.core.capabilities.swarm.models import (
     SwarmAcceptedCommit,
     SwarmArtifactRef,
     SwarmChildState,
     SwarmRunState,
     SwarmWaveState,
 )
-from atelier.gateway.cli.commands.swarm import swarm_group
+from lemoncrow.gateway.cli.commands.swarm import swarm_group
 
 
 def test_swarm_start_requires_child_command(tmp_path: Path) -> None:
@@ -37,7 +37,7 @@ def test_swarm_start_defaults_to_program_md(monkeypatch: object, tmp_path: Path)
     spec = tmp_path / "program.md"
     spec.write_text("# default spec\n", encoding="utf-8")
     captured: dict[str, object] = {}
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
     state = SwarmRunState(
         run_id="swarm-123",
         status="success",
@@ -54,20 +54,20 @@ def test_swarm_start_defaults_to_program_md(monkeypatch: object, tmp_path: Path)
         runs=1,
         max_runs=1,
     )
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.swarm.initialize_swarm_run",
+        "lemoncrow.gateway.cli.commands.swarm.initialize_swarm_run",
         lambda **kwargs: (captured.update(kwargs) or state, tmp_path / "state.json"),
     )
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.swarm.launch_swarm_children",
+        "lemoncrow.gateway.cli.commands.swarm.launch_swarm_children",
         lambda _root, _state: state,
     )
 
     result = runner.invoke(
         swarm_group,
         ["start", "--runner", "claude"],
-        obj={"root": tmp_path / "atelier-root"},
+        obj={"root": tmp_path / "lemoncrow-root"},
     )
 
     assert result.exit_code == 0
@@ -78,13 +78,13 @@ def test_swarm_start_defaults_to_program_md(monkeypatch: object, tmp_path: Path)
 
 def test_swarm_start_missing_default_program_md_fails(monkeypatch: object, tmp_path: Path) -> None:
     runner = CliRunner()
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
 
     result = runner.invoke(
         swarm_group,
         ["start", "--runner", "claude"],
-        obj={"root": tmp_path / "atelier-root"},
+        obj={"root": tmp_path / "lemoncrow-root"},
     )
 
     assert result.exit_code != 0
@@ -95,13 +95,13 @@ def test_swarm_start_rejects_spec_outside_repo(monkeypatch: object, tmp_path: Pa
     runner = CliRunner()
     outside = tmp_path.parent / "outside-program.md"
     outside.write_text("# spec\n", encoding="utf-8")
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
 
     result = runner.invoke(
         swarm_group,
         ["start", str(outside), "--", "echo", "hi"],
-        obj={"root": tmp_path / "atelier-root"},
+        obj={"root": tmp_path / "lemoncrow-root"},
     )
 
     assert result.exit_code != 0
@@ -112,8 +112,8 @@ def test_swarm_start_reports_winner(monkeypatch: object, tmp_path: Path) -> None
     runner = CliRunner()
     spec = tmp_path / "program.md"
     spec.write_text("# spec\n", encoding="utf-8")
-    root = tmp_path / "atelier-root"
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
+    root = tmp_path / "lemoncrow-root"
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
     state = SwarmRunState(
         run_id="swarm-123",
         status="success",
@@ -154,7 +154,7 @@ def test_swarm_start_reports_winner(monkeypatch: object, tmp_path: Path) -> None
                 wave_index=2,
                 status="success",
                 worktree_path=str(tmp_path / "pool" / "wave-02-run-01"),
-                atelier_root=str(root / "child"),
+                lemoncrow_root=str(root / "child"),
                 run_dir=str(root / "runs" / "run-01"),
                 spec_path=str(spec),
                 result_path=str(root / "runs" / "run-01" / "result.json"),
@@ -168,13 +168,13 @@ def test_swarm_start_reports_winner(monkeypatch: object, tmp_path: Path) -> None
         ],
     )
 
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.swarm.initialize_swarm_run",
+        "lemoncrow.gateway.cli.commands.swarm.initialize_swarm_run",
         lambda **_: (state, tmp_path / "state.json"),
     )
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.swarm.launch_swarm_children",
+        "lemoncrow.gateway.cli.commands.swarm.launch_swarm_children",
         lambda _root, _state: state,
     )
 
@@ -201,8 +201,8 @@ def test_swarm_start_accepts_runner_profile(monkeypatch: object, tmp_path: Path)
     runner = CliRunner()
     spec = tmp_path / "program.md"
     spec.write_text("# spec\n", encoding="utf-8")
-    root = tmp_path / "atelier-root"
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
+    root = tmp_path / "lemoncrow-root"
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
     captured: dict[str, object] = {}
     state = SwarmRunState(
         run_id="swarm-123",
@@ -223,7 +223,7 @@ def test_swarm_start_accepts_runner_profile(monkeypatch: object, tmp_path: Path)
         children=[],
     )
 
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
 
     def _initialize(**kwargs: object) -> tuple[SwarmRunState, Path]:
         captured["child_command"] = kwargs["child_command"]
@@ -232,11 +232,11 @@ def test_swarm_start_accepts_runner_profile(monkeypatch: object, tmp_path: Path)
         return state, tmp_path / "state.json"
 
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.swarm.initialize_swarm_run",
+        "lemoncrow.gateway.cli.commands.swarm.initialize_swarm_run",
         _initialize,
     )
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.swarm.launch_swarm_children",
+        "lemoncrow.gateway.cli.commands.swarm.launch_swarm_children",
         lambda _root, _state: state,
     )
 
@@ -280,7 +280,7 @@ def test_swarm_start_forwards_evaluator_controls(monkeypatch: object, tmp_path: 
     runner = CliRunner()
     spec = tmp_path / "program.md"
     spec.write_text("# spec\n", encoding="utf-8")
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     captured: dict[str, object] = {}
     state = SwarmRunState(
         run_id="swarm-123",
@@ -299,16 +299,16 @@ def test_swarm_start_forwards_evaluator_controls(monkeypatch: object, tmp_path: 
         runs=2,
         max_runs=2,
     )
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
 
     def _initialize(**kwargs: object) -> tuple[SwarmRunState, Path]:
         captured.update(kwargs)
         return state, tmp_path / "state.json"
 
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.initialize_swarm_run", _initialize)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.initialize_swarm_run", _initialize)
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.swarm.launch_swarm_children",
+        "lemoncrow.gateway.cli.commands.swarm.launch_swarm_children",
         lambda _root, _state: state,
     )
 
@@ -371,7 +371,7 @@ def test_expand_command_tokens_inlines_spec_contents(tmp_path: Path) -> None:
         wave_index=1,
         status="pending",
         worktree_path=str(tmp_path / "worktree"),
-        atelier_root=str(tmp_path / "atelier-root"),
+        lemoncrow_root=str(tmp_path / "lemoncrow-root"),
         run_dir=str(tmp_path / "run"),
         spec_path=str(spec),
         result_path=str(tmp_path / "result.json"),
@@ -396,8 +396,8 @@ def test_swarm_start_rejects_runner_and_raw_command(monkeypatch: object, tmp_pat
     runner = CliRunner()
     spec = tmp_path / "program.md"
     spec.write_text("# spec\n", encoding="utf-8")
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.require_pro", lambda _feature, _label: None)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.discover_repo_root", lambda _cwd: tmp_path)
 
     result = runner.invoke(
         swarm_group,
@@ -421,7 +421,7 @@ def test_provider_swarm_command_uses_python_module_path() -> None:
     command = resolve_swarm_provider_command("openai")
 
     assert command[:3]
-    assert command[1:3] == ["-m", "atelier.gateway.cli"]
+    assert command[1:3] == ["-m", "lemoncrow.gateway.cli"]
     assert command[-2:] == ["swarm", "_provider-worker"]
 
 
@@ -432,7 +432,7 @@ def test_build_child_env_sets_provider_backend(tmp_path: Path) -> None:
         wave_index=1,
         status="pending",
         worktree_path=str(tmp_path / "worktree"),
-        atelier_root=str(tmp_path / "atelier-root"),
+        lemoncrow_root=str(tmp_path / "lemoncrow-root"),
         run_dir=str(tmp_path / "run"),
         spec_path=str(tmp_path / "program.md"),
         result_path=str(tmp_path / "result.json"),
@@ -462,15 +462,15 @@ def test_build_child_env_sets_provider_backend(tmp_path: Path) -> None:
 
     env = build_child_env(child, state)
 
-    assert env["ATELIER_LLM_BACKEND"] == "openai"
-    assert env["ATELIER_OPENAI_MODEL"] == "gpt-4o-mini"
-    assert env["ATELIER_SWARM_PROVIDER"] == "openai"
-    assert env["ATELIER_SWARM_STEP_BUDGET"] == "10"
+    assert env["LEMONCROW_LLM_BACKEND"] == "openai"
+    assert env["LEMONCROW_OPENAI_MODEL"] == "gpt-4o-mini"
+    assert env["LEMONCROW_SWARM_PROVIDER"] == "openai"
+    assert env["LEMONCROW_SWARM_STEP_BUDGET"] == "10"
 
 
 def test_swarm_status_reads_state(monkeypatch: object, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     run_id = "swarm-123"
     state_path = root / "swarm" / "runs" / run_id / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -503,7 +503,7 @@ def test_swarm_status_reads_state(monkeypatch: object, tmp_path: Path) -> None:
                 wave_index=1,
                 status="failed",
                 worktree_path=str(tmp_path / "pool" / "wave-01-run-01"),
-                atelier_root=str(root / "child"),
+                lemoncrow_root=str(root / "child"),
                 run_dir=str(root / "runs" / "run-01"),
                 spec_path=str(tmp_path / "program.md"),
                 result_path=str(root / "runs" / "run-01" / "result.json"),
@@ -514,7 +514,7 @@ def test_swarm_status_reads_state(monkeypatch: object, tmp_path: Path) -> None:
             )
         ],
     )
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.load_swarm_state", lambda _path: state)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.load_swarm_state", lambda _path: state)
 
     result = runner.invoke(swarm_group, ["status", run_id], obj={"root": root})
 
@@ -528,7 +528,7 @@ def test_swarm_status_reads_state(monkeypatch: object, tmp_path: Path) -> None:
 
 
 def test_launch_swarm_children_stops_on_first_no_improvement_wave(monkeypatch: object, tmp_path: Path) -> None:
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     state_path = tmp_path / "state.json"
     state = SwarmRunState(
         run_id="swarm-123",
@@ -571,15 +571,15 @@ def test_launch_swarm_children_stops_on_first_no_improvement_wave(monkeypatch: o
         return False
 
     monkeypatch.setattr(
-        "atelier.core.capabilities.swarm.capability._prepare_wave",
+        "lemoncrow.core.capabilities.swarm.capability._prepare_wave",
         _prepare,
     )
     monkeypatch.setattr(
-        "atelier.core.capabilities.swarm.capability._run_wave_children",
+        "lemoncrow.core.capabilities.swarm.capability._run_wave_children",
         _run_wave,
     )
     monkeypatch.setattr(
-        "atelier.core.capabilities.swarm.capability.apply_wave_candidates",
+        "lemoncrow.core.capabilities.swarm.capability.apply_wave_candidates",
         _apply,
     )
 
@@ -592,7 +592,7 @@ def test_launch_swarm_children_stops_on_first_no_improvement_wave(monkeypatch: o
 
 
 def test_launch_swarm_children_stops_at_max_waves(monkeypatch: object, tmp_path: Path) -> None:
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     state_path = tmp_path / "state.json"
     state = SwarmRunState(
         run_id="swarm-123",
@@ -636,9 +636,9 @@ def test_launch_swarm_children_stops_at_max_waves(monkeypatch: object, tmp_path:
         state.convergence_status = "continue"
         return True
 
-    monkeypatch.setattr("atelier.core.capabilities.swarm.capability._prepare_wave", _prepare)
-    monkeypatch.setattr("atelier.core.capabilities.swarm.capability._run_wave_children", _run_wave)
-    monkeypatch.setattr("atelier.core.capabilities.swarm.capability.apply_wave_candidates", _apply)
+    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._prepare_wave", _prepare)
+    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._run_wave_children", _run_wave)
+    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability.apply_wave_candidates", _apply)
 
     completed = launch_swarm_children(root, state_path)
 
@@ -650,7 +650,7 @@ def test_launch_swarm_children_stops_at_max_waves(monkeypatch: object, tmp_path:
 
 def test_swarm_list_prints_known_runs(monkeypatch: object, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     state = SwarmRunState(
         run_id="swarm-123",
         status="running",
@@ -687,7 +687,7 @@ def test_swarm_list_prints_known_runs(monkeypatch: object, tmp_path: Path) -> No
                 wave_index=3,
                 status="running",
                 worktree_path=str(tmp_path / "pool" / "wave-03-run-01"),
-                atelier_root=str(root / "child"),
+                lemoncrow_root=str(root / "child"),
                 run_dir=str(root / "runs" / "run-01"),
                 spec_path=str(tmp_path / "program.md"),
                 result_path=str(root / "runs" / "run-01" / "result.json"),
@@ -697,7 +697,7 @@ def test_swarm_list_prints_known_runs(monkeypatch: object, tmp_path: Path) -> No
             )
         ],
     )
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.list_swarm_runs", lambda _root: [state])
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.list_swarm_runs", lambda _root: [state])
 
     result = runner.invoke(swarm_group, ["list"], obj={"root": root})
 
@@ -710,9 +710,9 @@ def test_swarm_list_prints_known_runs(monkeypatch: object, tmp_path: Path) -> No
 
 def test_swarm_logs_reads_child_output(monkeypatch: object, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.swarm.read_swarm_log",
+        "lemoncrow.gateway.cli.commands.swarm.read_swarm_log",
         lambda *_args, **_kwargs: "child is compacting json",
     )
 
@@ -734,7 +734,7 @@ def test_swarm_logs_reads_child_output(monkeypatch: object, tmp_path: Path) -> N
 def test_swarm_status_export_flag_prints_artifacts(monkeypatch: object, tmp_path: Path) -> None:
     """`swarm export` was folded into `swarm status --export`."""
     runner = CliRunner()
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     run_id = "swarm-123"
     state_path = root / "swarm" / "runs" / run_id / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -773,7 +773,7 @@ def test_swarm_status_export_flag_prints_artifacts(monkeypatch: object, tmp_path
         export_artifacts=[artifact],
         transplant_commands=["git cherry-pick abc1234"],
     )
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.load_swarm_state", lambda _path: state)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.load_swarm_state", lambda _path: state)
 
     result = runner.invoke(swarm_group, ["status", run_id, "--export"], obj={"root": root})
 
@@ -786,7 +786,7 @@ def test_swarm_status_export_flag_prints_artifacts(monkeypatch: object, tmp_path
 def test_swarm_status_watch_exits_when_run_finishes(monkeypatch: object, tmp_path: Path) -> None:
     """--watch redraws once and returns immediately once the run is no longer running."""
     runner = CliRunner()
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     run_id = "swarm-123"
     state_path = root / "swarm" / "runs" / run_id / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -807,7 +807,7 @@ def test_swarm_status_watch_exits_when_run_finishes(monkeypatch: object, tmp_pat
         runs=1,
         max_runs=1,
     )
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.load_swarm_state", lambda _path: state)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.load_swarm_state", lambda _path: state)
 
     result = runner.invoke(swarm_group, ["status", run_id, "--watch", "--interval", "0"], obj={"root": root})
 
@@ -844,7 +844,7 @@ def test_read_swarm_child_activity_tails_live_transcript(monkeypatch: object, tm
                         "message": {
                             "role": "assistant",
                             "content": [
-                                {"type": "tool_use", "name": "mcp__atelier__bash", "input": {"command": "pytest -q"}}
+                                {"type": "tool_use", "name": "mcp__lemon__bash", "input": {"command": "pytest -q"}}
                             ],
                         },
                     }
@@ -860,7 +860,7 @@ def test_read_swarm_child_activity_tails_live_transcript(monkeypatch: object, tm
         wave_index=1,
         status="running",
         worktree_path=str(worktree),
-        atelier_root=str(tmp_path / "child"),
+        lemoncrow_root=str(tmp_path / "child"),
         run_dir=str(tmp_path / "run"),
         spec_path=str(tmp_path / "program.md"),
         result_path=str(tmp_path / "result.json"),
@@ -872,12 +872,12 @@ def test_read_swarm_child_activity_tails_live_transcript(monkeypatch: object, tm
     activity = read_swarm_child_activity(child, turns=2)
 
     assert "Investigating the ranking bug." in activity
-    assert "mcp__atelier__bash" in activity
+    assert "mcp__lemon__bash" in activity
 
 
 def test_swarm_apply_prints_transplant_commands(monkeypatch: object, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     run_id = "swarm-123"
     state_path = root / "swarm" / "runs" / run_id / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -899,9 +899,9 @@ def test_swarm_apply_prints_transplant_commands(monkeypatch: object, tmp_path: P
         runs=2,
         max_runs=2,
     )
-    monkeypatch.setattr("atelier.gateway.cli.commands.swarm.load_swarm_state", lambda _path: state)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.swarm.load_swarm_state", lambda _path: state)
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.swarm.build_swarm_apply_payload",
+        "lemoncrow.gateway.cli.commands.swarm.build_swarm_apply_payload",
         lambda _state, wave_index=None, child_id=None: {
             "selected_commits": [{"child_id": child_id or "wave-01-run-01"}],
             "commands": ["git cherry-pick abc1234"],

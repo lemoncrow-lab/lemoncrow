@@ -8,10 +8,10 @@ from pathlib import Path
 
 from click.testing import CliRunner, Result
 
-from atelier.core.foundation.models import Trace, UsageEntry
-from atelier.core.foundation.store import ContextStore
-from atelier.gateway.cli import cli
-from atelier.infra.runtime.run_ledger import RunLedger
+from lemoncrow.core.foundation.models import Trace, UsageEntry
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.gateway.cli import cli
+from lemoncrow.infra.runtime.run_ledger import RunLedger
 from tests.helpers import init_store_at
 
 
@@ -106,7 +106,7 @@ def test_ledger_show_and_summarize(tmp_path: Path) -> None:
 
     res2 = _invoke(root, "ledger", "summarize")
     assert res2.exit_code == 0
-    assert "Atelier compact state" in res2.output
+    assert "LemonCrow compact state" in res2.output
 
 
 def test_tool_mode_show_set(tmp_path: Path) -> None:

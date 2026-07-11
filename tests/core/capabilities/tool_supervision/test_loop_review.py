@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from atelier.core.capabilities.tool_supervision.loop_review import (
+from lemoncrow.core.capabilities.tool_supervision.loop_review import (
     SessionLoopTracker,
     call_signature,
     repeat_nudge,

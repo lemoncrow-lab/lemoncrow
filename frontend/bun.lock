@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "atelier-frontend",
+      "name": "@lemoncrow/frontend",
       "dependencies": {
         "posthog-js": "^1.150.0",
         "react": "^18.3.1",

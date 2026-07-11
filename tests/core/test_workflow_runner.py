@@ -5,14 +5,14 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities.workflow_context import StepResult, WorkflowContextState
-from atelier.core.capabilities.workflow_runner import WorkflowRunner, build_execution_waves
-from atelier.core.capabilities.workflow_schema import (
+from lemoncrow.core.capabilities.workflow_context import StepResult, WorkflowContextState
+from lemoncrow.core.capabilities.workflow_runner import WorkflowRunner, build_execution_waves
+from lemoncrow.core.capabilities.workflow_schema import (
     WorkflowDefinition,
     WorkflowStepDefinition,
     validate_workflow_definition,
 )
-from atelier.infra.runtime.run_ledger import RunLedger
+from lemoncrow.infra.runtime.run_ledger import RunLedger
 
 
 def _owned_workflow_definition() -> WorkflowDefinition:
@@ -75,7 +75,7 @@ def test_validate_workflow_definition_rejects_invalid_context_mode() -> None:
 
 
 def test_workflow_step_mapping_supports_fresh_context_mode() -> None:
-    from atelier.core.capabilities.workflow_schema import workflow_step_from_mapping
+    from lemoncrow.core.capabilities.workflow_schema import workflow_step_from_mapping
 
     step = workflow_step_from_mapping(
         {
@@ -120,7 +120,7 @@ def test_workflow_context_fork_is_copy_on_write() -> None:
 
 def test_workflow_runner_executes_steps_and_records_telemetry(tmp_path: Path) -> None:
     validated = validate_workflow_definition(_owned_workflow_definition())
-    ledger = RunLedger(root=tmp_path / ".atelier")
+    ledger = RunLedger(root=tmp_path / ".lemoncrow")
     state = WorkflowContextState()
     calls: list[tuple[str, Any]] = []
 
@@ -179,7 +179,7 @@ def test_workflow_runner_stops_on_failed_step_and_keeps_downstream_unpublished(
         ),
     )
     validated = validate_workflow_definition(definition)
-    ledger = RunLedger(root=tmp_path / ".atelier")
+    ledger = RunLedger(root=tmp_path / ".lemoncrow")
     state = WorkflowContextState()
 
     runner = WorkflowRunner(
@@ -219,7 +219,7 @@ def test_workflow_runner_pauses_before_review_gated_execution_and_resumes(tmp_pa
         ),
     )
     validated = validate_workflow_definition(definition)
-    ledger = RunLedger(root=tmp_path / ".atelier")
+    ledger = RunLedger(root=tmp_path / ".lemoncrow")
     state = WorkflowContextState()
     calls: list[tuple[str, Any]] = []
 

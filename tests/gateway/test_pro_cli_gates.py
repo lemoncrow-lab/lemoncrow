@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
-from atelier.core.capabilities.licensing import entitlements
-from atelier.gateway.cli import cli
+from lemoncrow.core.capabilities.licensing import entitlements
+from lemoncrow.gateway.cli import cli
 from tests.helpers import deny_oauth, grant_oauth_pro, init_store_at
 
 
@@ -23,8 +23,8 @@ def _invoke(root: Path, *args: str) -> Result:
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
-    # Isolate the auth store away from any real ~/.atelier and force signed-out.
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / "lic"))
+    # Isolate the auth store away from any real ~/.lemoncrow and force signed-out.
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "lic"))
     deny_oauth(monkeypatch)
     yield
     entitlements.reload()
@@ -47,7 +47,7 @@ def test_free_install_blocks_pro_cli(tmp_path: Path, args: tuple[str, ...]) -> N
     init_store_at(str(root))
     res = _invoke(root, *args)
     assert res.exit_code != 0
-    assert "Atelier Pro feature" in res.output
+    assert "LemonCrow Pro feature" in res.output
 
 
 def test_pro_install_opens_recall_gate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -57,5 +57,5 @@ def test_pro_install_opens_recall_gate(tmp_path: Path, monkeypatch: pytest.Monke
     init_store_at(str(root))
     res = _invoke(root, "session", "recall", "search", "hello")
     # Gate opened: the command ran (no matches in an empty index) instead of the upsell.
-    assert "Atelier Pro feature" not in res.output
+    assert "LemonCrow Pro feature" not in res.output
     assert res.exit_code == 0, res.output

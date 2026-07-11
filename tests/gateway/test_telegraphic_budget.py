@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.repo_map.budget import count_tokens
-from atelier.gateway.adapters import mcp_server
+from lemoncrow.core.capabilities.repo_map.budget import count_tokens
+from lemoncrow.gateway.adapters import mcp_server
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 

@@ -2,8 +2,8 @@
 
 Runs a practical cross-tool search benchmark for the indexers discussed in this
 session:
-  - Atelier code tool (local lexical index)
-  - Atelier Zoekt adapter
+  - LemonCrow code tool (local lexical index)
+  - LemonCrow Zoekt adapter
   - Serena
   - CodeGraph
   - code-index-mcp
@@ -91,7 +91,7 @@ class SerenaRunner:
         *,
         project_root: Path,
         home_dir: Path,
-        project_name: str = "atelier-bench",
+        project_name: str = "lemoncrow-bench",
         port: int | None = None,
         language: str = "python",
     ) -> None:
@@ -353,7 +353,7 @@ SNAPSHOT_IGNORE_NAMES = {
     ".git",
     ".venv",
     ".venv-build",
-    ".atelier-benchmarks",
+    ".lemoncrow-benchmarks",
     ".codegraph",
     ".mcp-vector-search",
     "node_modules",
@@ -528,7 +528,7 @@ def prepare_cached_repo_snapshot(
 ) -> Path:
     ensure_workspace(cache_root)
     snapshot_root = cache_root / f"{name}-{cache_key}"
-    marker_path = snapshot_root / ".atelier-snapshot-ready.json"
+    marker_path = snapshot_root / ".lemoncrow-snapshot-ready.json"
     lock_path = cache_root / f"{name}-{cache_key}.lock"
     with cache_lock(lock_path):
         if marker_path.is_file():
@@ -539,7 +539,7 @@ def prepare_cached_repo_snapshot(
         if tmp_root.exists():
             shutil.rmtree(tmp_root)
         _copy_repo_tree(repo_root, tmp_root)
-        (tmp_root / ".atelier-snapshot-ready.json").write_text(
+        (tmp_root / ".lemoncrow-snapshot-ready.json").write_text(
             json.dumps({"cache_key": cache_key}) + "\n", encoding="utf-8"
         )
         tmp_root.rename(snapshot_root)
@@ -590,7 +590,7 @@ def default_benchmark_root(repo_root: Path) -> Path:
     # indexer installs, per-shard artifacts) -- lives inside the repo under
     # benchmarks/mcp_tools/results/, not a sibling directory outside the
     # checkout. Gitignored (see benchmarks/mcp_tools/results/.gitignore); the
-    # committed results.csv/summary.csv for `atelier eval mcp` stay at the
+    # committed results.csv/summary.csv for `lemon eval mcp` stay at the
     # shared reports/benchmark/mcp/ location every other suite uses.
     return repo_root / "benchmarks" / "mcp_tools" / "results"
 
@@ -627,7 +627,7 @@ def ensure_code_index_runtime(code_index_repo: Path) -> Path:
 
 def bench_tools_root() -> Path:
     """Shared location for self-provisioned external comparator binaries."""
-    root = Path.home() / ".atelier" / "_bench_tools"
+    root = Path.home() / ".lemoncrow" / "_bench_tools"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -668,14 +668,14 @@ def ensure_universal_ctags() -> tuple[Path, Path]:
     return ctags, readtags
 
 
-def bench_atelier(repo_root: Path, workspace_root: Path, query: str, iterations: int) -> ToolBenchResult:
+def bench_lemoncrow(repo_root: Path, workspace_root: Path, query: str, iterations: int) -> ToolBenchResult:
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     from benchmarks.mcp_tools._env import configure_benchmark_runtime
 
     tool_workspace = external_workspace_root(workspace_root)
-    snapshot_root = prepare_repo_snapshot(repo_root, tool_workspace, "atelier-repo")
-    runtime_root = Path(tempfile.mkdtemp(prefix="atelier-root-", dir=tool_workspace))
+    snapshot_root = prepare_repo_snapshot(repo_root, tool_workspace, "lemoncrow-repo")
+    runtime_root = Path(tempfile.mkdtemp(prefix="lemoncrow-root-", dir=tool_workspace))
     configure_benchmark_runtime(runtime_root, workspace_root=snapshot_root)
     from benchmarks.mcp_tools._env import call_code_op
 
@@ -700,7 +700,7 @@ def bench_atelier(repo_root: Path, workspace_root: Path, query: str, iterations:
         toks.append(token_count(payload))
         sample = payload[:280]
     return ToolBenchResult(
-        tool="atelier",
+        tool="lemoncrow",
         ok=True,
         median_ms=statistics.median(times),
         p95_ms=sorted(times)[int(0.95 * (len(times) - 1))],
@@ -713,16 +713,16 @@ def bench_atelier(repo_root: Path, workspace_root: Path, query: str, iterations:
     )
 
 
-def bench_atelier_zoekt(repo_root: Path, workspace_root: Path, query: str, iterations: int) -> ToolBenchResult:
+def bench_lemoncrow_zoekt(repo_root: Path, workspace_root: Path, query: str, iterations: int) -> ToolBenchResult:
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     from benchmarks.mcp_tools._env import configure_benchmark_runtime
 
     tool_workspace = external_workspace_root(workspace_root)
-    snapshot_root = prepare_repo_snapshot(repo_root, tool_workspace, "atelier-zoekt-repo")
-    runtime_root = Path(tempfile.mkdtemp(prefix="atelier-zoekt-root-", dir=tool_workspace))
+    snapshot_root = prepare_repo_snapshot(repo_root, tool_workspace, "lemoncrow-zoekt-repo")
+    runtime_root = Path(tempfile.mkdtemp(prefix="lemoncrow-zoekt-root-", dir=tool_workspace))
     configure_benchmark_runtime(runtime_root, workspace_root=snapshot_root)
-    from atelier.infra.code_intel.zoekt.adapter import get_zoekt_supervisor, reset_zoekt_supervisors
+    from lemoncrow.infra.code_intel.zoekt.adapter import get_zoekt_supervisor, reset_zoekt_supervisors
 
     reset_zoekt_supervisors()
     request = {
@@ -754,7 +754,7 @@ def bench_atelier_zoekt(repo_root: Path, workspace_root: Path, query: str, itera
         toks.append(token_count(payload))
         sample = payload[:280]
     return ToolBenchResult(
-        tool="atelier-zoekt",
+        tool="lemoncrow-zoekt",
         ok=True,
         median_ms=statistics.median(times),
         p95_ms=sorted(times)[int(0.95 * (len(times) - 1))],
@@ -782,7 +782,7 @@ def bench_serena(repo_root: Path, workspace_root: Path, query: str, iterations: 
         sample = ""
         params = {
             "substring_pattern": query,
-            "relative_path": "src/atelier",
+            "relative_path": "src/lemoncrow",
             "restrict_search_to_code_files": True,
         }
         for _ in range(iterations):
@@ -975,10 +975,10 @@ def run_external_benchmarks(
 ) -> list[ToolBenchResult]:
     results: list[ToolBenchResult] = []
     benches: list[tuple[str, Callable[[], ToolBenchResult]]] = [
-        ("atelier", lambda: bench_atelier(repo_root, workspace_root, query, iterations)),
+        ("lemoncrow", lambda: bench_lemoncrow(repo_root, workspace_root, query, iterations)),
         (
-            "atelier-zoekt",
-            lambda: bench_atelier_zoekt(repo_root, workspace_root, query, iterations),
+            "lemoncrow-zoekt",
+            lambda: bench_lemoncrow_zoekt(repo_root, workspace_root, query, iterations),
         ),
         ("serena", lambda: bench_serena(repo_root, workspace_root, query, iterations)),
         ("codegraph", lambda: bench_codegraph(repo_root, query, iterations)),

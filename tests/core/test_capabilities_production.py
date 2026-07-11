@@ -1,4 +1,4 @@
-"""Production-grade tests for all five Atelier V3 capabilities.
+"""Production-grade tests for all five LemonCrow V3 capabilities.
 
 Tests cover:
 - context_reuse: BM25 ranking, rescue boost, savings accumulation
@@ -15,9 +15,9 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from atelier.core.foundation.models import Playbook
-from atelier.core.runtime import AtelierRuntimeCore, AtelierRuntimeV3
-from atelier.gateway.cli import cli
+from lemoncrow.core.foundation.models import Playbook
+from lemoncrow.core.runtime import LemonCrowRuntimeCore, LemonCrowRuntimeV3
+from lemoncrow.gateway.cli import cli
 from tests.helpers import grant_oauth_pro, init_store_at
 
 
@@ -25,10 +25,10 @@ def _init_root(root: Path) -> None:
     init_store_at(str(root))
 
 
-def _make_rt(tmp_path: Path) -> tuple[AtelierRuntimeCore, Path]:
-    root = tmp_path / ".atelier"
+def _make_rt(tmp_path: Path) -> tuple[LemonCrowRuntimeCore, Path]:
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    return AtelierRuntimeCore(root), root
+    return LemonCrowRuntimeCore(root), root
 
 
 # --------------------------------------------------------------------------- #
@@ -159,7 +159,7 @@ def test_context_reuse_returns_empty_when_no_strong_match(tmp_path: Path) -> Non
 
 
 def test_semantic_memory_ast_truncation(tmp_path: Path) -> None:
-    from atelier.core.capabilities.semantic_file_memory import _ast_truncated_source
+    from lemoncrow.core.capabilities.semantic_file_memory import _ast_truncated_source
 
     source = textwrap.dedent("""\
         def foo(x):
@@ -180,7 +180,7 @@ def test_semantic_memory_ast_truncation(tmp_path: Path) -> None:
 
 
 def test_semantic_memory_symbol_details(tmp_path: Path) -> None:
-    from atelier.core.capabilities.semantic_file_memory import _python_full_ast
+    from lemoncrow.core.capabilities.semantic_file_memory import _python_full_ast
 
     source = textwrap.dedent("""\
         def compute(x: int, y: int) -> int:
@@ -262,9 +262,9 @@ def test_semantic_memory_symbol_search(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_token_savings(tmp_path: Path) -> None:
-    from atelier.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _init_root(root)
     cap = ToolSupervisionCapability(root)
 
@@ -280,9 +280,9 @@ def test_tool_supervision_token_savings(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_tool_report_structure(tmp_path: Path) -> None:
-    from atelier.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _init_root(root)
     cap = ToolSupervisionCapability(root)
     cap.observe("read:file.py", {"lines": 100}, cache_hit=False)
@@ -298,9 +298,9 @@ def test_tool_supervision_tool_report_structure(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_get_cached(tmp_path: Path) -> None:
-    from atelier.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _init_root(root)
     cap = ToolSupervisionCapability(root)
     cap.observe("mykey", {"data": 42}, cache_hit=False)
@@ -310,9 +310,9 @@ def test_tool_supervision_get_cached(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_diff_context_no_crash(tmp_path: Path) -> None:
-    from atelier.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _init_root(root)
     cap = ToolSupervisionCapability(root)
     # Should not raise even for non-existent file
@@ -322,9 +322,9 @@ def test_tool_supervision_diff_context_no_crash(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_test_context_no_crash(tmp_path: Path) -> None:
-    from atelier.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _init_root(root)
     cap = ToolSupervisionCapability(root)
     result = cap.test_context(["nonexistent.py"])
@@ -337,10 +337,10 @@ def test_tool_supervision_test_context_no_crash(tmp_path: Path) -> None:
 
 
 def test_context_compression_provenance_present(tmp_path: Path) -> None:
-    from atelier.core.capabilities.context_compression import ContextCompressionCapability
-    from atelier.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.core.capabilities.context_compression import ContextCompressionCapability
+    from lemoncrow.infra.runtime.run_ledger import RunLedger
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _init_root(root)
     led = RunLedger(session_id="test-cc-1", task="compress me", domain="test")
     # Add some events to compress
@@ -367,18 +367,18 @@ def test_context_compression_keystone_survives_budget(tmp_path: Path, monkeypatc
     """A keystone event below the budget cutoff must never be dropped."""
     import sys
 
-    import atelier.bench.mode  # noqa: F401 — ensures the sys.modules entry exists
-    from atelier.core.capabilities.context_compression import ContextCompressionCapability
-    from atelier.infra.runtime.run_ledger import RunLedger
+    import lemoncrow.bench.mode  # noqa: F401 — ensures the sys.modules entry exists
+    from lemoncrow.core.capabilities.context_compression import ContextCompressionCapability
+    from lemoncrow.infra.runtime.run_ledger import RunLedger
 
-    # atelier.bench.__init__ exports a `mode` function that shadows the submodule,
+    # lemoncrow.bench.__init__ exports a `mode` function that shadows the submodule,
     # so retrieve the real module via sys.modules to reset the singleton.
-    _bm = sys.modules["atelier.bench.mode"]
+    _bm = sys.modules["lemoncrow.bench.mode"]
     monkeypatch.setattr(_bm, "_mode", None)
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "on")
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "on")
     grant_oauth_pro(monkeypatch)  # context_compression is Pro-gated
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _init_root(root)
     led = RunLedger(session_id="test-cc-keystone", task="unrelated task", domain="test")
     # Distinct, high-weight filler events (not collapsed by dedup) that exhaust the budget.
@@ -404,10 +404,10 @@ def test_context_compression_keystone_survives_budget(tmp_path: Path, monkeypatc
 
 
 def test_context_compression_context_report(tmp_path: Path) -> None:
-    from atelier.core.capabilities.context_compression import ContextCompressionCapability
-    from atelier.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.core.capabilities.context_compression import ContextCompressionCapability
+    from lemoncrow.infra.runtime.run_ledger import RunLedger
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _init_root(root)
     led = RunLedger(session_id="test-cc-2", task="report", domain="test")
     cap = ContextCompressionCapability()
@@ -423,13 +423,13 @@ def test_context_compression_context_report(tmp_path: Path) -> None:
 
 
 def test_runtime_v3_alias(tmp_path: Path) -> None:
-    """AtelierRuntimeV3 is the same class as AtelierRuntimeCore."""
-    assert AtelierRuntimeV3 is AtelierRuntimeCore
+    """LemonCrowRuntimeV3 is the same class as LemonCrowRuntimeCore."""
+    assert LemonCrowRuntimeV3 is LemonCrowRuntimeCore
 
 
 def test_runtime_pre_tool_hook(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
-    from atelier.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.infra.runtime.run_ledger import RunLedger
 
     led = RunLedger(session_id="pre-tool-1", task="test hook", domain="test")
     result = rt.pre_tool("read_file", {"path": "foo.py"}, ledger=led)
@@ -487,7 +487,7 @@ def test_runtime_context_report_no_ledger(tmp_path: Path) -> None:
 
 
 def test_cli_tool_report_no_crash(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _init_root(root)
     runner = CliRunner()
     res = runner.invoke(cli, ["--root", str(root), "tools", "report"])
@@ -500,7 +500,7 @@ def test_cli_tool_report_no_crash(tmp_path: Path) -> None:
 
 
 def test_telemetry_emit_and_query() -> None:
-    from atelier.core.capabilities.telemetry import TelemetryEvent, TelemetrySubstrate
+    from lemoncrow.core.capabilities.telemetry import TelemetryEvent, TelemetrySubstrate
 
     bus = TelemetrySubstrate()
     bus.emit("tool_supervision", "redundancy_score", 0.8, session_id="r1")
@@ -521,7 +521,7 @@ def test_telemetry_emit_and_query() -> None:
 
 
 def test_telemetry_to_dict_shape() -> None:
-    from atelier.core.capabilities.telemetry import TelemetryEvent
+    from lemoncrow.core.capabilities.telemetry import TelemetryEvent
 
     ev = TelemetryEvent(capability="tool_supervision", metric="token_cost", value=120.0)
     d = ev.to_dict()
@@ -533,7 +533,7 @@ def test_telemetry_to_dict_shape() -> None:
 
 
 def test_telemetry_aggregates_mean_p95() -> None:
-    from atelier.core.capabilities.telemetry import TelemetrySubstrate
+    from lemoncrow.core.capabilities.telemetry import TelemetrySubstrate
 
     bus = TelemetrySubstrate()
     for v in range(1, 11):  # values 1..10
@@ -547,7 +547,7 @@ def test_telemetry_aggregates_mean_p95() -> None:
 
 
 def test_telemetry_aggregates_empty() -> None:
-    from atelier.core.capabilities.telemetry import TelemetrySubstrate
+    from lemoncrow.core.capabilities.telemetry import TelemetrySubstrate
 
     bus = TelemetrySubstrate()
     agg = bus.aggregates(capability="nobody")
@@ -556,7 +556,7 @@ def test_telemetry_aggregates_empty() -> None:
 
 
 def test_telemetry_clear() -> None:
-    from atelier.core.capabilities.telemetry import TelemetrySubstrate
+    from lemoncrow.core.capabilities.telemetry import TelemetrySubstrate
 
     bus = TelemetrySubstrate()
     bus.emit("x", "y", 1.0)
@@ -572,7 +572,7 @@ def test_telemetry_clear() -> None:
 
 
 def test_capability_registry_register_and_get() -> None:
-    from atelier.core.capabilities.registry import CapabilityRegistry
+    from lemoncrow.core.capabilities.registry import CapabilityRegistry
 
     reg = CapabilityRegistry()
     sentinel = object()
@@ -583,7 +583,7 @@ def test_capability_registry_register_and_get() -> None:
 
 
 def test_capability_registry_dependency_report() -> None:
-    from atelier.core.capabilities.registry import CapabilityRegistry
+    from lemoncrow.core.capabilities.registry import CapabilityRegistry
 
     reg = CapabilityRegistry()
     reg.register("context_reuse", object())
@@ -605,7 +605,7 @@ def test_capability_registry_dependency_report() -> None:
 
 
 def test_capability_registry_activation_path_ordered() -> None:
-    from atelier.core.capabilities.registry import CapabilityRegistry
+    from lemoncrow.core.capabilities.registry import CapabilityRegistry
 
     reg = CapabilityRegistry()
     reg.register("A", object())
@@ -621,7 +621,7 @@ def test_capability_registry_activation_path_ordered() -> None:
 
 
 def test_capability_registry_fallback_for() -> None:
-    from atelier.core.capabilities.registry import CapabilityRegistry
+    from lemoncrow.core.capabilities.registry import CapabilityRegistry
 
     reg = CapabilityRegistry()
     reg.register("primary", object(), fallback="secondary")
@@ -638,7 +638,7 @@ def test_capability_registry_fallback_for() -> None:
 
 
 def test_budget_optimizer_empty_blocks() -> None:
-    from atelier.core.capabilities.budget_optimizer import PromptBudgetOptimizer
+    from lemoncrow.core.capabilities.budget_optimizer import PromptBudgetOptimizer
 
     opt = PromptBudgetOptimizer()
     plan = opt.solve([], token_budget=1000)
@@ -649,7 +649,7 @@ def test_budget_optimizer_empty_blocks() -> None:
 
 
 def test_budget_optimizer_all_fit() -> None:
-    from atelier.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
         ContextBlock("a", "alpha", token_cost=50, utility=0.9, source="context_reuse"),
@@ -665,7 +665,7 @@ def test_budget_optimizer_all_fit() -> None:
 
 
 def test_budget_optimizer_respects_budget() -> None:
-    from atelier.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
         ContextBlock("a", "high utility", token_cost=100, utility=0.95, source="cap_a"),
@@ -681,7 +681,7 @@ def test_budget_optimizer_respects_budget() -> None:
 
 
 def test_budget_optimizer_to_dict_shape() -> None:
-    from atelier.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
         ContextBlock("x1", "content", token_cost=10, utility=0.5, source="tool_supervision"),
@@ -698,7 +698,7 @@ def test_budget_optimizer_to_dict_shape() -> None:
 
 
 def test_budget_optimizer_high_utility_preferred() -> None:
-    from atelier.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     # Three blocks; only room for two. High-utility block must survive.
     blocks = [
@@ -714,7 +714,7 @@ def test_budget_optimizer_high_utility_preferred() -> None:
 
 
 def test_budget_optimizer_infeasible_blocks_dropped() -> None:
-    from atelier.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
         ContextBlock("big", "too large", token_cost=500, utility=0.99, source="cap_a"),
@@ -728,7 +728,7 @@ def test_budget_optimizer_infeasible_blocks_dropped() -> None:
 
 
 def test_budget_optimizer_diversity_bonus() -> None:
-    from atelier.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     # Two sources; same utility/token — diversity bonus should help
     # include one from each source when budget allows
@@ -744,7 +744,7 @@ def test_budget_optimizer_diversity_bonus() -> None:
 
 
 def test_budget_optimizer_utility_per_token_zero_cost() -> None:
-    from atelier.core.capabilities.budget_optimizer import ContextBlock
+    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock
 
     b = ContextBlock("z", "", token_cost=0, utility=0.5, source="x")
     assert b.utility_per_token() == 0.0
@@ -756,7 +756,7 @@ def test_budget_optimizer_utility_per_token_zero_cost() -> None:
 
 
 def test_pricing_known_model_exact_match() -> None:
-    from atelier.core.capabilities.pricing import get_model_pricing
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     p = get_model_pricing("claude-sonnet-4")
     assert p.model_id == "claude-sonnet-4"
@@ -766,7 +766,7 @@ def test_pricing_known_model_exact_match() -> None:
 
 
 def test_pricing_known_model_sonnet() -> None:
-    from atelier.core.capabilities.pricing import get_model_pricing
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     p = get_model_pricing("claude-sonnet-4-6")
     assert p.output == 15.0
@@ -774,7 +774,7 @@ def test_pricing_known_model_sonnet() -> None:
 
 
 def test_pricing_unknown_model_returns_known_false() -> None:
-    from atelier.core.capabilities.pricing import get_model_pricing
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     p = get_model_pricing("some-unknown-model-xyz-9999")
     assert p.model_id == "some-unknown-model-xyz-9999"
@@ -784,7 +784,7 @@ def test_pricing_unknown_model_returns_known_false() -> None:
 
 
 def test_pricing_tokens_to_usd_output() -> None:
-    from atelier.core.capabilities.pricing import tokens_to_usd
+    from lemoncrow.core.capabilities.pricing import tokens_to_usd
 
     # LiteLLM exposes Anthropic long-context tiers for Claude Sonnet 4.
     # Output tokens above 200k are billed at the higher tier.
@@ -794,7 +794,7 @@ def test_pricing_tokens_to_usd_output() -> None:
 
 
 def test_pricing_cost_usd_multitype() -> None:
-    from atelier.core.capabilities.pricing import get_model_pricing
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     p = get_model_pricing("claude-sonnet-4")
     # 1000 input @ $3/1M + 1000 output @ $15/1M + 1000 cache @ $0.30/1M
@@ -804,7 +804,7 @@ def test_pricing_cost_usd_multitype() -> None:
 
 
 def test_pricing_all_known_models_non_empty() -> None:
-    from atelier.core.capabilities.pricing import all_known_models
+    from lemoncrow.core.capabilities.pricing import all_known_models
 
     models = all_known_models()
     assert len(models) >= 10
@@ -814,7 +814,7 @@ def test_pricing_all_known_models_non_empty() -> None:
 
 
 def test_pricing_no_prefix_fallback_for_unknown_variant() -> None:
-    from atelier.core.capabilities.pricing import get_model_pricing
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     # Fabricated model variant not in LiteLLM must NOT silently match a real
     # model via prefix — it should return known=False with zero cost.
@@ -824,7 +824,7 @@ def test_pricing_no_prefix_fallback_for_unknown_variant() -> None:
 
 
 def test_pricing_copilot_explicit_models() -> None:
-    from atelier.core.capabilities.pricing import get_model_pricing
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     # GitHub Copilot is a flat-rate subscription product ($19-39/mo). Alias
     # stripping must NOT resolve "copilot/<model>" through to the underlying
@@ -845,7 +845,7 @@ def test_pricing_copilot_explicit_models() -> None:
 
 
 def test_pricing_cursor_placeholder_models_never_bill_real_rates() -> None:
-    from atelier.core.capabilities.pricing import get_model_pricing
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     # Cursor is likewise subscription-covered: cursor.py._normalize_model
     # namespaces placeholder bubbles as "cursor/<placeholder>" precisely so
@@ -870,7 +870,7 @@ def test_pricing_copilot_subscription_usage_is_zero_cost() -> None:
     API rate. A copilot trace must always cost $0 regardless of how many
     tokens were reported.
     """
-    from atelier.core.capabilities.pricing import usage_cost_usd
+    from lemoncrow.core.capabilities.pricing import usage_cost_usd
 
     cost = usage_cost_usd(
         "copilot/gpt-5",
@@ -883,7 +883,7 @@ def test_pricing_copilot_subscription_usage_is_zero_cost() -> None:
 
 
 def test_pricing_cursor_agent_auto() -> None:
-    from atelier.core.capabilities.pricing import get_model_pricing
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     # cursor-agent-auto should match the market value proxy (GPT-4o rates).
     p = get_model_pricing("cursor-agent-auto")
@@ -898,11 +898,11 @@ def test_pricing_yaml_overrides(tmp_path: Path) -> None:
 
     import yaml
 
-    from atelier.core.capabilities.pricing import _load_pricing_table, get_model_pricing
+    from lemoncrow.core.capabilities.pricing import _load_pricing_table, get_model_pricing
 
-    # Point ATELIER_ROOT to tmp_path
-    old_root = os.environ.get("ATELIER_ROOT")
-    os.environ["ATELIER_ROOT"] = str(tmp_path)
+    # Point LEMONCROW_ROOT to tmp_path
+    old_root = os.environ.get("LEMONCROW_ROOT")
+    os.environ["LEMONCROW_ROOT"] = str(tmp_path)
     try:
         overrides = {"overrides": {"yaml-model": {"input": 1.23, "output": 4.56, "cache_read": 0.1, "thinking": 9.99}}}
         (tmp_path / "pricing.yaml").write_text(yaml.dump(overrides))
@@ -916,14 +916,14 @@ def test_pricing_yaml_overrides(tmp_path: Path) -> None:
         assert p.thinking == 9.99
     finally:
         if old_root:
-            os.environ["ATELIER_ROOT"] = old_root
+            os.environ["LEMONCROW_ROOT"] = old_root
         else:
-            del os.environ["ATELIER_ROOT"]
+            del os.environ["LEMONCROW_ROOT"]
         _load_pricing_table.cache_clear()
 
 
 def test_pricing_dot_version_normalisation() -> None:
-    from atelier.core.capabilities.pricing import get_model_pricing
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     # Dot form ("claude-sonnet-4.6") and dash form must resolve identically.
     dot = get_model_pricing("claude-sonnet-4.6")
@@ -945,7 +945,7 @@ def test_tool_supervision_model_aware_usd() -> None:
     import tempfile
     from pathlib import Path
 
-    from atelier.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cap = ToolSupervisionCapability(Path(tmpdir), model="claude-sonnet-4")
@@ -965,7 +965,7 @@ def test_tool_supervision_default_model_fallback() -> None:
     import tempfile
     from pathlib import Path
 
-    from atelier.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cap = ToolSupervisionCapability(Path(tmpdir))  # no model arg

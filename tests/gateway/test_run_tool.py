@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision.bash_exec import classify_command, run_command
+from lemoncrow.core.capabilities.tool_supervision.bash_exec import classify_command, run_command
 
 
 def test_run_simple_command(tmp_path: Path) -> None:
@@ -207,7 +207,7 @@ def test_classify_keeps_fetch_with_request_flags_as_is() -> None:
 
 def test_run_via_mcp_handle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    from atelier.gateway.adapters.mcp_server import _handle
+    from lemoncrow.gateway.adapters.mcp_server import _handle
 
     resp = _handle(
         {
@@ -226,7 +226,7 @@ def test_run_via_mcp_handle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_run_via_mcp_rewrites_cat(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    from atelier.gateway.adapters.mcp_server import _handle
+    from lemoncrow.gateway.adapters.mcp_server import _handle
 
     f = tmp_path / "sample.txt"
     f.write_text("rewritten\n", encoding="utf-8")
@@ -247,7 +247,7 @@ def test_run_via_mcp_rewrites_cat(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 def test_run_via_mcp_rewrites_rg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    from atelier.gateway.adapters.mcp_server import _handle
+    from lemoncrow.gateway.adapters.mcp_server import _handle
 
     folder = tmp_path / "src"
     folder.mkdir()

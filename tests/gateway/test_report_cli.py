@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from atelier.core.foundation.models import Trace, ValidationResult
-from atelier.core.foundation.store import ContextStore
-from atelier.gateway.cli import cli
+from lemoncrow.core.foundation.models import Trace, ValidationResult
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.gateway.cli import cli
 
 
 def test_report_cli_outputs_json_and_markdown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     # Run outside a git repo so `init` skips the ~30s code-index bootstrap and
     # project-setup writes; this test only needs an initialized store.
     monkeypatch.chdir(tmp_path)
@@ -44,4 +44,4 @@ def test_report_cli_outputs_json_and_markdown(tmp_path: Path, monkeypatch: pytes
 
     markdown_result = runner.invoke(cli, ["--root", str(root), "report", "--since", "7d"])
     assert markdown_result.exit_code == 0, markdown_result.output
-    assert "Atelier Weekly Governance Report" in markdown_result.output
+    assert "LemonCrow Weekly Governance Report" in markdown_result.output

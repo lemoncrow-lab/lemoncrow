@@ -1,8 +1,8 @@
-"""CLI tests for ``atelier eval mini``.
+"""CLI tests for ``lemon eval mini``.
 
 Verifies:
-- ``atelier eval mini --help`` exits 0
-- ``atelier eval mini --dry-run --json`` works with no API keys
+- ``lemon eval mini --help`` exits 0
+- ``lemon eval mini --dry-run --json`` works with no API keys
 - The report is written to the default path and to a custom ``--output`` path
 - JSON output is valid and validates against MiniEvalReport
 - A dry-run never claims success (status is dry_run, never pass)
@@ -22,8 +22,8 @@ _REPO_ROOT = _Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from atelier.gateway.cli import cli  # noqa: E402
 from benchmarks.mini.schema import MiniEvalReport  # noqa: E402
+from lemoncrow.gateway.cli import cli  # noqa: E402
 
 _API_KEY_VARS = (
     "ANTHROPIC_API_KEY",
@@ -38,12 +38,12 @@ _API_KEY_VARS = (
 
 @pytest.fixture()
 def offline_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An Atelier root with all known API keys removed (offline)."""
+    """An LemonCrow root with all known API keys removed (offline)."""
     for var in _API_KEY_VARS:
         monkeypatch.delenv(var, raising=False)
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     return root
 
 

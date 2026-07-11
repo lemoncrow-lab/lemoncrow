@@ -1,11 +1,11 @@
 {
   "agents": [
-    "atelier-code",
-    "atelier-explore",
-    "atelier-plan",
-    "atelier-execute",
-    "atelier-research",
-    "atelier-review",
-    "atelier-solve"
+    "lemoncrow-code",
+    "lemoncrow-explore",
+    "lemoncrow-plan",
+    "lemoncrow-execute",
+    "lemoncrow-research",
+    "lemoncrow-review",
+    "lemoncrow-solve"
   ]
 }

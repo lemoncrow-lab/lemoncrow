@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from atelier.core.capabilities.owned_agent_session.checkpoint import (
+from lemoncrow.core.capabilities.owned_agent_session.checkpoint import (
     list_checkpoints,
     load_checkpoint,
     save_checkpoint,

@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from atelier.core.capabilities.reporting.weekly_report import (
+from lemoncrow.core.capabilities.reporting.weekly_report import (
     Report,
     generate_report,
     render_markdown,
 )
-from atelier.core.foundation.lesson_models import LessonCandidate
-from atelier.core.foundation.models import Playbook, ToolCall, Trace, ValidationResult
-from atelier.core.foundation.savings_models import ContextBudget
-from atelier.core.foundation.store import ContextStore
+from lemoncrow.core.foundation.lesson_models import LessonCandidate
+from lemoncrow.core.foundation.models import Playbook, ToolCall, Trace, ValidationResult
+from lemoncrow.core.foundation.savings_models import ContextBudget
+from lemoncrow.core.foundation.store import ContextStore
 
 
 def _block(block_id: str, title: str = "Plan Discipline") -> Playbook:
@@ -152,5 +152,5 @@ def test_report_json_round_trips_and_markdown_is_compact(store: ContextStore) ->
     assert Report.model_validate(payload).git_sha == "abc123"
 
     markdown = render_markdown(report)
-    assert markdown.startswith("# Atelier Weekly Governance Report")
+    assert markdown.startswith("# LemonCrow Weekly Governance Report")
     assert len(markdown.splitlines()) < 80

@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from atelier.core.capabilities.code_context import engine as eng
+from lemoncrow.core.capabilities.code_context import engine as eng
 
 
 def _single_feature_tree(feature_index: int) -> dict[str, Any]:

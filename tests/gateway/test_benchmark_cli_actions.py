@@ -9,15 +9,15 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from atelier.gateway.cli import cli
-from atelier.gateway.cli.commands import benchmark as benchmark_cmds
+from lemoncrow.gateway.cli import cli
+from lemoncrow.gateway.cli.commands import benchmark as benchmark_cmds
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_benchmark_legacy_top_level_commands_are_removed(tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
 
     assert runner.invoke(cli, ["--root", str(root), "benchmark-core", "--json"]).exit_code != 0
     assert runner.invoke(cli, ["--root", str(root), "benchmark", "--prompt", "Fix PDP", "--json"]).exit_code != 0
@@ -25,7 +25,7 @@ def test_benchmark_legacy_top_level_commands_are_removed(tmp_path: Path) -> None
 
 def test_help_command_shows_root_command_help(tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
 
     root_help = runner.invoke(cli, ["--root", str(root), "help"])
     assert root_help.exit_code == 0, root_help.output
@@ -35,7 +35,7 @@ def test_help_command_shows_root_command_help(tmp_path: Path) -> None:
 
 def test_benchmark_gate_command_reads_gate_and_optionally_fails(tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     run_dir = tmp_path / "terminalbench"
     run_dir.mkdir()
     (run_dir / "benchmark-gate.json").write_text(
@@ -57,7 +57,7 @@ def test_benchmark_gate_command_reads_gate_and_optionally_fails(tmp_path: Path) 
 
 def test_benchmark_harbor_resume_uses_benchmarks_uv_project(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     resume_dir = tmp_path / "harbor-job"
     resume_dir.mkdir()
     calls: list[tuple[list[str], dict[str, str] | None]] = []
@@ -78,7 +78,7 @@ def test_benchmark_harbor_resume_uses_benchmarks_uv_project(monkeypatch, tmp_pat
             "benchmark",
             "harbor",
             "--agent",
-            "atelier",
+            "lemoncrow",
             "--resume",
             str(resume_dir),
             "--attempts",
@@ -103,7 +103,7 @@ def test_benchmark_harbor_fresh_run_maps_attempts_to_n_attempts(monkeypatch, tmp
     attempts to ``-n``, silently running one attempt per task.
     """
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     out_dir = tmp_path / "harbor-out"
     calls: list[tuple[list[str], dict[str, str] | None]] = []
 
@@ -123,7 +123,7 @@ def test_benchmark_harbor_fresh_run_maps_attempts_to_n_attempts(monkeypatch, tmp
             "benchmark",
             "harbor",
             "--agent",
-            "atelier",
+            "lemoncrow",
             "--attempts",
             "5",
             "--concurrent",
@@ -147,7 +147,7 @@ def test_benchmark_harbor_fresh_run_maps_attempts_to_n_attempts(monkeypatch, tmp
 
 def test_benchmark_codebench_wraps_runner(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[tuple[list[str], str, dict[str, str] | None]] = []
     codebench_tasks_dir = tmp_path / "codebench-tasks"
     codebench_tasks_dir.mkdir()
@@ -201,7 +201,7 @@ def test_benchmark_codebench_wraps_runner(monkeypatch, tmp_path: Path) -> None:
     assert manifest["suite"] == "codebench"
     assert manifest["protocol"]["baseline_arm"] == "baseline"
     assert manifest["protocol"]["arm_agents"] == {
-        "atelier": "atelier:code",
+        "lemoncrow": "lemon:code",
         "baseline": "host-default",
     }
     assert manifest["corpus"]["tasks"][0]["id"] == "cg_vscode"
@@ -219,7 +219,7 @@ def test_benchmark_codebench_wraps_runner(monkeypatch, tmp_path: Path) -> None:
 
 def test_benchmark_codebench_accepts_eval_arm_and_api_options(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[tuple[list[str], str, dict[str, str] | None]] = []
     codebench_tasks_dir = tmp_path / "codebench-tasks"
     codebench_tasks_dir.mkdir()
@@ -251,7 +251,7 @@ def test_benchmark_codebench_accepts_eval_arm_and_api_options(monkeypatch, tmp_p
             "--arm",
             "baseline",
             "--arm",
-            "atelier",
+            "lemoncrow",
             "--model",
             "llama3.2",
             "--bridge-wait",
@@ -264,7 +264,7 @@ def test_benchmark_codebench_accepts_eval_arm_and_api_options(monkeypatch, tmp_p
     assert result.exit_code == 0, result.output
     cmd, label, env = calls[0]
     assert label == "CodeBench"
-    assert cmd[cmd.index("--arms") + 1 : cmd.index("--reps")] == ["baseline", "atelier"]
+    assert cmd[cmd.index("--arms") + 1 : cmd.index("--reps")] == ["baseline", "lemoncrow"]
     assert cmd[cmd.index("--model") + 1] == "llama3.2"
     assert "--transport" not in cmd
     assert env == {"CODEBENCH_TASKS_DIR": str(codebench_tasks_dir.resolve())}
@@ -272,7 +272,7 @@ def test_benchmark_codebench_accepts_eval_arm_and_api_options(monkeypatch, tmp_p
 
 def test_benchmark_codebench_judge_defaults_to_runner_transport(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[tuple[list[str], str, dict[str, str] | None]] = []
     codebench_tasks_dir = tmp_path / "codebench-tasks"
     codebench_tasks_dir.mkdir()
@@ -321,7 +321,7 @@ def test_benchmark_codebench_judge_defaults_to_runner_transport(monkeypatch, tmp
 
 def test_benchmark_codebench_openrouter_claude_preset_passes_agent_env(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[tuple[list[str], str, dict[str, str] | None]] = []
     codebench_tasks_dir = tmp_path / "codebench-tasks"
     codebench_tasks_dir.mkdir()
@@ -375,7 +375,7 @@ def test_benchmark_codebench_openrouter_claude_preset_passes_agent_env(monkeypat
 
 def test_benchmark_codebench_generic_claude_provider_flags_pass_through(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[tuple[list[str], str, dict[str, str] | None]] = []
     codebench_tasks_dir = tmp_path / "codebench-tasks"
     codebench_tasks_dir.mkdir()
@@ -429,7 +429,7 @@ def test_benchmark_codebench_generic_claude_provider_flags_pass_through(monkeypa
 
 def test_benchmark_codebench_forwards_cli_driver_and_jobs(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[tuple[list[str], str, dict[str, str] | None]] = []
     codebench_tasks_dir = tmp_path / "codebench-tasks"
     codebench_tasks_dir.mkdir()
@@ -485,7 +485,7 @@ def test_benchmark_codebench_forwards_cli_driver_and_jobs(monkeypatch, tmp_path:
 
 def test_benchmark_codebench_named_aws_claude_preset_passes_env(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[tuple[list[str], str, dict[str, str] | None]] = []
     codebench_tasks_dir = tmp_path / "codebench-tasks"
     codebench_tasks_dir.mkdir()
@@ -532,7 +532,7 @@ def test_benchmark_codebench_named_aws_claude_preset_passes_env(monkeypatch, tmp
 
 def test_benchmark_codebench_rejects_claude_flags_for_non_claude_driver(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     codebench_tasks_dir = tmp_path / "codebench-tasks"
     codebench_tasks_dir.mkdir()
 
@@ -564,7 +564,7 @@ def test_benchmark_codebench_rejects_claude_flags_for_non_claude_driver(monkeypa
 
 def test_benchmark_mcp_defaults_jobs_to_auto(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[tuple[list[str], str, dict[str, str] | None]] = []
     monkeypatch.chdir(REPO_ROOT)
     monkeypatch.setattr(benchmark_cmds, "_python_cmd", lambda _repo_root: ["python"])
@@ -585,7 +585,7 @@ def test_benchmark_mcp_defaults_jobs_to_auto(monkeypatch, tmp_path: Path) -> Non
 
 def test_benchmark_mcp_passes_parallel_jobs(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[tuple[list[str], str, dict[str, str] | None]] = []
 
     monkeypatch.chdir(REPO_ROOT)
@@ -618,7 +618,7 @@ def test_benchmark_auto_jobs_uses_full_cpu_up_to_cap(monkeypatch) -> None:
 
 def test_benchmark_swe_wraps_multiswe_runner(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[tuple[list[str], str]] = []
 
     monkeypatch.setattr(benchmark_cmds, "_python_cmd", lambda _project: ["python"])
@@ -653,7 +653,7 @@ def test_benchmark_swe_wraps_multiswe_runner(monkeypatch, tmp_path: Path) -> Non
     cmd, label = calls[0]
     assert label == "benchmark swe"
     assert cmd[:3] == ["python", "-m", "benchmarks.codebench.multiswe_run"]
-    assert cmd[cmd.index("--arms") + 1 : cmd.index("--arms") + 3] == ["baseline", "atelier"]
+    assert cmd[cmd.index("--arms") + 1 : cmd.index("--arms") + 3] == ["baseline", "lemoncrow"]
     assert cmd[cmd.index("--languages") + 1 : cmd.index("--languages") + 3] == ["go", "rust"]
     assert cmd[cmd.index("--per-language-limit") + 1] == "5"
     assert cmd[cmd.index("--jobs") + 1] == "2"
@@ -664,7 +664,7 @@ def test_benchmark_swe_wraps_multiswe_runner(monkeypatch, tmp_path: Path) -> Non
 
 def test_benchmark_swe_defaults_to_grading(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[list[str]] = []
 
     monkeypatch.setattr(benchmark_cmds, "_python_cmd", lambda _project: ["python"])
@@ -686,7 +686,7 @@ def test_benchmark_swe_defaults_to_grading(monkeypatch, tmp_path: Path) -> None:
 
 def test_benchmark_swe_forwards_suite(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[list[str]] = []
 
     monkeypatch.setattr(benchmark_cmds, "_python_cmd", lambda _project: ["python"])
@@ -716,7 +716,7 @@ def test_benchmark_swe_accepts_swe_lite_suite(monkeypatch, tmp_path: Path) -> No
     pinned SWE-bench Lite defaults itself when --dataset/--instance are absent.
     """
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[list[str]] = []
 
     monkeypatch.setattr(benchmark_cmds, "_python_cmd", lambda _project: ["python"])
@@ -745,7 +745,7 @@ def test_benchmark_swe_accepts_swe_pro_suite(monkeypatch, tmp_path: Path) -> Non
     pinned SWE-bench Pro defaults itself when --dataset/--instance are absent.
     """
     runner = CliRunner()
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     calls: list[list[str]] = []
 
     monkeypatch.setattr(benchmark_cmds, "_python_cmd", lambda _project: ["python"])

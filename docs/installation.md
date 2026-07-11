@@ -5,12 +5,12 @@ This page starts with the installed product flow. Source-checkout and contributo
 ## Quick Install (Production)
 
 ```bash
-curl -fsSL https://install.atelier.ws | bash
+curl -fsSL https://install.lemoncrow.ws | bash
 ```
 
 What the production installer does:
 
-- downloads a pre-compiled Atelier binary for your platform from the latest release
+- downloads a pre-compiled LemonCrow binary for your platform from the latest release
 - installs it to `~/.local/bin/`
 - adds the directory to `PATH` in your shell profile
 
@@ -22,30 +22,30 @@ For host integrations, background services, and the optional
 visualization stack, install from a repo checkout using the dev installer:
 
 ```bash
-git clone https://github.com/atelier-ws/atelier.git
-cd atelier
+git clone https://github.com/lemoncrowhq/lemoncrow.git
+cd lemoncrow
 bash scripts/local.sh --local
 ```
 
 The dev installer:
 
-- installs `atelier` and `atelier mcp` as user-level console commands in `~/.local/bin`
-- clones or updates Atelier under `~/.local/share/atelier`
-- initializes `~/.atelier`
+- installs `lemon` and `lemon mcp` as user-level console commands in `~/.local/bin`
+- clones or updates LemonCrow under `~/.local/share/lemoncrow`
+- initializes `~/.lemoncrow`
 - starts the detached `servicectl` loop
 - attempts to start the optional visualization stack when npm is available
 - installs host integrations when compatible CLIs are found on `PATH`
 
 The dev installer uses uv at install time to create a managed tool environment.
-After install, `atelier` and `atelier mcp` run directly from that environment;
+After install, `lemon` and `lemon mcp` run directly from that environment;
 normal CLI usage does not shell through `uv run`.
 
 Verify the install:
 
 ```bash
-atelier --version
-atelier mcp --version
-atelier background status
+lemon --version
+lemon mcp --version
+lemon background status
 ```
 
 ## Useful Installer Variants
@@ -53,19 +53,19 @@ atelier background status
 Skip host integrations:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/atelier-ws/atelier/main/scripts/local.sh | bash -s -- --no-hosts
+curl -fsSL https://raw.githubusercontent.com/lemoncrowhq/lemoncrow/main/scripts/local.sh | bash -s -- --no-hosts
 ```
 
 Skip auto-starting background services:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/atelier-ws/atelier/main/scripts/local.sh | ATELIER_NO_SERVICECTL=1 bash
+curl -fsSL https://raw.githubusercontent.com/lemoncrowhq/lemoncrow/main/scripts/local.sh | LEMONCROW_NO_SERVICECTL=1 bash
 ```
 
 Skip auto-starting the visualization stack:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/atelier-ws/atelier/main/scripts/local.sh | ATELIER_NO_STACK=1 bash
+curl -fsSL https://raw.githubusercontent.com/lemoncrowhq/lemoncrow/main/scripts/local.sh | LEMONCROW_NO_STACK=1 bash
 ```
 
 Install from a local checkout instead of GitHub:
@@ -86,27 +86,27 @@ bash scripts/local.sh --local --workspace .
 
 No HTTP server is required for normal usage.
 
-- `atelier ...` is the main CLI
-- `atelier mcp` is the MCP server used by host integrations
-- `atelier background ...` manages background services and auto-updates
+- `lemon ...` is the main CLI
+- `lemon mcp` is the MCP server used by host integrations
+- `lemon background ...` manages background services and auto-updates
 
-If npm is installed and `ATELIER_NO_STACK=1` was not set during install, the
+If npm is installed and `LEMONCROW_NO_STACK=1` was not set during install, the
 installer will also register the visualization stack as a background service for you.
 
 ### Background Services & Auto-Update
 
-Atelier uses your OS-native manager (**systemd** on Linux, **launchd** on macOS) to ensure background tasks and the visualization stack are always running.
+LemonCrow uses your OS-native manager (**systemd** on Linux, **launchd** on macOS) to ensure background tasks and the visualization stack are always running.
 
 ```bash
 # Check service health and auto-update status
-atelier background status
+lemon background status
 
 # View background logs
-atelier background logs controller
-atelier background logs stack
+lemon background logs controller
+lemon background logs stack
 
 # Restart the entire stack (e.g. after a manual code change)
-atelier background restart
+lemon background restart
 ```
 
 #### Auto-Update
@@ -122,13 +122,13 @@ The background controller periodically checks your git repository for updates. W
 Manage the visualization UI as a background service:
 
 ```bash
-atelier background restart  # Restarts both controller and stack
+lemon background restart  # Restarts both controller and stack
 ```
 
 Or control the native stack manually:
 
 ```bash
-atelier stack start
+lemon stack start
 ```
 
 Then open:
@@ -139,9 +139,9 @@ Then open:
 Other stack commands:
 
 ```bash
-atelier stack status
-atelier stack logs
-atelier stack stop
+lemon stack status
+lemon stack logs
+lemon stack stop
 ```
 
 ### Optional HTTP Service Without the UI
@@ -149,36 +149,36 @@ atelier stack stop
 If you want the service API without the full stack:
 
 ```bash
-ATELIER_REQUIRE_AUTH=false atelier service start --host 0.0.0.0 --port 8787
+LEMONCROW_REQUIRE_AUTH=false lemon service start --host 0.0.0.0 --port 8787
 ```
 
-For authenticated deployments, set `ATELIER_API_KEY` and keep `ATELIER_REQUIRE_AUTH=true`.
+For authenticated deployments, set `LEMONCROW_API_KEY` and keep `LEMONCROW_REQUIRE_AUTH=true`.
 
 ### Background Controller Variables
 
 The installer registers background services by default.
 
 ```bash
-atelier background status
-atelier background logs
+lemon background status
+lemon background logs
 ```
 
 Manual job control is available too:
 
 ```bash
-atelier worker enqueue consolidate_playbooks
-atelier worker run-once
-atelier worker list
+lemon worker enqueue consolidate_playbooks
+lemon worker run-once
+lemon worker list
 ```
 
 ### Installer Behavior Variables
 
 | Variable                | Default | Description                                              |
 | ----------------------- | ------- | -------------------------------------------------------- |
-| `ATELIER_NO_HOSTS`      | `0`     | Skip host integration install scripts                    |
-| `ATELIER_NO_SERVICECTL` | `0`     | Skip auto-registering background services during install |
-| `ATELIER_NO_STACK`      | `0`     | Skip auto-registering the visualization stack service    |
-| `ATELIER_LOCAL`         | `0`     | Install from the current checkout in editable mode       |
+| `LEMONCROW_NO_HOSTS`      | `0`     | Skip host integration install scripts                    |
+| `LEMONCROW_NO_SERVICECTL` | `0`     | Skip auto-registering background services during install |
+| `LEMONCROW_NO_STACK`      | `0`     | Skip auto-registering the visualization stack service    |
+| `LEMONCROW_LOCAL`         | `0`     | Install from the current checkout in editable mode       |
 
 ## Storage Backends
 
@@ -186,15 +186,15 @@ atelier worker list
 
 SQLite is the default install mode and does not require any extra setup.
 
-- store root: `~/.atelier` by default
+- store root: `~/.lemoncrow` by default
 - queue-backed worker jobs are supported
 - good default for local usage, single-user environments, and most host integrations
 
 Store layout:
 
 ```text
-.atelier/
-├── atelier.db          # SQLite store (blocks, traces, rubrics, jobs)
+.lemoncrow/
+├── lemoncrow.db          # SQLite store (blocks, traces, rubrics, jobs)
 ├── blocks/             # Markdown mirrors of Playbooks
 ├── rubrics/            # YAML mirrors of rubrics
 └── traces/             # JSON mirrors of recorded traces
@@ -205,9 +205,9 @@ Store layout:
 Use Postgres when you want shared storage, central deployment, or multi-writer operation.
 
 ```bash
-ATELIER_STORAGE_BACKEND=postgres \
-ATELIER_DATABASE_URL=postgresql://user:pass@localhost:5432/atelier \
-atelier init
+LEMONCROW_STORAGE_BACKEND=postgres \
+LEMONCROW_DATABASE_URL=postgresql://user:pass@localhost:5432/lemoncrow \
+lemon init
 ```
 
 ### pgvector (optional)
@@ -215,11 +215,11 @@ atelier init
 Embedding-based similarity search is optional and additive:
 
 ```bash
-ATELIER_STORAGE_BACKEND=postgres \
-ATELIER_DATABASE_URL=postgresql://... \
-ATELIER_VECTOR_SEARCH_ENABLED=true \
-ATELIER_EMBEDDING_MODEL=text-embedding-3-small \
-atelier init
+LEMONCROW_STORAGE_BACKEND=postgres \
+LEMONCROW_DATABASE_URL=postgresql://... \
+LEMONCROW_VECTOR_SEARCH_ENABLED=true \
+LEMONCROW_EMBEDDING_MODEL=text-embedding-3-small \
+lemon init
 ```
 
 ## Environment Variables
@@ -228,61 +228,61 @@ atelier init
 
 | Variable               | Default            | Description                       |
 | ---------------------- | ------------------ | --------------------------------- |
-| `ATELIER_ROOT`         | `~/.atelier`       | Main runtime store root           |
-| `ATELIER_STORE_ROOT`   | `~/.atelier`       | Alias for `ATELIER_ROOT`          |
-| `ATELIER_LESSONS_ROOT` | workspace-relative | Optional git-tracked lessons root |
+| `LEMONCROW_ROOT`         | `~/.lemoncrow`       | Main runtime store root           |
+| `LEMONCROW_STORE_ROOT`   | `~/.lemoncrow`       | Alias for `LEMONCROW_ROOT`          |
+| `LEMONCROW_LESSONS_ROOT` | workspace-relative | Optional git-tracked lessons root |
 
 ### Storage
 
 | Variable                        | Default                  | Description                               |
 | ------------------------------- | ------------------------ | ----------------------------------------- |
-| `ATELIER_STORAGE_BACKEND`       | `sqlite`                 | `sqlite` or `postgres`                    |
-| `ATELIER_DATABASE_URL`          | `""`                     | PostgreSQL DSN when backend is `postgres` |
-| `ATELIER_VECTOR_SEARCH_ENABLED` | `false`                  | Enable pgvector similarity search         |
-| `ATELIER_EMBEDDING_DIM`         | `1536`                   | Embedding dimension                       |
-| `ATELIER_EMBEDDING_MODEL`       | `text-embedding-3-small` | Embedding model name                      |
+| `LEMONCROW_STORAGE_BACKEND`       | `sqlite`                 | `sqlite` or `postgres`                    |
+| `LEMONCROW_DATABASE_URL`          | `""`                     | PostgreSQL DSN when backend is `postgres` |
+| `LEMONCROW_VECTOR_SEARCH_ENABLED` | `false`                  | Enable pgvector similarity search         |
+| `LEMONCROW_EMBEDDING_DIM`         | `1536`                   | Embedding dimension                       |
+| `LEMONCROW_EMBEDDING_MODEL`       | `text-embedding-3-small` | Embedding model name                      |
 
 ### Background Controller
 
 | Variable                                          | Default | Description                                    |
 | ------------------------------------------------- | ------- | ---------------------------------------------- |
-| `ATELIER_NO_SERVICECTL`                           | `0`     | Skip auto-starting `servicectl` during install |
-| `ATELIER_SERVICECTL_INTERVAL_SECONDS`             | `60`    | Poll interval for the detached loop            |
-| `ATELIER_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS` | `21600` | Periodic maintenance enqueue interval          |
+| `LEMONCROW_NO_SERVICECTL`                           | `0`     | Skip auto-starting `servicectl` during install |
+| `LEMONCROW_SERVICECTL_INTERVAL_SECONDS`             | `60`    | Poll interval for the detached loop            |
+| `LEMONCROW_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS` | `21600` | Periodic maintenance enqueue interval          |
 
 ### Optional Stack
 
 | Variable           | Default | Description                           |
 | ------------------ | ------- | ------------------------------------- |
-| `ATELIER_NO_STACK` | `0`     | Skip auto-starting the optional stack |
+| `LEMONCROW_NO_STACK` | `0`     | Skip auto-starting the optional stack |
 
 ### Optional HTTP Service
 
 | Variable               | Default     | Description                                 |
 | ---------------------- | ----------- | ------------------------------------------- |
-| `ATELIER_SERVICE_HOST` | `127.0.0.1` | Service bind host                           |
-| `ATELIER_SERVICE_PORT` | `8787`      | Service port                                |
-| `ATELIER_REQUIRE_AUTH` | `false`     | Require Bearer auth                         |
-| `ATELIER_API_KEY`      | `""`        | Bearer token for authenticated service mode |
+| `LEMONCROW_SERVICE_HOST` | `127.0.0.1` | Service bind host                           |
+| `LEMONCROW_SERVICE_PORT` | `8787`      | Service port                                |
+| `LEMONCROW_REQUIRE_AUTH` | `false`     | Require Bearer auth                         |
+| `LEMONCROW_API_KEY`      | `""`        | Bearer token for authenticated service mode |
 
 ### MCP
 
 | Variable              | Default | Description                                                        |
 | --------------------- | ------- | ------------------------------------------------------------------ |
-| `ATELIER_SERVICE_URL` | unset   | Remote service URL; when set, core MCP calls route to this service |
+| `LEMONCROW_SERVICE_URL` | unset   | Remote service URL; when set, core MCP calls route to this service |
 
 ### Telemetry
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| ATELIER_TELEMETRY | enabled | Disable with `0`, `false`, `off`, or `no` |
+| LEMONCROW_TELEMETRY | enabled | Disable with `0`, `false`, `off`, or `no` |
 
-If you are developing Atelier itself instead of using the installed product:
+If you are developing LemonCrow itself instead of using the installed product:
 
 ```bash
-cd atelier
+cd lemoncrow
 uv sync --all-extras
-atelier init
+lemon init
 ```
 
 Contributor verification flow:
@@ -297,7 +297,7 @@ When working from multiple git worktrees, bootstrap each worktree once with:
 make worktree-env
 ```
 
-If `.env.worktree` is present, `make start` and `make restart` automatically load it so each worktree gets its own ports and `.atelier-worktree` runtime root.
+If `.env.worktree` is present, `make start` and `make restart` automatically load it so each worktree gets its own ports and `.lemoncrow-worktree` runtime root.
 
 ## Per-Agent Host Setup
 
@@ -311,11 +311,11 @@ After installation, use the host-specific guides if you want to inspect or custo
 
 ### Optional Zoekt Backend
 
-Zoekt is not bootstrapped by default. Atelier uses its internal code index,
+Zoekt is not bootstrapped by default. LemonCrow uses its internal code index,
 local embeddings, and ripgrep unless an existing Zoekt runtime is detected.
 
-- `ATELIER_ZOEKT_MODE=off` (default): never probe or route to Zoekt.
-- `ATELIER_ZOEKT_MODE=installed`: use Zoekt only when its binaries are already
-  installed or provided through `ATELIER_ZOEKT_BIN`.
-- `ATELIER_ZOEKT_MODE=managed`: allow Atelier to provision and run the pinned
+- `LEMONCROW_ZOEKT_MODE=off` (default): never probe or route to Zoekt.
+- `LEMONCROW_ZOEKT_MODE=installed`: use Zoekt only when its binaries are already
+  installed or provided through `LEMONCROW_ZOEKT_BIN`.
+- `LEMONCROW_ZOEKT_MODE=managed`: allow LemonCrow to provision and run the pinned
   Zoekt container through Docker for large repositories.

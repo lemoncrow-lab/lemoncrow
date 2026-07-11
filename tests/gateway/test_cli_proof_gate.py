@@ -8,14 +8,14 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from atelier.gateway.cli import cli
+from lemoncrow.gateway.cli import cli
 
 
 @pytest.fixture()
 def cli_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     return root
 
 

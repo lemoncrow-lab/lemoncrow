@@ -6,8 +6,8 @@ import dataclasses
 
 import pytest
 
-from atelier.core.capabilities.semantic_file_memory.treesitter_ast import _LANG_CONFIG
-from atelier.infra.code_intel.languages import (
+from lemoncrow.core.capabilities.semantic_file_memory.treesitter_ast import _LANG_CONFIG
+from lemoncrow.infra.code_intel.languages import (
     ALL_LANGUAGES,
     EXTENSION_TO_LANGUAGE,
     FILENAME_TO_LANGUAGE,

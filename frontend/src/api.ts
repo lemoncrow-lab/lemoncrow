@@ -435,7 +435,7 @@ export interface ConversationEntry {
   tool_name?: string;
   tool_use_id?: string;
   arguments?: unknown;
-  // Per-call Atelier savings written by the MCP server to its host sidecar.
+  // Per-call LemonCrow savings written by the MCP server to its host sidecar.
   // Same data the statusline aggregates — attached per-tool by the backend.
   // `usd` is priced at the row's captured model input rate (already summed
   // across grouped turns).
@@ -730,17 +730,17 @@ export interface SavingsBenchmark {
   model: string;
   n_prompts: number;
   total_tokens_baseline: number;
-  total_tokens_atelier: number;
+  total_tokens_lemon: number;
   tokens_saved: number;
   reduction_pct: number;
   total_cost_baseline_usd: number;
-  total_cost_atelier_usd: number;
+  total_cost_lemoncrow_usd: number;
   cost_saved_usd: number;
   total_time_baseline_ms: number;
-  total_time_atelier_ms: number;
+  total_time_lemoncrow_ms: number;
   time_saved_ms: number;
   baseline_success_rate: number;
-  atelier_success_rate: number;
+  lemoncrow_success_rate: number;
 }
 
 export interface SavingsSummaryV2 {
@@ -1171,7 +1171,7 @@ export interface HostAdapter {
   // own start time). See _host_import_stats() in api.py.
   last_import_at?: string | null;
   imported_session_count?: number;
-  atelier_version?: string | null;
+  lemoncrow_version?: string | null;
   description?: string | null;
   install_command?: string | null;
 }
@@ -1295,7 +1295,7 @@ export interface SessionSummary {
   raw_artifact_ids?: string[];
   total_turns: number;
   total_cost_usd: number;
-  total_atelier_savings_usd: number;
+  total_lemoncrow_savings_usd: number;
   label: string | null;
   models_used: Record<string, number>;
   input_tokens?: number;
@@ -1379,7 +1379,7 @@ export interface InsightsWindow {
   session_count: number;
   total_duration_seconds: number;
   total_cost_usd: number;
-  total_atelier_savings_usd: number;
+  total_lemoncrow_savings_usd: number;
   cost_by_vendor: Record<string, number>;
   cost_by_tool: Record<string, number>;
   cost_by_model: Record<string, number>;
@@ -1482,7 +1482,7 @@ export interface DashboardTopSession {
   input_tokens: number;
   output_tokens: number;
   cached_tokens: number;
-  atelier_savings_usd?: number;
+  lemoncrow_savings_usd?: number;
 }
 
 export interface DashboardTool {
@@ -1574,7 +1574,7 @@ export interface AnalyticsDashboard {
     total_cost: number;
     projected_monthly_cost: number;
     total_sessions: number;
-    total_atelier_savings_usd?: number;
+    total_lemoncrow_savings_usd?: number;
     savings_pct?: number;
   };
   daily: DashboardDaily[];

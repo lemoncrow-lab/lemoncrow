@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.repo_map import build_repo_map
-from atelier.core.capabilities.repo_map.graph import build_reference_graph, iter_source_files
-from atelier.infra.tree_sitter.tags import extract_tags
+from lemoncrow.core.capabilities.repo_map import build_repo_map
+from lemoncrow.core.capabilities.repo_map.graph import build_reference_graph, iter_source_files
+from lemoncrow.infra.tree_sitter.tags import extract_tags
 
 
 def test_extract_tags_python_symbols(tmp_path: Path) -> None:
@@ -165,8 +165,8 @@ def test_iter_source_files_skips_local_artifact_directories(tmp_path: Path) -> N
         "def copied() -> None:\n    pass\n",
         encoding="utf-8",
     )
-    (tmp_path / ".atelier").mkdir(parents=True)
-    (tmp_path / ".atelier" / "cache.py").write_text(
+    (tmp_path / ".lemoncrow").mkdir(parents=True)
+    (tmp_path / ".lemoncrow" / "cache.py").write_text(
         "def cached() -> None:\n    pass\n",
         encoding="utf-8",
     )

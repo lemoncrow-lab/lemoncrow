@@ -20,7 +20,7 @@ def _ensure_benchmarks_package() -> None:
 
 def _load(module_name: str) -> ModuleType:
     # Do NOT pop the module to force re-import: each cases module generates
-    # hundreds of BenchCase objects from a full src/atelier AST scan at import
+    # hundreds of BenchCase objects from a full src/lemoncrow AST scan at import
     # time. Popping made all three tests regenerate from scratch (~18s total).
     # The generated *_CASES lists are deterministic and parameter-free, so
     # reusing the cached module across tests is safe and pays generation once.

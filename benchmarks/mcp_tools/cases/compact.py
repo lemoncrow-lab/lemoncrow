@@ -89,7 +89,7 @@ def _build_compact_cases() -> list[BenchCase]:
                 {"tool": "read", "args": {"path": symbol.path}, "output": anchor.anchor_text},
             ],
             "command_events": [
-                {"command": f"rg -n {symbol.name} src/atelier", "ok": True, "stdout": symbol.path},
+                {"command": f"rg -n {symbol.name} src/lemoncrow", "ok": True, "stdout": symbol.path},
             ],
         }
         cases.append(

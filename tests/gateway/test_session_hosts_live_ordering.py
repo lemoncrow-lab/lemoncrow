@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.foundation.models import Trace
-from atelier.core.foundation.store import ContextStore
-from atelier.gateway.cli.commands import sessions as sessions_cmd
-from atelier.gateway.cli.commands.sessions import _pick_live_sessions
+from lemoncrow.core.foundation.models import Trace
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.gateway.cli.commands import sessions as sessions_cmd
+from lemoncrow.gateway.cli.commands.sessions import _pick_live_sessions
 
 
 def _touch_with_mtime(path: Path, mtime: float) -> None:
@@ -115,7 +115,7 @@ def test_file_backed_live_import_filters_since_by_trace_created_at(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from atelier.gateway.hosts.session_parsers import codex as codex_module
+    from lemoncrow.gateway.hosts.session_parsers import codex as codex_module
 
     now = datetime.now(UTC)
     old_path = tmp_path / "old-session.jsonl"

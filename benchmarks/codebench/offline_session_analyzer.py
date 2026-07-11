@@ -6,7 +6,7 @@ both Claude Code and Codex CLI sessions:
 * **Claude Code** — ``~/.claude/projects/<repo-dir-name>/*.jsonl``
 * **Codex CLI** — ``~/.codex/sessions/**/*.jsonl``
 
-Extracts all Atelier MCP search tool calls (grep, code_search, ToolSearch), groups
+Extracts all LemonCrow MCP search tool calls (grep, code_search, ToolSearch), groups
 them into "search episodes" between user messages, and produces:
 
 1. **Savings report** — how many individual grep calls each code_search replaced,
@@ -44,12 +44,12 @@ import sys
 from pathlib import Path
 
 SEARCH_TOOLS = {
-    "mcp__atelier__grep",
-    "mcp__atelier__explore",
-    "mcp__atelier__code_search",
+    "mcp__lemon__grep",
+    "mcp__lemon__explore",
+    "mcp__lemon__code_search",
     "ToolSearch",
     "Grep",
-    "mcp__plugin_atelier_atelier__grep",
+    "mcp__plugin_lemoncrow_lemon__grep",
 }
 
 # Regex for detecting grep/rg/ag etc. run via bash exec_command in Codex
@@ -185,7 +185,7 @@ def _check_codex_session_cwd(path: Path, repo_path: Path) -> bool:
 def _scan_codex_session_file(path: Path, repo_path: Path | None = None) -> list[dict]:
     """Parse a Codex JSONL session file, extract search tool calls.
 
-    Detects both Atelier MCP search tools AND bash grep/rg/ag commands
+    Detects both LemonCrow MCP search tools AND bash grep/rg/ag commands
     run via ``exec_command``. Skips sessions whose ``cwd`` does not match
     the current repo.
 
@@ -251,8 +251,8 @@ def _resolve_codex_search_call(
 ) -> dict | None:
     """Check if a Codex function_call is a search tool and extract query.
 
-    Handles both Codex namespace+name format (``namespace="mcp__atelier",
-    name="grep"``) and Claude Code dotted format (``name="mcp__atelier__grep"``).
+    Handles both Codex namespace+name format (``namespace="mcp__lemoncrow",
+    name="grep"``) and Claude Code dotted format (``name="mcp__lemon__grep"``).
 
     Returns a call dict with ``tool``, ``id``, ``query``, and ``file_pattern``,
     or ``None`` if this is not a search call.
@@ -262,10 +262,10 @@ def _resolve_codex_search_call(
 
     # Check all name forms against SEARCH_TOOLS
     effective = name if name in SEARCH_TOOLS else (dotted if dotted in SEARCH_TOOLS else None)
-    # Codex also has native grep/explore/code_search tools under mcp__atelier namespace
+    # Codex also has native grep/explore/code_search tools under mcp__lemoncrow namespace
     # (not dotted — separate namespace and name fields)
     if effective is None:
-        if namespace == "mcp__atelier" and name in ("grep", "explore", "code_search", "search"):
+        if namespace == "mcp__lemoncrow" and name in ("grep", "explore", "code_search", "search"):
             effective = f"{namespace}/{name}"
         elif name in ("grep", "explore", "code_search", "search", "Grep"):
             effective = name
@@ -303,7 +303,7 @@ def _scan_codex_format_a(
     """Process a single Codex Format A line (event_msg wrapper).
 
     Handles:
-    - Atelier MCP search tools (mcp__atelier__grep etc.) via function_call + function_call_output
+    - LemonCrow MCP search tools (mcp__lemon__grep etc.) via function_call + function_call_output
     - Bash grep/rg/ag via exec_command + exec_command_end
     """
     ev_type = ev.get("type", "")
@@ -393,7 +393,7 @@ def _scan_codex_format_b(
 ) -> None:
     """Process a single Codex Format B line (flat).
 
-    Handles both Atelier MCP tools and bash grep exec_command.
+    Handles both LemonCrow MCP tools and bash grep exec_command.
     """
     ev_type = ev.get("type", "")
 
@@ -475,12 +475,12 @@ def parse_tool_result_files(content) -> list[str]:
     # possibly prefixed with `## `, `### `, or `# grep` headers
     _FILE_RE = re.compile(r"^(?:#+\s+)?([\w./-]+/(?:[\w./-]+\.\w+))")
 
-    # Spill-file pattern: results were too large and written to /tmp/atelier-spill/search-*.json
-    _SPILL_RE = re.compile(r"/tmp/atelier-spill/search-\d+\.json")
+    # Spill-file pattern: results were too large and written to /tmp/lemoncrow-spill/search-*.json
+    _SPILL_RE = re.compile(r"/tmp/lemoncrow-spill/search-\d+\.json")
 
     for chunk in chunks:
         # Check for spilled results — recover from spill file
-        if isinstance(chunk, str) and ("spilled" in chunk or "/tmp/atelier-spill/" in chunk):
+        if isinstance(chunk, str) and ("spilled" in chunk or "/tmp/lemoncrow-spill/" in chunk):
             spill_m = _SPILL_RE.search(chunk)
             if spill_m:
                 spill_path = spill_m.group(0)
@@ -538,7 +538,7 @@ def parse_tool_result_files(content) -> list[str]:
         if first.startswith("{"):
             try:
                 obj = json.loads(chunk)
-                # Atelier grep ranked results
+                # LemonCrow grep ranked results
                 ranked = obj.get("ranked_file_map", obj.get("files", obj.get("content", [])))
                 if isinstance(ranked, list):
                     for item in ranked:
@@ -565,15 +565,15 @@ def parse_tool_result_files(content) -> list[str]:
         # Plain text format: grep output has file paths on lines, followed
         # by indented match details.
         # Format 1: file_path.py  (possibly with trailing \tcount)
-        #   src/atelier/core/capabilities/default_definitions.py
+        #   src/lemoncrow/core/capabilities/default_definitions.py
         #   - lines 12-13
         #
         # Format 2: ## file_path.py  (from file_paths_with_content mode)
-        #   ## src/atelier/gateway/adapters/mcp_server.py
+        #   ## src/lemoncrow/gateway/adapters/mcp_server.py
         #   def _op_usages(
         #
         # Format 3: # grep — output_mode=... header line (skip)
-        # Format 4: atelier/src/atelier/...\tcount  (tab-separated match count)
+        # Format 4: lemoncrow/src/lemoncrow/...\tcount  (tab-separated match count)
 
         for line in chunk.split("\n"):
             line_stripped = line.strip()
@@ -590,24 +590,24 @@ def parse_tool_result_files(content) -> list[str]:
             m = _FILE_RE.match(line_stripped)
             if m:
                 fp = m.group(1)
-                # Remove leading `atelier/` prefix if present (from absolute-path grep results
-                # in the atelier__atelier workspace)
-                if fp.startswith("atelier/"):
-                    fp = fp[len("atelier/") :]
+                # Remove leading `lemoncrow/` prefix if present (from absolute-path grep results
+                # in the lemoncrow__lemoncrow workspace)
+                if fp.startswith("lemoncrow/"):
+                    fp = fp[len("lemoncrow/") :]
                 if fp not in seen:
                     seen.add(fp)
                     files.append(fp)
                 continue
 
             # Fallback: any line with a / and a file extension
-            # (catches tab-separated results like "atelier/src/...\t314")
+            # (catches tab-separated results like "lemoncrow/src/...\t314")
             if "/" in line_stripped:
                 # Take the first space/tab-separated token
                 first_token = line_stripped.split()[0]
                 if "." in first_token and "/" in first_token:
                     fp = first_token.rstrip(":")
-                    if fp.startswith("atelier/"):
-                        fp = fp[len("atelier/") :]
+                    if fp.startswith("lemoncrow/"):
+                        fp = fp[len("lemoncrow/") :]
                     if fp not in seen:
                         seen.add(fp)
                         files.append(fp)
@@ -1082,19 +1082,19 @@ def main():
         if args.channel == "cg":
             cmd = [sys.executable, "benchmarks/codebench/eval_cg_mrr.py"]
         else:
-            # Atelier runs through the shipped MCP surface like any provider;
+            # LemonCrow runs through the shipped MCP surface like any provider;
             # channel variants are env toggles the server honours.
             env["EVAL_CHANNEL_LABEL"] = args.channel
             if args.channel == "lexical":
-                env["ATELIER_ZOEKT_MODE"] = "off"
-                env["ATELIER_EXPLORE_SEMANTIC"] = "0"
+                env["LEMONCROW_ZOEKT_MODE"] = "off"
+                env["LEMONCROW_EXPLORE_SEMANTIC"] = "0"
             elif args.channel == "lexical+zoekt":
-                env["ATELIER_EXPLORE_SEMANTIC"] = "0"
+                env["LEMONCROW_EXPLORE_SEMANTIC"] = "0"
             cmd = [
                 sys.executable,
                 "benchmarks/codebench/eval_external_provider_mrr.py",
                 "--provider",
-                "atelier",
+                "lemoncrow",
             ]
             if args.full:
                 cmd.append("--full")

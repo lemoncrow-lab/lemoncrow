@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from atelier.gateway.cli.progress import ProgressReporter
+from lemoncrow.gateway.cli.progress import ProgressReporter
 
 from benchmarks.mcp_tools._env import configure_benchmark_runtime
 from benchmarks.mcp_tools.cases.verify import VERIFY_CASES
@@ -24,9 +24,9 @@ def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def make_verify_tool_fn(base_root: Path) -> Any:
-    from atelier.core.foundation.models import Rubric
-    from atelier.core.foundation.store import ContextStore
-    from atelier.gateway.adapters import mcp_server
+    from lemoncrow.core.foundation.models import Rubric
+    from lemoncrow.core.foundation.store import ContextStore
+    from lemoncrow.gateway.adapters import mcp_server
 
     repo_root = Path(__file__).resolve().parents[2]
 
@@ -36,7 +36,7 @@ def make_verify_tool_fn(base_root: Path) -> Any:
         case_root = base_root / payload.get("rubric_id", "case").replace("/", "-")[:80]
         configure_benchmark_runtime(case_root, workspace_root=repo_root)
         mcp_server._reset_runtime_cache_for_testing()
-        store = ContextStore(Path(mcp_server._atelier_root()))
+        store = ContextStore(Path(mcp_server._lemoncrow_root()))
         store.init()
         if isinstance(rubric_payload, dict):
             store.upsert_rubric(Rubric.model_validate(rubric_payload), write_yaml=False)
@@ -86,5 +86,5 @@ def test_verify_saves_tokens(case: BenchCase, verify_report: ToolReport) -> None
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
     assert (
-        result.atelier_tokens < result.baseline_tokens
-    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={result.baseline_tokens}"
+        result.lemoncrow_tokens < result.baseline_tokens
+    ), f"[{case.label}] no savings: lemoncrow={result.lemoncrow_tokens} >= baseline={result.baseline_tokens}"

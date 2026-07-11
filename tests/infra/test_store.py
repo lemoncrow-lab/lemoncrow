@@ -4,15 +4,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from atelier.core.foundation.models import (
+from lemoncrow.core.foundation.models import (
     Playbook,
     Rubric,
     Trace,
     TraceLearning,
     ValidationResult,
 )
-from atelier.core.foundation.store import ContextStore
-from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
 
 
 def _block(bid: str = "b1", domain: str = "coding", title: str = "Title", **kw: object) -> Playbook:
@@ -81,7 +81,7 @@ def test_record_trace_writes_json_mirror(store: ContextStore) -> None:
 
 
 def test_trace_search_reindexes_existing_traces(tmp_path: Path) -> None:
-    root = tmp_path / "atelier"
+    root = tmp_path / "lemoncrow"
     store = ContextStore(root)
     store.init()
     store.record_trace(

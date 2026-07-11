@@ -204,7 +204,7 @@ function ExternalSnapshotCard({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="border border-neutral-900 bg-black/20 p-3">
               <div className="text-[10px] uppercase tracking-widest text-neutral-400">
-                Atelier
+                LemonCrow
               </div>
               <div className="mt-1 font-mono text-emerald-300">
                 {fmtUsd(internalCost)}

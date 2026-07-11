@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from atelier.infra.internal_llm import ollama_client
+from lemoncrow.infra.internal_llm import ollama_client
 
 
 class _FakeOllama:

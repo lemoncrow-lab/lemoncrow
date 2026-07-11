@@ -25,9 +25,9 @@ def _load_benchmark_module() -> types.ModuleType:
     )
 
 
-def test_bench_atelier_uses_snapshot_root(monkeypatch, tmp_path: Path) -> None:
+def test_bench_lemoncrow_uses_snapshot_root(monkeypatch, tmp_path: Path) -> None:
     bench = _load_benchmark_module()
-    snapshot_root = tmp_path / "atelier-snapshot"
+    snapshot_root = tmp_path / "lemoncrow-snapshot"
     snapshot_root.mkdir()
     captured: dict[str, object] = {}
 
@@ -58,7 +58,7 @@ def test_bench_atelier_uses_snapshot_root(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setitem(sys.modules, "benchmarks.mcp_tools", mcp_pkg)
     monkeypatch.setitem(sys.modules, "benchmarks.mcp_tools._env", env_mod)
 
-    result = bench.bench_atelier(ROOT, tmp_path / "workspace", "classify_command", 1)
+    result = bench.bench_lemoncrow(ROOT, tmp_path / "workspace", "classify_command", 1)
 
     assert captured["workspace_root"] == snapshot_root
     assert captured["request"] == {
@@ -72,9 +72,9 @@ def test_bench_atelier_uses_snapshot_root(monkeypatch, tmp_path: Path) -> None:
     assert '"repo_root": "' + str(snapshot_root) + '"' in result.input
 
 
-def test_bench_atelier_zoekt_uses_snapshot_root(monkeypatch, tmp_path: Path) -> None:
+def test_bench_lemoncrow_zoekt_uses_snapshot_root(monkeypatch, tmp_path: Path) -> None:
     bench = _load_benchmark_module()
-    snapshot_root = tmp_path / "atelier-zoekt-snapshot"
+    snapshot_root = tmp_path / "lemoncrow-zoekt-snapshot"
     snapshot_root.mkdir()
     captured: dict[str, object] = {}
 
@@ -119,7 +119,7 @@ def test_bench_atelier_zoekt_uses_snapshot_root(monkeypatch, tmp_path: Path) -> 
             }
             return FakeZoektResult(files=[])
 
-    zoekt_mod = types.ModuleType("atelier.infra.code_intel.zoekt.adapter")
+    zoekt_mod = types.ModuleType("lemoncrow.infra.code_intel.zoekt.adapter")
 
     def reset_zoekt_supervisors() -> None:
         captured["reset"] = True
@@ -134,9 +134,9 @@ def test_bench_atelier_zoekt_uses_snapshot_root(monkeypatch, tmp_path: Path) -> 
     monkeypatch.setitem(sys.modules, "benchmarks", benchmarks_pkg)
     monkeypatch.setitem(sys.modules, "benchmarks.mcp_tools", mcp_pkg)
     monkeypatch.setitem(sys.modules, "benchmarks.mcp_tools._env", env_mod)
-    monkeypatch.setitem(sys.modules, "atelier.infra.code_intel.zoekt.adapter", zoekt_mod)
+    monkeypatch.setitem(sys.modules, "lemoncrow.infra.code_intel.zoekt.adapter", zoekt_mod)
 
-    result = bench.bench_atelier_zoekt(ROOT, tmp_path / "workspace", "classify_command", 1)
+    result = bench.bench_lemoncrow_zoekt(ROOT, tmp_path / "workspace", "classify_command", 1)
 
     assert captured["workspace_root"] == snapshot_root
     assert captured["supervisor_repo_root"] == snapshot_root

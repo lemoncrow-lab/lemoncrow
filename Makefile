@@ -1,9 +1,9 @@
 .DEFAULT_GOAL := help
 
 PY_PATHS := src benchmarks tests scripts integrations
-MYPY_PATHS := src/atelier
-ATELIER_STORE ?= $(HOME)/.atelier
-ATELIER_CMD ?= uv run atelier
+MYPY_PATHS := src/lemoncrow
+LEMONCROW_STORE ?= $(HOME)/.lemoncrow
+LEMONCROW_CMD ?= uv run lemon
 TEST_PRINT_TIME ?= 0
 # Coverage floor for the full slow-inclusive suite (make test-full / nightly-coverage.yml).
 # Conservative provisional floor pending first-CI calibration (see 22-01-SUMMARY.md):
@@ -27,7 +27,7 @@ FORCE_ARG := $(if $(f),--force,)
 #    * To build and install a local production binary:
 #         make prod
 
-dev: ## Install Atelier in editable/dev mode; run /mcp reconnect in Claude Code after
+dev: ## Install LemonCrow in editable/dev mode; run /mcp reconnect in Claude Code after
 	bash scripts/local.sh
 
 build: ## Build and package for production distribution
@@ -36,7 +36,7 @@ build: ## Build and package for production distribution
 release/build: build ## Alias for build release jobs
 
 mirror: ## Incremental mirror bench → public repo (history-preserving): make mirror
-	ATELIER_MIRROR_RUNNING=1 uv run python -m scripts.mirror
+	LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror
 
 release: ## Bump version, commit, push, mirror, tag public repo: make release tag=v0.4.X [f=1]
 	@set -e; \
@@ -62,9 +62,9 @@ release: ## Bump version, commit, push, mirror, tag public repo: make release ta
 	   gh auth setup-git >/dev/null 2>&1 || true; \
 	 fi; \
 	 echo "Mirroring to public repo..."; \
-	 ATELIER_MIRROR_RUNNING=1 uv run python -m scripts.mirror; \
+	 LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror; \
 	 PUB_SHA=$$(git rev-parse refs/mirror/last-pub); \
-	 git push --no-verify $$PUSH_FLAG https://github.com/atelier-ws/atelier.git "$$PUB_SHA:refs/tags/$$TAG"; \
+	 git push --no-verify $$PUSH_FLAG https://github.com/lemoncrowhq/lemoncrow.git "$$PUB_SHA:refs/tags/$$TAG"; \
 	 echo "✓ Released $$TAG (dev + public)"
 
 prod: ## Build and install from local production build (includes mypyc compilation; expects ~2-3 min build time)
@@ -73,31 +73,31 @@ prod: ## Build and install from local production build (includes mypyc compilati
 	# exactly mirroring the remote path (download → extract → bundle.sh).
 	bash scripts/install.sh --local
 
-uninstall: ## Remove all Atelier agent-host integrations, hooks, and bin wrappers
+uninstall: ## Remove all LemonCrow agent-host integrations, hooks, and bin wrappers
 	@bash scripts/uninstall.sh $${ARGS:-}
 
-status: ## Show Atelier installation status
+status: ## Show LemonCrow installation status
 	@bash scripts/status.sh
 
 start: ## Start the service and frontend natively
 	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
-	$(ATELIER_CMD) --root "$${ATELIER_STACK_ROOT:-$(ATELIER_STORE)}" stack start
+	$(LEMONCROW_CMD) --root "$${LEMONCROW_STACK_ROOT:-$(LEMONCROW_STORE)}" stack start
 	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
-	$(ATELIER_CMD) --root "$${ATELIER_STACK_ROOT:-$(ATELIER_STORE)}" stack logs -f
+	$(LEMONCROW_CMD) --root "$${LEMONCROW_STACK_ROOT:-$(LEMONCROW_STORE)}" stack logs -f
 restart: ## Restart the service and frontend natively
 	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
-	$(ATELIER_CMD) --root "$${ATELIER_STACK_ROOT:-$(ATELIER_STORE)}" stack stop --force || true
+	$(LEMONCROW_CMD) --root "$${LEMONCROW_STACK_ROOT:-$(LEMONCROW_STORE)}" stack stop --force || true
 	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
-	$(ATELIER_CMD) --root "$${ATELIER_STACK_ROOT:-$(ATELIER_STORE)}" stack start
+	$(LEMONCROW_CMD) --root "$${LEMONCROW_STACK_ROOT:-$(LEMONCROW_STORE)}" stack start
 	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
-	$(ATELIER_CMD) --root "$${ATELIER_STACK_ROOT:-$(ATELIER_STORE)}" stack logs -f
+	$(LEMONCROW_CMD) --root "$${LEMONCROW_STACK_ROOT:-$(LEMONCROW_STORE)}" stack logs -f
 
 # --------------------------------------------------------------------------- #
 # Development                                                                 #
 # --------------------------------------------------------------------------- #
 
-build-host-skills: ## Generate Codex/Gemini skill bundles from integrations/skills (set ATELIER_DEV_MODE=1 to include dev-only skills)
-	@bash scripts/build_host_skills.sh --host all $$( [ "$${ATELIER_DEV_MODE:-0}" = "1" ] && echo --include-dev )
+build-host-skills: ## Generate Codex/Gemini skill bundles from integrations/skills (set LEMONCROW_DEV_MODE=1 to include dev-only skills)
+	@bash scripts/build_host_skills.sh --host all $$( [ "$${LEMONCROW_DEV_MODE:-0}" = "1" ] && echo --include-dev )
 
 sync-agent-context: ## Regenerate host instruction surfaces from integrations/agents/shared/
 	uv run python scripts/sync_agent_context.py
@@ -108,7 +108,7 @@ docs-check: ## Run docs and repo-governance checks
 worktree-env: ## Write a per-worktree .env file for local stack bootstraps
 	uv run python scripts/worktree_env.py --env-file .env.worktree --json
 
-runtime-evidence: ## Capture runtime evidence from a local Atelier stack
+runtime-evidence: ## Capture runtime evidence from a local LemonCrow stack
 	uv run python scripts/runtime_evidence.py
 
 # Auto-configure git hooks path so .githooks/pre-commit runs on every commit.
@@ -131,10 +131,10 @@ test-fast: | _ensure_hooks ## Run fast tests: stop on first failure, skip slow/P
 	@bash -lc 'if uv run python -c "import xdist" >/dev/null 2>&1; then uv run pytest -q -x -n auto --dist=worksteal --ignore=tests/test_postgres_store.py --ignore=tests/test_worker_jobs.py -m "not slow"; else uv run pytest -q -x --ignore=tests/test_postgres_store.py --ignore=tests/test_worker_jobs.py -m "not slow"; fi'
 
 test-cov: ## Run tests with terminal and HTML coverage reports
-	uv run pytest --cov=atelier --cov-report=term-missing --cov-report=html
+	uv run pytest --cov=lemoncrow --cov-report=term-missing --cov-report=html
 
 test-full: ## Run the FULL suite (incl. slow) with measured coverage floor
-	uv run pytest -m "" --timeout=300 --cov=atelier --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
+	uv run pytest -m "" --timeout=300 --cov=lemoncrow --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
 
 lint: | _ensure_hooks ## Run ruff lint checks
 	uv run ruff check $(PY_PATHS)
@@ -157,21 +157,21 @@ typecheck: | _ensure_hooks ## Run mypy strict type-checking
 pre-commit: | _ensure_hooks format lint typecheck docs-check test ## Full pre-commit gate: format + lint + typecheck + docs + test
 
 verify: | _ensure_hooks lint format-check typecheck docs-check test ## Verify code, docs, runtime smoke tests, and agent integrations
-	bash scripts/verify_atelier_service.sh
-	bash scripts/verify_atelier_postgres.sh
+	bash scripts/verify_lemoncrow_service.sh
+	bash scripts/verify_lemoncrow_postgres.sh
 	bash scripts/verify_agent_clis.sh
 
 proof-cost-quality: ## Run cost-quality proof gate tests and write proof-report.json
 	LOCAL=1 uv run pytest tests/core/test_cost_quality_proof_gate.py tests/gateway/test_cli_proof_gate.py -v
-	LOCAL=1 uv run atelier proof run --session-id wp32-proof --context-reduction-pct 60 --json
-	@test -s $(ATELIER_STORE)/proof/proof-report.json
+	LOCAL=1 uv run lemon proof run --session-id wp32-proof --context-reduction-pct 60 --json
+	@test -s $(LEMONCROW_STORE)/proof/proof-report.json
 
 # --------------------------------------------------------------------------- #
 # Utilities                                                                   #
 # --------------------------------------------------------------------------- #
 
 import: ## Import sessions: make import [f=1]
-	LOCAL=1 $(ATELIER_CMD) --root "$(ATELIER_STORE)" import $(FORCE_ARG)
+	LOCAL=1 $(LEMONCROW_CMD) --root "$(LEMONCROW_STORE)" import $(FORCE_ARG)
 
 flow-dump: ## Extract chat from a .flow file or directory: make flow-dump path=/path/to/file_or_dir
 	@if [ -z "$(path)" ]; then \
@@ -185,7 +185,7 @@ clean: ## Remove build artifacts, caches, and coverage data
 	find . -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
 
 help: ## Show this help message
-	@echo "Atelier - AI reasoning/procedure/runtime layer"
+	@echo "LemonCrow - AI reasoning/procedure/runtime layer"
 	@echo ""
 	@echo "Usage: make <target>"
 	@echo ""

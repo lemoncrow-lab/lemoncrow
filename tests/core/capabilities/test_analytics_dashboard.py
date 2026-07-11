@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def test_store_records_and_summarizes_sessions(tmp_path) -> None:
-    from atelier.core.capabilities.analytics.store import AnalyticsStore, SessionRecord
+    from lemoncrow.core.capabilities.analytics.store import AnalyticsStore, SessionRecord
 
     store = AnalyticsStore(path=tmp_path / "analytics.db")
     store.upsert_session(

@@ -1,0 +1,22 @@
+{
+  "model": "lemon/lemoncrow",
+  "provider": {
+    "lemon": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LemonCrow",
+      "options": {
+        "baseURL": "http://127.0.0.1:8787/v1",
+        "apiKey": "local"
+      }
+    }
+  },
+  "mcp": {
+    "lemon": {
+      "type": "local",
+      "command": ["lemon", "mcp", "--host", "opencode"],
+      "environment": {
+        "LEMONCROW_WORKSPACE_ROOT": "<WORKSPACE_ROOT>"
+      }
+    }
+  }
+}

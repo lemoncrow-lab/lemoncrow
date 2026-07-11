@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from atelier.core.foundation.models import Playbook, Rubric, Trace
+from lemoncrow.core.foundation.models import Playbook, Rubric, Trace
 
 
 def _block(**kw: object) -> Playbook:

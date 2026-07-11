@@ -1,16 +1,16 @@
 {
-  "name": "atelier",
+  "name": "lemoncrow",
   "version": "0.1.0",
-  "description": "Atelier AI coding runtime for Antigravity. Context, code-intel, memory, and tracing for agentic workflows.",
+  "description": "LemonCrow AI coding runtime for Antigravity. Context, code-intel, memory, and tracing for agentic workflows.",
   "agents": "./agents",
   "skills": "./skills",
   "mcp_config": "./mcp_config.json",
   "delegation_definitions": "./delegation-definitions",
   "interface": {
-    "displayName": "Atelier",
-    "shortDescription": "Atelier tools and agents for agy.",
-    "longDescription": "Bundle the Atelier MCP server, specialized agents (code, explore, plan, execute, review, research, solve), and skills for Antigravity. Start coding tasks with Atelier context, use Atelier MCP tools before native host tools, and treat native reads/search/shell as fallback only when Atelier is unavailable.",
-    "developerName": "Atelier Team",
+    "displayName": "LemonCrow",
+    "shortDescription": "LemonCrow tools and agents for agy.",
+    "longDescription": "Bundle the LemonCrow MCP server, specialized agents (code, explore, plan, execute, review, research, solve), and skills for Antigravity. Start coding tasks with LemonCrow context, use LemonCrow MCP tools before native host tools, and treat native reads/search/shell as fallback only when LemonCrow is unavailable.",
+    "developerName": "LemonCrow Team",
     "category": "Productivity",
     "brandColor": "#0f766e"
   }

@@ -467,7 +467,7 @@ export default function Sessions() {
                             [
                               "Saved",
                               summary
-                                ? fmtUsd(summary.total_atelier_savings_usd)
+                                ? fmtUsd(summary.total_lemoncrow_savings_usd)
                                 : "—",
                               "text-emerald-300",
                             ],
@@ -533,7 +533,7 @@ export default function Sessions() {
 function EmptyState({ summaries }: { summaries: SessionSummary[] | null }) {
   const totalCost = summaries?.reduce((s, i) => s + i.total_cost_usd, 0) ?? 0;
   const totalSaved =
-    summaries?.reduce((s, i) => s + i.total_atelier_savings_usd, 0) ?? 0;
+    summaries?.reduce((s, i) => s + i.total_lemoncrow_savings_usd, 0) ?? 0;
 
   return (
     <div className="h-full overflow-y-auto custom-scrollbar p-12 space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">

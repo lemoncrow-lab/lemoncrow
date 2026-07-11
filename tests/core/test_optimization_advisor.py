@@ -5,19 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.optimization.complexity import score_complexity
-from atelier.core.capabilities.optimization.golden_runner import run_golden_suite
-from atelier.core.capabilities.optimization.optimizer import (
+from lemoncrow.core.capabilities.optimization.complexity import score_complexity
+from lemoncrow.core.capabilities.optimization.golden_runner import run_golden_suite
+from lemoncrow.core.capabilities.optimization.optimizer import (
     INSUFFICIENT_HISTORY_MESSAGE,
     optimize_from_traces,
 )
-from atelier.core.capabilities.optimization.policy import (
+from lemoncrow.core.capabilities.optimization.policy import (
     load_current_policy,
     preset_policy,
     save_policy,
 )
-from atelier.core.capabilities.optimization.shadow import build_shadow_state
-from atelier.core.foundation.models import Trace, UsageEntry
+from lemoncrow.core.capabilities.optimization.shadow import build_shadow_state
+from lemoncrow.core.foundation.models import Trace, UsageEntry
 
 
 def _trace(index: int, *, task: str = "Fix a bug", cost_usd: float = 1.0) -> Trace:
@@ -63,7 +63,7 @@ def test_complexity_scores_risky_migration_above_explanation() -> None:
 def _entitle_savings_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     # This module exercises the Pro savings engine; treat the install as licensed
     # so load_current_policy returns the configured policy, not the Free baseline.
-    monkeypatch.setattr("atelier.core.capabilities.licensing.has_feature", lambda *a, **k: True)
+    monkeypatch.setattr("lemoncrow.core.capabilities.licensing.has_feature", lambda *a, **k: True)
 
 
 def test_policy_roundtrip_preserves_preset(tmp_path: Path) -> None:
@@ -94,7 +94,7 @@ def test_optimizer_recommends_with_confidence_and_all_compaction_types() -> None
 
     assert result.has_recommendation is True
     assert result.confidence in {"medium", "high"}
-    assert payload["estimation"]["source"] == "stored_atelier_traces"
+    assert payload["estimation"]["source"] == "stored_lemoncrow_traces"
     assert payload["estimation"]["replay"] == "not_replayed"
     assert payload["estimation"]["savings_are_estimates"] is True
     assert "does not prove that a cheaper model would solve the same task" in payload["estimation"]["limitations"]

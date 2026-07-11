@@ -30,8 +30,8 @@ Generic and language-agnostic where possible; A/B are intentionally narrow and
 high-precision so a complete fix is not blocked. Bounded and fail-open by design
 -- fires at most once per session (returns immediately when ``stop_hook_active``
 is set) and any error exits 0 without blocking. Opt out entirely with
-ATELIER_VERIFY_BEFORE_DONE=0; opt out of the completeness checks alone with
-ATELIER_VERIFY_COMPLETENESS=0.
+LEMONCROW_VERIFY_BEFORE_DONE=0; opt out of the completeness checks alone with
+LEMONCROW_VERIFY_COMPLETENESS=0.
 """
 
 from __future__ import annotations
@@ -100,12 +100,12 @@ _TEST_RUN = re.compile(r"""(?xi)
 
 
 def _disabled() -> bool:
-    v = os.environ.get("ATELIER_VERIFY_BEFORE_DONE")
+    v = os.environ.get("LEMONCROW_VERIFY_BEFORE_DONE")
     return v is not None and v.strip().lower() in {"0", "false", "off", "no"}
 
 
 def _completeness_disabled() -> bool:
-    v = os.environ.get("ATELIER_VERIFY_COMPLETENESS")
+    v = os.environ.get("LEMONCROW_VERIFY_COMPLETENESS")
     return v is not None and v.strip().lower() in {"0", "false", "off", "no"}
 
 
@@ -392,8 +392,8 @@ _REASON = (
 
 
 def _bench_mode_on() -> bool:
-    """True only when ATELIER_BENCH_MODE is set to something other than 'off'."""
-    raw = os.environ.get("ATELIER_BENCH_MODE")
+    """True only when LEMONCROW_BENCH_MODE is set to something other than 'off'."""
+    raw = os.environ.get("LEMONCROW_BENCH_MODE")
     return raw is not None and raw.strip().lower() != "off"
 
 

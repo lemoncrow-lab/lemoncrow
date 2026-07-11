@@ -1,19 +1,19 @@
 from pathlib import Path
 from typing import Any
 
-from atelier.core.capabilities.prompt_compilation.tokens import count_tokens as _count_tokens
-from atelier.core.capabilities.semantic_file_memory.capability import (
+from lemoncrow.core.capabilities.prompt_compilation.tokens import count_tokens as _count_tokens
+from lemoncrow.core.capabilities.semantic_file_memory.capability import (
     SemanticFileMemoryCapability,
     claude_read_baseline_text,
 )
-from atelier.gateway.adapters.mcp_server import _handle
+from lemoncrow.gateway.adapters.mcp_server import _handle
 from tests.helpers import init_store_at
 
 
 def _seed_store(tmp_path: Path, monkeypatch: Any) -> Path:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     return root
 
 
@@ -115,7 +115,7 @@ def test_smart_read_minified_projection_banner_for_safe_language(tmp_path: Path,
     # Pin the outline threshold above this file's LOC so the read stays in
     # full mode — this test exercises the minified projection banner, not the
     # outline-by-default behavior.
-    monkeypatch.setenv("ATELIER_OUTLINE_THRESHOLD", "200")
+    monkeypatch.setenv("LEMONCROW_OUTLINE_THRESHOLD", "200")
 
     target = tmp_path / "sample.go"
     target.write_text(

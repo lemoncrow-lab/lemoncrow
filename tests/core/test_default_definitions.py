@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.default_definitions import build_default_registry
-from atelier.core.capabilities.workflow_defaults import bootstrap_default_definitions
+from lemoncrow.core.capabilities.default_definitions import build_default_registry
+from lemoncrow.core.capabilities.workflow_defaults import bootstrap_default_definitions
 
 ROOT = Path(__file__).resolve().parents[2]
 HOST_FACING_ROLES = {"code", "explore", "execute", "plan", "research", "review", "solve"}
@@ -243,7 +243,7 @@ def test_build_default_registry_raises_on_malformed_mode_doc(tmp_path: Path) -> 
 
 
 def test_load_mode_docs_strict_raises_on_malformed_doc(tmp_path: Path) -> None:
-    from atelier.core.capabilities.default_definitions import load_mode_docs
+    from lemoncrow.core.capabilities.default_definitions import load_mode_docs
 
     _seed_mode_docs(tmp_path, malformed="code")
 

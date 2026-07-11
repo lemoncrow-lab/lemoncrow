@@ -1,10 +1,10 @@
-"""Unit tests for render_savings_summary (default `atelier savings` view)."""
+"""Unit tests for render_savings_summary (default `lemon savings` view)."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from atelier.core.capabilities.savings_summary import render_savings_summary
+from lemoncrow.core.capabilities.savings_summary import render_savings_summary
 
 
 def _payload(*, lifetime_saved: float, saved_30d: float, spend_30d: float) -> dict[str, Any]:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters import mcp_server
 
 _CLEAN_TS = "export const x = 1;\n"
 _BROKEN_TS = "export const x = ;;;{\n"
@@ -117,9 +117,9 @@ def test_verified_edit_with_sibling_cluster_collapses_to_ok(tmp_path: Path, monk
 
 
 def test_default_path_has_no_gate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # verify defaults to False and ATELIER_EDIT_VERIFY is unset: behaviour unchanged.
+    # verify defaults to False and LEMONCROW_EDIT_VERIFY is unset: behaviour unchanged.
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.delenv("ATELIER_EDIT_VERIFY", raising=False)
+    monkeypatch.delenv("LEMONCROW_EDIT_VERIFY", raising=False)
     target = tmp_path / "mod.ts"
     target.write_text(_CLEAN_TS, encoding="utf-8")
 

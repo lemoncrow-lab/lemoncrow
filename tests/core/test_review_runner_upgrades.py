@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.live_reviewer import runner as runner_mod
-from atelier.core.capabilities.live_reviewer.runner import parse_verdict, run_review
-from atelier.core.capabilities.live_reviewer.settings import ReviewerSettings
+from lemoncrow.core.capabilities.live_reviewer import runner as runner_mod
+from lemoncrow.core.capabilities.live_reviewer.runner import parse_verdict, run_review
+from lemoncrow.core.capabilities.live_reviewer.settings import ReviewerSettings
 
 
 class _FakeResult:

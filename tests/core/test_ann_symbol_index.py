@@ -13,27 +13,27 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.code_context import CodeContextEngine
-from atelier.core.capabilities.code_context import ann_symbol_index as ann_mod
-from atelier.core.capabilities.code_context.ann_symbol_index import (
+from lemoncrow.core.capabilities.code_context import CodeContextEngine
+from lemoncrow.core.capabilities.code_context import ann_symbol_index as ann_mod
+from lemoncrow.core.capabilities.code_context.ann_symbol_index import (
     SymbolAnnIndex,
     ann_retrieval_enabled,
     ensure_symbol_vector_schema,
 )
-from atelier.infra.storage.vector import cosine_similarity
+from lemoncrow.infra.storage.vector import cosine_similarity
 
 
 def _use_fake_code_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
     """Deterministic test embedder (the removed 'local' pin's role): turns the
     semantic/ANN path on so the vector store + retrieval is exercised. Test-only."""
-    import atelier.infra.embeddings.factory as _factory
+    import lemoncrow.infra.embeddings.factory as _factory
 
     class _Fake:
         dim = 384
         name = "test:hashing"
 
         def embed(self, texts: list[str]) -> list[list[float]]:
-            from atelier.infra.storage.vector import generate_embedding
+            from lemoncrow.infra.storage.vector import generate_embedding
 
             return [generate_embedding(t, dim=self.dim) for t in texts]
 
@@ -291,13 +291,13 @@ def test_load_current_matrix_matches_load_current_vectors() -> None:
 
 
 def test_ann_retrieval_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_ANN_RETRIEVAL", raising=False)
+    monkeypatch.delenv("LEMONCROW_ANN_RETRIEVAL", raising=False)
     assert ann_retrieval_enabled() is False
 
 
 @pytest.mark.parametrize("value", ["1", "true", "yes", "on", "TRUE"])
 def test_ann_retrieval_enabled_truthy(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-    monkeypatch.setenv("ATELIER_ANN_RETRIEVAL", value)
+    monkeypatch.setenv("LEMONCROW_ANN_RETRIEVAL", value)
     assert ann_retrieval_enabled() is True
 
 
@@ -334,7 +334,7 @@ def test_engine_semantic_store_built_at_index_time(tmp_path: Path, monkeypatch: 
     (no on-the-fly embedding on the query path), so semantic search resolves the
     expected top hit and the persistent table exists after indexing."""
     _use_fake_code_embedder(monkeypatch)
-    monkeypatch.delenv("ATELIER_ANN_RETRIEVAL", raising=False)
+    monkeypatch.delenv("LEMONCROW_ANN_RETRIEVAL", raising=False)
     _write_semantic_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
     engine.index_repo()
@@ -357,12 +357,12 @@ def test_engine_ann_on_matches_brute_force_top_hit(tmp_path: Path, monkeypatch: 
     _use_fake_code_embedder(monkeypatch)
     _write_semantic_fixture_repo(tmp_path)
 
-    monkeypatch.delenv("ATELIER_ANN_RETRIEVAL", raising=False)
+    monkeypatch.delenv("LEMONCROW_ANN_RETRIEVAL", raising=False)
     engine_off = CodeContextEngine(tmp_path, db_path=tmp_path / "off.sqlite")
     engine_off.index_repo()
     off_hits = engine_off.search_symbols("create login token for authenticated user", limit=5, mode="semantic")
 
-    monkeypatch.setenv("ATELIER_ANN_RETRIEVAL", "1")
+    monkeypatch.setenv("LEMONCROW_ANN_RETRIEVAL", "1")
     engine_on = CodeContextEngine(tmp_path, db_path=tmp_path / "on.sqlite")
     engine_on.index_repo()
     on_hits = engine_on.search_symbols("create login token for authenticated user", limit=5, mode="semantic")
@@ -380,7 +380,7 @@ def test_engine_ann_on_matches_brute_force_top_hit(tmp_path: Path, monkeypatch: 
 
 def test_engine_index_version_bump_invalidates_graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _use_fake_code_embedder(monkeypatch)
-    monkeypatch.setenv("ATELIER_ANN_RETRIEVAL", "1")
+    monkeypatch.setenv("LEMONCROW_ANN_RETRIEVAL", "1")
     _write_semantic_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
     engine.index_repo()
@@ -400,7 +400,7 @@ def test_engine_index_version_bump_invalidates_graph(tmp_path: Path, monkeypatch
 def test_engine_ann_fallback_when_hnsw_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """With HNSW unavailable, the ANN-on engine path still returns correct hits."""
     _use_fake_code_embedder(monkeypatch)
-    monkeypatch.setenv("ATELIER_ANN_RETRIEVAL", "1")
+    monkeypatch.setenv("LEMONCROW_ANN_RETRIEVAL", "1")
     monkeypatch.setattr(ann_mod, "_HNSW", None)
     _write_semantic_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
@@ -418,7 +418,7 @@ def test_engine_incremental_reindex_prunes_stale_vectors(tmp_path: Path, monkeyp
     no stale rows polluting ranking, and re-embedding stays incremental.
     """
     _use_fake_code_embedder(monkeypatch)
-    monkeypatch.delenv("ATELIER_ANN_RETRIEVAL", raising=False)
+    monkeypatch.delenv("LEMONCROW_ANN_RETRIEVAL", raising=False)
     _write_semantic_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite", autosync_enabled=False)
     engine.index_repo()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from atelier.core.foundation.savings_models import ContextBudget
+from lemoncrow.core.foundation.savings_models import ContextBudget
 
 
 def test_context_budget_rejects_extra_fields() -> None:

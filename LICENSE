@@ -6,13 +6,13 @@ FSL-1.1-ALv2
 
 ## Notice
 
-Copyright 2026 Pankaj Kumar (d/b/a Atelier)
+Copyright 2026 Pankaj Kumar (d/b/a LemonCrow)
 
 The following directories are NOT licensed under these Terms:
 
 - `services/license-issuer/` — proprietary (the auth/payments backend),
   licensed separately under its own `LICENSE` file.
-- `src/atelier/sdk/`, `src/atelier/gateway/sdk/`, `integrations/`, `scripts/`,
+- `src/lemoncrow/sdk/`, `src/lemoncrow/gateway/sdk/`, `integrations/`, `scripts/`,
   `docs/`, and `docs-site/` — client bindings, host integrations, installer
   scripts, and documentation, licensed under the Apache License, Version 2.0.
   See `LICENSE-APACHE` at the repository root for the full text and the

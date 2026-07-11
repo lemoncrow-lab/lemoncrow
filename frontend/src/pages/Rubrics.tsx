@@ -238,7 +238,7 @@ export default function Rubrics() {
                     <div className="pt-2 border-t border-neutral-800">
                       <FieldLabel className="mb-2">Usage</FieldLabel>
                       <code className="text-[10px] bg-neutral-950 px-2 py-1 block text-neutral-300 break-all font-mono border border-neutral-800 mb-1">
-                        atelier run-rubric {r.id} --json '{"{"}...{"}"}'
+                        lemon run-rubric {r.id} --json '{"{"}...{"}"}'
                       </code>
                       <code className="text-[10px] bg-neutral-950 px-2 py-1 block text-neutral-300 break-all font-mono border border-neutral-800">
                         MCP: verify --rubric_id {r.id} --checks '{"{"}...{"}"}'

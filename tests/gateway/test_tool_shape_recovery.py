@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from atelier.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters import mcp_server
 from tests.helpers import init_store_at
 
 
@@ -37,9 +37,9 @@ def _text(resp: dict[str, Any]) -> str:
 
 @pytest.fixture()
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     mcp_server._current_ledger = None

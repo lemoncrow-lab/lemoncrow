@@ -32,7 +32,7 @@ def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def memory_tool_fn(bench_workspace: Path) -> Any:
-    from atelier.gateway.adapters import mcp_server
+    from lemoncrow.gateway.adapters import mcp_server
 
     def _call(args: dict[str, Any]) -> Any:
         payload = dict(args)
@@ -99,10 +99,10 @@ def test_memory_op_saves_tokens(
     case: BenchCase,
     memory_bench_results: list[CaseResult],
 ) -> None:
-    """Assert Atelier response is smaller than the baseline token estimate."""
+    """Assert LemonCrow response is smaller than the baseline token estimate."""
     result = _find(memory_bench_results, case.label)
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
     assert (
-        result.atelier_tokens < case.baseline_tokens
-    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"
+        result.lemoncrow_tokens < case.baseline_tokens
+    ), f"[{case.label}] no savings: lemoncrow={result.lemoncrow_tokens} >= baseline={case.baseline_tokens}"

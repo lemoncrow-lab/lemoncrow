@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.optimization import (
+from lemoncrow.core.capabilities.optimization import (
     evaluate_non_inferiority,
     evaluate_non_inferiority_from_runs,
     load_terminalbench_records,

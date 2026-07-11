@@ -22,9 +22,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from atelier.core.environment import HIDDEN_LLM_TOOLS
-from atelier.gateway.adapters.mcp_server import _REMOTE_TOOLS, _handle
-from atelier.infra.storage.sqlite_store import SQLiteStore
+from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.gateway.adapters.mcp_server import _REMOTE_TOOLS, _handle
+from lemoncrow.infra.storage.sqlite_store import SQLiteStore
 from tests.helpers import init_store_at
 
 # --------------------------------------------------------------------------- #
@@ -35,7 +35,7 @@ from tests.helpers import init_store_at
 @pytest.fixture()
 def service_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     # Reset the module-level cache between tests.
-    import atelier.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.mcp_server as m
 
     m._remote_client = None
 
@@ -99,15 +99,15 @@ def _live_service(root: Path) -> Any:
     base_url = f"http://127.0.0.1:{port}"
     env = {
         **os.environ,
-        "ATELIER_ROOT": str(root),
-        "ATELIER_REQUIRE_AUTH": "false",
+        "LEMONCROW_ROOT": str(root),
+        "LEMONCROW_REQUIRE_AUTH": "false",
     }
     process = subprocess.Popen(
         [
             sys.executable,
             "-m",
             "uvicorn",
-            "atelier.core.service.api:create_app",
+            "lemoncrow.core.service.api:create_app",
             "--factory",
             "--host",
             "127.0.0.1",
@@ -144,7 +144,7 @@ def test_initialize_request_returns_server_info(service_mode: None) -> None:
     resp = _handle(req)
     assert resp is not None
     assert "result" in resp
-    assert resp["result"]["serverInfo"]["name"] == "atelier"
+    assert resp["result"]["serverInfo"]["name"] == "lemon"
 
 
 def test_tools_list_returns_all_tools(service_mode: None, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -169,7 +169,7 @@ def test_remote_context_same_shape(service_mode: None, monkeypatch: pytest.Monke
     expected = {"context": "Here are the relevant procedures."}
     client = _mock_client({"get_context": expected})
 
-    import atelier.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.mcp_server as m
 
     m._remote_client = client
 
@@ -183,7 +183,7 @@ def test_remote_record_trace_same_shape(service_mode: None, monkeypatch: pytest.
     expected = {"id": "trace-abc-123"}
     client = _mock_client({"record_trace": expected})
 
-    import atelier.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.mcp_server as m
 
     m._remote_client = client
 
@@ -201,10 +201,10 @@ def test_remote_routed_tools_do_not_create_local_runtime_state(
     service_mode: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = _mock_client({"get_context": {"context": "remote"}})
-    local_root = tmp_path / "no-local-atelier"
-    monkeypatch.setenv("ATELIER_ROOT", str(local_root))
+    local_root = tmp_path / "no-local-lemoncrow"
+    monkeypatch.setenv("LEMONCROW_ROOT", str(local_root))
 
-    import atelier.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.mcp_server as m
 
     m._current_ledger = None
     m._realtime_ctx = None
@@ -222,7 +222,7 @@ def test_remote_memory_routes_to_service(service_mode: None) -> None:
     expected = {"id": "mem-1", "version": 1}
     client = _mock_client({"memory": expected})
 
-    import atelier.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.mcp_server as m
 
     m._remote_client = client
 
@@ -241,17 +241,17 @@ def test_remote_memory_routes_to_service(service_mode: None) -> None:
 def test_remote_mode_live_service_round_trip(
     service_mode: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _seed_store(root)
 
-    import atelier.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.mcp_server as m
 
     m._current_ledger = None
     m._realtime_ctx = None
     m._remote_client = None
 
     with _live_service(root) as base_url:
-        monkeypatch.setenv("ATELIER_SERVICE_URL", base_url)
+        monkeypatch.setenv("LEMONCROW_SERVICE_URL", base_url)
 
         context = _call_tool("context", {"task": "deploy the app"})
         context_payload = json.loads(context["result"]["content"][0]["text"])
@@ -319,8 +319,8 @@ def test_remote_service_unavailable_returns_structured_error(
     def _fail(*args: Any, **kwargs: Any) -> Any:
         raise URLError("Connection refused")
 
-    import atelier.gateway.adapters.mcp_server as m
-    import atelier.gateway.adapters.remote_client as rc
+    import lemoncrow.gateway.adapters.mcp_server as m
+    import lemoncrow.gateway.adapters.remote_client as rc
 
     # Create a real RemoteClient whose underlying urlopen will fail.
     real_client = rc.RemoteClient(base_url="http://127.0.0.1:1")  # port 1 is always closed
@@ -351,7 +351,7 @@ def test_remote_client_routes_correctly() -> None:
     """RemoteClient methods call the right paths."""
     from unittest.mock import patch as _patch
 
-    from atelier.gateway.adapters.remote_client import RemoteClient
+    from lemoncrow.gateway.adapters.remote_client import RemoteClient
 
     client = RemoteClient(base_url="http://localhost:8787", api_key="key")
 

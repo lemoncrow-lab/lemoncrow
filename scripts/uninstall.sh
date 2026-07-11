@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# uninstall.sh — Remove Atelier and all agent-host integrations
+# uninstall.sh — Remove LemonCrow and all agent-host integrations
 #
 # Usage:
 #   bash scripts/uninstall.sh [--dry-run] [--no-hosts] [--purge] [--workspace DIR]
 #
 # Optional environment variables:
-#   ATELIER_BIN_DIR    Global bin dir for console scripts (default: ~/.local/bin)
-#   ATELIER_TOOL_DIR   uv tool environment dir (default: ~/.local/share/uv/tools)
-#   ATELIER_DRY_RUN    If set to 1, print planned actions and exit
+#   LEMONCROW_BIN_DIR    Global bin dir for console scripts (default: ~/.local/bin)
+#   LEMONCROW_TOOL_DIR   uv tool environment dir (default: ~/.local/share/uv/tools)
+#   LEMONCROW_DRY_RUN    If set to 1, print planned actions and exit
 #
 # Notes:
-#   Codex host uninstall removes only the managed Atelier AGENTS block when the
-#   destination file uses explicit Atelier START/END sentinels.
+#   Codex host uninstall removes only the managed LemonCrow AGENTS block when the
+#   destination file uses explicit LemonCrow START/END sentinels.
 
 set -euo pipefail
 
@@ -32,36 +32,36 @@ else
     C_PURPLE=""
 fi
 C_FRAME="$C_DIM"
-ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.atelier/bin}"
-ATELIER_TOOL_DIR="${ATELIER_TOOL_DIR:-${HOME}/.atelier/uv-tools}"
-ATELIER_DRY_RUN="${ATELIER_DRY_RUN:-0}"
-ATELIER_NO_HOSTS="${ATELIER_NO_HOSTS:-0}"
-ATELIER_INSTALL_RECORD="${HOME}/.atelier/install_dir"
-ATELIER_DEFAULT_INSTALL_DIR="${HOME}/.atelier/install"
-ATELIER_PROTECTED_SOURCE_ROOTS="${ATELIER_PROTECTED_SOURCE_ROOTS:-${HOME}/Projects}"
+LEMONCROW_BIN_DIR="${LEMONCROW_BIN_DIR:-${HOME}/.lemoncrow/bin}"
+LEMONCROW_TOOL_DIR="${LEMONCROW_TOOL_DIR:-${HOME}/.lemoncrow/uv-tools}"
+LEMONCROW_DRY_RUN="${LEMONCROW_DRY_RUN:-0}"
+LEMONCROW_NO_HOSTS="${LEMONCROW_NO_HOSTS:-0}"
+LEMONCROW_INSTALL_RECORD="${HOME}/.lemoncrow/install_dir"
+LEMONCROW_DEFAULT_INSTALL_DIR="${HOME}/.lemoncrow/install"
+LEMONCROW_PROTECTED_SOURCE_ROOTS="${LEMONCROW_PROTECTED_SOURCE_ROOTS:-${HOME}/Projects}"
 PASSTHROUGH=()
 WORKSPACE_EXPLICIT=0
 PURGE=0
 DEFERRED_REMOVE_INSTALL_DIR=""
 
 # Read the memory sidecar that was selected at install time (if any).
-_MEMORY_BACKEND_FILE="${HOME}/.atelier/memory_backend"
-ATELIER_MEMORY_BACKEND=""
+_MEMORY_BACKEND_FILE="${HOME}/.lemoncrow/memory_backend"
+LEMONCROW_MEMORY_BACKEND=""
 if [[ -f "$_MEMORY_BACKEND_FILE" ]]; then
-    ATELIER_MEMORY_BACKEND="$(head -n 1 "$_MEMORY_BACKEND_FILE" 2>/dev/null | tr -d '[:space:]')"
+    LEMONCROW_MEMORY_BACKEND="$(head -n 1 "$_MEMORY_BACKEND_FILE" 2>/dev/null | tr -d '[:space:]')"
 fi
 
 # Read the Zoekt selection that was persisted at install time (if any).
-_ZOEKT_ENABLED_FILE="${HOME}/.atelier/zoekt_enabled"
-ATELIER_ZOEKT=""
+_ZOEKT_ENABLED_FILE="${HOME}/.lemoncrow/zoekt_enabled"
+LEMONCROW_ZOEKT=""
 if [[ -f "$_ZOEKT_ENABLED_FILE" ]]; then
-    ATELIER_ZOEKT="$(head -n 1 "$_ZOEKT_ENABLED_FILE" 2>/dev/null | tr -d '[:space:]')"
+    LEMONCROW_ZOEKT="$(head -n 1 "$_ZOEKT_ENABLED_FILE" 2>/dev/null | tr -d '[:space:]')"
 fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --dry-run)  ATELIER_DRY_RUN=1; PASSTHROUGH+=("$1") ;;
-        --no-hosts) ATELIER_NO_HOSTS=1 ;;
+        --dry-run)  LEMONCROW_DRY_RUN=1; PASSTHROUGH+=("$1") ;;
+        --no-hosts) LEMONCROW_NO_HOSTS=1 ;;
         --purge)    PURGE=1 ;;
         --workspace)
             if [ $# -lt 2 ]; then echo "Missing value for --workspace" >&2; exit 1; fi
@@ -75,7 +75,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 info() { printf "%b│%b  ◇  %s\n" "$C_FRAME" "$C_RESET" "$*"; }
 warn() { printf "%b│%b  %b⚠%b  %s\n" "$C_FRAME" "$C_RESET" "$C_YELLOW" "$C_RESET" "$*"; }
-run()  { [[ "$ATELIER_DRY_RUN" == "1" ]] && echo "[dry-run] $*" || eval "$*"; }
+run()  { [[ "$LEMONCROW_DRY_RUN" == "1" ]] && echo "[dry-run] $*" || eval "$*"; }
 
 remove_path() {
     local path="$1"
@@ -85,16 +85,16 @@ remove_path() {
     fi
 }
 
-remove_file_if_atelier() {
+remove_file_if_lemoncrow() {
     local path="$1"
     [ -f "$path" ] || return 0
-    grep -qi "atelier" "$path" 2>/dev/null || return 0
+    grep -qi "lemoncrow" "$path" 2>/dev/null || return 0
     remove_path "$path"
 }
 
 remove_glob() {
     local pattern="$1"
-    if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
         echo "[dry-run] rm -rf ${pattern}"
     else
         local matches=()
@@ -109,8 +109,8 @@ remove_glob() {
 }
 
 install_dir_from_record() {
-    if [ -f "$ATELIER_INSTALL_RECORD" ]; then
-        head -n 1 "$ATELIER_INSTALL_RECORD" 2>/dev/null || true
+    if [ -f "$LEMONCROW_INSTALL_RECORD" ]; then
+        head -n 1 "$LEMONCROW_INSTALL_RECORD" 2>/dev/null || true
     fi
 }
 
@@ -123,7 +123,7 @@ is_protected_source_path() {
         path_real="$path"
     fi
 
-    IFS=':' read -r -a roots <<< "$ATELIER_PROTECTED_SOURCE_ROOTS"
+    IFS=':' read -r -a roots <<< "$LEMONCROW_PROTECTED_SOURCE_ROOTS"
     for root in "${roots[@]}"; do
         [[ -n "$root" ]] || continue
         if [[ -d "$root" ]]; then
@@ -141,34 +141,34 @@ is_protected_source_path() {
 purge_leftovers() {
     local repo_root install_dir
     repo_root="$(cd "${SCRIPT_DIR}/.." && pwd)"
-    install_dir="${ATELIER_INSTALL_DIR:-$(install_dir_from_record)}"
-    install_dir="${install_dir:-$ATELIER_DEFAULT_INSTALL_DIR}"
+    install_dir="${LEMONCROW_INSTALL_DIR:-$(install_dir_from_record)}"
+    install_dir="${install_dir:-$LEMONCROW_DEFAULT_INSTALL_DIR}"
 
     printf "%b│%b\n" "$C_FRAME" "$C_RESET"
-    remove_path "${ATELIER_TOOL_DIR}/atelier"
-    remove_path "${ATELIER_TOOL_DIR}/atelier"
-    remove_path "${HOME}/.atelier/uv-tools/atelier"
-    remove_path "${HOME}/.local/share/uv/tools/atelier"
-    remove_file_if_atelier "${HOME}/.codex/AGENTS.md"
-    remove_glob "${HOME}/.codex/AGENTS.md.atelier-backup.*"
-    remove_glob "${HOME}/.codex/plugins/atelier*"
-    remove_path "${HOME}/.codex/plugins/cache/atelier"
-    remove_path "${HOME}/.codex/plugins/cache/openai-curated/atelier"
-    if [ -f "${HOME}/.copilot/hooks/hooks.json" ] && grep -q "atelier" "${HOME}/.copilot/hooks/hooks.json" 2>/dev/null; then
+    remove_path "${LEMONCROW_TOOL_DIR}/lemoncrow"
+    remove_path "${LEMONCROW_TOOL_DIR}/lemoncrow"
+    remove_path "${HOME}/.lemoncrow/uv-tools/lemoncrow"
+    remove_path "${HOME}/.local/share/uv/tools/lemoncrow"
+    remove_file_if_lemoncrow "${HOME}/.codex/AGENTS.md"
+    remove_glob "${HOME}/.codex/AGENTS.md.lemoncrow-backup.*"
+    remove_glob "${HOME}/.codex/plugins/lemoncrow*"
+    remove_path "${HOME}/.codex/plugins/cache/lemoncrow"
+    remove_path "${HOME}/.codex/plugins/cache/openai-curated/lemoncrow"
+    if [ -f "${HOME}/.copilot/hooks/hooks.json" ] && grep -q "lemoncrow" "${HOME}/.copilot/hooks/hooks.json" 2>/dev/null; then
         run "rm -f $(printf %q "${HOME}/.copilot/hooks/hooks.json")"
-        info "Removed Atelier Copilot CLI hooks config"
+        info "Removed LemonCrow Copilot CLI hooks config"
     fi
 
     if command -v npm >/dev/null 2>&1; then
         run "npm uninstall -g codeburn tokscale >/dev/null 2>&1 || true"
-        info "Removed global npm helper packages installed by Atelier when present"
+        info "Removed global npm helper packages installed by LemonCrow when present"
     fi
 
-    remove_glob "${HOME}/.copilot/instructions/*atelier*"
-    remove_glob "${HOME}/.config/Code/User/*.atelier-backup.*"
+    remove_glob "${HOME}/.copilot/instructions/*lemoncrow*"
+    remove_glob "${HOME}/.config/Code/User/*.lemoncrow-backup.*"
 
     # ---- memory sidecar Docker cleanup --------------------------------------
-    case "$ATELIER_MEMORY_BACKEND" in
+    case "$LEMONCROW_MEMORY_BACKEND" in
         letta)
             info "Removing Letta Docker container and volumes..."
             local letta_compose="${install_dir}/deploy/letta/docker-compose.yml"
@@ -181,15 +181,15 @@ purge_leftovers() {
             ;;
         openmemory)
             info "Removing OpenMemory Docker state and checkout..."
-            local om_workdir="${HOME}/.atelier/openmemory/mem0/openmemory"
+            local om_workdir="${HOME}/.lemoncrow/openmemory/mem0/openmemory"
             if [[ -d "$om_workdir" ]] && command -v docker >/dev/null 2>&1; then
                 run "docker compose -C $(printf %q "$om_workdir") down -v --remove-orphans 2>/dev/null || true"
             fi
-            remove_path "${HOME}/.atelier/openmemory"
+            remove_path "${HOME}/.lemoncrow/openmemory"
             ;;
     esac
 
-    remove_path "${HOME}/.atelier"
+    remove_path "${HOME}/.lemoncrow"
 
     if [ -n "$install_dir" ]; then
         local script_root_real install_dir_real
@@ -203,7 +203,7 @@ purge_leftovers() {
         if is_protected_source_path "$install_dir_real"; then
             warn "Skipping install source under protected source root: $install_dir"
         elif [[ "$script_root_real" == "$install_dir_real" || "$script_root_real" == "$install_dir_real/"* || "$install_dir" == "$repo_root" || "$install_dir" == "$PWD" ]]; then
-            if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
+            if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
                 warn "Will remove install source after script exits (deferred): $install_dir"
             else
                 DEFERRED_REMOVE_INSTALL_DIR="$install_dir_real"
@@ -218,78 +218,78 @@ purge_leftovers() {
 }
 
 # ---- stop memory sidecar (before background controller) --------------------
-if command -v atelier &>/dev/null && [[ -n "$ATELIER_MEMORY_BACKEND" ]]; then
-    case "$ATELIER_MEMORY_BACKEND" in
+if command -v lemon &>/dev/null && [[ -n "$LEMONCROW_MEMORY_BACKEND" ]]; then
+    case "$LEMONCROW_MEMORY_BACKEND" in
         letta)
             info "Stopping Letta memory sidecar..."
-            run "atelier letta down 2>/dev/null || true"
+            run "lemon letta down 2>/dev/null || true"
             ;;
         openmemory)
             info "Stopping OpenMemory memory sidecar..."
-            run "atelier openmemory down 2>/dev/null || true"
+            run "lemon openmemory down 2>/dev/null || true"
             ;;
         *)
-            warn "Unknown memory backend '$ATELIER_MEMORY_BACKEND' in $_MEMORY_BACKEND_FILE - skipping sidecar teardown"
+            warn "Unknown memory backend '$LEMONCROW_MEMORY_BACKEND' in $_MEMORY_BACKEND_FILE - skipping sidecar teardown"
             ;;
     esac
 fi
 
 # ---- stop Zoekt sidecar (before background controller) ---------------------
-if command -v atelier &>/dev/null && [[ "$ATELIER_ZOEKT" == "1" ]]; then
+if command -v lemon &>/dev/null && [[ "$LEMONCROW_ZOEKT" == "1" ]]; then
     info "Skipping Zoekt CLI teardown; Zoekt management commands are no longer exposed."
 fi
 
 # ---- stop running services --------------------------------------------------
-if command -v atelier &>/dev/null; then
-    case "$ATELIER_MEMORY_BACKEND" in
+if command -v lemon &>/dev/null; then
+    case "$LEMONCROW_MEMORY_BACKEND" in
         letta)
             info "Stopping Letta memory sidecar..."
-            run "atelier letta down 2>/dev/null || true"
+            run "lemon letta down 2>/dev/null || true"
             ;;
         openmemory)
             info "Stopping OpenMemory memory sidecar..."
-            run "atelier openmemory down 2>/dev/null || true"
+            run "lemon openmemory down 2>/dev/null || true"
             ;;
         "")
             ;;
         *)
-            warn "Unknown memory backend '$ATELIER_MEMORY_BACKEND' in $_MEMORY_BACKEND_FILE — skipping sidecar teardown"
+            warn "Unknown memory backend '$LEMONCROW_MEMORY_BACKEND' in $_MEMORY_BACKEND_FILE — skipping sidecar teardown"
             ;;
     esac
 
-    info "Stopping Atelier background service controller..."
-    run "atelier servicectl stop 2>/dev/null || true"
-    info "Stopping Atelier visualization stack..."
-    run "atelier stack stop 2>/dev/null || true"
+    info "Stopping LemonCrow background service controller..."
+    run "lemon servicectl stop 2>/dev/null || true"
+    info "Stopping LemonCrow visualization stack..."
+    run "lemon stack stop 2>/dev/null || true"
 else
-    warn "atelier CLI not found on PATH — skipping service shutdown"
+    warn "lemon CLI not found on PATH — skipping service shutdown"
 fi
 
 # ---- per-host uninstallers --------------------------------------------------
-if [[ "$ATELIER_NO_HOSTS" != "1" ]]; then
+if [[ "$LEMONCROW_NO_HOSTS" != "1" ]]; then
     for host in claude codex opencode copilot antigravity cursor hermes; do
         script="${SCRIPT_DIR}/uninstall_${host}.sh"
         [ -f "$script" ] || continue
         printf "%b│%b\n" "$C_FRAME" "$C_RESET"
-        printf "%b┌%b  Uninstalling Atelier ← %s\n" "$C_FRAME" "$C_RESET" "$host"
+        printf "%b┌%b  Uninstalling LemonCrow ← %s\n" "$C_FRAME" "$C_RESET" "$host"
         printf "%b│%b\n" "$C_FRAME" "$C_RESET"
         bash "$script" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} || true
         # Also clean workspace-local configs in CWD when no explicit --workspace given
         if [[ "$WORKSPACE_EXPLICIT" == "0" && "$PWD" != "$HOME" ]]; then
             local_args=(--workspace "$PWD")
-            [[ "$ATELIER_DRY_RUN" == "1" ]] && local_args+=(--dry-run)
+            [[ "$LEMONCROW_DRY_RUN" == "1" ]] && local_args+=(--dry-run)
             bash "$script" "${local_args[@]}" 2>/dev/null || true
         fi
     done
     printf "%b│%b\n" "$C_FRAME" "$C_RESET"
 else
-    info "Skipping host integrations because ATELIER_NO_HOSTS=1"
+    info "Skipping host integrations because LEMONCROW_NO_HOSTS=1"
 fi
 
 # ---- remove main bin commands ------------------------------------------------
-info "Removing Atelier bin commands from ${ATELIER_BIN_DIR}..."
-for cmd in atelier; do
-    target="${ATELIER_BIN_DIR}/${cmd}"
+info "Removing LemonCrow bin commands from ${LEMONCROW_BIN_DIR}..."
+for cmd in lemon lc lemond; do
+    target="${LEMONCROW_BIN_DIR}/${cmd}"
     if [ -f "$target" ] || [ -L "$target" ]; then
         run "rm -f $(printf %q "$target")"
         info "Removed ${target}"
@@ -298,8 +298,8 @@ done
 
 # ---- remove PATH sentinel from shell profile --------------------------------
 _remove_path_sentinel() {
-    local sentinel_start="# >>> atelier path setup >>>"
-    local sentinel_end="# <<< atelier path setup <<<"
+    local sentinel_start="# >>> lemoncrow path setup >>>"
+    local sentinel_end="# <<< lemoncrow path setup <<<"
     local profile_file shell_name
 
     shell_name="$(basename "${SHELL:-bash}")"
@@ -313,8 +313,8 @@ _remove_path_sentinel() {
     [[ -f "$profile_file" ]] || return 0
 
     if grep -qF "$sentinel_start" "$profile_file" 2>/dev/null; then
-        if [[ "$ATELIER_DRY_RUN" == "1" ]]; then
-            echo "[dry-run] Remove Atelier PATH block from ${profile_file}"
+        if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+            echo "[dry-run] Remove LemonCrow PATH block from ${profile_file}"
             return 0
         fi
         local tmp_file in_block line
@@ -330,17 +330,17 @@ _remove_path_sentinel() {
             fi
         done < "$profile_file" > "$tmp_file"
         mv "$tmp_file" "$profile_file"
-        info "Removed Atelier PATH block from ${profile_file/#$HOME/~}"
+        info "Removed LemonCrow PATH block from ${profile_file/#$HOME/~}"
     fi
 }
 _remove_path_sentinel
 
 if [[ "$PURGE" == "1" ]]; then
-    local_install_dir="${ATELIER_INSTALL_DIR:-$(install_dir_from_record)}"
-    local_install_dir="${local_install_dir:-$ATELIER_DEFAULT_INSTALL_DIR}"
+    local_install_dir="${LEMONCROW_INSTALL_DIR:-$(install_dir_from_record)}"
+    local_install_dir="${local_install_dir:-$LEMONCROW_DEFAULT_INSTALL_DIR}"
 
     # ---- memory sidecar Docker cleanup --------------------------------------
-    case "$ATELIER_MEMORY_BACKEND" in
+    case "$LEMONCROW_MEMORY_BACKEND" in
         letta)
             info "Removing Letta Docker container and volumes..."
             letta_compose="${local_install_dir}/deploy/letta/docker-compose.yml"
@@ -352,11 +352,11 @@ if [[ "$PURGE" == "1" ]]; then
             ;;
         openmemory)
             info "Removing OpenMemory Docker state and checkout..."
-            om_workdir="${HOME}/.atelier/openmemory/mem0/openmemory"
+            om_workdir="${HOME}/.lemoncrow/openmemory/mem0/openmemory"
             if [[ -d "$om_workdir" ]] && command -v docker >/dev/null 2>&1; then
                 run "docker compose --project-directory $(printf %q "$om_workdir") down -v --remove-orphans 2>/dev/null || true"
             fi
-            remove_path "${HOME}/.atelier/openmemory"
+            remove_path "${HOME}/.lemoncrow/openmemory"
             ;;
     esac
 

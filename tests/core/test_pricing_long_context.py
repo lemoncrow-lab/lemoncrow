@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.core.capabilities.pricing import _intro_pricing_active, get_model_pricing
-from atelier.core.capabilities.savings_summary import resolve_model_id
+from lemoncrow.core.capabilities.pricing import _intro_pricing_active, get_model_pricing
+from lemoncrow.core.capabilities.savings_summary import resolve_model_id
 
 # Sonnet 5 bills launch-promo rates ($2/$10 + standard cache multipliers)
 # through 2026-08-31, sticker ($3/$15) after.

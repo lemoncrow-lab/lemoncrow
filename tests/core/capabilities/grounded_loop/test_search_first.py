@@ -5,12 +5,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from atelier.core.capabilities.grounded_loop import search_first
+from lemoncrow.core.capabilities.grounded_loop import search_first
 
 
 def test_search_first_returns_ranked_matches_and_explicit_follow_ups(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("ATELIER_CACHE_DISABLED", "1")
+    monkeypatch.setenv("LEMONCROW_CACHE_DISABLED", "1")
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "alpha.py").write_text(
         "class Playbook:\n    pass\n",
@@ -61,7 +61,7 @@ def test_search_first_returns_ranked_matches_and_explicit_follow_ups(tmp_path, m
 
 
 def test_search_first_reuses_existing_search_primitive(monkeypatch: pytest.MonkeyPatch) -> None:
-    search_first_module = importlib.import_module("atelier.core.capabilities.grounded_loop.search_first")
+    search_first_module = importlib.import_module("lemoncrow.core.capabilities.grounded_loop.search_first")
     fake_search = MagicMock(
         return_value={
             "matches": [{"path": "src/orders.py", "snippets": [{"text": "OrderService"}]}],

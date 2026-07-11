@@ -1,4 +1,4 @@
-"""Tests for live enrichment: real Atelier tool calls in session replay.
+"""Tests for live enrichment: real LemonCrow tool calls in session replay.
 
 Verifies the safety contract (edit/bash never mutate/execute), real code_search
 hit parsing + endpoint match, and real read outline. code_search uses a fake
@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import atelier.core.capabilities.session_replay_live as live
-from atelier.core.capabilities.session_replay import Episode, Replay, build_replay
+import lemoncrow.core.capabilities.session_replay_live as live
+from lemoncrow.core.capabilities.session_replay import Episode, Replay, build_replay
 
 
 class _FakeEngine:
@@ -50,8 +50,8 @@ def test_edit_is_preview_never_written(tmp_path: Path, monkeypatch) -> None:
     replay = _replay_with_edit()
     live.enrich_replay(replay, tmp_path)
     edit_turn = replay.turns[3]
-    assert edit_turn["atelier"]["mode"] == "preview"
-    assert "diff" in edit_turn["atelier"]
+    assert edit_turn["lemoncrow"]["mode"] == "preview"
+    assert "diff" in edit_turn["lemoncrow"]
     # The file on disk is untouched.
     assert target.read_text(encoding="utf-8") == "original"
 
@@ -63,7 +63,7 @@ def test_bash_is_preview_never_executed(tmp_path: Path, monkeypatch) -> None:
     replay = _replay_with_edit()
     replay.turns[4]["content"] = f"rm -rf {sentinel}"
     live.enrich_replay(replay, tmp_path)
-    assert replay.turns[4]["atelier"]["mode"] == "preview"
+    assert replay.turns[4]["lemoncrow"]["mode"] == "preview"
     assert sentinel.exists()  # command was NOT run
 
 
@@ -72,14 +72,14 @@ def test_code_search_real_hits_and_endpoint_match(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr(live, "_build_engine", lambda root: _FakeEngine(hits))
     replay = _replay_with_edit()
     live.enrich_replay(replay, tmp_path)
-    atelier = replay.episodes[0].atelier
-    assert atelier is not None
-    assert atelier["mode"] == "real"
-    assert atelier["hits"][0]["path"] == "foo.py"
-    assert atelier["hits"][0]["name"] == "Foo"
+    lemoncrow = replay.episodes[0].lemon
+    assert lemoncrow is not None
+    assert lemoncrow["mode"] == "real"
+    assert lemoncrow["hits"][0]["path"] == "foo.py"
+    assert lemoncrow["hits"][0]["name"] == "Foo"
     # endpoint = the file edited right after the loop; code_search hit the same file
-    assert atelier["endpoint"] == "foo.py"
-    assert atelier["matched_endpoint"] is True
+    assert lemoncrow["endpoint"] == "foo.py"
+    assert lemoncrow["matched_endpoint"] is True
 
 
 def test_real_read_outline(tmp_path: Path, monkeypatch) -> None:
@@ -101,7 +101,7 @@ def test_real_read_outline(tmp_path: Path, monkeypatch) -> None:
         summary=build_replay("", host="claude", session_id="s").summary,
     )
     live.enrich_replay(replay, tmp_path)
-    a = replay.turns[1]["atelier"]
+    a = replay.turns[1]["lemoncrow"]
     assert a["tool"] == "read"
     assert a["mode"] == "real"
     assert any("class A" in line for line in a["outline"])
@@ -117,7 +117,7 @@ def test_helpers() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Bash output compaction + batching (simulate Atelier on RECORDED output)
+# Bash output compaction + batching (simulate LemonCrow on RECORDED output)
 # --------------------------------------------------------------------------- #
 
 import json as _json  # noqa: E402
@@ -145,7 +145,7 @@ def test_bash_output_compacted_not_rerun(tmp_path: Path, monkeypatch) -> None:
     replay = build_replay(_claude(events), host="claude", session_id="s")
     live.enrich_replay(replay, tmp_path)
     bash_turn = next(t for t in replay.turns if t.get("kind") == "shell_command")
-    a = bash_turn["atelier"]
+    a = bash_turn["lemoncrow"]
     assert a["mode"] == "simulated"
     assert a["before_chars"] > a["after_chars"]  # real compaction happened
     assert a["chars_omitted"] > 0
@@ -183,6 +183,6 @@ def test_edit_batch_enriched(tmp_path: Path, monkeypatch) -> None:
     live.enrich_replay(replay, tmp_path)
     batch = replay.batches[0]
     assert batch.kind == "edit"
-    assert batch.atelier["mode"] == "batch"
-    assert batch.atelier["count"] == 3
-    assert "a.yaml" in batch.atelier["files"]
+    assert batch.lemon["mode"] == "batch"
+    assert batch.lemon["count"] == 3
+    assert "a.yaml" in batch.lemon["files"]

@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# Drive the remaining TB-2.1 reps for the base-vs-Atelier comparison.
+# Drive the remaining TB-2.1 reps for the base-vs-LemonCrow comparison.
 #
-# Sequence (interleaved so each base/atelier PAIR completes together, giving an
+# Sequence (interleaved so each base/lemoncrow PAIR completes together, giving an
 # incrementally-complete comparison if interrupted):
 #   base_rep1, rep2, base_rep2, rep3, base_rep3, rep4, base_rep4, rep5, base_rep5
-# (Atelier rep1 already done at benchmarks/jobs/final/rep1.)
+# (LemonCrow rep1 already done at benchmarks/jobs/final/rep1.)
 #
 # IDEMPOTENT + RE-LAUNCHABLE: a rep already at 89/89 is skipped; a partially-done
 # rep is resumed from its existing job dir. Safe to re-run after any interruption.
 # Locked config: -n 4, model opus-4-8, root+IS_SANDBOX,
 # two-subscription token pool (3 on _1 / 6 on _2). 'off' arm drops plugin+prewarm.
 set -u
-cd /home/pankaj/Projects/leanchain/atelier
+cd /home/pankaj/Projects/leanchain/lemoncrow
 set -a; . benchmarks/harbor/.env; set +a
 # Reproducibility: record the exact source commit (reported as the agent
 # version) and pass the model explicitly so harbor's agent_info carries it.
-export ATELIER_BENCH_COMMIT=$(git rev-parse --short HEAD)
-MODEL="anthropic/${ATELIER_BENCH_MODEL:-claude-opus-4-8}"
+export LEMONCROW_BENCH_COMMIT=$(git rev-parse --short HEAD)
+MODEL="anthropic/${LEMONCROW_BENCH_MODEL:-claude-opus-4-8}"
 LOG=/tmp/tb21_driver.log
-MOUNTS='[{"type":"bind","source":"/home/pankaj/Projects/leanchain/atelier","target":"/atelier","read_only":true},{"type":"bind","source":"/tmp/avbuild/atelier-bundle.tar.gz","target":"/atelier-bundle.tar.gz","read_only":true}]'
-AIP=benchmarks.harbor.atelier_agent:AtelierClaudeCodeHarborAgent
+MOUNTS='[{"type":"bind","source":"/home/pankaj/Projects/leanchain/lemoncrow","target":"/lemoncrow","read_only":true},{"type":"bind","source":"/tmp/avbuild/lemoncrow-bundle.tar.gz","target":"/lemoncrow-bundle.tar.gz","read_only":true}]'
+AIP=benchmarks.harbor.lemoncrow_agent:LemonCrowClaudeCodeHarborAgent
 
 say(){ echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
 cleanup(){
@@ -31,17 +31,17 @@ graded(){ find "$1" -name reward.txt 2>/dev/null | wc -l; }
 # Always rebuild the bundle from current source before a fresh run.
 # --resume reuses the bundle the job was started with (intentional).
 rebuild_bundle(){
-  say "Rebuilding atelier bundle from current source..."
+  say "Rebuilding LemonCrow bundle from current source..."
   docker run --rm \
-    -v "$PWD:/atelier:ro" \
+    -v "$PWD:/lemon:ro" \
     -v "/tmp/avbuild:/out" \
     debian:bullseye-slim \
-    bash /atelier/benchmarks/harbor/rebuild_bundle.sh 2>&1 | tee -a "$LOG"
-  if [ ! -f /tmp/avbuild/atelier-bundle-new.tar.gz ]; then
+    bash /lemoncrow/benchmarks/harbor/rebuild_bundle.sh 2>&1 | tee -a "$LOG"
+  if [ ! -f /tmp/avbuild/lemoncrow-bundle-new.tar.gz ]; then
     say "ERROR: bundle rebuild failed — aborting"; exit 1
   fi
-  mv /tmp/avbuild/atelier-bundle-new.tar.gz /tmp/avbuild/atelier-bundle.tar.gz
-  say "Bundle rebuilt: $(stat -c%s /tmp/avbuild/atelier-bundle.tar.gz) bytes, $(date)"
+  mv /tmp/avbuild/lemoncrow-bundle-new.tar.gz /tmp/avbuild/lemoncrow-bundle.tar.gz
+  say "Bundle rebuilt: $(stat -c%s /tmp/avbuild/lemoncrow-bundle.tar.gz) bytes, $(date)"
 }
 
 run_rep(){

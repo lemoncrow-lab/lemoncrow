@@ -160,14 +160,14 @@ export function HostsSection() {
         Hosts
       </h2>
       <p className="text-xs text-neutral-400">
-        Atelier can configure these host surfaces. Detected hosts are shown
+        LemonCrow can configure these host surfaces. Detected hosts are shown
         first, but unsupported gaps are still visible so you can wire them up
         directly.
       </p>
       {orderedHosts.length === 0 ? (
         <EmptyState
           title="No supported hosts found"
-          description="Host configs are loaded from Atelier's integration catalog."
+          description="Host configs are loaded from LemonCrow's integration catalog."
           className="p-4"
         />
       ) : (
@@ -559,7 +559,7 @@ const NS_META: Record<
 };
 
 function canonicalName(name: string): string {
-  return name.startsWith("atelier_") ? name.slice("atelier_".length) : name;
+  return name.startsWith("lemoncrow_") ? name.slice("lemoncrow_".length) : name;
 }
 
 function getNamespace(name: string): string {
@@ -636,7 +636,7 @@ export function ToolsSection() {
           return (
             <div className="grid gap-5 sm:grid-cols-2">
               <p className="text-[10px] font-mono text-neutral-400 sm:col-span-2">
-                {deduped.length} tools on stdio server: <code>atelier mcp</code>
+                {deduped.length} tools on stdio server: <code>lemon mcp</code>
               </p>
               {nsOrder
                 .filter((ns) => groups[ns]?.length)
@@ -825,7 +825,7 @@ function HealthSection() {
       </h2>
       <p className="text-xs text-neutral-400">
         Daemon liveness plus per-host adapter status. "Detected" reflects
-        whether Atelier has ever seen a session from that host; last import
+        whether LemonCrow has ever seen a session from that host; last import
         below is the real per-host import time, not detection.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">

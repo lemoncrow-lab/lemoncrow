@@ -11,8 +11,8 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities import plugin_runtime
-from atelier.infra.runtime.run_ledger import RunLedger
+from lemoncrow.core.capabilities import plugin_runtime
+from lemoncrow.infra.runtime.run_ledger import RunLedger
 
 pytestmark = pytest.mark.slow  # Each test spawns a real Python subprocess (~2s each)
 
@@ -27,14 +27,14 @@ def _run_hook(
     env = os.environ.copy()
     env.update(
         {
-            "ATELIER_ROOT": str(root),
-            "ATELIER_VERSION": version,
-            "ATELIER_CTX_NUDGE_TOKENS": "999999999",
+            "LEMONCROW_ROOT": str(root),
+            "LEMONCROW_VERSION": version,
+            "LEMONCROW_CTX_NUDGE_TOKENS": "999999999",
             # These are Codex hooks: pin detect_host()'s explicit override so
             # every per-session path lands under host "codex" regardless of
             # the ambient test-runner environment (e.g. a stray CLAUDE_CODE
-            # or ATELIER_AGENT=claude leaking in from the outer harness).
-            "ATELIER_AGENT": "codex",
+            # or LEMONCROW_AGENT=claude leaking in from the outer harness).
+            "LEMONCROW_AGENT": "codex",
         }
     )
     return subprocess.run(
@@ -51,7 +51,7 @@ def _run_statusline(
     root: Path, payload: str, env_extra: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    env.update({"ATELIER_ROOT": str(root), "ATELIER_NO_COLOR": "1"})
+    env.update({"LEMONCROW_ROOT": str(root), "LEMONCROW_NO_COLOR": "1"})
     env.update(env_extra or {})
     return subprocess.run(
         [str(STATUSLINE)],
@@ -64,17 +64,17 @@ def _run_statusline(
 
 
 def test_codex_statusline_renders_native_footer_in_claude_format(tmp_path: Path) -> None:
-    native = "gpt-5.5 xhigh · ~/Projects/leanchain/atelier · 1.11M used · 19.4M in · 61.1K out"
+    native = "gpt-5.5 xhigh · ~/Projects/leanchain/lemoncrow · 1.11M used · 19.4M in · 61.1K out"
 
-    result = _run_statusline(tmp_path / ".atelier", native)
+    result = _run_statusline(tmp_path / ".lemoncrow", native)
 
-    assert result.stdout.strip() == ("❯ atelier | gpt-5.5 xhigh ctx 1.1M $0.00(I:19.40M C:0 O:61.1k) ↓ $0.00(I:0)")
+    assert result.stdout.strip() == ("❯ lemon | gpt-5.5 xhigh ctx 1.1M $0.00(I:19.40M C:0 O:61.1k) ↓ $0.00(I:0)")
 
 
 def test_codex_statusline_recovers_session_from_workspace_state(tmp_path: Path) -> None:
-    from atelier.core.foundation.paths import session_dir, workspace_key
+    from lemoncrow.core.foundation.paths import session_dir, workspace_key
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     state_dir = root / "workspaces" / workspace_key(workspace)
@@ -106,15 +106,15 @@ def test_codex_statusline_renders_json_token_fields_in_claude_format(tmp_path: P
         "cost": {"total_usd": 1.23456},
     }
 
-    result = _run_statusline(tmp_path / ".atelier", json.dumps(payload))
+    result = _run_statusline(tmp_path / ".lemoncrow", json.dumps(payload))
 
-    assert result.stdout.strip() == ("❯ atelier | gpt-5.5 xhigh ctx 1.1M 12% $1.23(I:19.40M C:0 O:61.1k) ↓ $0.00(I:0)")
+    assert result.stdout.strip() == ("❯ lemon | gpt-5.5 xhigh ctx 1.1M 12% $1.23(I:19.40M C:0 O:61.1k) ↓ $0.00(I:0)")
 
 
 def test_codex_multi_file_prompt_emits_no_runtime_context(tmp_path: Path) -> None:
     result = _run_hook(
         "user_prompt.py",
-        tmp_path / ".atelier",
+        tmp_path / ".lemoncrow",
         {
             "hook_event_name": "UserPromptSubmit",
             "session_id": "c1",
@@ -126,9 +126,9 @@ def test_codex_multi_file_prompt_emits_no_runtime_context(tmp_path: Path) -> Non
 
 
 def test_codex_user_prompt_emits_high_context_nudge_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     monkeypatch.setattr(
-        "atelier.gateway.hosts.context_state.host_context_state",
+        "lemoncrow.gateway.hosts.context_state.host_context_state",
         lambda host, session_id: (200_000, "gpt-5.5"),
     )
     payload = {
@@ -146,7 +146,7 @@ def test_codex_user_prompt_emits_high_context_nudge_once(tmp_path: Path, monkeyp
 
 
 def test_codex_pre_tool_use_blocks_full_reread_after_edit(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     session_id = "c1"
     runs = root / "runs"
     runs.mkdir(parents=True)
@@ -161,7 +161,7 @@ def test_codex_pre_tool_use_blocks_full_reread_after_edit(tmp_path: Path) -> Non
         {
             "hook_event_name": "PreToolUse",
             "session_id": session_id,
-            "tool_name": "mcp__atelier__read",
+            "tool_name": "mcp__lemon__read",
             "tool_input": {"files": [{"path": "src/a.py", "full": True}]},
             "cwd": str(tmp_path),
         },
@@ -175,16 +175,16 @@ def test_codex_pre_tool_use_blocks_full_reread_after_edit(tmp_path: Path) -> Non
 
 
 def test_codex_savings_reporter_updates_session_stats(tmp_path: Path) -> None:
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     result = _run_hook(
         "savings_reporter.py",
         root,
         {
             "hook_event_name": "PostToolUse",
             "session_id": "c1",
-            "tool_name": "mcp__plugin_atelier_atelier__Edit",
+            "tool_name": "mcp__plugin_lemoncrow_lemon__Edit",
             "tool_input": {"edits": [{"file_path": "a.py"}, {"file_path": "b.py"}]},
         },
     )
@@ -192,12 +192,12 @@ def test_codex_savings_reporter_updates_session_stats(tmp_path: Path) -> None:
     stats = json.loads((session_dir(root, "codex", "c1") / "stats.json").read_text(encoding="utf-8"))
     assert result.stdout == ""
     assert stats["total_tool_calls"] == 1
-    assert stats["tools_used"]["mcp__plugin_atelier_atelier__Edit"] == 1
+    assert stats["tools_used"]["mcp__plugin_lemoncrow_lemon__Edit"] == 1
     assert stats["event_counts"]["PostToolUse"] == 1
 
 
 def test_codex_savings_reporter_is_quiet_after_repeated_searches(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     for now_ms in (1_000, 601_001, 601_002):
         result = _run_hook(
             "savings_reporter.py",
@@ -205,7 +205,7 @@ def test_codex_savings_reporter_is_quiet_after_repeated_searches(tmp_path: Path)
             {
                 "hook_event_name": "PostToolUse",
                 "session_id": "c1",
-                "tool_name": "mcp__plugin_atelier_atelier__Search",
+                "tool_name": "mcp__plugin_lemoncrow_lemon__Search",
                 "tool_input": {},
                 "now_ms": now_ms,
             },
@@ -214,7 +214,7 @@ def test_codex_savings_reporter_is_quiet_after_repeated_searches(tmp_path: Path)
 
 
 def test_codex_savings_reporter_records_loop_state_without_output(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     root.mkdir()
     session_id = "loop-run"
     ledger = RunLedger(session_id=session_id, agent="codex", root=root, task="debug repeated read loop")
@@ -223,7 +223,7 @@ def test_codex_savings_reporter_records_loop_state_without_output(tmp_path: Path
         ledger.record_tool_call("Read", {"path": f"src/module_{index}.py"})
     ledger.persist(root)
     (root / "session_state.json").write_text(
-        json.dumps({"active_session_id": session_id, "atelier_root": str(root)}),
+        json.dumps({"active_session_id": session_id, "lemoncrow_root": str(root)}),
         encoding="utf-8",
     )
 
@@ -233,23 +233,23 @@ def test_codex_savings_reporter_records_loop_state_without_output(tmp_path: Path
         {
             "hook_event_name": "PostToolUse",
             "session_id": "c1",
-            "tool_name": "mcp__plugin_atelier_atelier__Search",
+            "tool_name": "mcp__plugin_lemoncrow_lemon__Search",
             "tool_input": {},
             "now_ms": 2_000,
         },
     )
 
     assert result.stdout == ""
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     stats = json.loads((session_dir(root, "codex", "c1") / "stats.json").read_text(encoding="utf-8"))
     assert stats["total_tool_calls"] == 1
 
 
-def test_codex_savings_reporter_ignores_non_atelier_tools(tmp_path: Path) -> None:
+def test_codex_savings_reporter_ignores_non_lemoncrow_tools(tmp_path: Path) -> None:
     result = _run_hook(
         "savings_reporter.py",
-        tmp_path / ".atelier",
+        tmp_path / ".lemoncrow",
         {
             "hook_event_name": "PostToolUse",
             "session_id": "c1",
@@ -262,24 +262,24 @@ def test_codex_savings_reporter_ignores_non_atelier_tools(tmp_path: Path) -> Non
 
 
 def test_codex_subagent_hook_tracks_start_and_stop(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     start_payload = {
         "hook_event_name": "SubagentStart",
         "session_id": "c1",
         "agent_id": "agent-1",
-        "agent_type": "atelier:explore",
+        "agent_type": "lemon:explore",
     }
     stop_payload = {
         "hook_event_name": "SubagentStop",
         "session_id": "c1",
         "agent_id": "agent-1",
-        "agent_type": "atelier:explore",
+        "agent_type": "lemon:explore",
     }
 
     start = _run_hook("subagent.py", root, start_payload)
     stop = _run_hook("subagent.py", root, stop_payload)
 
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     stats = json.loads((session_dir(root, "codex", "c1") / "stats.json").read_text(encoding="utf-8"))
     assert start.stdout == ""
@@ -293,7 +293,7 @@ def test_codex_subagent_hook_tracks_start_and_stop(tmp_path: Path) -> None:
 
 
 def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     _run_hook(
         "user_prompt.py",
         root,
@@ -316,11 +316,11 @@ def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
         {
             "hook_event_name": "PostToolUse",
             "session_id": "c1",
-            "tool_name": "mcp__atelier__edit",
+            "tool_name": "mcp__lemon__edit",
             "tool_input": {"edits": [{"file_path": "a.py"}, {"file_path": "b.py"}]},
         },
     )
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     sess_dir = session_dir(root, "codex", "c1")
     sess_dir.mkdir(parents=True, exist_ok=True)
@@ -334,7 +334,7 @@ def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
     output = json.loads(result.stdout)
     assert set(output) == {"systemMessage"}
     message = output["systemMessage"]
-    assert "Atelier session complete." in message
+    assert "LemonCrow session complete." in message
     assert "0 LLM turns · 1 prompt turn · 1 tool call (hooks)" in message
     assert "est. cost: ~$" in message
     # Routing/carry/output are all 0 in this fixture -- suppressed like
@@ -343,11 +343,11 @@ def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
     assert "savings: $0.00 · 500 tokens saved · 2 calls avoided" in message
     assert "routing $0.00" not in message
     assert "carry $0.00" not in message
-    assert "tools: mcp__atelier__edit×1" in message
+    assert "tools: mcp__lemon__edit×1" in message
 
 
-def test_codex_tool_summary_merges_atelier_mcp_aliases(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+def test_codex_tool_summary_merges_lemoncrow_mcp_aliases(tmp_path: Path) -> None:
+    root = tmp_path / ".lemoncrow"
     plugin_runtime.update_session_stats(
         root,
         {"hook_event_name": "PostToolUse", "session_id": "c-tools", "tool_name": "bash"},
@@ -358,13 +358,13 @@ def test_codex_tool_summary_merges_atelier_mcp_aliases(tmp_path: Path) -> None:
             "hook_event_name": "StatuslineUpdate",
             "session_id": "c-tools",
             "tools_used": {
-                "atelier.bash": 26,
+                "lemon.bash": 26,
                 "bash": 26,
-                "atelier.read": 23,
+                "lemon.read": 23,
                 "read": 23,
-                "atelier.code_search": 15,
+                "lemon.code_search": 15,
                 "code_search": 15,
-                "atelier.edit": 14,
+                "lemon.edit": 14,
                 "edit": 15,
             },
             "total_tool_calls": 157,
@@ -376,16 +376,16 @@ def test_codex_tool_summary_merges_atelier_mcp_aliases(tmp_path: Path) -> None:
     result = plugin_runtime.build_codex_stop_output(root, {"hook_event_name": "Stop", "session_id": "c-tools"})
 
     message = result["systemMessage"]
-    assert "tools: atelier.bash×26 · atelier.read×23 · atelier.code_search×15 · atelier.edit×14 · edit×1" in message
+    assert "tools: lemon.bash×26 · lemon.read×23 · lemon.code_search×15 · lemon.edit×14 · edit×1" in message
     assert " · bash×26" not in message
     assert " · read×23" not in message
     assert " · code_search×15" not in message
 
 
 def test_codex_stop_hook_reads_status_style_token_fields(tmp_path: Path) -> None:
-    from atelier.core.capabilities.pricing import override_pricing
+    from lemoncrow.core.capabilities.pricing import override_pricing
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     override_pricing(
         "codex-test-model",
         input_usd=1.0,
@@ -415,12 +415,12 @@ def test_codex_stop_hook_reads_status_style_token_fields(tmp_path: Path) -> None
 
 def test_codex_stop_hook_folds_current_dynamic_status_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Codex emits only the statusline frame selected for the Stop event."""
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     root.mkdir()
-    monkeypatch.delenv("ATELIER_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
     # Suppress the status tip so the login nudge is the sole dynamic frame.
     (root / "auth.json").write_text(json.dumps({"authenticated": True}))
-    (root / "plugin_settings.json").write_text(json.dumps({"atelier": {"statusLineTips": False}}))
+    (root / "plugin_settings.json").write_text(json.dumps({"lemoncrow": {"statusLineTips": False}}))
     (root / "statusline_frame_state.json").write_text(json.dumps({"counter": 3, "ts": 9_000_000_000}))
 
     payload = {
@@ -430,18 +430,18 @@ def test_codex_stop_hook_folds_current_dynamic_status_line(tmp_path: Path, monke
         "tokens": {"input": "1000", "output": "10"},
     }
     message = plugin_runtime.build_codex_stop_output(root, payload)["systemMessage"]
-    assert message.count("not signed in -- /atelier login to unlock Pro") == 1
+    assert message.count("not signed in -- /lemoncrow login to unlock Pro") == 1
 
     # Signed in: the selected dynamic frame disappears from the Stop summary.
     (root / "auth_token").write_text("tok")
     message = plugin_runtime.build_codex_stop_output(root, payload)["systemMessage"]
-    assert "/atelier login" not in message
+    assert "/lemoncrow login" not in message
 
 
 def test_codex_stop_hook_uses_native_statusline_snapshot_without_session_id(tmp_path: Path) -> None:
-    from atelier.core.capabilities.pricing import override_pricing
+    from lemoncrow.core.capabilities.pricing import override_pricing
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     override_pricing("codex-test-model", input_usd=1.0, output_usd=10.0)
@@ -466,9 +466,9 @@ def test_codex_stop_hook_uses_native_statusline_snapshot_without_session_id(tmp_
 def test_codex_stop_hook_recovers_usage_from_local_codex_transcript(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from atelier.core.capabilities.pricing import override_pricing
+    from lemoncrow.core.capabilities.pricing import override_pricing
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     codex_home = tmp_path / ".codex"
     workspace = tmp_path / "workspace"
     transcript_dir = codex_home / "sessions" / "2026" / "06" / "16"
@@ -567,7 +567,7 @@ def test_codex_stop_hook_recovers_usage_from_local_codex_transcript(
         root,
         {
             "hook_event_name": "UserPromptSubmit",
-            "session_id": "atelier-session",
+            "session_id": "lemoncrow-session",
             "turn_id": "human-prompt-1",
         },
     )
@@ -575,14 +575,14 @@ def test_codex_stop_hook_recovers_usage_from_local_codex_transcript(
         root,
         {
             "hook_event_name": "PostToolUse",
-            "session_id": "atelier-session",
+            "session_id": "lemoncrow-session",
             "tool_name": "Bash",
         },
     )
 
     result = plugin_runtime.build_codex_stop_output(
         root,
-        {"hook_event_name": "Stop", "session_id": "atelier-session", "cwd": str(workspace)},
+        {"hook_event_name": "Stop", "session_id": "lemoncrow-session", "cwd": str(workspace)},
     )
 
     message = result["systemMessage"]
@@ -597,13 +597,13 @@ def test_codex_stop_hook_recovers_usage_from_local_codex_transcript(
 
 
 def test_codex_stop_hook_is_quiet_without_session_activity(tmp_path: Path) -> None:
-    result = _run_hook("stop.py", tmp_path / ".atelier", {"hook_event_name": "Stop", "session_id": "c1"})
+    result = _run_hook("stop.py", tmp_path / ".lemoncrow", {"hook_event_name": "Stop", "session_id": "c1"})
 
     assert result.stdout == ""
 
 
 def test_codex_session_start_is_quiet_and_records_session(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     cwd = tmp_path / "workspace"
     cwd.mkdir()
 
@@ -639,19 +639,19 @@ def test_codex_hooks_manifest_wires_reporter_and_update() -> None:
     assert "stop.py" in rendered
     assert "compact.py" in rendered
     assert "${PLUGIN_ROOT}/hooks/" in rendered
-    assert "__ATELIER_PYTHON__" in rendered
-    assert "__ATELIER_REPO_SRC__" in rendered
-    assert "ATELIER_CODEX_PLUGIN_ROOT" not in rendered
+    assert "__LEMONCROW_PYTHON__" in rendered
+    assert "__LEMONCROW_REPO_SRC__" in rendered
+    assert "LEMONCROW_CODEX_PLUGIN_ROOT" not in rendered
     for groups in data["hooks"].values():
         for group in groups:
             for hook in group["hooks"]:
-                assert hook["command"].startswith("ATELIER_AGENT=codex ")
+                assert hook["command"].startswith("LEMONCROW_AGENT=codex ")
     for event in ("PreCompact", "PostCompact", "SubagentStart", "SubagentStop"):
         assert event in data["hooks"]
 
 
 def test_codex_compact_hook_bumps_epoch(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     cwd = tmp_path / "ws"
     cwd.mkdir()
 
@@ -668,19 +668,19 @@ def test_codex_compact_hook_bumps_epoch(tmp_path: Path) -> None:
 
 
 def test_codex_savings_reporter_is_fail_open_on_unwritable_root(tmp_path: Path) -> None:
-    # ATELIER_ROOT points at a regular file, so session_stats writes raise OSError.
+    # LEMONCROW_ROOT points at a regular file, so session_stats writes raise OSError.
     # The hook MUST still exit 0 (fail-open) rather than crash with a traceback.
     bad_root = tmp_path / "rootfile"
     bad_root.write_text("not a directory", encoding="utf-8")
     env = os.environ.copy()
-    env.update({"ATELIER_ROOT": str(bad_root), "ATELIER_CTX_NUDGE_TOKENS": "999999999"})
+    env.update({"LEMONCROW_ROOT": str(bad_root), "LEMONCROW_CTX_NUDGE_TOKENS": "999999999"})
     result = subprocess.run(
         [sys.executable, str(HOOKS / "savings_reporter.py")],
         input=json.dumps(
             {
                 "hook_event_name": "PostToolUse",
                 "session_id": "c1",
-                "tool_name": "mcp__atelier__edit",
+                "tool_name": "mcp__lemon__edit",
                 "tool_input": {"file_path": "a.py"},
             }
         ),

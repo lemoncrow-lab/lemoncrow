@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.foundation.paths import confine_to_root
+from lemoncrow.core.foundation.paths import confine_to_root
 
 
 def test_in_root_path_ok(tmp_path: Path) -> None:

@@ -12,17 +12,17 @@ from pathlib import Path
 def build_env(worktree: Path) -> dict[str, str]:
     digest = hashlib.sha256(str(worktree).encode("utf-8")).hexdigest()
     slot = int(digest[:6], 16) % 200
-    worktree_id = f"atelier-{digest[:8]}"
+    worktree_id = f"lemoncrow-{digest[:8]}"
     api_port = 8787 + slot
     frontend_port = 3125 + slot
     return {
-        "ATELIER_WORKTREE_ID": worktree_id,
-        "ATELIER_SERVICE_CONTAINER": f"{worktree_id}-service",
-        "ATELIER_FRONTEND_CONTAINER": f"{worktree_id}-frontend",
-        "ATELIER_SERVICE_PORT": str(api_port),
-        "ATELIER_FRONTEND_PORT": str(frontend_port),
-        "ATELIER_STACK_ROOT": str(worktree / ".atelier-worktree"),
-        "ATELIER_WORKTREE_PATH": str(worktree),
+        "LEMONCROW_WORKTREE_ID": worktree_id,
+        "LEMONCROW_SERVICE_CONTAINER": f"{worktree_id}-service",
+        "LEMONCROW_FRONTEND_CONTAINER": f"{worktree_id}-frontend",
+        "LEMONCROW_SERVICE_PORT": str(api_port),
+        "LEMONCROW_FRONTEND_PORT": str(frontend_port),
+        "LEMONCROW_STACK_ROOT": str(worktree / ".lemoncrow-worktree"),
+        "LEMONCROW_WORKTREE_PATH": str(worktree),
         "VITE_API_URL": f"http://localhost:{api_port}",
     }
 

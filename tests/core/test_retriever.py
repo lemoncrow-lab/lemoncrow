@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from atelier.core.foundation.models import Playbook
-from atelier.core.foundation.retriever import TaskContext, retrieve
-from atelier.core.foundation.store import ContextStore
+from lemoncrow.core.foundation.models import Playbook
+from lemoncrow.core.foundation.retriever import TaskContext, retrieve
+from lemoncrow.core.foundation.store import ContextStore
 
 
 def _block(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from atelier.core.capabilities.model_routing import (
+from lemoncrow.core.capabilities.model_routing import (
     ComplexitySignals,
     ModelRouter,
     complexity_score,
@@ -107,13 +107,13 @@ def test_signals_from_state_uses_collection_lengths() -> None:
 
 
 def test_tier_routing_off_by_default(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.delenv("ATELIER_TIER_ROUTING", raising=False)
+    monkeypatch.delenv("LEMONCROW_TIER_ROUTING", raising=False)
     assert tier_routing_enabled({}) is False
     assert tier_routing_enabled(None) is False
 
 
 def test_default_off_leaves_baseline_decision_unchanged(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.delenv("ATELIER_TIER_ROUTING", raising=False)
+    monkeypatch.delenv("LEMONCROW_TIER_ROUTING", raising=False)
     # Heavy cross-file signals that WOULD push to strong if routing were on.
     state = {
         "prior_errors": 0,
@@ -132,7 +132,7 @@ def test_default_off_leaves_baseline_decision_unchanged(monkeypatch) -> None:  #
 
 
 def test_opt_in_steps_up_simple_baseline_for_complex_signals(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.delenv("ATELIER_TIER_ROUTING", raising=False)
+    monkeypatch.delenv("LEMONCROW_TIER_ROUTING", raising=False)
     state = {
         "tier_routing": True,
         "prior_errors": 0,
@@ -149,7 +149,7 @@ def test_opt_in_steps_up_simple_baseline_for_complex_signals(monkeypatch) -> Non
 
 
 def test_opt_in_never_downgrades_genuinely_hard_work_via_env(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setenv("ATELIER_TIER_ROUTING", "1")
+    monkeypatch.setenv("LEMONCROW_TIER_ROUTING", "1")
     # Architectural agent task with errors baselines expensive.  Even with tier
     # routing ON and no extra complexity signals, it must stay expensive.
     rec = ModelRouter().score("Agent", "design an end-to-end migration plan", {"prior_errors": 3})
@@ -159,7 +159,7 @@ def test_opt_in_never_downgrades_genuinely_hard_work_via_env(monkeypatch) -> Non
 
 
 def test_opt_in_silent_step_down_for_simple_work(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setenv("ATELIER_TIER_ROUTING", "1")
+    monkeypatch.setenv("LEMONCROW_TIER_ROUTING", "1")
     # An edit verb baselines medium; with trivial complexity signals and no
     # risk flags it should silently step down toward cheap.
     state = {"prior_errors": 0, "refs": [], "changed_files": ["only.py"], "task_size_chars": 20}

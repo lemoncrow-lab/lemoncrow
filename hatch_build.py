@@ -1,8 +1,8 @@
-"""Hatch build hook: compile atelier with mypyc before wheel assembly.
+"""Hatch build hook: compile lemoncrow with mypyc before wheel assembly.
 
 What it does
 ------------
-1. Finds all .py files under src/atelier/ that are safe for mypyc:
+1. Finds all .py files under src/lemoncrow/ that are safe for mypyc:
    - No pydantic BaseModel/RootModel subclasses (C-level incompatibility)
    - No bare __import__() calls
    - Not __main__, _vendor, or bench
@@ -13,7 +13,7 @@ What it does
    the .so is packaged (no readable source shipped).
 5. In finalize(), restores all deleted .py files and cleans up .so artifacts.
 
-Set ATELIER_SKIP_MYPYC=1 to skip compilation (dev builds, CI unit tests).
+Set LEMONCROW_SKIP_MYPYC=1 to skip compilation (dev builds, CI unit tests).
 """
 
 from __future__ import annotations
@@ -61,26 +61,26 @@ _SKIP_FILES = {
 #   AssertionError (defaultdict in dataclass), async generators, continue-in-try/finally,
 #   Unsupported default attribute value, generator-as-list, cross-module issues
 _SKIP_PATHS = {
-    "atelier/core/capabilities/savings_summary.py",
-    "atelier/core/capabilities/web_fetch.py",
-    "atelier/core/capabilities/workspace_host_overrides.py",
-    "atelier/core/domains/loader.py",
-    "atelier/core/domains/manager.py",
-    "atelier/core/foundation/store.py",
-    "atelier/core/foundation/watchdogs.py",
-    "atelier/core/service/telemetry/exporters/otel.py",
-    "atelier/gateway/cli/commands/project.py",
-    "atelier/gateway/openai_gateway/adapter.py",
-    "atelier/gateway/openai_gateway/app.py",
-    "atelier/gateway/cli/runtime.py",
-    "atelier/infra/code_intel/zoekt/server.py",  # clang 21 ICE on mypyc-generated C
+    "lemoncrow/core/capabilities/savings_summary.py",
+    "lemoncrow/core/capabilities/web_fetch.py",
+    "lemoncrow/core/capabilities/workspace_host_overrides.py",
+    "lemoncrow/core/domains/loader.py",
+    "lemoncrow/core/domains/manager.py",
+    "lemoncrow/core/foundation/store.py",
+    "lemoncrow/core/foundation/watchdogs.py",
+    "lemoncrow/core/service/telemetry/exporters/otel.py",
+    "lemoncrow/gateway/cli/commands/project.py",
+    "lemoncrow/gateway/openai_gateway/adapter.py",
+    "lemoncrow/gateway/openai_gateway/app.py",
+    "lemoncrow/gateway/cli/runtime.py",
+    "lemoncrow/infra/code_intel/zoekt/server.py",  # clang 21 ICE on mypyc-generated C
     # mypyc strips function annotations, but the @mcp_tool framework introspects
     # them (inspect.signature / get_type_hints) to build pydantic ArgsModels and
     # coerce stringified client args. Compiling this module erases those types, so
     # every tool rejects stringified scalar (int/bool) args at the call boundary.
-    "atelier/gateway/adapters/mcp_server.py",
+    "lemoncrow/gateway/adapters/mcp_server.py",
     # mypyc does not support async generators (async def with yield).
-    "atelier/gateway/adapters/mcp_http.py",
+    "lemoncrow/gateway/adapters/mcp_http.py",
 }
 
 
@@ -88,7 +88,7 @@ class CustomBuildHook(BuildHookInterface):
     PLUGIN_NAME = "custom"
 
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
-        if os.environ.get("ATELIER_SKIP_MYPYC") == "1":
+        if os.environ.get("LEMONCROW_SKIP_MYPYC") == "1":
             return
 
         # Editable installs (uv run / pip install -e) must never compile.
@@ -99,19 +99,19 @@ class CustomBuildHook(BuildHookInterface):
             return
 
         # mypyc is shipped with mypy; skip gracefully if not installed
-        # (e.g. bare `uv build --wheel` without dev deps — use ATELIER_SKIP_MYPYC=1
+        # (e.g. bare `uv build --wheel` without dev deps — use LEMONCROW_SKIP_MYPYC=1
         # to suppress this warning).
         if not _mypyc_importable():
             print(
                 "[hatch-mypyc] mypyc not importable — skipping mypyc compilation."
-                " Set ATELIER_SKIP_MYPYC=1 if intentional.",
+                " Set LEMONCROW_SKIP_MYPYC=1 if intentional.",
                 flush=True,
             )
             return
 
         repo = pathlib.Path(self.root)
         src_dir = repo / "src"
-        atelier_src = src_dir / "atelier"
+        lemoncrow_src = src_dir / "lemoncrow"
 
         # 1. Clean stale artifacts from previous failed runs to prevent conflicts.
         build_dir = src_dir / "build"
@@ -123,7 +123,7 @@ class CustomBuildHook(BuildHookInterface):
         if mypy_cache.exists():
             shutil.rmtree(mypy_cache)
 
-        compilable = _find_compilable(atelier_src, src_dir)
+        compilable = _find_compilable(lemoncrow_src, src_dir)
         if not compilable:
             return
 
@@ -134,7 +134,7 @@ class CustomBuildHook(BuildHookInterface):
         # 2. Collect generated .so files
         all_sos = list(src_dir.rglob("*.so"))
         support_sos = [s for s in all_sos if s.parent == src_dir]
-        module_sos = [s for s in all_sos if s.parent != src_dir and "atelier" in str(s) and "build" not in s.parts]
+        module_sos = [s for s in all_sos if s.parent != src_dir and "lemoncrow" in str(s) and "build" not in s.parts]
 
         # Put mypyc support module at wheel root → installs to site-packages/
         for so in support_sos:
@@ -176,9 +176,9 @@ class CustomBuildHook(BuildHookInterface):
         print("[hatch-mypyc] source restored, artifacts cleaned", flush=True)
 
 
-def _find_compilable(atelier_src: pathlib.Path, src_dir: pathlib.Path) -> list[str]:
+def _find_compilable(lemoncrow_src: pathlib.Path, src_dir: pathlib.Path) -> list[str]:
     result = []
-    for py in sorted(atelier_src.rglob("*.py")):
+    for py in sorted(lemoncrow_src.rglob("*.py")):
         if any(p in py.parts for p in _SKIP_DIRS):
             continue
         if py.name == "__main__.py":

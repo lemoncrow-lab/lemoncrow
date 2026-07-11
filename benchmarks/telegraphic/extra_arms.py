@@ -1,5 +1,5 @@
 """Isolated system-prompt-only arm: caveman's own skill, with NO plugin/agent/MCP
--- unlike the "atelier" arm (full plugin+agent+MCP runtime, driven through
+-- unlike the "lemoncrow" arm (full plugin+agent+MCP runtime, driven through
 benchmarks.codebench.run and its ARM_SPECS), this arm is just vanilla Claude
 Code plus ONE appended system-prompt instruction, so the only variable vs
 "baseline" is that one instruction. Reuses codebench's own baseline-config
@@ -153,7 +153,7 @@ def run_extra_arm(
             env["SSL_CERT_FILE"] = str(CA_CERT)
             env["REQUESTS_CA_BUNDLE"] = str(CA_CERT)
             env["AWS_CA_BUNDLE"] = str(CA_CERT)
-        with tempfile.TemporaryDirectory(prefix=f"atelier-bench-{arm}-") as ws:
+        with tempfile.TemporaryDirectory(prefix=f"lemoncrow-bench-{arm}-") as ws:
             try:
                 proc = subprocess.run(cmd, cwd=ws, env=env, capture_output=True, text=True, timeout=timeout)
             except subprocess.TimeoutExpired:

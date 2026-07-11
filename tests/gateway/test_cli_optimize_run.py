@@ -4,13 +4,13 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from atelier.gateway.cli import cli
+from lemoncrow.gateway.cli import cli
 
 
 def test_optimize_run_blocks_open_pr_when_proposal_not_approved(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("atelier.gateway.cli.commands.savings._load_store", lambda root: object())
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.savings._load_store", lambda root: object())
     monkeypatch.setattr(
-        "atelier.core.capabilities.optimization.run_optimization_cycle",
+        "lemoncrow.core.capabilities.optimization.run_optimization_cycle",
         lambda **kwargs: {
             "repo_root": str(tmp_path),
             "advisor": {"current_policy": {"preset": "balanced"}, "weekly_savings_usd": 1.0, "confidence": "low"},
@@ -18,14 +18,14 @@ def test_optimize_run_blocks_open_pr_when_proposal_not_approved(monkeypatch, tmp
         },
     )
 
-    result = CliRunner().invoke(cli, ["--root", str(tmp_path / ".atelier"), "optimize", "run", "--open-pr"])
+    result = CliRunner().invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "optimize", "run", "--open-pr"])
 
     assert result.exit_code != 0
     assert "open-pr blocked: missing_non_inferiority_evidence" in result.output
 
 
 def test_optimize_auto_commands_persist_canonical_config(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     runner = CliRunner()
 
     enable = runner.invoke(

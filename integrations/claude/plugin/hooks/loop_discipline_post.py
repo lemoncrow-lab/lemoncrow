@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PostToolUse hook: record edited file paths.
 
-Runs on every PostToolUse and filters internally to the Atelier edit tool
+Runs on every PostToolUse and filters internally to the LemonCrow edit tool
 (name-agnostic across hosts). It records the resolved paths of files edited
 this session (basename only when resolution fails) so the PreToolUse
 read-after-edit guard (pre_tool_discipline.py) can spot a redundant full
@@ -24,8 +24,8 @@ from typing import Any
 
 
 def _root() -> Path:
-    raw = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
-    return Path(raw) if raw else Path.home() / ".atelier"
+    raw = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
+    return Path(raw) if raw else Path.home() / ".lemoncrow"
 
 
 def _workspace_key(path: str) -> str:

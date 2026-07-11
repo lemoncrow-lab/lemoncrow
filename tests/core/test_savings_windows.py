@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities import savings_summary as ss
+from lemoncrow.core.capabilities import savings_summary as ss
 
 
 def test_window_aggregate_folds_routing_and_read_into_saved_usd(tmp_path: Path) -> None:

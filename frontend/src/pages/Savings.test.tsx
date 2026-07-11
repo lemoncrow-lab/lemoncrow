@@ -73,7 +73,7 @@ describe("Savings page", () => {
                 },
               ],
               verification: {
-                data_root: "/tmp/atelier/.atelier",
+                data_root: "/tmp/lemoncrow/.lemoncrow",
                 headline_kind: "tracked_proof_reduction",
                 headline_explanation:
                   "These top-line totals come from headline-eligible context-budget proof rows and exclude live-estimate-only overlays.",
@@ -156,17 +156,17 @@ describe("Savings page", () => {
                 model: "test-model",
                 n_prompts: 2,
                 total_tokens_baseline: 1000,
-                total_tokens_atelier: 600,
+                total_tokens_lemon: 600,
                 tokens_saved: 400,
                 reduction_pct: 40.0,
                 total_cost_baseline_usd: 0.02,
-                total_cost_atelier_usd: 0.012,
+                total_cost_lemoncrow_usd: 0.012,
                 cost_saved_usd: 0.008,
                 total_time_baseline_ms: 2000,
-                total_time_atelier_ms: 1500,
+                total_time_lemoncrow_ms: 1500,
                 time_saved_ms: 500,
                 baseline_success_rate: 1,
-                atelier_success_rate: 1,
+                lemoncrow_success_rate: 1,
               },
               by_day: Array.from({ length: 7 }, (_, i) => ({
                 day: `2026-04-${String(i + 10).padStart(2, "0")}`,
@@ -233,7 +233,7 @@ describe("Savings page", () => {
     expect(
       await screen.findByText("No savings telemetry yet")
     ).toBeInTheDocument();
-    expect(await screen.findByText("atelier mcp")).toBeInTheDocument();
+    expect(await screen.findByText("lemon mcp")).toBeInTheDocument();
   });
 
   it("renders an explicit capture-gap message instead of three empty proof columns", async () => {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from atelier.core.foundation.models import TraceLearning, ValidationResult
-from atelier.gateway.trace_payloads import serialize_trace_learnings, serialize_validation_results
+from lemoncrow.core.foundation.models import TraceLearning, ValidationResult
+from lemoncrow.gateway.trace_payloads import serialize_trace_learnings, serialize_validation_results
 
 
 def test_trace_serializers_drop_default_fields() -> None:

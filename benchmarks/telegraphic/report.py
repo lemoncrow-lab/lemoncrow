@@ -1,4 +1,4 @@
-"""Render the telegraphic savings table -- baseline vs full atelier runtime,
+"""Render the telegraphic savings table -- baseline vs full LemonCrow runtime,
 or caveman's own skill alone.
 
 Reads ``results.jsonl`` (one row per (prompt, arm, rep), ``ArmResult``-shaped
@@ -22,7 +22,7 @@ _TASK_RE = re.compile(r"^local(\d+)$")
 
 _ARM_LABELS = {
     "baseline": "Baseline",
-    "atelier": "Atelier (full runtime)",
+    "lemoncrow": "LemonCrow (full runtime)",
     "caveman": "Caveman",
 }
 

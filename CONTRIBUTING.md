@@ -1,8 +1,8 @@
 # Contributing
 
-Thanks for helping with Atelier.
+Thanks for helping with LemonCrow.
 
-Atelier is early, experimental, and especially open to contributors who want to help shape the core abstractions before they harden.
+LemonCrow is early, experimental, and especially open to contributors who want to help shape the core abstractions before they harden.
 
 Start with the setup and architecture docs linked from [README.md](README.md). Good areas to help:
 
@@ -16,7 +16,7 @@ Start with the setup and architecture docs linked from [README.md](README.md). G
 
 ## License and contribution terms
 
-Atelier is open source under the [Apache License, Version 2.0](LICENSE).
+LemonCrow is open source under the [Apache License, Version 2.0](LICENSE).
 
 Every contributor must agree to our [Contributor License Agreement (CLA)](CLA.md)
 before a pull request can be merged. The CLA lets the Maintainer relicense and
@@ -30,7 +30,7 @@ allowlisted.
 
 ## Scope boundaries
 
-Atelier is governance for AI-assisted coding. It does not own the agent loop, replace CI, replace linting, become a Slack/GitHub bot, auto-apply lesson candidates, or add a web editor for Playbooks. Before proposing adoption tooling, read [docs/architecture/POSITIONING_AND_ADOPTION.md](docs/architecture/POSITIONING_AND_ADOPTION.md), especially the "What NOT to build" list.
+LemonCrow is governance for AI-assisted coding. It does not own the agent loop, replace CI, replace linting, become a Slack/GitHub bot, auto-apply lesson candidates, or add a web editor for Playbooks. Before proposing adoption tooling, read [docs/architecture/POSITIONING_AND_ADOPTION.md](docs/architecture/POSITIONING_AND_ADOPTION.md), especially the "What NOT to build" list.
 
 Before opening a pull request, please run:
 

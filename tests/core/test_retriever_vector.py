@@ -19,15 +19,15 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.foundation.models import Playbook
-from atelier.core.foundation.retriever import (
+from lemoncrow.core.foundation.models import Playbook
+from lemoncrow.core.foundation.retriever import (
     WEIGHTS,
     WEIGHTS_WITH_VECTOR,
     TaskContext,
     retrieve,
     score_block,
 )
-from atelier.infra.storage.vector import (
+from lemoncrow.infra.storage.vector import (
     cosine_similarity,
     generate_embedding,
     get_cached_embedding,
@@ -104,7 +104,7 @@ def test_history_weight_redistributed() -> None:
 
 def test_score_block_no_vector_no_vector_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """With vector disabled, breakdown must not contain 'vector' key."""
-    monkeypatch.delenv("ATELIER_VECTOR_SEARCH_ENABLED", raising=False)
+    monkeypatch.delenv("LEMONCROW_VECTOR_SEARCH_ENABLED", raising=False)
     block = _make_block()
     ctx = _make_ctx()
     scored = score_block(block, ctx, use_vector_weights=False)
@@ -113,7 +113,7 @@ def test_score_block_no_vector_no_vector_key(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_score_block_no_vector_uses_default_weights(monkeypatch: pytest.MonkeyPatch) -> None:
     """history weight in breakdown must equal WEIGHTS['history'] * history_score."""
-    monkeypatch.delenv("ATELIER_VECTOR_SEARCH_ENABLED", raising=False)
+    monkeypatch.delenv("LEMONCROW_VECTOR_SEARCH_ENABLED", raising=False)
     # Block with known history: 1 success, 0 failures → history_score = 1.0
     block = _make_block(success_count=1, failure_count=0)
     ctx = _make_ctx()
@@ -171,7 +171,7 @@ def test_score_block_history_weight_reduced_with_vector() -> None:
 
 def test_retrieve_accepts_vector_scores(tmp_path: Path) -> None:
     """retrieve() must accept and use vector_scores without error."""
-    from atelier.infra.storage.sqlite_store import SQLiteStore
+    from lemoncrow.infra.storage.sqlite_store import SQLiteStore
 
     store = SQLiteStore(root=tmp_path)
     store.init()
@@ -196,7 +196,7 @@ def test_retrieve_accepts_vector_scores(tmp_path: Path) -> None:
 
 def test_retrieve_vector_scores_empty_dict(tmp_path: Path) -> None:
     """retrieve() with empty vector_scores must still work (vector = 0.0)."""
-    from atelier.infra.storage.sqlite_store import SQLiteStore
+    from lemoncrow.infra.storage.sqlite_store import SQLiteStore
 
     store = SQLiteStore(root=tmp_path)
     store.init()
@@ -227,14 +227,14 @@ def test_retrieve_vector_scores_empty_dict(tmp_path: Path) -> None:
     ],
 )
 def test_is_vector_enabled_env(monkeypatch: pytest.MonkeyPatch, value: str, expected: bool) -> None:
-    """is_vector_enabled() must reflect ATELIER_VECTOR_SEARCH_ENABLED."""
-    monkeypatch.setenv("ATELIER_VECTOR_SEARCH_ENABLED", value)
+    """is_vector_enabled() must reflect LEMONCROW_VECTOR_SEARCH_ENABLED."""
+    monkeypatch.setenv("LEMONCROW_VECTOR_SEARCH_ENABLED", value)
     assert is_vector_enabled() == expected
 
 
 def test_is_vector_enabled_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """is_vector_enabled() returns False when env var is not set."""
-    monkeypatch.delenv("ATELIER_VECTOR_SEARCH_ENABLED", raising=False)
+    monkeypatch.delenv("LEMONCROW_VECTOR_SEARCH_ENABLED", raising=False)
     assert is_vector_enabled() is False
 
 
@@ -245,7 +245,7 @@ def test_is_vector_enabled_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_generate_embedding_deterministic(monkeypatch: pytest.MonkeyPatch) -> None:
     """Local embeddings must return the same vector for the same input."""
-    monkeypatch.setenv("ATELIER_EMBEDDING_PROVIDER", "local")
+    monkeypatch.setenv("LEMONCROW_EMBEDDING_PROVIDER", "local")
     v1 = generate_embedding("hello world", dim=64)
     v2 = generate_embedding("hello world", dim=64)
     assert v1 == v2
@@ -253,7 +253,7 @@ def test_generate_embedding_deterministic(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_generate_embedding_dimension(monkeypatch: pytest.MonkeyPatch) -> None:
     """Local embedding dimension must match requested dim."""
-    monkeypatch.setenv("ATELIER_EMBEDDING_PROVIDER", "local")
+    monkeypatch.setenv("LEMONCROW_EMBEDDING_PROVIDER", "local")
     v = generate_embedding("test", dim=64)
     assert len(v) == 64
 
@@ -278,7 +278,7 @@ def test_playbook_embedding_cache_round_trip(tmp_path: Path) -> None:
 
 def test_generate_embedding_different_inputs_differ(monkeypatch: pytest.MonkeyPatch) -> None:
     """Different inputs must produce different local embeddings."""
-    monkeypatch.setenv("ATELIER_EMBEDDING_PROVIDER", "local")
+    monkeypatch.setenv("LEMONCROW_EMBEDDING_PROVIDER", "local")
     v1 = generate_embedding("hello", dim=64)
     v2 = generate_embedding("world", dim=64)
     assert v1 != v2
@@ -286,7 +286,7 @@ def test_generate_embedding_different_inputs_differ(monkeypatch: pytest.MonkeyPa
 
 def test_cosine_similarity_identical(monkeypatch: pytest.MonkeyPatch) -> None:
     """cosine_similarity of a vector with itself must be ~1.0."""
-    monkeypatch.setenv("ATELIER_EMBEDDING_PROVIDER", "local")
+    monkeypatch.setenv("LEMONCROW_EMBEDDING_PROVIDER", "local")
     v = generate_embedding("test text", dim=64)
     sim = cosine_similarity(v, v)
     assert abs(sim - 1.0) < 1e-6
@@ -294,7 +294,7 @@ def test_cosine_similarity_identical(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_cosine_similarity_range(monkeypatch: pytest.MonkeyPatch) -> None:
     """cosine_similarity must be in [-1, 1]."""
-    monkeypatch.setenv("ATELIER_EMBEDDING_PROVIDER", "local")
+    monkeypatch.setenv("LEMONCROW_EMBEDDING_PROVIDER", "local")
     v1 = generate_embedding("alpha", dim=64)
     v2 = generate_embedding("beta", dim=64)
     sim = cosine_similarity(v1, v2)
@@ -309,9 +309,9 @@ def test_cosine_similarity_mismatch_raises() -> None:
 
 def test_get_embedding_dim_default() -> None:
     """get_embedding_dim returns 1536 when env var is not set."""
-    orig = os.environ.pop("ATELIER_EMBEDDING_DIM", None)
+    orig = os.environ.pop("LEMONCROW_EMBEDDING_DIM", None)
     try:
         assert get_embedding_dim() == 1536
     finally:
         if orig is not None:
-            os.environ["ATELIER_EMBEDDING_DIM"] = orig
+            os.environ["LEMONCROW_EMBEDDING_DIM"] = orig

@@ -35,29 +35,29 @@ EMBEDDERS: list[dict] = [
     {
         "label": "BGE-Code-v1",
         "dim": 1536,
-        "env": {"ATELIER_CODE_EMBEDDER": "bge"},
-        "note": "Atelier default semantic embedder",
+        "env": {"LEMONCROW_CODE_EMBEDDER": "bge"},
+        "note": "LemonCrow default semantic embedder",
     },
     {
         "label": "Nomic-embed-code 3584d",
         "dim": 3584,
-        "env": {"ATELIER_CODE_EMBEDDER": "nomic"},
+        "env": {"LEMONCROW_CODE_EMBEDDER": "nomic"},
         "note": "Full precision; same model as CMM binary",
     },
     {
         "label": "Nomic-embed-code 768d",
         "dim": 768,
-        "env": {"ATELIER_CODE_EMBEDDER": "nomic", "ATELIER_NOMIC_DIM": "768"},
+        "env": {"LEMONCROW_CODE_EMBEDDER": "nomic", "LEMONCROW_NOMIC_DIM": "768"},
         "note": "Matryoshka truncation; matches CMM int8 dim",
     },
     {
         "label": "SFR-Embedding-Code-400M",
         "dim": 1024,
         "env": {
-            "ATELIER_CODE_EMBEDDER": "hf",
-            "ATELIER_CODE_EMBED_MODEL": "Salesforce/SFR-Embedding-Code-400M_R",
-            "ATELIER_HF_QUERY_PREFIX": "",
-            "ATELIER_HF_DOC_PREFIX": "",
+            "LEMONCROW_CODE_EMBEDDER": "hf",
+            "LEMONCROW_CODE_EMBED_MODEL": "Salesforce/SFR-Embedding-Code-400M_R",
+            "LEMONCROW_HF_QUERY_PREFIX": "",
+            "LEMONCROW_HF_DOC_PREFIX": "",
         },
         "note": "Salesforce code-specific, 400M params",
     },
@@ -65,10 +65,10 @@ EMBEDDERS: list[dict] = [
         "label": "Jina-embeddings-v3",
         "dim": 1024,
         "env": {
-            "ATELIER_CODE_EMBEDDER": "hf",
-            "ATELIER_CODE_EMBED_MODEL": "jinaai/jina-embeddings-v3",
-            "ATELIER_HF_QUERY_PREFIX": "Represent this sentence for searching relevant passages: ",
-            "ATELIER_HF_DOC_PREFIX": "",
+            "LEMONCROW_CODE_EMBEDDER": "hf",
+            "LEMONCROW_CODE_EMBED_MODEL": "jinaai/jina-embeddings-v3",
+            "LEMONCROW_HF_QUERY_PREFIX": "Represent this sentence for searching relevant passages: ",
+            "LEMONCROW_HF_DOC_PREFIX": "",
         },
         "note": "Jina v3, task-aware prefixes",
     },
@@ -76,10 +76,10 @@ EMBEDDERS: list[dict] = [
         "label": "Qwen3-Embedding-0.6B",
         "dim": 1024,
         "env": {
-            "ATELIER_CODE_EMBEDDER": "hf",
-            "ATELIER_CODE_EMBED_MODEL": "Qwen/Qwen3-Embedding-0.6B",
-            "ATELIER_HF_QUERY_PREFIX": "",
-            "ATELIER_HF_DOC_PREFIX": "",
+            "LEMONCROW_CODE_EMBEDDER": "hf",
+            "LEMONCROW_CODE_EMBED_MODEL": "Qwen/Qwen3-Embedding-0.6B",
+            "LEMONCROW_HF_QUERY_PREFIX": "",
+            "LEMONCROW_HF_DOC_PREFIX": "",
         },
         "note": "Qwen3 small, strong MTEB",
     },
@@ -87,10 +87,10 @@ EMBEDDERS: list[dict] = [
         "label": "Qwen3-Embedding-4B",
         "dim": 2560,
         "env": {
-            "ATELIER_CODE_EMBEDDER": "hf",
-            "ATELIER_CODE_EMBED_MODEL": "Qwen/Qwen3-Embedding-4B",
-            "ATELIER_HF_QUERY_PREFIX": "",
-            "ATELIER_HF_DOC_PREFIX": "",
+            "LEMONCROW_CODE_EMBEDDER": "hf",
+            "LEMONCROW_CODE_EMBED_MODEL": "Qwen/Qwen3-Embedding-4B",
+            "LEMONCROW_HF_QUERY_PREFIX": "",
+            "LEMONCROW_HF_DOC_PREFIX": "",
         },
         "note": "Qwen3 large, top MTEB",
     },
@@ -98,10 +98,10 @@ EMBEDDERS: list[dict] = [
         "label": "GTE-Qwen2-7B",
         "dim": 3584,
         "env": {
-            "ATELIER_CODE_EMBEDDER": "hf",
-            "ATELIER_CODE_EMBED_MODEL": "Alibaba-NLP/gte-Qwen2-7B-instruct",
-            "ATELIER_HF_QUERY_PREFIX": "Instruct: Given a code search query, retrieve the most relevant code snippet.\nQuery: ",
-            "ATELIER_HF_DOC_PREFIX": "",
+            "LEMONCROW_CODE_EMBEDDER": "hf",
+            "LEMONCROW_CODE_EMBED_MODEL": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+            "LEMONCROW_HF_QUERY_PREFIX": "Instruct: Given a code search query, retrieve the most relevant code snippet.\nQuery: ",
+            "LEMONCROW_HF_DOC_PREFIX": "",
         },
         "note": "Alibaba GTE-Qwen2 7B, was #1 MTEB",
     },
@@ -110,10 +110,10 @@ EMBEDDERS: list[dict] = [
         "label": "BGE-M3",
         "dim": 1024,
         "env": {
-            "ATELIER_CODE_EMBEDDER": "hf",
-            "ATELIER_CODE_EMBED_MODEL": "BAAI/bge-m3",
-            "ATELIER_HF_QUERY_PREFIX": "",
-            "ATELIER_HF_DOC_PREFIX": "",
+            "LEMONCROW_CODE_EMBEDDER": "hf",
+            "LEMONCROW_CODE_EMBED_MODEL": "BAAI/bge-m3",
+            "LEMONCROW_HF_QUERY_PREFIX": "",
+            "LEMONCROW_HF_DOC_PREFIX": "",
         },
         "note": "BAAI hybrid dense+sparse+ColBERT, same maker as BGE-Code-v1",
     },
@@ -121,10 +121,10 @@ EMBEDDERS: list[dict] = [
         "label": "Arctic-Embed-L-v2",
         "dim": 1024,
         "env": {
-            "ATELIER_CODE_EMBEDDER": "hf",
-            "ATELIER_CODE_EMBED_MODEL": "Snowflake/snowflake-arctic-embed-l-v2.0",
-            "ATELIER_HF_QUERY_PREFIX": "Represent this sentence for searching relevant passages: ",
-            "ATELIER_HF_DOC_PREFIX": "",
+            "LEMONCROW_CODE_EMBEDDER": "hf",
+            "LEMONCROW_CODE_EMBED_MODEL": "Snowflake/snowflake-arctic-embed-l-v2.0",
+            "LEMONCROW_HF_QUERY_PREFIX": "Represent this sentence for searching relevant passages: ",
+            "LEMONCROW_HF_DOC_PREFIX": "",
         },
         "note": "Snowflake retrieval-tuned 568M, Apache 2.0",
     },
@@ -132,10 +132,10 @@ EMBEDDERS: list[dict] = [
         "label": "GTE-Qwen2-1.5B",
         "dim": 1536,
         "env": {
-            "ATELIER_CODE_EMBEDDER": "hf",
-            "ATELIER_CODE_EMBED_MODEL": "Alibaba-NLP/gte-Qwen2-1.5B-instruct",
-            "ATELIER_HF_QUERY_PREFIX": "Instruct: Given a code search query, retrieve the most relevant code snippet.\nQuery: ",
-            "ATELIER_HF_DOC_PREFIX": "",
+            "LEMONCROW_CODE_EMBEDDER": "hf",
+            "LEMONCROW_CODE_EMBED_MODEL": "Alibaba-NLP/gte-Qwen2-1.5B-instruct",
+            "LEMONCROW_HF_QUERY_PREFIX": "Instruct: Given a code search query, retrieve the most relevant code snippet.\nQuery: ",
+            "LEMONCROW_HF_DOC_PREFIX": "",
         },
         "note": "Alibaba GTE-Qwen2 1.5B, smaller sibling of 7B that OOM'd",
     },
@@ -200,14 +200,14 @@ for i, emb in enumerate(EMBEDDERS, 1):
     history = Path("reports/benchmark/embedder_mrr_history.jsonl")
     if history.exists():
         runs = [json.loads(ln) for ln in history.read_text().splitlines() if ln.strip()]
-        model_key = emb["env"].get("ATELIER_CODE_EMBEDDER", "")
-        hf_model = emb["env"].get("ATELIER_CODE_EMBED_MODEL", "")
+        model_key = emb["env"].get("LEMONCROW_CODE_EMBEDDER", "")
+        hf_model = emb["env"].get("LEMONCROW_CODE_EMBED_MODEL", "")
         if model_key == "hf" and hf_model:
             # stored as "nomic:<org>/<model>" — match on full model path
             matches = [r for r in runs if hf_model in r.get("embedder", "")]
         else:
             matches = [r for r in runs if model_key in r.get("embedder", "")]
-            if emb["env"].get("ATELIER_NOMIC_DIM"):
+            if emb["env"].get("LEMONCROW_NOMIC_DIM"):
                 matches = [r for r in matches if str(emb["dim"]) in r.get("embedder", "") or r.get("dim") == emb["dim"]]
         if matches:
             latest = matches[-1]

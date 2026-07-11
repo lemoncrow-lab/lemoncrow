@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from atelier.gateway.cli.commands import servicectl as servicectl_cmd
+from lemoncrow.gateway.cli.commands import servicectl as servicectl_cmd
 
 
 class _StopLoop(Exception):

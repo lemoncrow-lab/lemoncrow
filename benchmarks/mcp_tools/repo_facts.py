@@ -86,7 +86,7 @@ def benchmark_repo_root() -> Path:
 
 
 def repo_python_files(repo_root: Path) -> list[Path]:
-    src_root = repo_root / "src" / "atelier"
+    src_root = repo_root / "src" / "lemoncrow"
     roots = [src_root] if src_root.exists() else [repo_root]
     files: list[Path] = []
     for root in roots:

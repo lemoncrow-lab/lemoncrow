@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.consolidation import consolidate
-from atelier.core.foundation.models import Playbook
-from atelier.core.foundation.store import ContextStore
-from atelier.infra.internal_llm import InternalLLMError
+from lemoncrow.core.capabilities.consolidation import consolidate
+from lemoncrow.core.foundation.models import Playbook
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.internal_llm import InternalLLMError
 
 
 def _block(
@@ -38,7 +38,7 @@ def _block(
 
 
 def test_consolidate_writes_duplicate_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    store = ContextStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "lemoncrow")
     store.init()
     first = _block("rb-one", "Checkout retry timeout")
     second = _block("rb-two", "Checkout retry webhook timeout")
@@ -52,7 +52,7 @@ def test_consolidate_writes_duplicate_candidate(tmp_path: Path, monkeypatch: pyt
         seen_messages.extend(messages)
         raise InternalLLMError("offline")
 
-    monkeypatch.setattr("atelier.core.capabilities.consolidation.worker.chat", unavailable)
+    monkeypatch.setattr("lemoncrow.core.capabilities.consolidation.worker.chat", unavailable)
 
     report = consolidate(store)
 
@@ -69,12 +69,12 @@ def test_consolidate_writes_duplicate_candidate(tmp_path: Path, monkeypatch: pyt
 
 
 def test_consolidate_dry_run_does_not_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    store = ContextStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "lemoncrow")
     store.init()
     store.upsert_block(_block("rb-one", "Checkout retry timeout"), write_markdown=False)
     store.upsert_block(_block("rb-two", "Checkout retry webhook timeout"), write_markdown=False)
     monkeypatch.setattr(
-        "atelier.core.capabilities.consolidation.worker.chat",
+        "lemoncrow.core.capabilities.consolidation.worker.chat",
         lambda messages, json_schema=None: (_ for _ in ()).throw(InternalLLMError("offline")),
     )
 
@@ -87,7 +87,7 @@ def test_consolidate_dry_run_does_not_write(tmp_path: Path, monkeypatch: pytest.
 
 
 def test_consolidate_writes_stale_active_block_candidate(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "lemoncrow")
     store.init()
     stale_at = datetime.now(UTC) - timedelta(days=200)
     store.upsert_block(
@@ -108,7 +108,7 @@ def test_consolidate_writes_stale_active_block_candidate(tmp_path: Path) -> None
 
 
 def test_consolidate_honors_since_for_stale_active_blocks(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "lemoncrow")
     store.init()
     updated_at = datetime.now(UTC) - timedelta(days=30)
     store.upsert_block(
@@ -129,7 +129,7 @@ def test_consolidate_honors_since_for_stale_active_blocks(tmp_path: Path) -> Non
 
 
 def test_consolidate_auto_quarantines_chronic_failures(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "lemoncrow")
     store.init()
     stale_at = datetime.now(UTC) - timedelta(days=200)
     store.upsert_block(
@@ -155,7 +155,7 @@ def test_consolidate_auto_quarantines_chronic_failures(tmp_path: Path) -> None:
 
 
 def test_consolidate_dry_run_does_not_quarantine(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "lemoncrow")
     store.init()
     store.upsert_block(
         _block(
@@ -177,7 +177,7 @@ def test_consolidate_dry_run_does_not_quarantine(tmp_path: Path) -> None:
 
 
 def test_quarantined_blocks_do_not_emit_stale_or_duplicate_candidates(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "lemoncrow")
     store.init()
     stale_at = datetime.now(UTC) - timedelta(days=200)
     store.upsert_block(

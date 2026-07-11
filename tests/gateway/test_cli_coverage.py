@@ -19,10 +19,10 @@ from typing import Any
 import pytest
 from click.testing import CliRunner, Result
 
-from atelier.core.capabilities.licensing import entitlements
-from atelier.core.foundation.paths import session_dir
-from atelier.gateway.cli import cli
-from atelier.infra.runtime.run_ledger import RunLedger
+from lemoncrow.core.capabilities.licensing import entitlements
+from lemoncrow.core.foundation.paths import session_dir
+from lemoncrow.gateway.cli import cli
+from lemoncrow.infra.runtime.run_ledger import RunLedger
 from tests.helpers import grant_oauth_pro, init_store_at
 
 
@@ -45,7 +45,7 @@ def _seed_ledger(root: Path, session_id: str = "run1") -> Path:
 
 
 def test_search_returns_matches(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     target = tmp_path / "shopify.md"
     target.write_text("shopify checkout retry\n", encoding="utf-8")
@@ -71,7 +71,7 @@ def test_search_returns_matches(tmp_path: Path) -> None:
 
 
 def test_search_table_format(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     target = tmp_path / "shopify.md"
     target.write_text("shopify checkout retry\n", encoding="utf-8")
@@ -101,7 +101,7 @@ def test_search_table_format(tmp_path: Path) -> None:
 
 
 def test_ledger_update_field(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     _seed_ledger(root)
 
@@ -114,7 +114,7 @@ def test_ledger_update_field(tmp_path: Path) -> None:
 
 
 def test_ledger_update_json_value(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     _seed_ledger(root)
 
@@ -133,7 +133,7 @@ def test_ledger_update_json_value(tmp_path: Path) -> None:
 
 
 def test_ledger_reset_with_confirmation(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     _seed_ledger(root)
     ledger_path = session_dir(root, "codex", "run1") / "run.json"
@@ -150,12 +150,12 @@ def test_ledger_reset_with_confirmation(tmp_path: Path) -> None:
 
 
 def test_env_validate_known_env(tmp_path: Path) -> None:
-    from atelier.core.foundation.models import Rubric
-    from atelier.infra.storage.factory import create_store
+    from lemoncrow.core.foundation.models import Rubric
+    from lemoncrow.infra.storage.factory import create_store
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    # atelier init no longer seeds built-in rubrics; env validate resolves
+    # lemon init no longer seeds built-in rubrics; env validate resolves
     # user-supplied rubrics, so the known-env success path seeds its own.
     store = create_store(root)
     store.upsert_rubric(
@@ -168,7 +168,7 @@ def test_env_validate_known_env(tmp_path: Path) -> None:
 
 
 def test_env_validate_unknown_env(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     res = _invoke(root, "env", "validate", "env_does_not_exist")
     assert res.exit_code != 0
@@ -180,7 +180,7 @@ def test_env_validate_unknown_env(tmp_path: Path) -> None:
 
 
 def test_search_blocks_returns_matches(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     target = tmp_path / "shopify.md"
     target.write_text("shopify publish retry\n", encoding="utf-8")
@@ -206,7 +206,7 @@ def test_search_blocks_returns_matches(tmp_path: Path) -> None:
 
 
 def test_search_empty_query_returns_empty(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     res = _invoke(
         root,
@@ -235,7 +235,7 @@ def test_search_empty_query_returns_empty(tmp_path: Path) -> None:
 
 def test_savings_detail_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     grant_oauth_pro(monkeypatch)
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     res = _invoke(root, "savings", "detail", "--json")
     assert res.exit_code == 0
@@ -246,7 +246,7 @@ def test_savings_detail_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_savings_reset_clears_counters(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     res = _invoke(root, "savings", "reset", "--force")
     assert res.exit_code == 0
@@ -268,7 +268,7 @@ def test_benchmark_hosts_command_runs(tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(
         cli,
-        ["--root", str(tmp_path / ".atelier"), "benchmark", "hosts", "--json"],
+        ["--root", str(tmp_path / ".lemoncrow"), "benchmark", "hosts", "--json"],
     )
     # The exit code may be non-zero if the shell script exits non-zero,
     # but the JSON payload must be present and structurally valid.
@@ -299,7 +299,7 @@ def test_benchmark_full_runs(tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(
         cli,
-        ["--root", str(tmp_path / ".atelier"), "benchmark", "full", "--json"],
+        ["--root", str(tmp_path / ".lemoncrow"), "benchmark", "full", "--json"],
     )
     json_text = result.output.split("\nError:")[0].strip()
     payload = json.loads(json_text)
@@ -315,7 +315,7 @@ def test_benchmark_full_runs(tmp_path: Path) -> None:
 
 
 def test_copilot_import_empty_dir(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     sessions_dir = tmp_path / "copilot_sessions"
     sessions_dir.mkdir()
@@ -326,7 +326,7 @@ def test_copilot_import_empty_dir(tmp_path: Path) -> None:
 
 
 def test_claude_import_empty_dir(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     sessions_dir = tmp_path / "claude_projects"
     sessions_dir.mkdir()
@@ -337,7 +337,7 @@ def test_claude_import_empty_dir(tmp_path: Path) -> None:
 
 
 def test_codex_import_empty_dir(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     sessions_dir = tmp_path / "codex_sessions"
     sessions_dir.mkdir()
@@ -348,7 +348,7 @@ def test_codex_import_empty_dir(tmp_path: Path) -> None:
 
 
 def test_opencode_import_missing_db(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     nonexistent_db = tmp_path / "opencode.db"
 
@@ -364,7 +364,7 @@ def test_opencode_import_missing_db(tmp_path: Path) -> None:
 
 
 def _make_trace(i: int = 0, *, host: str = "codex", **overrides: object) -> Any:
-    from atelier.core.foundation.models import Trace
+    from lemoncrow.core.foundation.models import Trace
 
     kwargs: dict[str, object] = {
         "id": f"trace-{host}-{i}",
@@ -385,8 +385,8 @@ def test_session_row_adopts_routing_only_live_savings(tmp_path: Path, monkeypatc
     """Regression (B2): a session whose only live savings are routing dollars
     (saved_usd > 0, tokens/calls/carry all 0) must not render $0 savings in
     `session list`/`stats` while the statusline shows the saving."""
-    from atelier.core.foundation.store import ContextStore
-    from atelier.gateway.cli.commands import sessions as sessions_cmd
+    from lemoncrow.core.foundation.store import ContextStore
+    from lemoncrow.gateway.cli.commands import sessions as sessions_cmd
 
     monkeypatch.setattr(sessions_cmd, "_claude_transcript_block", lambda sid: None)
     monkeypatch.setattr(
@@ -409,7 +409,7 @@ def test_trace_cost_breakdown_parts_sum_to_total_with_thinking(tmp_path: Path) -
     """Regression (B3): thinking tokens are priced into the estimated total
     but were dropped from the 4-bucket breakdown, so the rendered parts did
     not sum to the displayed cost."""
-    from atelier.gateway.cli.commands import sessions as sessions_cmd
+    from lemoncrow.gateway.cli.commands import sessions as sessions_cmd
 
     trace = _make_trace(input_tokens=1_000, output_tokens=500, thinking_tokens=2_000)
     total = sessions_cmd._estimated_trace_cost_usd(trace)
@@ -428,9 +428,9 @@ def test_trace_cost_breakdown_parts_sum_to_total_with_thinking(tmp_path: Path) -
 def test_session_stats_store_since_marks_truncation(tmp_path: Path) -> None:
     """Regression (B4): --source store --since caps the query at 15/host but
     never flagged truncation, so the header claimed the full window."""
-    from atelier.infra.storage.factory import create_store
+    from lemoncrow.infra.storage.factory import create_store
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     store = create_store(root)
     for i in range(15):
@@ -442,9 +442,9 @@ def test_session_stats_store_since_marks_truncation(tmp_path: Path) -> None:
 
 
 def test_session_stats_store_since_no_truncation_under_cap(tmp_path: Path) -> None:
-    from atelier.infra.storage.factory import create_store
+    from lemoncrow.infra.storage.factory import create_store
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     store = create_store(root)
     for i in range(3):
@@ -458,9 +458,9 @@ def test_session_stats_store_since_no_truncation_under_cap(tmp_path: Path) -> No
 def test_session_list_store_since_marks_truncation(tmp_path: Path) -> None:
     """Regression (B4, list analogue): store query capped at --scan per host
     must flag truncation in the footer label when --since is set."""
-    from atelier.infra.storage.factory import create_store
+    from lemoncrow.infra.storage.factory import create_store
 
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     store = create_store(root)
     for i in range(4):
@@ -474,7 +474,7 @@ def test_session_list_store_since_marks_truncation(tmp_path: Path) -> None:
 def test_session_list_missing_path_warns_on_stderr(tmp_path: Path) -> None:
     """Regression (R3): --path pointing at a nonexistent directory used to
     print only 'No host sessions found' with no hint the path was wrong."""
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     missing = tmp_path / "does-not-exist"
 
@@ -484,7 +484,7 @@ def test_session_list_missing_path_warns_on_stderr(tmp_path: Path) -> None:
 
 
 def test_session_stats_missing_path_warns_on_stderr(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     missing = tmp_path / "does-not-exist"
 

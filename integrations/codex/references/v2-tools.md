@@ -1,4 +1,4 @@
-# Atelier V2 MCP Tools (reference)
+# LemonCrow V2 MCP Tools (reference)
 
 V2 adds task-state, environment, monitor, savings, and smart-tool
 capabilities.
@@ -51,11 +51,11 @@ Use these instead of restating prior task context in chat.
 - `shell({ command, timeout?, cwd?, max_lines? })` — compact supervised shell
   command execution.
 
-These are default-on Atelier augmentations for bounded, repeated context
+These are default-on LemonCrow augmentations for bounded, repeated context
 reads/searches. In Codex, native `Read`, shell `rg`, `grep`, and direct
-repository search may still be host-visible, but Atelier policy treats them as
-fallback-only rather than the preferred path. Set `ATELIER_CACHE_DISABLED=1`
-to bypass Atelier caching.
+repository search may still be host-visible, but LemonCrow policy treats them as
+fallback-only rather than the preferred path. Set `LEMONCROW_CACHE_DISABLED=1`
+to bypass LemonCrow caching.
 ## Hard rules (additive to workflow.md)
 
 6. Do not omit the task description when resuming a run mid-stream.

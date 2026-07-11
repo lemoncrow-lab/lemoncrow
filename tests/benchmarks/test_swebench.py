@@ -1,4 +1,4 @@
-"""Unit tests for the SWE-bench (Python) backend folded into ``atelier benchmark swe``.
+"""Unit tests for the SWE-bench (Python) backend folded into ``lemon benchmark swe``.
 
 No Docker / network: the loader reads a local JSONL (swebench supports it) and
 the grader's harness subprocess is stubbed.
@@ -212,19 +212,19 @@ def test_grade_writes_predictions_and_parses_resolved(tmp_path: Path, monkeypatc
             json.loads(line) for line in (cwd / "predictions.jsonl").read_text().splitlines() if line.strip()
         ]
         report = {"resolved_ids": ["o__r-2"], "unresolved_ids": ["o__r-3"]}
-        (cwd / f"atelier-codebench.{cwd.name}.json").write_text(json.dumps(report), encoding="utf-8")
+        (cwd / f"lemoncrow-codebench.{cwd.name}.json").write_text(json.dumps(report), encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(swebench_grade.subprocess, "run", _fake_run)
-    resolved = swebench_grade.grade(insts, patches, work_dir=tmp_path / "grade_atelier_rep1", dataset_name="X")
+    resolved = swebench_grade.grade(insts, patches, work_dir=tmp_path / "grade_lemoncrow_rep1", dataset_name="X")
 
     assert resolved == {"o__r-2": True, "o__r-3": False}
     preds = captured["preds"]
     assert {p["instance_id"] for p in preds} == {"o__r-2", "o__r-3"}
-    assert all(p["model_name_or_path"] == "atelier-codebench" for p in preds)
+    assert all(p["model_name_or_path"] == "lemoncrow-codebench" for p in preds)
     assert next(p for p in preds if p["instance_id"] == "o__r-2")["model_patch"] == "DIFF2"
     cmd = captured["cmd"]
     assert cmd[cmd.index("--dataset_name") + 1] == "X"
-    assert cmd[cmd.index("--run_id") + 1] == "grade_atelier_rep1"
+    assert cmd[cmd.index("--run_id") + 1] == "grade_lemoncrow_rep1"
     assert cmd[cmd.index("--namespace") + 1] == "swebench"
     assert "--instance_ids" in cmd

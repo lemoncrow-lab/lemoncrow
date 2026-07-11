@@ -32,8 +32,8 @@ from unittest.mock import patch
 
 import pytest
 
-from atelier.core.capabilities.code_context import CodeContextEngine
-from atelier.core.capabilities.scoped_context import ScopedContextCapability, Subtask
+from lemoncrow.core.capabilities.code_context import CodeContextEngine
+from lemoncrow.core.capabilities.scoped_context import ScopedContextCapability, Subtask
 
 # domain -> {module_stem: keyword-rich body}
 _DOMAINS: dict[str, dict[str, str]] = {
@@ -91,13 +91,13 @@ def _stem_tokens(value: str) -> list[str]:
 
 def _get_engine(repo_root: Path) -> CodeContextEngine:
     repo_id = hashlib.sha256(str(repo_root.resolve()).encode()).hexdigest()[:16]
-    atelier_root = Path(os.environ.get("ATELIER_ROOT") or Path.home() / ".atelier")
-    db_path = atelier_root / "repos" / repo_id / "code.db"
+    lemoncrow_root = Path(os.environ.get("LEMONCROW_ROOT") or Path.home() / ".lemoncrow")
+    db_path = lemoncrow_root / "repos" / repo_id / "code.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    previous_code_embedder = os.environ.get("ATELIER_CODE_EMBEDDER")
-    previous_code_embed_model = os.environ.get("ATELIER_CODE_EMBED_MODEL")
-    os.environ["ATELIER_CODE_EMBEDDER"] = "null"
-    os.environ.pop("ATELIER_CODE_EMBED_MODEL", None)
+    previous_code_embedder = os.environ.get("LEMONCROW_CODE_EMBEDDER")
+    previous_code_embed_model = os.environ.get("LEMONCROW_CODE_EMBED_MODEL")
+    os.environ["LEMONCROW_CODE_EMBEDDER"] = "null"
+    os.environ.pop("LEMONCROW_CODE_EMBED_MODEL", None)
     try:
         with patch.object(CodeContextEngine, "_ensure_lineage_ready", return_value=None):
             engine = CodeContextEngine(repo_root=repo_root, db_path=db_path, autosync_enabled=False)
@@ -105,13 +105,13 @@ def _get_engine(repo_root: Path) -> CodeContextEngine:
         return engine
     finally:
         if previous_code_embedder is None:
-            os.environ.pop("ATELIER_CODE_EMBEDDER", None)
+            os.environ.pop("LEMONCROW_CODE_EMBEDDER", None)
         else:
-            os.environ["ATELIER_CODE_EMBEDDER"] = previous_code_embedder
+            os.environ["LEMONCROW_CODE_EMBEDDER"] = previous_code_embedder
         if previous_code_embed_model is None:
-            os.environ.pop("ATELIER_CODE_EMBED_MODEL", None)
+            os.environ.pop("LEMONCROW_CODE_EMBED_MODEL", None)
         else:
-            os.environ["ATELIER_CODE_EMBED_MODEL"] = previous_code_embed_model
+            os.environ["LEMONCROW_CODE_EMBED_MODEL"] = previous_code_embed_model
 
 
 def _normalize_repo_path(path: str, *, repo_root: Path) -> str:
@@ -127,7 +127,7 @@ def _normalize_repo_path(path: str, *, repo_root: Path) -> str:
 
 
 def _collect_repo_history_queries(repo_root: Path, *, limit: int = 5) -> list[RepoHistoryQuery]:
-    from atelier.infra.code_intel.git_history.walker import iter_commit_records
+    from lemoncrow.infra.code_intel.git_history.walker import iter_commit_records
 
     queries: list[RepoHistoryQuery] = []
     for record in iter_commit_records(repo_root, limit=80, since_sha=None):
@@ -180,17 +180,17 @@ def _ensure_commit_chunks(
     if existing > 0:
         return existing
 
-    previous_code_embedder = os.environ.get("ATELIER_CODE_EMBEDDER")
-    previous_code_embed_model = os.environ.get("ATELIER_CODE_EMBED_MODEL")
-    os.environ["ATELIER_CODE_EMBEDDER"] = "null"
-    os.environ.pop("ATELIER_CODE_EMBED_MODEL", None)
+    previous_code_embedder = os.environ.get("LEMONCROW_CODE_EMBEDDER")
+    previous_code_embed_model = os.environ.get("LEMONCROW_CODE_EMBED_MODEL")
+    os.environ["LEMONCROW_CODE_EMBEDDER"] = "null"
+    os.environ.pop("LEMONCROW_CODE_EMBED_MODEL", None)
     try:
-        from atelier.core.capabilities.code_context.engine import _LINEAGE_INDEX_VERSION
-        from atelier.infra.code_intel.git_history import embedder as history_embedder_module
-        from atelier.infra.code_intel.git_history.embedder import embed_summary
-        from atelier.infra.code_intel.git_history.models import CommitSummary
-        from atelier.infra.code_intel.git_history.walker import iter_commit_records
-        from atelier.infra.embeddings.factory import make_code_embedder
+        from lemoncrow.core.capabilities.code_context.engine import _LINEAGE_INDEX_VERSION
+        from lemoncrow.infra.code_intel.git_history import embedder as history_embedder_module
+        from lemoncrow.infra.code_intel.git_history.embedder import embed_summary
+        from lemoncrow.infra.code_intel.git_history.models import CommitSummary
+        from lemoncrow.infra.code_intel.git_history.walker import iter_commit_records
+        from lemoncrow.infra.embeddings.factory import make_code_embedder
 
         history_embedder_module._embedder = None
         make_code_embedder.cache_clear()
@@ -236,15 +236,15 @@ def _ensure_commit_chunks(
         engine._replace_commit_chunks(rows, watermark_sha=watermark_sha)
     finally:
         if previous_code_embedder is None:
-            os.environ.pop("ATELIER_CODE_EMBEDDER", None)
+            os.environ.pop("LEMONCROW_CODE_EMBEDDER", None)
         else:
-            os.environ["ATELIER_CODE_EMBEDDER"] = previous_code_embedder
+            os.environ["LEMONCROW_CODE_EMBEDDER"] = previous_code_embedder
         if previous_code_embed_model is None:
-            os.environ.pop("ATELIER_CODE_EMBED_MODEL", None)
+            os.environ.pop("LEMONCROW_CODE_EMBED_MODEL", None)
         else:
-            os.environ["ATELIER_CODE_EMBED_MODEL"] = previous_code_embed_model
-        from atelier.infra.code_intel.git_history import embedder as history_embedder_module
-        from atelier.infra.embeddings.factory import make_code_embedder
+            os.environ["LEMONCROW_CODE_EMBED_MODEL"] = previous_code_embed_model
+        from lemoncrow.infra.code_intel.git_history import embedder as history_embedder_module
+        from lemoncrow.infra.embeddings.factory import make_code_embedder
 
         history_embedder_module._embedder = None
         make_code_embedder.cache_clear()
@@ -254,7 +254,7 @@ def _ensure_commit_chunks(
 
 def run_repo_history_benchmark(repo_root: Path | None = None) -> dict[str, Any]:
     if repo_root is None:
-        env_root = os.environ.get("ATELIER_REPO_ROOT")
+        env_root = os.environ.get("LEMONCROW_REPO_ROOT")
         repo_root = Path(env_root) if env_root else Path.cwd()
 
     queries = _collect_repo_history_queries(repo_root)
@@ -348,8 +348,8 @@ def _build_fixture(root: Path) -> None:
 
 @pytest.mark.slow
 def test_m4_precision_recall(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_CODE_EMBEDDER", "null")
-    monkeypatch.delenv("ATELIER_CODE_EMBED_MODEL", raising=False)
+    monkeypatch.setenv("LEMONCROW_CODE_EMBEDDER", "null")
+    monkeypatch.delenv("LEMONCROW_CODE_EMBED_MODEL", raising=False)
     _build_fixture(tmp_path)
     cap = ScopedContextCapability(CodeContextEngine(tmp_path))
 
@@ -380,13 +380,13 @@ def test_m4_precision_recall(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 @pytest.mark.slow
 def test_m4_repo_history_precision_recall() -> None:
-    repo_root_env = os.environ.get("ATELIER_REPO_ROOT")
+    repo_root_env = os.environ.get("LEMONCROW_REPO_ROOT")
     repo_root = Path(repo_root_env) if repo_root_env else Path.cwd()
 
     try:
         remotes = subprocess.check_output(["git", "remote", "-v"], cwd=repo_root, text=True, timeout=5)
-        if "atelier" not in remotes.lower() and "leanchain" not in remotes.lower():
-            pytest.skip("Not running in the atelier repo — skip real-history M4 benchmark")
+        if "lemoncrow" not in remotes.lower() and "leanchain" not in remotes.lower():
+            pytest.skip("Not running in the lemoncrow repo — skip real-history M4 benchmark")
     except (subprocess.CalledProcessError, OSError):
         pytest.skip("git remote check failed — skip real-history M4 benchmark")
 
@@ -413,6 +413,6 @@ def test_m4_repo_history_precision_recall() -> None:
 if __name__ == "__main__":
     import json
 
-    repo_root_env = os.environ.get("ATELIER_REPO_ROOT")
+    repo_root_env = os.environ.get("LEMONCROW_REPO_ROOT")
     repo_root = Path(repo_root_env) if repo_root_env else Path.cwd()
     print(json.dumps(run_repo_history_benchmark(repo_root), indent=2))

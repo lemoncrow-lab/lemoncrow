@@ -2,7 +2,7 @@
   "schemaVersion": "1.0",
   "runtimeContract": "subagent-v1",
   "defineSubagent": {
-    "atelier-plan": {
+    "lemoncrow-plan": {
       "description": "Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits.",
       "capabilities": ["read_files", "search_code", "web_fetch", "mcp_tools"],
       "disallowed_capabilities": ["edit_files", "create_files", "delete_files"]

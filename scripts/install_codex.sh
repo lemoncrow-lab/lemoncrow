@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install_codex.sh — Install Atelier into Codex CLI
+# install_codex.sh — Install LemonCrow into Codex CLI
 #
 # What it does:
 #   Global mode: installs a personal Codex marketplace, plugin bundle, and agents.
@@ -14,20 +14,20 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+LEMONCROW_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "${SCRIPT_DIR}/lib/managed_context.sh"
 
-PLUGIN_TEMPLATE="${ATELIER_REPO}/integrations/codex/plugin"
+PLUGIN_TEMPLATE="${LEMONCROW_REPO}/integrations/codex/plugin"
 SKILL_BUILDER="${SCRIPT_DIR}/build_host_skills.sh"
-STAGING_DIR="${HOME}/.atelier/codex-plugin"
+STAGING_DIR="${HOME}/.lemoncrow/codex-plugin"
 USER_CODEX_HOME="${CODEX_HOME:-${HOME}/.codex}"
 
 # Legacy artifact-test markers documenting the removed registration/path model.
 # These are intentionally comments, not executable configuration:
 # AGENTS_FILE="${CODEX_HOME}/AGENTS.md"
-# PLUGIN_DIR="${CODEX_HOME}/plugins/atelier"
-# PLUGIN_DIR="${WORKSPACE}/.codex/plugins/atelier"
-# write_codex_agent_config write_workspace_codex_agent_config agents\.atelier_code
+# PLUGIN_DIR="${CODEX_HOME}/plugins/lemoncrow"
+# PLUGIN_DIR="${WORKSPACE}/.codex/plugins/lemoncrow"
+# write_codex_agent_config write_workspace_codex_agent_config agents\.lemoncrow_code
 
 DRY_RUN=false
 PRINT_ONLY=false
@@ -35,8 +35,8 @@ STRICT=false
 WORKSPACE=""
 WORKSPACE_SET=false
 PLUGIN_INSTALL_PENDING=false
-MARKETPLACE_NAME="atelier-local"
-PLUGIN_ID="atelier@atelier-local"
+MARKETPLACE_NAME="lemoncrow-local"
+PLUGIN_ID="lemoncrow@lemoncrow-local"
 ROLES="code"            # comma-separated role ids to install (--roles=code,explore,...)
 INCLUDE_SKILLS=""       # comma-separated public skill names to ship (--include-skills=benchmark,...)
 
@@ -83,7 +83,7 @@ if $WORKSPACE_SET; then
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
     INSTALL_SCOPE="workspace"
     CODEX_DIR="${WORKSPACE}/.codex"
-    PLUGIN_DIR="${CODEX_DIR}/plugins/atelier"
+    PLUGIN_DIR="${CODEX_DIR}/plugins/lemoncrow"
     AGENTS_DIR="${CODEX_DIR}/agents"
     AGENTS_FILE="${WORKSPACE}/AGENTS.md"
     TASKS_DEST_DIR="${CODEX_DIR}/tasks"
@@ -92,7 +92,7 @@ if $WORKSPACE_SET; then
 else
     INSTALL_SCOPE="global"
     CODEX_DIR="$USER_CODEX_HOME"
-    PLUGIN_DIR="${CODEX_DIR}/plugins/atelier"
+    PLUGIN_DIR="${CODEX_DIR}/plugins/lemoncrow"
     AGENTS_DIR="${CODEX_DIR}/agents"
     AGENTS_FILE="${CODEX_DIR}/AGENTS.md"
     TASKS_DEST_DIR=""
@@ -104,25 +104,25 @@ PLUGIN_MCP_JSON="${PLUGIN_DIR}/.mcp.json"
 CODEX_MARKETPLACE="${MARKETPLACE_ROOT}/.agents/plugins/marketplace.json"
 USER_CODEX_CONFIG="${USER_CODEX_HOME}/config.toml"
 
-info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:codex] $*" || true; }
-warn()  { echo "[atelier:codex] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemon:codex] $*" || true; }
+warn()  { echo "[lemon:codex] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 print_manual_steps() {
     echo ""
-    echo "=== Atelier Codex — Manual Install Steps ==="
+    echo "=== LemonCrow Codex — Manual Install Steps ==="
     echo "Scope: ${INSTALL_SCOPE}"
     echo ""
-    echo "1. Copy the Atelier plugin source:"
+    echo "1. Copy the LemonCrow plugin source:"
     echo "   mkdir -p '${PLUGIN_DIR}'"
-    echo "   cp -R '${ATELIER_REPO}/integrations/codex/plugin/.' '${PLUGIN_DIR}/'"
-    echo "   cp -R '${ATELIER_REPO}/integrations/codex/hooks' '${PLUGIN_DIR}/'"
-    echo "   cp -R '${ATELIER_REPO}/integrations/codex/plugin/agents' '${PLUGIN_DIR}/'"
-    echo "   cp '${ATELIER_REPO}/integrations/AGENTS.atelier.md' '${PLUGIN_DIR}/agents/atelier.md'"
+    echo "   cp -R '${LEMONCROW_REPO}/integrations/codex/plugin/.' '${PLUGIN_DIR}/'"
+    echo "   cp -R '${LEMONCROW_REPO}/integrations/codex/hooks' '${PLUGIN_DIR}/'"
+    echo "   cp -R '${LEMONCROW_REPO}/integrations/codex/plugin/agents' '${PLUGIN_DIR}/'"
+    echo "   cp '${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md' '${PLUGIN_DIR}/agents/lemoncrow.md'"
     echo "   bash '${SKILL_BUILDER}' --host codex --dest '${PLUGIN_DIR}/skills'"
     echo ""
-    echo "2. Add Atelier to '${CODEX_MARKETPLACE}' with:"
-    echo "   source.path = './.codex/plugins/atelier'"
+    echo "2. Add LemonCrow to '${CODEX_MARKETPLACE}' with:"
+    echo "   source.path = './.codex/plugins/lemoncrow'"
     echo "   policy.installation = 'INSTALLED_BY_DEFAULT'"
     echo ""
     echo "3. Install the seven custom agents under '${AGENTS_DIR}'."
@@ -138,7 +138,7 @@ fi
 
 if ! command -v codex &>/dev/null; then
     if $STRICT; then
-        echo "[atelier:codex] ERROR: 'codex' CLI not found. Install from https://github.com/openai/codex" >&2
+        echo "[lemon:codex] ERROR: 'codex' CLI not found. Install from https://github.com/openai/codex" >&2
         exit 1
     fi
     if $DRY_RUN; then
@@ -170,39 +170,39 @@ print(os.path.realpath(sys.argv[1]))
 PYEOF
 }
 
-resolve_atelier_runtime_python() {
-    local atelier_launcher atelier_python
-    atelier_launcher="$(command -v atelier || true)"
-    if [ -z "$atelier_launcher" ]; then
-        echo "[atelier:codex] ERROR: cannot resolve Atelier Python interpreter: 'atelier' is not on PATH" >&2
+resolve_lemoncrow_runtime_python() {
+    local lemoncrow_launcher lemoncrow_python
+    lemoncrow_launcher="$(command -v lemon || true)"
+    if [ -z "$lemoncrow_launcher" ]; then
+        echo "[lemon:codex] ERROR: cannot resolve LemonCrow Python interpreter: 'lemon' is not on PATH" >&2
         exit 1
     fi
-    if [[ "${ATELIER_BINARY_MODE:-0}" == "1" ]]; then
+    if [[ "${LEMONCROW_BINARY_MODE:-0}" == "1" ]]; then
         printf '%s\n' "python3"
         return
     fi
-    atelier_launcher="$(resolve_real_path "$atelier_launcher")"
-    atelier_python="$(head -n 1 "$atelier_launcher")"
-    atelier_python="${atelier_python#\#!}"
-    if [[ "$atelier_python" != /* ]] || [ ! -x "$atelier_python" ]; then
-        echo "[atelier:codex] ERROR: cannot resolve Atelier Python interpreter from $atelier_launcher" >&2
+    lemoncrow_launcher="$(resolve_real_path "$lemoncrow_launcher")"
+    lemoncrow_python="$(head -n 1 "$lemoncrow_launcher")"
+    lemoncrow_python="${lemoncrow_python#\#!}"
+    if [[ "$lemoncrow_python" != /* ]] || [ ! -x "$lemoncrow_python" ]; then
+        echo "[lemon:codex] ERROR: cannot resolve LemonCrow Python interpreter from $lemoncrow_launcher" >&2
         exit 1
     fi
-    printf '%s\n' "$atelier_python"
+    printf '%s\n' "$lemoncrow_python"
 }
 
-resolve_atelier_hook_python() {
-    local atelier_launcher
-    if [[ "${ATELIER_BINARY_MODE:-0}" == "1" ]]; then
-        atelier_launcher="$(command -v atelier || true)"
-        if [ -z "$atelier_launcher" ]; then
-            echo "[atelier:codex] ERROR: cannot resolve Atelier launcher: 'atelier' is not on PATH" >&2
+resolve_lemoncrow_hook_python() {
+    local lemoncrow_launcher
+    if [[ "${LEMONCROW_BINARY_MODE:-0}" == "1" ]]; then
+        lemoncrow_launcher="$(command -v lemon || true)"
+        if [ -z "$lemoncrow_launcher" ]; then
+            echo "[lemon:codex] ERROR: cannot resolve LemonCrow launcher: 'lemon' is not on PATH" >&2
             exit 1
         fi
-        resolve_real_path "$atelier_launcher"
+        resolve_real_path "$lemoncrow_launcher"
         return
     fi
-    resolve_atelier_runtime_python
+    resolve_lemoncrow_runtime_python
 }
 
 stage_plugin_bundle() {
@@ -210,35 +210,35 @@ stage_plugin_bundle() {
     run "mkdir -p $(printf %q "$STAGING_DIR/.codex-plugin")"
     run "cp $(printf %q "${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json") $(printf %q "$STAGING_DIR/.codex-plugin/")"
     run "cp $(printf %q "${PLUGIN_TEMPLATE}/.mcp.json") $(printf %q "$STAGING_DIR/")"
-    run "cp -R $(printf %q "${ATELIER_REPO}/integrations/codex/hooks") $(printf %q "$STAGING_DIR/")"
-    run "cp -R $(printf %q "${ATELIER_REPO}/integrations/codex/plugin/scripts") $(printf %q "$STAGING_DIR/")"
-    run "cp -R $(printf %q "${ATELIER_REPO}/integrations/codex/plugin/agents") $(printf %q "$STAGING_DIR/")"
+    run "cp -R $(printf %q "${LEMONCROW_REPO}/integrations/codex/hooks") $(printf %q "$STAGING_DIR/")"
+    run "cp -R $(printf %q "${LEMONCROW_REPO}/integrations/codex/plugin/scripts") $(printf %q "$STAGING_DIR/")"
+    run "cp -R $(printf %q "${LEMONCROW_REPO}/integrations/codex/plugin/agents") $(printf %q "$STAGING_DIR/")"
     run "mkdir -p $(printf %q "$STAGING_DIR/agents")"
-    run "cp $(printf %q "${ATELIER_REPO}/integrations/AGENTS.atelier.md") $(printf %q "$STAGING_DIR/agents/atelier.md")"
+    run "cp $(printf %q "${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md") $(printf %q "$STAGING_DIR/agents/lemoncrow.md")"
     local include_skills_arg=""
     if [[ -n "$INCLUDE_SKILLS" ]]; then
         include_skills_arg=" --include-skills=$(printf %q "$INCLUDE_SKILLS")"
     fi
     run "bash $(printf %q "$SKILL_BUILDER") --host codex --dest $(printf %q "$STAGING_DIR/skills")${include_skills_arg}"
-    atelier_apply_reply_register_level "$STAGING_DIR" "$([[ "$DRY_RUN" == true ]] && echo true || echo false)"
+    lemoncrow_apply_reply_register_level "$STAGING_DIR" "$([[ "$DRY_RUN" == true ]] && echo true || echo false)"
     PLUGIN_TEMPLATE="$STAGING_DIR"
 }
 
 stamp_plugin_manifest_version() {
     if $DRY_RUN; then
-        echo "  [dry-run] stamp ${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json with Atelier version"
+        echo "  [dry-run] stamp ${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json with LemonCrow version"
         return
     fi
-    local atelier_version
-    atelier_version="$(atelier_resolve_version "$ATELIER_REPO")"
-    PLUGIN_MANIFEST="${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json" ATELIER_VERSION="$atelier_version" python3 - <<'PYEOF'
+    local lemoncrow_version
+    lemoncrow_version="$(lemoncrow_resolve_version "$LEMONCROW_REPO")"
+    PLUGIN_MANIFEST="${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json" LEMONCROW_VERSION="$lemoncrow_version" python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
 
 manifest = Path(os.environ["PLUGIN_MANIFEST"])
 data = json.loads(manifest.read_text(encoding="utf-8"))
-data["version"] = os.environ["ATELIER_VERSION"]
+data["version"] = os.environ["LEMONCROW_VERSION"]
 manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PYEOF
 }
@@ -246,7 +246,7 @@ backup_file() {
     local path="$1"
     if $WORKSPACE_SET; then return; fi
     if [ -f "$path" ]; then
-        local backup="${path}.atelier-backup.$(date +%Y%m%dT%H%M%S)"
+        local backup="${path}.lemoncrow-backup.$(date +%Y%m%dT%H%M%S)"
         if $DRY_RUN; then
             echo "  [dry-run] cp $(printf %q "$path") $(printf %q "$backup")"
         elif cp "$path" "$backup" 2>/dev/null; then
@@ -261,7 +261,7 @@ backup_path() {
     local path="$1"
     if $WORKSPACE_SET; then return; fi
     if [ -e "$path" ]; then
-        local backup="${path}.atelier-backup.$(date +%Y%m%dT%H%M%S)"
+        local backup="${path}.lemoncrow-backup.$(date +%Y%m%dT%H%M%S)"
         if $DRY_RUN; then
             if [ -d "$path" ]; then
                 echo "  [dry-run] cp -R $(printf %q "$path") $(printf %q "$backup")"
@@ -286,16 +286,16 @@ merge_agents_file() {
     local dest_file="$2"
     if [ ! -f "$dest_file" ]; then
         if $DRY_RUN; then
-            atelier_write_managed_copy "$source_file" "$dest_file" "true"
+            lemoncrow_write_managed_copy "$source_file" "$dest_file" "true"
         else
-            atelier_write_managed_copy "$source_file" "$dest_file" "false"
+            lemoncrow_write_managed_copy "$source_file" "$dest_file" "false"
         fi
         info "created $dest_file"
         return
     fi
     backup_file "$dest_file"
-    atelier_upsert_managed_block "$source_file" "$dest_file" "$DRY_RUN"
-    info "merged Atelier Codex instructions into $dest_file"
+    lemoncrow_upsert_managed_block "$source_file" "$dest_file" "$DRY_RUN"
+    info "merged LemonCrow Codex instructions into $dest_file"
 }
 
 install_plugin_bundle() {
@@ -309,16 +309,16 @@ install_plugin_bundle() {
 
 patch_plugin_hooks() {
     if $DRY_RUN; then
-        echo "  [dry-run] patch ${PLUGIN_DIR}/hooks/hooks.json with absolute Atelier runtime paths"
+        echo "  [dry-run] patch ${PLUGIN_DIR}/hooks/hooks.json with absolute LemonCrow runtime paths"
         return
     fi
-    local atelier_python
-    atelier_python="$(resolve_atelier_hook_python)"
-    if [[ "$atelier_python" != /* ]] || [ ! -x "$atelier_python" ]; then
-        echo "[atelier:codex] ERROR: cannot resolve Atelier hook runtime from $atelier_python" >&2
+    local lemoncrow_python
+    lemoncrow_python="$(resolve_lemoncrow_hook_python)"
+    if [[ "$lemoncrow_python" != /* ]] || [ ! -x "$lemoncrow_python" ]; then
+        echo "[lemon:codex] ERROR: cannot resolve LemonCrow hook runtime from $lemoncrow_python" >&2
         exit 1
     fi
-    HOOKS_PATH="${PLUGIN_DIR}/hooks/hooks.json" ATELIER_PYTHON="$atelier_python" ATELIER_REPO_SRC="${ATELIER_REPO}/src" python3 - <<'PYEOF'
+    HOOKS_PATH="${PLUGIN_DIR}/hooks/hooks.json" LEMONCROW_PYTHON="$lemoncrow_python" LEMONCROW_REPO_SRC="${LEMONCROW_REPO}/src" python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
@@ -329,30 +329,30 @@ for groups in data.get("hooks", {}).values():
         for hook in group.get("hooks", []):
             command = hook.get("command")
             if isinstance(command, str):
-                hook["command"] = command.replace("__ATELIER_PYTHON__", os.environ["ATELIER_PYTHON"]).replace("__ATELIER_REPO_SRC__", os.environ["ATELIER_REPO_SRC"])
+                hook["command"] = command.replace("__LEMONCROW_PYTHON__", os.environ["LEMONCROW_PYTHON"]).replace("__LEMONCROW_REPO_SRC__", os.environ["LEMONCROW_REPO_SRC"])
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PYEOF
 }
 
 patch_plugin_mcp() {
     if $DRY_RUN; then
-        echo "  [dry-run] patch $PLUGIN_MCP_JSON to run atelier mcp --host codex"
+        echo "  [dry-run] patch $PLUGIN_MCP_JSON to run lemon mcp --host codex"
         return
     fi
-    PLUGIN_MCP_JSON_PATH="$PLUGIN_MCP_JSON" ATELIER_WORKSPACE_MODE="$($WORKSPACE_SET && printf 1 || printf 0)" ATELIER_WORKSPACE_VALUE="$WORKSPACE" python3 - <<'PYEOF'
+    PLUGIN_MCP_JSON_PATH="$PLUGIN_MCP_JSON" LEMONCROW_WORKSPACE_MODE="$($WORKSPACE_SET && printf 1 || printf 0)" LEMONCROW_WORKSPACE_VALUE="$WORKSPACE" python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
 path = Path(os.environ["PLUGIN_MCP_JSON_PATH"])
 data = json.loads(path.read_text(encoding="utf-8"))
-server = data.setdefault("atelier", {})
-server["command"] = "atelier"
+server = data.setdefault("lemoncrow", {})
+server["command"] = "lemon"
 server["args"] = ["mcp", "--host", "codex"]
 env = dict(server.get("env") or {})
-if os.environ["ATELIER_WORKSPACE_MODE"] == "1":
-    env["ATELIER_WORKSPACE_ROOT"] = os.environ["ATELIER_WORKSPACE_VALUE"]
+if os.environ["LEMONCROW_WORKSPACE_MODE"] == "1":
+    env["LEMONCROW_WORKSPACE_ROOT"] = os.environ["LEMONCROW_WORKSPACE_VALUE"]
 else:
-    env.pop("ATELIER_WORKSPACE_ROOT", None)
+    env.pop("LEMONCROW_WORKSPACE_ROOT", None)
 server["env"] = env
 server.pop("alwaysLoad", None)
 server.pop("cwd", None)
@@ -363,7 +363,7 @@ PYEOF
 cleanup_legacy_codex_config() {
     local config_path="$1"
     if $DRY_RUN; then
-        echo "  [dry-run] remove obsolete Atelier per-agent registration block from ${config_path}"
+        echo "  [dry-run] remove obsolete LemonCrow per-agent registration block from ${config_path}"
         return
     fi
     if [ ! -f "$config_path" ]; then return; fi
@@ -374,10 +374,10 @@ from pathlib import Path
 path = Path(os.environ["CODEX_CONFIG_PATH"])
 text = path.read_text(encoding="utf-8")
 original = text
-text = re.sub(r"(?ms)^# ATELIER:CODEX AGENTS START\n.*?^# ATELIER:CODEX AGENTS END\n?", "", text)
-if not re.search(r"(?m)^\[mcp_servers\.atelier\]\s*$", text):
+text = re.sub(r"(?ms)^# LEMONCROW:CODEX AGENTS START\n.*?^# LEMONCROW:CODEX AGENTS END\n?", "", text)
+if not re.search(r"(?m)^\[mcp_servers\.lemoncrow\]\s*$", text):
     tools = {"bash", "read", "grep", "edit", "callees", "codemod", "memory", "callers", "explore", "web_fetch", "search", "usages"}
-    orphan_headers = {f"[mcp_servers.atelier.tools.{tool}]" for tool in tools}
+    orphan_headers = {f"[mcp_servers.lemoncrow.tools.{tool}]" for tool in tools}
     kept = []
     skipping = False
     for line in text.splitlines(keepends=True):
@@ -392,13 +392,13 @@ if text:
     text += "\n"
 if text != original:
     path.write_text(text, encoding="utf-8")
-    print(f"[atelier:codex] removed obsolete Atelier config entries from {path}")
+    print(f"[lemon:codex] removed obsolete LemonCrow config entries from {path}")
 PYEOF
 }
 
 write_marketplace() {
     if $DRY_RUN; then
-        echo "  [dry-run] register Atelier in ${CODEX_MARKETPLACE} with INSTALLED_BY_DEFAULT"
+        echo "  [dry-run] register LemonCrow in ${CODEX_MARKETPLACE} with INSTALLED_BY_DEFAULT"
         return
     fi
     mkdir -p "$(dirname "$CODEX_MARKETPLACE")"
@@ -407,19 +407,19 @@ import json
 import os
 from pathlib import Path
 path = Path(os.environ["MARKETPLACE_PATH"])
-data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"name": "atelier-local", "plugins": []}
+data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"name": "lemoncrow-local", "plugins": []}
 name = data.get("name")
 if not isinstance(name, str) or not name.strip():
-    name = "atelier-local"
+    name = "lemoncrow-local"
     data["name"] = name
-data.setdefault("interface", {"displayName": "Atelier local"})
-entry = {"name": "atelier", "source": {"source": "local", "path": "./.codex/plugins/atelier"}, "policy": {"installation": "INSTALLED_BY_DEFAULT", "authentication": "ON_INSTALL"}, "category": "Coding"}
-data["plugins"] = [p for p in data.get("plugins", []) if isinstance(p, dict) and p.get("name") != "atelier"] + [entry]
+data.setdefault("interface", {"displayName": "LemonCrow local"})
+entry = {"name": "lemoncrow", "source": {"source": "local", "path": "./.codex/plugins/lemoncrow"}, "policy": {"installation": "INSTALLED_BY_DEFAULT", "authentication": "ON_INSTALL"}, "category": "Coding"}
+data["plugins"] = [p for p in data.get("plugins", []) if isinstance(p, dict) and p.get("name") != "lemoncrow"] + [entry]
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 print(name)
 PYEOF
 )"
-    PLUGIN_ID="atelier@${MARKETPLACE_NAME}"
+    PLUGIN_ID="lemoncrow@${MARKETPLACE_NAME}"
 }
 
 snapshot_codex_plugin_cache() {
@@ -428,18 +428,18 @@ snapshot_codex_plugin_cache() {
         echo "  [dry-run] snapshot existing Codex plugin cache roots for ${PLUGIN_ID}"
         return
     fi
-    local cache_root="${USER_CODEX_HOME}/plugins/cache/${MARKETPLACE_NAME}/atelier"
+    local cache_root="${USER_CODEX_HOME}/plugins/cache/${MARKETPLACE_NAME}/lemoncrow"
     [ -d "$cache_root" ] || return
-    CODEX_CACHE_SNAPSHOT="$(mktemp "${TMPDIR:-/tmp}/atelier-codex-cache.XXXXXX")"
+    CODEX_CACHE_SNAPSHOT="$(mktemp "${TMPDIR:-/tmp}/lemoncrow-codex-cache.XXXXXX")"
     find "$cache_root" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) -print >"$CODEX_CACHE_SNAPSHOT"
 }
 prune_codex_plugin_cache_aliases() {
-    local ttl_days="${ATELIER_CODEX_CACHE_ALIAS_TTL_DAYS:-7}"
+    local ttl_days="${LEMONCROW_CODEX_CACHE_ALIAS_TTL_DAYS:-7}"
     if $DRY_RUN; then
-        echo "  [dry-run] prune Atelier-created Codex plugin cache aliases older than ${ttl_days} day(s)"
+        echo "  [dry-run] prune LemonCrow-created Codex plugin cache aliases older than ${ttl_days} day(s)"
         return
     fi
-    local cache_root="${USER_CODEX_HOME}/plugins/cache/${MARKETPLACE_NAME}/atelier"
+    local cache_root="${USER_CODEX_HOME}/plugins/cache/${MARKETPLACE_NAME}/lemoncrow"
     [ -d "$cache_root" ] || return
     CODEX_CACHE_ROOT="$cache_root" CODEX_CACHE_ALIAS_TTL_DAYS="$ttl_days" python3 - <<'PYEOF'
 import os
@@ -467,7 +467,7 @@ for path in cache_root.iterdir():
         if path.lstat().st_mtime > cutoff:
             continue
         path.unlink()
-        print(f"[atelier:codex] pruned old plugin cache alias: {path}")
+        print(f"[lemon:codex] pruned old plugin cache alias: {path}")
     except FileNotFoundError:
         pass
 PYEOF
@@ -480,7 +480,7 @@ preserve_codex_plugin_cache_aliases() {
         return
     fi
     if [ -n "${CODEX_CACHE_SNAPSHOT:-}" ] && [ -f "$CODEX_CACHE_SNAPSHOT" ]; then
-        CODEX_CACHE_SNAPSHOT_PATH="$CODEX_CACHE_SNAPSHOT" CODEX_CACHE_ROOT="${USER_CODEX_HOME}/plugins/cache/${MARKETPLACE_NAME}/atelier" python3 - <<'PYEOF'
+        CODEX_CACHE_SNAPSHOT_PATH="$CODEX_CACHE_SNAPSHOT" CODEX_CACHE_ROOT="${USER_CODEX_HOME}/plugins/cache/${MARKETPLACE_NAME}/lemoncrow" python3 - <<'PYEOF'
 import os
 from pathlib import Path
 
@@ -498,7 +498,7 @@ for raw in snapshot.read_text(encoding="utf-8").splitlines():
         continue
     try:
         old.symlink_to(target, target_is_directory=True)
-        print(f"[atelier:codex] preserved running-session plugin cache path: {old} -> {target}")
+        print(f"[lemon:codex] preserved running-session plugin cache path: {old} -> {target}")
     except FileExistsError:
         pass
 PYEOF
@@ -513,7 +513,7 @@ install_codex_plugin() {
         preserve_codex_plugin_cache_aliases
         return
     fi
-    codex_cmd plugin remove "atelier@openai-curated" >/dev/null 2>&1 || true
+    codex_cmd plugin remove "lemoncrow@openai-curated" >/dev/null 2>&1 || true
     if codex_cmd plugin add "$PLUGIN_ID" >/dev/null 2>&1; then
         info "installed Codex plugin ${PLUGIN_ID}"
         preserve_codex_plugin_cache_aliases
@@ -526,7 +526,7 @@ install_codex_plugin() {
     fi
     preserve_codex_plugin_cache_aliases
     PLUGIN_INSTALL_PENDING=true
-    warn "Codex did not activate ${PLUGIN_ID} non-interactively; restart Codex, open /plugins, and enable Atelier."
+    warn "Codex did not activate ${PLUGIN_ID} non-interactively; restart Codex, open /plugins, and enable LemonCrow."
 }
 project_custom_agents() {
     cleanup_legacy_codex_config "$CODEX_CONFIG"
@@ -534,18 +534,18 @@ project_custom_agents() {
         echo "  [dry-run] project custom agents (${ROLES}) into '${AGENTS_DIR}'"
         return
     fi
-    local atelier_python
-    atelier_python="$(resolve_atelier_runtime_python)"
-    ATELIER_AGENTS_DIR_VALUE="$AGENTS_DIR" ATELIER_WORKSPACE_VALUE="$WORKSPACE" ATELIER_REPO_VALUE="$ATELIER_REPO" ATELIER_WORKSPACE_MODE="$($WORKSPACE_SET && printf 1 || printf 0)" ATELIER_ROLES_VALUE="$ROLES" PYTHONPATH="${ATELIER_REPO}/src${PYTHONPATH:+:${PYTHONPATH}}" "$atelier_python" - <<'PYEOF'
+    local lemoncrow_python
+    lemoncrow_python="$(resolve_lemoncrow_runtime_python)"
+    LEMONCROW_AGENTS_DIR_VALUE="$AGENTS_DIR" LEMONCROW_WORKSPACE_VALUE="$WORKSPACE" LEMONCROW_REPO_VALUE="$LEMONCROW_REPO" LEMONCROW_WORKSPACE_MODE="$($WORKSPACE_SET && printf 1 || printf 0)" LEMONCROW_ROLES_VALUE="$ROLES" PYTHONPATH="${LEMONCROW_REPO}/src${PYTHONPATH:+:${PYTHONPATH}}" "$lemoncrow_python" - <<'PYEOF'
 import os
 from pathlib import Path
-from atelier.core.capabilities.workspace_host_overrides import write_codex_agents
-agents_dir = Path(os.environ["ATELIER_AGENTS_DIR_VALUE"])
-repo_root = Path(os.environ["ATELIER_REPO_VALUE"])
-workspace = Path(os.environ["ATELIER_WORKSPACE_VALUE"]) if os.environ["ATELIER_WORKSPACE_MODE"] == "1" else None
-role_ids = tuple(r for r in os.environ["ATELIER_ROLES_VALUE"].split(",") if r)
+from lemoncrow.core.capabilities.workspace_host_overrides import write_codex_agents
+agents_dir = Path(os.environ["LEMONCROW_AGENTS_DIR_VALUE"])
+repo_root = Path(os.environ["LEMONCROW_REPO_VALUE"])
+workspace = Path(os.environ["LEMONCROW_WORKSPACE_VALUE"]) if os.environ["LEMONCROW_WORKSPACE_MODE"] == "1" else None
+role_ids = tuple(r for r in os.environ["LEMONCROW_ROLES_VALUE"].split(",") if r)
 written = write_codex_agents(agents_dir, model_workspace=workspace, repo_root=repo_root, role_ids=role_ids)
-print(f"[atelier:codex] projected {len(written)} custom Codex agents into {agents_dir}")
+print(f"[lemon:codex] projected {len(written)} custom Codex agents into {agents_dir}")
 PYEOF
 }
 
@@ -557,12 +557,12 @@ run "chmod +x $(printf %q "${PLUGIN_DIR}/scripts/")*.sh 2>/dev/null || true"
 patch_plugin_hooks
 patch_plugin_mcp
 install_codex_plugin
-merge_agents_file "${ATELIER_REPO}/integrations/AGENTS.atelier.md" "$AGENTS_FILE"
+merge_agents_file "${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md" "$AGENTS_FILE"
 if $WORKSPACE_SET; then
-    atelier_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
+    lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
 fi
 
-TASKS_SRC_DIR="${ATELIER_REPO}/integrations/codex/tasks"
+TASKS_SRC_DIR="${LEMONCROW_REPO}/integrations/codex/tasks"
 if $WORKSPACE_SET && [ -d "$TASKS_SRC_DIR" ]; then
     run "mkdir -p $(printf %q "$TASKS_DEST_DIR")"
     run "cp $(printf %q "$TASKS_SRC_DIR")/*.md $(printf %q "$TASKS_DEST_DIR/")"
@@ -580,7 +580,7 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[atelier:codex] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lemon:codex] FAIL: $*" >&2; VFAIL=1; }
 vwarn() { warn "$*"; }
 
 [ -f "${PLUGIN_DIR}/.codex-plugin/plugin.json" ] && vpass "Codex plugin manifest installed" || vfail "Codex plugin manifest missing"
@@ -592,24 +592,24 @@ if [ -f "$PLUGIN_MCP_JSON" ]; then
 import json, os
 from pathlib import Path
 data = json.loads(Path(os.environ["PLUGIN_MCP_JSON_PATH"]).read_text(encoding="utf-8"))
-server = data.get("atelier", {})
+server = data.get("lemoncrow", {})
 print(server.get("command", ""))
 print(" ".join(server.get("args") or []))
-print((server.get("env") or {}).get("ATELIER_WORKSPACE_ROOT", ""))
+print((server.get("env") or {}).get("LEMONCROW_WORKSPACE_ROOT", ""))
 PYEOF
 )"
     MCP_COMMAND="$(printf '%s\n' "$MCP_STATUS" | sed -n '1p')"
     MCP_ARGS="$(printf '%s\n' "$MCP_STATUS" | sed -n '2p')"
     MCP_WORKSPACE_ROOT="$(printf '%s\n' "$MCP_STATUS" | sed -n '3p')"
-    [ "$MCP_COMMAND" = "atelier" ] && [ "$MCP_ARGS" = "mcp --host codex" ] && vpass "plugin MCP config points at atelier mcp --host codex" || vfail "plugin MCP config is invalid"
-    if $WORKSPACE_SET && [ "$MCP_WORKSPACE_ROOT" != "$WORKSPACE" ]; then vfail "plugin MCP config expected ATELIER_WORKSPACE_ROOT=$WORKSPACE"; fi
+    [ "$MCP_COMMAND" = "lemon" ] && [ "$MCP_ARGS" = "mcp --host codex" ] && vpass "plugin MCP config points at lemon mcp --host codex" || vfail "plugin MCP config is invalid"
+    if $WORKSPACE_SET && [ "$MCP_WORKSPACE_ROOT" != "$WORKSPACE" ]; then vfail "plugin MCP config expected LEMONCROW_WORKSPACE_ROOT=$WORKSPACE"; fi
 else
     vfail "plugin MCP config missing: $PLUGIN_MCP_JSON"
 fi
 
 if [ -f "$CODEX_MARKETPLACE" ]; then
-    MARKETPLACE_OK="$(MARKETPLACE_PATH="$CODEX_MARKETPLACE" python3 -c 'import json, os; data=json.load(open(os.environ["MARKETPLACE_PATH"])); print("yes" if any(p.get("name")=="atelier" and p.get("source",{}).get("path")=="./.codex/plugins/atelier" and p.get("policy",{}).get("installation")=="INSTALLED_BY_DEFAULT" for p in data.get("plugins",[])) else "no")')"
-    [ "$MARKETPLACE_OK" = "yes" ] && vpass "marketplace contains restart-installable Atelier entry" || vfail "marketplace has no valid Atelier entry"
+    MARKETPLACE_OK="$(MARKETPLACE_PATH="$CODEX_MARKETPLACE" python3 -c 'import json, os; data=json.load(open(os.environ["MARKETPLACE_PATH"])); print("yes" if any(p.get("name")=="lemoncrow" and p.get("source",{}).get("path")=="./.codex/plugins/lemoncrow" and p.get("policy",{}).get("installation")=="INSTALLED_BY_DEFAULT" for p in data.get("plugins",[])) else "no")')"
+    [ "$MARKETPLACE_OK" = "yes" ] && vpass "marketplace contains restart-installable LemonCrow entry" || vfail "marketplace has no valid LemonCrow entry"
 else
     vfail "marketplace file missing: $CODEX_MARKETPLACE"
 fi
@@ -624,30 +624,30 @@ else
 fi
 
 if [ -f "${PLUGIN_DIR}/hooks/hooks.json" ]; then
-    if grep -qF '${PLUGIN_ROOT}/hooks/' "${PLUGIN_DIR}/hooks/hooks.json" && ! grep -qE '__ATELIER_(PYTHON|REPO_SRC)__' "${PLUGIN_DIR}/hooks/hooks.json"; then vpass "Codex plugin lifecycle hooks installed"; else vfail "Codex plugin lifecycle hooks do not resolve through PLUGIN_ROOT"; fi
+    if grep -qF '${PLUGIN_ROOT}/hooks/' "${PLUGIN_DIR}/hooks/hooks.json" && ! grep -qE '__LEMONCROW_(PYTHON|REPO_SRC)__' "${PLUGIN_DIR}/hooks/hooks.json"; then vpass "Codex plugin lifecycle hooks installed"; else vfail "Codex plugin lifecycle hooks do not resolve through PLUGIN_ROOT"; fi
 else
     vfail "Codex plugin lifecycle hooks missing"
 fi
 
-[ -f "$AGENTS_FILE" ] && grep -q "atelier:code" "$AGENTS_FILE" 2>/dev/null && vpass "AGENTS.md contains Atelier instructions" || vfail "AGENTS.md missing or has no atelier:code persona"
+[ -f "$AGENTS_FILE" ] && grep -q "lemon:code" "$AGENTS_FILE" 2>/dev/null && vpass "AGENTS.md contains LemonCrow instructions" || vfail "AGENTS.md missing or has no lemon:code persona"
 
 # EXPECTED_AGENT_IDS mirrors whatever --roles requested (default: code only).
 IFS=',' read -ra EXPECTED_AGENT_IDS <<< "$ROLES"
 MISSING_AGENTS=()
 for role_id in "${EXPECTED_AGENT_IDS[@]}"; do
-    agent_file="${AGENTS_DIR}/atelier.${role_id}.toml"
+    agent_file="${AGENTS_DIR}/lemoncrow.${role_id}.toml"
     if [ ! -f "$agent_file" ] || ! grep -q '^name = ' "$agent_file" || ! grep -q '^developer_instructions = ' "$agent_file"; then MISSING_AGENTS+=("$role_id"); fi
 done
 [ "${#MISSING_AGENTS[@]}" -eq 0 ] && vpass "all seven standalone Codex agents installed: ${AGENTS_DIR}" || vfail "missing or invalid Codex agents: ${MISSING_AGENTS[*]}"
 
-if grep -q '^\[agents\.atelier_' "$CODEX_CONFIG" 2>/dev/null; then vfail "obsolete per-agent registration blocks remain in $CODEX_CONFIG"; else vpass "Codex agents use the current standalone-file discovery format"; fi
+if grep -q '^\[agents\.lemoncrow_' "$CODEX_CONFIG" 2>/dev/null; then vfail "obsolete per-agent registration blocks remain in $CODEX_CONFIG"; else vpass "Codex agents use the current standalone-file discovery format"; fi
 if $WORKSPACE_SET; then [ -d "$TASKS_DEST_DIR" ] && [ -f "$TASKS_DEST_DIR/preflight.md" ] && vpass "Codex task templates installed" || vfail "Codex task templates missing"; fi
-command -v atelier >/dev/null 2>&1 && atelier status --help >/dev/null 2>&1 && vpass "atelier status command is available" || vfail "atelier status command unavailable"
+command -v lemon >/dev/null 2>&1 && lemon status --help >/dev/null 2>&1 && vpass "lemon status command is available" || vfail "lemon status command unavailable"
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[atelier:codex] ERROR: post-install verification failed." >&2
+    echo "[lemon:codex] ERROR: post-install verification failed." >&2
     exit 1
 fi
 if $PLUGIN_INSTALL_PENDING; then warn "Installation succeeded; plugin activation will complete after Codex restart or manual enablement in /plugins."; fi
 info "All required install checks passed"
-info "Done. Restart Codex, then spawn agents by name (for example: atelier.explore)."
+info "Done. Restart Codex, then spawn agents by name (for example: lemoncrow.explore)."

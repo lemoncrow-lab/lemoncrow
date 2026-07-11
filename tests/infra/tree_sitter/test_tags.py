@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.infra.tree_sitter.tags import Tag, extract_tags_from_text
+from lemoncrow.infra.tree_sitter.tags import Tag, extract_tags_from_text
 
 
 def _definitions(tags: list[Tag]) -> set[str]:
@@ -113,7 +113,7 @@ def test_data_language_parser_missing_returns_empty(
         return None
 
     monkeypatch.setattr(
-        "atelier.core.capabilities.semantic_file_memory.treesitter_ast.tree_sitter_parser",
+        "lemoncrow.core.capabilities.semantic_file_memory.treesitter_ast.tree_sitter_parser",
         missing_parser,
     )
 

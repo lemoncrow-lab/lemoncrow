@@ -28,7 +28,7 @@ def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def read_tool_fn(bench_workspace: Path) -> Any:
-    from atelier.gateway.adapters.mcp_server import tool_smart_read
+    from lemoncrow.gateway.adapters.mcp_server import tool_smart_read
 
     return tool_smart_read
 
@@ -70,5 +70,5 @@ def test_read_op_saves_tokens(case: BenchCase, read_bench_results: list[CaseResu
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
     assert (
-        result.atelier_tokens < case.baseline_tokens
-    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"
+        result.lemoncrow_tokens < case.baseline_tokens
+    ), f"[{case.label}] no savings: lemoncrow={result.lemoncrow_tokens} >= baseline={case.baseline_tokens}"

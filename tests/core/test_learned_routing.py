@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.model_routing.router import ModelRouter
-from atelier.core.capabilities.model_routing.success_predictor import (
+from lemoncrow.core.capabilities.model_routing.router import ModelRouter
+from lemoncrow.core.capabilities.model_routing.success_predictor import (
     DEFAULT_MIN_SAMPLES,
     DEFAULT_THRESHOLD,
     LEARNED_ROUTING_ENV_VAR,
@@ -29,7 +29,7 @@ from atelier.core.capabilities.model_routing.success_predictor import (
     outcome_row_from_persisted,
     p_weak_succeeds,
 )
-from atelier.infra.storage.migrations import read_migration
+from lemoncrow.infra.storage.migrations import read_migration
 
 # --------------------------------------------------------------------------- #
 # Helpers: synthetic outcome rows / tables                                     #
@@ -72,16 +72,16 @@ def test_learned_routing_opt_in_via_state_or_env(monkeypatch: pytest.MonkeyPatch
 
 
 def test_threshold_default_and_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_LEARNED_ROUTING_THRESHOLD", raising=False)
+    monkeypatch.delenv("LEMONCROW_LEARNED_ROUTING_THRESHOLD", raising=False)
     assert learned_routing_threshold({}) == DEFAULT_THRESHOLD
     # State override wins.
     assert learned_routing_threshold({"learned_routing_threshold": 0.5}) == 0.5
     # Env override applies when no state override.
-    monkeypatch.setenv("ATELIER_LEARNED_ROUTING_THRESHOLD", "0.75")
+    monkeypatch.setenv("LEMONCROW_LEARNED_ROUTING_THRESHOLD", "0.75")
     assert learned_routing_threshold({}) == 0.75
     # Out-of-range / unparseable falls back to default.
     assert learned_routing_threshold({"learned_routing_threshold": 1.5}) == 0.75
-    monkeypatch.setenv("ATELIER_LEARNED_ROUTING_THRESHOLD", "nope")
+    monkeypatch.setenv("LEMONCROW_LEARNED_ROUTING_THRESHOLD", "nope")
     assert learned_routing_threshold({}) == DEFAULT_THRESHOLD
 
 
@@ -147,7 +147,7 @@ def test_unknown_bucket_returns_none() -> None:
 def test_router_no_table_falls_back_to_heuristic(monkeypatch: pytest.MonkeyPatch) -> None:
     """Learned flag on but no calibrated table -> heuristic step-down stands."""
     monkeypatch.setenv(LEARNED_ROUTING_ENV_VAR, "1")
-    monkeypatch.setenv("ATELIER_TIER_ROUTING", "1")
+    monkeypatch.setenv("LEMONCROW_TIER_ROUTING", "1")
     rec = ModelRouter().score(_STEP_DOWN_TOOL, _STEP_DOWN_TEXT, dict(_STEP_DOWN_STATE))
     assert rec is not None
     # No table -> p_weak None -> the learned gate holds the baseline (no
@@ -172,7 +172,7 @@ def _step_down_state_with_table(table: SuccessTable) -> dict:
 
 def test_downgrade_allowed_above_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(LEARNED_ROUTING_ENV_VAR, raising=False)
-    monkeypatch.delenv("ATELIER_TIER_ROUTING", raising=False)
+    monkeypatch.delenv("LEMONCROW_TIER_ROUTING", raising=False)
     feats = _features_for_step_down()
     table = _table_with(feats, successes=20, total=20)  # p_weak = 1.0 >= 0.9
     rec = ModelRouter().score(_STEP_DOWN_TOOL, _STEP_DOWN_TEXT, _step_down_state_with_table(table))
@@ -185,7 +185,7 @@ def test_downgrade_allowed_above_threshold(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_downgrade_blocked_below_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(LEARNED_ROUTING_ENV_VAR, raising=False)
-    monkeypatch.delenv("ATELIER_TIER_ROUTING", raising=False)
+    monkeypatch.delenv("LEMONCROW_TIER_ROUTING", raising=False)
     feats = _features_for_step_down()
     table = _table_with(feats, successes=10, total=20)  # p_weak = 0.5 < 0.9
     rec = ModelRouter().score(_STEP_DOWN_TOOL, _STEP_DOWN_TEXT, _step_down_state_with_table(table))
@@ -199,7 +199,7 @@ def test_downgrade_blocked_below_threshold(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_threshold_override_changes_decision(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(LEARNED_ROUTING_ENV_VAR, raising=False)
-    monkeypatch.delenv("ATELIER_TIER_ROUTING", raising=False)
+    monkeypatch.delenv("LEMONCROW_TIER_ROUTING", raising=False)
     feats = _features_for_step_down()
     table = _table_with(feats, successes=10, total=20)  # p_weak = 0.5
     state = _step_down_state_with_table(table)
@@ -218,7 +218,7 @@ def test_threshold_override_changes_decision(monkeypatch: pytest.MonkeyPatch) ->
 def test_learned_layer_never_steps_up_or_skips_floor_for_hard_work(monkeypatch: pytest.MonkeyPatch) -> None:
     """Even with a perfect weak-success table, genuinely hard work is not downgraded."""
     monkeypatch.delenv(LEARNED_ROUTING_ENV_VAR, raising=False)
-    monkeypatch.delenv("ATELIER_TIER_ROUTING", raising=False)
+    monkeypatch.delenv("LEMONCROW_TIER_ROUTING", raising=False)
     # Architectural agent task with errors baselines expensive; escalation/error
     # signals mean the step-down branch is never reached -> floor holds.
     feats = features_from_state("Agent", "design an end-to-end migration plan", {"prior_errors": 3})
@@ -238,7 +238,7 @@ def test_learned_layer_never_steps_up_or_skips_floor_for_hard_work(monkeypatch: 
 def test_learned_downgrade_clamps_to_one_level(monkeypatch: pytest.MonkeyPatch) -> None:
     """A confidently-weak expensive baseline drops only ONE level (floor), not to cheap."""
     monkeypatch.delenv(LEARNED_ROUTING_ENV_VAR, raising=False)
-    monkeypatch.delenv("ATELIER_TIER_ROUTING", raising=False)
+    monkeypatch.delenv("LEMONCROW_TIER_ROUTING", raising=False)
     # An agent tool in the execution phase with an open-ended output target
     # baselines expensive; the complexity signals are all trivial (-> cheap), so
     # the heuristic clamp allows a single step expensive -> medium (never cheap).
@@ -281,7 +281,7 @@ def test_flag_off_is_identical_with_or_without_table(
 ) -> None:
     """Flag off: routing decision is byte-identical whether a table is present or not."""
     monkeypatch.delenv(LEARNED_ROUTING_ENV_VAR, raising=False)
-    monkeypatch.setenv("ATELIER_TIER_ROUTING", "1")  # heuristic step-down active
+    monkeypatch.setenv("LEMONCROW_TIER_ROUTING", "1")  # heuristic step-down active
 
     feats = features_from_state(tool, text, state)
     table = _table_with(feats, successes=0, total=100)  # would block every downgrade IF consulted
@@ -306,7 +306,7 @@ def test_flag_off_is_identical_with_or_without_table(
 
 def test_to_dict_and_emit_include_p_weak(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(LEARNED_ROUTING_ENV_VAR, raising=False)
-    monkeypatch.delenv("ATELIER_TIER_ROUTING", raising=False)
+    monkeypatch.delenv("LEMONCROW_TIER_ROUTING", raising=False)
     feats = _features_for_step_down()
     table = _table_with(feats, successes=20, total=20)
     captured: list[dict] = []
@@ -329,7 +329,7 @@ def test_to_dict_and_emit_include_p_weak(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def _make_routing_db(tmp_path: Path) -> Path:
-    db_path = tmp_path / "atelier.db"
+    db_path = tmp_path / "lemoncrow.db"
     conn = sqlite3.connect(db_path)
     try:
         conn.executescript(read_migration("v2_004_routing.sql"))

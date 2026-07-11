@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Codex PostToolUse savings reporter backed by Atelier runtime state."""
+"""Codex PostToolUse savings reporter backed by LemonCrow runtime state."""
 
 from __future__ import annotations
 
@@ -9,22 +9,22 @@ import sys
 from pathlib import Path
 
 
-def _atelier_root() -> Path:
-    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
+def _lemoncrow_root() -> Path:
+    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
     if root:
         return Path(root)
-    return Path.home() / ".atelier"
+    return Path.home() / ".lemoncrow"
 
 
 def main() -> int:
     try:
-        from atelier.core.capabilities.plugin_runtime import (
+        from lemoncrow.core.capabilities.plugin_runtime import (
             build_codex_post_tool_use_ledger_output,
             build_codex_post_tool_use_savings_output,
         )
 
         payload = json.loads(sys.stdin.read() or "{}")
-        root = _atelier_root()
+        root = _lemoncrow_root()
         # Savings + native-tool telemetry stay silent (state only). The run
         # ledger + tool-supervision capture also happen here. The only surfaced
         # output is the repeat-failure nudge -- Codex has no separate

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.infra.runtime.run_ledger import RunLedger
+from lemoncrow.infra.runtime.run_ledger import RunLedger
 
 
 def test_ledger_records_basic_fields(tmp_path: Path) -> None:

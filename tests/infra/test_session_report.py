@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from atelier.infra.runtime.session_report import (
+from lemoncrow.infra.runtime.session_report import (
     _derive_vendor,
     _read_compact_savings,
     _read_routing_savings,
@@ -250,7 +250,7 @@ def test_build_report_empty_session(tmp_path: Path) -> None:
     assert report.models_used == {}
     assert report.routing_downtiered_turns == 0
     assert report.compact_events == 0
-    assert report.total_atelier_savings_usd == 0.0
+    assert report.total_lemoncrow_savings_usd == 0.0
     assert report.top_tools_by_cost == []
 
 
@@ -336,7 +336,7 @@ def test_build_report_compact_savings(tmp_path: Path) -> None:
 
     assert report.compact_events == 1
     assert abs(report.compact_savings_estimate_usd - 0.30) < 1e-6
-    assert abs(report.total_atelier_savings_usd - 0.30) < 1e-6
+    assert abs(report.total_lemoncrow_savings_usd - 0.30) < 1e-6
 
 
 def test_build_report_includes_workflow_progress_summary(tmp_path: Path) -> None:
@@ -370,7 +370,7 @@ def test_build_report_total_savings_combined(tmp_path: Path) -> None:
     snap = _make_snapshot(events=events)
     report = build_report(snap, tmp_path)
 
-    assert abs(report.total_atelier_savings_usd - 0.30) < 1e-6
+    assert abs(report.total_lemoncrow_savings_usd - 0.30) < 1e-6
 
 
 # --------------------------------------------------------------------------- #
@@ -503,7 +503,7 @@ def test_render_text_savings_components_sum_to_total(tmp_path: Path) -> None:
         output_saved_usd=0.10,
         carry_usd=5.65,
         carry_tokens=1_000,
-        total_atelier_savings_usd=round(1.0 + 0.12 + 44.0 + 5.65, 6),
+        total_lemoncrow_savings_usd=round(1.0 + 0.12 + 44.0 + 5.65, 6),
     )
     text = render_text(report)
 

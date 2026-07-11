@@ -1,4 +1,4 @@
-"""Tests for the on-demand agent/skill install CLI (`atelier agent|skill|install`).
+"""Tests for the on-demand agent/skill install CLI (`lemon agent|skill|install`).
 
 Covers: list's installed/available split and token costs; install/remove at
 Claude/Codex/OpenCode workspace scope (direct Python calls, no real host CLI
@@ -14,9 +14,9 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from atelier.core.capabilities.workspace_host_overrides import write_opencode_agents
-from atelier.gateway.cli.app import cli
-from atelier.gateway.cli.commands import agents_skills as m
+from lemoncrow.core.capabilities.workspace_host_overrides import write_opencode_agents
+from lemoncrow.gateway.cli.app import cli
+from lemoncrow.gateway.cli.commands import agents_skills as m
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -70,8 +70,8 @@ def test_agent_install_claude_workspace_writes_namespaced_file(tmp_path: Path) -
     (ws / ".claude").mkdir(parents=True)
     result = _invoke("agent", "install", "explore", "--host", "claude", "--workspace", str(ws), "--yes")
     assert result.exit_code == 0, result.output
-    assert (ws / ".claude" / "agents" / "atelier.explore.md").exists()
-    assert (ws / ".claude" / "agents" / "atelier.code.md").exists()  # default role always present
+    assert (ws / ".claude" / "agents" / "lemoncrow.explore.md").exists()
+    assert (ws / ".claude" / "agents" / "lemoncrow.code.md").exists()  # default role always present
 
 
 def test_agent_install_codex_workspace_writes_toml(tmp_path: Path) -> None:
@@ -79,8 +79,8 @@ def test_agent_install_codex_workspace_writes_toml(tmp_path: Path) -> None:
     (ws / ".codex").mkdir(parents=True)
     result = _invoke("agent", "install", "review", "--host", "codex", "--workspace", str(ws), "--yes")
     assert result.exit_code == 0, result.output
-    assert (ws / ".codex" / "agents" / "atelier.review.toml").exists()
-    assert (ws / ".codex" / "agents" / "atelier.code.toml").exists()
+    assert (ws / ".codex" / "agents" / "lemoncrow.review.toml").exists()
+    assert (ws / ".codex" / "agents" / "lemoncrow.code.toml").exists()
 
 
 def test_agent_install_opencode_workspace_writes_namespaced_file(tmp_path: Path) -> None:
@@ -88,20 +88,20 @@ def test_agent_install_opencode_workspace_writes_namespaced_file(tmp_path: Path)
     (ws / ".opencode").mkdir(parents=True)
     result = _invoke("agent", "install", "plan", "--host", "opencode", "--workspace", str(ws), "--yes")
     assert result.exit_code == 0, result.output
-    assert (ws / ".opencode" / "agents" / "atelier.plan.md").exists()
-    assert (ws / ".opencode" / "agents" / "atelier.code.md").exists()
+    assert (ws / ".opencode" / "agents" / "lemoncrow.plan.md").exists()
+    assert (ws / ".opencode" / "agents" / "lemoncrow.code.md").exists()
 
 
 def test_agent_remove_deletes_the_role_file(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     (ws / ".claude").mkdir(parents=True)
     assert _invoke("agent", "install", "explore", "--host", "claude", "--workspace", str(ws), "--yes").exit_code == 0
-    role_file = ws / ".claude" / "agents" / "atelier.explore.md"
+    role_file = ws / ".claude" / "agents" / "lemoncrow.explore.md"
     assert role_file.exists()
     result = _invoke("agent", "remove", "explore", "--host", "claude", "--workspace", str(ws), "--yes")
     assert result.exit_code == 0, result.output
     assert not role_file.exists()
-    assert (ws / ".claude" / "agents" / "atelier.code.md").exists()
+    assert (ws / ".claude" / "agents" / "lemoncrow.code.md").exists()
 
 
 def test_agent_remove_refuses_to_remove_default_role(tmp_path: Path) -> None:
@@ -130,20 +130,20 @@ def test_write_opencode_agents_writes_real_per_role_files_for_global_target(tmp_
     target = tmp_path / "global-agents"
     written = write_opencode_agents(target, repo_root=REPO_ROOT, role_ids=("code", "explore"))
     names = sorted(p.name for p in written)
-    assert names == ["atelier.code.md", "atelier.explore.md"]
-    assert (target / "atelier.code.md").exists()
-    assert (target / "atelier.explore.md").exists()
-    # Legacy bare atelier.md must not linger once the per-role naming is used.
-    assert not (target / "atelier.md").exists()
+    assert names == ["lemoncrow.code.md", "lemoncrow.explore.md"]
+    assert (target / "lemoncrow.code.md").exists()
+    assert (target / "lemoncrow.explore.md").exists()
+    # Legacy bare lemoncrow.md must not linger once the per-role naming is used.
+    assert not (target / "lemoncrow.md").exists()
 
 
 def test_write_opencode_agents_cleans_up_removed_roles(tmp_path: Path) -> None:
     target = tmp_path / "global-agents"
     write_opencode_agents(target, repo_root=REPO_ROOT, role_ids=("code", "explore", "plan"))
-    assert (target / "atelier.plan.md").exists()
+    assert (target / "lemoncrow.plan.md").exists()
     write_opencode_agents(target, repo_root=REPO_ROOT, role_ids=("code", "explore"))
-    assert not (target / "atelier.plan.md").exists()
-    assert (target / "atelier.explore.md").exists()
+    assert not (target / "lemoncrow.plan.md").exists()
+    assert (target / "lemoncrow.explore.md").exists()
 
 
 # --------------------------------------------------------------------------- #
@@ -214,7 +214,7 @@ def test_installing_a_skill_does_not_reset_previously_installed_agents(tmp_path:
     (ws / ".claude").mkdir(parents=True)
     assert _invoke("agent", "install", "explore", "--host", "claude", "--workspace", str(ws), "--yes").exit_code == 0
     assert _invoke("skill", "install", "benchmark", "--host", "claude", "--workspace", str(ws), "--yes").exit_code == 0
-    assert (ws / ".claude" / "agents" / "atelier.explore.md").exists()
+    assert (ws / ".claude" / "agents" / "lemoncrow.explore.md").exists()
     assert (ws / ".claude" / "skills" / "benchmark" / "SKILL.md").exists()
 
 
@@ -224,7 +224,7 @@ def test_installing_an_agent_does_not_reset_previously_installed_skills(tmp_path
     assert _invoke("skill", "install", "recall", "--host", "claude", "--workspace", str(ws), "--yes").exit_code == 0
     assert _invoke("agent", "install", "solve", "--host", "claude", "--workspace", str(ws), "--yes").exit_code == 0
     assert (ws / ".claude" / "skills" / "recall" / "SKILL.md").exists()
-    assert (ws / ".claude" / "agents" / "atelier.solve.md").exists()
+    assert (ws / ".claude" / "agents" / "lemoncrow.solve.md").exists()
 
 
 # --------------------------------------------------------------------------- #
@@ -236,12 +236,12 @@ def test_install_optionals_workspace_installs_every_role_and_skill(tmp_path: Pat
     ws = tmp_path / "ws"
     result = _invoke("install", "optionals", "--host", "claude", "--workspace", str(ws), "--yes")
     assert result.exit_code == 0, result.output
-    agent_names = {p.stem for p in (ws / ".claude" / "agents").glob("atelier.*.md")}
-    assert agent_names == {f"atelier.{r}" for r in m.INSTALLABLE_ROLE_IDS} | {"atelier.code"}
+    agent_names = {p.stem for p in (ws / ".claude" / "agents").glob("lemoncrow.*.md")}
+    assert agent_names == {f"lemoncrow.{r}" for r in m.INSTALLABLE_ROLE_IDS} | {"lemoncrow.code"}
     skill_names = {p.name for p in (ws / ".claude" / "skills").iterdir()}
-    # The always-on `atelier` discovery skill ships alongside every optional
+    # The always-on `lemon` discovery skill ships alongside every optional
     # public skill; it isn't part of PUBLIC_SKILL_NAMES (it's not opt-in).
-    assert skill_names == set(m.PUBLIC_SKILL_NAMES) | {"atelier"}
+    assert skill_names == set(m.PUBLIC_SKILL_NAMES) | {"lemoncrow"}
 
 
 def test_install_optionals_is_a_noop_when_everything_already_installed(tmp_path: Path) -> None:
@@ -261,8 +261,8 @@ def test_agent_install_global_scope_reinvokes_install_script(tmp_path: Path) -> 
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     with patch.object(Path, "home", return_value=fake_home):
-        with patch("atelier.gateway.cli.commands.agents_skills._repo_root", return_value=REPO_ROOT):
-            with patch("atelier.gateway.cli.commands.agents_skills.subprocess.run") as mock_run:
+        with patch("lemoncrow.gateway.cli.commands.agents_skills._repo_root", return_value=REPO_ROOT):
+            with patch("lemoncrow.gateway.cli.commands.agents_skills.subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(returncode=0)
                 result = _invoke("agent", "install", "explore", "--host", "claude", "--yes")
     assert result.exit_code == 0, result.output
@@ -278,8 +278,8 @@ def test_skill_install_global_scope_calls_build_host_skills_directly(tmp_path: P
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     with patch.object(Path, "home", return_value=fake_home):
-        with patch("atelier.gateway.cli.commands.agents_skills._repo_root", return_value=REPO_ROOT):
-            with patch("atelier.gateway.cli.commands.agents_skills.subprocess.run") as mock_run:
+        with patch("lemoncrow.gateway.cli.commands.agents_skills._repo_root", return_value=REPO_ROOT):
+            with patch("lemoncrow.gateway.cli.commands.agents_skills.subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(returncode=0)
                 result = _invoke("skill", "install", "benchmark", "--host", "claude", "--yes")
     assert result.exit_code == 0, result.output
@@ -287,4 +287,4 @@ def test_skill_install_global_scope_calls_build_host_skills_directly(tmp_path: P
     (cmd,), _ = mock_run.call_args
     assert str(REPO_ROOT / "scripts" / "build_host_skills.sh") in cmd
     assert "--include-skills=benchmark" in cmd
-    assert str(fake_home / ".atelier" / "claude-plugin" / "skills") in cmd
+    assert str(fake_home / ".lemoncrow" / "claude-plugin" / "skills") in cmd

@@ -1,4 +1,4 @@
-"""Unit tests for the SWE-bench Pro backend folded into ``atelier benchmark swe``.
+"""Unit tests for the SWE-bench Pro backend folded into ``lemon benchmark swe``.
 
 SWE-bench Pro (ScaleAI) has its own loader (:mod:`swebench_pro_data`) and
 grader (:mod:`swebench_pro_grade`) -- a structurally different dataset/harness
@@ -313,7 +313,7 @@ def test_grade_writes_csv_and_patches_and_parses_eval_results(tmp_path: Path, mo
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(swebench_pro_grade.subprocess, "run", _fake_run)
-    work_dir = tmp_path / "grade_atelier_rep1"
+    work_dir = tmp_path / "grade_lemoncrow_rep1"
     resolved = swebench_pro_grade.grade(insts, patches, work_dir=work_dir)
 
     assert resolved == {"o__r-2": True, "o__r-3": False}

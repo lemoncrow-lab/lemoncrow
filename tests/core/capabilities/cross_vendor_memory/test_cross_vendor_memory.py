@@ -4,22 +4,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.cross_vendor_memory.base import _fact_id
-from atelier.core.capabilities.cross_vendor_memory.claude_adapter import (
+from lemoncrow.core.capabilities.cross_vendor_memory.base import _fact_id
+from lemoncrow.core.capabilities.cross_vendor_memory.claude_adapter import (
     ClaudeAdapter,
     _parse_markdown_facts,
 )
-from atelier.core.capabilities.cross_vendor_memory.codex_adapter import (
+from lemoncrow.core.capabilities.cross_vendor_memory.codex_adapter import (
     CodexAdapter,
     _is_standalone_declaration,
     _parse_codex_facts,
 )
-from atelier.core.capabilities.cross_vendor_memory.gemini_adapter import (
+from lemoncrow.core.capabilities.cross_vendor_memory.gemini_adapter import (
     GeminiAdapter,
     _find_repo_root,
     _parse_gemini_facts,
 )
-from atelier.core.capabilities.cross_vendor_memory.registry import MemoryRegistry
+from lemoncrow.core.capabilities.cross_vendor_memory.registry import MemoryRegistry
 
 # --------------------------------------------------------------------------- #
 # Fixture paths                                                                #
@@ -205,7 +205,7 @@ def test_codex_adapter_reads_both_files() -> None:
     adapter = CodexAdapter(root=CODEX_ROOT)
     paths = {f.source_path for f in adapter.list_facts()}
     names = {p.name for p in paths}
-    assert "atelier-project.md" in names
+    assert "lemoncrow-project.md" in names
     assert "global.md" in names
 
 

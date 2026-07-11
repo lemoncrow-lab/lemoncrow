@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from atelier.core.capabilities.style_import.importer import import_files
-from atelier.core.foundation.store import ContextStore
-from atelier.infra.embeddings.null_embedder import NullEmbedder
+from lemoncrow.core.capabilities.style_import.importer import import_files
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
 
 
 def _chat(messages: list[dict[str, str]], json_schema: dict[str, Any] | None = None) -> dict[str, Any]:

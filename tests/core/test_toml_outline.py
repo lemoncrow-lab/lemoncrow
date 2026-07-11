@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
 
 def test_toml_outline_reaches_treesitter(tmp_path: Path) -> None:
@@ -13,7 +13,7 @@ def test_toml_outline_reaches_treesitter(tmp_path: Path) -> None:
     are emitted as a first line, while values nested inside tables are dropped.
     """
     source = """
-title = "Atelier Demo Project"
+title = "LemonCrow Demo Project"
 version = "2.1.0"
 authors = ["Pankaj", "The Team"]
 

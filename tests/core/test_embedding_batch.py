@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.code_context.embedding import SemanticSearchRanker
-from atelier.core.capabilities.code_context.models import SymbolRecord
+from lemoncrow.core.capabilities.code_context.embedding import SemanticSearchRanker
+from lemoncrow.core.capabilities.code_context.models import SymbolRecord
 
 
 class _RecordingEmbedder:
@@ -49,7 +49,7 @@ def _ranker(tmp_path: Path, store_name: str, embedder: _RecordingEmbedder) -> Se
 
 
 def test_embed_symbols_batches_uncached_documents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_EMBED_BATCH_SIZE", "2")
+    monkeypatch.setenv("LEMONCROW_EMBED_BATCH_SIZE", "2")
     embedder = _RecordingEmbedder()
     ranker = _ranker(tmp_path, "batch", embedder)
     symbols = [_make_symbol(f"s{i}") for i in range(5)]

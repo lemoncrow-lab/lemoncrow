@@ -2,7 +2,7 @@
 """Index-build latency benchmark: lexical vs zoekt vs semantic, one row per repo.
 
 Each phase is timed as a COLD full rebuild of one repo:
-  - lexical : ``atelier code index --reindex`` with the semantic embedder OFF
+  - lexical : ``lemon code index --reindex`` with the semantic embedder OFF
               (parse -> tree-sitter symbols -> FTS5 + trigram symbol index).
   - zoekt   : ``zoekt-git-index`` over the repo's committed git tree (trigram).
   - semantic: embed every indexed symbol with BGE-Code-v1 (FP16 on GPU).
@@ -15,9 +15,9 @@ Reproduce (all repos in the def-gold set):
     uv run python benchmarks/codebench/bench_index_latency.py --repos django,flask,linux
 
 Semantic needs torch + sentence_transformers.  If they are not importable in the
-active venv, point ATELIER_BGE_PYTHON at a python that has them (e.g. a GPU venv):
+active venv, point LEMONCROW_BGE_PYTHON at a python that has them (e.g. a GPU venv):
 
-    ATELIER_BGE_PYTHON=/tmp/bge_env/bin/python uv run python .../bench_index_latency.py
+    LEMONCROW_BGE_PYTHON=/tmp/bge_env/bin/python uv run python .../bench_index_latency.py
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[2]
 _GOLD = _ROOT / "benchmarks/codebench/data/bench_pairs_def_gold.json"
 
-# Embed helper run under a torch-capable python (see ATELIER_BGE_PYTHON). Reads
+# Embed helper run under a torch-capable python (see LEMONCROW_BGE_PYTHON). Reads
 # symbol text straight from the freshly-built lexical DB so the count matches.
 _SEM_HELPER = r"""
 import json, sqlite3, sys, time
@@ -77,7 +77,7 @@ def _run(cmd: list[str], env: dict | None = None) -> tuple[float, int, str]:
 
 
 def _bge_python() -> str:
-    override = os.environ.get("ATELIER_BGE_PYTHON")
+    override = os.environ.get("LEMONCROW_BGE_PYTHON")
     if override:
         return override
     # Prefer the active venv if it can import torch; else a known GPU venv.
@@ -108,9 +108,9 @@ def bench_repo(prefix: str, meta: dict, *, bge_py: str, zoekt: str | None) -> di
     row: dict = {"repo": short}
 
     # 1) Lexical index (embedder OFF so we time only parse + FTS/trigram).
-    env = {**os.environ, "ATELIER_CODE_EMBEDDER": "null", "ATELIER_ZOEKT_MODE": "off"}
+    env = {**os.environ, "LEMONCROW_CODE_EMBEDDER": "null", "LEMONCROW_ZOEKT_MODE": "off"}
     lex_s, rc, err = _run(
-        ["atelier", "code", "index", "--repo-root", str(ws), "--db-path", str(lex_db), "--reindex", "--no-stats"],
+        ["lemon", "code", "index", "--repo-root", str(ws), "--db-path", str(lex_db), "--reindex", "--no-stats"],
         env=env,
     )
     row["lexical_s"] = lex_s if rc == 0 else None

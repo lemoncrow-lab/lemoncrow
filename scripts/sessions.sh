@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# sessions.sh — fetch Atelier and estimate potential savings from local agent sessions.
+# sessions.sh — fetch LemonCrow and estimate potential savings from local agent sessions.
 #
 # Intended public entrypoint:
-#   curl -fsSL https://savings.atelier.ws | bash
+#   curl -fsSL https://savings.lemoncrow.com | bash
 #
-# The release ships a Python wheel inside atelier-distribution-<os>-<arch>.tar.gz
+# The release ships a Python wheel inside lemoncrow-distribution-<os>-<arch>.tar.gz
 # (not a standalone binary), so this installs that wheel into an ephemeral uv
-# venv and runs `atelier session stats`. The venv is cached under /tmp keyed by
+# venv and runs `lemon session stats`. The venv is cached under /tmp keyed by
 # release tag + platform, so repeated runs are fast.
 #
 # Per-session realized savings (the "Savings" column) come from
 # compute_savings_summary() — the exact same function the statusline uses —
 # so they are guaranteed consistent with the plugin's real display.
 # The "Opportunity" column is a forward-looking estimate of additional
-# savings possible if more calls were routed through Atelier.
+# savings possible if more calls were routed through LemonCrow.
 #
 # Examples:
 #   bash scripts/sessions.sh
@@ -23,16 +23,16 @@
 #   bash scripts/sessions.sh --local --host copilot     # local wheel + extra flags
 #
 # Optional env:
-#   ATELIER_RELEASE_TAG=v1.2.3        (default: latest)
-#   ATELIER_SAVINGS_SINCE=7d          (default lookback when no args are passed)
-#   ATELIER_SAVINGS_TOP=5             (default top sessions shown when no args are passed)
-#   ATELIER_SESSION_CACHE=1           (default: 1; cache the venv under /tmp)
-#   ATELIER_SESSION_CACHE_DIR=/tmp/atelier-session-cache
-#   ATELIER_LOCAL_WHEEL=./bundle/bin/atelier-*.whl  (override local wheel path)
+#   LEMONCROW_RELEASE_TAG=v1.2.3        (default: latest)
+#   LEMONCROW_SAVINGS_SINCE=7d          (default lookback when no args are passed)
+#   LEMONCROW_SAVINGS_TOP=5             (default top sessions shown when no args are passed)
+#   LEMONCROW_SESSION_CACHE=1           (default: 1; cache the venv under /tmp)
+#   LEMONCROW_SESSION_CACHE_DIR=/tmp/lemoncrow-session-cache
+#   LEMONCROW_LOCAL_WHEEL=./bundle/bin/lemoncrow-*.whl  (override local wheel path)
 
 set -euo pipefail
 
-ATELIER_VERBOSE="${ATELIER_VERBOSE:-0}"
+LEMONCROW_VERBOSE="${LEMONCROW_VERBOSE:-0}"
 
 # ── colour + helpers ─────────────────────────────────────────────────────────
 if [[ -t 2 ]]; then
@@ -51,7 +51,7 @@ info()    { printf "  ${_CP}◇${_C0}  %s\n" "$*" >&2; }
 warn()    { printf "  ${_CY}⚠${_C0}  %s\n" "$*" >&2; }
 error()   { printf "  ${_CR}✗${_C0}  %s\n" "$*" >&2; }
 fail()    { error "$*"; exit 1; }
-verbose() { [[ "$ATELIER_VERBOSE" == "1" ]] && info "$*" || true; }
+verbose() { [[ "$LEMONCROW_VERBOSE" == "1" ]] && info "$*" || true; }
 
 _bar() {
     local cur=$1 tot=$2 w=${3:-40}
@@ -148,8 +148,8 @@ ensure_uv() {
 # verify_checksum <archive> <url>
 # Verifies <archive> against a published <url>.sha256 sidecar. Fails closed:
 # if the checksum cannot be fetched or does not match, the run aborts unless
-# ATELIER_ALLOW_UNVERIFIED=1 is set to explicitly opt out.
-# TODO: publish atelier-distribution-*.tar.gz.sha256 sidecars in
+# LEMONCROW_ALLOW_UNVERIFIED=1 is set to explicitly opt out.
+# TODO: publish lemoncrow-distribution-*.tar.gz.sha256 sidecars in
 # .github/workflows/release.yml so this verification is enforced by default.
 verify_checksum() {
     local archive="$1" url="$2" expected=""
@@ -161,8 +161,8 @@ verify_checksum() {
     # Accept both `<hash>  file` and `SHA256 (file) = <hash>` formats.
     expected="$(printf '%s' "$expected" | grep -oE '[0-9a-fA-F]{64}' | head -1 | tr 'A-F' 'a-f')"
     if [[ -z "$expected" ]]; then
-        if [[ "${ATELIER_ALLOW_UNVERIFIED:-0}" == "1" ]]; then
-            warn "No published checksum at ${url}.sha256 — proceeding unverified (ATELIER_ALLOW_UNVERIFIED=1)."
+        if [[ "${LEMONCROW_ALLOW_UNVERIFIED:-0}" == "1" ]]; then
+            warn "No published checksum at ${url}.sha256 — proceeding unverified (LEMONCROW_ALLOW_UNVERIFIED=1)."
             return 0
         fi
         warn "No published checksum at ${url}.sha256 — skipping verification and proceeding."
@@ -188,7 +188,7 @@ verify_checksum() {
 install_wheel_to_venv() {
     local wheel="$1" venv="$2" constraints="${3:-}"
     ensure_uv
-    info "Preparing temporary Atelier runtime"
+    info "Preparing temporary LemonCrow runtime"
     uv venv "$venv" >/dev/null
     local cargs=()
     if [[ -n "$constraints" && -f "$constraints" ]]; then
@@ -225,24 +225,24 @@ for arg in "$@"; do
 done
 set -- "${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}"
 
-CACHE_ENABLED="${ATELIER_SESSION_CACHE:-1}"
-CACHE_ROOT="${ATELIER_SESSION_CACHE_DIR:-/tmp/atelier-session-cache}"
+CACHE_ENABLED="${LEMONCROW_SESSION_CACHE:-1}"
+CACHE_ROOT="${LEMONCROW_SESSION_CACHE_DIR:-/tmp/lemoncrow-session-cache}"
 
 if [[ "$USE_LOCAL" == "1" ]]; then
-    # Resolve the local wheel: explicit ATELIER_LOCAL_WHEEL, then bundle/bin next
+    # Resolve the local wheel: explicit LEMONCROW_LOCAL_WHEEL, then bundle/bin next
     # to the script (dist layout), then repo/cwd bundle/bin.
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    WHEEL="${ATELIER_LOCAL_WHEEL:-}"
+    WHEEL="${LEMONCROW_LOCAL_WHEEL:-}"
     if [[ -z "$WHEEL" ]]; then
         for cand in "${SCRIPT_DIR}/../bin" "${SCRIPT_DIR}/../bundle/bin" "./bundle/bin"; do
-            match="$(ls "${cand}"/atelier-*.whl 2>/dev/null | head -1 || true)"
+            match="$(ls "${cand}"/lemoncrow-*.whl 2>/dev/null | head -1 || true)"
             if [[ -n "$match" ]]; then WHEEL="$match"; break; fi
         done
     fi
     if [[ -z "$WHEEL" || ! -f "$WHEEL" ]]; then
-        error "--local: could not find a local atelier wheel."
-        echo "  Tried: ${SCRIPT_DIR}/../bin, ${SCRIPT_DIR}/../bundle/bin, ./bundle/bin (atelier-*.whl)" >&2
-        echo "  Set ATELIER_LOCAL_WHEEL=/path/to/atelier-*.whl to override." >&2
+        error "--local: could not find a local LemonCrow wheel."
+        echo "  Tried: ${SCRIPT_DIR}/../bin, ${SCRIPT_DIR}/../bundle/bin, ./bundle/bin (lemoncrow-*.whl)" >&2
+        echo "  Set LEMONCROW_LOCAL_WHEEL=/path/to/lemoncrow-*.whl to override." >&2
         exit 1
     fi
     verbose "Using local wheel: $WHEEL"
@@ -250,8 +250,8 @@ if [[ "$USE_LOCAL" == "1" ]]; then
     CONSTRAINTS=""
     [[ -f "$(dirname "$WHEEL")/../constraints.txt" ]] && CONSTRAINTS="$(cd "$(dirname "$WHEEL")/.." && pwd)/constraints.txt"
     VENV="${CACHE_ROOT}/local/$(basename "$WHEEL" .whl)/venv"
-    ATELIER_BIN="${VENV}/bin/atelier"
-    if [[ "${CACHE_ENABLED}" != "1" || ! -x "$ATELIER_BIN" ]]; then
+    LEMONCROW_BIN="${VENV}/bin/lemoncrow"
+    if [[ "${CACHE_ENABLED}" != "1" || ! -x "$LEMONCROW_BIN" ]]; then
         rm -rf "$VENV"
         install_wheel_to_venv "$WHEEL" "$VENV" "$CONSTRAINTS"
     fi
@@ -273,14 +273,14 @@ else
         *) fail "Unsupported architecture: $ARCH" ;;
     esac
 
-    TAG="${ATELIER_RELEASE_TAG:-latest}"
+    TAG="${LEMONCROW_RELEASE_TAG:-latest}"
 
     # If TAG is "latest", resolve the actual version tag from GitHub API
     if [[ "$TAG" == "latest" ]]; then
         if command -v curl >/dev/null 2>&1; then
-            REAL_TAG=$(curl -sI https://github.com/atelier-ws/atelier/releases/latest | grep -i location | awk -F/ '{print $NF}' | tr -d '\r')
+            REAL_TAG=$(curl -sI https://github.com/lemoncrowhq/lemoncrow/releases/latest | grep -i location | awk -F/ '{print $NF}' | tr -d '\r')
         elif command -v wget >/dev/null 2>&1; then
-            REAL_TAG=$(wget --server-response --spider -q https://github.com/atelier-ws/atelier/releases/latest 2>&1 | grep -i 'Location:' | awk -F/ '{print $NF}' | tr -d '\r' | tail -1)
+            REAL_TAG=$(wget --server-response --spider -q https://github.com/lemoncrowhq/lemoncrow/releases/latest 2>&1 | grep -i 'Location:' | awk -F/ '{print $NF}' | tr -d '\r' | tail -1)
         else
             REAL_TAG=""
         fi
@@ -292,21 +292,21 @@ else
     fi
 
     SUFFIX="${OS}-${ARCH}"
-    ASSET="atelier-distribution-${SUFFIX}.tar.gz"
-    URL="https://github.com/atelier-ws/atelier/releases/download/${TAG}/${ASSET}"
+    ASSET="lemoncrow-distribution-${SUFFIX}.tar.gz"
+    URL="https://github.com/lemoncrowhq/lemoncrow/releases/download/${TAG}/${ASSET}"
 
     CACHE_DIR="${CACHE_ROOT}/${TAG}/${SUFFIX}"
     VENV="${CACHE_DIR}/venv"
-    ATELIER_BIN="${VENV}/bin/atelier"
+    LEMONCROW_BIN="${VENV}/bin/lemoncrow"
 
-    if [[ "${CACHE_ENABLED}" != "1" || ! -x "$ATELIER_BIN" ]]; then
-        TMP_BASE="/tmp/atelier-session-${SUFFIX}-$$"
+    if [[ "${CACHE_ENABLED}" != "1" || ! -x "$LEMONCROW_BIN" ]]; then
+        TMP_BASE="/tmp/lemoncrow-session-${SUFFIX}-$$"
         ARCHIVE="${TMP_BASE}.tar.gz"
         cleanup() { rm -rf "${TMP_BASE}" "${ARCHIVE}" 2>/dev/null || true; }
         trap cleanup EXIT
 
         mkdir -p "${TMP_BASE}"
-        printf "  ${_CP}◇${_C0}  ${_CB}Downloading${_C0} Atelier estimator %s  ${_CD}(%s)${_C0}\n" \
+        printf "  ${_CP}◇${_C0}  ${_CB}Downloading${_C0} LemonCrow estimator %s  ${_CD}(%s)${_C0}\n" \
             "${TAG}" "${SUFFIX}" >&2
         if ! _download_progress "${URL}" "${ARCHIVE}"; then
             fail "Could not download ${ASSET}. The release may not include this platform asset yet: ${URL}"
@@ -317,9 +317,9 @@ else
 
         printf "  ${_CP}◇${_C0}  ${_CB}Extracting${_C0}\n" >&2
         _extract_progress "${ARCHIVE}" "${TMP_BASE}"
-        WHEEL="$(ls "${TMP_BASE}"/bin/atelier-*.whl 2>/dev/null | head -1 || true)"
+        WHEEL="$(ls "${TMP_BASE}"/bin/lemoncrow-*.whl 2>/dev/null | head -1 || true)"
         if [[ -z "$WHEEL" ]]; then
-            fail "atelier wheel not found in release archive ${ASSET}"
+            fail "LemonCrow wheel not found in release archive ${ASSET}"
         fi
         CONSTRAINTS=""
         [[ -f "${TMP_BASE}/constraints.txt" ]] && CONSTRAINTS="${TMP_BASE}/constraints.txt"
@@ -330,18 +330,18 @@ else
     fi
 fi
 
-if [[ ! -x "$ATELIER_BIN" ]]; then
-    fail "atelier not found after install: ${ATELIER_BIN}"
+if [[ ! -x "$LEMONCROW_BIN" ]]; then
+    fail "lemon not found after install: ${LEMONCROW_BIN}"
 fi
 
 # Scan live host session directories and print an aggregate potential-savings
 # report. This is intentionally read-only: live scans import into a temporary
-# store and do not require Atelier login or provider API keys.
+# store and do not require LemonCrow login or provider API keys.
 # Realized savings (the "Savings" column) use compute_savings_summary() —
 # the exact same function the statusline relies on — so they are guaranteed
 # consistent with the plugin's real display.
 _run_stats() {
-    "${ATELIER_BIN}" session stats "$@" 2> >(
+    "${LEMONCROW_BIN}" session stats "$@" 2> >(
         grep -vE \
             -e '^Scanning last .* across .* host\(s\)' \
             -e '^claude reader: dropped .* unparseable line\(s\) while importing session ' \
@@ -349,12 +349,12 @@ _run_stats() {
     )
 }
 
-verbose "Scanning local agent sessions for potential Atelier savings"
+verbose "Scanning local agent sessions for potential LemonCrow savings"
 if [[ "$#" -eq 0 ]]; then
     _run_stats \
         --source live \
-        --since "${ATELIER_SAVINGS_SINCE:-7d}" \
-        --top "${ATELIER_SAVINGS_TOP:-5}"
+        --since "${LEMONCROW_SAVINGS_SINCE:-7d}" \
+        --top "${LEMONCROW_SAVINGS_TOP:-5}"
     exit $?
 fi
 _run_stats "$@"

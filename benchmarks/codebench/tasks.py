@@ -41,7 +41,7 @@ class Task:
     # Each string is passed to subprocess shell=True with the workspace as cwd.
     setup_cmds: tuple[str, ...] = field(default_factory=tuple)
     # Agent capability this task exercises; selects the per-arm persona
-    # (built-in twin vs atelier) and the grader. "code" -> objective verify
+    # (built-in twin vs lemoncrow) and the grader. "code" -> objective verify
     # gate; "explore" -> answer-key overlap grader; "plan" -> overlap + judge.
     capability: str = "code"
 
@@ -82,7 +82,7 @@ TASKS: list[Task] = [
         3,
         "cg_vscode",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -92,7 +92,7 @@ TASKS: list[Task] = [
         2,
         "cg_excalidraw",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -102,7 +102,7 @@ TASKS: list[Task] = [
         2,
         "cg_django",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -112,7 +112,7 @@ TASKS: list[Task] = [
         2,
         "cg_tokio",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -122,7 +122,7 @@ TASKS: list[Task] = [
         2,
         "cg_okhttp",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -132,7 +132,7 @@ TASKS: list[Task] = [
         1,
         "cg_gin",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -142,7 +142,7 @@ TASKS: list[Task] = [
         1,
         "cg_alamofire",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     # --- cg q2-q5 (additional exploration questions, same repos) ---
@@ -153,7 +153,7 @@ TASKS: list[Task] = [
         3,
         "cg_vscode_2",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -163,7 +163,7 @@ TASKS: list[Task] = [
         3,
         "cg_vscode_3",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -173,7 +173,7 @@ TASKS: list[Task] = [
         3,
         "cg_vscode_4",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -183,7 +183,7 @@ TASKS: list[Task] = [
         3,
         "cg_vscode_5",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -193,7 +193,7 @@ TASKS: list[Task] = [
         2,
         "cg_excalidraw_2",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -203,7 +203,7 @@ TASKS: list[Task] = [
         2,
         "cg_excalidraw_3",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -213,7 +213,7 @@ TASKS: list[Task] = [
         2,
         "cg_excalidraw_4",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -223,7 +223,7 @@ TASKS: list[Task] = [
         2,
         "cg_excalidraw_5",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -233,7 +233,7 @@ TASKS: list[Task] = [
         2,
         "cg_django_2",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -243,7 +243,7 @@ TASKS: list[Task] = [
         2,
         "cg_django_3",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -253,7 +253,7 @@ TASKS: list[Task] = [
         2,
         "cg_django_4",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -263,7 +263,7 @@ TASKS: list[Task] = [
         2,
         "cg_django_5",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -273,7 +273,7 @@ TASKS: list[Task] = [
         2,
         "cg_tokio_2",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -283,7 +283,7 @@ TASKS: list[Task] = [
         2,
         "cg_tokio_3",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -293,7 +293,7 @@ TASKS: list[Task] = [
         2,
         "cg_tokio_4",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -303,7 +303,7 @@ TASKS: list[Task] = [
         2,
         "cg_tokio_5",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -313,7 +313,7 @@ TASKS: list[Task] = [
         2,
         "cg_okhttp_2",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -323,7 +323,7 @@ TASKS: list[Task] = [
         2,
         "cg_okhttp_3",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -333,7 +333,7 @@ TASKS: list[Task] = [
         2,
         "cg_okhttp_4",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -343,7 +343,7 @@ TASKS: list[Task] = [
         2,
         "cg_okhttp_5",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -353,7 +353,7 @@ TASKS: list[Task] = [
         1,
         "cg_gin_2",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -363,7 +363,7 @@ TASKS: list[Task] = [
         1,
         "cg_gin_3",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -373,7 +373,7 @@ TASKS: list[Task] = [
         1,
         "cg_gin_4",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -383,7 +383,7 @@ TASKS: list[Task] = [
         1,
         "cg_gin_5",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -393,7 +393,7 @@ TASKS: list[Task] = [
         1,
         "cg_alamofire_2",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -403,7 +403,7 @@ TASKS: list[Task] = [
         1,
         "cg_alamofire_3",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -413,7 +413,7 @@ TASKS: list[Task] = [
         1,
         "cg_alamofire_4",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -423,7 +423,7 @@ TASKS: list[Task] = [
         1,
         "cg_alamofire_5",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     # --- Linux kernel (5 exploration questions) ---
@@ -434,7 +434,7 @@ TASKS: list[Task] = [
         3,
         "cg_linux_1",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -444,7 +444,7 @@ TASKS: list[Task] = [
         3,
         "cg_linux_2",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -454,7 +454,7 @@ TASKS: list[Task] = [
         3,
         "cg_linux_3",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -464,7 +464,7 @@ TASKS: list[Task] = [
         3,
         "cg_linux_4",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     Task(
@@ -474,7 +474,7 @@ TASKS: list[Task] = [
         3,
         "cg_linux_5",
         setup_cmds=(
-            'case "$(pwd)" in *_atelier_rep*) /home/pankaj/Projects/leanchain/atelier/.venv/bin/atelier code index --repo-root . || true ;; esac',
+            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
         ),
     ),
     # --- original task1-8 (coding capability) ---

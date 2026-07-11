@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.swarm import (
+from lemoncrow.core.capabilities.swarm import (
     apply_wave_candidates,
     initialize_swarm_run,
     launch_swarm_children,
@@ -16,13 +16,13 @@ from atelier.core.capabilities.swarm import (
     save_swarm_state,
     swarm_run_dir,
 )
-from atelier.core.capabilities.swarm.capability import (
+from lemoncrow.core.capabilities.swarm.capability import (
     _fallback_wave_evaluation,
     _plan_wave_runs,
     _score_child,
     _write_child_patch,
 )
-from atelier.core.capabilities.swarm.models import (
+from lemoncrow.core.capabilities.swarm.models import (
     SwarmAcceptedCommit,
     SwarmChildState,
     SwarmRunState,
@@ -31,7 +31,7 @@ from atelier.core.capabilities.swarm.models import (
     SwarmWaveEvaluation,
     SwarmWaveState,
 )
-from atelier.infra.runtime.swarm_worktree import SwarmWorktreeManager, read_head_ref
+from lemoncrow.infra.runtime.swarm_worktree import SwarmWorktreeManager, read_head_ref
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -92,7 +92,7 @@ def _make_child(
         wave_index=1,
         status="success",
         worktree_path=str(worktree_path),
-        atelier_root=str(run_dir / "atelier-root"),
+        lemoncrow_root=str(run_dir / "lemoncrow-root"),
         run_dir=str(run_dir),
         spec_path=str(run_dir / "program.md"),
         result_path=str(run_dir / "result.json"),
@@ -116,7 +116,7 @@ def test_swarm_run_dir_resolves_relative_roots(tmp_path: Path, monkeypatch: pyte
 
 def test_run_child_once_writes_structured_result(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     repo.mkdir()
     _git(repo, "init")
     (repo / "README.md").write_text("base\n", encoding="utf-8")
@@ -131,7 +131,7 @@ def test_run_child_once_writes_structured_result(tmp_path: Path) -> None:
             "import json, os; "
             "from pathlib import Path; "
             "Path('child.txt').write_text('done\\n', encoding='utf-8'); "
-            "Path(os.environ['ATELIER_SWARM_METADATA_PATH']).write_text("
+            "Path(os.environ['LEMONCROW_SWARM_METADATA_PATH']).write_text("
             "json.dumps({'summary': 'candidate finished', 'token_count': 17}),"
             " encoding='utf-8')"
         ),
@@ -162,7 +162,7 @@ def test_run_child_once_writes_structured_result(tmp_path: Path) -> None:
         label="candidate-1",
         wave_index=1,
         worktree_path=str(child_worktree),
-        atelier_root=str(child_dir / "atelier-root"),
+        lemoncrow_root=str(child_dir / "lemoncrow-root"),
         run_dir=str(child_dir),
         spec_path=str(spec),
         result_path=str(child_dir / "result.json"),
@@ -176,7 +176,7 @@ def test_run_child_once_writes_structured_result(tmp_path: Path) -> None:
     load_swarm.children = state.children
     load_swarm.waves = state.waves
     load_swarm.current_wave = 1
-    from atelier.core.capabilities.swarm import save_swarm_state
+    from lemoncrow.core.capabilities.swarm import save_swarm_state
 
     save_swarm_state(state_path, load_swarm)
 
@@ -194,7 +194,7 @@ def test_run_child_once_writes_structured_result(tmp_path: Path) -> None:
 
 def test_run_child_once_marks_silent_noop_as_failed(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     repo.mkdir()
     _git(repo, "init")
     (repo / "README.md").write_text("base\n", encoding="utf-8")
@@ -228,7 +228,7 @@ def test_run_child_once_marks_silent_noop_as_failed(tmp_path: Path) -> None:
         label="candidate-1",
         wave_index=1,
         worktree_path=str(child_worktree),
-        atelier_root=str(child_dir / "atelier-root"),
+        lemoncrow_root=str(child_dir / "lemoncrow-root"),
         run_dir=str(child_dir),
         spec_path=str(spec),
         result_path=str(child_dir / "result.json"),
@@ -242,7 +242,7 @@ def test_run_child_once_marks_silent_noop_as_failed(tmp_path: Path) -> None:
     load_swarm.children = state.children
     load_swarm.waves = state.waves
     load_swarm.current_wave = 1
-    from atelier.core.capabilities.swarm import save_swarm_state
+    from lemoncrow.core.capabilities.swarm import save_swarm_state
 
     save_swarm_state(state_path, load_swarm)
 
@@ -319,7 +319,7 @@ def test_rank_children_prefers_successful_validated_candidate() -> None:
         label="candidate-1",
         status="success",
         worktree_path="/workspace/a",
-        atelier_root="/workspace/a-root",
+        lemoncrow_root="/workspace/a-root",
         run_dir="/workspace/a-run",
         spec_path="/workspace/spec",
         result_path="/workspace/result",
@@ -360,7 +360,7 @@ def test_score_child_penalizes_missing_validation_evidence() -> None:
         label="candidate-1",
         status="success",
         worktree_path="/workspace/a",
-        atelier_root="/workspace/a-root",
+        lemoncrow_root="/workspace/a-root",
         run_dir="/workspace/a-run",
         spec_path="/workspace/spec",
         result_path="/workspace/result",
@@ -397,7 +397,7 @@ def test_fallback_wave_evaluation_accepts_only_top_candidate_per_overlap_cluster
         label="candidate-1",
         status="success",
         worktree_path="/workspace/a",
-        atelier_root="/workspace/a-root",
+        lemoncrow_root="/workspace/a-root",
         run_dir="/workspace/a-run",
         spec_path="/workspace/spec",
         result_path="/workspace/result",
@@ -468,7 +468,7 @@ def test_fallback_wave_evaluation_rejects_duplicate_of_accepted_history(tmp_path
         label="candidate-1",
         status="success",
         worktree_path="/workspace/a",
-        atelier_root="/workspace/a-root",
+        lemoncrow_root="/workspace/a-root",
         run_dir="/workspace/a-run",
         spec_path="/workspace/spec",
         result_path="/workspace/result",
@@ -522,7 +522,7 @@ def test_fallback_wave_evaluation_defers_revisiting_recent_files_without_new_val
         label="candidate-1",
         status="success",
         worktree_path="/workspace/a",
-        atelier_root="/workspace/a-root",
+        lemoncrow_root="/workspace/a-root",
         run_dir="/workspace/a-run",
         spec_path="/workspace/spec",
         result_path="/workspace/result",
@@ -746,7 +746,7 @@ def test_apply_wave_candidates_respects_evaluator_conflict_metadata(
             ],
         )
 
-    monkeypatch.setattr("atelier.core.capabilities.swarm.capability._evaluate_wave", _fake_evaluate)
+    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._evaluate_wave", _fake_evaluate)
 
     accepted_any = apply_wave_candidates(state, children, wave)
 
@@ -778,7 +778,7 @@ def test_apply_wave_candidates_rejects_duplicate_of_accepted_history(
         wave_index=1,
         status="success",
         worktree_path=str(tmp_path / "worktree"),
-        atelier_root=str(tmp_path / "atelier-root"),
+        lemoncrow_root=str(tmp_path / "lemoncrow-root"),
         run_dir=str(tmp_path / "run"),
         spec_path=str(program),
         result_path=str(tmp_path / "result.json"),
@@ -828,10 +828,10 @@ def test_apply_wave_candidates_rejects_duplicate_of_accepted_history(
             decisions=[SwarmWaveDecision(child_id=child.child_id, verdict="accept", rationale="Looks good.")],
         )
 
-    monkeypatch.setattr("atelier.core.capabilities.swarm.capability._evaluate_wave", _fake_evaluate)
-    monkeypatch.setattr("atelier.core.capabilities.swarm.capability._write_child_patch", lambda _child: candidate_patch)
+    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._evaluate_wave", _fake_evaluate)
+    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._write_child_patch", lambda _child: candidate_patch)
     monkeypatch.setattr(
-        "atelier.core.capabilities.swarm.capability._can_apply_patch",
+        "lemoncrow.core.capabilities.swarm.capability._can_apply_patch",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("duplicate should be rejected before patch apply")
         ),
@@ -850,7 +850,7 @@ def test_launch_swarm_children_continues_after_deferred_wave(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    root = tmp_path / "atelier-root"
+    root = tmp_path / "lemoncrow-root"
     state_path = tmp_path / "state.json"
     state = SwarmRunState(
         run_id="swarm-123",
@@ -909,9 +909,9 @@ def test_launch_swarm_children_continues_after_deferred_wave(
         state.convergence_status = "continue"
         return True
 
-    monkeypatch.setattr("atelier.core.capabilities.swarm.capability._prepare_wave", _prepare)
-    monkeypatch.setattr("atelier.core.capabilities.swarm.capability._run_wave_children", _run_wave)
-    monkeypatch.setattr("atelier.core.capabilities.swarm.capability.apply_wave_candidates", _apply)
+    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._prepare_wave", _prepare)
+    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._run_wave_children", _run_wave)
+    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability.apply_wave_candidates", _apply)
 
     completed = launch_swarm_children(root, state_path)
 

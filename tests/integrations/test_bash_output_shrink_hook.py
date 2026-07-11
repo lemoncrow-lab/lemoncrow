@@ -3,7 +3,7 @@
 Mirrors tests/integrations/test_mcp_output_shrink_hook.py: the hook is a
 standalone script reading a JSON payload on stdin and printing an optional
 JSON decision on stdout, exercised as a subprocess with crafted payloads and
-per-test tmp_path isolation for Atelier state and the spill store.
+per-test tmp_path isolation for LemonCrow state and the spill store.
 """
 
 from __future__ import annotations
@@ -23,9 +23,9 @@ def _run(
 ) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
-        "ATELIER_ROOT": str(tmp_path / ".atelier"),
-        "ATELIER_MCP_SPILL_DIR": str(tmp_path / "spill"),
-        "ATELIER_TOOL_OUTPUT_SPILL": "0",
+        "LEMONCROW_ROOT": str(tmp_path / ".lemoncrow"),
+        "LEMONCROW_MCP_SPILL_DIR": str(tmp_path / "spill"),
+        "LEMONCROW_TOOL_OUTPUT_SPILL": "0",
         **(env_extra or {}),
     }
     stdin = stdin_text if stdin_text is not None else json.dumps(payload)
@@ -63,7 +63,7 @@ def test_large_generic_output_is_shrunk(tmp_path: Path) -> None:
     proc = _run(_bash_payload("bash build.sh", stdout), tmp_path)
     assert proc.returncode == 0, proc.stderr
     updated = _updated(proc)
-    assert "[atelier: " in updated["stdout"]
+    assert "[lemon: " in updated["stdout"]
     assert len(updated["stdout"]) < len(stdout)
     assert "omitted" in updated["stdout"]
     assert updated["returnCode"] == 0  # untouched fields pass through
@@ -121,17 +121,17 @@ def test_spill_hint_names_recovery_path(tmp_path: Path) -> None:
     proc = _run(
         _bash_payload("bash build.sh", stdout),
         tmp_path,
-        env_extra={"ATELIER_TOOL_OUTPUT_SPILL": "1"},
+        env_extra={"LEMONCROW_TOOL_OUTPUT_SPILL": "1"},
     )
     assert proc.returncode == 0, proc.stderr
     updated = _updated(proc)
-    assert "[atelier: shrunk" in updated["stdout"]
+    assert "[lemon: shrunk" in updated["stdout"]
     assert "read " in updated["stdout"]
 
 
 def test_kill_switch_disables_hook(tmp_path: Path) -> None:
     stdout = "\n".join(f"line {i:04d} of some long build log output" for i in range(3000))
-    proc = _run(_bash_payload("bash build.sh", stdout), tmp_path, env_extra={"ATELIER_HOST_BASH_SHRINK": "0"})
+    proc = _run(_bash_payload("bash build.sh", stdout), tmp_path, env_extra={"LEMONCROW_HOST_BASH_SHRINK": "0"})
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == ""
 

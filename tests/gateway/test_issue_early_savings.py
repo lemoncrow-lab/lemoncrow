@@ -5,7 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from atelier.core.foundation.paths import session_dir
+from lemoncrow.core.foundation.paths import session_dir
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "integrations" / "claude" / "plugin" / "scripts" / "statusline.sh"
@@ -16,10 +16,10 @@ def _run_statusline(root: Path, payload: dict[str, object], *, env_extra: dict[s
     env = os.environ.copy()
     env.update(
         {
-            "ATELIER_ROOT": str(root),
-            "ATELIER_STORE_ROOT": str(root),
-            "ATELIER_NO_COLOR": "1",
-            "ATELIER_PYTHON": _SOURCE_PYTHON,
+            "LEMONCROW_ROOT": str(root),
+            "LEMONCROW_STORE_ROOT": str(root),
+            "LEMONCROW_NO_COLOR": "1",
+            "LEMONCROW_PYTHON": _SOURCE_PYTHON,
         }
     )
     env.update(env_extra or {})

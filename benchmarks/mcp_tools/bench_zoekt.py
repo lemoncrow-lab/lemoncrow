@@ -25,7 +25,7 @@ def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def zoekt_tool_fn(bench_workspace: Path) -> Any:
-    from atelier.infra.code_intel.zoekt.adapter import get_zoekt_supervisor
+    from lemoncrow.infra.code_intel.zoekt.adapter import get_zoekt_supervisor
 
     repo_root = Path.cwd()
     supervisor = get_zoekt_supervisor(repo_root)
@@ -103,5 +103,5 @@ def test_zoekt_case_saves_tokens(case: BenchCase, zoekt_bench_results: list[Case
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
     assert result.baseline_tokens > 0, f"[{case.label}] measured baseline is zero"
     assert (
-        result.atelier_tokens < result.baseline_tokens
-    ), f"[{case.label}] no savings: zoekt={result.atelier_tokens} >= rg_baseline={result.baseline_tokens}"
+        result.lemoncrow_tokens < result.baseline_tokens
+    ), f"[{case.label}] no savings: zoekt={result.lemoncrow_tokens} >= rg_baseline={result.baseline_tokens}"

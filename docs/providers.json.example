@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to ~/.atelier/providers.json. Values supplement (but never override) environment variables.",
+  "_comment": "Copy to ~/.lemoncrow/providers.json. Values supplement (but never override) environment variables.",
   "anthropic": {
     "api_key": "sk-ant-...",
     "rate_limit": {

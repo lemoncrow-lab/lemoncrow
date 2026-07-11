@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from atelier.core.capabilities.tool_supervision.compact_output import (
+from lemoncrow.core.capabilities.tool_supervision.compact_output import (
     COLUMNAR_FORMAT,
     DEFAULT_SAVINGS_THRESHOLD,
     columnar_decode,

@@ -2,14 +2,14 @@
 
 Benchmark/test tooling, not product runtime. An example fitness function for
 the swarm system's generic `best` reducer — it lets a swarm run optimize
-Atelier *against itself*, holding correctness fixed while it searches for
+LemonCrow *against itself*, holding correctness fixed while it searches for
 cheaper/cleaner behavior.
 
 ## Pipeline
 
 1. **`freeze_baseline.py`** — snapshot vanilla-Claude-Code cost/solve-rate per
    task from a prior graded `results.jsonl` run. The baseline arm is the same
-   model as the atelier arm and invariant to source edits, so it's measured
+   model as the lemoncrow arm and invariant to source edits, so it's measured
    once and frozen (`baseline/swe30.json`), not re-run every iteration.
 2. **`make_holdout.py`** — samples a held-out task split, disjoint from the
    frozen target set (`tasks/holdout.txt`), so a win can be checked against
@@ -22,18 +22,18 @@ cheaper/cleaner behavior.
 
 - **`health`** (default, free): tests must pass (hard gate), then
   `score = -(mypy_errors + ruff_issues)` — no API spend.
-- **`mini`** (paid): cost-per-accepted-patch from `atelier benchmark mini --json`.
-- **`swe`** (paid): runs the atelier arm on `tasks/iterate.txt` or
+- **`mini`** (paid): cost-per-accepted-patch from `lemon benchmark mini --json`.
+- **`swe`** (paid): runs the lemoncrow arm on `tasks/iterate.txt` or
   `tasks/holdout.txt`, compares $ cost and solve-rate against the frozen
   baseline. Target: ≥50% cheaper with correctness same-or-better.
 
 `knobs.env` holds the env-var overrides `eval.py --objective swe` injects into
-the atelier arm for one run (a controlled, single-variable experiment).
+the lemoncrow arm for one run (a controlled, single-variable experiment).
 
 ## Wiring it into a swarm run
 
 ```bash
-uv run atelier swarm start \
+uv run lemon swarm start \
     --fitness-cmd "uv run python benchmarks/self_optimization/eval.py --objective health" \
     --metric-parse "regex:^score: (-?[\d.]+)"
 ```

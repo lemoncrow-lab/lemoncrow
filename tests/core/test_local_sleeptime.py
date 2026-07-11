@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.core.capabilities.context_compression.sleeptime import (
+from lemoncrow.core.capabilities.context_compression.sleeptime import (
     SleeptimeChunk,
     SleeptimeUnavailable,
     deterministic_group_summary,
     local_summarize,
     summarize_ledger,
 )
-from atelier.infra.internal_llm import OllamaUnavailable
+from lemoncrow.infra.internal_llm import OllamaUnavailable
 
 
 def _make_events(kinds_summaries: list[tuple[str, str]]) -> list[dict[str, str]]:
@@ -74,7 +74,7 @@ def test_sleeptime_chunk_model() -> None:
 
 def test_summarize_ledger_uses_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "atelier.core.capabilities.context_compression.sleeptime.summarize",
+        "lemoncrow.core.capabilities.context_compression.sleeptime.summarize",
         lambda text, max_tokens=256: "compact summary",
     )
 
@@ -92,8 +92,8 @@ def test_summarize_ledger_fails_closed_without_summarizer(
         _ = (text, max_tokens)
         raise OllamaUnavailable("no ollama")
 
-    monkeypatch.setattr("atelier.core.capabilities.context_compression.sleeptime.summarize", unavailable)
-    monkeypatch.delenv("ATELIER_MEMORY_BACKEND", raising=False)
+    monkeypatch.setattr("lemoncrow.core.capabilities.context_compression.sleeptime.summarize", unavailable)
+    monkeypatch.delenv("LEMONCROW_MEMORY_BACKEND", raising=False)
 
     with pytest.raises(SleeptimeUnavailable):
         summarize_ledger(_make_events([("tool_output", "foo")]))

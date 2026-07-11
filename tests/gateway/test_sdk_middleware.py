@@ -1,10 +1,10 @@
-"""Smoke tests for the Atelier SDK middleware layer.
+"""Smoke tests for the LemonCrow SDK middleware layer.
 
 Tests:
-- AtelierMiddleware: unified entry point
+- LemonCrowMiddleware: unified entry point
 - LangChainMiddleware: on_llm_start/end, cache_read extraction, loop detection
 - OpenAIAgentsHooks: on_tool_start loop detection, on_agent_start/end
-- make_atelier_tools / dispatch: token recording, loop detection
+- make_lemoncrow_tools / dispatch: token recording, loop detection
 - PrefixCachePlanner wiring in tool_context
 - RunLedger.record_call with stable_prefix_hash
 """
@@ -14,64 +14,64 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from atelier.sdk.middleware import AtelierMiddleware
+from lemoncrow.sdk.middleware import LemonCrowMiddleware
 
 # ---------------------------------------------------------------------------
-# AtelierMiddleware
+# LemonCrowMiddleware
 # ---------------------------------------------------------------------------
 
 
-class TestAtelierMiddleware:
+class TestLemonCrowMiddleware:
     def test_init(self) -> None:
-        mw = AtelierMiddleware(agent_name="test", task="do work")
+        mw = LemonCrowMiddleware(agent_name="test", task="do work")
         assert mw.agent_name == "test"
         assert mw.task == "do work"
         assert mw._ledger is not None
 
     def test_context_manager(self) -> None:
-        with AtelierMiddleware(agent_name="test", task="test") as mw:
+        with LemonCrowMiddleware(agent_name="test", task="test") as mw:
             assert mw._ledger.status == "running"
         assert mw._ledger.status == "complete"
 
     def test_cost_summary_empty(self) -> None:
-        mw = AtelierMiddleware(agent_name="test", task="test")
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
         summary = mw.cost_summary()
         assert summary["turns"] == 0
         assert summary["cost_usd"] == 0.0
         assert summary["cache_hit_ratio"] == 0.0
 
     def test_loop_not_detected_initially(self) -> None:
-        mw = AtelierMiddleware(agent_name="test", task="test")
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
         assert not mw.loop_detected()
 
     def test_watchdog_events_empty_initially(self) -> None:
-        mw = AtelierMiddleware(agent_name="test", task="test")
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
         assert mw.watchdog_events() == []
 
     def test_langchain_returns_middleware(self) -> None:
-        from atelier.sdk.langchain_middleware import LangChainMiddleware
+        from lemoncrow.sdk.langchain_middleware import LangChainMiddleware
 
-        mw = AtelierMiddleware(agent_name="test", task="test")
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
         lc = mw.langchain()
         assert isinstance(lc, LangChainMiddleware)
 
     def test_openai_hooks_returns_hooks(self) -> None:
-        from atelier.sdk.openai_hooks import OpenAIAgentsHooks
+        from lemoncrow.sdk.openai_hooks import OpenAIAgentsHooks
 
-        mw = AtelierMiddleware(agent_name="test", task="test")
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
         hooks = mw.openai_hooks()
         assert isinstance(hooks, OpenAIAgentsHooks)
 
     def test_anthropic_tools_returns_tuple(self) -> None:
-        mw = AtelierMiddleware(agent_name="test", task="test")
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
         tool_specs, dispatch = mw.anthropic_tools()
         assert isinstance(tool_specs, list)
         assert callable(dispatch)
 
     def test_gemini_adk_returns_hooks(self) -> None:
-        from atelier.sdk.gemini_adk import GeminiADKMiddleware
+        from lemoncrow.sdk.gemini_adk import GeminiADKMiddleware
 
-        mw = AtelierMiddleware(agent_name="test", task="test")
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
         hooks = mw.gemini_adk()
         assert isinstance(hooks, GeminiADKMiddleware)
 
@@ -83,8 +83,8 @@ class TestAtelierMiddleware:
 
 class TestLangChainMiddleware:
     def _make(self) -> Any:
-        from atelier.infra.runtime.run_ledger import RunLedger
-        from atelier.sdk.langchain_middleware import LangChainMiddleware
+        from lemoncrow.infra.runtime.run_ledger import RunLedger
+        from lemoncrow.sdk.langchain_middleware import LangChainMiddleware
 
         ledger = RunLedger(agent="test", task="test task")
         return LangChainMiddleware(ledger), ledger
@@ -165,8 +165,8 @@ class TestLangChainMiddleware:
 
 class TestOpenAIAgentsHooks:
     def _make(self) -> Any:
-        from atelier.infra.runtime.run_ledger import RunLedger
-        from atelier.sdk.openai_hooks import OpenAIAgentsHooks
+        from lemoncrow.infra.runtime.run_ledger import RunLedger
+        from lemoncrow.sdk.openai_hooks import OpenAIAgentsHooks
 
         ledger = RunLedger(agent="test", task="test task")
         return OpenAIAgentsHooks(ledger), ledger
@@ -200,8 +200,8 @@ class TestOpenAIAgentsHooks:
         assert len(agent_events) == 1
 
     def test_context_manager(self) -> None:
-        from atelier.infra.runtime.run_ledger import RunLedger
-        from atelier.sdk.openai_hooks import OpenAIAgentsHooks
+        from lemoncrow.infra.runtime.run_ledger import RunLedger
+        from lemoncrow.sdk.openai_hooks import OpenAIAgentsHooks
 
         ledger = RunLedger(agent="test", task="test")
         with OpenAIAgentsHooks(ledger) as hooks:
@@ -210,22 +210,22 @@ class TestOpenAIAgentsHooks:
 
 
 # ---------------------------------------------------------------------------
-# make_atelier_tools / dispatch
+# make_lemoncrow_tools / dispatch
 # ---------------------------------------------------------------------------
 
 
-class TestAtelierAnthropicTools:
+class TestLemonCrowAnthropicTools:
     def _make(self) -> Any:
-        from atelier.infra.runtime.run_ledger import RunLedger
-        from atelier.sdk.anthropic_tools import make_atelier_tools
+        from lemoncrow.infra.runtime.run_ledger import RunLedger
+        from lemoncrow.sdk.anthropic_tools import make_lemoncrow_tools
 
         ledger = RunLedger(agent="test", task="anthropic task")
-        tool_specs, dispatch = make_atelier_tools(ledger)
+        tool_specs, dispatch = make_lemoncrow_tools(ledger)
         return tool_specs, dispatch, ledger
 
     def test_tool_specs_contains_telemetry_tool(self) -> None:
         tool_specs, _, _ = self._make()
-        assert any(t["name"] == "atelier_session_status" for t in tool_specs)
+        assert any(t["name"] == "lemoncrow_session_status" for t in tool_specs)
 
     def test_dispatch_records_token_usage(self) -> None:
         _, dispatch, ledger = self._make()
@@ -308,12 +308,12 @@ class TestAtelierAnthropicTools:
         assert len(alerts) == 2
 
     def test_without_telemetry_tool(self) -> None:
-        from atelier.infra.runtime.run_ledger import RunLedger
-        from atelier.sdk.anthropic_tools import make_atelier_tools
+        from lemoncrow.infra.runtime.run_ledger import RunLedger
+        from lemoncrow.sdk.anthropic_tools import make_lemoncrow_tools
 
         ledger = RunLedger(agent="test", task="test")
-        tool_specs, _ = make_atelier_tools(ledger, include_telemetry_tool=False)
-        assert all(t["name"] != "atelier_session_status" for t in tool_specs)
+        tool_specs, _ = make_lemoncrow_tools(ledger, include_telemetry_tool=False)
+        assert all(t["name"] != "lemoncrow_session_status" for t in tool_specs)
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +323,7 @@ class TestAtelierAnthropicTools:
 
 class TestRunLedgerPrefixHash:
     def test_record_call_stores_prefix_hash(self) -> None:
-        from atelier.infra.runtime.run_ledger import RunLedger
+        from lemoncrow.infra.runtime.run_ledger import RunLedger
 
         ledger = RunLedger(agent="test", task="test")
         ledger.record_call(
@@ -341,7 +341,7 @@ class TestRunLedgerPrefixHash:
         assert call_events[0].payload["prefix_invalidated_reason"] == ""
 
     def test_record_call_stores_invalidation_reason(self) -> None:
-        from atelier.infra.runtime.run_ledger import RunLedger
+        from lemoncrow.infra.runtime.run_ledger import RunLedger
 
         ledger = RunLedger(agent="test", task="test")
         ledger.record_call(
@@ -363,8 +363,8 @@ class TestRunLedgerPrefixHash:
 
 class TestGeminiADKMiddleware:
     def _make(self) -> Any:
-        from atelier.infra.runtime.run_ledger import RunLedger
-        from atelier.sdk.gemini_adk import GeminiADKMiddleware
+        from lemoncrow.infra.runtime.run_ledger import RunLedger
+        from lemoncrow.sdk.gemini_adk import GeminiADKMiddleware
 
         ledger = RunLedger(agent="test", task="gemini task")
         return GeminiADKMiddleware(ledger), ledger
@@ -395,8 +395,8 @@ class TestGeminiADKMiddleware:
         assert any(a.payload.get("event_type") == "REPEATED_TOOL_CALL" for a in alerts)
 
     def test_context_manager(self) -> None:
-        from atelier.infra.runtime.run_ledger import RunLedger
-        from atelier.sdk.gemini_adk import GeminiADKMiddleware
+        from lemoncrow.infra.runtime.run_ledger import RunLedger
+        from lemoncrow.sdk.gemini_adk import GeminiADKMiddleware
 
         ledger = RunLedger(agent="test", task="test")
         with GeminiADKMiddleware(ledger) as hooks:
@@ -412,17 +412,17 @@ class TestGeminiADKMiddleware:
 
 class TestAdaptersExports:
     def test_exports_all_public_symbols(self) -> None:
-        from atelier.gateway.adapters import (
-            AtelierMiddleware,
+        from lemoncrow.gateway.adapters import (
             GeminiADKMiddleware,
             LangChainMiddleware,
+            LemonCrowMiddleware,
             OpenAIAgentsHooks,
-            make_atelier_tools,
+            make_lemoncrow_tools,
         )
 
         # All imports must resolve
-        assert AtelierMiddleware is not None
+        assert LemonCrowMiddleware is not None
         assert GeminiADKMiddleware is not None
         assert LangChainMiddleware is not None
         assert OpenAIAgentsHooks is not None
-        assert callable(make_atelier_tools)
+        assert callable(make_lemoncrow_tools)

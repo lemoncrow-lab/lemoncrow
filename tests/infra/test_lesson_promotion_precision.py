@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.lesson_promotion import LessonPromoterCapability
-from atelier.core.foundation.models import Playbook, Trace
-from atelier.core.foundation.store import ContextStore
-from atelier.infra.storage.vector import generate_embedding
+from lemoncrow.core.capabilities.lesson_promotion import LessonPromoterCapability
+from lemoncrow.core.foundation.models import Playbook, Trace
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.vector import generate_embedding
 
 
 class _FixtureEmbedder:
@@ -25,10 +25,10 @@ def _fixture_path() -> Path:
 
 def test_lesson_promotion_precision_on_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "atelier.core.capabilities.lesson_promotion.capability.draft_lesson_body",
+        "lemoncrow.core.capabilities.lesson_promotion.capability.draft_lesson_body",
         lambda traces: "fixture lesson body",
     )
-    store = ContextStore(tmp_path / ".atelier")
+    store = ContextStore(tmp_path / ".lemoncrow")
     store.init()
     # Seed one existing block so edit_block candidates have a meaningful target.
     store.upsert_block(

@@ -1,6 +1,6 @@
 """Tests for the servicectl daemon auto-update.
 
-Atelier ships only two ways (git checkout, GitHub-release install), so the
+LemonCrow ships only two ways (git checkout, GitHub-release install), so the
 daemon auto-update has two paths. The release path is the subtle one: it must
 launch a *detached* installer and then NOT signal the daemon to exit — otherwise
 the service manager restarts the daemon, it re-checks, and relaunches the
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.infra.runtime import servicectl_lifecycle as svc
+from lemoncrow.infra.runtime import servicectl_lifecycle as svc
 
 # --------------------------------------------------------------------------- #
 # detection                                                                   #
@@ -36,7 +36,7 @@ def test_detect_git_when_checkout(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 def test_update_via_release_respects_explicit_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
     import shutil
 
-    monkeypatch.setenv("ATELIER_AUTO_UPDATE_RELEASE", "0")
+    monkeypatch.setenv("LEMONCROW_AUTO_UPDATE_RELEASE", "0")
     monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/bash")
 
     def _boom(*_a: object, **_k: object) -> object:
@@ -49,10 +49,10 @@ def test_update_via_release_respects_explicit_opt_out(monkeypatch: pytest.Monkey
 def test_update_via_release_noop_when_current(monkeypatch: pytest.MonkeyPatch) -> None:
     import shutil
 
-    monkeypatch.delenv("ATELIER_AUTO_UPDATE_RELEASE", raising=False)
+    monkeypatch.delenv("LEMONCROW_AUTO_UPDATE_RELEASE", raising=False)
     monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/bash")
     monkeypatch.setattr(svc, "_github_latest_version", lambda: "1.0.0")
-    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.0.0")
+    monkeypatch.setattr(svc, "_lemoncrow_version", lambda: "1.0.0")
 
     def _boom(*_a: object, **_k: object) -> object:
         raise AssertionError("must not launch installer when already current")
@@ -64,10 +64,10 @@ def test_update_via_release_noop_when_current(monkeypatch: pytest.MonkeyPatch) -
 def test_update_via_release_noop_when_latest_is_lower(monkeypatch: pytest.MonkeyPatch) -> None:
     import shutil
 
-    monkeypatch.delenv("ATELIER_AUTO_UPDATE_RELEASE", raising=False)
+    monkeypatch.delenv("LEMONCROW_AUTO_UPDATE_RELEASE", raising=False)
     monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/bash")
     monkeypatch.setattr(svc, "_github_latest_version", lambda: "1.0.0")
-    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.1.0")
+    monkeypatch.setattr(svc, "_lemoncrow_version", lambda: "1.1.0")
 
     def _boom(*_a: object, **_k: object) -> object:
         raise AssertionError("must not launch installer for a lower version")
@@ -80,11 +80,11 @@ def test_update_via_release_launches_detached_installer(monkeypatch: pytest.Monk
     import shutil
     import urllib.request
 
-    monkeypatch.setenv("ATELIER_AUTO_UPDATE_RELEASE", "1")
+    monkeypatch.setenv("LEMONCROW_AUTO_UPDATE_RELEASE", "1")
     monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/bash")
     monkeypatch.setattr(shutil, "copyfileobj", lambda _src, _dst: None)
     monkeypatch.setattr(svc, "_github_latest_version", lambda: "2.0.0")
-    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.0.0")
+    monkeypatch.setattr(svc, "_lemoncrow_version", lambda: "1.0.0")
 
     class _Resp:
         def __enter__(self) -> _Resp:
@@ -109,7 +109,7 @@ def test_update_via_release_launches_detached_installer(monkeypatch: pytest.Monk
     kwargs = captured["kwargs"]
     assert isinstance(kwargs, dict)
     assert kwargs["start_new_session"] is True
-    assert kwargs["env"]["ATELIER_NON_INTERACTIVE"] == "1"  # type: ignore[index]
+    assert kwargs["env"]["LEMONCROW_NON_INTERACTIVE"] == "1"  # type: ignore[index]
 
 
 # --------------------------------------------------------------------------- #
@@ -121,7 +121,7 @@ def test_release_apply_does_not_signal_exit(monkeypatch: pytest.MonkeyPatch, tmp
     """Release path returns False even when an installer launches, so the daemon
     does not exit-and-relaunch on the next tick before the installer lands."""
     monkeypatch.setattr(svc, "_detect_auto_update_method", lambda: ("release", None))
-    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.0.0")
+    monkeypatch.setattr(svc, "_lemoncrow_version", lambda: "1.0.0")
     monkeypatch.setattr(svc, "_update_via_release", lambda: True)
     assert svc._servicectl_check_and_apply_updates(tmp_path) is False
 
@@ -130,12 +130,12 @@ def test_git_apply_signals_exit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     """Git path returns True (caller exits for an immediate restart on new code)."""
     monkeypatch.setattr(svc, "_detect_auto_update_method", lambda: ("git", str(tmp_path)))
     versions = iter(("2.3.4", "9.9.9"))
-    monkeypatch.setattr(svc, "_atelier_version", lambda: next(versions))
+    monkeypatch.setattr(svc, "_lemoncrow_version", lambda: next(versions))
 
     monkeypatch.setattr(svc, "_update_via_git", lambda _root: True)
     monkeypatch.setattr(svc, "_stack_restart", lambda: None)
 
-    import atelier.core.foundation.update_state as update_state
+    import lemoncrow.core.foundation.update_state as update_state
 
     recorded: dict[str, object] = {}
     monkeypatch.setattr(update_state, "write_update_state", lambda **kwargs: recorded.update(kwargs))
@@ -146,7 +146,7 @@ def test_git_apply_signals_exit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
 
 def test_git_apply_noop_when_up_to_date(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(svc, "_detect_auto_update_method", lambda: ("git", str(tmp_path)))
-    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.0.0")
+    monkeypatch.setattr(svc, "_lemoncrow_version", lambda: "1.0.0")
     monkeypatch.setattr(svc, "_update_via_git", lambda _root: False)
 
     def _boom() -> None:
@@ -179,7 +179,7 @@ def test_update_via_git_tracks_origin_main_not_upstream(monkeypatch: pytest.Monk
             return _FakeCompleted(stdout="2\n")
         return _FakeCompleted(returncode=0)
 
-    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.0.0")
+    monkeypatch.setattr(svc, "_lemoncrow_version", lambda: "1.0.0")
     monkeypatch.setattr(svc.subprocess, "run", fake_run)
 
     assert svc._update_via_git(str(tmp_path)) is True
@@ -204,7 +204,7 @@ def test_update_via_git_returns_false_when_cannot_fast_forward(monkeypatch: pyte
             return _FakeCompleted(returncode=1, stderr="fatal: Not possible to fast-forward")
         return _FakeCompleted(returncode=0)
 
-    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.0.0")
+    monkeypatch.setattr(svc, "_lemoncrow_version", lambda: "1.0.0")
     monkeypatch.setattr(svc.subprocess, "run", fake_run)
     assert svc._update_via_git(str(tmp_path)) is False
 
@@ -219,7 +219,7 @@ def test_update_via_git_skips_when_remote_version_is_not_higher(
             raise AssertionError("must not merge a non-higher version")
         return _FakeCompleted(returncode=0)
 
-    monkeypatch.setattr(svc, "_atelier_version", lambda: "1.1.0")
+    monkeypatch.setattr(svc, "_lemoncrow_version", lambda: "1.1.0")
     monkeypatch.setattr(svc.subprocess, "run", fake_run)
     assert svc._update_via_git(str(tmp_path)) is False
 

@@ -18,8 +18,8 @@ from typing import Any
 
 import pytest
 
-import atelier.core.capabilities.tool_supervision.bash_exec as bx
-from atelier.gateway.adapters import mcp_server
+import lemoncrow.core.capabilities.tool_supervision.bash_exec as bx
+from lemoncrow.gateway.adapters import mcp_server
 from tests.helpers import init_store_at
 
 
@@ -43,14 +43,14 @@ def _bash_request(rid: Any, command: str, **args: Any) -> dict[str, Any]:
 
 @pytest.fixture()
 def bash_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("ATELIER_MEMORY_BACKEND", "sqlite")
-    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    monkeypatch.setenv("LEMONCROW_MEMORY_BACKEND", "sqlite")
+    monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
     # Default: deferral enabled (do not let an ambient value leak in).
-    monkeypatch.delenv("ATELIER_MCP_DEFER_BASH", raising=False)
+    monkeypatch.delenv("LEMONCROW_MCP_DEFER_BASH", raising=False)
     mcp_server._current_ledger = None
     mcp_server._realtime_ctx = None
     return tmp_path
@@ -179,7 +179,7 @@ def test_deferred_already_complete_race_writes_exactly_once(bash_env: Path, monk
 
 
 def test_kill_switch_keeps_handler_synchronous(bash_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_MCP_DEFER_BASH", "0")
+    monkeypatch.setenv("LEMONCROW_MCP_DEFER_BASH", "0")
 
     # Even inside a deferral-capable context, the kill switch returns a plain dict.
     mcp_server._deferral_context.active = True

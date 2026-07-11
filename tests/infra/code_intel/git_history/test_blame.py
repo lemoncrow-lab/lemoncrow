@@ -5,8 +5,8 @@ from dataclasses import is_dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from atelier.infra.code_intel.git_history.blame import BlameAnnotator
-from atelier.infra.code_intel.git_history.models import BlameRangeAnnotation, BlameRequest
+from lemoncrow.infra.code_intel.git_history.blame import BlameAnnotator
+from lemoncrow.infra.code_intel.git_history.models import BlameRangeAnnotation, BlameRequest
 
 
 def _git(args: list[str], repo_root: Path, *, env: dict[str, str] | None = None) -> str:

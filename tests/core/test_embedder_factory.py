@@ -7,19 +7,19 @@ from urllib.request import Request
 
 import pytest
 
-from atelier.infra.embeddings.base import Embedder
-from atelier.infra.embeddings.factory import make_code_embedder, make_embedder
-from atelier.infra.embeddings.null_embedder import NullEmbedder
-from atelier.infra.embeddings.ollama_embedder import OllamaEmbedder
-from atelier.infra.embeddings.openai_embedder import OpenAIEmbedder
+from lemoncrow.infra.embeddings.base import Embedder
+from lemoncrow.infra.embeddings.factory import make_code_embedder, make_embedder
+from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
+from lemoncrow.infra.embeddings.ollama_embedder import OllamaEmbedder
+from lemoncrow.infra.embeddings.openai_embedder import OpenAIEmbedder
 
 
 def test_make_embedder_returns_null_in_stripped_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without explicit pins, defaults to NullEmbedder (FTS-only; the local feature-hashing embedder was removed)."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("ATELIER_LETTA_URL", raising=False)
-    monkeypatch.delenv("ATELIER_EMBEDDER", raising=False)
-    monkeypatch.delenv("ATELIER_MEMORY_BACKEND", raising=False)
+    monkeypatch.delenv("LEMONCROW_LETTA_URL", raising=False)
+    monkeypatch.delenv("LEMONCROW_EMBEDDER", raising=False)
+    monkeypatch.delenv("LEMONCROW_MEMORY_BACKEND", raising=False)
 
     e = make_embedder()
     assert isinstance(e, NullEmbedder)
@@ -39,10 +39,10 @@ def test_make_embedder_openai_raises_without_key(monkeypatch: pytest.MonkeyPatch
 
 
 def test_make_embedder_env_pin_null(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_EMBEDDER", "null")
+    monkeypatch.setenv("LEMONCROW_EMBEDDER", "null")
     e = make_embedder()
     assert isinstance(e, NullEmbedder)
-    monkeypatch.delenv("ATELIER_EMBEDDER")
+    monkeypatch.delenv("LEMONCROW_EMBEDDER")
 
 
 def test_make_embedder_bad_pin_raises() -> None:
@@ -57,7 +57,7 @@ def test_openai_embedder_init_fails_without_key(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_all_embedders_satisfy_protocol() -> None:
-    from atelier.infra.embeddings.letta_embedder import LettaEmbedder
+    from lemoncrow.infra.embeddings.letta_embedder import LettaEmbedder
 
     for cls in (NullEmbedder, LettaEmbedder):
         instance = cls()
@@ -72,12 +72,12 @@ def test_null_embedder_dim_and_name() -> None:
 
 def test_make_code_embedder_defaults_to_null_without_bge_extras(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without pins or BGE extras installed, defaults to NullEmbedder (FTS-only)."""
-    from atelier.infra.embeddings.bge import BgeEmbedder
+    from lemoncrow.infra.embeddings.bge import BgeEmbedder
 
     make_code_embedder.cache_clear()
-    monkeypatch.delenv("ATELIER_CODE_EMBEDDER", raising=False)
-    monkeypatch.delenv("ATELIER_EMBEDDER", raising=False)
-    monkeypatch.delenv("ATELIER_OFFLINE", raising=False)
+    monkeypatch.delenv("LEMONCROW_CODE_EMBEDDER", raising=False)
+    monkeypatch.delenv("LEMONCROW_EMBEDDER", raising=False)
+    monkeypatch.delenv("LEMONCROW_OFFLINE", raising=False)
     monkeypatch.setattr(OllamaEmbedder, "is_available", lambda self: True)
     monkeypatch.setattr(BgeEmbedder, "is_available", classmethod(lambda cls: False))
 
@@ -89,12 +89,12 @@ def test_make_code_embedder_defaults_to_null_without_bge_extras(monkeypatch: pyt
 
 def test_make_code_embedder_defaults_to_bge_on_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without pins, auto-selects BGE-Code-v1 when extras are installed and a GPU has enough VRAM."""
-    from atelier.infra.embeddings import factory as factory_mod
-    from atelier.infra.embeddings.bge import BgeEmbedder
+    from lemoncrow.infra.embeddings import factory as factory_mod
+    from lemoncrow.infra.embeddings.bge import BgeEmbedder
 
     make_code_embedder.cache_clear()
-    monkeypatch.delenv("ATELIER_CODE_EMBEDDER", raising=False)
-    monkeypatch.delenv("ATELIER_EMBEDDER", raising=False)
+    monkeypatch.delenv("LEMONCROW_CODE_EMBEDDER", raising=False)
+    monkeypatch.delenv("LEMONCROW_EMBEDDER", raising=False)
     monkeypatch.setattr(BgeEmbedder, "is_available", classmethod(lambda cls: True))
     monkeypatch.setattr(factory_mod, "_gpu_has_sufficient_vram_for_bge", lambda: True)
 
@@ -106,13 +106,13 @@ def test_make_code_embedder_defaults_to_bge_on_gpu(monkeypatch: pytest.MonkeyPat
 
 def test_make_code_embedder_falls_back_to_sfr_without_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without pins, falls back to the small SFR model when there's no GPU / insufficient VRAM."""
-    from atelier.infra.embeddings import factory as factory_mod
-    from atelier.infra.embeddings.bge import BgeEmbedder
-    from atelier.infra.embeddings.nomic import NomicEmbedder
+    from lemoncrow.infra.embeddings import factory as factory_mod
+    from lemoncrow.infra.embeddings.bge import BgeEmbedder
+    from lemoncrow.infra.embeddings.nomic import NomicEmbedder
 
     make_code_embedder.cache_clear()
-    monkeypatch.delenv("ATELIER_CODE_EMBEDDER", raising=False)
-    monkeypatch.delenv("ATELIER_EMBEDDER", raising=False)
+    monkeypatch.delenv("LEMONCROW_CODE_EMBEDDER", raising=False)
+    monkeypatch.delenv("LEMONCROW_EMBEDDER", raising=False)
     monkeypatch.setattr(BgeEmbedder, "is_available", classmethod(lambda cls: True))
     monkeypatch.setattr(factory_mod, "_gpu_has_sufficient_vram_for_bge", lambda: False)
 
@@ -126,7 +126,7 @@ def test_make_code_embedder_falls_back_to_sfr_without_gpu(monkeypatch: pytest.Mo
 
 def test_make_code_embedder_null_pin_skips_auto_select(monkeypatch: pytest.MonkeyPatch) -> None:
     """Explicit null pin must NOT trigger BGE auto-select even when the extras are installed."""
-    from atelier.infra.embeddings.bge import BgeEmbedder
+    from lemoncrow.infra.embeddings.bge import BgeEmbedder
 
     make_code_embedder.cache_clear()
     monkeypatch.setattr(BgeEmbedder, "is_available", classmethod(lambda cls: True))
@@ -141,8 +141,8 @@ def test_make_code_embedder_falls_back_to_null_when_pinned_ollama_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     make_code_embedder.cache_clear()
-    monkeypatch.setenv("ATELIER_CODE_EMBEDDER", "ollama")
-    monkeypatch.delenv("ATELIER_OFFLINE", raising=False)
+    monkeypatch.setenv("LEMONCROW_CODE_EMBEDDER", "ollama")
+    monkeypatch.delenv("LEMONCROW_OFFLINE", raising=False)
     monkeypatch.setattr(OllamaEmbedder, "is_available", lambda self: False)
 
     embedder = make_code_embedder()
@@ -153,8 +153,8 @@ def test_make_code_embedder_falls_back_to_null_when_pinned_ollama_unavailable(
 
 def test_make_code_embedder_uses_ollama_when_pinned_and_available(monkeypatch: pytest.MonkeyPatch) -> None:
     make_code_embedder.cache_clear()
-    monkeypatch.setenv("ATELIER_CODE_EMBEDDER", "ollama")
-    monkeypatch.delenv("ATELIER_OFFLINE", raising=False)
+    monkeypatch.setenv("LEMONCROW_CODE_EMBEDDER", "ollama")
+    monkeypatch.delenv("LEMONCROW_OFFLINE", raising=False)
     monkeypatch.setattr(OllamaEmbedder, "is_available", lambda self: True)
 
     embedder = make_code_embedder()
@@ -168,8 +168,8 @@ def test_make_code_embedder_revalidates_ollama_after_mid_session_outage(
 ) -> None:
     """A cached Ollama embedder must not be returned once Ollama goes down mid-session."""
     make_code_embedder.cache_clear()
-    monkeypatch.setenv("ATELIER_CODE_EMBEDDER", "ollama")
-    monkeypatch.delenv("ATELIER_OFFLINE", raising=False)
+    monkeypatch.setenv("LEMONCROW_CODE_EMBEDDER", "ollama")
+    monkeypatch.delenv("LEMONCROW_OFFLINE", raising=False)
 
     availability = {"up": True}
     monkeypatch.setattr(OllamaEmbedder, "is_available", lambda self: availability["up"])

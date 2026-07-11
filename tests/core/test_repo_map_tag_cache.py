@@ -4,7 +4,7 @@ These exercise the cache directly and through ``build_reference_graph``:
   * a warm hit on an unchanged file skips ``extract_tags``
   * an mtime *or* size change invalidates the entry (re-parse happens)
   * an unwritable DB path falls back to an in-memory store (never raises)
-  * the ``ATELIER_REPOMAP_TAG_CACHE`` kill switch disables persistence
+  * the ``LEMONCROW_REPOMAP_TAG_CACHE`` kill switch disables persistence
 
 The in-process ``_REFERENCE_GRAPH_CACHE`` short-circuits repeated identical
 calls within one process, so tests that want to exercise the *persistent*
@@ -18,21 +18,21 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.repo_map import graph as graph_mod
-from atelier.core.capabilities.repo_map.graph import build_reference_graph
-from atelier.core.capabilities.repo_map.tag_cache import (
+from lemoncrow.core.capabilities.repo_map import graph as graph_mod
+from lemoncrow.core.capabilities.repo_map.graph import build_reference_graph
+from lemoncrow.core.capabilities.repo_map.tag_cache import (
     TagCache,
     default_tag_cache_path,
     tag_cache_enabled,
 )
-from atelier.infra.tree_sitter.tags import Tag, extract_tags
+from lemoncrow.infra.tree_sitter.tags import Tag, extract_tags
 
 
 @pytest.fixture(autouse=True)
 def _isolate_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Point the global store root at a throwaway dir and reset env + caches."""
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path / "_store"))
-    monkeypatch.delenv("ATELIER_REPOMAP_TAG_CACHE", raising=False)
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "_store"))
+    monkeypatch.delenv("LEMONCROW_REPOMAP_TAG_CACHE", raising=False)
     graph_mod._REFERENCE_GRAPH_CACHE.clear()
     yield
     graph_mod._REFERENCE_GRAPH_CACHE.clear()
@@ -107,7 +107,7 @@ def test_unwritable_db_falls_back_to_memory(tmp_path: Path, monkeypatch: pytest.
     blocker = tmp_path / "blocked"
     blocker.write_text("not a dir", encoding="utf-8")
     monkeypatch.setattr(
-        "atelier.core.capabilities.repo_map.tag_cache.default_tag_cache_path",
+        "lemoncrow.core.capabilities.repo_map.tag_cache.default_tag_cache_path",
         lambda _root: blocker / "workspaces" / "x" / "repo_map_tags.sqlite",
     )
     src = tmp_path / "a.py"
@@ -129,7 +129,7 @@ def test_unwritable_db_falls_back_to_memory(tmp_path: Path, monkeypatch: pytest.
 
 def test_kill_switch_disables_persistence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for value in ("0", "false", "off", "OFF", "No"):
-        monkeypatch.setenv("ATELIER_REPOMAP_TAG_CACHE", value)
+        monkeypatch.setenv("LEMONCROW_REPOMAP_TAG_CACHE", value)
         assert tag_cache_enabled() is False
         cache = TagCache.for_repo(tmp_path)
         try:
@@ -142,10 +142,10 @@ def test_kill_switch_disables_persistence(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_enabled_by_default_and_for_truthy_values(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_REPOMAP_TAG_CACHE", raising=False)
+    monkeypatch.delenv("LEMONCROW_REPOMAP_TAG_CACHE", raising=False)
     assert tag_cache_enabled() is True
     for value in ("1", "true", "on", "yes", "anything"):
-        monkeypatch.setenv("ATELIER_REPOMAP_TAG_CACHE", value)
+        monkeypatch.setenv("LEMONCROW_REPOMAP_TAG_CACHE", value)
         assert tag_cache_enabled() is True
 
 
@@ -211,7 +211,7 @@ def test_changed_file_is_reparsed_only_for_that_file(tmp_path: Path, monkeypatch
 
 
 def test_build_reference_graph_kill_switch_always_reparses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_REPOMAP_TAG_CACHE", "0")
+    monkeypatch.setenv("LEMONCROW_REPOMAP_TAG_CACHE", "0")
     _write(tmp_path / "a.py", "def alpha():\n    return 1\n")
     files = ["a.py"]
 

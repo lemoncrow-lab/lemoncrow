@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.code_context import CodeContextEngine
-from atelier.core.capabilities.code_context.budget import BudgetPacker
-from atelier.core.capabilities.code_context.models import SymbolRecord, TextMatch
-from atelier.core.capabilities.code_context.output_policy import TRUNCATION_MARKER
-from atelier.infra.code_intel.astgrep import PatternMatch, PatternSearchResult
-from atelier.infra.code_intel.cross_lang.runner import CrossLangRunner
+from lemoncrow.core.capabilities.code_context import CodeContextEngine
+from lemoncrow.core.capabilities.code_context.budget import BudgetPacker
+from lemoncrow.core.capabilities.code_context.models import SymbolRecord, TextMatch
+from lemoncrow.core.capabilities.code_context.output_policy import TRUNCATION_MARKER
+from lemoncrow.infra.code_intel.astgrep import PatternMatch, PatternSearchResult
+from lemoncrow.infra.code_intel.cross_lang.runner import CrossLangRunner
 
 
 def _write_fixture_repo(root: Path) -> None:
@@ -87,7 +87,7 @@ def _write_call_graph_fixture_repo(root: Path) -> None:
 
 
 def _write_substring_search_fixture_repo(root: Path) -> None:
-    noise_dir = root / "src" / "atelier" / "core" / "capabilities"
+    noise_dir = root / "src" / "lemoncrow" / "core" / "capabilities"
     noise_dir.mkdir(parents=True, exist_ok=True)
     (noise_dir / "a_noise.py").write_text(
         "\n".join(
@@ -849,7 +849,7 @@ def test_explore_pins_exact_symbol_name(tmp_path: Path) -> None:
 def test_symbol_query_regex_separates_identifiers_from_concepts() -> None:
     # The exact-name lookup is gated on this regex: bare identifiers / dotted
     # paths trigger it; multi-word concept queries skip it (no extra search).
-    from atelier.core.capabilities.code_context.engine import _SYMBOL_QUERY_RE
+    from lemoncrow.core.capabilities.code_context.engine import _SYMBOL_QUERY_RE
 
     assert _SYMBOL_QUERY_RE.match("_pack_single_payload")
     assert _SYMBOL_QUERY_RE.match("module.Class.method")
@@ -866,7 +866,7 @@ def test_tool_search_text_prefers_symbol_hits_for_substring_queries(tmp_path: Pa
         "aggregate",
         mode="lexical",
         intent="text",
-        file_glob="src/atelier/**/*.py",
+        file_glob="src/lemoncrow/**/*.py",
         limit=10,
         budget_tokens=4000,
     )
@@ -874,7 +874,7 @@ def test_tool_search_text_prefers_symbol_hits_for_substring_queries(tmp_path: Pa
         "applies",
         mode="lexical",
         intent="text",
-        file_glob="src/atelier/**/*.py",
+        file_glob="src/lemoncrow/**/*.py",
         limit=10,
         budget_tokens=4000,
     )
@@ -882,7 +882,7 @@ def test_tool_search_text_prefers_symbol_hits_for_substring_queries(tmp_path: Pa
         "adaptivepriortracker",
         mode="lexical",
         intent="text",
-        file_glob="src/atelier/**/*.py",
+        file_glob="src/lemoncrow/**/*.py",
         limit=10,
         budget_tokens=4000,
     )
@@ -1020,7 +1020,7 @@ def test_retrieval_cache_invalidated_on_index_bump(tmp_path: Path) -> None:
 def test_tool_search_deleted_scope_returns_graveyard_items_with_provenance_and_cache_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ATELIER_HISTORY_ENABLED", "1")  # feature is opt-in (default off)
+    monkeypatch.setenv("LEMONCROW_HISTORY_ENABLED", "1")  # feature is opt-in (default off)
     repo_root = tmp_path / "repo"
     delete_sha = _write_deleted_history_fixture(repo_root)
     engine = CodeContextEngine(repo_root, db_path=tmp_path / "code.sqlite")
@@ -1040,7 +1040,7 @@ def test_tool_search_deleted_scope_returns_graveyard_items_with_provenance_and_c
 def test_tool_search_deleted_scope_is_rename_aware_on_current_public_identity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ATELIER_HISTORY_ENABLED", "1")  # feature is opt-in (default off)
+    monkeypatch.setenv("LEMONCROW_HISTORY_ENABLED", "1")  # feature is opt-in (default off)
     repo_root = tmp_path / "repo"
     rename_sha = _write_rename_history_fixture(repo_root)
     engine = CodeContextEngine(repo_root, db_path=tmp_path / "code.sqlite")
@@ -1057,7 +1057,7 @@ def test_tool_search_deleted_scope_is_rename_aware_on_current_public_identity(
 def test_tool_search_deleted_scope_applies_temporal_and_touched_by_filters_and_widens_cache_keys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ATELIER_HISTORY_ENABLED", "1")  # feature is opt-in (default off)
+    monkeypatch.setenv("LEMONCROW_HISTORY_ENABLED", "1")  # feature is opt-in (default off)
     repo_root = tmp_path / "repo"
     _write_deleted_history_fixture(repo_root)
     engine = CodeContextEngine(repo_root, db_path=tmp_path / "code.sqlite")
@@ -1099,7 +1099,7 @@ def test_tool_search_deleted_scope_dispatches_via_git_history_adapter(
     _write_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
 
-    from atelier.infra.code_intel.git_history.adapter import DeletedHistorySearchAdapter
+    from lemoncrow.infra.code_intel.git_history.adapter import DeletedHistorySearchAdapter
 
     def fake_search(
         self: object,
@@ -1843,7 +1843,7 @@ def test_tool_explore_respects_budget_and_keeps_identity_fields(tmp_path: Path) 
 
 
 def test_tool_status_reports_index_cache_and_freshness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_CODE_AUTOSYNC", raising=False)
+    monkeypatch.delenv("LEMONCROW_CODE_AUTOSYNC", raising=False)
     _write_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
     engine.index_repo()
@@ -1873,7 +1873,7 @@ def test_tool_status_reports_index_cache_and_freshness(tmp_path: Path, monkeypat
 
 def test_autosync_incremental_reindex_updates_index_after_edit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_fixture_repo(tmp_path)
-    monkeypatch.setenv("ATELIER_CODE_AUTOSYNC_DEBOUNCE_MS", "50")
+    monkeypatch.setenv("LEMONCROW_CODE_AUTOSYNC_DEBOUNCE_MS", "50")
     # No live worker: drive the autosync reindex deterministically below so this
     # test exercises the change-detection + reindex path without a thread race.
     monkeypatch.setattr(CodeContextEngine, "_start_autosync_worker", lambda self: None)
@@ -1922,12 +1922,12 @@ def test_autosync_incremental_reindex_updates_index_after_edit(tmp_path: Path, m
 
 def test_autosync_worker_reindexes_without_search_trigger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_fixture_repo(tmp_path)
-    monkeypatch.setenv("ATELIER_CODE_AUTOSYNC_DEBOUNCE_MS", "50")
-    monkeypatch.setenv("ATELIER_CODE_AUTOSYNC_POLL_MS", "100")
+    monkeypatch.setenv("LEMONCROW_CODE_AUTOSYNC_DEBOUNCE_MS", "50")
+    monkeypatch.setenv("LEMONCROW_CODE_AUTOSYNC_POLL_MS", "100")
     # Bypass the production-code poll floor (1000ms) so the worker detects
     # changes within ~200ms instead of ~2s.
     monkeypatch.setattr(
-        "atelier.core.capabilities.code_context.engine.CodeContextEngine._parse_autosync_poll_ms",
+        "lemoncrow.core.capabilities.code_context.engine.CodeContextEngine._parse_autosync_poll_ms",
         lambda self, raw_value: max(100, int(raw_value)) if raw_value else 100,
     )
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
@@ -2119,7 +2119,7 @@ def test_low_token_defaults_stay_lighter_for_search_and_pattern(
         assert key in tight["items"][0]
 
     monkeypatch.setattr(
-        "atelier.core.capabilities.code_context.engine.AstGrepAdapter.search",
+        "lemoncrow.core.capabilities.code_context.engine.AstGrepAdapter.search",
         lambda self, *, pattern, language=None, file_glob=None, limit=20: PatternSearchResult(
             matches=[
                 PatternMatch(
@@ -2156,7 +2156,7 @@ def test_native_pattern_uses_index_and_cache_for_def_patterns(tmp_path: Path, mo
     def fail_ast_parse(_source: str) -> object:
         raise AssertionError("indexed def patterns should not parse source")
 
-    monkeypatch.setattr("atelier.core.capabilities.code_context.engine.ast.parse", fail_ast_parse)
+    monkeypatch.setattr("lemoncrow.core.capabilities.code_context.engine.ast.parse", fail_ast_parse)
 
     first = engine.tool_pattern(pattern="def add_node($$$):", language="python", file_glob="src/**/*.py")
     second = engine.tool_pattern(pattern="def add_node($$$):", language="python", file_glob="src/**/*.py")
@@ -2177,7 +2177,7 @@ def test_search_text_uses_index_before_ripgrep(tmp_path: Path, monkeypatch: pyte
     def fail_rg(*args: object, **kwargs: object) -> object:
         raise AssertionError("search_text should use indexed line text before rg")
 
-    monkeypatch.setattr("atelier.core.capabilities.code_context.engine.subprocess.run", fail_rg)
+    monkeypatch.setattr("lemoncrow.core.capabilities.code_context.engine.subprocess.run", fail_rg)
 
     matches = engine.search_text("aggregate", path="src", limit=5, ignore_case=True)
 
@@ -2209,8 +2209,8 @@ def test_tiny_budget_overflow_does_not_attach_spill_metadata(tmp_path: Path) -> 
 
 def test_overflow_metadata_and_artifact_payload_are_compact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "atelier.core.capabilities.code_context.engine.default_store_root",
-        lambda: tmp_path / ".atelier-store",
+        "lemoncrow.core.capabilities.code_context.engine.default_store_root",
+        lambda: tmp_path / ".lemoncrow-store",
     )
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "orders.py").write_text(

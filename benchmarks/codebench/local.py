@@ -16,7 +16,7 @@ import statistics
 import tempfile
 from pathlib import Path
 
-from atelier.core.capabilities.pricing import usage_cost_usd
+from lemoncrow.core.capabilities.pricing import usage_cost_usd
 
 from benchmarks.codebench.tasks import Task
 

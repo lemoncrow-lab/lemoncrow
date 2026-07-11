@@ -5,9 +5,9 @@ from pathlib import Path
 
 from click.testing import CliRunner, Result
 
-from atelier.core.capabilities.lesson_promotion.models import TypedLesson
-from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
-from atelier.gateway.cli import cli
+from lemoncrow.core.capabilities.lesson_promotion.models import TypedLesson
+from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
+from lemoncrow.gateway.cli import cli
 
 
 def _invoke(root: Path, *args: str) -> Result:
@@ -15,7 +15,7 @@ def _invoke(root: Path, *args: str) -> Result:
 
 
 def test_cli_lesson_active_list_show_enable_disable(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     store = TypedLessonStore(root)
     lesson = TypedLesson(
         kind="route-preference",

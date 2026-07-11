@@ -17,16 +17,16 @@ _STUB = (
 
 
 def _setup(tmp_path: Path, settings: dict, n_edits: int) -> tuple[Path, Path]:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     ws = tmp_path / "ws"
     ws.mkdir()
-    from atelier.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import workspace_key
 
     state_dir = root / "workspaces" / workspace_key(ws)
     state_dir.mkdir(parents=True)
     (state_dir / "session_state.json").write_text(json.dumps({"session_id": "sid1"}), encoding="utf-8")
     (root / "plugin_settings.json").write_text(json.dumps(settings), encoding="utf-8")
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     runs = session_dir(root, "claude", "sid1")
     runs.mkdir(parents=True)
@@ -36,11 +36,11 @@ def _setup(tmp_path: Path, settings: dict, n_edits: int) -> tuple[Path, Path]:
 
 def _env(root: Path, ws: Path, marker: Path, stub: Path, **extra: str) -> dict:
     env = os.environ.copy()
-    env["ATELIER_ROOT"] = str(root)
+    env["LEMONCROW_ROOT"] = str(root)
     env["CLAUDE_WORKSPACE_ROOT"] = str(ws)
     env["PYTHONPATH"] = "src"
     env["REVIEW_MARKER"] = str(marker)
-    env["ATELIER_REVIEWER_CHILD_CMD"] = f"{sys.executable} {stub}"
+    env["LEMONCROW_REVIEWER_CHILD_CMD"] = f"{sys.executable} {stub}"
     env.update(extra)
     return env
 
@@ -105,6 +105,6 @@ def test_in_review_env_guard_spawns_nothing(tmp_path: Path) -> None:
     stub = tmp_path / "stub.py"
     stub.write_text(_STUB, encoding="utf-8")
     marker = tmp_path / "marker.txt"
-    _run(_env(root, ws, marker, stub, ATELIER_IN_REVIEW="1"))
+    _run(_env(root, ws, marker, stub, LEMONCROW_IN_REVIEW="1"))
     time.sleep(0.6)
     assert not marker.exists()

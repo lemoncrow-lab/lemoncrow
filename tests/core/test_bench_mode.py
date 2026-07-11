@@ -18,17 +18,17 @@ from unittest.mock import MagicMock
 import pytest
 
 # Force the submodule into sys.modules so we can retrieve it reliably.
-# NOTE: atelier/bench/__init__.py exports a *function* called `mode`, which
-# shadows the submodule at attribute lookup (`atelier.bench.mode` resolves to
+# NOTE: lemoncrow/bench/__init__.py exports a *function* called `mode`, which
+# shadows the submodule at attribute lookup (`lemoncrow.bench.mode` resolves to
 # the function when accessed as an attribute).  Using sys.modules avoids this.
-import atelier.bench.mode  # noqa: F401 — ensures sys.modules entry exists
+import lemoncrow.bench.mode  # noqa: F401 — ensures sys.modules entry exists
 
-_bm = sys.modules["atelier.bench.mode"]
+_bm = sys.modules["lemoncrow.bench.mode"]
 
-from atelier.bench.mode import BenchMode  # noqa: E402
+from lemoncrow.bench.mode import BenchMode  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Autouse fixture: reset the _mode singleton and ATELIER_BENCH_MODE env var
+# Autouse fixture: reset the _mode singleton and LEMONCROW_BENCH_MODE env var
 # before *every* test so they are fully independent.
 # ---------------------------------------------------------------------------
 
@@ -37,8 +37,8 @@ from atelier.bench.mode import BenchMode  # noqa: E402
 def reset_bench_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Reset singleton and env var so each test starts clean."""
     monkeypatch.setattr(_bm, "_mode", None)
-    monkeypatch.delenv("ATELIER_BENCH_MODE", raising=False)
-    monkeypatch.delenv("ATELIER_DEV_MODE", raising=False)
+    monkeypatch.delenv("LEMONCROW_BENCH_MODE", raising=False)
+    monkeypatch.delenv("LEMONCROW_DEV_MODE", raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -47,33 +47,33 @@ def reset_bench_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_is_off_when_env_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ATELIER_BENCH_MODE=off → is_off() returns True."""
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "off")
-    from atelier.bench.mode import is_off
+    """LEMONCROW_BENCH_MODE=off → is_off() returns True."""
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "off")
+    from lemoncrow.bench.mode import is_off
 
     assert is_off() is True
 
 
 def test_is_on_when_env_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ATELIER_BENCH_MODE=on → is_off() returns False."""
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "on")
-    from atelier.bench.mode import is_off
+    """LEMONCROW_BENCH_MODE=on → is_off() returns False."""
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "on")
+    from lemoncrow.bench.mode import is_off
 
     assert is_off() is False
 
 
 def test_is_on_when_env_absent(monkeypatch: pytest.MonkeyPatch) -> None:
     """Env var not set → default is bench-on → is_off() returns False."""
-    # monkeypatch already deleted ATELIER_BENCH_MODE in autouse fixture
-    from atelier.bench.mode import is_off
+    # monkeypatch already deleted LEMONCROW_BENCH_MODE in autouse fixture
+    from lemoncrow.bench.mode import is_off
 
     assert is_off() is False
 
 
 def test_is_off_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ATELIER_BENCH_MODE=OFF (uppercase) → is_off() returns True."""
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "OFF")
-    from atelier.bench.mode import is_off
+    """LEMONCROW_BENCH_MODE=OFF (uppercase) → is_off() returns True."""
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "OFF")
+    from lemoncrow.bench.mode import is_off
 
     assert is_off() is True
 
@@ -85,14 +85,14 @@ def test_is_off_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_bootstrap_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     """bootstrap() is idempotent: env changes after first call don't affect _mode."""
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "on")
-    from atelier.bench.mode import bootstrap
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "on")
+    from lemoncrow.bench.mode import bootstrap
 
     bootstrap()
     assert _bm._mode == BenchMode.ON
 
     # Change env *after* first bootstrap; second call must be a no-op
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "off")
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "off")
     bootstrap()
 
     # Must still be ON from first call
@@ -106,8 +106,8 @@ def test_bootstrap_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_mode_returns_bench_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """mode() returns a BenchMode instance."""
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "on")
-    from atelier.bench.mode import mode
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "on")
+    from lemoncrow.bench.mode import mode
 
     result = mode()
     assert isinstance(result, BenchMode)
@@ -120,19 +120,19 @@ def test_mode_returns_bench_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_make_arm_env_sets_root(tmp_path: Path) -> None:
-    """make_arm_env(tmp_path, mode=BenchMode.OFF) sets ATELIER_ROOT and ATELIER_BENCH_MODE=off."""
-    from atelier.bench.mode import make_arm_env
+    """make_arm_env(tmp_path, mode=BenchMode.OFF) sets LEMONCROW_ROOT and LEMONCROW_BENCH_MODE=off."""
+    from lemoncrow.bench.mode import make_arm_env
 
     env = make_arm_env(tmp_path, mode=BenchMode.OFF)
 
-    assert env["ATELIER_ROOT"] == str(tmp_path)
-    assert env["ATELIER_BENCH_MODE"] == "off"
+    assert env["LEMONCROW_ROOT"] == str(tmp_path)
+    assert env["LEMONCROW_BENCH_MODE"] == "off"
 
 
 def test_make_arm_env_preserves_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """make_arm_env result contains pre-existing environment variables."""
     monkeypatch.setenv("CUSTOM_TEST_VAR_12345", "sentinel_value")
-    from atelier.bench.mode import make_arm_env
+    from lemoncrow.bench.mode import make_arm_env
 
     env = make_arm_env(tmp_path, mode=BenchMode.ON)
 
@@ -146,24 +146,24 @@ def test_make_arm_env_preserves_env(monkeypatch: pytest.MonkeyPatch, tmp_path: P
 
 def test_mcp_tools_hidden_bench_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """mcp_tool_visible_to_llm('compact') returns False when bench is off."""
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "off")
-    from atelier.core.environment import mcp_tool_visible_to_llm
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "off")
+    from lemoncrow.core.environment import mcp_tool_visible_to_llm
 
     assert mcp_tool_visible_to_llm("compact") is False
 
 
 def test_mcp_tools_visible_bench_on(monkeypatch: pytest.MonkeyPatch) -> None:
     """bench-on restores the normal hidden/public policy for MCP tools."""
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "on")
-    from atelier.core.environment import mcp_tool_visible_to_llm
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "on")
+    from lemoncrow.core.environment import mcp_tool_visible_to_llm
 
     assert mcp_tool_visible_to_llm("compact") is False
 
 
 def test_bench_off_overrides_dev_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """bench-off hides the public MCP surface (MODE-04)."""
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "off")
-    from atelier.core.environment import mcp_tool_visible_to_llm
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "off")
+    from lemoncrow.core.environment import mcp_tool_visible_to_llm
 
     assert mcp_tool_visible_to_llm("compact") is False
 
@@ -175,8 +175,8 @@ def test_bench_off_overrides_dev_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_memory_returns_empty_bench_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """MemoryRegistry._load() returns [] when bench is off (no adapter calls made)."""
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "off")
-    from atelier.core.capabilities.cross_vendor_memory.registry import MemoryRegistry
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "off")
+    from lemoncrow.core.capabilities.cross_vendor_memory.registry import MemoryRegistry
 
     # Supply empty adapter list so no real I/O can happen
     registry = MemoryRegistry(adapters=[])
@@ -195,8 +195,8 @@ def test_compression_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
 
     A passthrough CompressionResult has reduction_pct=0 and dropped=[].
     """
-    monkeypatch.setenv("ATELIER_BENCH_MODE", "off")
-    from atelier.core.capabilities.context_compression.capability import (
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "off")
+    from lemoncrow.core.capabilities.context_compression.capability import (
         ContextCompressionCapability,
     )
 

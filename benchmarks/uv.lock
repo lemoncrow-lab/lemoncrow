@@ -324,7 +324,7 @@ wheels = [
 ]
 
 [[package]]
-name = "atelier"
+name = "lemoncrow"
 version = "0.2.0"
 source = { editable = "../" }
 dependencies = [
@@ -446,11 +446,11 @@ dev = [
 ]
 
 [[package]]
-name = "atelier-benchmarks"
+name = "lemoncrow-benchmarks"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "atelier" },
+    { name = "lemoncrow" },
     { name = "click" },
     { name = "jinja2" },
     { name = "matplotlib" },
@@ -470,7 +470,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "atelier", editable = "../" },
+    { name = "lemoncrow", editable = "../" },
     { name = "click", specifier = ">=8.1" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "matplotlib", specifier = ">=3.9" },

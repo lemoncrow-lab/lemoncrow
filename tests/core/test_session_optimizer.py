@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from atelier.core.capabilities.session_optimizer import (
+from lemoncrow.core.capabilities.session_optimizer import (
     SUPPORTED_OPTIMIZER_HOSTS,
     build_session_start_notice,
     build_trace_optimization_report,
     render_session_optimizer_guidance,
     session_optimization_rules,
 )
-from atelier.core.foundation.models import ToolCall, Trace
+from lemoncrow.core.foundation.models import ToolCall, Trace
 
 
 def _trace(
@@ -58,7 +58,7 @@ def test_guidance_contains_all_codeburn_guardrails() -> None:
 
 def test_session_start_notice_supports_all_five_hosts() -> None:
     for host in SUPPORTED_OPTIMIZER_HOSTS:
-        notice = build_session_start_notice("/tmp/atelier", host=host)
+        notice = build_session_start_notice("/tmp/lemoncrow", host=host)
         assert notice["hookSpecificOutput"]["hookEventName"] == "SessionStart"
         assert f"for {host}" in notice["additionalContext"]
         assert notice["optimizer"]["host"] == host

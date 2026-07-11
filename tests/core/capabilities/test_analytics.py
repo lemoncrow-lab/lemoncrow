@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.analytics.store import AnalyticsStore, SessionRecord
+from lemoncrow.core.capabilities.analytics.store import AnalyticsStore, SessionRecord
 
 
 def _record(session_id: str, **overrides: object) -> SessionRecord:

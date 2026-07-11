@@ -46,10 +46,10 @@ def test_cache_read_ratio_and_cost() -> None:
 
 
 def test_format_report_two_runs_has_delta() -> None:
-    base = aggregate("atelier_off", [_json_usage(1000, 100)])
-    cand = aggregate("atelier_on", [_json_usage(100, 100, cr=900)])
+    base = aggregate("lemoncrow_off", [_json_usage(1000, 100)])
+    cand = aggregate("lemoncrow_on", [_json_usage(100, 100, cr=900)])
     out = format_report([base, cand], _DEFAULT_PRICING)
-    assert "atelier_off" in out
-    assert "atelier_on" in out
+    assert "lemoncrow_off" in out
+    assert "lemoncrow_on" in out
     assert "cache-read ratio" in out
     assert "delta" in out

@@ -7,11 +7,11 @@ from hashlib import sha256
 
 import pytest
 
-from atelier.core.capabilities.prompt_compilation.compiler import (
+from lemoncrow.core.capabilities.prompt_compilation.compiler import (
     BudgetTooSmall,
     compile_prompt,
 )
-from atelier.core.capabilities.prompt_compilation.models import (
+from lemoncrow.core.capabilities.prompt_compilation.models import (
     COUNTEREXAMPLE_METADATA_KEY,
     BlockKind,
     PromptBlock,
@@ -67,7 +67,7 @@ def _sample_blocks() -> list[PromptBlock]:
         _block(
             id="sys/v1",
             kind=BlockKind.SYSTEM,
-            content="You are Atelier.",
+            content="You are LemonCrow.",
             stability=Stability.STATIC,
         ),
         _block(

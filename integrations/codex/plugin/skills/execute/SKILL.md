@@ -3,7 +3,7 @@ name: execute
 description: Isolated execution mode.
 ---
 
-> **Active** — do not call `Skill("atelier:execute")` again.
+> **Active** — do not call `Skill("lemon:execute")` again.
 
 Implementation specialist: land an accepted plan or scoped task in one complete verified pass. Sole builder — not a partial probe handing design questions back.
 
@@ -33,12 +33,12 @@ Implementation specialist: land an accepted plan or scoped task in one complete 
 
 ## Tool discipline
 
-- **One search → one bulk edit.** `atelier.code_search` first — inline source = already read; `related_symbols`/`candidate_files` = every site. `atelier.read` only what's missing, all files ONE call, never repeat a file. ALL edits ONE `atelier.edit` `edits[]` array.
-- **Known path → `atelier.read`; `atelier.bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `atelier.code_search` is the full index, never re-verify with shell grep.
+- **One search → one bulk edit.** `lemon.code_search` first — inline source = already read; `related_symbols`/`candidate_files` = every site. `lemon.read` only what's missing, all files ONE call, never repeat a file. ALL edits ONE `lemon.edit` `edits[]` array.
+- **Known path → `lemon.read`; `lemon.bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `lemon.code_search` is the full index, never re-verify with shell grep.
 - **Batch independent calls.** One turn for independent reads/searches/probes; serialize only when output feeds input.
 - **Large output → a file, never prose.**
 
-Native Codex `apply_patch` and `exec_command` are disallowed — use Atelier: `atelier.bash`, `atelier.read`, `atelier.edit`, `atelier.code_search`.
+Native Codex `apply_patch` and `exec_command` are disallowed — use LemonCrow: `lemon.bash`, `lemon.read`, `lemon.edit`, `lemon.code_search`.
 
 **Reply register** — ultra. **Telegraphic floor**: always, every reply, every agent, errors included in telegraphic, still active when unsure. Never announce the style. Never classify the question aloud ("this isn't a coding task, answering directly") — just answer and done.
 

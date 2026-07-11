@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from atelier.infra.code_intel.git_history.models import CommitSummary
+from lemoncrow.infra.code_intel.git_history.models import CommitSummary
 
 # Dummy embedding blob (4 float32s) so tests never depend on a live embedder.
 _DUMMY_EMBEDDING: bytes = struct.pack("4f", 0.1, 0.2, 0.3, 0.4)
@@ -32,14 +32,14 @@ def engine_with_commits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Create a minimal git repo with CodeContextEngine seeded with commit chunks."""
     # Mock embed_summary so tests never need a live embedding service.
     monkeypatch.setattr(
-        "atelier.infra.code_intel.git_history.embedder.embed_summary",
+        "lemoncrow.infra.code_intel.git_history.embedder.embed_summary",
         lambda _s: _DUMMY_EMBEDDING,
     )
 
     # Mock the query-side embedder so _search_commit_chunks gets a query
     # vector with the same dimension as the stored dummy embedding.
     monkeypatch.setattr(
-        "atelier.core.capabilities.code_context.embedding.SemanticSearchRanker._embed_query",
+        "lemoncrow.core.capabilities.code_context.embedding.SemanticSearchRanker._embed_query",
         lambda _self, _q: [0.1, 0.2, 0.3, 0.4],
     )
 
@@ -56,10 +56,10 @@ def engine_with_commits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
 
-    db_dir = tmp_path / ".atelier"
+    db_dir = tmp_path / ".lemoncrow"
     db_dir.mkdir(parents=True, exist_ok=True)
 
-    from atelier.core.capabilities.code_context.engine import CodeContextEngine
+    from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
 
     engine = CodeContextEngine(repo_root=tmp_path, db_path=db_dir / "code.db")
 

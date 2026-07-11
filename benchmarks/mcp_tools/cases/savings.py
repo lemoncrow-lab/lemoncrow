@@ -13,7 +13,7 @@ All fixtures are downloaded from public GitHub refs and cached under
 ``benchmarks/mcp_tools/fixtures/downloaded/``. Delete the cache dir to re-fetch.
 
 ## Code-intel cases
-Code-intel cases (node/callers/callees/symbols) run against the Atelier repo itself
+Code-intel cases (node/callers/callees/symbols) run against the LemonCrow repo itself
 (which already has a code index). Baseline = what a naive agent would
 consume via grep + full-file reads.
 """
@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import tiktoken
-from atelier.core.capabilities.native_read_baseline import (
+from lemoncrow.core.capabilities.native_read_baseline import (
     CLAUDE_NATIVE_READ_LINE_LIMIT,
     claude_read_baseline_text,
 )
@@ -324,7 +324,7 @@ def _baseline_claude_read(case: BenchCase) -> BaselineMeasurement:
     """Baseline = Claude's built-in Read (capped at the native line limit).
 
     This is the honest baseline: what would an agent receive if they called
-    the native Read tool instead of Atelier's ``read``?  Claude Code truncates
+    the native Read tool instead of LemonCrow's ``read``?  Claude Code truncates
     at a fixed line cap, so any file longer than that only exposes a partial
     view. The cap and truncation come from the shared runtime estimator, so this
     benchmark and the live savings numbers can never silently diverge.
@@ -379,7 +379,7 @@ def _make_node_baseline(symbol: str, containing_file: str) -> Any:
         content = _read_file(_REPO_ROOT / containing_file)
         return BaselineMeasurement(
             payload=content,
-            commands=[f"rg -l {symbol!r} src/atelier", f"cat {containing_file}"],
+            commands=[f"rg -l {symbol!r} src/lemoncrow", f"cat {containing_file}"],
         )
 
     return _b
@@ -393,12 +393,12 @@ def _make_callers_baseline(symbol: str) -> Any:
     """
 
     def _b(case: BenchCase) -> BaselineMeasurement:
-        files = _rg_files(symbol, "src/atelier")
-        grep_out = _rg(symbol, "src/atelier")
+        files = _rg_files(symbol, "src/lemoncrow")
+        grep_out = _rg(symbol, "src/lemoncrow")
         file_content = "".join(_read_file(_REPO_ROOT / f) for f in files[:8])
         return BaselineMeasurement(
             payload=grep_out + file_content,
-            commands=[f"rg -n {symbol!r} src/atelier"] + [f"cat {f}" for f in files[:8]],
+            commands=[f"rg -n {symbol!r} src/lemoncrow"] + [f"cat {f}" for f in files[:8]],
         )
 
     return _b
@@ -408,12 +408,12 @@ def _make_symbols_baseline(symbol: str) -> Any:
     """Baseline for symbol search: grep for name + read first matched file."""
 
     def _b(case: BenchCase) -> BaselineMeasurement:
-        files = _rg_files(symbol, "src/atelier")
-        grep_out = _rg(symbol, "src/atelier")
+        files = _rg_files(symbol, "src/lemoncrow")
+        grep_out = _rg(symbol, "src/lemoncrow")
         first_content = _read_file(_REPO_ROOT / files[0]) if files else ""
         return BaselineMeasurement(
             payload=grep_out + first_content,
-            commands=[f"rg -n {symbol!r} src/atelier"] + ([f"cat {files[0]}"] if files else []),
+            commands=[f"rg -n {symbol!r} src/lemoncrow"] + ([f"cat {files[0]}"] if files else []),
         )
 
     return _b
@@ -494,7 +494,7 @@ def _read_range_case(lang: str, path: Path) -> BenchCase:
     """Read lines 2100-2200 -- past Claude native Read cap (2000 lines).
 
     Baseline = native Read (returns lines 1-2000 only -- agent cannot
-    reach these lines without Atelier or a shell command).
+    reach these lines without LemonCrow or a shell command).
     """
     return BenchCase(
         op="read",
@@ -557,7 +557,7 @@ _GREP_PATTERNS: dict[str, str] = {
     "typescript": r"\bfunction \w+",  # named functions
 }
 
-# Code-intel cases — run against the Atelier repo (requires code index)
+# Code-intel cases — run against the LemonCrow repo (requires code index)
 _INTEL_CASES: list[BenchCase] = [
     # symbols/search: baseline = grep text + reading first matched file
     BenchCase(
@@ -578,7 +578,7 @@ _INTEL_CASES: list[BenchCase] = [
         custom_assert=_assert_intel_node,
         baseline_builder=_make_node_baseline(
             "compute_savings_summary",
-            "src/atelier/core/capabilities/savings_summary.py",
+            "src/lemoncrow/core/capabilities/savings_summary.py",
         ),
         min_baseline_tokens=0,
     ),
@@ -591,7 +591,7 @@ _INTEL_CASES: list[BenchCase] = [
         custom_assert=_assert_intel_node,
         baseline_builder=_make_node_baseline(
             "tool_smart_read",
-            "src/atelier/gateway/adapters/mcp_server.py",
+            "src/lemoncrow/gateway/adapters/mcp_server.py",
         ),
         min_baseline_tokens=0,
     ),
@@ -623,7 +623,7 @@ _INTEL_CASES: list[BenchCase] = [
         custom_assert=lambda r: None,
         baseline_builder=_make_node_baseline(
             "smart_read",
-            "src/atelier/core/capabilities/semantic_file_memory/capability.py",
+            "src/lemoncrow/core/capabilities/semantic_file_memory/capability.py",
         ),
         min_baseline_tokens=0,
     ),
@@ -635,8 +635,8 @@ _INTEL_CASES: list[BenchCase] = [
         assert_keys=[],
         custom_assert=_assert_intel_search,
         baseline_builder=lambda c: BaselineMeasurement(
-            payload=_rg("tokens_saved", "src/atelier"),
-            commands=["rg -n tokens_saved src/atelier"],
+            payload=_rg("tokens_saved", "src/lemoncrow"),
+            commands=["rg -n tokens_saved src/lemoncrow"],
         ),
         min_baseline_tokens=0,
     ),
@@ -652,7 +652,7 @@ _REPO_EXTRA_OUTLINE: list[BenchCase] = [
         op="read",
         label="read/outline/repo/mcp_server.py",
         args={
-            "path": str(_REPO_ROOT / "src/atelier/gateway/adapters/mcp_server.py"),
+            "path": str(_REPO_ROOT / "src/lemoncrow/gateway/adapters/mcp_server.py"),
             "include_meta": True,
         },
         assert_keys=["mode"],
@@ -664,7 +664,7 @@ _REPO_EXTRA_OUTLINE: list[BenchCase] = [
         op="read",
         label="read/outline/repo/capability.py",
         args={
-            "path": str(_REPO_ROOT / "src/atelier/core/capabilities/semantic_file_memory/capability.py"),
+            "path": str(_REPO_ROOT / "src/lemoncrow/core/capabilities/semantic_file_memory/capability.py"),
             "include_meta": True,
         },
         assert_keys=["mode"],
@@ -679,7 +679,7 @@ _REPO_EXTRA_RANGE: list[BenchCase] = [
         op="read",
         label="read/range/repo/mcp_server.py:3000-3100",
         args={
-            "path": str(_REPO_ROOT / "src/atelier/gateway/adapters/mcp_server.py"),
+            "path": str(_REPO_ROOT / "src/lemoncrow/gateway/adapters/mcp_server.py"),
             "range": "3000-3100",
             "include_meta": True,
         },
@@ -692,7 +692,7 @@ _REPO_EXTRA_RANGE: list[BenchCase] = [
         op="read",
         label="read/range/repo/savings_summary.py:200-300",
         args={
-            "path": str(_REPO_ROOT / "src/atelier/core/capabilities/savings_summary.py"),
+            "path": str(_REPO_ROOT / "src/lemoncrow/core/capabilities/savings_summary.py"),
             "range": "200-300",
             "include_meta": True,
         },
@@ -743,16 +743,16 @@ _REPO_EXTRA_GREP: list[BenchCase] = [
 # ---------------------------------------------------------------------------
 
 _NODE_TARGETS = [
-    ("compute_savings_summary", "src/atelier/core/capabilities/savings_summary.py"),
-    ("tool_smart_read", "src/atelier/gateway/adapters/mcp_server.py"),
-    ("smart_read", "src/atelier/core/capabilities/semantic_file_memory/capability.py"),
-    ("_append_savings", "src/atelier/gateway/adapters/mcp_server.py"),
-    ("_extract_tokens_saved", "src/atelier/gateway/adapters/mcp_server.py"),
-    ("claude_transcript_candidates", "src/atelier/core/capabilities/savings_summary.py"),
-    ("resolve_model_id", "src/atelier/core/capabilities/savings_summary.py"),
-    ("_read_claude_session_savings", "src/atelier/core/capabilities/savings_summary.py"),
-    ("_get_host_session_sidecar_path", "src/atelier/gateway/adapters/mcp_server.py"),
-    ("_tool_code_alias_handler", "src/atelier/gateway/adapters/mcp_server.py"),
+    ("compute_savings_summary", "src/lemoncrow/core/capabilities/savings_summary.py"),
+    ("tool_smart_read", "src/lemoncrow/gateway/adapters/mcp_server.py"),
+    ("smart_read", "src/lemoncrow/core/capabilities/semantic_file_memory/capability.py"),
+    ("_append_savings", "src/lemoncrow/gateway/adapters/mcp_server.py"),
+    ("_extract_tokens_saved", "src/lemoncrow/gateway/adapters/mcp_server.py"),
+    ("claude_transcript_candidates", "src/lemoncrow/core/capabilities/savings_summary.py"),
+    ("resolve_model_id", "src/lemoncrow/core/capabilities/savings_summary.py"),
+    ("_read_claude_session_savings", "src/lemoncrow/core/capabilities/savings_summary.py"),
+    ("_get_host_session_sidecar_path", "src/lemoncrow/gateway/adapters/mcp_server.py"),
+    ("_tool_code_alias_handler", "src/lemoncrow/gateway/adapters/mcp_server.py"),
 ]
 
 _INTEL_NODE_CASES: list[BenchCase] = [
@@ -859,8 +859,8 @@ _INTEL_SEARCH_CASES: list[BenchCase] = [
         custom_assert=_assert_intel_search,
         baseline_builder=(
             lambda c, t=grep_t: BaselineMeasurement(
-                payload=_rg(t, "src/atelier"),
-                commands=[f"rg -n {t!r} src/atelier"],
+                payload=_rg(t, "src/lemoncrow"),
+                commands=[f"rg -n {t!r} src/lemoncrow"],
             )
         ),
         min_baseline_tokens=0,

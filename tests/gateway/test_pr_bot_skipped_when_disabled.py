@@ -6,14 +6,14 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from atelier.core.foundation.lesson_models import LessonCandidate
-from atelier.core.foundation.models import Playbook
-from atelier.core.foundation.store import ContextStore
-from atelier.gateway.cli import cli
+from lemoncrow.core.foundation.lesson_models import LessonCandidate
+from lemoncrow.core.foundation.models import Playbook
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.gateway.cli import cli
 
 
 def test_pr_bot_skips_when_disabled_without_side_effects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     runner = CliRunner()
 
     # Run outside a git repo so `init` skips the ~40s code-index bootstrap and
@@ -50,7 +50,7 @@ def test_pr_bot_skips_when_disabled_without_side_effects(tmp_path: Path, monkeyp
     store.upsert_lesson_candidate(lesson)
 
     env = {
-        "ATELIER_LESSON_PR_BOT_ENABLED": "",
+        "LEMONCROW_LESSON_PR_BOT_ENABLED": "",
         "GITHUB_TOKEN": "",
     }
     res = runner.invoke(

@@ -1,6 +1,6 @@
-# Authoring Atelier skills
+# Authoring LemonCrow skills
 
-Skills in `integrations/skills/` are the **source of truth** for the user-facing skill bundles Atelier ships. This guide is the pattern library — read it before adding or editing a skill.
+Skills in `integrations/skills/` are the **source of truth** for the user-facing skill bundles LemonCrow ships. This guide is the pattern library — read it before adding or editing a skill.
 
 ## How a skill loads (and why it dictates the format)
 
@@ -22,7 +22,7 @@ argument-hint: <the one input the skill takes>
 - **`name`** — kebab-case, identical to the folder.
 - **`description`** — always double-quote it (descriptions carry em-dashes, slashes, `&`, colons — quoting keeps the YAML robust). Use `'single quotes'` for trigger phrases inside. See the formula below.
 - **`argument-hint`** — a short `<…>` placeholder for the skill's single input; shown in the slash-command UI.
-- **`allowed-tools`** — **omit it.** Atelier skills run with the full host toolset; do not scope tools per skill. (An allowlist goes stale the moment an orchestration step needs a tool it didn't foresee.)
+- **`allowed-tools`** — **omit it.** LemonCrow skills run with the full host toolset; do not scope tools per skill. (An allowlist goes stale the moment an orchestration step needs a tool it didn't foresee.)
 
 ### The description formula: `<what> — <when / trigger words>`
 

@@ -33,7 +33,7 @@ def _doc(*relparts: str) -> Path:
 TRACE_CONFIDENCE_DOC = _doc("engineering", "trace-confidence.md")
 HOST_MATRIX = _doc("hosts", "host-capability-matrix.md")
 # CODEX_README and COPILOT_README paths removed — AGENTS_README.md files deleted
-# in favor of live code-index discovery via atelier_context mode="symbols"
+# in favor of live code-index discovery via lemoncrow_context mode="symbols"
 
 SUPPORTED_HOSTS = [
     "Claude Code",
@@ -123,7 +123,7 @@ def test_required_metadata_fields_in_host_matrix() -> None:
 
 
 def test_trace_model_has_confidence_fields() -> None:
-    from atelier.core.foundation.models import Trace
+    from lemoncrow.core.foundation.models import Trace
 
     fields = Trace.model_fields
     assert "host" in fields, "Trace model missing 'host' field"
@@ -133,7 +133,7 @@ def test_trace_model_has_confidence_fields() -> None:
 
 
 def test_trace_model_accepts_confidence_payload() -> None:
-    from atelier.core.foundation.models import Trace
+    from lemoncrow.core.foundation.models import Trace
 
     t = Trace(
         id="test-id-001",
@@ -153,7 +153,7 @@ def test_trace_model_accepts_confidence_payload() -> None:
 
 
 def test_trace_model_accepts_null_confidence() -> None:
-    from atelier.core.foundation.models import Trace
+    from lemoncrow.core.foundation.models import Trace
 
     t = Trace(
         id="test-id-002",
@@ -174,7 +174,7 @@ def test_trace_model_accepts_null_confidence() -> None:
 
 def test_full_live_requires_hooks_in_capture_sources() -> None:
     """full_live must include hooks/live_hooks/plugin_hooks in capture_sources."""
-    from atelier.core.foundation.models import Trace
+    from lemoncrow.core.foundation.models import Trace
 
     # Valid full_live: has hooks in capture_sources
     t_ok = Trace(
@@ -207,16 +207,16 @@ def test_mcp_server_downgrades_full_live_without_hooks(tmp_path: Path) -> None:
     """tool_record_trace downgrades full_live → mcp_live if hooks are absent."""
     import os
 
-    os.environ["ATELIER_ROOT"] = str(tmp_path)
+    os.environ["LEMONCROW_ROOT"] = str(tmp_path)
     (tmp_path / "blocks").mkdir(parents=True, exist_ok=True)
 
     # Import the function directly; patch store internals
     import unittest.mock as mock
 
     with (
-        mock.patch("atelier.gateway.adapters.mcp_server._runtime") as mock_rt,
-        mock.patch("atelier.gateway.adapters.mcp_server._get_ledger") as mock_led,
-        mock.patch("atelier.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._runtime") as mock_rt,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._get_ledger") as mock_led,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
     ):
         # Set up minimal mocks
         fake_store = mock.MagicMock()
@@ -230,7 +230,7 @@ def test_mcp_server_downgrades_full_live_without_hooks(tmp_path: Path) -> None:
 
         mock_rtc.return_value = mock.MagicMock()
 
-        from atelier.gateway.adapters.mcp_server import tool_record_trace
+        from lemoncrow.gateway.adapters.mcp_server import tool_record_trace
 
         # The mcp_tool decorator wraps functions to accept a single dict argument
         tool_record_trace(
@@ -256,15 +256,15 @@ def test_mcp_server_record_trace_accepts_string_tool_names(tmp_path: Path) -> No
     """MCP callers may send tools_called as simple names."""
     import os
 
-    os.environ["ATELIER_ROOT"] = str(tmp_path)
+    os.environ["LEMONCROW_ROOT"] = str(tmp_path)
     (tmp_path / "blocks").mkdir(parents=True, exist_ok=True)
 
     import unittest.mock as mock
 
     with (
-        mock.patch("atelier.gateway.adapters.mcp_server._runtime") as mock_rt,
-        mock.patch("atelier.gateway.adapters.mcp_server._get_ledger") as mock_led,
-        mock.patch("atelier.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._runtime") as mock_rt,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._get_ledger") as mock_led,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
     ):
         fake_store = mock.MagicMock()
         fake_rt = mock.MagicMock()
@@ -277,7 +277,7 @@ def test_mcp_server_record_trace_accepts_string_tool_names(tmp_path: Path) -> No
 
         mock_rtc.return_value = mock.MagicMock()
 
-        from atelier.gateway.adapters.mcp_server import tool_record_trace
+        from lemoncrow.gateway.adapters.mcp_server import tool_record_trace
 
         tool_record_trace(
             {
@@ -310,16 +310,16 @@ def test_mcp_server_record_trace_persists_and_archives_learnings(tmp_path: Path)
     """MCP trace learnings are stored on Trace and copied to archival memory."""
     import os
 
-    os.environ["ATELIER_ROOT"] = str(tmp_path)
+    os.environ["LEMONCROW_ROOT"] = str(tmp_path)
     (tmp_path / "blocks").mkdir(parents=True, exist_ok=True)
 
     import unittest.mock as mock
 
     with (
-        mock.patch("atelier.gateway.adapters.mcp_server._runtime") as mock_rt,
-        mock.patch("atelier.gateway.adapters.mcp_server._get_ledger") as mock_led,
-        mock.patch("atelier.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
-        mock.patch("atelier.gateway.adapters.mcp_server._memory_store") as mock_memory_store,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._runtime") as mock_rt,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._get_ledger") as mock_led,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._memory_store") as mock_memory_store,
     ):
         fake_store = mock.MagicMock()
         fake_rt = mock.MagicMock()
@@ -334,7 +334,7 @@ def test_mcp_server_record_trace_persists_and_archives_learnings(tmp_path: Path)
         fake_memory = mock.MagicMock()
         mock_memory_store.return_value = fake_memory
 
-        from atelier.gateway.adapters.mcp_server import tool_record_trace
+        from lemoncrow.gateway.adapters.mcp_server import tool_record_trace
 
         tool_record_trace(
             {
@@ -368,15 +368,15 @@ def test_mcp_server_record_trace_accepts_legacy_run_id(tmp_path: Path) -> None:
     """Legacy callers may still send run_id instead of session_id."""
     import os
 
-    os.environ["ATELIER_ROOT"] = str(tmp_path)
+    os.environ["LEMONCROW_ROOT"] = str(tmp_path)
     (tmp_path / "blocks").mkdir(parents=True, exist_ok=True)
 
     import unittest.mock as mock
 
     with (
-        mock.patch("atelier.gateway.adapters.mcp_server._runtime") as mock_rt,
-        mock.patch("atelier.gateway.adapters.mcp_server._get_ledger") as mock_led,
-        mock.patch("atelier.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._runtime") as mock_rt,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._get_ledger") as mock_led,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
     ):
         fake_store = mock.MagicMock()
         fake_rt = mock.MagicMock()
@@ -389,7 +389,7 @@ def test_mcp_server_record_trace_accepts_legacy_run_id(tmp_path: Path) -> None:
 
         mock_rtc.return_value = mock.MagicMock()
 
-        from atelier.gateway.adapters.mcp_server import tool_record_trace
+        from lemoncrow.gateway.adapters.mcp_server import tool_record_trace
 
         tool_record_trace(
             {
@@ -410,15 +410,15 @@ def test_mcp_server_record_trace_normalizes_legacy_strength_confidence(tmp_path:
     """Legacy callers may send qualitative confidence labels like `high`."""
     import os
 
-    os.environ["ATELIER_ROOT"] = str(tmp_path)
+    os.environ["LEMONCROW_ROOT"] = str(tmp_path)
     (tmp_path / "blocks").mkdir(parents=True, exist_ok=True)
 
     import unittest.mock as mock
 
     with (
-        mock.patch("atelier.gateway.adapters.mcp_server._runtime") as mock_rt,
-        mock.patch("atelier.gateway.adapters.mcp_server._get_ledger") as mock_led,
-        mock.patch("atelier.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._runtime") as mock_rt,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._get_ledger") as mock_led,
+        mock.patch("lemoncrow.gateway.adapters.mcp_server._get_realtime_context") as mock_rtc,
     ):
         fake_store = mock.MagicMock()
         fake_rt = mock.MagicMock()
@@ -431,11 +431,11 @@ def test_mcp_server_record_trace_normalizes_legacy_strength_confidence(tmp_path:
 
         mock_rtc.return_value = mock.MagicMock()
 
-        from atelier.gateway.adapters.mcp_server import tool_record_trace
+        from lemoncrow.gateway.adapters.mcp_server import tool_record_trace
 
         tool_record_trace(
             {
-                "agent": "atelier:code",
+                "agent": "lemon:code",
                 "domain": "coding",
                 "task": "accept legacy confidence strength",
                 "status": "success",

@@ -1,7 +1,7 @@
-# Atelier plans & pricing
+# LemonCrow plans & pricing
 
-Atelier is source-available and local-first: the engine runs on your machine.
-The official distribution requires a free Atelier account at atelier init; code,
+LemonCrow is source-available and local-first: the engine runs on your machine.
+The official distribution requires a free LemonCrow account at lemon init; code,
 local session data, and configuration remain local.
 
 Prices are configured in Stripe Payment Links. The client checks plan
@@ -23,15 +23,15 @@ entitlements, not prices.
 
 ## Free — $0
 
-For developers trying Atelier and using its local runtime day to day.
+For developers trying LemonCrow and using its local runtime day to day.
 
 Free includes the local code-navigation tools, supported host packaging,
 normal-size repository context, benchmarks, and local savings estimates. Create
-a free account with atelier login, then activate the official install with
-atelier init.
+a free account with lemon login, then activate the official install with
+lemon init.
 
 Remote telemetry is on by default to help us improve the product. Opt out
-anytime with `atelier telemetry remote off`.
+anytime with `lemon telemetry remote off`.
 
 ## Pro beta — for individual developers
 
@@ -56,11 +56,11 @@ refund, gated surfaces return to Free and local data remains untouched.
 
 ## How to activate
 
-    atelier login          # create or sign in to a free account
-    atelier init           # activate the official install
-    atelier login --status # show account and plan
+    lemon login          # create or sign in to a free account
+    lemon init           # activate the official install
+    lemon login --status # show account and plan
 
-In CI or containers, set ATELIER_AUTH_TOKEN to a session token.
+In CI or containers, set LEMONCROW_AUTH_TOKEN to a session token.
 
 ## FAQ
 

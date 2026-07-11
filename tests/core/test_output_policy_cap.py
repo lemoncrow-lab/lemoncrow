@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from atelier.core.capabilities.code_context.output_policy import (
+from lemoncrow.core.capabilities.code_context.output_policy import (
     TRUNCATION_MARKER,
     cap_source_by_tokens,
 )
-from atelier.core.capabilities.repo_map.budget import estimate_tokens
+from lemoncrow.core.capabilities.repo_map.budget import estimate_tokens
 
 
 def _numbered(start: int, n: int, width: int = 40) -> str:

@@ -6,10 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 
-litellm = pytest.importorskip("litellm", reason="atelier[litellm] not installed")
+litellm = pytest.importorskip("litellm", reason="lemoncrow[litellm] not installed")
 
-from atelier.gateway.cli.events import AssistantMessage, ToolFinished  # noqa: E402
-from atelier.gateway.cli.runtime import InteractiveRuntime, _dispatch_tool, _get_litellm_tools  # noqa: E402
+from lemoncrow.gateway.cli.events import AssistantMessage, ToolFinished  # noqa: E402
+from lemoncrow.gateway.cli.runtime import InteractiveRuntime, _dispatch_tool, _get_litellm_tools  # noqa: E402
 
 
 def _chunk(
@@ -43,7 +43,7 @@ def test_agent_loop_executes_edit_before_final_message(tmp_path, monkeypatch) ->
                             "edits": [
                                 {
                                     "file_path": "result.txt",
-                                    "new_string": "edited by Atelier\n",
+                                    "new_string": "edited by LemonCrow\n",
                                     "overwrite": True,
                                 }
                             ],
@@ -80,15 +80,15 @@ def test_agent_loop_executes_edit_before_final_message(tmp_path, monkeypatch) ->
         ]
 
     monkeypatch.setattr("litellm.completion", completion)
-    runtime = InteractiveRuntime(root=tmp_path / ".atelier", yolo=True, model="test/model", provider="test")
+    runtime = InteractiveRuntime(root=tmp_path / ".lemoncrow", yolo=True, model="test/model", provider="test")
 
     async def run_session():
-        session_id = await runtime.start_session(str(tmp_path), session_id="atelier-run-test")
+        session_id = await runtime.start_session(str(tmp_path), session_id="lemoncrow-run-test")
         return [event async for event in runtime.handle_user_message(session_id, "Create result.txt")]
 
     events = asyncio.run(run_session())
 
-    assert (tmp_path / "result.txt").read_text(encoding="utf-8") == "edited by Atelier\n"
+    assert (tmp_path / "result.txt").read_text(encoding="utf-8") == "edited by LemonCrow\n"
     assert [event.text for event in events if isinstance(event, AssistantMessage)] == ["Implemented and verified."]
     assert any(isinstance(event, ToolFinished) and event.ok for event in events)
     assert calls == 2
@@ -96,7 +96,7 @@ def test_agent_loop_executes_edit_before_final_message(tmp_path, monkeypatch) ->
 
 def test_bedrock_cache_breakpoint_moves_to_latest_tool_result(tmp_path) -> None:
     runtime = InteractiveRuntime(
-        root=tmp_path / ".atelier",
+        root=tmp_path / ".lemoncrow",
         model="bedrock/us.anthropic.claude-sonnet-4-6",
         provider="bedrock",
     )
@@ -151,8 +151,8 @@ def test_agent_loop_parallelizes_independent_read_tools(tmp_path, monkeypatch) -
         return "ok"
 
     monkeypatch.setattr("litellm.completion", completion)
-    monkeypatch.setattr("atelier.gateway.cli.runtime._dispatch_tool", dispatch)
-    runtime = InteractiveRuntime(root=tmp_path / ".atelier", yolo=True, model="test/model")
+    monkeypatch.setattr("lemoncrow.gateway.cli.runtime._dispatch_tool", dispatch)
+    runtime = InteractiveRuntime(root=tmp_path / ".lemoncrow", yolo=True, model="test/model")
 
     async def run_session():
         session_id = await runtime.start_session(str(tmp_path))
@@ -196,7 +196,7 @@ def test_owned_edit_blocks_test_weakening(tmp_path, monkeypatch) -> None:
 
 
 def test_dispatch_tool_bash_passes_args_through(monkeypatch) -> None:
-    from atelier.gateway.adapters.mcp_server import TOOLS
+    from lemoncrow.gateway.adapters.mcp_server import TOOLS
 
     captured: list[dict] = []
 
@@ -218,7 +218,7 @@ def test_dispatch_tool_bash_passes_args_through(monkeypatch) -> None:
 
 def test_cache_breakpoints_pin_system_and_latest_message(tmp_path) -> None:
     runtime = InteractiveRuntime(
-        root=tmp_path / ".atelier",
+        root=tmp_path / ".lemoncrow",
         model="bedrock/us.anthropic.claude-sonnet-4-6",
         provider="bedrock",
     )
@@ -255,7 +255,7 @@ def test_completion_retries_provider_rate_limits(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr("litellm.completion", completion)
     monkeypatch.setattr("asyncio.sleep", no_wait)
-    runtime = InteractiveRuntime(root=tmp_path / ".atelier", model="test/model")
+    runtime = InteractiveRuntime(root=tmp_path / ".lemoncrow", model="test/model")
 
     result = asyncio.run(runtime._completion_with_backoff({"model": "test/model", "messages": []}))
 
@@ -264,7 +264,7 @@ def test_completion_retries_provider_rate_limits(tmp_path, monkeypatch) -> None:
 
 
 def test_compact_keeps_system_and_does_not_orphan_tool_result(tmp_path) -> None:
-    runtime = InteractiveRuntime(root=tmp_path / ".atelier", model="test/model")
+    runtime = InteractiveRuntime(root=tmp_path / ".lemoncrow", model="test/model")
     # Tail where a naive messages[-4:] would start on a `tool` message, leaving
     # a tool_result with no preceding tool_use (providers 400 on this).
     runtime._sessions["s"] = [

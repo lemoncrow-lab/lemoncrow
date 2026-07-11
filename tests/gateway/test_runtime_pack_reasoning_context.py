@@ -6,12 +6,12 @@ from pathlib import Path
 
 import yaml
 
-from atelier.core.foundation.models import Playbook
-from atelier.gateway.adapters.runtime import ContextRuntime
+from lemoncrow.core.foundation.models import Playbook
+from lemoncrow.gateway.adapters.runtime import ContextRuntime
 
 
 def test_runtime_get_context_merges_learned_and_domain_blocks(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     runtime = ContextRuntime(root=root)
 
     runtime.store.upsert_block(
@@ -36,7 +36,7 @@ def test_runtime_get_context_merges_learned_and_domain_blocks(tmp_path: Path) ->
                 "bundle_id": "shopify.publish",
                 "domain": "Agent.shopify.publish",
                 "description": "Shopify publish domain bundle",
-                "author": "Atelier Test",
+                "author": "LemonCrow Test",
                 "playbooks": ["playbooks/publish_guard.yaml"],
             },
             sort_keys=False,

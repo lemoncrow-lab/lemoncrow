@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from atelier.core.capabilities.archival_recall.symbol_recall import SymbolRecallCapability
-from atelier.core.capabilities.code_context import CodeContextEngine
-from atelier.core.foundation.memory_models import ArchivalPassage, MemoryBlock
-from atelier.core.foundation.models import Trace
-from atelier.core.foundation.store import ContextStore
-from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from lemoncrow.core.capabilities.archival_recall.symbol_recall import SymbolRecallCapability
+from lemoncrow.core.capabilities.code_context import CodeContextEngine
+from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock
+from lemoncrow.core.foundation.models import Trace
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 
 def _write_fixture_repo(root: Path) -> None:
@@ -44,14 +44,14 @@ def _write_fixture_repo(root: Path) -> None:
 
 def _seed_symbol_recall(tmp_path: Path) -> tuple[SymbolRecallCapability, str]:
     repo_root = tmp_path / "repo"
-    atelier_root = tmp_path / ".atelier"
+    lemoncrow_root = tmp_path / ".lemoncrow"
     _write_fixture_repo(repo_root)
 
     engine = CodeContextEngine(repo_root)
     engine.index_repo()
     symbol_id = engine.search_symbols("AuthService.verify_session", limit=1)[0].symbol_id
 
-    memory_store = SqliteMemoryStore(atelier_root)
+    memory_store = SqliteMemoryStore(lemoncrow_root)
     memory_store.upsert_block(
         MemoryBlock(
             agent_id="shared",
@@ -73,7 +73,7 @@ def _seed_symbol_recall(tmp_path: Path) -> tuple[SymbolRecallCapability, str]:
         )
     )
 
-    trace_store = ContextStore(atelier_root)
+    trace_store = ContextStore(lemoncrow_root)
     trace_store.init()
     trace_store.record_trace(
         Trace(

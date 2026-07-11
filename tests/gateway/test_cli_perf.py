@@ -1,4 +1,4 @@
-"""Tests for `atelier perf` (MCP tool latency profiling).
+"""Tests for `lemon perf` (MCP tool latency profiling).
 
 The actual latency measurement (run_profile -> _handle) is a real-system probe and
 is not unit-tested; everything around it -- drift detection, the noise floor, the
@@ -15,9 +15,9 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from atelier.gateway.cli import cli
-from atelier.gateway.cli.commands import _mcp_profile as P
-from atelier.gateway.cli.commands import perf as perf_mod
+from lemoncrow.gateway.cli import cli
+from lemoncrow.gateway.cli.commands import _mcp_profile as P
+from lemoncrow.gateway.cli.commands import perf as perf_mod
 
 
 def _tool(

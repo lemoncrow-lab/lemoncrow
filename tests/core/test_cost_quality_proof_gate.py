@@ -10,9 +10,9 @@ Verifies:
 - context_reduction_pct below threshold causes failure
 - Host enforcement matrix includes all 5 hosts
 - Feature boundary labels are present and categorised
-- Proof report is saved to .atelier/proof/proof-report.json
+- Proof report is saved to .lemoncrow/proof/proof-report.json
 - Proof report can be reloaded via load()
-- Markdown report is written to .atelier/proof/proof-report.md
+- Markdown report is written to .lemoncrow/proof/proof-report.md
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.proof_gate.capability import (
+from lemoncrow.core.capabilities.proof_gate.capability import (
     BenchmarkCase,
     ProofGateCapability,
     ProofGateConfig,
@@ -329,7 +329,7 @@ def test_proof_feature_labels_present(tmp_path: Path) -> None:
     )
     labels = report.feature_boundary_labels
     assert "routing_decision" in labels
-    assert labels["routing_decision"] == "Atelier augmentation"
+    assert labels["routing_decision"] == "LemonCrow augmentation"
     assert "model_selection" in labels
     assert labels["model_selection"] == "Host-native"
     assert "provider_model_override" in labels

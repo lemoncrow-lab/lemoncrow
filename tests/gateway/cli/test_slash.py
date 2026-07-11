@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from atelier.gateway.cli.slash import parse_input
+from lemoncrow.gateway.cli.slash import parse_input
 
 
 def test_empty_line() -> None:

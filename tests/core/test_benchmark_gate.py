@@ -4,7 +4,7 @@ import csv
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.benchmark_gate import (
+from lemoncrow.core.capabilities.benchmark_gate import (
     evaluate_codebench_gate,
     evaluate_terminalbench_gate,
 )
@@ -33,14 +33,14 @@ def test_evaluate_codebench_gate_requires_judged_results_and_cost_reduction(tmp_
     run_dir.mkdir()
     rows = [
         {"arm": "baseline", "correct": True, "cost_usd": 2.0, "valid": True},
-        {"arm": "atelier", "correct": None, "cost_usd": 1.0, "valid": True},
+        {"arm": "lemoncrow", "correct": None, "cost_usd": 1.0, "valid": True},
     ]
     (run_dir / "results.jsonl").write_text(
         "\n".join(json.dumps(row) for row in rows) + "\n",
         encoding="utf-8",
     )
 
-    verdict = evaluate_codebench_gate(run_dir, baseline_arm="baseline", candidate_arm="atelier")
+    verdict = evaluate_codebench_gate(run_dir, baseline_arm="baseline", candidate_arm="lemoncrow")
 
     assert verdict["suite"] == "codebench"
     assert verdict["passed"] is False
@@ -52,14 +52,14 @@ def test_evaluate_codebench_gate_requires_pairwise_quality(tmp_path: Path) -> No
     run_dir.mkdir()
     rows = [
         {"task": "t1", "rep": 0, "arm": "baseline", "correct": True, "cost_usd": 2.0, "valid": True},
-        {"task": "t1", "rep": 0, "arm": "atelier", "correct": True, "cost_usd": 1.0, "valid": True},
+        {"task": "t1", "rep": 0, "arm": "lemoncrow", "correct": True, "cost_usd": 1.0, "valid": True},
     ]
     (run_dir / "results.jsonl").write_text(
         "\n".join(json.dumps(row) for row in rows) + "\n",
         encoding="utf-8",
     )
 
-    verdict = evaluate_codebench_gate(run_dir, baseline_arm="baseline", candidate_arm="atelier")
+    verdict = evaluate_codebench_gate(run_dir, baseline_arm="baseline", candidate_arm="lemoncrow")
 
     assert verdict["passed"] is False
     assert any("pairwise quality gate" in reason for reason in verdict["reasons"])
@@ -70,7 +70,7 @@ def test_evaluate_codebench_gate_passes_with_pairwise_non_regression(tmp_path: P
     run_dir.mkdir()
     rows = [
         {"task": "t1", "rep": 0, "arm": "baseline", "correct": True, "cost_usd": 2.0, "valid": True},
-        {"task": "t1", "rep": 0, "arm": "atelier", "correct": True, "cost_usd": 1.0, "valid": True},
+        {"task": "t1", "rep": 0, "arm": "lemoncrow", "correct": True, "cost_usd": 1.0, "valid": True},
     ]
     (run_dir / "results.jsonl").write_text(
         "\n".join(json.dumps(row) for row in rows) + "\n",
@@ -95,14 +95,14 @@ def test_evaluate_codebench_gate_passes_with_pairwise_non_regression(tmp_path: P
                 "task": "t1",
                 "rep": 0,
                 "baseline_arm": "baseline",
-                "candidate_arm": "atelier",
+                "candidate_arm": "lemoncrow",
                 "judged": "True",
                 "candidate_at_least_baseline": "True",
                 "quality_adjusted_saved_usd": "1.0",
             }
         )
 
-    verdict = evaluate_codebench_gate(run_dir, baseline_arm="baseline", candidate_arm="atelier", margin=1.0)
+    verdict = evaluate_codebench_gate(run_dir, baseline_arm="baseline", candidate_arm="lemoncrow", margin=1.0)
 
     assert verdict["passed"] is True
     assert verdict["details"]["pairwise_quality"]["quality_adjusted_savings_usd"] == 1.0

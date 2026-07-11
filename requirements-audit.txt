@@ -38,11 +38,11 @@ babel==2.18.0
     # via courlan
 beautifulsoup4==4.15.0
     # via
-    #   atelier
+    #   lemoncrow
     #   markdownify
 black==26.5.1
 blake3==1.0.8
-    # via atelier
+    # via lemoncrow
 certifi==2026.5.20
     # via
     #   httpcore
@@ -60,7 +60,7 @@ charset-normalizer==3.4.7
     #   trafilatura
 click==8.4.1
     # via
-    #   atelier
+    #   lemoncrow
     #   black
     #   litellm
     #   uvicorn
@@ -76,19 +76,19 @@ courlan==1.4.0
 coverage==7.14.1
     # via pytest-cov
 cryptography==48.0.0
-    # via atelier
+    # via lemoncrow
 datasketch==1.10.0
-    # via atelier
+    # via lemoncrow
 dateparser==1.4.0
     # via htmldate
 diff-match-patch==20241021
-    # via atelier
+    # via lemoncrow
 distro==1.9.0
     # via openai
 execnet==2.1.2
     # via pytest-xdist
 fastapi==0.136.3
-    # via atelier
+    # via lemoncrow
 fastuuid==0.14.0
     # via litellm
 filelock==3.29.1
@@ -102,7 +102,7 @@ fsspec==2026.4.0
 gitdb==4.0.12
     # via gitpython
 gitpython==3.1.50
-    # via atelier
+    # via lemoncrow
 googleapis-common-protos==1.75.0
     # via opentelemetry-exporter-otlp-proto-http
 h11==0.16.0
@@ -155,7 +155,7 @@ justext==3.0.2
 librt==0.11.0 ; platform_python_implementation != 'PyPy'
     # via mypy
 litellm==1.88.1
-    # via atelier
+    # via lemoncrow
 lxml==6.1.1
     # via
     #   htmldate
@@ -168,10 +168,10 @@ macholib==1.16.4 ; sys_platform == 'darwin'
     # via pyinstaller
 markdown-it-py==4.2.0
     # via
-    #   atelier
+    #   lemoncrow
     #   rich
 markdownify==1.2.2
-    # via atelier
+    # via lemoncrow
 markupsafe==3.0.3
     # via jinja2
 mdurl==0.1.2
@@ -188,7 +188,7 @@ mypy-extensions==1.1.0
 narwhals==2.22.1
     # via altair
 networkx==3.6.1
-    # via atelier
+    # via lemoncrow
 numpy==2.4.6
     # via
     #   datasketch
@@ -200,26 +200,26 @@ openai==2.41.0
     # via litellm
 opentelemetry-api==1.42.1
     # via
-    #   atelier
+    #   lemoncrow
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
 opentelemetry-exporter-otlp-proto-common==1.42.1
     # via opentelemetry-exporter-otlp-proto-http
 opentelemetry-exporter-otlp-proto-http==1.42.1
-    # via atelier
+    # via lemoncrow
 opentelemetry-proto==1.42.1
     # via
     #   opentelemetry-exporter-otlp-proto-common
     #   opentelemetry-exporter-otlp-proto-http
 opentelemetry-sdk==1.42.1
     # via
-    #   atelier
+    #   lemoncrow
     #   opentelemetry-exporter-otlp-proto-http
 opentelemetry-semantic-conventions==0.63b1
     # via opentelemetry-sdk
 ortools==9.12.4544
-    # via atelier
+    # via lemoncrow
 packaging==26.2
     # via
     #   altair
@@ -243,9 +243,9 @@ pluggy==1.6.0
     #   pytest
     #   pytest-cov
 prometheus-client==0.25.0
-    # via atelier
+    # via lemoncrow
 prompt-toolkit==3.0.52
-    # via atelier
+    # via lemoncrow
 propcache==0.5.2
     # via
     #   aiohttp
@@ -258,19 +258,19 @@ protobuf==5.29.6
 py==1.11.0
     # via pytest-forked
 pybreaker==1.4.1
-    # via atelier
+    # via lemoncrow
 pycparser==3.0 ; implementation_name != 'PyPy'
     # via cffi
 pydantic==2.11.10
     # via
-    #   atelier
+    #   lemoncrow
     #   fastapi
     #   litellm
     #   openai
 pydantic-core==2.33.2
     # via pydantic
 pygit2==1.19.2
-    # via atelier
+    # via lemoncrow
 pygments==2.20.0
     # via
     #   pytest
@@ -305,11 +305,11 @@ pywin32-ctypes==0.2.3 ; sys_platform == 'win32'
     # via pyinstaller
 pyyaml==6.0.3
     # via
-    #   atelier
+    #   lemoncrow
     #   huggingface-hub
     #   uvicorn
 rapidfuzz==3.14.5
-    # via atelier
+    # via lemoncrow
 referencing==0.37.0
     # via
     #   jsonschema
@@ -324,10 +324,10 @@ requests==2.34.2
     #   tiktoken
 rich==15.0.0
     # via
-    #   atelier
+    #   lemoncrow
     #   typer
 river==0.25.0
-    # via atelier
+    # via lemoncrow
 rpds-py==2026.5.1
     # via
     #   jsonschema
@@ -354,10 +354,10 @@ soupsieve==2.8.4
 starlette==1.2.1
     # via fastapi
 tenacity==9.1.4
-    # via atelier
+    # via lemoncrow
 tiktoken==0.13.0
     # via
-    #   atelier
+    #   lemoncrow
     #   litellm
 tld==0.13.2
     # via courlan
@@ -368,13 +368,13 @@ tqdm==4.68.2
     #   huggingface-hub
     #   openai
 trafilatura==2.1.0
-    # via atelier
+    # via lemoncrow
 tree-sitter==0.25.2
     # via
-    #   atelier
+    #   lemoncrow
     #   tree-sitter-language-pack
 tree-sitter-language-pack==1.8.1
-    # via atelier
+    # via lemoncrow
 typer==0.26.7
     # via huggingface-hub
 types-pyyaml==6.0.12.20260518
@@ -405,13 +405,13 @@ tzlocal==5.3.1
     # via dateparser
 urllib3==2.7.0
     # via
-    #   atelier
+    #   lemoncrow
     #   courlan
     #   htmldate
     #   requests
     #   trafilatura
 uvicorn==0.49.0
-    # via atelier
+    # via lemoncrow
 uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
     # via uvicorn
 watchfiles==1.2.0
@@ -423,8 +423,8 @@ websockets==15.0.1
 yarl==1.24.2
     # via
     #   aiohttp
-    #   atelier
+    #   lemoncrow
 zipp==4.1.0
     # via
-    #   atelier
+    #   lemoncrow
     #   importlib-metadata

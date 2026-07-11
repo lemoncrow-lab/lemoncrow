@@ -2,7 +2,7 @@
 
 > Findings dated **2026-06-14**. Baseline: OpenAI Codex CLI ~**0.125.x** (April
 > 2026 hooks GA), recommended model `gpt-5.5`. Codex moves fast — re-verify the
-> `[verify]` rows against the exact version you ship against. The Atelier
+> `[verify]` rows against the exact version you ship against. The LemonCrow
 > integration is written to these documented schemas and **fails open**: if a
 > schema assumption is wrong on a given version, the hook degrades to a silent
 > no-op instead of blocking the agent.
@@ -15,10 +15,10 @@ not re-derived from memory each time.
 
 Codex loads hooks from `hooks.json` or an inline `[hooks]` table in
 `config.toml`, using Claude-Code-compatible event names and payloads (it even
-ships `CLAUDE_PLUGIN_ROOT` aliases). Atelier registers them via the plugin
+ships `CLAUDE_PLUGIN_ROOT` aliases). LemonCrow registers them via the plugin
 bundle's `hooks/hooks.json`, with commands resolved through `${PLUGIN_ROOT}`.
 
-| Event | Atelier hook | Can block? | Output schema we emit |
+| Event | LemonCrow hook | Can block? | Output schema we emit |
 | --- | --- | --- | --- |
 | `SessionStart` | `update_notification.py` | n/a | `systemMessage` (update notice) |
 | `UserPromptSubmit` | `user_prompt.py` | n/a | `systemMessage` (ctx nudge, UI only) |
@@ -28,7 +28,7 @@ bundle's `hooks/hooks.json`, with commands resolved through `${PLUGIN_ROOT}`.
 | `Stop` | `stop.py` | n/a | `systemMessage` (session summary) |
 
 - **Block a tool**: `PreToolUse` returns `permissionDecision: "deny"` (or exits
-  `2`). Atelier uses the JSON form. `[verify]` deny-enforcement has had per-handler
+  `2`). LemonCrow uses the JSON form. `[verify]` deny-enforcement has had per-handler
   bugs (openai/codex#20204) — treat deny as best-effort and confirm on your version.
 - **Surfaced guidance** uses `systemMessage`, which the existing Codex Stop /
   UserPromptSubmit hooks already prove works on this codebase.
@@ -38,9 +38,9 @@ bundle's `hooks/hooks.json`, with commands resolved through `${PLUGIN_ROOT}`.
 As of 0.125.0 only the **`shell`**, **`unified_exec`**, **`apply_patch`**, and
 **`mcp`** tool handlers emit `PreToolUse`/`PostToolUse` events (openai/codex#20204).
 Tools that do **not** fire hooks today: `web_search`, `plan`/`update_plan`,
-`list_dir`, `view_image`, and the `multi_agents` family. Consequences for Atelier:
+`list_dir`, `view_image`, and the `multi_agents` family. Consequences for LemonCrow:
 
-- Edit (`apply_patch` / `mcp__atelier__edit`), shell, and MCP-tool telemetry and
+- Edit (`apply_patch` / `mcp__lemon__edit`), shell, and MCP-tool telemetry and
   proof-gating **work**.
 - Telemetry is **blind** to web-search/plan/multi-agent tool calls. The
   `codex exec --json` collector (headless runs) backfills part of this gap.
@@ -54,7 +54,7 @@ Fail-open extraction (any shape we don't recognize is skipped):
 - **Edit targets**: `tool_input.edits[].file_path|path|filename`, else
   `tool_input.file_path|path|filename`.
 - **Edit diff**: unified diff from `old_string`/`new_string` when present
-  (Atelier edit), else `git diff HEAD -- <path>` in the workspace.
+  (LemonCrow edit), else `git diff HEAD -- <path>` in the workspace.
 - **Command**: `tool_input.command` (string or argv list).
 - **Return code**: first present of `exit_code|exitCode|returnCode|return_code|code`.
 - **Output**: `tool_response.stdout|output` and `tool_response.stderr`.

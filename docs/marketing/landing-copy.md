@@ -1,4 +1,4 @@
-# atelier.ws — Landing Page Copy
+# lemoncrow.ws — Landing Page Copy
 
 _Copy blocks for the marketing site, top to bottom. Audience: people paying for Claude Code/Max who are not deep infrastructure buyers. Voice: plain, specific, and skeptical. Every number must link to raw runs or a live endpoint. Live badges support trust; they do not prove the headline by themselves._
 
@@ -6,7 +6,7 @@ _Copy blocks for the marketing site, top to bottom. Audience: people paying for 
 
 ## Nav
 
-`Atelier` · How it saves · Proof · Pricing · Docs · [GitHub ⭐ `<live stars>`] · **[Install]**
+`LemonCrow` · How it saves · Proof · Pricing · Docs · [GitHub ⭐ `<live stars>`] · **[Install]**
 
 ---
 
@@ -14,17 +14,17 @@ _Copy blocks for the marketing site, top to bottom. Audience: people paying for 
 
 ### Honest and benchmark proven -- cut Claude Code costs by 30%, audited head-to-head (up to 67% on some workloads).
 
-Atelier is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls by up to 90% and input/output tokens by up to 80% -- and gives your agent better search, shorter file reads, cleaner tool output, and reusable memory so more of your subscription goes into fixing code instead of rereading the same noise.
+LemonCrow is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls by up to 90% and input/output tokens by up to 80% -- and gives your agent better search, shorter file reads, cleaner tool output, and reusable memory so more of your subscription goes into fixing code instead of rereading the same noise.
 
-> In our same-model SWE-bench Verified run, Atelier was **29.5% cheaper** and solved **+12.0 percentage points more tasks** than the baseline. Same model. Same tasks. Same environment. Raw runs published.
+> In our same-model SWE-bench Verified run, LemonCrow was **29.5% cheaper** and solved **+12.0 percentage points more tasks** than the baseline. Same model. Same tasks. Same environment. Raw runs published.
 
 ```bash
 **[Install in 30 seconds]** · **[Check my savings first →]** · source-available · runs locally · free account to activate
 
-_Small line:_ Keep using Claude Code. Atelier sits underneath it and makes the tool loop tighter.
+_Small line:_ Keep using Claude Code. LemonCrow sits underneath it and makes the tool loop tighter.
 **[Install in 30 seconds]** · **[Check my savings first →]** · Apache-2.0 · runs locally · no account to start
 
-_Small line:_ Keep using Claude Code. Atelier sits underneath it and makes the tool loop tighter.
+_Small line:_ Keep using Claude Code. LemonCrow sits underneath it and makes the tool loop tighter.
 
 ---
 
@@ -49,18 +49,18 @@ _Caption:_ Live badges are not the benchmark. They show real usage adding up. Th
 ### Install once. Keep working normally.
 
 ```bash
-curl -fsSL https://install.atelier.ws | bash
-    curl -fsSL https://install.atelier.ws | bash
+curl -fsSL https://install.lemoncrow.ws | bash
+    curl -fsSL https://install.lemoncrow.ws | bash
     cd your-project
-    atelier login
-    atelier init
+    lemon login
+    lemon init
 
-Create a free account to activate the official install. Then open Claude Code like usual. Atelier adds better tools behind the scenes: smarter code search, exact file reads, compact command output, safer edits, and a running local savings meter. Anonymous remote telemetry is on by default (opt out anytime).
+Create a free account to activate the official install. Then open Claude Code like usual. LemonCrow adds better tools behind the scenes: smarter code search, exact file reads, compact command output, safer edits, and a running local savings meter. Anonymous remote telemetry is on by default (opt out anytime).
 ---
 
 ## Live savings demo
 
-**Left panel:** Claude asks for context. Baseline dumps broad files and long command output. Atelier gives the agent only the useful ranges, relevant symbols, and compact results.
+**Left panel:** Claude asks for context. Baseline dumps broad files and long command output. LemonCrow gives the agent only the useful ranges, relevant symbols, and compact results.
 
 **Right panel:** savings meter accumulates while work continues.
 
@@ -80,13 +80,13 @@ _Caption:_ No fake counters. If a number is live, label it live. If a number is 
 
 **It reads less.** Claude gets the exact lines and symbols it needs, not whole files pasted into the chat.
 
-**It repeats less.** Atelier remembers useful session context so the agent does not pay again for the same discovery.
+**It repeats less.** LemonCrow remembers useful session context so the agent does not pay again for the same discovery.
 
 **It talks less.** Outputs are shorter and more direct while preserving exact code, commands, and errors.
 
 **It makes agents more correct.** In our same-model benchmark, the tighter loop solved more tasks because the agent spent less context on noise and more on the fix.
 
-_The simple claim:_ Atelier does not make Claude a different model. It makes the work around Claude less wasteful.
+_The simple claim:_ LemonCrow does not make Claude a different model. It makes the work around Claude less wasteful.
 
 ---
 
@@ -94,7 +94,7 @@ _The simple claim:_ Atelier does not make Claude a different model. It makes the
 
 **Same fix. Fewer paid words. Same technical meaning.**
 
-| Baseline | With Atelier |
+| Baseline | With LemonCrow |
 | --- | --- |
 | "I looked into the failing test and it seems like the flakiness is caused by the retry logic using a real clock… I'd recommend injecting a fake clock so the test becomes deterministic." | "Root cause: retry test uses a real clock. Fix: inject a fake clock; test becomes deterministic." |
 
@@ -107,10 +107,10 @@ _Caption:_ Shorter does not mean vague. Code, commands, filenames, and errors st
 ### Do not take our 30% claim on faith.
 
 ```bash
-curl -fsSL https://savings.atelier.ws | bash
+curl -fsSL https://savings.lemoncrow.ws | bash
 ```
 
-This scans your local Claude/Codex agent history and prints what Atelier could have saved. It is read-only, temporary, and does not need an Atelier account or provider API keys.
+This scans your local Claude/Codex agent history and prints what LemonCrow could have saved. It is read-only, temporary, and does not need an LemonCrow account or provider API keys.
 
 **[Copy command]** · [What it reads →](../cli.md)
 
@@ -127,11 +127,11 @@ Better answer:
 - Every headline benchmark links to raw per-task runs, costs, turn counts, and reproduction commands.
 - The savings scanner runs on your own machine, against your own agent history.
 - Live badges are labeled as aggregate usage, not proof of the 30% benchmark.
-- We publish rows where Atelier does not win. Terminal-Bench 2.1 is flat on accuracy (−0.2pp) and only cheaper on cost.
+- We publish rows where LemonCrow does not win. Terminal-Bench 2.1 is flat on accuracy (−0.2pp) and only cheaper on cost.
 
 The trust is the audit trail, not the animation.
 
-**[Read the raw runs →](https://github.com/atelier-ws/atelier/tree/main/benchmarks)**
+**[Read the raw runs →](https://github.com/lemoncrowhq/lemoncrow/tree/main/benchmarks)**
 
 ---
 
@@ -158,9 +158,9 @@ _Until these are real, run only live badges, raw-run links, and the visitor's ow
 ### Start saving Claude tokens in the next session.
 
 ```bash
-curl -fsSL https://install.atelier.ws | bash
+curl -fsSL https://install.lemoncrow.ws | bash
 ```
 
 **[Install in 30 seconds]** · **[Check savings first]** · **[Star on GitHub ⭐]**
 
-_Footer line:_ In our SWE-bench Verified run, Atelier cut 2,626 turns and about $69 from the baseline. Same model, same tasks, same environment.
+_Footer line:_ In our SWE-bench Verified run, LemonCrow cut 2,626 turns and about $69 from the baseline. Same model, same tasks, same environment.

@@ -15,15 +15,15 @@ from typing import Any, ClassVar
 import pytest
 import yaml
 
-from atelier.core.foundation.models import CommandRecord, Trace
-from atelier.core.foundation.store import ContextStore
-from atelier.gateway.hosts.session_parsers.antigravity import AntigravityImporter
-from atelier.gateway.hosts.session_parsers.claude import ClaudeImporter
-from atelier.gateway.hosts.session_parsers.codex import CodexImporter
-from atelier.gateway.hosts.session_parsers.copilot import CopilotImporter
-from atelier.gateway.hosts.session_parsers.cursor import CursorImporter
-from atelier.gateway.hosts.session_parsers.opencode import OpenCodeImporter
-from atelier.infra.runtime.session_report import load_report
+from lemoncrow.core.foundation.models import CommandRecord, Trace
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.gateway.hosts.session_parsers.antigravity import AntigravityImporter
+from lemoncrow.gateway.hosts.session_parsers.claude import ClaudeImporter
+from lemoncrow.gateway.hosts.session_parsers.codex import CodexImporter
+from lemoncrow.gateway.hosts.session_parsers.copilot import CopilotImporter
+from lemoncrow.gateway.hosts.session_parsers.cursor import CursorImporter
+from lemoncrow.gateway.hosts.session_parsers.opencode import OpenCodeImporter
+from lemoncrow.infra.runtime.session_report import load_report
 
 # =========================================================================
 # Helpers
@@ -208,7 +208,7 @@ class TestClaudeImporterTokens:
         """Regression test: the tool_result handler used to REPLACE the
         redacted tool_use command with an unredacted, untruncated
         CommandRecord built from raw stdout/stderr — landing raw secrets in
-        atelier.db/FTS plus unbounded bloat. Command and streams must stay
+        lemoncrow.db/FTS plus unbounded bloat. Command and streams must stay
         redacted, and streams must be capped like codex's 1024-byte cap.
         """
         secret_stdout = "ghp_" + "b" * 36 + (" filler" * 400)
@@ -962,7 +962,7 @@ class TestCopilotImporterTokens:
             Trace(
                 id="copilot-transcript-orphan-transcript",
                 session_id="orphan-transcript",
-                agent="atelier:code",
+                agent="lemon:code",
                 host="copilot",
                 domain="coding",
                 task="legacy standalone transcript",
@@ -1118,7 +1118,7 @@ class TestCopilotImporterTokens:
             Trace(
                 id="copilot-transcript-stale-transcript",
                 session_id="stale-transcript",
-                agent="atelier:code",
+                agent="lemon:code",
                 host="copilot",
                 domain="coding",
                 task="legacy standalone transcript",

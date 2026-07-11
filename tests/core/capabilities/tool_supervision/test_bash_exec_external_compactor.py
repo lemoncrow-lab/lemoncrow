@@ -6,8 +6,8 @@ import subprocess
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision import bash_exec
-from atelier.core.capabilities.tool_supervision import external_compactors as ec
+from lemoncrow.core.capabilities.tool_supervision import bash_exec
+from lemoncrow.core.capabilities.tool_supervision import external_compactors as ec
 
 
 @pytest.fixture(autouse=True)

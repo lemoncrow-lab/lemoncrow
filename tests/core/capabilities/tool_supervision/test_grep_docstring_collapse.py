@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from atelier.core.capabilities.tool_supervision.native_search import (
+from lemoncrow.core.capabilities.tool_supervision.native_search import (
     _collapse_docstrings,
     search_workspace,
 )

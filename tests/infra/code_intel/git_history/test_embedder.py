@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.infra.code_intel.git_history import embedder as history_embedder_module
-from atelier.infra.code_intel.git_history.embedder import (
+from lemoncrow.infra.code_intel.git_history import embedder as history_embedder_module
+from lemoncrow.infra.code_intel.git_history.embedder import (
     decode_embedding,
     embed_summary,
     embedding_dim,
 )
-from atelier.infra.code_intel.git_history.models import CommitSummary
-from atelier.infra.embeddings.factory import get_code_embedder, make_code_embedder
-from atelier.infra.embeddings.ollama_embedder import OllamaEmbedder
+from lemoncrow.infra.code_intel.git_history.models import CommitSummary
+from lemoncrow.infra.embeddings.factory import get_code_embedder, make_code_embedder
+from lemoncrow.infra.embeddings.ollama_embedder import OllamaEmbedder
 
 
 def _make_summary(**kwargs) -> CommitSummary:  # type: ignore[no-untyped-def]
@@ -30,14 +30,14 @@ def _make_summary(**kwargs) -> CommitSummary:  # type: ignore[no-untyped-def]
 def _use_fake_code_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
     """Deterministic test embedder (the removed 'local' pin's role): turns the
     semantic/ANN path on so the vector store + retrieval is exercised. Test-only."""
-    import atelier.infra.embeddings.factory as _factory
+    import lemoncrow.infra.embeddings.factory as _factory
 
     class _Fake:
         dim = 384
         name = "test:hashing"
 
         def embed(self, texts: list[str]) -> list[list[float]]:
-            from atelier.infra.storage.vector import generate_embedding
+            from lemoncrow.infra.storage.vector import generate_embedding
 
             return [generate_embedding(t, dim=self.dim) for t in texts]
 
@@ -55,7 +55,7 @@ def _use_fake_code_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def _pin_fake_code_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
     _use_fake_code_embedder(monkeypatch)
-    monkeypatch.delenv("ATELIER_CODE_EMBED_MODEL", raising=False)
+    monkeypatch.delenv("LEMONCROW_CODE_EMBED_MODEL", raising=False)
     history_embedder_module._embedder = None
     make_code_embedder.cache_clear()
 
@@ -89,6 +89,6 @@ def test_embedding_dim_matches_code_embedder() -> None:
 
 
 def test_ollama_embedder_uses_env_timeout(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setenv("ATELIER_OLLAMA_EMBED_TIMEOUT_SECONDS", "42")
+    monkeypatch.setenv("LEMONCROW_OLLAMA_EMBED_TIMEOUT_SECONDS", "42")
     embedder = OllamaEmbedder()
     assert embedder._timeout_seconds == 42.0

@@ -295,7 +295,7 @@ def gen_multi_token_composite(defs: list[str], classes: list[str]) -> str | None
 def gen_path_qualified(filepath: str, symbols: list[str]) -> str | None:
     """Qualify a symbol with directory path components.
 
-    E.g. file ``src/atelier/gateway/cli.py`` with symbol ``list_sessions``
+    E.g. file ``src/lemoncrow/gateway/cli.py`` with symbol ``list_sessions``
     → ``gateway cli sessions``
 
     Or when no good symbol: use two path components joined.

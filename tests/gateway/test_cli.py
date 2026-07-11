@@ -10,13 +10,13 @@ import pytest
 from click.testing import CliRunner, Result
 
 # Must set dev mode before importing cli for @_dev_command registration
-from atelier.core.capabilities.plugin_runtime import update_session_stats
-from atelier.core.foundation.models import Playbook, Rubric
-from atelier.core.foundation.store import ContextStore
-from atelier.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
-from atelier.gateway.adapters import mcp_server
-from atelier.gateway.cli import cli
-from atelier.infra.internal_llm import OllamaUnavailable
+from lemoncrow.core.capabilities.plugin_runtime import update_session_stats
+from lemoncrow.core.foundation.models import Playbook, Rubric
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
+from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.cli import cli
+from lemoncrow.infra.internal_llm import OllamaUnavailable
 from tests.helpers import init_store_at
 
 
@@ -71,7 +71,7 @@ def _seed_rescue_block(root: Path) -> None:
 
 
 def test_init_seeds_blocks_and_rubrics(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("ATELIER_AUTH_TOKEN", "free-account-token")
+    monkeypatch.setenv("LEMONCROW_AUTH_TOKEN", "free-account-token")
     res = _invoke(tmp_path / "a", "init")
     assert res.exit_code == 0, res.output
     assert "seeded" in res.output
@@ -80,10 +80,10 @@ def test_init_seeds_blocks_and_rubrics(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_init_requires_a_free_account(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.delenv("ATELIER_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
     res = _invoke(tmp_path / "a", "init", "--no-seed", "--no-index")
     assert res.exit_code != 0
-    assert "free Atelier account is required" in res.output
+    assert "free LemonCrow account is required" in res.output
 
 
 def test_run_rubric_via_cli(tmp_path: Path) -> None:
@@ -133,7 +133,7 @@ def test_run_rubric_blocks_when_required_missing(tmp_path: Path) -> None:
 
 
 def test_code_context_cli_round_trip(tmp_path: Path) -> None:
-    root = tmp_path / "atelier"
+    root = tmp_path / "lemoncrow"
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "service.py").write_text(
@@ -208,7 +208,7 @@ def test_savings_cli_reports_session_stats(tmp_path: Path) -> None:
     # Real measured savings come from the canonical session dir's savings.jsonl
     # (written by the stop hook at session end, priced at the model in use
     # that turn).
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     savings_file = session_dir(root, "claude", "s1") / "savings.jsonl"
     savings_file.parent.mkdir(parents=True, exist_ok=True)
@@ -256,7 +256,7 @@ def test_plugin_auth_status_share_and_settings_cli(tmp_path: Path) -> None:
 
     share = _invoke(root, "share", "--json")
     assert share.exit_code == 0, share.output
-    assert json.loads(share.output)["code"].startswith("ATELIER-")
+    assert json.loads(share.output)["code"].startswith("LEMONCROW-")
 
     set_result = _invoke(root, "settings", "set", "alwaysLoadTools", "off", "--json")
     assert set_result.exit_code == 0, set_result.output
@@ -314,7 +314,7 @@ def test_worker_runs_consolidation_job_on_sqlite(
         _ = (messages, json_schema)
         raise OllamaUnavailable("offline")
 
-    monkeypatch.setattr("atelier.core.capabilities.consolidation.worker.chat", unavailable)
+    monkeypatch.setattr("lemoncrow.core.capabilities.consolidation.worker.chat", unavailable)
 
     enqueue = _invoke(root, "worker", "enqueue", JOB_CONSOLIDATE_BLOCKS, "--json")
     assert enqueue.exit_code == 0, enqueue.output
@@ -338,8 +338,8 @@ def test_stack_start_spawns_native_runner(tmp_path: Path, monkeypatch: pytest.Mo
             spawned_calls.append(list(args) if isinstance(args, (list, tuple)) else [str(args)])
             self.pid = 2468
 
-    monkeypatch.setattr("atelier.gateway.cli.commands.stack.subprocess.Popen", FakePopen)
-    monkeypatch.setattr("atelier.gateway.cli.commands.stack._pid_is_running", lambda pid: pid == 2468)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.stack.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.stack._pid_is_running", lambda pid: pid == 2468)
 
     res = _invoke(tmp_path / "a", "stack", "start", "--with-docs")
 
@@ -360,22 +360,22 @@ def test_background_install_writes_native_stack_unit(tmp_path: Path, monkeypatch
     unit_dir = tmp_path / "systemd-user"
     commands: list[list[str]] = []
 
-    monkeypatch.setattr("atelier.gateway.cli.commands.background._is_linux", lambda: True)
-    monkeypatch.setattr("atelier.gateway.cli.commands.background._is_macos", lambda: False)
-    monkeypatch.setattr("atelier.gateway.cli.commands.background.SYSTEMD_USER_DIR", unit_dir)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.background._is_linux", lambda: True)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.background._is_macos", lambda: False)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.background.SYSTEMD_USER_DIR", unit_dir)
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.background.shutil.which",
-        lambda name: "/bin/systemctl" if name == "systemctl" else "/usr/bin/atelier",
+        "lemoncrow.gateway.cli.commands.background.shutil.which",
+        lambda name: "/bin/systemctl" if name == "systemctl" else "/usr/bin/lemoncrow",
     )
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.background.subprocess.run",
+        "lemoncrow.gateway.cli.commands.background.subprocess.run",
         lambda args, **kwargs: commands.append([str(item) for item in args]),
     )
 
     res = _invoke(root, "background", "install", "--with-stack")
 
     assert res.exit_code == 0, res.output
-    stack_unit = (unit_dir / "atelier-stack.service").read_text(encoding="utf-8")
+    stack_unit = (unit_dir / "lemoncrow-stack.service").read_text(encoding="utf-8")
     assert "docker compose" not in stack_unit
     assert "background service start" in stack_unit
     assert any(cmd[:3] == ["systemctl", "--user", "enable"] for cmd in commands)
@@ -401,21 +401,21 @@ def test_background_install_skips_activation_when_user_systemd_bus_is_unavailabl
             )
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
-    monkeypatch.setattr("atelier.gateway.cli.commands.background._is_linux", lambda: True)
-    monkeypatch.setattr("atelier.gateway.cli.commands.background._is_macos", lambda: False)
-    monkeypatch.setattr("atelier.gateway.cli.commands.background.SYSTEMD_USER_DIR", unit_dir)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.background._is_linux", lambda: True)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.background._is_macos", lambda: False)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.background.SYSTEMD_USER_DIR", unit_dir)
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.background.shutil.which",
-        lambda name: "/bin/systemctl" if name == "systemctl" else "/usr/bin/atelier",
+        "lemoncrow.gateway.cli.commands.background.shutil.which",
+        lambda name: "/bin/systemctl" if name == "systemctl" else "/usr/bin/lemoncrow",
     )
-    monkeypatch.setattr("atelier.gateway.cli.commands.background.subprocess.run", _run)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.background.subprocess.run", _run)
 
     res = _invoke(root, "background", "install", "--with-stack")
 
     assert res.exit_code == 0, res.output
     assert "systemd user bus is unavailable" in res.output
-    assert (unit_dir / "atelier-controller.service").exists()
-    assert (unit_dir / "atelier-stack.service").exists()
+    assert (unit_dir / "lemoncrow-controller.service").exists()
+    assert (unit_dir / "lemoncrow-stack.service").exists()
     assert not any(cmd[:3] == ["systemctl", "--user", "enable"] for cmd in commands)
     assert not any(cmd[:3] == ["systemctl", "--user", "restart"] for cmd in commands)
 
@@ -428,26 +428,26 @@ def test_background_install_writes_openmemory_unit(tmp_path: Path, monkeypatch: 
     def _which(name: str) -> str | None:
         mapping = {
             "systemctl": "/bin/systemctl",
-            "atelier": "/usr/bin/atelier",
+            "lemon": "/usr/bin/lemon",
             "git": "/usr/bin/git",
             "docker": "/usr/bin/docker",
             "make": "/usr/bin/make",
         }
         return mapping.get(name)
 
-    monkeypatch.setattr("atelier.gateway.cli.commands.background._is_linux", lambda: True)
-    monkeypatch.setattr("atelier.gateway.cli.commands.background._is_macos", lambda: False)
-    monkeypatch.setattr("atelier.gateway.cli.commands.background.SYSTEMD_USER_DIR", unit_dir)
-    monkeypatch.setattr("atelier.gateway.cli.commands.background.shutil.which", _which)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.background._is_linux", lambda: True)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.background._is_macos", lambda: False)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.background.SYSTEMD_USER_DIR", unit_dir)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.background.shutil.which", _which)
     monkeypatch.setattr(
-        "atelier.gateway.cli.commands.background.subprocess.run",
+        "lemoncrow.gateway.cli.commands.background.subprocess.run",
         lambda args, **kwargs: commands.append([str(item) for item in args]),
     )
 
     res = _invoke(root, "background", "install", "--with-openmemory")
 
     assert res.exit_code == 0, res.output
-    openmemory_unit = (unit_dir / "atelier-openmemory.service").read_text(encoding="utf-8")
+    openmemory_unit = (unit_dir / "lemoncrow-openmemory.service").read_text(encoding="utf-8")
     assert "openmemory up" in openmemory_unit
     assert "openmemory down" in openmemory_unit
     assert any(cmd[:3] == ["systemctl", "--user", "enable"] for cmd in commands)
@@ -465,19 +465,19 @@ def test_stop_stack_processes_kills_process_groups(tmp_path: Path, monkeypatch: 
     killed: set[int] = set()
     killpg_calls: list[tuple[int, int]] = []
 
-    monkeypatch.setattr("atelier.infra.runtime.stack_lifecycle.os.getpgid", lambda pid: pid)
+    monkeypatch.setattr("lemoncrow.infra.runtime.stack_lifecycle.os.getpgid", lambda pid: pid)
 
     def _mock_killpg(pgid: int, sig: int) -> None:
         killpg_calls.append((pgid, sig))
         killed.add(pgid)
 
     monkeypatch.setattr(
-        "atelier.infra.runtime.stack_lifecycle.os.killpg",
+        "lemoncrow.infra.runtime.stack_lifecycle.os.killpg",
         _mock_killpg,
     )
-    monkeypatch.setattr("atelier.infra.runtime.stack_lifecycle._pid_is_running", lambda pid: pid not in killed)
+    monkeypatch.setattr("lemoncrow.infra.runtime.stack_lifecycle._pid_is_running", lambda pid: pid not in killed)
 
-    from atelier.infra.runtime.stack_lifecycle import _stop_stack_processes
+    from lemoncrow.infra.runtime.stack_lifecycle import _stop_stack_processes
 
     payload = _stop_stack_processes(root, force=False)
 
@@ -530,7 +530,7 @@ def test_servicectl_tick_enqueues_and_processes_periodic_consolidation(
         _ = (messages, json_schema)
         raise OllamaUnavailable("offline")
 
-    monkeypatch.setattr("atelier.core.capabilities.consolidation.worker.chat", unavailable)
+    monkeypatch.setattr("lemoncrow.core.capabilities.consolidation.worker.chat", unavailable)
 
     res = _invoke(
         root,
@@ -562,8 +562,8 @@ def test_servicectl_start_writes_pidfile(tmp_path: Path, monkeypatch: pytest.Mon
             spawned["kwargs"] = kwargs
             self.pid = 4321
 
-    monkeypatch.setattr("atelier.gateway.cli.commands.servicectl.subprocess.Popen", FakePopen)
-    monkeypatch.setattr("atelier.infra.runtime.servicectl_lifecycle._pid_is_running", lambda pid: pid == 4321)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.servicectl.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("lemoncrow.infra.runtime.servicectl_lifecycle._pid_is_running", lambda pid: pid == 4321)
 
     res = _invoke(
         root,
@@ -584,7 +584,7 @@ def test_servicectl_start_writes_pidfile(tmp_path: Path, monkeypatch: pytest.Mon
     assert payload["pid"] == 4321
     args = spawned["args"]
     assert isinstance(args, list)
-    assert "atelier.gateway.cli" in " ".join(str(item) for item in args)
+    assert "lemoncrow.gateway.cli" in " ".join(str(item) for item in args)
     assert (root / "servicectl" / "servicectl.pid").read_text(encoding="utf-8").strip() == "4321"
 
 
@@ -610,23 +610,23 @@ def test_servicectl_tick_imports_only_new_or_updated_sessions(
     )
 
     monkeypatch.setattr(
-        "atelier.gateway.hosts.session_parsers.codex.find_codex_sessions",
+        "lemoncrow.gateway.hosts.session_parsers.codex.find_codex_sessions",
         lambda root=None: [codex_file],
     )
     monkeypatch.setattr(
-        "atelier.gateway.hosts.session_parsers.copilot.find_copilot_sessions",
+        "lemoncrow.gateway.hosts.session_parsers.copilot.find_copilot_sessions",
         lambda root=None: iter(()),
     )
     monkeypatch.setattr(
-        "atelier.gateway.hosts.session_parsers.claude.find_claude_sessions",
+        "lemoncrow.gateway.hosts.session_parsers.claude.find_claude_sessions",
         lambda root=None: iter(()),
     )
     monkeypatch.setattr(
-        "atelier.gateway.hosts.session_parsers.opencode.find_opencode_sessions",
+        "lemoncrow.gateway.hosts.session_parsers.opencode.find_opencode_sessions",
         lambda db_path=None: iter(()),
     )
     monkeypatch.setattr(
-        "atelier.gateway.hosts.session_parsers.gemini.find_gemini_sessions",
+        "lemoncrow.gateway.hosts.session_parsers.gemini.find_gemini_sessions",
         lambda root=None: iter(()),
     )
 
@@ -634,7 +634,7 @@ def test_servicectl_tick_imports_only_new_or_updated_sessions(
         _ = (messages, json_schema)
         raise OllamaUnavailable("offline")
 
-    monkeypatch.setattr("atelier.core.capabilities.consolidation.worker.chat", unavailable)
+    monkeypatch.setattr("lemoncrow.core.capabilities.consolidation.worker.chat", unavailable)
 
     first = _invoke(
         root,
@@ -748,4 +748,4 @@ def test_servicectl_surfaces_job_queue_health(
     assert status_after_payload["job_queue_health"] == tick_payload["job_queue_health"]
 
 
-# `atelier task` command removed — cut in CLI consolidation.
+# `lemon task` command removed — cut in CLI consolidation.

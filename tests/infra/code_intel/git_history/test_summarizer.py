@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from atelier.infra.code_intel.git_history.models import CommitRecord, CommitSummary
-from atelier.infra.code_intel.git_history.summarizer import (
+from lemoncrow.infra.code_intel.git_history.models import CommitRecord, CommitSummary
+from lemoncrow.infra.code_intel.git_history.summarizer import (
     _CURRENT_PROMPT_VERSION,
     SummarizerError,
     summarize_commit,
@@ -33,7 +33,7 @@ def test_summary_returns_valid_commit_summary() -> None:
     valid_text += "was not properly closing tokens on logout. The fix ensures all "
     valid_text += "JWT tokens are invalidated server-side on session termination."
 
-    with patch("atelier.infra.code_intel.git_history.summarizer.chat", return_value=valid_text):
+    with patch("lemoncrow.infra.code_intel.git_history.summarizer.chat", return_value=valid_text):
         result = summarize_commit(record, diff_text="--- a/src/auth.py\n+++ b/src/auth.py")
 
     assert isinstance(result, CommitSummary)
@@ -52,7 +52,7 @@ def test_summary_prompt_version_and_model_fields() -> None:
         captured["messages"] = messages
         return "A valid summary with enough words to be considered acceptable by the summariser."
 
-    with patch("atelier.infra.code_intel.git_history.summarizer.chat", fake_chat):
+    with patch("lemoncrow.infra.code_intel.git_history.summarizer.chat", fake_chat):
         result = summarize_commit(record)
 
     assert result.prompt_version == _CURRENT_PROMPT_VERSION
@@ -64,7 +64,7 @@ def test_summary_prompt_version_and_model_fields() -> None:
 def test_summarizer_error_on_empty_response() -> None:
     record = _make_record()
     with (
-        patch("atelier.infra.code_intel.git_history.summarizer.chat", return_value=""),
+        patch("lemoncrow.infra.code_intel.git_history.summarizer.chat", return_value=""),
         pytest.raises(SummarizerError),
     ):
         summarize_commit(record)
@@ -74,7 +74,7 @@ def test_summarizer_error_on_llm_exception() -> None:
     record = _make_record()
     with (
         patch(
-            "atelier.infra.code_intel.git_history.summarizer.chat",
+            "lemoncrow.infra.code_intel.git_history.summarizer.chat",
             side_effect=RuntimeError("model unavailable"),
         ),
         pytest.raises(SummarizerError) as exc_info,
@@ -85,14 +85,14 @@ def test_summarizer_error_on_llm_exception() -> None:
 
 def test_summarizer_uses_env_model(monkeypatch: pytest.MonkeyPatch) -> None:
     record = _make_record()
-    monkeypatch.setenv("ATELIER_LINEAGE_MODEL", "test-model-xyz")
+    monkeypatch.setenv("LEMONCROW_LINEAGE_MODEL", "test-model-xyz")
     captured: dict[str, str] = {}
 
     def fake_chat(messages: list[Any], *, model: str = "") -> str:
         captured["model"] = model
         return "A valid summary returned by the test model."
 
-    with patch("atelier.infra.code_intel.git_history.summarizer.chat", fake_chat):
+    with patch("lemoncrow.infra.code_intel.git_history.summarizer.chat", fake_chat):
         result = summarize_commit(record)
 
     assert captured["model"] == "test-model-xyz"
@@ -102,10 +102,10 @@ def test_summarizer_uses_env_model(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     ("backend", "env_name", "env_value"),
     [
-        ("ollama", "ATELIER_OLLAMA_MODEL", "local-ollama-model"),
-        ("openai", "ATELIER_OPENAI_MODEL", "openai-model"),
-        ("openai_compatible", "ATELIER_OPENAI_MODEL", "compat-model"),
-        ("litellm", "ATELIER_LITELLM_MODEL", "litellm-model"),
+        ("ollama", "LEMONCROW_OLLAMA_MODEL", "local-ollama-model"),
+        ("openai", "LEMONCROW_OPENAI_MODEL", "openai-model"),
+        ("openai_compatible", "LEMONCROW_OPENAI_MODEL", "compat-model"),
+        ("litellm", "LEMONCROW_LITELLM_MODEL", "litellm-model"),
     ],
 )
 def test_summarizer_uses_backend_default_model(
@@ -115,8 +115,8 @@ def test_summarizer_uses_backend_default_model(
     env_value: str,
 ) -> None:
     record = _make_record()
-    monkeypatch.delenv("ATELIER_LINEAGE_MODEL", raising=False)
-    monkeypatch.setenv("ATELIER_LLM_BACKEND", backend)
+    monkeypatch.delenv("LEMONCROW_LINEAGE_MODEL", raising=False)
+    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", backend)
     monkeypatch.setenv(env_name, env_value)
     captured: dict[str, str] = {}
 
@@ -124,7 +124,7 @@ def test_summarizer_uses_backend_default_model(
         captured["model"] = model
         return "A valid summary returned by the backend default model."
 
-    with patch("atelier.infra.code_intel.git_history.summarizer.chat", fake_chat):
+    with patch("lemoncrow.infra.code_intel.git_history.summarizer.chat", fake_chat):
         result = summarize_commit(record)
 
     assert captured["model"] == env_value

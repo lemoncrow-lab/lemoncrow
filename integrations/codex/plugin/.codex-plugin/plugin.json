@@ -1,25 +1,25 @@
 {
-  "name": "atelier",
+  "name": "lemoncrow",
   "version": "0.1.0",
   "description": "AI task/procedure/runtime layer for agentic workflows",
   "author": {
-    "name": "Atelier Team"
+    "name": "LemonCrow Team"
   },
   "license": "MIT",
   "keywords": ["task", "mcp", "skills", "workflow"],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "Atelier",
-    "shortDescription": "Atelier tools and trace capture for Codex.",
-    "longDescription": "Bundle the Atelier MCP transport, role skills, standalone custom agents, and trace capture for Codex. Atelier code instructions apply to the main session through AGENTS.md; atelier.code, atelier.explore, atelier.review, atelier.plan, atelier.execute, atelier.research, and atelier.solve are available as custom subagents.",
-    "developerName": "Atelier Team",
+    "displayName": "LemonCrow",
+    "shortDescription": "LemonCrow tools and trace capture for Codex.",
+    "longDescription": "Bundle the LemonCrow MCP transport, role skills, standalone custom agents, and trace capture for Codex. LemonCrow code instructions apply to the main session through AGENTS.md; lemoncrow.code, lemoncrow.explore, lemoncrow.review, lemoncrow.plan, lemoncrow.execute, lemoncrow.research, and lemoncrow.solve are available as custom subagents.",
+    "developerName": "LemonCrow Team",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "defaultPrompt": [
-      "Use AGENTS.md for code mode; the legacy atelier_code config alias is not required.",
-      "Spawn atelier.plan, atelier.explore, or atelier.review for focused analysis.",
-      "Spawn atelier.execute, atelier.solve, atelier.research, or atelier.code when appropriate."
+      "Use AGENTS.md for code mode; the legacy lemoncrow_code config alias is not required.",
+      "Spawn lemoncrow.plan, lemoncrow.explore, or lemoncrow.review for focused analysis.",
+      "Spawn lemoncrow.execute, lemoncrow.solve, lemoncrow.research, or lemoncrow.code when appropriate."
     ],
     "brandColor": "#0f766e"
   }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# uninstall_antigravity.sh - Remove Atelier from Antigravity / agy
+# uninstall_antigravity.sh - Remove LemonCrow from Antigravity / agy
 #
 # Options:
 #   --workspace DIR  Remove project-local artifacts from DIR instead of user config
@@ -39,12 +39,12 @@ else
     MCP_JSON="${ANTIGRAVITY_USER_DIR}/mcp.json"
 fi
 
-info()  { echo "[atelier:uninstall:antigravity] $*"; }
+info()  { echo "[lemon:uninstall:antigravity] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || "$@"; }
 
 if [ -f "$MCP_JSON" ]; then
     if $DRY_RUN; then
-        echo "  [dry-run] remove atelier server from $MCP_JSON"
+        echo "  [dry-run] remove LemonCrow server from $MCP_JSON"
     else
         python3 - <<PYEOF
 import json
@@ -55,13 +55,13 @@ data = json.loads(path.read_text(encoding="utf-8") or "{}")
 server_key = "servers" if "servers" in data else "mcpServers"
 servers = data.get(server_key, {})
 if isinstance(servers, dict):
-    servers.pop("atelier", None)
+    servers.pop("lemoncrow", None)
 if servers:
     data[server_key] = servers
 else:
     data.pop(server_key, None)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print("[atelier:uninstall:antigravity] updated $MCP_JSON")
+print("[lemon:uninstall:antigravity] updated $MCP_JSON")
 PYEOF
     fi
 fi

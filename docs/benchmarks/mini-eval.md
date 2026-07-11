@@ -1,6 +1,6 @@
-# Atelier Mini Eval
+# LemonCrow Mini Eval
 
-The **mini eval** is the cheapest credible benchmark in Atelier: a small,
+The **mini eval** is the cheapest credible benchmark in LemonCrow: a small,
 deterministic, cost-quality suite of 5–10 real tasks against this repository.
 It exists to answer one question fast and honestly — *did routing produce
 accepted patches cheaply, with trace evidence, and without regressions?* — with
@@ -22,7 +22,7 @@ eval gives a quick signal you can run locally:
 ### Dry-run (offline, no API keys)
 
 ```bash
-atelier benchmark mini --dry-run --json
+lemon benchmark mini --dry-run --json
 ```
 
 Dry-run loads and validates every case, then returns a report with
@@ -33,7 +33,7 @@ is well-formed without spending anything.
 ### Live run
 
 ```bash
-atelier benchmark mini --limit 5 --json
+lemon benchmark mini --limit 5 --json
 ```
 
 A live run requires a configured API key (e.g. `ANTHROPIC_API_KEY`). For each
@@ -55,7 +55,7 @@ case the runner:
 | `--dry-run`  | off                              | Validate only; no API/git/subprocess.    |
 | `--limit N`  | `5`                              | Max cases to run.                        |
 | `--json`     | off                              | Print the JSON report to stdout.         |
-| `--output`   | `.atelier/evals/mini-report.json`| Where to write the JSON report.          |
+| `--output`   | `.lemoncrow/evals/mini-report.json`| Where to write the JSON report.          |
 | `--cases`    | `benchmarks/mini/cases.yaml`     | Path to the cases YAML.                  |
 
 Both a JSON and a Markdown report are written next to each other (e.g.
@@ -74,7 +74,7 @@ cases:
       Add a module-level docstring to schema.py. One sentence is enough.
     starting_git_sha: HEAD            # "HEAD" means do not reset
     allowed_files:                    # globs the agent may change; [] = none
-      - "src/atelier/core/capabilities/eval_mini/schema.py"
+      - "src/lemoncrow/core/capabilities/eval_mini/schema.py"
     command_to_verify: "uv run python -c \"...\""   # passes on exit 0
     expected_success_condition: "File has a module docstring"
     max_cost_usd: 0.02                # soft ceiling
@@ -117,13 +117,13 @@ was not accepted (verify failed or the file boundary was violated).
 4. Validate without spending anything:
 
    ```bash
-   atelier benchmark mini --dry-run --json
+   lemon benchmark mini --dry-run --json
    ```
 
 ## Relationship to `make proof-cost-quality`
 
 The mini eval shares the same philosophy as the WP-32 cost-quality proof gate
-(`make proof-cost-quality`, `atelier proof run`): accepted-patch economics,
+(`make proof-cost-quality`, `lemon proof run`): accepted-patch economics,
 trace coverage, and regression accounting where failures always count. The
 proof gate is the formal release gate with fixed thresholds; the mini eval is
 the fast, local, runnable companion you reach for during development.

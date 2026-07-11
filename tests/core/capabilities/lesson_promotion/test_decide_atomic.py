@@ -11,13 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.lesson_promotion import LessonPromoterCapability
-from atelier.core.foundation.lesson_models import LessonCandidate
-from atelier.core.foundation.store import ContextStore
+from lemoncrow.core.capabilities.lesson_promotion import LessonPromoterCapability
+from lemoncrow.core.foundation.lesson_models import LessonCandidate
+from lemoncrow.core.foundation.store import ContextStore
 
 
 def test_decide_atomic_on_typed_lesson_failure(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / ".atelier")
+    store = ContextStore(tmp_path / ".lemoncrow")
     store.init()
     candidate = LessonCandidate(
         domain="coding",

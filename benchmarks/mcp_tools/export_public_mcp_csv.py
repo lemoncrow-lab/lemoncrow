@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from atelier.gateway.cli.progress import ProgressReporter
+from lemoncrow.gateway.cli.progress import ProgressReporter
 
 from benchmarks.mcp_tools._env import configure_benchmark_runtime
 from benchmarks.mcp_tools.bench_code import _tool_name_for_case_args, code_tool_dispatch
@@ -69,12 +69,12 @@ def _repo_root() -> Path:
 _REPO_SNAPSHOT_ROOT: Path | None = None
 
 # Code-intel indexing is expensive to build cold (10-30s+ for this repo).
-# Capture the real ATELIER_ROOT once at import time -- before any suite's
+# Capture the real LEMONCROW_ROOT once at import time -- before any suite's
 # _reset_runtime() call below can overwrite it with a throwaway per-suite
 # temp path -- so code-intel suites can restore it afterward and reuse the
 # persistent index instead of rebuilding from scratch on every run (and,
 # without this, once per code-intel suite within a single run).
-_REAL_ATELIER_ROOT = Path(os.environ.get("ATELIER_ROOT") or Path.home() / ".atelier")
+_REAL_LEMONCROW_ROOT = Path(os.environ.get("LEMONCROW_ROOT") or Path.home() / ".lemoncrow")
 
 
 def _repo_workspace_root() -> Path:
@@ -98,7 +98,7 @@ def _runtime_root(artifact_root: Path, tool_name: str) -> Path:
 
 def _reset_runtime(root: Path, *, workspace_root: Path | None = None) -> Path:
     configured = configure_benchmark_runtime(root, workspace_root=workspace_root)
-    from atelier.gateway.adapters import mcp_server
+    from lemoncrow.gateway.adapters import mcp_server
 
     mcp_server._reset_runtime_cache_for_testing()
     mcp_server._current_ledger = None
@@ -161,7 +161,7 @@ def _run_simple_suite(
 
 
 def _run_read_suite(artifact_root: Path, progress: ProgressReporter | None = None) -> ToolReport:
-    from atelier.gateway.adapters.mcp_server import tool_smart_read
+    from lemoncrow.gateway.adapters.mcp_server import tool_smart_read
 
     return _run_simple_suite(
         "read",
@@ -174,7 +174,7 @@ def _run_read_suite(artifact_root: Path, progress: ProgressReporter | None = Non
 
 
 def _run_search_suite(artifact_root: Path, progress: ProgressReporter | None = None) -> ToolReport:
-    from atelier.gateway.adapters.mcp_server import tool_smart_search
+    from lemoncrow.gateway.adapters.mcp_server import tool_smart_search
 
     return _run_simple_suite(
         "search",
@@ -187,7 +187,7 @@ def _run_search_suite(artifact_root: Path, progress: ProgressReporter | None = N
 
 
 def _run_grep_suite(artifact_root: Path, progress: ProgressReporter | None = None) -> ToolReport:
-    from atelier.gateway.adapters.mcp_server import tool_grep
+    from lemoncrow.gateway.adapters.mcp_server import tool_grep
 
     return _run_simple_suite(
         "grep",
@@ -200,7 +200,7 @@ def _run_grep_suite(artifact_root: Path, progress: ProgressReporter | None = Non
 
 
 def _run_context_suite(artifact_root: Path, progress: ProgressReporter | None = None) -> ToolReport:
-    from atelier.gateway.adapters.mcp_server import tool_get_context
+    from lemoncrow.gateway.adapters.mcp_server import tool_get_context
 
     root = _runtime_root(artifact_root, "context")
     _reset_runtime(root, workspace_root=_repo_workspace_root())
@@ -226,7 +226,7 @@ def _run_context_suite(artifact_root: Path, progress: ProgressReporter | None = 
 
 
 def _run_trace_suite(artifact_root: Path, progress: ProgressReporter | None = None) -> ToolReport:
-    from atelier.gateway.adapters.mcp_server import tool_record_trace
+    from lemoncrow.gateway.adapters.mcp_server import tool_record_trace
 
     return _run_simple_suite(
         "trace",
@@ -240,7 +240,7 @@ def _run_trace_suite(artifact_root: Path, progress: ProgressReporter | None = No
 def _run_memory_suite(artifact_root: Path, progress: ProgressReporter | None = None) -> ToolReport:
     root = _runtime_root(artifact_root, "memory")
     _reset_runtime(root)
-    from atelier.gateway.adapters import mcp_server
+    from lemoncrow.gateway.adapters import mcp_server
 
     def tool_fn(args: dict[str, Any]) -> Any:
         payload = dict(args)
@@ -287,7 +287,7 @@ def _run_sql_suite(artifact_root: Path, progress: ProgressReporter | None = None
         """)
     conn.commit()
     conn.close()
-    from atelier.gateway.adapters.mcp_server import tool_sql
+    from lemoncrow.gateway.adapters.mcp_server import tool_sql
 
     results: list[CaseResult] = []
     for case in SQL_CASES:
@@ -310,7 +310,7 @@ def _run_sql_suite(artifact_root: Path, progress: ProgressReporter | None = None
 def _run_edit_suite(artifact_root: Path, progress: ProgressReporter | None = None) -> ToolReport:
     root = _runtime_root(artifact_root, "edit")
     workspace = _reset_runtime(root)
-    from atelier.gateway.adapters.mcp_server import tool_smart_edit
+    from lemoncrow.gateway.adapters.mcp_server import tool_smart_edit
 
     results: list[CaseResult] = []
     for case in EDIT_CASES:
@@ -330,7 +330,7 @@ def _run_code_suite_cases(
 ) -> ToolReport:
     root = _runtime_root(artifact_root, tool_name)
     _reset_runtime(root, workspace_root=_repo_workspace_root())
-    os.environ["ATELIER_ROOT"] = str(_REAL_ATELIER_ROOT)
+    os.environ["LEMONCROW_ROOT"] = str(_REAL_LEMONCROW_ROOT)
 
     results: list[CaseResult] = []
     for case in code_cases:
@@ -369,8 +369,8 @@ def _run_code_suite(artifact_root: Path, progress: ProgressReporter | None = Non
 def _run_compact_suite(artifact_root: Path, progress: ProgressReporter | None = None) -> ToolReport:
     root = _runtime_root(artifact_root, "compact")
     _reset_runtime(root)
-    from atelier.gateway.adapters import mcp_server
-    from atelier.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.gateway.adapters import mcp_server
+    from lemoncrow.infra.runtime.run_ledger import RunLedger
 
     def tool_fn(args: dict[str, Any]) -> Any:
         payload = dict(args)
@@ -429,7 +429,7 @@ def _run_shell_suite(artifact_root: Path, progress: ProgressReporter | None = No
     src = workspace / "src"
     src.mkdir(exist_ok=True)
     (src / "module.py").write_text("# module with needle_token\ndef needle_token():\n    return 42\n", encoding="utf-8")
-    from atelier.gateway.adapters.mcp_server import tool_bash
+    from lemoncrow.gateway.adapters.mcp_server import tool_bash
 
     results: list[CaseResult] = []
     for case in SHELL_CASES:
@@ -522,7 +522,7 @@ def _flatten_reports(reports: list[ToolReport]) -> list[dict[str, Any]]:
                     "label": result.case.label,
                     "op": result.case.op,
                     "passed": result.passed,
-                    "atelier_tokens": result.atelier_tokens,
+                    "lemoncrow_tokens": result.lemoncrow_tokens,
                     "baseline_tokens": result.baseline_tokens,
                     "input_file_tokens": result.input_file_tokens,
                     "tokens_saved": result.tokens_saved,
@@ -559,7 +559,7 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
                 "label",
                 "op",
                 "passed",
-                "atelier_tokens",
+                "lemoncrow_tokens",
                 "baseline_tokens",
                 "input_file_tokens",
                 "tokens_saved",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from atelier.core.capabilities.orientation import available_topics, orientation_playbook
+from lemoncrow.core.capabilities.orientation import available_topics, orientation_playbook
 
 
 def test_full_playbook_returns_canonical_sequence_and_all_sections() -> None:
@@ -48,8 +48,8 @@ def test_playbook_is_deterministic() -> None:
 
 
 def test_orient_mcp_tool_registered_hidden_and_returns_playbook() -> None:
-    from atelier.core.environment import HIDDEN_LLM_TOOLS, mcp_tool_visible_to_llm
-    from atelier.gateway.adapters import mcp_server
+    from lemoncrow.core.environment import HIDDEN_LLM_TOOLS, mcp_tool_visible_to_llm
+    from lemoncrow.gateway.adapters import mcp_server
 
     assert "orient" in mcp_server.TOOLS
     # Registered but kept off the advertised surface.

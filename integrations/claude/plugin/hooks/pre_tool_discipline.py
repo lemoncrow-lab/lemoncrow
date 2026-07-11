@@ -8,7 +8,7 @@ on every later turn. Targeted range reads and reads of un-edited files pass
 through untouched.
 
 Edited files are recorded by loop_discipline_post.py (shared session state).
-Fail-open; opt-out via ATELIER_READ_AFTER_EDIT_GUARD=0.
+Fail-open; opt-out via LEMONCROW_READ_AFTER_EDIT_GUARD=0.
 
 Note: this hook deliberately does NOT block grep/rg over source. Steering toward
 explore/search lives in the agent instructions + the strength of the indexed
@@ -27,8 +27,8 @@ from typing import Any
 
 
 def _root() -> Path:
-    raw = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
-    return Path(raw) if raw else Path.home() / ".atelier"
+    raw = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
+    return Path(raw) if raw else Path.home() / ".lemoncrow"
 
 
 def _workspace_key(path: str) -> str:
@@ -157,7 +157,7 @@ def main() -> int:
         return 0
 
     # Read-after-edit guard.
-    if os.environ.get("ATELIER_READ_AFTER_EDIT_GUARD", "1") == "0":
+    if os.environ.get("LEMONCROW_READ_AFTER_EDIT_GUARD", "1") == "0":
         return 0
     if not _is_read(name, ti):
         return 0

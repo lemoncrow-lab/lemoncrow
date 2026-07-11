@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.licensing import entitlements
-from atelier.core.capabilities.optimization.policy import load_current_policy
-from atelier.core.service import code_warm
+from lemoncrow.core.capabilities.licensing import entitlements
+from lemoncrow.core.capabilities.optimization.policy import load_current_policy
+from lemoncrow.core.service import code_warm
 from tests.helpers import deny_oauth, grant_oauth_pro
 
 
@@ -63,10 +63,10 @@ def _big_python_src() -> str:
 
 
 def test_read_uses_source_projection_without_pro(monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.gateway.adapters import mcp_server
+    from lemoncrow.gateway.adapters import mcp_server
 
-    monkeypatch.setenv("ATELIER_AUTO_COMPACT_OUTPUT", "1")
-    monkeypatch.setenv("ATELIER_MCP_COMPACT_RESULT_CHARS", "2000")
+    monkeypatch.setenv("LEMONCROW_AUTO_COMPACT_OUTPUT", "1")
+    monkeypatch.setenv("LEMONCROW_MCP_COMPACT_RESULT_CHARS", "2000")
     out = mcp_server._auto_compact_result_text(_big_python_src(), "read", {"path": "mod.py"})
     assert "source_projection:python" in out  # source_projection is free: AST projection applies
 
@@ -74,7 +74,7 @@ def test_read_uses_source_projection_without_pro(monkeypatch: pytest.MonkeyPatch
 def test_free_context_compression_is_passthrough() -> None:
     from typing import ClassVar
 
-    from atelier.core.capabilities.context_compression.capability import ContextCompressionCapability
+    from lemoncrow.core.capabilities.context_compression.capability import ContextCompressionCapability
 
     class _Ledger:
         session_id = "s"
@@ -86,10 +86,10 @@ def test_free_context_compression_is_passthrough() -> None:
 
 
 def test_free_scoped_context_pull_is_locked() -> None:
-    from atelier.core.capabilities.licensing import FeatureLocked
-    from atelier.gateway.adapters import mcp_server
+    from lemoncrow.core.capabilities.licensing import FeatureLocked
+    from lemoncrow.gateway.adapters import mcp_server
 
     with pytest.raises(FeatureLocked) as exc_info:
         mcp_server.tool_get_context({"task": "x", "mode": "pull"})
     assert exc_info.value.feature == "scoped_context"
-    assert "Atelier Pro" in str(exc_info.value)
+    assert "LemonCrow Pro" in str(exc_info.value)

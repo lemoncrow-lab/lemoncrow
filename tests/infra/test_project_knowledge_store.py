@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from atelier.core.foundation.models import Playbook, Rubric, to_jsonable
-from atelier.core.foundation.paths import resolve_workspace_store_dir
-from atelier.core.foundation.renderer import render_playbook_markdown
-from atelier.core.foundation.store import ContextStore
-from atelier.infra.storage.factory import create_store
+from lemoncrow.core.foundation.models import Playbook, Rubric, to_jsonable
+from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
+from lemoncrow.core.foundation.renderer import render_playbook_markdown
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.factory import create_store
 
 
 def _sample_block() -> Playbook:
@@ -37,9 +37,9 @@ def _sample_rubric() -> Rubric:
 def test_reasoning_store_writes_lessons_to_project_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = tmp_path / "repo"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.setenv("LEMONCROW_WORKSPACE_ROOT", str(workspace))
 
-    store_root = tmp_path / "global" / ".atelier"
+    store_root = tmp_path / "global" / ".lemoncrow"
     store = ContextStore(store_root)
     store.init()
 
@@ -50,19 +50,19 @@ def test_reasoning_store_writes_lessons_to_project_directory(tmp_path: Path, mon
 
     proj_dir = resolve_workspace_store_dir(store_root)
     assert store.root == store_root.resolve()
-    # Mirrors live per-project under the global store root, not in .atelier/lessons.
+    # Mirrors live per-project under the global store root, not in .lemoncrow/lessons.
     assert store.blocks_dir == (proj_dir / "blocks").resolve()
     assert store.rubrics_dir == (proj_dir / "rubrics").resolve()
-    assert ".atelier/lessons" not in store.blocks_dir.parts
+    assert ".lemoncrow/lessons" not in store.blocks_dir.parts
     assert (store.blocks_dir / f"{block.id}.md").exists()
     assert (store.rubrics_dir / f"{rubric.id}.yaml").exists()
 
 
 def test_store_init_syncs_project_lessons_into_sqlite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = tmp_path / "repo"
-    monkeypatch.setenv("ATELIER_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.setenv("LEMONCROW_WORKSPACE_ROOT", str(workspace))
 
-    store_root = tmp_path / "global" / ".atelier"
+    store_root = tmp_path / "global" / ".lemoncrow"
     proj_dir = resolve_workspace_store_dir(store_root)
     blocks_dir = proj_dir / "blocks"
     rubrics_dir = proj_dir / "rubrics"
@@ -92,7 +92,7 @@ def test_store_init_syncs_project_lessons_into_sqlite(tmp_path: Path, monkeypatc
 
 def test_mcp_runtime_is_cached_not_recreated_per_call() -> None:
     """_runtime() returns a singleton so init() runs once per process."""
-    from atelier.gateway.adapters.mcp_server import (
+    from lemoncrow.gateway.adapters.mcp_server import (
         _reset_runtime_cache_for_testing,
         _runtime,
     )
@@ -106,9 +106,9 @@ def test_mcp_runtime_is_cached_not_recreated_per_call() -> None:
 
 def test_sync_lessons_skips_unchanged_files_on_repeat_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = tmp_path / "repo"
-    monkeypatch.setenv("ATELIER_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.setenv("LEMONCROW_WORKSPACE_ROOT", str(workspace))
 
-    store_root = tmp_path / "global" / ".atelier"
+    store_root = tmp_path / "global" / ".lemoncrow"
     blocks_dir = resolve_workspace_store_dir(store_root) / "blocks"
     blocks_dir.mkdir(parents=True)
 

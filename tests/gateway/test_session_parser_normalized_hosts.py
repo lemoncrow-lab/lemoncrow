@@ -5,7 +5,7 @@ from datetime import datetime
 
 import pytest
 
-from atelier.gateway.hosts.session_parsers._common import (
+from lemoncrow.gateway.hosts.session_parsers._common import (
     build_normalized_jsonl,
     make_assistant_message,
     make_session_line,
@@ -13,7 +13,7 @@ from atelier.gateway.hosts.session_parsers._common import (
     make_user_message,
     parse_datetime,
 )
-from atelier.gateway.hosts.session_parsers._session_parser import (
+from lemoncrow.gateway.hosts.session_parsers._session_parser import (
     extract_session_usage_summary,
     parse_session_turns,
 )

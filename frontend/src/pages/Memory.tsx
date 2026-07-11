@@ -26,7 +26,7 @@ interface EditDraft {
   nextValue: string;
 }
 
-const DEFAULT_MEMORY_AGENTS = ["atelier"];
+const DEFAULT_MEMORY_AGENTS = ["lemon"];
 
 function hostTag(agentId: string): string {
   const raw = agentId.trim().toLowerCase();
@@ -35,7 +35,7 @@ function hostTag(agentId: string): string {
   if (raw.includes("codex")) return "codex";
   if (raw.includes("gemini")) return "gemini";
   if (raw.includes("opencode")) return "opencode";
-  if (raw.startsWith("atelier") || raw.includes("claude")) return "claude";
+  if (raw.startsWith("lemon") || raw.includes("claude")) return "claude";
   return raw;
 }
 

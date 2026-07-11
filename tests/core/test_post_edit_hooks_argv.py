@@ -9,7 +9,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import atelier.core.capabilities.tool_supervision.post_edit_hooks as peh
+import lemoncrow.core.capabilities.tool_supervision.post_edit_hooks as peh
 
 
 def test_hook_runs_argv_list_without_shell(monkeypatch) -> None:

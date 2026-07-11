@@ -9,8 +9,8 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from atelier.core.capabilities.prompt_compilation.tokens import approx_tokens as _count_tokens
-from atelier.core.capabilities.tool_supervision.search_read import (
+from lemoncrow.core.capabilities.prompt_compilation.tokens import approx_tokens as _count_tokens
+from lemoncrow.core.capabilities.tool_supervision.search_read import (
     _naive_token_count,
     _run_grep,
     search_read,

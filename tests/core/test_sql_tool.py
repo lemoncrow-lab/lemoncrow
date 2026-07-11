@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision.sql_tool import (
+from lemoncrow.core.capabilities.tool_supervision.sql_tool import (
     _bound_cell,
     detect_dialect,
     discover_connection,
@@ -83,12 +83,12 @@ def test_bound_cell_spills_full_text_when_truncated(tmp_path: Path, monkeypatch:
     With T7 spill enabled (default), the full cell is persisted and a recovery
     hint names the path.
     """
-    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path / "spill"))
-    monkeypatch.delenv("ATELIER_TOOL_OUTPUT_SPILL", raising=False)  # default on
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path / "spill"))
+    monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)  # default on
     full = "y" * 5000 + "TAIL-MARKER"
     out = _bound_cell(full)
     assert "TAIL-MARKER" not in out  # dropped from the truncated cell
-    assert "[atelier: truncated" in out
+    assert "[lemon: truncated" in out
     match = re.search(r"read (\S+\.txt)\]", out)
     assert match is not None
     recovered = Path(match.group(1)).read_text(encoding="utf-8")
@@ -96,7 +96,7 @@ def test_bound_cell_spills_full_text_when_truncated(tmp_path: Path, monkeypatch:
 
 
 def test_bound_cell_no_spill_hint_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "0")
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "0")
     out = _bound_cell("y" * 5000)
     assert "spilled to" not in out
     assert "truncated" in out

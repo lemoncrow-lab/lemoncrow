@@ -1,1 +1,1 @@
-"""Context Quality evaluation benchmarks for Atelier M1-M4."""
+"""Context Quality evaluation benchmarks for LemonCrow M1-M4."""

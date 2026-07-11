@@ -1,6 +1,6 @@
 # Contributor License Agreement
 
-Thank you for your interest in contributing to Atelier (the "Project"),
+Thank you for your interest in contributing to LemonCrow (the "Project"),
 maintained by Pankaj Kumar (the "Maintainer", "we", "us").
 
 This Contributor License Agreement ("Agreement") sets out the terms under which

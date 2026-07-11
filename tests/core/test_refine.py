@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from atelier.core.foundation.models import Playbook
-from atelier.core.foundation.refine import grow_or_create, merge_blocks
+from lemoncrow.core.foundation.models import Playbook
+from lemoncrow.core.foundation.refine import grow_or_create, merge_blocks
 
 
 def _block(

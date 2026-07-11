@@ -1,4 +1,4 @@
-"""CLI tests for ``atelier replay`` (session reconstruction, no model run).
+"""CLI tests for ``lemon replay`` (session reconstruction, no model run).
 
 Builds a synthetic Claude transcript with a grep->read loop and drives the CLI.
 """
@@ -16,7 +16,7 @@ _REPO_ROOT = _Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from atelier.gateway.cli import cli  # noqa: E402
+from lemoncrow.gateway.cli import cli  # noqa: E402
 
 
 def _assistant(msg_id: str, name: str, tool_id: str, inp: dict[str, object]) -> dict[str, object]:

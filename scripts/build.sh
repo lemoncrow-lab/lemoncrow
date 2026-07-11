@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build.sh — Build a production-ready Atelier distribution archive.
+# build.sh — Build a production-ready LemonCrow distribution archive.
 #
 # This is the main entrypoint for CI and local release builds.
 set -euo pipefail
@@ -31,7 +31,7 @@ if [ -d "frontend" ]; then
 fi
 
 # 3. Build mypyc-compiled wheel
-# hatch_build.py hook compiles ~440 modules with mypyc (skip with ATELIER_SKIP_MYPYC=1),
+# hatch_build.py hook compiles ~440 modules with mypyc (skip with LEMONCROW_SKIP_MYPYC=1),
 # strips .py source for compiled modules, and packages a platform-specific wheel.
 # Refresh the model pricing snapshot from the litellm version pinned in uv.lock.
 # This runs before the wheel build so the wheel ships the freshest data available
@@ -43,7 +43,7 @@ uv run --with "litellm>=1.83.14" python scripts/refresh_model_prices.py || \
 echo "◆ Building mypyc wheel (this takes a few minutes)..."
 rm -rf dist/
 uv build --wheel
-WHEEL_PATH="$(ls dist/atelier-*.whl | head -1)"
+WHEEL_PATH="$(ls dist/lemoncrow-*.whl | head -1)"
 if [[ -z "$WHEEL_PATH" ]]; then
     echo "ERROR: wheel not found in dist/" >&2
     exit 1
@@ -119,8 +119,8 @@ mkdir -p bundle/integrations
 for host in agents antigravity claude codex copilot copilot-cli cursor hermes opencode shared skills; do
     [[ -d "integrations/$host" ]] && cp -r "integrations/$host" "bundle/integrations/$host"
 done
-# Top-level files (e.g. AGENTS.atelier.md) used by install_codex.sh and install_agents.sh
-[[ -f "integrations/AGENTS.atelier.md" ]] && cp -f "integrations/AGENTS.atelier.md" "bundle/integrations/AGENTS.atelier.md"
+# Top-level files (e.g. AGENTS.lemoncrow.md) used by install_codex.sh and install_agents.sh
+[[ -f "integrations/AGENTS.lemoncrow.md" ]] && cp -f "integrations/AGENTS.lemoncrow.md" "bundle/integrations/AGENTS.lemoncrow.md"
 
 # Pre-generate host context files in the staged bundle so install scripts work
 # without uv/Python, without rewriting generated files in the source checkout.
@@ -141,7 +141,7 @@ case "$ARCH" in
     arm64) ARCH="arm64" ;;
     aarch64) ARCH="aarch64" ;;
 esac
-ARCHIVE_NAME="dist/atelier-distribution-${OS_NAME}-${ARCH}.tar.gz"
+ARCHIVE_NAME="dist/lemoncrow-distribution-${OS_NAME}-${ARCH}.tar.gz"
 
 rm -f "$ARCHIVE_NAME"
 tar -czf "$ARCHIVE_NAME" -C bundle .

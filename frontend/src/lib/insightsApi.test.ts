@@ -32,7 +32,7 @@ describe("telemetry API", () => {
   });
 
   it("treats a browser acknowledgement as acknowledged when the server has reset", async () => {
-    localStorage.setItem("atelier.telemetry.acknowledged", "1");
+    localStorage.setItem("lemoncrow.telemetry.acknowledged", "1");
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       jsonResponse(telemetryConfig({ acknowledged: false }))
     );

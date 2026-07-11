@@ -1,4 +1,4 @@
 interface:
-  display_name: "Atelier Agents"
-  short_description: "Use Atelier role agents and MCP tools for repo work"
-  default_prompt: "Use AGENTS.md for Atelier code mode. Spawn atelier.plan, atelier.explore, atelier.review, atelier.execute, atelier.solve, atelier.research, or atelier.code as needed; legacy config aliases such as atelier_code and atelier_review are not required."
+  display_name: "LemonCrow Agents"
+  short_description: "Use LemonCrow role agents and MCP tools for repo work"
+  default_prompt: "Use AGENTS.md for LemonCrow code mode. Spawn lemoncrow.plan, lemoncrow.explore, lemoncrow.review, lemoncrow.execute, lemoncrow.solve, lemoncrow.research, or lemoncrow.code as needed; legacy config aliases such as lemoncrow_code and lemoncrow_review are not required."

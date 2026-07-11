@@ -11,7 +11,7 @@ export async function initTelemetry() {
     const sessionId = newSessionId();
     await postLocalTelemetryEvent("session_start", {
       agent_host: "frontend",
-      atelier_version: cfg.service_version,
+      lemoncrow_version: cfg.service_version,
       os: "browser",
       py_version: "n/a",
       anon_id: cfg.anon_id,

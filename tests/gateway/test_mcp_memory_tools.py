@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from atelier.gateway.adapters import mcp_server
-from atelier.gateway.adapters.mcp_server import TOOLS, _handle
-from atelier.infra.storage.memory_store import MemorySidecarUnavailable
+from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp_server import TOOLS, _handle
+from lemoncrow.infra.storage.memory_store import MemorySidecarUnavailable
 
 
 def _call(name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -36,8 +36,8 @@ def _memory_args(op: str, **kwargs: Any) -> dict[str, Any]:
 
 @pytest.fixture()
 def mcp_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".atelier"
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    root = tmp_path / ".lemoncrow"
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setattr(mcp_server, "_REMOTE_TOOLS", frozenset())
     mcp_server._current_ledger = None
     mcp_server._realtime_ctx = None
@@ -79,16 +79,16 @@ def test_memory_store_fact_and_vote_fact_round_trip(mcp_root: Path) -> None:
             "memory",
             _memory_args(
                 "store_fact",
-                agent_id="atelier:code",
+                agent_id="lemon:code",
                 subject="workflow preference",
-                fact="Prefer Atelier memory over host memory by default.",
-                citations='User input: "prefer atelier"',
+                fact="Prefer LemonCrow memory over host memory by default.",
+                citations='User input: "prefer LemonCrow"',
                 reason="Ensures local memory stays source of truth.",
                 scope="user",
             ),
         )
     )
-    assert stored["fact"] == "Prefer Atelier memory over host memory by default."
+    assert stored["fact"] == "Prefer LemonCrow memory over host memory by default."
     assert stored["scope"] == "user"
     assert "votes" not in stored
 
@@ -97,8 +97,8 @@ def test_memory_store_fact_and_vote_fact_round_trip(mcp_root: Path) -> None:
             "memory",
             _memory_args(
                 "vote_fact",
-                agent_id="atelier:code",
-                fact="Prefer Atelier memory over host memory by default.",
+                agent_id="lemon:code",
+                fact="Prefer LemonCrow memory over host memory by default.",
                 direction="upvote",
                 reason="Verified and useful across tasks.",
                 scope="user",
@@ -113,10 +113,10 @@ def test_memory_store_fact_and_vote_fact_round_trip(mcp_root: Path) -> None:
             "memory",
             _memory_args(
                 "store_fact",
-                agent_id="atelier:code",
+                agent_id="lemon:code",
                 subject="workflow preference",
-                fact="Prefer Atelier memory over host memory by default.",
-                citations='User input: "prefer atelier"',
+                fact="Prefer LemonCrow memory over host memory by default.",
+                citations='User input: "prefer LemonCrow"',
                 reason="Ensures local memory stays source of truth.",
                 scope="user",
             ),
@@ -172,7 +172,7 @@ def test_memory_sidecar_unavailable_maps_to_503(monkeypatch: pytest.MonkeyPatch,
         "memory",
         _memory_args(
             "store_fact",
-            agent_id="atelier:code",
+            agent_id="lemon:code",
             subject="workflow",
             fact="test fact",
             citations='User input: "x"',

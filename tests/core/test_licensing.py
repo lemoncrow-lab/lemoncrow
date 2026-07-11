@@ -9,21 +9,21 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities import licensing
-from atelier.core.capabilities.licensing import entitlements, store
+from lemoncrow.core.capabilities import licensing
+from lemoncrow.core.capabilities.licensing import entitlements, store
 
 
 @pytest.fixture(autouse=True)
 def _isolated_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-    monkeypatch.delenv("ATELIER_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+    monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
     entitlements.reload()
     yield
     entitlements.reload()
 
 
 def _sign_in(monkeypatch: pytest.MonkeyPatch, *, plan: str, email: str = "dev@example.com") -> None:
-    monkeypatch.setenv("ATELIER_AUTH_TOKEN", "session-token")
+    monkeypatch.setenv("LEMONCROW_AUTH_TOKEN", "session-token")
     store.save_auth_user({"user_id": "u_1", "email": email, "plan": plan})
     entitlements.reload()
 
@@ -63,7 +63,7 @@ def test_enterprise_plan_unlocks(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_fetch_populates_cache_when_stale(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_AUTH_TOKEN", "session-token")
+    monkeypatch.setenv("LEMONCROW_AUTH_TOKEN", "session-token")
 
     class _Resp:
         def read(self) -> bytes:
@@ -83,7 +83,7 @@ def test_fetch_populates_cache_when_stale(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_offline_without_cache_stays_locked(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_AUTH_TOKEN", "session-token")
+    monkeypatch.setenv("LEMONCROW_AUTH_TOKEN", "session-token")
 
     def _offline(*args: object, **kwargs: object) -> object:
         raise OSError("offline")
@@ -122,7 +122,7 @@ def test_license_grants_scoped_features() -> None:
 
 
 def test_pro_url_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_PRO_URL", raising=False)
-    assert licensing.pro_url() == "https://atelier.ws/pro"
-    monkeypatch.setenv("ATELIER_PRO_URL", "https://buy.example.com/pro")
+    monkeypatch.delenv("LEMONCROW_PRO_URL", raising=False)
+    assert licensing.pro_url() == "https://lemoncrow.com/pro"
+    monkeypatch.setenv("LEMONCROW_PRO_URL", "https://buy.example.com/pro")
     assert licensing.pro_url() == "https://buy.example.com/pro"

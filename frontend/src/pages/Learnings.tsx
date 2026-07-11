@@ -245,7 +245,7 @@ function BlocksSection() {
         <SectionHeader
           eyebrow="How to read a block"
           title="Each card is organized around application, verification, and avoidance"
-          description="Atelier treats knowledge entries as explicit procedures: when to apply them, how to execute them, how to verify them, and what dead ends they are meant to prevent."
+          description="LemonCrow treats knowledge entries as explicit procedures: when to apply them, how to execute them, how to verify them, and what dead ends they are meant to prevent."
         />
       </section>
     </div>

@@ -1,13 +1,13 @@
 # Licensing & Pro features
 
-Atelier is source-available and runs locally. Existing paid Pro control surfaces
+LemonCrow is source-available and runs locally. Existing paid Pro control surfaces
 are gated behind the signed-in account's plan. Free remains genuinely useful;
 Pro beta covers the existing gated capabilities.
 
 > Customer-facing plans and prices: [Plans & Pricing](./pricing.md). This page
 > documents the technical entitlement design.
 
-- **Client (Apache-2.0):** `src/atelier/core/capabilities/licensing/` — holds
+- **Client (Apache-2.0):** `src/lemoncrow/core/capabilities/licensing/` — holds
   the OAuth session and answers "is this feature unlocked?".
 - **Auth server (proprietary):** the landing site's `/api/auth/*` functions
   plus the Stripe webhook. Google OAuth signs the user in, Stripe payments set
@@ -16,15 +16,15 @@ Pro beta covers the existing gated capabilities.
 
 ## How entitlement works
 
-`atelier login` runs a browser OAuth flow against the auth server and stores a
-session token at `~/.atelier/auth_token` (mode `0600`; override with the
-`ATELIER_AUTH_TOKEN` env var — handy for CI). Entitlement checks read the plan
-from `/api/auth/me`, cached on disk for 6 hours (`~/.atelier/auth_user.json`),
+`lemon login` runs a browser OAuth flow against the auth server and stores a
+session token at `~/.lemoncrow/auth_token` (mode `0600`; override with the
+`LEMONCROW_AUTH_TOKEN` env var — handy for CI). Entitlement checks read the plan
+from `/api/auth/me`, cached on disk for 6 hours (`~/.lemoncrow/auth_user.json`),
 so normal operation makes a handful of auth calls a day. If the server is
 unreachable and no fresh cache exists, gated surfaces stay locked and the check
 retries hourly; Free surfaces are never affected.
 
-`atelier logout` deletes the session and reverts to Free. There are no offline
+`lemon logout` deletes the session and reverts to Free. There are no offline
 license keys, no device-bound leases, no local crypto, and no dev backdoor —
 the account's plan is the single source of truth, and every check fails closed
 to Free.
@@ -43,25 +43,25 @@ to Free.
 | Model routing | — | ✅ |
 | Multi-worktree swarm | — | ✅ |
 
-Feature keys remain in src/atelier/core/capabilities/licensing/features.py.
+Feature keys remain in src/lemoncrow/core/capabilities/licensing/features.py.
 Customer-facing plans and prices: [Plans & Pricing](./pricing.md).
 
 A free account is required to activate the official install:
 
 ```bash
-atelier login          # browser OAuth; stores the session token
-atelier init           # activates the official install
-atelier login --status # show account and plan
-atelier logout         # removes the local session
+lemon login          # browser OAuth; stores the session token
+lemon init           # activates the official install
+lemon login --status # show account and plan
+lemon logout         # removes the local session
 ```
 A Pro beta account supports up to **three active CLI devices**; the auth server
-tracks the slots. ATELIER_PRO_URL overrides the buy link shown in upsells.
+tracks the slots. LEMONCROW_PRO_URL overrides the buy link shown in upsells.
 ## The entitlement contract
 
 Every gate calls one tiny API:
 
 ```python
-from atelier.core.capabilities import licensing
+from lemoncrow.core.capabilities import licensing
 
 licensing.is_pro()                    # bool
 licensing.has_feature("optimizer")    # non-Pro keys are always True
@@ -81,7 +81,7 @@ Both check the signed-in account's **plan** — nothing else. Use
    **write/apply/activate** action, not read-only previews — let users measure
    the value before they pay for it.
 
-Current gates (reference): `atelier optimize apply`, `atelier savings --deep`,
+Current gates (reference): `lemon optimize apply`, `lemon savings --deep`,
 and the `require_pro` CLI gates (recall, router, zoekt, knowledge, swarm,
 memory).
 

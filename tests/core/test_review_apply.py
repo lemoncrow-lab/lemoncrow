@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.live_reviewer import apply as review_apply
-from atelier.core.capabilities.live_reviewer.apply import apply_review_patches, patch_findings
+from lemoncrow.core.capabilities.live_reviewer import apply as review_apply
+from lemoncrow.core.capabilities.live_reviewer.apply import apply_review_patches, patch_findings
 
 
 def test_patch_findings_filters_well_formed() -> None:

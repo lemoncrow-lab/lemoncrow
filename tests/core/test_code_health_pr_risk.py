@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.code_health.pr_risk import (
+from lemoncrow.core.capabilities.code_health.pr_risk import (
     classify_commit_message,
     commit_provenance,
     pr_risk,
@@ -46,7 +46,7 @@ def _write_graph(repo: Path) -> None:
 
 
 def _index_all(repo: Path, cache_root: Path) -> None:
-    from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+    from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
     cap = SemanticFileMemoryCapability(cache_root)
     for py in sorted((repo / "src").glob("*.py")):
@@ -59,8 +59,8 @@ def test_pr_risk_rises_with_blast_radius_and_missing_tests(tmp_path: Path) -> No
     _write_graph(repo)
     _index_all(repo, cache)
 
-    high = pr_risk(repo_root=repo, atelier_root=cache, paths=["src/base.py"])
-    low = pr_risk(repo_root=repo, atelier_root=cache, paths=["src/lonely.py"])
+    high = pr_risk(repo_root=repo, lemoncrow_root=cache, paths=["src/base.py"])
+    low = pr_risk(repo_root=repo, lemoncrow_root=cache, paths=["src/lonely.py"])
 
     # base.py has 4 importers + no tests + branchy complexity; lonely.py has none.
     assert high["overall_score"] > low["overall_score"]
@@ -84,14 +84,14 @@ def test_pr_risk_test_gap_lowers_score_when_tests_present(tmp_path: Path) -> Non
         "from src.base import base_fn\n\ndef test_base() -> None:\n    assert base_fn(2) == 0\n",
         encoding="utf-8",
     )
-    from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+    from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
     cap = SemanticFileMemoryCapability(cache)
     for py in sorted((repo / "src").glob("*.py")):
         cap.summarize_file(py)
     cap.summarize_file(tests / "test_base.py")
 
-    result = pr_risk(repo_root=repo, atelier_root=cache, paths=["src/base.py"])
+    result = pr_risk(repo_root=repo, lemoncrow_root=cache, paths=["src/base.py"])
     base_file = result["files"][0]
     # The linked test is discovered, so the test-gap penalty is gone.
     assert base_file["factors"]["test_gap"]["missing_tests"] is False
@@ -101,7 +101,7 @@ def test_pr_risk_test_gap_lowers_score_when_tests_present(tmp_path: Path) -> Non
 def test_pr_risk_empty_paths_yields_zero_fail_open(tmp_path: Path) -> None:
     # Direct call with no targets must not raise -- it returns a valid zero shape.
     # (The graph-tool seam separately rejects empty targets with a ValueError.)
-    result = pr_risk(repo_root=tmp_path, atelier_root=tmp_path / "cache", paths=[])
+    result = pr_risk(repo_root=tmp_path, lemoncrow_root=tmp_path / "cache", paths=[])
     assert result["kind"] == "pr_risk"
     assert result["overall_score"] == 0.0
     assert result["overall_tier"] == "low"

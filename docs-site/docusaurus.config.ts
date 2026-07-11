@@ -3,13 +3,13 @@ import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
 
 const config: Config = {
-  title: "Atelier",
+  title: "LemonCrow",
   tagline: "Open-Core Runtime Engineering for Agents",
   favicon: "img/favicon.svg",
-  url: "https://docs.atelier.ws",
+  url: "https://docs.lemoncrow.com",
   baseUrl: "/",
-  organizationName: "atelier-ws",
-  projectName: "atelier",
+  organizationName: "lemoncrow",
+  projectName: "lemoncrow",
   onBrokenLinks: "warn",
   i18n: {
     defaultLocale: "en",
@@ -22,13 +22,13 @@ const config: Config = {
         docs: {
           routeBasePath: "/",
           sidebarPath: "./sidebars.ts",
-          editUrl: "https://github.com/atelier-ws/atelier/edit/main/docs/",
+          editUrl: "https://github.com/lemoncrowhq/lemoncrow/edit/main/docs/",
         },
         blog: {
           showReadingTime: true,
           blogTitle: "Benchmarks",
           blogDescription:
-            "A/B benchmark reports comparing Atelier-on vs Atelier-off",
+            "A/B benchmark reports comparing LemonCrow-on vs LemonCrow-off",
           postsPerPage: "ALL",
         },
         theme: {
@@ -38,7 +38,7 @@ const config: Config = {
     ],
   ],
   themeConfig: {
-    image: "img/atelier-logo.svg",
+    image: "img/lemoncrow-logo.svg",
     colorMode: {
       defaultMode: "light",
       respectPrefersColorScheme: false,
@@ -55,12 +55,12 @@ const config: Config = {
           label: "Docs",
         },
         {
-          href: "https://github.com/atelier-ws/atelier/blob/main/BENCHMARKS.md",
+          href: "https://github.com/lemoncrowhq/lemoncrow/blob/main/BENCHMARKS.md",
           label: "Benchmarks",
           position: "left",
         },
         {
-          href: "https://atelier.ws",
+          href: "https://lemoncrow.com",
           label: "Website",
           position: "right",
           className: "navbar-cta",
@@ -70,7 +70,7 @@ const config: Config = {
           position: "right",
         },
         {
-          href: "https://github.com/atelier-ws/atelier",
+          href: "https://github.com/lemoncrowhq/lemoncrow",
           label: "GitHub",
           position: "right",
           className: "header-github-link",
@@ -100,13 +100,13 @@ const config: Config = {
         {
           title: "More",
           items: [
-            { label: "Atelier Website", href: "https://atelier.ws" },
-            { label: "GitHub", href: "https://github.com/atelier-ws/atelier" },
-            { label: "Contact", href: "mailto:contact@atelier.ws" },
+            { label: "LemonCrow Website", href: "https://lemoncrow.com" },
+            { label: "GitHub", href: "https://github.com/lemoncrowhq/lemoncrow" },
+            { label: "Contact", href: "mailto:contact@lemoncrow.com" },
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Atelier. Open source under MIT License.`,
+      copyright: `Copyright © ${new Date().getFullYear()} LemonCrow. Open source under MIT License.`,
     },
     prism: {
       theme: prismThemes.github,

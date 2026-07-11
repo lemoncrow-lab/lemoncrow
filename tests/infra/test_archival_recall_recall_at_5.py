@@ -4,10 +4,10 @@ from pathlib import Path
 
 import yaml
 
-from atelier.core.capabilities.archival_recall import ArchivalRecallCapability
-from atelier.core.foundation.memory_models import ArchivalPassage
-from atelier.infra.embeddings.null_embedder import NullEmbedder
-from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from lemoncrow.core.capabilities.archival_recall import ArchivalRecallCapability
+from lemoncrow.core.foundation.memory_models import ArchivalPassage
+from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
+from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 
 def _load_questions() -> list[dict[str, str]]:
@@ -18,7 +18,7 @@ def _load_questions() -> list[dict[str, str]]:
 
 
 def test_archival_recall_recall_at_5_with_fts_floor(tmp_path: Path) -> None:
-    store = SqliteMemoryStore(tmp_path / "atelier")
+    store = SqliteMemoryStore(tmp_path / "lemoncrow")
     questions = _load_questions()
 
     for idx, item in enumerate(questions, 1):
@@ -27,7 +27,7 @@ def test_archival_recall_recall_at_5_with_fts_floor(tmp_path: Path) -> None:
         store.insert_passage(
             ArchivalPassage(
                 id=expected_id,
-                agent_id="atelier:code",
+                agent_id="lemon:code",
                 text=f"{query}. Durable memory fact number {idx}.",
                 tags=["eval"],
                 source="user",
@@ -37,7 +37,7 @@ def test_archival_recall_recall_at_5_with_fts_floor(tmp_path: Path) -> None:
         store.insert_passage(
             ArchivalPassage(
                 id=f"pas-distractor-{idx:03d}",
-                agent_id="atelier:code",
+                agent_id="lemon:code",
                 text=f"Unrelated operational note {idx} about invoices and dashboards.",
                 tags=["eval"],
                 source="user",
@@ -49,7 +49,7 @@ def test_archival_recall_recall_at_5_with_fts_floor(tmp_path: Path) -> None:
     hits = 0
     for item in questions:
         passages, _ = capability.recall(
-            agent_id="atelier:code",
+            agent_id="lemon:code",
             query=item["query"],
             top_k=5,
             tags=["eval"],
@@ -59,4 +59,4 @@ def test_archival_recall_recall_at_5_with_fts_floor(tmp_path: Path) -> None:
 
     recall_at_5 = hits / len(questions)
     assert recall_at_5 >= 0.6
-    assert len(store.list_recalls("atelier:code", limit=100)) == len(questions)
+    assert len(store.list_recalls("lemon:code", limit=100)) == len(questions)

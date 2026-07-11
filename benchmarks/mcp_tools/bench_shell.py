@@ -44,7 +44,7 @@ def shell_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def shell_tool_fn() -> Any:
-    from atelier.gateway.adapters.mcp_server import tool_bash
+    from lemoncrow.gateway.adapters.mcp_server import tool_bash
 
     return tool_bash
 
@@ -129,8 +129,8 @@ def test_shell_op_saves_tokens(case: BenchCase, shell_bench_results: list[CaseRe
         pytest.skip(f"skipping savings check: op failed: {result.failure}")
     if result.baseline_tokens == 0:
         pytest.skip("no measured baseline")
-    if result.atelier_tokens >= result.baseline_tokens:
+    if result.lemoncrow_tokens >= result.baseline_tokens:
         pytest.skip(
             f"[{case.label}] no savings (measured, report-only): "
-            f"atelier={result.atelier_tokens} >= baseline={result.baseline_tokens}"
+            f"lemoncrow={result.lemoncrow_tokens} >= baseline={result.baseline_tokens}"
         )

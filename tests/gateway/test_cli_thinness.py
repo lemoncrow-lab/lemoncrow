@@ -6,9 +6,9 @@ from pathlib import Path
 
 import click
 
-from atelier.gateway.cli import cli, main
+from lemoncrow.gateway.cli import cli, main
 
-APP_PATH = Path(__file__).resolve().parents[2] / "src" / "atelier" / "gateway" / "cli" / "app.py"
+APP_PATH = Path(__file__).resolve().parents[2] / "src" / "lemoncrow" / "gateway" / "cli" / "app.py"
 APP_LOC_BUDGET = 400
 
 

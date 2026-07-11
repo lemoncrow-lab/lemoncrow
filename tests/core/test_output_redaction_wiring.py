@@ -3,7 +3,7 @@
 These tests prove that secrets present in source/command output are masked
 *before* the result text reaches the model, on the read/grep render path
 (``native_search``) and the bash stdout/stderr path (``bash_exec``), and that
-the ``ATELIER_OUTPUT_REDACTION`` kill-switch restores raw output. They also
+the ``LEMONCROW_OUTPUT_REDACTION`` kill-switch restores raw output. They also
 guard against over-broad masking (legitimate content must survive).
 """
 
@@ -14,9 +14,9 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision.bash_exec import _compact_result
-from atelier.core.capabilities.tool_supervision.native_search import search_workspace
-from atelier.core.foundation.redaction import output_redaction_enabled, redact_tool_output
+from lemoncrow.core.capabilities.tool_supervision.bash_exec import _compact_result
+from lemoncrow.core.capabilities.tool_supervision.native_search import search_workspace
+from lemoncrow.core.foundation.redaction import output_redaction_enabled, redact_tool_output
 
 _AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
 _OPENAI_KEY = "sk-" + "A" * 40
@@ -46,13 +46,13 @@ def test_redact_tool_output_preserves_ordinary_text() -> None:
 
 
 def test_kill_switch_disables_redaction(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_OUTPUT_REDACTION", "0")
+    monkeypatch.setenv("LEMONCROW_OUTPUT_REDACTION", "0")
     assert output_redaction_enabled() is False
     assert redact_tool_output(f"key={_AWS_KEY}") == f"key={_AWS_KEY}"
 
 
 def test_default_on_when_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_OUTPUT_REDACTION", raising=False)
+    monkeypatch.delenv("LEMONCROW_OUTPUT_REDACTION", raising=False)
     assert output_redaction_enabled() is True
 
 
@@ -85,7 +85,7 @@ def test_native_search_range_read_is_redacted(tmp_path: Path) -> None:
 
 
 def test_native_search_respects_kill_switch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_OUTPUT_REDACTION", "off")
+    monkeypatch.setenv("LEMONCROW_OUTPUT_REDACTION", "off")
     (tmp_path / "conf.py").write_text(f"AWS_SECRET = '{_AWS_KEY}'\n", encoding="utf-8")
     result = search_workspace(
         path=".",
@@ -114,7 +114,7 @@ def test_bash_compact_result_redacts_stdout_and_stderr() -> None:
 
 
 def test_bash_compact_result_kill_switch(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_OUTPUT_REDACTION", "no")
+    monkeypatch.setenv("LEMONCROW_OUTPUT_REDACTION", "no")
     result = _compact_result(
         command="printenv",
         raw_stdout=f"AWS_ACCESS_KEY_ID={_AWS_KEY}\n",

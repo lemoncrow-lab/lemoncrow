@@ -51,7 +51,7 @@ export default function Reports() {
           description={
             <>
               Run{" "}
-              <code className="text-brand-400">atelier benchmark publish</code>{" "}
+              <code className="text-brand-400">lemon benchmark publish</code>{" "}
               to generate your first report.
             </>
           }

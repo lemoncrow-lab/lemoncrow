@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities.verification import Counterexample, VerifierCapability
+from lemoncrow.core.capabilities.verification import Counterexample, VerifierCapability
 
 _CANONICAL_LITERALS = {
     "int": "0",

@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from atelier.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters import mcp_server
 
 
 class _FakeRecall:
@@ -51,10 +51,10 @@ def test_nonempty_recall_has_no_hint(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_recall_folds_in_session_passages(monkeypatch: pytest.MonkeyPatch) -> None:
     """Past-session hits from recall.db surface through memory(op=recall)."""
-    from atelier.core.capabilities import session_recall
+    from lemoncrow.core.capabilities import session_recall
 
     monkeypatch.setattr(mcp_server, "_memory_service", lambda: _FakeService([]))
-    monkeypatch.setattr(mcp_server, "_atelier_root", lambda: "/tmp/does-not-matter")
+    monkeypatch.setattr(mcp_server, "_lemoncrow_root", lambda: "/tmp/does-not-matter")
     monkeypatch.setattr(
         session_recall,
         "recall",
@@ -87,8 +87,8 @@ def test_recall_caps_merged_passages_to_top_k(monkeypatch: pytest.MonkeyPatch) -
         "_memory_service",
         lambda: _FakeService([{"text": f"m{i}", "source_ref": f"m{i}"} for i in range(5)]),
     )
-    monkeypatch.setattr(mcp_server, "_atelier_root", lambda: "/tmp/does-not-matter")
-    from atelier.core.capabilities import session_recall
+    monkeypatch.setattr(mcp_server, "_lemoncrow_root", lambda: "/tmp/does-not-matter")
+    from lemoncrow.core.capabilities import session_recall
 
     monkeypatch.setattr(
         session_recall,

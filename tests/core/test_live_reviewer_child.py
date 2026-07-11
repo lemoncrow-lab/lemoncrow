@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.live_reviewer import child, sink
-from atelier.core.capabilities.live_reviewer import runner as runner_mod
-from atelier.core.capabilities.live_reviewer import settings as settings_mod
-from atelier.core.capabilities.live_reviewer.settings import ReviewerSettings
+from lemoncrow.core.capabilities.live_reviewer import child, sink
+from lemoncrow.core.capabilities.live_reviewer import runner as runner_mod
+from lemoncrow.core.capabilities.live_reviewer import settings as settings_mod
+from lemoncrow.core.capabilities.live_reviewer.settings import ReviewerSettings
 
 _PATCH_VERDICT = {
     "verdict": "NEEDS_FIX",
@@ -19,7 +19,7 @@ _PATCH_VERDICT = {
 
 
 def _wire(monkeypatch: pytest.MonkeyPatch, repo: Path, settings: ReviewerSettings) -> None:
-    monkeypatch.setenv("ATELIER_IN_REVIEW", "0")  # owned by monkeypatch so child's mutation is undone
+    monkeypatch.setenv("LEMONCROW_IN_REVIEW", "0")  # owned by monkeypatch so child's mutation is undone
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(repo))
     monkeypatch.setattr(runner_mod, "run_review", lambda *a, **k: dict(_PATCH_VERDICT))
     monkeypatch.setattr(settings_mod, "load_reviewer_settings", lambda root: settings)

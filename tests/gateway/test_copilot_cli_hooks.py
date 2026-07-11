@@ -12,7 +12,7 @@ HOOKS = ROOT / "integrations" / "copilot-cli" / "hooks"
 
 def _run_failure(root: Path, payload: dict[str, object]) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    env["ATELIER_ROOT"] = str(root)
+    env["LEMONCROW_ROOT"] = str(root)
     return subprocess.run(
         [sys.executable, str(HOOKS / "post_tool_use_failure.py")],
         input=json.dumps(payload),
@@ -31,8 +31,8 @@ def test_copilot_repeated_failure_injects_rescue_on_second_match(tmp_path: Path)
         "error": "same failure",
     }
 
-    first = _run_failure(tmp_path / ".atelier", payload)
-    second = _run_failure(tmp_path / ".atelier", payload)
+    first = _run_failure(tmp_path / ".lemoncrow", payload)
+    second = _run_failure(tmp_path / ".lemoncrow", payload)
 
     assert first.returncode == 0
     assert first.stdout == ""
@@ -41,7 +41,7 @@ def test_copilot_repeated_failure_injects_rescue_on_second_match(tmp_path: Path)
 
 
 def test_copilot_different_failure_does_not_trigger_rescue(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     base = {
         "sessionId": "s1",
         "toolName": "bash",
@@ -64,11 +64,11 @@ def test_copilot_session_start_writes_session_state_bridge(tmp_path: Path) -> No
     the session shows Saved $0 (mcp_server._workspace_bridge_session_id reads
     this file as its fallback).
     """
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     ws = tmp_path / "repo"
     ws.mkdir()
     env = os.environ.copy()
-    env["ATELIER_ROOT"] = str(root)
+    env["LEMONCROW_ROOT"] = str(root)
     env.pop("GITHUB_COPILOT_SESSION_ID", None)
     proc = subprocess.run(
         [sys.executable, str(HOOKS / "session_start.py")],
@@ -80,7 +80,7 @@ def test_copilot_session_start_writes_session_state_bridge(tmp_path: Path) -> No
     )
     assert proc.returncode == 0, proc.stderr
 
-    from atelier.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import workspace_key
 
     state_path = root / "workspaces" / workspace_key(ws) / "session_state.json"
     assert state_path.is_file()
@@ -88,11 +88,11 @@ def test_copilot_session_start_writes_session_state_bridge(tmp_path: Path) -> No
 
 
 def test_copilot_session_start_no_session_id_writes_no_bridge(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     ws = tmp_path / "repo"
     ws.mkdir()
     env = os.environ.copy()
-    env["ATELIER_ROOT"] = str(root)
+    env["LEMONCROW_ROOT"] = str(root)
     env.pop("GITHUB_COPILOT_SESSION_ID", None)
     proc = subprocess.run(
         [sys.executable, str(HOOKS / "session_start.py")],
@@ -104,7 +104,7 @@ def test_copilot_session_start_no_session_id_writes_no_bridge(tmp_path: Path) ->
     )
     assert proc.returncode == 0, proc.stderr
 
-    from atelier.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import workspace_key
 
     assert not (root / "workspaces" / workspace_key(ws) / "session_state.json").exists()
 

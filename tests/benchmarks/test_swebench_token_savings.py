@@ -1,6 +1,6 @@
 """SWE-bench-style token savings benchmark.
 
-Validates Atelier's head+tail compaction achieves a substantial input-token
+Validates LemonCrow's head+tail compaction achieves a substantial input-token
 reduction on oversized tool outputs.
 
 Benchmark design
@@ -32,13 +32,13 @@ from typing import Any
 import pytest
 import tiktoken
 
-from atelier.core.capabilities.monitors import (
+from lemoncrow.core.capabilities.monitors import (
     DifficultyFSM,
     evaluate_all,
     make_signals_fn,
     score_step,
 )
-from atelier.core.capabilities.tool_supervision.compact_output import (
+from lemoncrow.core.capabilities.tool_supervision.compact_output import (
     TokenSavingStats,
     compress_history,
 )

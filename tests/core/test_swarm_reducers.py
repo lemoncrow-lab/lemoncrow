@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.swarm.models import Finding, SwarmChildState, SwarmRunState, SwarmWaveState
-from atelier.core.capabilities.swarm.reducers import WaveContext, get_reducer
+from lemoncrow.core.capabilities.swarm.models import Finding, SwarmChildState, SwarmRunState, SwarmWaveState
+from lemoncrow.core.capabilities.swarm.reducers import WaveContext, get_reducer
 
 
 def _child(
@@ -17,7 +17,7 @@ def _child(
         wave_index=1,
         status=status,  # type: ignore[arg-type]
         worktree_path=str(run_dir),
-        atelier_root=str(run_dir / "atelier-root"),
+        lemoncrow_root=str(run_dir / "lemoncrow-root"),
         run_dir=str(run_dir),
         spec_path=str(run_dir / "program.md"),
         result_path=str(run_dir / "result.json"),

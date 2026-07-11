@@ -4,11 +4,11 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from atelier.core.capabilities.team import TeamWorkspaceManager, summarize_workspace_usage
+from lemoncrow.core.capabilities.team import TeamWorkspaceManager, summarize_workspace_usage
 
 
 def test_summarize_workspace_usage_rolls_up_by_user(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     TeamWorkspaceManager(root).init_workspace(name="Acme", admin_email="admin@example.com")
     runs = root / "sessions"
     runs.mkdir(parents=True, exist_ok=True)

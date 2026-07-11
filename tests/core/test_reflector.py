@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.core.foundation import reflector
-from atelier.core.foundation.extractor import extract_candidate
-from atelier.core.foundation.models import Trace, ValidationResult
-from atelier.infra.internal_llm import InternalLLMError
+from lemoncrow.core.foundation import reflector
+from lemoncrow.core.foundation.extractor import extract_candidate
+from lemoncrow.core.foundation.models import Trace, ValidationResult
+from lemoncrow.infra.internal_llm import InternalLLMError
 
 
 def _trace() -> Trace:
@@ -29,7 +29,7 @@ def test_local_tier_is_pure_heuristic(monkeypatch: pytest.MonkeyPatch) -> None:
         raise AssertionError("LLM must not be called on the local tier")
 
     monkeypatch.setattr(reflector, "chat", _boom)
-    monkeypatch.delenv("ATELIER_LLM_BACKEND", raising=False)
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
 
     trace = _trace()
     got = reflector.reflect(trace)

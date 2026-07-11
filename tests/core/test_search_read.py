@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision.search_read import (
+from lemoncrow.core.capabilities.tool_supervision.search_read import (
     FileMatch,
     SearchReadResult,
     Snippet,
@@ -177,7 +177,7 @@ def test_search_read_cache_hit_on_repeat(tmp_path: Path) -> None:
 
 def test_search_read_respects_cache_disabled_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "module.py").write_text("x = 'pattern'\n", encoding="utf-8")
-    monkeypatch.setenv("ATELIER_CACHE_DISABLED", "1")
+    monkeypatch.setenv("LEMONCROW_CACHE_DISABLED", "1")
 
     first = search_read(query="pattern", path=str(tmp_path))
     second = search_read(query="pattern", path=str(tmp_path))
@@ -190,7 +190,7 @@ def test_search_read_preserves_existing_smart_state(tmp_path: Path, monkeypatch:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "src.py").write_text("value = 'needle'\n", encoding="utf-8")
 
-    state_dir = tmp_path / ".atelier"
+    state_dir = tmp_path / ".lemoncrow"
     state_dir.mkdir(parents=True, exist_ok=True)
     smart_state = state_dir / "smart_state.json"
     smart_state.write_text(

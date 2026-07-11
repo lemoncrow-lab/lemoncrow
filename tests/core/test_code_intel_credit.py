@@ -7,7 +7,7 @@ that is later read, earns nothing.
 
 from __future__ import annotations
 
-from atelier.core.capabilities import code_intel_credit as cic
+from lemoncrow.core.capabilities import code_intel_credit as cic
 
 # --- extract_credited_paths: snippet gating ---------------------------------
 

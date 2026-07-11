@@ -16,11 +16,11 @@ def _run_statusline(root: Path, payload: dict[str, object], *, env_extra: dict[s
     env = os.environ.copy()
     env.update(
         {
-            "ATELIER_ROOT": str(root),
-            "ATELIER_STORE_ROOT": str(root),
-            "ATELIER_NO_COLOR": "1",
-            # Force the statusline to use source-tree atelier, not installed tools binary.
-            "ATELIER_PYTHON": _SOURCE_PYTHON,
+            "LEMONCROW_ROOT": str(root),
+            "LEMONCROW_STORE_ROOT": str(root),
+            "LEMONCROW_NO_COLOR": "1",
+            # Force the statusline to use source-tree lemon, not installed tools binary.
+            "LEMONCROW_PYTHON": _SOURCE_PYTHON,
         }
     )
     env.update(env_extra or {})
@@ -39,7 +39,7 @@ def _seed_savings_sidecar(root: Path, session_id: str, row: dict[str, object]) -
     """Seed savings.jsonl at the canonical (dated + host) session dir the
     statusline script's reader (savings_summary._find_savings_sidecar)
     actually looks under."""
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     sidecar_dir = session_dir(root, "claude", session_id)
     sidecar_dir.mkdir(parents=True, exist_ok=True)
@@ -68,7 +68,7 @@ def test_statusline_prefers_fresh_mcp_sidecar_in_canonical_session_dir(tmp_path:
     """The MCP server writes statusline_segment under the date+host partitioned
     session dir (sessions/YYYY/MM/DD/<host>/<id>/); the script must find it
     there — the flat sessions/<id>/ path is only a legacy fallback."""
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     seg_dir = session_dir(tmp_path, "claude", "s1")
     seg_dir.mkdir(parents=True, exist_ok=True)
@@ -83,7 +83,7 @@ def test_statusline_rotates_multiframe_sidecar_by_wall_clock(tmp_path: Path) -> 
     legacy single-frame statusline_segment, and the shown frame is one of the
     file's lines — picked by wall clock, so rotation continues even when the
     sidecar is not rewritten between renders."""
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     seg_dir = session_dir(tmp_path, "claude", "s1")
     seg_dir.mkdir(parents=True, exist_ok=True)
@@ -183,7 +183,7 @@ def test_statusline_prices_fallback_savings_from_claude_transcript_model_mix(
 def test_statusline_falls_back_to_workspace_session_state(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    from atelier.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import workspace_key
 
     state_dir = tmp_path / "workspaces" / workspace_key(workspace)
     state_dir.mkdir(parents=True)
@@ -208,7 +208,7 @@ def test_statusline_falls_back_to_workspace_session_state(tmp_path: Path) -> Non
 def test_statusline_does_not_fallback_when_session_id_is_missing(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    from atelier.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import workspace_key
 
     state_dir = tmp_path / "workspaces" / workspace_key(workspace)
     state_dir.mkdir(parents=True)
@@ -262,23 +262,23 @@ def test_statusline_ignores_lifetime_savings_files(tmp_path: Path) -> None:
 
 def test_statusline_shows_stale_agent_nudge_then_falls_back_to_generic_tip(tmp_path: Path) -> None:
     """An installed OPTIONAL agent role that's never been used surfaces the
-    staleness nudge (name, "never used", token cost, /atelier remove
+    staleness nudge (name, "never used", token cost, /lemoncrow remove
     <name>). Same-day re-render must not repeat it -- the once-a-day
     marker-file cooldown falls through to the generic install tip instead,
     exactly like the pre-existing update/install tip segments.
     """
     home = tmp_path / "home"
-    agent_dir = home / ".atelier" / "claude-plugin" / "agents"
+    agent_dir = home / ".lemoncrow" / "claude-plugin" / "agents"
     agent_dir.mkdir(parents=True)
     (agent_dir / "explore.md").write_text("body", encoding="utf-8")
 
     output = _run_statusline(tmp_path, _payload(), env_extra={"HOME": str(home)})
     assert "explore installed, never used" in output
-    assert "/atelier remove explore" in output
+    assert "/lemoncrow remove explore" in output
 
     output2 = _run_statusline(tmp_path, _payload(), env_extra={"HOME": str(home)})
     assert "explore installed" not in output2
-    assert "more agents/skills: /atelier install <name>" in output2
+    assert "more agents/skills: /lemoncrow install <name>" in output2
 
 
 def test_statusline_empty_session_never_writes_shared_segment_cache(tmp_path: Path) -> None:

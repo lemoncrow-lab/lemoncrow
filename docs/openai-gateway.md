@@ -1,17 +1,17 @@
-# Atelier OpenAI-Compatible Gateway
+# LemonCrow OpenAI-Compatible Gateway
 
-Atelier's service exposes a standards-compliant `/v1/chat/completions` streaming endpoint. Any TUI that supports custom OpenAI-compatible providers can use Atelier as its brain — routing, caching, subagents, memory, and verification all stay inside Atelier.
+LemonCrow's service exposes a standards-compliant `/v1/chat/completions` streaming endpoint. Any TUI that supports custom OpenAI-compatible providers can use LemonCrow as its brain — routing, caching, subagents, memory, and verification all stay inside LemonCrow.
 
 ## Start the gateway
 
 ```bash
-atelier service start --port 8787
+lemon service start --port 8787
 ```
 
 Optional standalone mode (legacy):
 
 ```bash
-atelier serve-openai --port 8787
+lemon serve-openai --port 8787
 ```
 
 Options for standalone mode:
@@ -20,7 +20,7 @@ Options for standalone mode:
 | ---------------- | ------- | -------------------------------------------------------------- |
 | `--port`         | 8787    | TCP port                                                       |
 | `--host`         | 0.0.0.0 | Bind address                                                   |
-| `--project-root` | cwd     | Working directory for Atelier runtime                          |
+| `--project-root` | cwd     | Working directory for LemonCrow runtime                          |
 | `--no-yolo`      | off     | Require manual approval for tool calls (default: auto-approve) |
 
 ## Connect a TUI
@@ -33,19 +33,19 @@ Options for standalone mode:
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "atelier": {
+    "lemon": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Atelier",
+      "name": "LemonCrow",
       "options": {
         "baseURL": "http://localhost:8787/v1",
         "apiKey": "local"
       },
       "models": {
-        "atelier-default": { "name": "Atelier Default" }
+        "lemoncrow-default": { "name": "LemonCrow Default" }
       }
     }
   },
-  "model": "atelier/atelier-default"
+  "model": "lemoncrowhq/lemoncrow-default"
 }
 ```
 
@@ -57,14 +57,14 @@ Options for standalone mode:
 {
   "$schema": "https://charm.land/crush.json",
   "providers": {
-    "atelier": {
+    "lemon": {
       "type": "openai-compat",
       "base_url": "http://localhost:8787/v1",
       "api_key": "local",
       "models": [
         {
-          "id": "atelier-default",
-          "name": "Atelier",
+          "id": "lemoncrow-default",
+          "name": "LemonCrow",
           "context_window": 200000,
           "default_max_tokens": 16000
         }
@@ -77,28 +77,28 @@ Options for standalone mode:
 ### Codex (`~/.codex/config.toml`)
 
 ```toml
-model = "atelier-default"
-model_provider = "atelier"
+model = "lemoncrow-default"
+model_provider = "lemoncrow"
 
-[model_providers.atelier]
-name     = "Atelier"
+[model_providers.lemoncrow]
+name     = "LemonCrow"
 base_url = "http://localhost:8787/v1"
-env_key  = "ATELIER_API_KEY"
+env_key  = "LEMONCROW_API_KEY"
 wire_api = "chat"
 ```
 
-Set `ATELIER_API_KEY=local` (or any non-empty value) in your shell.
+Set `LEMONCROW_API_KEY=local` (or any non-empty value) in your shell.
 
 ### Claude Code (MCP — zero configuration)
 
-Atelier already ships `atelier mcp`. Add to `~/.claude.json`:
+LemonCrow already ships `lemon mcp`. Add to `~/.claude.json`:
 
 ```json
 {
   "mcpServers": {
-    "atelier": {
-      "command": "atelier mcp",
-      "env": { "ATELIER_SERVICE_URL": "http://127.0.0.1:8787" }
+    "lemon": {
+      "command": "lemon mcp",
+      "env": { "LEMONCROW_SERVICE_URL": "http://127.0.0.1:8787" }
     }
   }
 }
@@ -110,7 +110,7 @@ Atelier already ships `atelier mcp`. Add to `~/.claude.json`:
 curl -X POST http://localhost:8787/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer local" \
-  -d '{"model":"atelier-default","messages":[{"role":"user","content":"hello"}],"stream":true}' \
+  -d '{"model":"lemoncrow-default","messages":[{"role":"user","content":"hello"}],"stream":true}' \
   --no-buffer
 ```
 
@@ -126,7 +126,7 @@ TUI  ──POST /v1/chat/completions──►  openai_gateway/app.py
                                               │
                                   InteractiveRuntime.handle_user_message()
                                               │
-                               Atelier routing / caching / subagents
+                               LemonCrow routing / caching / subagents
 ```
 
 Key properties:
@@ -134,34 +134,34 @@ Key properties:
 - **Per-request session isolation** — each HTTP request gets a fresh session ID; prior messages are injected as history so context is preserved within a conversation.
 - **Auto-approve in gateway mode** — `--no-yolo` disables this; without it the agent loop would block waiting for terminal input that never comes.
 - **Streaming by default** — set `"stream": false` in the request body for a buffered response.
-- **Tool calls visible** — tool calls Atelier makes during execution are forwarded as OpenAI function-call deltas so capable TUIs can display them.
+- **Tool calls visible** — tool calls LemonCrow makes during execution are forwarded as OpenAI function-call deltas so capable TUIs can display them.
 
 ## Available models
 
 | Model ID          | Description                                  |
 | ----------------- | -------------------------------------------- |
-| `atelier-default` | Atelier's auto-selected route (balanced)     |
-| `atelier-auto`    | Same as default                              |
-| `atelier-cheap`   | Routes to cheapest available provider        |
-| `atelier-best`    | Routes to highest-quality available provider |
+| `lemoncrow-default` | LemonCrow's auto-selected route (balanced)     |
+| `lemoncrow-auto`    | Same as default                              |
+| `lemoncrow-cheap`   | Routes to cheapest available provider        |
+| `lemoncrow-best`    | Routes to highest-quality available provider |
 
 ---
 
 ## Configuring Providers
 
-Atelier reads provider credentials from `~/.atelier/providers.json` (or environment variables). Keys in the file supplement — but never override — environment variables.
+LemonCrow reads provider credentials from `~/.lemoncrow/providers.json` (or environment variables). Keys in the file supplement — but never override — environment variables.
 
 ### Setup
 
 ```bash
 # 1. Copy the example
-cp ~/.atelier/providers.json.example ~/.atelier/providers.json
+cp ~/.lemoncrow/providers.json.example ~/.lemoncrow/providers.json
 
 # 2. Edit — uncomment only the providers you have credentials for
-nano ~/.atelier/providers.json
+nano ~/.lemoncrow/providers.json
 
 # 3. Restart the service
-atelier service start   # or kill the old process first
+lemon service start   # or kill the old process first
 
 # 4. Verify model list
 curl http://localhost:8787/v1/models | jq '.data[].id'
@@ -192,10 +192,10 @@ curl -X GET http://localhost:8787/v1/models/refresh | jq '.data[].id'
 
 | Symptom                         | Fix                                                                  |
 | ------------------------------- | -------------------------------------------------------------------- |
-| `/v1/models` returns empty list | No providers configured; check `~/.atelier/providers.json`           |
+| `/v1/models` returns empty list | No providers configured; check `~/.lemoncrow/providers.json`           |
 | Bedrock models missing          | `boto3` must be installed (`uv add boto3`) and credentials valid     |
 | Azure models missing            | `endpoint` must be set (e.g. `https://my-resource.openai.azure.com`) |
 | Vertex models missing           | `application_credentials` JSON file must exist and be valid          |
 | Stale model list                | `GET /v1/models/refresh` to force re-fetch                           |
 
-The example file is at `~/.atelier/providers.json.example` (auto-created on first service start).
+The example file is at `~/.lemoncrow/providers.json.example` (auto-created on first service start).

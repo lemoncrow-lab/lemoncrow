@@ -16,9 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.mcp_integration import loader
-from atelier.core.capabilities.mcp_integration.loader import MCPServerConfig
-from atelier.gateway.adapters import mcp_proxy, mcp_server
+from lemoncrow.core.capabilities.mcp_integration import loader
+from lemoncrow.core.capabilities.mcp_integration.loader import MCPServerConfig
+from lemoncrow.gateway.adapters import mcp_proxy, mcp_server
 
 _FAKE_SERVER_SCRIPT = textwrap.dedent("""
     import json
@@ -89,7 +89,7 @@ def _write_mcp_json(tmp_path: Path, *, include_self: bool = False) -> Path:
         "fake": {"command": sys.executable, "args": [str(script)]},
     }
     if include_self:
-        servers["atelier"] = {"command": "atelier", "args": ["mcp", "--host", "test"]}
+        servers["lemoncrow"] = {"command": "lemon", "args": ["mcp", "--host", "test"]}
     config_path = tmp_path / ".mcp.json"
     config_path.write_text(json.dumps({"mcpServers": servers}), encoding="utf-8")
     return config_path
@@ -165,28 +165,28 @@ def test_call_unknown_tool_lists_known_tools_on_that_server(tmp_path: Path) -> N
     assert "echo" in out and "big" in out
 
 
-def test_self_exclusion_hides_atelier_own_server(tmp_path: Path) -> None:
+def test_self_exclusion_hides_lemoncrow_own_server(tmp_path: Path) -> None:
     _write_mcp_json(tmp_path, include_self=True)
 
     result = mcp_proxy.catalog()
 
     assert set(result["servers"]) == {"fake"}
-    out = mcp_proxy.call("atelier", "mcp", {})
+    out = mcp_proxy.call("lemoncrow", "mcp", {})
     assert "unknown" in out.lower()
-    assert "atelier" in out
+    assert "lemoncrow" in out
 
 
 def test_is_self_matches_real_cursor_merge_shape_without_mcp_token() -> None:
     """Cursor's config-merge path (an existing ~/.cursor/mcp.json) registers
-    Atelier as {"command": "atelier", "args": ["--host", "cursor"]} -- no
+    LemonCrow as {"command": "lemon", "args": ["--host", "cursor"]} -- no
     "mcp"/"serve" token in command or args at all. Name-based matching must
     still catch this real installed shape."""
-    config = MCPServerConfig(name="atelier", command="atelier", args=["--host", "cursor"])
+    config = MCPServerConfig(name="lemon", command="lemon", args=["--host", "cursor"])
     assert mcp_proxy._is_self(config)
 
 
 def test_is_self_matches_plugin_namespaced_name() -> None:
-    config = MCPServerConfig(name="plugin_atelier_atelier", command="/some/venv/bin/python3", args=["-m", "something"])
+    config = MCPServerConfig(name="plugin_lemoncrow_lemon", command="/some/venv/bin/python3", args=["-m", "something"])
     assert mcp_proxy._is_self(config)
 
 
@@ -255,8 +255,8 @@ def test_handle_dispatch_spills_oversized_proxied_result(tmp_path: Path, monkeyp
     """An oversized result from the proxied `big` tool is bounded by the same
     spill pipeline other capped tools go through -- the full text is recoverable
     from the spilled path rather than silently dropped."""
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "1")
-    monkeypatch.delenv("ATELIER_MCP_SPILL_RESULT_CHARS", raising=False)
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "1")
+    monkeypatch.delenv("LEMONCROW_MCP_SPILL_RESULT_CHARS", raising=False)
     _write_mcp_json(tmp_path)
 
     resp = mcp_server._handle(
@@ -273,7 +273,7 @@ def test_handle_dispatch_spills_oversized_proxied_result(tmp_path: Path, monkeyp
     assert len(text) <= mcp_server._spill_result_chars("mcp")
     assert "HEAD" in text
     assert "TAIL" in text
-    assert "[atelier: shrunk" in text
+    assert "[lemon: shrunk" in text
     import re
 
     spill_path = re.search(r"read (\S+\.txt)\]", text)

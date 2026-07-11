@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-import atelier.infra.internal_llm as internal_llm
-from atelier.core.capabilities.tool_supervision import text_summary
-from atelier.gateway.adapters import mcp_server
+import lemoncrow.infra.internal_llm as internal_llm
+from lemoncrow.core.capabilities.tool_supervision import text_summary
+from lemoncrow.gateway.adapters import mcp_server
 
 SMALL_CODE = (
     '"""A small module for testing outline-fits-budget."""\n'
@@ -95,9 +95,9 @@ def _make_log_with_traceback() -> str:
 @pytest.fixture(autouse=True)
 def _isolate_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.delenv("ATELIER_LLM_BACKEND", raising=False)
-    monkeypatch.delenv("ATELIER_OLLAMA_MODEL", raising=False)
-    monkeypatch.delenv("ATELIER_OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    monkeypatch.delenv("LEMONCROW_OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("LEMONCROW_OPENAI_MODEL", raising=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -207,9 +207,9 @@ def test_summary_dict_form_via_files_batch(tmp_path: Path) -> None:
 
 
 def test_summary_on_spill_file_uses_log_tier_and_single_footer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    spill_dir = tmp_path / "atelier-spill"
-    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(spill_dir))
-    from atelier.core.capabilities.tool_supervision import tool_output_spill
+    spill_dir = tmp_path / "lemoncrow-spill"
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(spill_dir))
+    from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
 
     record = tool_output_spill.spill(_make_log_with_traceback(), tool_name="bash")
     assert record is not None
@@ -217,7 +217,7 @@ def test_summary_on_spill_file_uses_log_tier_and_single_footer(tmp_path: Path, m
     result = mcp_server._smart_read_single(str(record.path), summary=True)
     assert result["mode"] == "summary"
     body = result["summary"]
-    assert body.count("[atelier: summarized:") == 1
+    assert body.count("[lemon: summarized:") == 1
     assert "summarized:heuristic" in body
     assert "ValueError: unexpected sentinel value 42" in body
     assert str(record.path) in body
@@ -247,8 +247,8 @@ def test_summary_with_range_suffix_parses_both_but_range_wins(tmp_path: Path) ->
 
 
 def test_summary_uses_llm_tier_when_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_LLM_BACKEND", "ollama")
-    monkeypatch.setenv("ATELIER_OLLAMA_MODEL", "qwen2.5")
+    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "ollama")
+    monkeypatch.setenv("LEMONCROW_OLLAMA_MODEL", "qwen2.5")
     monkeypatch.setattr(internal_llm, "summarize", lambda text, **kw: "An LLM-produced gist of the document.")
 
     f = tmp_path / "notes.txt"
@@ -260,7 +260,7 @@ def test_summary_uses_llm_tier_when_available(tmp_path: Path, monkeypatch: pytes
 
 
 def test_summary_llm_failure_falls_back_silently_to_heuristic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_LLM_BACKEND", "ollama")
+    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "ollama")
 
     def _boom(text: str, **kw: object) -> str:
         raise internal_llm.InternalLLMError("local model unreachable")

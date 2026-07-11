@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.host_router_bridge import evaluate_host_router_request
+from lemoncrow.core.capabilities.host_router_bridge import evaluate_host_router_request
 
 
 def test_shadow_router_bridge_classifies_without_mutation(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "atelier.core.capabilities.host_router_bridge.select_owned_route",
+        "lemoncrow.core.capabilities.host_router_bridge.select_owned_route",
         lambda root, request: type(
             "Decision",
             (),
@@ -38,7 +38,7 @@ def test_shadow_router_bridge_classifies_without_mutation(monkeypatch, tmp_path)
 
 def test_enforced_router_bridge_requires_explicit_enable(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "atelier.core.capabilities.host_router_bridge.select_owned_route",
+        "lemoncrow.core.capabilities.host_router_bridge.select_owned_route",
         lambda root, request: type(
             "Decision",
             (),
@@ -71,7 +71,7 @@ def test_enforced_router_bridge_requires_explicit_enable(monkeypatch, tmp_path) 
 
 def test_enforced_router_bridge_mutates_only_with_flag(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "atelier.core.capabilities.host_router_bridge.select_owned_route",
+        "lemoncrow.core.capabilities.host_router_bridge.select_owned_route",
         lambda root, request: type(
             "Decision",
             (),
@@ -93,7 +93,7 @@ def test_enforced_router_bridge_mutates_only_with_flag(monkeypatch, tmp_path) ->
         model="claude-sonnet-4.6",
         messages=[{"role": "user", "content": "Plan the refactor."}],
         mode="enforced",
-        env={"ATELIER_HOST_ROUTER_ENABLE": "1"},
+        env={"LEMONCROW_HOST_ROUTER_ENABLE": "1"},
     )
 
     assert result["bridge_mode"] == "active"

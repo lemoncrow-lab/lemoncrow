@@ -14,16 +14,16 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities import plugin_runtime
-from atelier.gateway.adapters import mcp_server
+from lemoncrow.core.capabilities import plugin_runtime
+from lemoncrow.gateway.adapters import mcp_server
 
 
 @pytest.fixture(autouse=True)
 def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Deterministic workspace identity shared by the hook writer and the MCP
-    # server reader, and a private ATELIER_ROOT so the test never touches
-    # the real ~/.atelier store.
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
+    # server reader, and a private LEMONCROW_ROOT so the test never touches
+    # the real ~/.lemoncrow store.
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     for var in (
         "CLAUDE_CODE_SESSION_ID",
@@ -45,9 +45,9 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_opencode_hook_bridges_session_id_for_mcp_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Set the same way the real subprocess is launched: `atelier mcp --host
-    # opencode` -> ATELIER_AGENT=opencode (see cli/commands/mcp.py mcp_group).
-    monkeypatch.setenv("ATELIER_AGENT", "opencode")
+    # Set the same way the real subprocess is launched: `lemon mcp --host
+    # opencode` -> LEMONCROW_AGENT=opencode (see cli/commands/mcp.py mcp_group).
+    monkeypatch.setenv("LEMONCROW_AGENT", "opencode")
     payload = {"session_id": "ses_abc123", "prompt": "hi", "model": "gpt-5.6-terra"}
     plugin_runtime._write_opencode_session_state(tmp_path, payload)
 
@@ -64,8 +64,8 @@ def test_opencode_hook_bridges_session_id_for_mcp_server(tmp_path: Path, monkeyp
 def test_opencode_lifecycle_tracks_tools_and_renders_idle_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ATELIER_AGENT", "opencode")
-    root = tmp_path / ".atelier"
+    monkeypatch.setenv("LEMONCROW_AGENT", "opencode")
+    root = tmp_path / ".lemoncrow"
     payload = {"session_id": "ses-status", "cwd": str(tmp_path), "model": "gpt-5.6-terra"}
 
     plugin_runtime.build_opencode_user_prompt_output(root, {**payload, "prompt": "inspect the parser"})
@@ -74,7 +74,7 @@ def test_opencode_lifecycle_tracks_tools_and_renders_idle_status(
             root,
             {
                 **payload,
-                "tool_name": "atelier_read",
+                "tool_name": "lemon_read",
                 "tool_input": {"files": ["a.py"]},
                 "tool_response": {"output": "ok"},
             },
@@ -84,14 +84,14 @@ def test_opencode_lifecycle_tracks_tools_and_renders_idle_status(
 
     status = plugin_runtime.build_opencode_stop_output(root, payload)
 
-    assert "Atelier session idle." in status["uiMessage"]
+    assert "LemonCrow session idle." in status["uiMessage"]
     assert "1 prompt turn · 1 tool call" in status["uiMessage"]
-    assert "tools: atelier_read×1" in status["uiMessage"]  # noqa: RUF001
+    assert "tools: lemon_read×1" in status["uiMessage"]  # noqa: RUF001
     assert plugin_runtime.build_opencode_stop_output(root, payload).get("no_output") is True
 
 
 def test_codex_hook_bridges_session_id_for_mcp_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_AGENT", "codex")
+    monkeypatch.setenv("LEMONCROW_AGENT", "codex")
     payload = {"session_id": "rollout-xyz", "cwd": str(tmp_path)}
     # The codex SessionStart hook (update_notification.py) is the session_id
     # writer and stamps host alongside it; mirror that pairing here.
@@ -115,7 +115,7 @@ def test_bridge_written_by_other_host_is_rejected(tmp_path: Path, monkeypatch: p
     # A codex-stamped slot must not be adopted by an OpenCode MCP server:
     # last-writer-wins across hosts would otherwise attribute savings to a
     # phantom session (codex sid under host "opencode").
-    monkeypatch.setenv("ATELIER_AGENT", "opencode")
+    monkeypatch.setenv("LEMONCROW_AGENT", "opencode")
     payload = {"session_id": "rollout-999", "cwd": str(tmp_path)}
     plugin_runtime._write_codex_session_state(tmp_path, payload, {"session_id": "rollout-999", "host": "codex"})
 
@@ -126,7 +126,7 @@ def test_bridge_written_by_other_host_is_rejected(tmp_path: Path, monkeypatch: p
 def test_bridge_without_host_stamp_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Legacy slots (written before the host stamp existed) carry no ownership
     # signal, so the reader must fail closed -> quarantine ledger.
-    monkeypatch.setenv("ATELIER_AGENT", "opencode")
+    monkeypatch.setenv("LEMONCROW_AGENT", "opencode")
     payload = {"session_id": "ses_legacy", "cwd": str(tmp_path)}
     plugin_runtime._write_codex_session_state(tmp_path, payload, {"session_id": "ses_legacy"})
 
@@ -136,7 +136,7 @@ def test_bridge_without_host_stamp_fails_closed(tmp_path: Path, monkeypatch: pyt
 def test_claude_never_uses_workspace_bridge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Claude has a window-anchored resolver; adopting the workspace-shared slot
     # would cross-contaminate concurrent windows in one repo.
-    monkeypatch.setenv("ATELIER_AGENT", "claude")
+    monkeypatch.setenv("LEMONCROW_AGENT", "claude")
     payload = {"session_id": "claude-uuid-1", "prompt": "hi"}
     state_path = plugin_runtime._opencode_session_state_path(tmp_path, payload)
     state_path.parent.mkdir(parents=True, exist_ok=True)

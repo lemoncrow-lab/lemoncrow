@@ -3,7 +3,7 @@ import Link from "@docusaurus/Link";
 
 import styles from "./styles.module.css";
 
-const REPO = "atelier-ws/atelier";
+const REPO = "lemoncrowhq/lemoncrow";
 
 function isGitHubRepo(value: unknown): value is { stargazers_count: number } {
   return (

@@ -18,7 +18,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from atelier.core.capabilities.default_definitions import (
+from lemoncrow.core.capabilities.default_definitions import (
     HOST_ROLE_IDS,
     DefaultRole,
     HostProjection,
@@ -26,13 +26,13 @@ from atelier.core.capabilities.default_definitions import (
     build_default_registry,
     load_mode_docs,
 )
-from atelier.core.capabilities.model_settings import (
+from lemoncrow.core.capabilities.model_settings import (
     CANONICAL_COPILOT_AGENT_MODEL,
     normalize_model_for_host,
     resolve_explicit_host_model,
     resolve_host_model,
 )
-from atelier.core.capabilities.workspace_host_overrides import (
+from lemoncrow.core.capabilities.workspace_host_overrides import (
     CODEX_NATIVE_FALLBACK_NAMES_READ,
     codex_tool_discipline_body,
     core_discipline_body,
@@ -41,7 +41,7 @@ from atelier.core.capabilities.workspace_host_overrides import (
     rewrite_agent_model,
     swap_tool_discipline_lead_in,
 )
-from atelier.core.environment import skill_installed_by_default
+from lemoncrow.core.environment import skill_installed_by_default
 
 CODING_GUIDELINES_PATH = ROOT / "integrations/agents/shared/coding-guidelines.md"
 CORE_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/core-discipline.md"
@@ -52,7 +52,7 @@ TOOL_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/tool-discipline.md"
 TOOL_DISCIPLINE_READ_PATH = ROOT / "integrations/agents/shared/tool-discipline-read.md"
 REPLY_REGISTER_PATH = ROOT / "integrations/agents/shared/reply-register.md"
 AGENT_RULE_PATH = ROOT / "integrations/agents/shared/agent-rule.md"
-AGENTS_GUIDE_PATH = ROOT / "integrations/AGENTS.atelier.md"
+AGENTS_GUIDE_PATH = ROOT / "integrations/AGENTS.lemoncrow.md"
 
 # Bare ``{{TOKEN}}`` placeholders a mode doc may embed; each expands verbatim
 # from one canonical partial. A mode opts in by including the token anywhere
@@ -96,13 +96,13 @@ def coding_guidelines_section() -> str:
     return "\n".join(["## Coding Guidelines", "", _markdown_body(CODING_GUIDELINES_PATH)])
 
 
-# Bare user-scope server name ("atelier", registered by install_claude.sh) — the
+# Bare user-scope server name ("lemon", registered by install_claude.sh) — the
 # canonical local install. The marketplace plugin shape is
-# "mcp__plugin_atelier_atelier__"; runtime consumers (hooks, session parsers)
+# "mcp__plugin_lemoncrow_lemon__"; runtime consumers (hooks, session parsers)
 # accept both, and the deny-list covers both (see _claude_disallowed_tools).
-_CLAUDE_TOOL_PREFIX = "mcp__atelier__"
-_OPENCODE_TOOL_PREFIX = "atelier_"
-_CODEX_TOOL_PREFIX = "atelier."
+_CLAUDE_TOOL_PREFIX = "mcp__lemon__"
+_OPENCODE_TOOL_PREFIX = "lemon_"
+_CODEX_TOOL_PREFIX = "lemon."
 
 # Claude Code folds the MCP server's `instructions` field (SERVER_INSTRUCTIONS
 # in mcp_server.py, which carries the full generic tool discipline) into every
@@ -111,12 +111,12 @@ _CODEX_TOOL_PREFIX = "atelier."
 # Every other surface (codex — openai/codex#6148 closed not-planned — opencode,
 # copilot, cursor, and owned lanes, none of which receive MCP instructions)
 # keeps the full shared block.
-_CLAUDE_TOOL_DISCIPLINE = "Host tools disabled — use Atelier: `bash`, `read`, `edit`, `code_search`."
+_CLAUDE_TOOL_DISCIPLINE = "Host tools disabled — use LemonCrow: `bash`, `read`, `edit`, `code_search`."
 _CLAUDE_TOOL_DISCIPLINE_READ = (
     "- **Read-only role — `bash` never mutates.** Inspection and validation only, "
     "no redirects into the tree, no `sed -i`/`tee`, no git state changes.\n"
     "\n"
-    "Host tools disabled — use Atelier: `bash`, `read`, `code_search`."
+    "Host tools disabled — use LemonCrow: `bash`, `read`, `code_search`."
 )
 _CLAUDE_SHARED_OVERRIDES = {
     "{{TOOL_DISCIPLINE}}": _CLAUDE_TOOL_DISCIPLINE,
@@ -126,21 +126,21 @@ _CLAUDE_SHARED_OVERRIDES = {
 
 # OpenCode's own native tools (read/grep/bash/edit/patch) stay fully enabled --
 # no permission-deny for them (see scripts/install_opencode.sh's opencode.json,
-# only "atelier_*": "allow" is ever set) -- so "Host tools disabled" is as
+# only "lemoncrow_*": "allow" is ever set) -- so "Host tools disabled" is as
 # inaccurate for OpenCode as it is for Codex. Same swap-the-lead-in fix,
-# keeping the "use Atelier: ..." clause (same shared helper Codex uses).
+# keeping the "use LemonCrow: ..." clause (same shared helper Codex uses).
 #
 # Unlike Codex's apply_patch/exec_command, these names (read/bash/edit) DO
 # collide with INLINE_TOOL_NAMES -- render_agent's replace_inline_tool_names
-# pass would mangle them into atelier_read/atelier_bash/atelier_edit (they'd
-# read as OpenCode's own native tools, not Atelier's). So the {{NATIVE_FALLBACK_NAMES}}
+# pass would mangle them into lemon_read/lemon_bash/lemon_edit (they'd
+# read as OpenCode's own native tools, not LemonCrow's). So the {{NATIVE_FALLBACK_NAMES}}
 # marker below is deliberately left unresolved here and filled in by render_agent
 # *after* that rewrite pass runs (see profile.native_fallback_names).
 _OPENCODE_NATIVE_FALLBACK_NAMES: tuple[str, ...] = ("read", "grep", "bash", "edit", "patch")
 _OPENCODE_TOOL_DISCIPLINE = swap_tool_discipline_lead_in(
     _markdown_body(TOOL_DISCIPLINE_PATH),
     "Native OpenCode {{NATIVE_FALLBACK_NAMES}} are fallback-only "
-    "(use them only when the Atelier equivalent is hidden, unavailable, or returns noop)",
+    "(use them only when the LemonCrow equivalent is hidden, unavailable, or returns noop)",
 )
 _OPENCODE_SHARED_OVERRIDES = {"{{TOOL_DISCIPLINE}}": _OPENCODE_TOOL_DISCIPLINE}
 # Codex has no tool-permission-deny mechanism either (native apply_patch/
@@ -166,8 +166,8 @@ class HostInstructionProfile:
     identity travels as one object instead of a growing parameter list.
 
     tool_prefix : str
-        Prefix Atelier MCP tools are registered under by the host, e.g.
-        ``atelier_`` (OpenCode), ``mcp__atelier__`` (Claude Code user-scope server).
+        Prefix LemonCrow MCP tools are registered under by the host, e.g.
+        ``lemon_`` (OpenCode), ``mcp__lemon__`` (Claude Code user-scope server).
     overrides : dict[str, str] | None
         Shared-section token overrides (e.g. ``{{TOOL_DISCIPLINE}}``), expanded by
         render_mode_body before the prefix rewrite.
@@ -195,8 +195,8 @@ def agent_guide() -> str:
 
 
 def render_managed_context(existing: str) -> str:
-    block_start = "<!-- ATELIER START -->"
-    block_end = "<!-- ATELIER END -->"
+    block_start = "<!-- LEMONCROW START -->"
+    block_end = "<!-- LEMONCROW END -->"
     body = agent_guide()
     managed = "\n".join([block_start, body, block_end])
     existing = existing.rstrip()
@@ -221,7 +221,7 @@ def render_managed_context(existing: str) -> str:
 
 def _copilot_native_tools(role_id: str) -> list[str]:
     base = [
-        "atelier/*",
+        "lemoncrow/*",
         "search/codebase",
         "web/fetch",
         "findTestFiles",
@@ -263,9 +263,9 @@ def render_copilot_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostP
                 "  ]",
                 "---",
                 "",
-                f"# atelier:{role.role_id}",
+                f"# lemon:{role.role_id}",
                 "",
-                f"You are operating as *atelier:{role.role_id}*.",
+                f"You are operating as *lemon:{role.role_id}*.",
                 "",
                 render_mode_body(mode_doc),
             ]
@@ -297,7 +297,7 @@ def render_cursor_role_rule(role: DefaultRole, mode_doc: ModeDoc) -> str:
         "\n".join(
             [
                 "---",
-                f"description: Atelier {role.role_id} mode reference for Cursor.",
+                f"description: LemonCrow {role.role_id} mode reference for Cursor.",
                 "---",
                 "",
                 render_mode_body(mode_doc),
@@ -309,7 +309,7 @@ def render_cursor_role_rule(role: DefaultRole, mode_doc: ModeDoc) -> str:
 
 def _already_active_guard(skill_name: str) -> str:
     """One-line blockquote that tells the model the skill is already loaded."""
-    return f'> **Active** — do not call `Skill("atelier:{skill_name}")` again.'
+    return f'> **Active** — do not call `Skill("lemon:{skill_name}")` again.'
 
 
 def _inject_active_guard(content: str, skill_name: str) -> str:
@@ -401,7 +401,7 @@ def render_claude_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostPr
 
 
 def render_simple_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostProjection) -> str:
-    identity_block = ["You are operating as *atelier:code*.", ""] if role.role_id == "code" else []
+    identity_block = ["You are operating as *lemon:code*.", ""] if role.role_id == "code" else []
     return (
         "\n".join(
             [
@@ -424,12 +424,12 @@ def render_agent(
 ) -> str:
     """Host agent renderer driven by a HostInstructionProfile.
 
-    Different MCP hosts expose Atelier tools under different name prefixes.
+    Different MCP hosts expose LemonCrow tools under different name prefixes.
     This renderer expands shared sections and rewrites bare tool names to the
     host's prefix so agents know the exact tool names to call.
     """
     p = profile.tool_prefix
-    identity_block = ["You are operating as *atelier:code*.", ""] if role.role_id == "code" else []
+    identity_block = ["You are operating as *lemon:code*.", ""] if role.role_id == "code" else []
     body = replace_inline_tool_names(render_mode_body(mode_doc, profile.overrides), p)
     if profile.native_fallback_names:
         names, _verb = format_native_names_and_verb(profile.native_fallback_names)
@@ -479,9 +479,9 @@ def build_mode_outputs(
     # default (test_plugin_agent_set_matches_canonical_registry pins this) --
     # every role is a legitimate Task-tool dispatch target (e.g. a benchmark
     # harness mounting --plugin-dir straight from here and selecting via
-    # --agent atelier:<role>). Only a caller that explicitly passes
+    # --agent lemon:<role>). Only a caller that explicitly passes
     # claude_plugin_role_ids= (see main()'s --claude-plugin-roles flag /
-    # ATELIER_CLAUDE_PLUGIN_ROLES env var, typically combined with a scratch
+    # LEMONCROW_CLAUDE_PLUGIN_ROLES env var, typically combined with a scratch
     # `root` for a trimmed benchmark-only build) gets a reduced roster --
     # never the canonical in-repo directory.
     claude_plugin_roles = set(claude_plugin_role_ids) if claude_plugin_role_ids is not None else set(HOST_ROLE_IDS)
@@ -530,7 +530,7 @@ def build_mode_outputs(
         copilot_path = repo_root / "integrations" / "copilot" / "agents" / f"{copilot_projection.output_name}.agent.md"
         outputs[copilot_path] = render_copilot_agent(role, mode_doc, copilot_projection)
 
-        cursor_path = repo_root / "integrations" / "cursor" / "rules" / f"atelier.{role_id}.mdc"
+        cursor_path = repo_root / "integrations" / "cursor" / "rules" / f"lemoncrow.{role_id}.mdc"
         outputs[cursor_path] = render_cursor_role_rule(role, mode_doc)
 
         shared_skill = render_shared_skill(role, mode_doc)
@@ -560,7 +560,7 @@ def build_outputs(*, claude_plugin_role_ids: Iterable[str] | None = None) -> dic
     outputs = {
         agents_path: render_managed_context(existing_agents),
         copilot_path: render_managed_context(existing_copilot),
-        ROOT / "integrations/copilot/COPILOT_INSTRUCTIONS.atelier.md": agent_guide() + "\n",
+        ROOT / "integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md": agent_guide() + "\n",
         ROOT / "integrations/cursor/rules/coding-guidelines.mdc": render_cursor_coding_rules(),
     }
     for role_id in registry.surfaced_role_ids("copilot_agent"):
@@ -587,7 +587,7 @@ def _prune_stale_claude_plugin_agents(repo_root: Path, kept_role_ids: set[str]) 
 
     build_mode_outputs only ever writes/updates files for the currently
     configured role set (DEFAULT_ROLE_IDS unless --claude-plugin-roles /
-    ATELIER_CLAUDE_PLUGIN_ROLES overrides it) -- without this, shrinking the
+    LEMONCROW_CLAUDE_PLUGIN_ROLES overrides it) -- without this, shrinking the
     set would leave stale .md files from a previously larger role set sitting
     in the plugin bundle forever, and Claude Code auto-discovers plugin agents
     straight from this directory (see test_new_claude_plugin_json_no_manifest_keys),
@@ -606,12 +606,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--claude-plugin-roles",
-        default=os.environ.get("ATELIER_CLAUDE_PLUGIN_ROLES", ""),
+        default=os.environ.get("LEMONCROW_CLAUDE_PLUGIN_ROLES", ""),
         help=(
             "Comma-separated role ids the Claude plugin bundle ships (default: "
             "DEFAULT_ROLE_IDS, i.e. 'code'). Also settable via "
-            "ATELIER_CLAUDE_PLUGIN_ROLES. Use when a build needs a different agent "
-            "shipped, e.g. a benchmark harness driving --agent atelier:auto: "
+            "LEMONCROW_CLAUDE_PLUGIN_ROLES. Use when a build needs a different agent "
+            "shipped, e.g. a benchmark harness driving --agent lemon:auto: "
             "--claude-plugin-roles=auto."
         ),
     )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.style_import.importer import split_markdown_text
+from lemoncrow.core.capabilities.style_import.importer import split_markdown_text
 
 
 def test_chunker_handles_headings_code_fences_and_long_sections(tmp_path: Path) -> None:

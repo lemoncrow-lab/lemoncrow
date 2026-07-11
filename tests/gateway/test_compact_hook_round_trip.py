@@ -28,7 +28,7 @@ class TestCompactHookRoundTrip:
         }
 
         # Create run directory structure
-        run_dir = tmp_path / ".atelier" / "runs" / session_id
+        run_dir = tmp_path / ".lemoncrow" / "runs" / session_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
         # Write manifest
@@ -44,10 +44,10 @@ class TestCompactHookRoundTrip:
 
     def test_manifest_with_advise_data(self, tmp_path: Path) -> None:
         """Test manifest persistence and reading with full advise data."""
-        atelier_root = tmp_path / ".atelier"
+        lemoncrow_root = tmp_path / ".lemoncrow"
 
         session_id = "test_run_full"
-        run_dir = atelier_root / "runs" / session_id
+        run_dir = lemoncrow_root / "runs" / session_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
         # Create a manifest with full advise data
@@ -76,8 +76,8 @@ class TestCompactHookRoundTrip:
 
     def test_ledger_events_creation(self, tmp_path: Path) -> None:
         """Test that ledger events can be created and appended."""
-        atelier_root = tmp_path / ".atelier"
-        runs_dir = atelier_root / "runs"
+        lemoncrow_root = tmp_path / ".lemoncrow"
+        runs_dir = lemoncrow_root / "runs"
         runs_dir.mkdir(parents=True, exist_ok=True)
 
         session_id = "test_run_events"
@@ -124,8 +124,8 @@ class TestCompactHookRoundTrip:
 
     def test_post_compact_ledger_event(self, tmp_path: Path) -> None:
         """Test that post-compact events are recorded correctly."""
-        atelier_root = tmp_path / ".atelier"
-        runs_dir = atelier_root / "runs"
+        lemoncrow_root = tmp_path / ".lemoncrow"
+        runs_dir = lemoncrow_root / "runs"
         runs_dir.mkdir(parents=True, exist_ok=True)
 
         session_id = "test_run_post"
@@ -179,8 +179,8 @@ class TestCompactHookRoundTrip:
 
     def test_manifest_survives_round_trip(self, tmp_path: Path) -> None:
         """Test that manifest data survives write-read cycle."""
-        atelier_root = tmp_path / ".atelier"
-        runs_dir = atelier_root / "runs"
+        lemoncrow_root = tmp_path / ".lemoncrow"
+        runs_dir = lemoncrow_root / "runs"
         runs_dir.mkdir(parents=True, exist_ok=True)
 
         session_id = "test_run_roundtrip"

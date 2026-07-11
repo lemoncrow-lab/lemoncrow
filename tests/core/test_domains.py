@@ -1,4 +1,4 @@
-"""Tests for Atelier internal domain bundle system."""
+"""Tests for LemonCrow internal domain bundle system."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from pathlib import Path
 import yaml
 from click.testing import CliRunner
 
-from atelier.core.domains import DomainManager
-from atelier.core.domains.loader import DomainLoader
-from atelier.core.domains.models import DomainBundle
-from atelier.gateway.cli import cli
+from lemoncrow.core.domains import DomainManager
+from lemoncrow.core.domains.loader import DomainLoader
+from lemoncrow.core.domains.models import DomainBundle
+from lemoncrow.gateway.cli import cli
 
 # ---------------------------------------------------------------------------
 # DomainManager: basic loading
@@ -20,7 +20,7 @@ from atelier.gateway.cli import cli
 
 def test_domain_manager_lists_builtins(tmp_path: Path) -> None:
     """DomainManager should return built-in bundles when no user bundles exist."""
-    manager = DomainManager(tmp_path / ".atelier")
+    manager = DomainManager(tmp_path / ".lemoncrow")
     refs = manager.list_bundles()
     assert isinstance(refs, list)
     # swe.general is the only builtin right now
@@ -30,7 +30,7 @@ def test_domain_manager_lists_builtins(tmp_path: Path) -> None:
 
 def test_domain_manager_loads_user_bundle(tmp_path: Path) -> None:
     """A bundle.yaml placed under <root>/domains/<id>/ is picked up as a user bundle."""
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     bundle_dir = root / "domains" / "custom.test"
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "bundle.yaml").write_text(
@@ -53,7 +53,7 @@ def test_domain_manager_loads_user_bundle(tmp_path: Path) -> None:
 
 def test_domain_manager_user_bundle_overrides_builtin(tmp_path: Path) -> None:
     """A user bundle with the same id as a builtin should shadow it."""
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     bundle_dir = root / "domains" / "swe.general"
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "bundle.yaml").write_text(
@@ -76,19 +76,19 @@ def test_domain_manager_user_bundle_overrides_builtin(tmp_path: Path) -> None:
 
 
 def test_domain_manager_info_returns_none_for_unknown(tmp_path: Path) -> None:
-    manager = DomainManager(tmp_path / ".atelier")
+    manager = DomainManager(tmp_path / ".lemoncrow")
     assert manager.info("does.not.exist") is None
 
 
 def test_domain_manager_all_playbooks_returns_list(tmp_path: Path) -> None:
-    manager = DomainManager(tmp_path / ".atelier")
+    manager = DomainManager(tmp_path / ".lemoncrow")
     blocks = manager.all_playbooks()
     assert isinstance(blocks, list)
     assert blocks == []
 
 
 def test_domain_manager_load_playbooks_for_bundle(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     bundle_dir = root / "domains" / "custom.test"
     playbooks_dir = bundle_dir / "playbooks"
     playbooks_dir.mkdir(parents=True)
@@ -151,14 +151,14 @@ def test_domain_loader_load_builtin_swe_general() -> None:
 
 def test_domain_cli_list(tmp_path: Path) -> None:
     runner = CliRunner()
-    result = runner.invoke(cli, ["--root", str(tmp_path / ".atelier"), "domain", "list"])
+    result = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "domain", "list"])
     assert result.exit_code == 0, result.output
     assert "swe.general" in result.output
 
 
 def test_domain_cli_list_json(tmp_path: Path) -> None:
     runner = CliRunner()
-    result = runner.invoke(cli, ["--root", str(tmp_path / ".atelier"), "domain", "list", "--json"])
+    result = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "domain", "list", "--json"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert isinstance(payload, list)
@@ -168,7 +168,7 @@ def test_domain_cli_list_json(tmp_path: Path) -> None:
 
 def test_domain_cli_info(tmp_path: Path) -> None:
     runner = CliRunner()
-    result = runner.invoke(cli, ["--root", str(tmp_path / ".atelier"), "domain", "info", "swe.general"])
+    result = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "domain", "info", "swe.general"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["bundle_id"] == "swe.general"
@@ -176,7 +176,7 @@ def test_domain_cli_info(tmp_path: Path) -> None:
 
 def test_domain_cli_info_unknown_bundle(tmp_path: Path) -> None:
     runner = CliRunner()
-    result = runner.invoke(cli, ["--root", str(tmp_path / ".atelier"), "domain", "info", "does.not.exist"])
+    result = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "domain", "info", "does.not.exist"])
     assert result.exit_code != 0
 
 

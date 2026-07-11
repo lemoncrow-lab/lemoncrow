@@ -1,4 +1,4 @@
-"""Refresh src/atelier/infra/model_prices.json from the installed litellm package.
+"""Refresh src/lemoncrow/infra/model_prices.json from the installed litellm package.
 
 Run this whenever you bump litellm in uv.lock to pull in new model entries:
 
@@ -27,7 +27,7 @@ except ImportError:
     sys.exit(1)
 
 _SRC = Path(litellm.__file__).parent / "model_prices_and_context_window_backup.json"
-_DST = Path(__file__).parent.parent / "src" / "atelier" / "infra" / "model_prices.json"
+_DST = Path(__file__).parent.parent / "src" / "lemoncrow" / "infra" / "model_prices.json"
 
 if not _SRC.exists():
     print(f"Source not found: {_SRC}", file=sys.stderr)

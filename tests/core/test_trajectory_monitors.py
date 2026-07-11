@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from atelier.core.capabilities.monitors.suite import (
+from lemoncrow.core.capabilities.monitors.suite import (
     DEFAULT_WEIGHTS,
     MonitorResult,
     _claim_contradiction,
