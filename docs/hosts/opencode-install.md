@@ -29,7 +29,7 @@ bash scripts/run_opencode_with_atelier.sh --workspace /path/to/workspace
 | Artifact          | Global install                                | `--workspace DIR` install                        |
 | ----------------- | --------------------------------------------- | ------------------------------------------------ |
 | MCP server config | `~/.config/opencode/opencode.json`            | `<workspace>/opencode.json`                      |
-| Agent profile     | `~/.config/opencode/agents/atelier.md`        | `<workspace>/.opencode/agents/atelier.md`        |
+| Agent profile     | `~/.config/opencode/agents/code.md`           | `<workspace>/.opencode/agents/atelier.code.md`   |
 | Nudge plugin      | `~/.config/opencode/plugins/atelier-nudge.js` | `<workspace>/.opencode/plugins/atelier-nudge.js` |
 
 The installer merges:
@@ -69,8 +69,8 @@ bash scripts/run_opencode_with_atelier.sh --dry-run --workspace /path/to/workspa
 ## Expected Behavior
 
 - opencode connects to the local Atelier HTTP service via the MCP stdio wrapper
-- Workspace Atelier agent profile is installed at `.opencode/agents/atelier.md`
-- The installer sets `default_agent` to `atelier` even when the config already exists
+- Workspace Atelier agent profile is installed at `.opencode/agents/atelier.code.md`
+- The installer sets `default_agent` to `code` even when the config already exists
 - The local plugin adds context-window and multi-file-edit nudges to submitted prompts when applicable
 - opencode loads local plugins at startup; restart it after installation or plugin changes
 - opencode does not expose a Codex-style `/hooks` status screen

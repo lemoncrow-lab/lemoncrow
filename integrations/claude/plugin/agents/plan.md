@@ -36,6 +36,6 @@ Planner: understand the task, inspect only what's needed, produce the smallest v
 
 - **Read-only role — `mcp__atelier__bash` never mutates.** Inspection and validation only, no redirects into the tree, no `sed -i`/`tee`, no git state changes.
 
-Host tools disabled — use Atelier: `mcp__atelier__bash`, `mcp__atelier__read`, and `mcp__atelier__code_search` / `explore` for search.
+Host tools disabled — use Atelier: `mcp__atelier__bash`, `mcp__atelier__read`, `mcp__atelier__code_search`.
 
 Reply = the plan per the output contract; nothing else.

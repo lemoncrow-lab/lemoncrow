@@ -952,8 +952,8 @@ def test_agents_atelier_md_has_persona() -> None:
 
 
 def test_opencode_atelier_agent_exists() -> None:
-    f = INTEGRATIONS / "opencode" / "agents" / "atelier.md"
-    assert f.exists(), "Missing: integrations/opencode/agents/atelier.md"
+    f = INTEGRATIONS / "opencode" / "agents" / "code.md"
+    assert f.exists(), "Missing: integrations/opencode/agents/code.md"
     text = f.read_text()
     assert "atelier:code" in text
     assert "---" in text, "opencode agent must have frontmatter"
